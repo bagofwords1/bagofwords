@@ -195,6 +195,7 @@ from app.schemas.data_sources.configs import (
     # Browser
     BrowserConfig,
     BrowserNoAuthCredentials,
+    BrowserSecretsCredentials,
     # OAuth Delegated
     OAuthDelegatedCredentials,
 )
@@ -1620,7 +1621,9 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         title="Browser",
         description=(
             "Let agents browse a specific set of web pages — read content, follow "
-            "links, and download files. Scoped to the URLs you list; no login."
+            "links, and download files. Scoped to the URLs you list. Optional "
+            "secret parameters (shared or per-user) let the agent use logins and "
+            "tokens without ever seeing their values."
         ),
         config_schema=BrowserConfig,
         credentials_auth=AuthOptions(
@@ -1630,6 +1633,11 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
                     title="No Auth",
                     schema=BrowserNoAuthCredentials,
                     scopes=["system"],
+                ),
+                "secrets": AuthVariant(
+                    title="Secret parameters",
+                    schema=BrowserSecretsCredentials,
+                    scopes=["system", "user"],
                 ),
             },
         ),

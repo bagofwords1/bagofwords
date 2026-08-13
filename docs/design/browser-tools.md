@@ -446,3 +446,46 @@ Deferred within phase 1 (not blockers, called out honestly):
   first follow-up.
 - **Downloads** are wired (saved to the file store via the download handler) but the
   browse→download→`inspect_data` chain hasn't been exercised e2e.
+
+## Phase 2: secret parameters, per-user credentials, and per-connection proxy
+
+Shipped after phase 1, motivated by regulated (banking) on-prem deployments that
+need the agent to automate authenticated internal portals without the model ever
+seeing a credential.
+
+**Secret parameters.** A browser connection now carries a named secret map
+(`BrowserSecretsCredentials`, auth mode `"secrets"`, scopes `system` + `user`):
+`{"secrets": {"API_TOKEN": "…", "FIRST_NAME": "…"}}`, Fernet-encrypted on the
+connection like every other credential. The model references values as
+`{{secret:NAME}}` placeholders in `browser_navigate` URLs and `browser_act` text;
+`_browser_common.resolve_secret_placeholders` substitutes them server-side just
+before Playwright executes. Tool outputs (snapshot, extract, URL, title, errors)
+pass through `redact_secrets`, which replaces any echoed value — including its
+URL-encoded form — with the placeholder, so persisted tool executions and
+completions only ever contain `{{secret:NAME}}`. `browser_vision` is refused for
+the rest of the session once a secret has been injected (pixels can't be
+redacted) unless the connection sets `allow_vision_after_secret_use`.
+
+**Per-user credentials.** The same auth variant is user-scoped: with
+`auth_policy="user_required"` + `allowed_user_auth_modes=["secrets"]`, each
+member saves their own secret map through the existing
+`/data_sources/{id}/my-credentials` routes (rows in
+`user_data_source_credentials`). At tool time the user's map overlays the
+connection's system map key-by-key — shared service-account values coexist with
+personal logins. Admins/owners without a personal row fall back to system
+secrets, mirroring the DB-connection fallback rules. The admin form's
+`user_secret_keys` config declares which keys members must fill; the connect
+modal prefills them. Writes are merge-patch (`null` deletes a key) because reads
+are names-only: `metadata_json.secret_keys` and `DataSourceUserStatus.secret_keys`
+expose names, never values.
+
+**Sessions are per identity.** The session key is
+`report:connection:user` (derived server-side, never trusted from tool input),
+so one user's authenticated session is unreachable from another user's run.
+Capability gating and connection resolution use the run's resolved agents
+(`runtime_ctx["data_sources"]`), not the report's lazy attachment list.
+
+**Per-connection proxy.** `BrowserConfig.proxy_server` / `proxy_bypass`
+(no-proxy list) route the connection's traffic through a specific egress proxy,
+with `proxy_username`/`proxy_password` stored in the encrypted credentials.
+Falls back to `HTTPS_PROXY`/`NO_PROXY` env when unset.

@@ -701,7 +701,12 @@ class AgentV2:
         try:
             from app.schemas.data_source_registry import resolve_client_class
             report = getattr(self, "report", None)
-            for ds in (getattr(report, "data_sources", None) or []):
+            # The run's resolved working set (run agents) is authoritative: the
+            # report's own attachment list is a lazy relationship that may be
+            # unloaded here (sync __init__) and is empty for Auto-mode reports,
+            # which silently dropped capability-gated tools (e.g. browser).
+            cap_sources = getattr(self, "data_sources", None) or (getattr(report, "data_sources", None) or [])
+            for ds in cap_sources:
                 for conn in (getattr(ds, "connections", None) or []):
                     try:
                         cls = resolve_client_class(conn.type)
@@ -1922,6 +1927,9 @@ class AgentV2:
                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                         "settings": self.organization_settings,
                         "report": self.report,
+                        # Resolved run agents — tools that resolve connections (browser)
+                        # must use this, not report.data_sources (lazy/empty in Auto).
+                        "data_sources": self.data_sources,
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
                         "project_files": await self._get_project_files(),
@@ -5225,6 +5233,7 @@ class AgentV2:
                                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                                         "settings": self.organization_settings,
                                         "report": self.report,
+                                        "data_sources": self.data_sources,
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
                                         "widget": self.widget,

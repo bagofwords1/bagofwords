@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from typing import Optional, List
+import re
+from typing import Dict, Optional, List
 
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 # PostgreSQL
@@ -2964,11 +2965,108 @@ class BrowserConfig(BaseModel):
         title="Allow downloads",
         description="Whether the agent may download files from these pages into the report's file store.",
     )
+    proxy_server: Optional[str] = Field(
+        default=None,
+        title="Proxy server",
+        description=(
+            "Optional HTTP(S) proxy for this connection's browser traffic, e.g. "
+            "http://proxy.internal:3128. Overrides the process-level "
+            "HTTPS_PROXY/HTTP_PROXY environment variables. Proxy credentials, if "
+            "any, go in the connection's secret parameters (proxy_username / "
+            "proxy_password)."
+        ),
+    )
+    proxy_bypass: Optional[str] = Field(
+        default=None,
+        title="Proxy bypass (no-proxy)",
+        description=(
+            "Comma-separated hosts that skip the proxy, e.g. "
+            "localhost,127.0.0.1,.internal.bank"
+        ),
+    )
+    user_secret_keys: List[str] = Field(
+        default_factory=list,
+        title="Per-user secret keys",
+        description=(
+            "Secret parameter names each member is expected to provide when they "
+            "connect (e.g. API_TOKEN, FIRST_NAME). Shown as a fill-in form when a "
+            "member connects. Only meaningful when the connection allows per-user "
+            "secrets."
+        ),
+        json_schema_extra={"ui:type": "stringlist"},
+    )
+    allow_vision_after_secret_use: bool = Field(
+        default=False,
+        title="Allow screenshots after secret use",
+        description=(
+            "Screenshots are pixels — a page that echoes an injected secret back "
+            "as text cannot be redacted from an image. By default browser_vision "
+            "is refused for the rest of the session once a secret has been "
+            "injected; enable this to allow it anyway."
+        ),
+    )
 
 
 class BrowserNoAuthCredentials(BaseModel):
     class Config:
         extra = "allow"
+
+
+_BROWSER_SECRET_KEY_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
+_BROWSER_MAX_SECRETS = 50
+_BROWSER_MAX_SECRET_LEN = 8192
+
+
+class BrowserSecretsCredentials(BaseModel):
+    """Named secret parameters for a browser connection.
+
+    A flat map of NAME -> value (an API token, a username, a first name for a
+    form…). Values are Fernet-encrypted at rest and never shown to the model:
+    the agent references them as ``{{secret:NAME}}`` placeholders in
+    browser_navigate URLs and browser_act text, and the tool layer substitutes
+    the real value server-side just before Playwright executes. Tool outputs
+    are scrubbed so a page that echoes a value back shows the placeholder, not
+    the secret.
+
+    ``None`` as a value is a deletion marker on write (merge-patch semantics);
+    it never persists.
+    """
+    secrets: Dict[str, Optional[str]] = Field(
+        default_factory=dict,
+        title="Secret parameters",
+        description=(
+            "Named values the browser may use without exposing them to the "
+            "model, e.g. API_TOKEN, FIRST_NAME. Referenced as {{secret:NAME}}."
+        ),
+        json_schema_extra={"ui:type": "keyvalue"},
+    )
+    proxy_username: Optional[str] = Field(
+        default=None,
+        title="Proxy username",
+        description="Username for the connection's proxy server, if it requires auth.",
+        json_schema_extra={"ui:scope": "system"},
+    )
+    proxy_password: Optional[str] = Field(
+        default=None,
+        title="Proxy password",
+        description="Password for the connection's proxy server, if it requires auth.",
+        json_schema_extra={"ui:type": "password", "ui:scope": "system"},
+    )
+
+    @field_validator("secrets")
+    @classmethod
+    def _validate_secret_map(cls, v: Dict[str, Optional[str]]) -> Dict[str, Optional[str]]:
+        if len(v) > _BROWSER_MAX_SECRETS:
+            raise ValueError(f"at most {_BROWSER_MAX_SECRETS} secret parameters are allowed")
+        for key, val in v.items():
+            if not _BROWSER_SECRET_KEY_RE.match(key or ""):
+                raise ValueError(
+                    f"invalid secret name '{key}': use letters, digits and underscores, "
+                    "starting with a letter or underscore (e.g. API_TOKEN)"
+                )
+            if val is not None and len(val) > _BROWSER_MAX_SECRET_LEN:
+                raise ValueError(f"secret '{key}' is too long (max {_BROWSER_MAX_SECRET_LEN} chars)")
+        return v
 
 
 class MCPNoAuthCredentials(BaseModel):

@@ -222,33 +222,212 @@ def _is_link_local_literal(hostname: str) -> bool:
 # ---------------------------------------------------------------------------
 # Connection resolution
 # ---------------------------------------------------------------------------
-def get_browser_connection(runtime_ctx: Dict[str, Any]) -> Optional[Tuple[List[str], bool]]:
-    """Return (url_patterns, allow_downloads) from the report's first browser
-    connection, or None if the report has none attached."""
+# Placeholder grammar the model uses to reference a secret without seeing it:
+# {{secret:API_TOKEN}}. Resolved server-side just before Playwright executes.
+SECRET_PLACEHOLDER_RE = re.compile(r"\{\{\s*secret:([A-Za-z_][A-Za-z0-9_]{0,63})\s*\}\}")
+
+# Values shorter than this are never redacted from outputs: substituting every
+# occurrence of e.g. "a" would shred the page text without hiding anything.
+_MIN_REDACTABLE_LEN = 4
+
+
+class BrowserConnectionContext:
+    """Everything the browser tools need from the report's browser connection:
+    the allowlist, the resolved secret map (system creds with the current
+    user's overlaid per-key), the proxy, and the per-user session key."""
+
+    def __init__(self, *, connection_id: str, data_source_id: Optional[str],
+                 patterns: List[str], allow_downloads: bool,
+                 proxy: Optional[Dict[str, str]], secrets: Dict[str, str],
+                 user_secret_keys: List[str], auth_policy: str,
+                 allow_vision_after_secret_use: bool, user_id: Optional[str],
+                 report_id: str):
+        self.connection_id = connection_id
+        self.data_source_id = data_source_id
+        self.patterns = patterns
+        self.allow_downloads = allow_downloads
+        self.proxy = proxy
+        self.secrets = secrets
+        self.user_secret_keys = user_secret_keys
+        self.auth_policy = auth_policy
+        self.allow_vision_after_secret_use = allow_vision_after_secret_use
+        self.user_id = user_id
+        self.report_id = report_id
+
+    @property
+    def session_key(self) -> str:
+        # Sessions carry injected credentials, so they must never be shared
+        # across users or connections. The key is derived server-side from the
+        # caller's identity — a session_id passed in tool input is not trusted.
+        return f"{self.report_id}:{self.connection_id}:{self.user_id or 'anon'}"
+
+    @property
+    def missing_user_secrets(self) -> List[str]:
+        return [k for k in (self.user_secret_keys or []) if not self.secrets.get(k)]
+
+
+def _parse_conn_config(conn) -> Dict[str, Any]:
+    cfg = getattr(conn, "config", None) or {}
+    # Connection.config may be a dict, a JSON string, or (depending on the
+    # create path) a JSON string that itself decodes to a JSON string.
+    import json as _json
+    for _ in range(2):
+        if isinstance(cfg, str):
+            try:
+                cfg = _json.loads(cfg)
+            except Exception:
+                cfg = {}
+                break
+        else:
+            break
+    return cfg if isinstance(cfg, dict) else {}
+
+
+async def _load_user_secrets(runtime_ctx: Dict[str, Any], data_source_id: Optional[str]) -> Dict[str, str]:
+    """The current user's saved secret map for this data source, if any."""
+    db = runtime_ctx.get("db")
+    user = runtime_ctx.get("user")
+    if db is None or user is None or not data_source_id:
+        return {}
+    try:
+        from sqlalchemy import select
+        from app.models.user_data_source_credentials import UserDataSourceCredentials
+        stmt = (
+            select(UserDataSourceCredentials)
+            .where(
+                UserDataSourceCredentials.data_source_id == str(data_source_id),
+                UserDataSourceCredentials.user_id == str(user.id),
+                UserDataSourceCredentials.is_active == True,  # noqa: E712
+                UserDataSourceCredentials.auth_mode == "secrets",
+            )
+            .order_by(UserDataSourceCredentials.is_primary.desc(), UserDataSourceCredentials.updated_at.desc())
+        )
+        row = (await db.execute(stmt)).scalars().first()
+        if not row:
+            return {}
+        payload = row.decrypt_credentials() or {}
+        secrets = payload.get("secrets") or {}
+        return {k: v for k, v in secrets.items() if isinstance(v, str) and v}
+    except Exception as e:
+        logger.warning("browser: loading user secrets failed: %s", e)
+        return {}
+
+
+async def get_browser_connection(runtime_ctx: Dict[str, Any]) -> Optional[BrowserConnectionContext]:
+    """Resolve the report's first browser connection into a context object.
+
+    Secrets resolve in two layers: the connection's system credentials are the
+    base and the current user's saved secrets overlay them per key — so an
+    admin-provided shared token coexists with each member's own login fields.
+    Returns None if the run has no browser connection available."""
     report = runtime_ctx.get("report")
-    for ds in (getattr(report, "data_sources", None) or []):
+    user = runtime_ctx.get("user")
+    # Prefer the run's resolved working set (present in Auto mode and always
+    # eagerly loaded); the report's own attachments are the fallback for
+    # callers that don't pass one.
+    sources = runtime_ctx.get("data_sources") or (getattr(report, "data_sources", None) or [])
+    for ds in sources:
         for conn in (getattr(ds, "connections", None) or []):
             if getattr(conn, "type", None) != "browser":
                 continue
-            cfg = getattr(conn, "config", None) or {}
-            # Connection.config may be a dict, a JSON string, or (depending on the
-            # create path) a JSON string that itself decodes to a JSON string.
-            import json as _json
-            for _ in range(2):
-                if isinstance(cfg, str):
-                    try:
-                        cfg = _json.loads(cfg)
-                    except Exception:
-                        cfg = {}
-                        break
-                else:
-                    break
-            if not isinstance(cfg, dict):
-                cfg = {}
-            patterns = list(cfg.get("url_patterns") or [])
-            allow_dl = bool(cfg.get("allow_downloads", True))
-            return patterns, allow_dl
+            cfg = _parse_conn_config(conn)
+
+            try:
+                sys_creds = conn.decrypt_credentials() or {}
+            except Exception:
+                sys_creds = {}
+            sys_secrets = sys_creds.get("secrets") or {}
+            secrets: Dict[str, str] = {
+                k: v for k, v in sys_secrets.items() if isinstance(v, str) and v
+            }
+            secrets.update(await _load_user_secrets(runtime_ctx, getattr(ds, "id", None)))
+
+            proxy: Optional[Dict[str, str]] = None
+            server = (cfg.get("proxy_server") or "").strip()
+            if server:
+                proxy = {"server": server}
+                bypass = (cfg.get("proxy_bypass") or "").strip()
+                if bypass:
+                    proxy["bypass"] = bypass
+                if sys_creds.get("proxy_username"):
+                    proxy["username"] = sys_creds["proxy_username"]
+                if sys_creds.get("proxy_password"):
+                    proxy["password"] = sys_creds["proxy_password"]
+
+            return BrowserConnectionContext(
+                connection_id=str(getattr(conn, "id", "")),
+                data_source_id=str(getattr(ds, "id", "")) if getattr(ds, "id", None) else None,
+                patterns=list(cfg.get("url_patterns") or []),
+                allow_downloads=bool(cfg.get("allow_downloads", True)),
+                proxy=proxy,
+                secrets=secrets,
+                user_secret_keys=list(cfg.get("user_secret_keys") or []),
+                auth_policy=getattr(conn, "auth_policy", None) or "system_only",
+                allow_vision_after_secret_use=bool(cfg.get("allow_vision_after_secret_use", False)),
+                user_id=str(getattr(user, "id", "")) if user is not None else None,
+                report_id=str(getattr(report, "id", "")),
+            )
     return None
+
+
+# ---------------------------------------------------------------------------
+# Secret placeholders: injection and redaction
+# ---------------------------------------------------------------------------
+def resolve_secret_placeholders(text: str, secrets: Dict[str, str]) -> Tuple[str, List[str], List[str]]:
+    """Substitute {{secret:KEY}} placeholders with real values.
+
+    Returns (resolved_text, used_keys, missing_keys). Missing keys are left
+    as-is in the text; callers should fail with a clear message rather than
+    send a literal placeholder to a website."""
+    used: List[str] = []
+    missing: List[str] = []
+
+    def _sub(m: re.Match) -> str:
+        key = m.group(1)
+        val = (secrets or {}).get(key)
+        if val:
+            if key not in used:
+                used.append(key)
+            return val
+        if key not in missing:
+            missing.append(key)
+        return m.group(0)
+
+    return SECRET_PLACEHOLDER_RE.sub(_sub, text or ""), used, missing
+
+
+def redact_secrets(text: Optional[str], secrets: Dict[str, str]) -> Optional[str]:
+    """Scrub secret VALUES out of text bound for the model, replacing each
+    occurrence with its placeholder. Also catches URL-encoded occurrences so a
+    token echoed back in a query string doesn't slip through."""
+    if not text or not secrets:
+        return text
+    from urllib.parse import quote
+    for key, val in secrets.items():
+        if not isinstance(val, str) or len(val) < _MIN_REDACTABLE_LEN:
+            continue
+        placeholder = "{{secret:" + key + "}}"
+        text = text.replace(val, placeholder)
+        quoted = quote(val, safe="")
+        if quoted != val:
+            text = text.replace(quoted, placeholder)
+    return text
+
+
+def describe_available_secrets(ctx: "BrowserConnectionContext") -> str:
+    """One line for tool errors/observations: which secret NAMES exist (never
+    values), and which declared keys the user still has to provide."""
+    names = sorted(ctx.secrets.keys())
+    parts = []
+    if names:
+        parts.append("available secret parameters: " + ", ".join(names))
+    missing = ctx.missing_user_secrets
+    if missing:
+        parts.append(
+            "not yet provided (the user must add them via Connect on the browser connection): "
+            + ", ".join(sorted(missing))
+        )
+    return "; ".join(parts) if parts else "no secret parameters are configured on this connection"
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +445,11 @@ class BrowserSession:
         self.last_used = time.monotonic()
         self._host_cache: Dict[str, bool] = {}
         self.pending_downloads: List[dict] = []
+        # Resolved secret map for redaction (refreshed on every open()).
+        self.secrets: Dict[str, str] = {}
+        # Set once a secret value has been injected into this session (a fill
+        # or a URL). Gates browser_vision: pixels can't be redacted.
+        self.secret_injected = False
 
     def touch(self):
         self.last_used = time.monotonic()
@@ -302,7 +486,9 @@ class BrowserSessionManager:
             pass
 
     async def close_report(self, report_id: str):
-        await self._close(str(report_id))
+        prefix = f"{report_id}:"
+        for sid in [sid for sid in self._sessions if sid == str(report_id) or sid.startswith(prefix)]:
+            await self._close(sid)
 
     def get(self, session_id: str) -> Optional[BrowserSession]:
         s = self._sessions.get(session_id)
@@ -310,36 +496,41 @@ class BrowserSessionManager:
             s.touch()
         return s
 
-    async def open(self, report_id: str, patterns: List[str], allow_downloads: bool) -> BrowserSession:
+    async def open(self, ctx: "BrowserConnectionContext") -> BrowserSession:
         from playwright.async_api import async_playwright
 
-        session_id = str(report_id)
+        session_id = ctx.session_key
         async with self._lock:
             await self._evict_idle()
             existing = self._sessions.get(session_id)
             if existing:
                 existing.touch()
-                existing.patterns = patterns  # pick up config edits
-                existing.allow_downloads = allow_downloads
+                existing.patterns = ctx.patterns  # pick up config edits
+                existing.allow_downloads = ctx.allow_downloads
+                existing.secrets = dict(ctx.secrets)
                 return existing
             if len(self._sessions) >= MAX_CONCURRENT_SESSIONS:
                 # Evict the least-recently-used to honor the cap.
                 lru = min(self._sessions.values(), key=lambda s: s.last_used)
                 await self._close(lru.session_id)
 
-            s = BrowserSession(session_id, patterns, allow_downloads)
+            s = BrowserSession(session_id, ctx.patterns, ctx.allow_downloads)
+            s.secrets = dict(ctx.secrets)
             s.playwright = await async_playwright().start()
             launch_kwargs: Dict[str, Any] = {"headless": True}
             exe = chromium_executable()
             if exe:
                 launch_kwargs["executable_path"] = exe
-            proxy = _proxy_from_env()
+            # Connection-level proxy wins; env (HTTPS_PROXY/NO_PROXY) is the
+            # deployment-wide fallback. Safe at launch level because sessions
+            # are keyed per (report, connection, user) — one browser, one proxy.
+            proxy = ctx.proxy or _proxy_from_env()
             if proxy:
                 launch_kwargs["proxy"] = proxy
             s.browser = await s.playwright.chromium.launch(**launch_kwargs)
             ctx_kwargs: Dict[str, Any] = {
                 "viewport": DEFAULT_VIEWPORT,
-                "accept_downloads": allow_downloads,
+                "accept_downloads": ctx.allow_downloads,
             }
             # Sandbox/dev only: trust a MITM proxy's cert. Never set in prod.
             if os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes"):

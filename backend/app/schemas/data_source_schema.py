@@ -112,6 +112,9 @@ class DataSourceUserStatus(BaseModel):
     # can_switch_identity: whether this user (admin/owner) may flip the toggle.
     query_identity: Optional[Literal["self", "service_account"]] = None
     can_switch_identity: bool = False
+    # Names (never values) of the user's stored secret parameters, for
+    # 'secrets'-mode credentials (e.g. a browser connection).
+    secret_keys: Optional[List[str]] = None
 
 
 class ConnectionEmbedded(BaseModel):

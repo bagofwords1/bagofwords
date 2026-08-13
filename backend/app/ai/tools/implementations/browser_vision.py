@@ -8,7 +8,13 @@ from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolProgressEvent, ToolEndEvent
 from app.ai.tools.schemas.browser import BrowserVisionInput, BrowserOutput
-from app.ai.tools.implementations._browser_common import mask_secrets_style, save_bytes, session_manager
+from app.ai.tools.implementations._browser_common import (
+    get_browser_connection,
+    mask_secrets_style,
+    redact_secrets,
+    save_bytes,
+    session_manager,
+)
 
 
 class BrowserVisionTool(Tool):
@@ -46,11 +52,27 @@ class BrowserVisionTool(Tool):
         data = BrowserVisionInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Taking a screenshot"})
 
-        s = session_manager.get(data.session_id)
+        ctx = await get_browser_connection(runtime_ctx)
+        s = session_manager.get(ctx.session_key) if ctx is not None else None
         if s is None or s.page is None:
             yield ToolEndEvent(type="tool.end", payload={
                 "output": BrowserOutput(success=False, error_message="No active browser session; call browser_navigate first.", error_code="no_session").model_dump(),
                 "observation": {"summary": "No active browser session.", "success": False},
+            })
+            return
+
+        # Pixels can't be redacted: once a secret has been injected into this
+        # session, a page may be rendering its value as visible text. Refuse
+        # unless the connection explicitly allows it.
+        if s.secret_injected and not ctx.allow_vision_after_secret_use:
+            msg = (
+                "Screenshots are disabled for this session because a secret "
+                "parameter has been used in it. Use browser_snapshot or "
+                "browser_extract instead (their text output is redacted)."
+            )
+            yield ToolEndEvent(type="tool.end", payload={
+                "output": BrowserOutput(success=False, session_id=s.session_id, error_message=msg, error_code="vision_blocked_secrets").model_dump(),
+                "observation": {"summary": msg, "success": False},
             })
             return
 
@@ -65,8 +87,8 @@ class BrowserVisionTool(Tool):
             })
             return
 
-        cur_url = s.page.url
-        title = await s.page.title()
+        cur_url = redact_secrets(s.page.url, s.secrets)
+        title = redact_secrets(await s.page.title(), s.secrets)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving"})
         db_file = await save_bytes(runtime_ctx, png, "browser-screenshot.png", "image/png")
         file_id = str(db_file.id) if db_file is not None else None

@@ -2623,7 +2623,23 @@
       "allowDownloads": "Allow downloads",
       "test": "Validate URLs",
       "cancel": "Cancel",
-      "save": "Create"
+      "save": "Create",
+      "secrets": "Secret parameters",
+      "secretsHelp": "Shared values the agent can use on these pages without ever seeing them — an API token, a login, a form value. The agent references them by name as placeholders; values are encrypted at rest and scrubbed from everything the model reads.",
+      "addSecret": "Add secret",
+      "keyPlaceholder": "NAME (e.g. API_TOKEN)",
+      "valuePlaceholder": "Value",
+      "perUser": "Members connect with their own secrets",
+      "perUserHelp": "Each member provides their own values (their login, their token) before using this connection. Their secrets override the shared ones above, key by key.",
+      "userKeys": "Keys each member must provide",
+      "userKeysHelp": "Comma-separated names, e.g. API_TOKEN, FIRST_NAME. Members see these as a fill-in form when they connect.",
+      "proxy": "Proxy",
+      "proxyConfigured": "configured",
+      "proxyHelp": "Route this connection's browser traffic through an HTTP(S) proxy. Overrides the server's HTTPS_PROXY/NO_PROXY environment variables. Leave empty to use the environment settings.",
+      "proxyServer": "Proxy server",
+      "proxyBypass": "Bypass (no-proxy hosts)",
+      "proxyUsername": "Proxy username",
+      "proxyPassword": "Proxy password"
     },
     "status": "Status",
     "connected": "Connected",
@@ -2870,7 +2886,15 @@
     "mcpModeAiTip": "AI may set it; server fills if empty",
     "mcpModeLockedTip": "Admin value always wins; hidden from the AI",
     "mcpAddMetaField": "+ Add metadata field",
-    "verify": "Verify"
+    "verify": "Verify",
+    "secretsEditor": {
+      "hint": "Values are write-only: once saved you'll see the name, never the value. To change one, add it again with the same name.",
+      "key": "NAME",
+      "value": "Value",
+      "replaceValue": "New value (replaces saved)",
+      "add": "Add secret",
+      "remove": "Remove"
+    }
   },
   "share": {
     "shareDashboard": "Share Dashboard",

@@ -10,8 +10,11 @@ from app.ai.tools.schemas.browser import BrowserNavigateInput, BrowserOutput
 from app.ai.tools.implementations._browser_common import (
     NAV_TIMEOUT_MS,
     build_snapshot,
+    describe_available_secrets,
     detect_block,
     get_browser_connection,
+    redact_secrets,
+    resolve_secret_placeholders,
     session_manager,
     url_matches_patterns,
 )
@@ -29,7 +32,10 @@ class BrowserNavigateTool(Tool):
                 "Returns a session_id — pass it to browser_snapshot / browser_act / "
                 "browser_extract / browser_vision to keep working in the same page. "
                 "Downloaded files become report files you can then read with "
-                "inspect_data / read_excel_as_csv."
+                "inspect_data / read_excel_as_csv. If the connection defines secret "
+                "parameters, reference them as {{secret:NAME}} inside the URL (e.g. "
+                "…?token={{secret:API_TOKEN}}) — the real value is substituted "
+                "server-side and never shown to you."
             ),
             category="both",
             version="1.0.0",
@@ -58,14 +64,24 @@ class BrowserNavigateTool(Tool):
         data = BrowserNavigateInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or f"Opening {data.url}", "url": data.url})
 
-        conn = get_browser_connection(runtime_ctx)
-        if conn is None:
+        ctx = await get_browser_connection(runtime_ctx)
+        if ctx is None:
             yield self._fail("No browser connection is attached to this report.", "no_connection")
             return
-        patterns, allow_downloads = conn
 
-        if not url_matches_patterns(data.url, patterns):
-            allowed = "; ".join(patterns[:15]) if patterns else "(none configured)"
+        # Substitute {{secret:KEY}} placeholders server-side; the model only
+        # ever sees the placeholder form (data.url) in errors and outputs.
+        target_url, used_keys, missing_keys = resolve_secret_placeholders(data.url, ctx.secrets)
+        if missing_keys:
+            yield self._fail(
+                f"Unknown secret parameter(s) in URL: {', '.join(missing_keys)}. "
+                f"On this connection, {describe_available_secrets(ctx)}.",
+                "missing_secret", url=data.url,
+            )
+            return
+
+        if not url_matches_patterns(target_url, ctx.patterns):
+            allowed = "; ".join(ctx.patterns[:15]) if ctx.patterns else "(none configured)"
             yield self._fail(
                 f"{data.url} is outside this browser connection's allowed URLs. "
                 f"You may only open URLs matching one of these patterns: {allowed}. "
@@ -77,7 +93,7 @@ class BrowserNavigateTool(Tool):
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "launching"})
         try:
-            s = await session_manager.open(str(runtime_ctx["report"].id), patterns, allow_downloads)
+            s = await session_manager.open(ctx)
             await session_manager.track_downloads(s, runtime_ctx)
         except Exception as e:
             yield self._fail(f"Could not start the browser: {e}", "launch_failed")
@@ -86,16 +102,22 @@ class BrowserNavigateTool(Tool):
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "navigating"})
         try:
             s.pending_downloads = []
-            resp = await s.page.goto(data.url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
+            resp = await s.page.goto(target_url, wait_until="domcontentloaded", timeout=NAV_TIMEOUT_MS)
             status = resp.status if resp else None
         except Exception as e:
-            yield self._fail(f"Navigation failed: {e}", "nav_failed", session_id=s.session_id, url=data.url)
+            yield self._fail(
+                f"Navigation failed: {redact_secrets(str(e), s.secrets)}",
+                "nav_failed", session_id=s.session_id, url=data.url,
+            )
             return
+        if used_keys:
+            s.secret_injected = True
 
         snap, truncated = await build_snapshot(s.page)
+        snap = redact_secrets(snap, s.secrets)
         blocked = await detect_block(s.page)
-        cur_url = s.page.url
-        title = await s.page.title()
+        cur_url = redact_secrets(s.page.url, s.secrets)
+        title = redact_secrets(await s.page.title(), s.secrets)
 
         summary = f"Opened {cur_url}"
         if status:
@@ -108,12 +130,16 @@ class BrowserNavigateTool(Tool):
             snapshot=snap, truncated=truncated, blocked_reason=blocked,
             downloads=s.pending_downloads or None,
         )
+        observation = {
+            "summary": summary, "success": True, "url": cur_url, "title": title,
+            "snapshot": snap, "blocked_reason": blocked,
+            "downloads": s.pending_downloads or None,
+            "session_id": s.session_id,
+        }
+        # Tell the model which secret NAMES it may reference (values never appear).
+        if ctx.secrets or ctx.user_secret_keys:
+            observation["secret_parameters"] = describe_available_secrets(ctx)
         yield ToolEndEvent(type="tool.end", payload={
             "output": out.model_dump(),
-            "observation": {
-                "summary": summary, "success": True, "url": cur_url, "title": title,
-                "snapshot": snap, "blocked_reason": blocked,
-                "downloads": s.pending_downloads or None,
-                "session_id": s.session_id,
-            },
+            "observation": observation,
         })

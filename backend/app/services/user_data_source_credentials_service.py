@@ -23,6 +23,54 @@ import inspect
 
 
 class UserDataSourceCredentialsService:
+    @staticmethod
+    def _merge_secret_map(row, payload_auth_mode: str, credentials: dict) -> dict:
+        """Merge-patch semantics for 'secrets'-mode credentials.
+
+        The GET endpoints never return secret values, so the client cannot
+        resubmit what it cannot read: a save sends only the keys it is adding
+        or changing, plus None (or empty string) for keys to remove. Existing
+        keys not mentioned are kept.
+        """
+        credentials = dict(credentials or {})
+        new_map = credentials.get("secrets")
+        if not isinstance(new_map, dict):
+            return credentials
+        base: dict = {}
+        if row is not None and row.auth_mode == payload_auth_mode:
+            try:
+                base = (row.decrypt_credentials() or {}).get("secrets") or {}
+            except Exception:
+                base = {}
+        merged = dict(base)
+        for k, v in new_map.items():
+            if v is None or v == "":
+                merged.pop(k, None)
+            else:
+                merged[k] = v
+        credentials["secrets"] = merged
+        # Carry forward secondary fields (e.g. proxy creds) the client omitted.
+        if row is not None and row.auth_mode == payload_auth_mode:
+            try:
+                prev = row.decrypt_credentials() or {}
+            except Exception:
+                prev = {}
+            for k, v in prev.items():
+                if k != "secrets" and k not in credentials:
+                    credentials[k] = v
+        return credentials
+
+    @staticmethod
+    def _stamp_secret_keys(metadata_json: Optional[dict], credentials: dict) -> Optional[dict]:
+        """Record secret NAMES (never values) in the row's plaintext metadata so
+        status endpoints and the connect UI can list what's stored."""
+        secrets = credentials.get("secrets")
+        if not isinstance(secrets, dict):
+            return metadata_json
+        meta = dict(metadata_json or {})
+        meta["secret_keys"] = sorted(secrets.keys())
+        return meta
+
     def _get_connection_info(self, data_source: DataSource) -> tuple:
         """
         Get connection info (type, config, auth_policy, allowed_user_auth_modes) from the first connection.
@@ -189,6 +237,7 @@ class UserDataSourceCredentialsService:
             uses_fallback=False,
             credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
             last_checked_at=last_checked,
+            secret_keys=(row.metadata_json or {}).get("secret_keys"),
         )
 
     async def build_user_status_for_connection(
@@ -357,6 +406,7 @@ class UserDataSourceCredentialsService:
             uses_fallback=False,
             credentials_id=str(getattr(row, "id", "")) if getattr(row, "id", None) else None,
             last_checked_at=row.last_used_at,
+            secret_keys=(row.metadata_json or {}).get("secret_keys"),
         )
 
     async def test_my_credentials(self, db: AsyncSession, data_source: DataSource, user: User, payload: UserDataSourceCredentialsCreate) -> dict:
@@ -454,6 +504,11 @@ class UserDataSourceCredentialsService:
         )
         row = (await db.execute(stmt)).scalars().first()
 
+        # 'secrets'-mode payloads are merge-patched over the stored map (values
+        # are write-only, so the client can't resubmit unchanged keys).
+        effective_credentials = self._merge_secret_map(row, payload.auth_mode, payload.credentials or {})
+        effective_metadata = self._stamp_secret_keys(payload.metadata_json, effective_credentials)
+
         if row is None:
             row = UserDataSourceCredentials(
                 data_source_id=str(data_source.id),
@@ -463,16 +518,16 @@ class UserDataSourceCredentialsService:
                 is_active=True,
                 is_primary=bool(payload.is_primary if payload.is_primary is not None else True),
                 expires_at=payload.expires_at,
-                metadata_json=payload.metadata_json,
+                metadata_json=effective_metadata,
             )
         else:
             row.auth_mode = payload.auth_mode
             row.is_primary = bool(payload.is_primary if payload.is_primary is not None else row.is_primary)
             row.expires_at = payload.expires_at
-            row.metadata_json = payload.metadata_json
+            row.metadata_json = effective_metadata if effective_metadata is not None else payload.metadata_json
 
         # Encrypt secret payload
-        row.encrypt_credentials(payload.credentials or {})
+        row.encrypt_credentials(effective_credentials)
         db.add(row)
         await db.commit()
         await db.refresh(row)
@@ -536,8 +591,10 @@ class UserDataSourceCredentialsService:
                 schema_cls(**(payload.credentials or {}))
             except Exception as e:
                 raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
+            merged = self._merge_secret_map(row, payload.auth_mode, payload.credentials or {})
+            row.metadata_json = self._stamp_secret_keys(row.metadata_json, merged) or row.metadata_json
             row.auth_mode = payload.auth_mode
-            row.encrypt_credentials(payload.credentials or {})
+            row.encrypt_credentials(merged)
 
         if payload.credentials and not payload.auth_mode:
             # Validate against current auth_mode
@@ -550,7 +607,9 @@ class UserDataSourceCredentialsService:
                 schema_cls(**payload.credentials)
             except Exception as e:
                 raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
-            row.encrypt_credentials(payload.credentials)
+            merged = self._merge_secret_map(row, row.auth_mode, payload.credentials)
+            row.metadata_json = self._stamp_secret_keys(row.metadata_json, merged) or row.metadata_json
+            row.encrypt_credentials(merged)
 
         if payload.is_active is not None:
             row.is_active = bool(payload.is_active)

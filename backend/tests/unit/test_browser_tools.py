@@ -17,6 +17,8 @@ import pytest
 from app.ai.tools.implementations._browser_common import (
     _is_link_local_literal,
     get_browser_connection,
+    redact_secrets,
+    resolve_secret_placeholders,
     url_matches_patterns,
     validate_url_pattern,
 )
@@ -100,30 +102,175 @@ class TestLinkLocal:
         assert not _is_link_local_literal("example.com")
 
 
+def _report(config, credentials=None, auth_policy="system_only"):
+    conn = SimpleNamespace(
+        id="conn-1", type="browser", config=config, auth_policy=auth_policy,
+        decrypt_credentials=lambda: dict(credentials or {}),
+    )
+    ds = SimpleNamespace(id="ds-1", connections=[conn])
+    return SimpleNamespace(id="rep-1", data_sources=[ds])
+
+
 class TestConnectionResolution:
-    def _report(self, config):
-        conn = SimpleNamespace(type="browser", config=config)
-        ds = SimpleNamespace(connections=[conn])
-        return SimpleNamespace(data_sources=[ds])
+    @pytest.mark.asyncio
+    async def test_dict_config(self):
+        rep = _report({"url_patterns": ["https://x.com/**"], "allow_downloads": False})
+        ctx = await get_browser_connection({"report": rep})
+        assert ctx.patterns == ["https://x.com/**"]
+        assert ctx.allow_downloads is False
 
-    def test_dict_config(self):
-        rep = self._report({"url_patterns": ["https://x.com/**"], "allow_downloads": False})
-        patterns, dl = get_browser_connection({"report": rep})
-        assert patterns == ["https://x.com/**"]
-        assert dl is False
+    @pytest.mark.asyncio
+    async def test_json_string_config(self):
+        rep = _report('{"url_patterns": ["https://x.com/**"]}')
+        ctx = await get_browser_connection({"report": rep})
+        assert ctx.patterns == ["https://x.com/**"]
+        assert ctx.allow_downloads is True  # default
 
-    def test_json_string_config(self):
-        rep = self._report('{"url_patterns": ["https://x.com/**"]}')
-        patterns, dl = get_browser_connection({"report": rep})
-        assert patterns == ["https://x.com/**"]
-        assert dl is True  # default
-
-    def test_double_encoded_config(self):
+    @pytest.mark.asyncio
+    async def test_double_encoded_config(self):
         # The /data_sources create path stores a JSON string of a JSON string.
-        rep = self._report('"{\\"url_patterns\\": [\\"https://x.com/**\\"]}"')
-        patterns, _ = get_browser_connection({"report": rep})
-        assert patterns == ["https://x.com/**"]
+        rep = _report('"{\\"url_patterns\\": [\\"https://x.com/**\\"]}"')
+        ctx = await get_browser_connection({"report": rep})
+        assert ctx.patterns == ["https://x.com/**"]
 
-    def test_no_browser_connection(self):
+    @pytest.mark.asyncio
+    async def test_no_browser_connection(self):
         rep = SimpleNamespace(data_sources=[])
-        assert get_browser_connection({"report": rep}) is None
+        assert await get_browser_connection({"report": rep}) is None
+
+    @pytest.mark.asyncio
+    async def test_system_secrets_and_session_key(self):
+        rep = _report(
+            {"url_patterns": ["https://x.com/**"]},
+            credentials={"secrets": {"API_TOKEN": "tok-123", "EMPTY": ""}},
+        )
+        user = SimpleNamespace(id="user-9")
+        ctx = await get_browser_connection({"report": rep, "user": user})
+        assert ctx.secrets == {"API_TOKEN": "tok-123"}  # empty values dropped
+        assert ctx.session_key == "rep-1:conn-1:user-9"
+
+    @pytest.mark.asyncio
+    async def test_session_key_isolated_per_user(self):
+        rep = _report({"url_patterns": ["https://x.com/**"]})
+        a = await get_browser_connection({"report": rep, "user": SimpleNamespace(id="a")})
+        b = await get_browser_connection({"report": rep, "user": SimpleNamespace(id="b")})
+        assert a.session_key != b.session_key
+
+    @pytest.mark.asyncio
+    async def test_proxy_from_config_and_credentials(self):
+        rep = _report(
+            {"url_patterns": ["https://x.com/**"], "proxy_server": "http://proxy:3128",
+             "proxy_bypass": "localhost,.internal"},
+            credentials={"proxy_username": "u", "proxy_password": "p"},
+        )
+        ctx = await get_browser_connection({"report": rep})
+        assert ctx.proxy == {"server": "http://proxy:3128", "bypass": "localhost,.internal",
+                             "username": "u", "password": "p"}
+
+    @pytest.mark.asyncio
+    async def test_no_proxy_when_unconfigured(self):
+        rep = _report({"url_patterns": ["https://x.com/**"]})
+        ctx = await get_browser_connection({"report": rep})
+        assert ctx.proxy is None
+
+    @pytest.mark.asyncio
+    async def test_missing_user_secrets_lists_declared_keys(self):
+        rep = _report({"url_patterns": ["https://x.com/**"],
+                       "user_secret_keys": ["API_TOKEN", "FIRST_NAME"]},
+                      credentials={"secrets": {"API_TOKEN": "shared"}})
+        ctx = await get_browser_connection({"report": rep})
+        assert ctx.missing_user_secrets == ["FIRST_NAME"]
+
+
+class TestSecretPlaceholders:
+    SECRETS = {"API_TOKEN": "tok-abc-123", "FIRST_NAME": "Jane"}
+
+    def test_resolve_in_url(self):
+        out, used, missing = resolve_secret_placeholders(
+            "https://x.com/api?token={{secret:API_TOKEN}}", self.SECRETS)
+        assert out == "https://x.com/api?token=tok-abc-123"
+        assert used == ["API_TOKEN"]
+        assert missing == []
+
+    def test_resolve_with_spaces(self):
+        out, used, _ = resolve_secret_placeholders("{{ secret:FIRST_NAME }}", self.SECRETS)
+        assert out == "Jane"
+        assert used == ["FIRST_NAME"]
+
+    def test_missing_key_reported_not_substituted(self):
+        out, used, missing = resolve_secret_placeholders("x={{secret:NOPE}}", self.SECRETS)
+        assert out == "x={{secret:NOPE}}"
+        assert used == []
+        assert missing == ["NOPE"]
+
+    def test_plain_text_untouched(self):
+        out, used, missing = resolve_secret_placeholders("hello world", self.SECRETS)
+        assert out == "hello world"
+        assert used == [] and missing == []
+
+    def test_redacts_value_from_output(self):
+        text = "Welcome! Your token is tok-abc-123."
+        assert redact_secrets(text, self.SECRETS) == "Welcome! Your token is {{secret:API_TOKEN}}."
+
+    def test_redacts_urlencoded_value(self):
+        secrets = {"TOKEN": "a b/c"}
+        text = "https://x.com/?q=a%20b%2Fc"
+        assert redact_secrets(text, secrets) == "https://x.com/?q={{secret:TOKEN}}"
+
+    def test_short_values_not_redacted(self):
+        # Redacting a 1-char value would shred the page text without hiding anything.
+        secrets = {"X": "a"}
+        assert redact_secrets("a banana", secrets) == "a banana"
+
+    def test_none_text_passthrough(self):
+        assert redact_secrets(None, self.SECRETS) is None
+
+
+class TestSecretMergePatch:
+    def _svc(self):
+        from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
+        return UserDataSourceCredentialsService()
+
+    def _row(self, secrets, auth_mode="secrets"):
+        return SimpleNamespace(auth_mode=auth_mode,
+                               decrypt_credentials=lambda: {"secrets": dict(secrets)})
+
+    def test_adds_and_keeps_existing_keys(self):
+        svc = self._svc()
+        row = self._row({"A": "1", "B": "2"})
+        merged = svc._merge_secret_map(row, "secrets", {"secrets": {"C": "3"}})
+        assert merged["secrets"] == {"A": "1", "B": "2", "C": "3"}
+
+    def test_null_deletes_key(self):
+        svc = self._svc()
+        row = self._row({"A": "1", "B": "2"})
+        merged = svc._merge_secret_map(row, "secrets", {"secrets": {"A": None}})
+        assert merged["secrets"] == {"B": "2"}
+
+    def test_overwrite_key(self):
+        svc = self._svc()
+        row = self._row({"A": "1"})
+        merged = svc._merge_secret_map(row, "secrets", {"secrets": {"A": "9"}})
+        assert merged["secrets"] == {"A": "9"}
+
+    def test_first_save_no_row(self):
+        svc = self._svc()
+        merged = svc._merge_secret_map(None, "secrets", {"secrets": {"A": "1", "B": None}})
+        assert merged["secrets"] == {"A": "1"}
+
+    def test_auth_mode_change_discards_old_map(self):
+        svc = self._svc()
+        row = self._row({"A": "1"}, auth_mode="other")
+        merged = svc._merge_secret_map(row, "secrets", {"secrets": {"B": "2"}})
+        assert merged["secrets"] == {"B": "2"}
+
+    def test_non_secret_payload_untouched(self):
+        svc = self._svc()
+        merged = svc._merge_secret_map(None, "userpass", {"user": "u", "password": "p"})
+        assert merged == {"user": "u", "password": "p"}
+
+    def test_stamp_secret_keys(self):
+        svc = self._svc()
+        meta = svc._stamp_secret_keys({"note": "x"}, {"secrets": {"B": "2", "A": "1"}})
+        assert meta == {"note": "x", "secret_keys": ["A", "B"]}
+        assert svc._stamp_secret_keys(None, {"user": "u"}) is None

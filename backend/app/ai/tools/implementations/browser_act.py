@@ -19,7 +19,11 @@ from app.ai.tools.schemas.browser import BrowserActInput, BrowserOutput
 from app.ai.tools.implementations._browser_common import (
     ACTION_TIMEOUT_MS,
     build_snapshot,
+    describe_available_secrets,
     detect_block,
+    get_browser_connection,
+    redact_secrets,
+    resolve_secret_placeholders,
     session_manager,
 )
 
@@ -36,7 +40,10 @@ class BrowserActTool(Tool):
                 "element ref from the most recent snapshot (e.g. 'e12'). `action` is "
                 "one of click, type, press, hover, select, scroll. For 'type' put the "
                 "text in `text`; for 'press' put the key (e.g. 'Enter') in `text`; for "
-                "'select' put the option label/value in `text`. Returns a fresh "
+                "'select' put the option label/value in `text`. To fill a field with a "
+                "secret parameter without seeing its value, use a {{secret:NAME}} "
+                "placeholder as the text (e.g. action='type', text='{{secret:API_TOKEN}}') "
+                "— substitution happens server-side. Returns a fresh "
                 "snapshot. If a ref is stale, re-run browser_snapshot and use the new ref."
             ),
             category="both",
@@ -73,9 +80,22 @@ class BrowserActTool(Tool):
             yield self._fail(f"Unknown action '{data.action}'. Use one of: {', '.join(sorted(_ACTIONS))}.", "bad_action")
             return
 
-        s = session_manager.get(data.session_id)
+        # The session is addressed by the caller's identity, not by the model-
+        # provided session_id — sessions may hold injected credentials.
+        ctx = await get_browser_connection(runtime_ctx)
+        s = session_manager.get(ctx.session_key) if ctx is not None else None
         if s is None or s.page is None:
             yield self._fail("No active browser session; call browser_navigate first.", "no_session")
+            return
+
+        # Resolve {{secret:KEY}} placeholders in the text server-side.
+        text, used_keys, missing_keys = resolve_secret_placeholders(data.text or "", s.secrets)
+        if missing_keys:
+            yield self._fail(
+                f"Unknown secret parameter(s): {', '.join(missing_keys)}. "
+                f"On this connection, {describe_available_secrets(ctx)}.",
+                "missing_secret", session_id=s.session_id,
+            )
             return
 
         page = s.page
@@ -87,17 +107,19 @@ class BrowserActTool(Tool):
             if action == "click":
                 await locator.click(timeout=ACTION_TIMEOUT_MS)
             elif action == "type":
-                await locator.fill(data.text or "", timeout=ACTION_TIMEOUT_MS)
+                await locator.fill(text, timeout=ACTION_TIMEOUT_MS)
             elif action == "press":
-                await locator.press(data.text or "Enter", timeout=ACTION_TIMEOUT_MS)
+                await locator.press(text or "Enter", timeout=ACTION_TIMEOUT_MS)
             elif action == "hover":
                 await locator.hover(timeout=ACTION_TIMEOUT_MS)
             elif action == "select":
-                await locator.select_option(data.text or "", timeout=ACTION_TIMEOUT_MS)
+                await locator.select_option(text, timeout=ACTION_TIMEOUT_MS)
             elif action == "scroll":
                 await locator.scroll_into_view_if_needed(timeout=ACTION_TIMEOUT_MS)
+            if used_keys:
+                s.secret_injected = True
         except Exception as e:
-            emsg = str(e)
+            emsg = redact_secrets(str(e), s.secrets)
             # A ref that no longer resolves is the dominant failure mode.
             if "aria-ref" in emsg or "resolve" in emsg.lower() or "not found" in emsg.lower() or "Timeout" in emsg:
                 yield self._fail(
@@ -115,9 +137,10 @@ class BrowserActTool(Tool):
             pass
 
         snap, truncated = await build_snapshot(page)
+        snap = redact_secrets(snap, s.secrets)
         blocked = await detect_block(page)
-        cur_url = page.url
-        title = await page.title()
+        cur_url = redact_secrets(page.url, s.secrets)
+        title = redact_secrets(await page.title(), s.secrets)
         out = BrowserOutput(
             success=True, session_id=s.session_id, url=cur_url, title=title,
             snapshot=snap, truncated=truncated, blocked_reason=blocked,

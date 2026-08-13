@@ -7,7 +7,11 @@ from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolEndEvent
 from app.ai.tools.schemas.browser import BrowserExtractInput, BrowserOutput
-from app.ai.tools.implementations._browser_common import session_manager
+from app.ai.tools.implementations._browser_common import (
+    get_browser_connection,
+    redact_secrets,
+    session_manager,
+)
 
 
 class BrowserExtractTool(Tool):
@@ -43,7 +47,8 @@ class BrowserExtractTool(Tool):
         data = BrowserExtractInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Reading page text"})
 
-        s = session_manager.get(data.session_id)
+        ctx = await get_browser_connection(runtime_ctx)
+        s = session_manager.get(ctx.session_key) if ctx is not None else None
         if s is None or s.page is None:
             yield ToolEndEvent(type="tool.end", payload={
                 "output": BrowserOutput(success=False, error_message="No active browser session; call browser_navigate first.", error_code="no_session").model_dump(),
@@ -59,8 +64,9 @@ class BrowserExtractTool(Tool):
         if len(text) > data.max_chars:
             text = text[:data.max_chars] + "\n… (truncated)"
             truncated = True
-        cur_url = s.page.url
-        title = await s.page.title()
+        text = redact_secrets(text, s.secrets)
+        cur_url = redact_secrets(s.page.url, s.secrets)
+        title = redact_secrets(await s.page.title(), s.secrets)
         out = BrowserOutput(success=True, session_id=s.session_id, url=cur_url, title=title,
                             text=text, truncated=truncated)
         yield ToolEndEvent(type="tool.end", payload={
