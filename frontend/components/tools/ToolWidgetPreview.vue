@@ -374,6 +374,7 @@ import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import {
   parseColumnKey,
   evaluateFilters as sharedEvaluateFilters,
+  evaluateOperator,
   type FilterGroup
 } from '~/composables/useSharedFilters'
 
@@ -552,29 +553,13 @@ const filteredRows = computed(() => {
 })
 
 // Lightweight evaluator for a view's plain-column defaultFilters (no vizId
-// prefix). Mirrors the operators in DefaultFilterCondition.
+// prefix). Delegates to the shared operator semantics so default filters and
+// user filters agree on whitespace/number/case normalization.
 function matchDefaultFilter(row: any, f: any): boolean {
   if (!row || !f || !f.column) return true
   const key = Object.keys(row).find(k => k.toLowerCase() === String(f.column).toLowerCase())
   if (key === undefined) return true
-  const cell = row[key]
-  const s = (x: any) => (x === null || x === undefined) ? '' : String(x)
-  const op = String(f.operator || 'equals')
-  switch (op) {
-    case 'equals': return s(cell) === s(f.value)
-    case 'not_equals': return s(cell) !== s(f.value)
-    case 'contains': return s(cell).includes(s(f.value))
-    case 'not_contains': return !s(cell).includes(s(f.value))
-    case 'starts_with': return s(cell).startsWith(s(f.value))
-    case 'ends_with': return s(cell).endsWith(s(f.value))
-    case 'greater_than': return Number(cell) > Number(f.value)
-    case 'less_than': return Number(cell) < Number(f.value)
-    case 'gte': return Number(cell) >= Number(f.value)
-    case 'lte': return Number(cell) <= Number(f.value)
-    case 'is_empty': return s(cell) === ''
-    case 'is_not_empty': return s(cell) !== ''
-    default: return true
-  }
+  return evaluateOperator(row[key], String(f.operator || 'equals'), f.value, f.value2)
 }
 
 // Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }

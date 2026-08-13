@@ -227,6 +227,7 @@
 
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { evaluateOperator, isIncompleteCondition } from '~/composables/useSharedFilters'
 
 // Types
 interface FilterCondition {
@@ -740,59 +741,17 @@ function evaluateCondition(row: any, condition: FilterCondition, widgetId?: stri
     return true // Don't filter out rows for non-matching widget conditions
   }
 
+  // Half-written condition: no-op rather than matching nothing
+  if (isIncompleteCondition(condition as any)) {
+    return true
+  }
+
   // Case-insensitive column lookup
   const columnKey = Object.keys(row).find(
     k => k.toLowerCase() === columnName.toLowerCase()
   )
   const value = columnKey ? row[columnKey] : undefined
-  const target = condition.value
-
-  switch (condition.operator) {
-    case 'equals':
-      return String(value).toLowerCase() === String(target).toLowerCase()
-    case 'not_equals':
-      return String(value).toLowerCase() !== String(target).toLowerCase()
-    case 'contains':
-      return String(value).toLowerCase().includes(String(target).toLowerCase())
-    case 'not_contains':
-      return !String(value).toLowerCase().includes(String(target).toLowerCase())
-    case 'starts_with':
-      return String(value).toLowerCase().startsWith(String(target).toLowerCase())
-    case 'ends_with':
-      return String(value).toLowerCase().endsWith(String(target).toLowerCase())
-    case 'greater_than':
-      return Number(value) > Number(target)
-    case 'less_than':
-      return Number(value) < Number(target)
-    case 'gte':
-      return Number(value) >= Number(target)
-    case 'lte':
-      return Number(value) <= Number(target)
-    case 'between':
-      return Number(value) >= Number(target) && Number(value) <= Number(condition.value2)
-    case 'before':
-      return new Date(value) < new Date(target)
-    case 'after':
-      return new Date(value) > new Date(target)
-    case 'in':
-      return Array.isArray(target) && target.some(t =>
-        String(value).toLowerCase() === String(t).toLowerCase()
-      )
-    case 'not_in':
-      return !Array.isArray(target) || !target.some(t =>
-        String(value).toLowerCase() === String(t).toLowerCase()
-      )
-    case 'is_empty':
-      return value == null || value === ''
-    case 'is_not_empty':
-      return value != null && value !== ''
-    case 'is_true':
-      return value === true || value === 'true' || value === 1
-    case 'is_false':
-      return value === false || value === 'false' || value === 0
-    default:
-      return true
-  }
+  return evaluateOperator(value, condition.operator, condition.value, condition.value2)
 }
 
 // Expose filter evaluation function for parent component
