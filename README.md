@@ -184,6 +184,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
 | Qlik Sense | BI tool |
+| Qlik Sense on-prem (Enterprise on Windows) | BI tool |
 | Qlik QVD | BI tool |
 | Sisense | BI tool |
 | Oracle BI | BI tool |
