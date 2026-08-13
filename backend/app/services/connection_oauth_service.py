@@ -255,6 +255,33 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "servicenow",
         }
 
+    if conn_type == "monday":
+        # monday.com OAuth endpoints are global (auth.monday.com) for all
+        # regions — an EU account still authorizes against the global host.
+        # The admin registers an app in the Developer Center and saves its
+        # client id/secret on the connection (api_token credentials schema).
+        # monday access tokens DO NOT expire and no refresh token is issued,
+        # so there is no refresh path — a 401 later means re-connect.
+        client_id = creds.get("oauth_client_id")
+        client_secret = creds.get("oauth_client_secret")
+        if not client_id or not client_secret:
+            raise ValueError(
+                f"Connection {connection.id} missing oauth_client_id/oauth_client_secret for monday.com OAuth. "
+                "Create an app in monday.com's Developer Center (with this server's redirect URL) and save its "
+                "client ID and secret on the connection."
+            )
+
+        return {
+            "authorize_url": "https://auth.monday.com/oauth2/authorize",
+            "token_url": "https://auth.monday.com/oauth2/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            # Read-only scopes: enough to index boards and run queries as the
+            # signed-in user. Write scopes are deliberately excluded.
+            "scopes": "boards:read workspaces:read users:read account:read",
+            "provider_name": "monday",
+        }
+
     if conn_type == "priority_erp":
         # Priority's OAuth2 is ON-PREMISE ONLY — its own guide states it is
         # "relevant only for on-prem (non-SaaS) installations" — and needs the

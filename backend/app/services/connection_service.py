@@ -235,7 +235,7 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
     from app.services.connection_oauth_service import ENTRA_OBO_CONNECTION_TYPES
     if conn_type in ENTRA_OBO_CONNECTION_TYPES:
         return ["oauth"]
-    if conn_type in ("servicenow", "snowflake", "bigquery") and (credentials or {}).get("oauth_client_id"):
+    if conn_type in ("servicenow", "snowflake", "bigquery", "monday") and (credentials or {}).get("oauth_client_id"):
         # Admin supplied an OAuth app/security integration → per-user auth
         # means OAuth sign-in (Fabric-style). Without one, modes stay unset so
         # users may still bring their own credentials (password, keypair, or

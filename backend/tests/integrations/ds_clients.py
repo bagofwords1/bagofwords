@@ -65,6 +65,10 @@ DATA_SOURCES = [
     #               "username": "BWUSER", "password": "...", "catalog": "0D_NW_C01"}}
     "businessobjects",
     "sap_bw",
+    # Remote mode: monday.com has no self-hostable server, so this runs only
+    # against a live account configured in integrations.json (skips otherwise):
+    #   {"monday": {"enabled": true, "api_token": "..."}}
+    "monday",
 ]
 
 

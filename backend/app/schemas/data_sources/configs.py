@@ -523,6 +523,50 @@ class SalesforceConfig(BaseModel):
     objects: Optional[str] = Field(None, title="Objects", description="Optional comma-separated objects to index (e.g. Account,Contact,MyObj__c). Leave blank to auto-discover.", json_schema_extra={"ui:type": "string"})
 
 
+# monday.com
+class MondayApiTokenCredentials(BaseModel):
+    """Service API token, plus an optional OAuth app for per-user sign-in
+    (mirrors ServiceNowCredentials). The API token drives catalog indexing and
+    system-scope queries; the `oauth_*` fields — from an app created in
+    monday.com's Developer Center — enable the "Sign in with monday.com"
+    per-user flow and are consumed only by the OAuth authorize/token endpoints
+    (construct_client strips `oauth_`-prefixed keys before they reach the
+    client)."""
+    api_token: str = Field(
+        ...,
+        title="API Token",
+        description="A monday.com API token (avatar → Developers → My access tokens). Use a dedicated service user's token so shared queries don't depend on one person's account.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    oauth_client_id: Optional[str] = Field(
+        None,
+        title="OAuth Client ID",
+        description="Client ID of an app created in monday.com's Developer Center — enables per-user sign-in",
+        json_schema_extra={"ui:type": "string"},
+    )
+    oauth_client_secret: Optional[str] = Field(
+        None,
+        title="OAuth Client Secret",
+        description="Client Secret of the monday.com app",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class MondayConfig(BaseModel):
+    workspaces: Optional[str] = Field(
+        None,
+        title="Workspaces",
+        description="Optional comma-separated workspace names or ids to index. Leave blank for all workspaces the token can see.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    boards: Optional[str] = Field(
+        None,
+        title="Boards",
+        description="Optional comma-separated board names or ids to index. Leave blank to index every visible board.",
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
 # ServiceNow
 class ServiceNowCredentials(BaseModel):
     """Service-account basic auth, plus an optional OAuth client for per-user
