@@ -116,8 +116,10 @@ def _legacy_oversized_key(base: str, proposed: str) -> Optional[str]:
 def hunk_is_resolved(hunk: dict, resolved_keys: Set[str]) -> bool:
     """Whether a current hunk matches a current or legacy review decision."""
 
-    return hunk["key"] in resolved_keys or (
-        bool(hunk.get("_legacy_key")) and hunk["_legacy_key"] in resolved_keys
+    return (
+        hunk["key"] in resolved_keys
+        or (bool(hunk.get("_legacy_key")) and hunk["_legacy_key"] in resolved_keys)
+        or (bool(hunk.get("_unscoped_key")) and hunk["_unscoped_key"] in resolved_keys)
     )
 
 
@@ -151,14 +153,27 @@ class Hunk:
     base_lo: int = 0           # base token index range [lo, hi) this hunk replaces
     base_hi: int = 0
     after_tokens: List[str] = field(default_factory=list)
-    # Empty for the historical small-document key format. Large comparisons
-    # include immutable base coordinates so repeated identical edits cannot
-    # collide, while existing small-document accept/reject records stay valid.
+    # Immutable base coordinates, so repeated identical edits cannot collide.
+    # The coordinates live in the suggestion's frozen (base, proposed) pair —
+    # never in main — so the key stays stable as main drifts, which is what
+    # lets recorded accept/reject decisions keep matching across rebases.
     key_scope: str = ""
 
     @property
     def key(self) -> str:
         raw = f"{self.before}\x00{self.after}\x00{self.left_context[-24:]}{self.key_scope}"
+        return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
+
+    @property
+    def unscoped_key(self) -> str:
+        """The pre-position-aware key: content + 24 chars of left context only.
+
+        Identical repeated edits COLLIDE under this format — that collision is
+        why it was retired (a colliding pair made Accept all fail closed with a
+        misleading "moved since you viewed" conflict). It survives solely as a
+        compatibility alias so accept/reject decisions recorded before keys
+        became position-aware keep matching in `hunk_is_resolved`."""
+        raw = f"{self.before}\x00{self.after}\x00{self.left_context[-24:]}"
         return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
     def to_dict(self) -> dict:
@@ -189,7 +204,6 @@ def compute_hunks(base: str, proposed: str) -> List[Hunk]:
     if (base or "") == (proposed or ""):
         return []
     ta, tb = _tokenize(base), _tokenize(proposed)
-    large = max(len(ta), len(tb)) > MAX_DIFF_TOKENS
     hunks: List[Hunk] = []
     cur: Optional[Hunk] = None
     last_equal = ""
@@ -201,12 +215,19 @@ def compute_hunks(base: str, proposed: str) -> List[Hunk]:
             continue
         if cur is None:
             idx += 1
+            # Scope on EVERY document, not just oversized ones: without it two
+            # identical edits (same before/after/24-char left context — think
+            # repeated column renames in near-identical mapping lines) hash to
+            # the same key, and the accept/reject endpoints fail closed on the
+            # duplicate. Same format the oversized path always used, so those
+            # keys are unchanged; small-document decisions recorded under the
+            # old unscoped format keep matching via Hunk.unscoped_key.
             cur = Hunk(
                 index=idx,
                 left_context=last_equal,
                 base_lo=i1,
                 base_hi=i1,
-                key_scope=(f"\x00{i1}:{i2}:{idx}" if large else ""),
+                key_scope=f"\x00{i1}:{i2}:{idx}",
             )
             hunks.append(cur)
         if tag in ("delete", "replace"):
@@ -379,7 +400,8 @@ def rebased_hunks_against_main(
             continue  # no net change against main
         out.append({"key": h.key, "start": offs[mi1], "end": offs[mi1] + len(before),
                     "before": before, "after": after_str,
-                    "_legacy_key": legacy_key})
+                    "_legacy_key": legacy_key,
+                    "_unscoped_key": h.unscoped_key})
     return out
 
 

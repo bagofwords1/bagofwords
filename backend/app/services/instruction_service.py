@@ -1758,6 +1758,7 @@ class InstructionService:
                 # only on the canonical current key.
                 for h in shown:
                     h.pop("_legacy_key", None)
+                    h.pop("_unscoped_key", None)
                 out.append(shown)
             return out
 
@@ -2287,16 +2288,20 @@ class InstructionService:
             expected_main_build_id != current_main_build_id
             or expected_main_version_id != current_main_version_id
         ):
-            return None, "conflict"
+            return None, "stale"
         requested = [(str(bid), str(key)) for bid, key in (selected_hunks or [])]
         if not requested or len(set(requested)) != len(requested):
-            return None, "conflict"
+            # A duplicated (build, key) pair is a malformed request, not a race
+            # — refreshing cannot fix it, so it must not claim "moved since you
+            # viewed". Position-aware keys make duplicates impossible for a
+            # well-behaved client; this now only guards direct API callers.
+            return None, "invalid_selection"
         requested_build_ids = {bid for bid, _key in requested}
 
         rows = await self._pending_suggestion_builds(db, instruction_id, organization)  # newest first
         rows = [r for r in rows if str(r[0].id) in requested_build_ids]
         if {str(r[0].id) for r in rows} != requested_build_ids:
-            return None, "conflict"
+            return None, "stale"
 
         # Read ORM-backed values on the event loop; the worker receives only
         # immutable strings and sets.
@@ -2310,6 +2315,10 @@ class InstructionService:
         row_build_ids = [str(build.id) for build, _text, _vid in rows]
 
         def _validate_and_apply():
+            # Returns (new_text, picked, fail_status); fail_status is None on
+            # success, else "stale" (the on-screen state no longer exists —
+            # refresh helps) or "invalid_selection" (the request itself is
+            # unservable — refresh cannot help).
             available: dict[tuple[str, str], tuple[int, dict]] = {}
             for idx, (base_text, proposed_text, rejected) in enumerate(rebase_inputs):
                 bid = row_build_ids[idx]
@@ -2321,11 +2330,11 @@ class InstructionService:
                 for h in rhs:
                     pair = (bid, h["key"])
                     if pair in available:
-                        return None, None  # ambiguous key collision: fail closed
+                        return None, None, "invalid_selection"  # ambiguous key collision: fail closed
                     available[pair] = (idx, h)
 
             if any(pair not in available for pair in requested):
-                return None, None
+                return None, None, "stale"
             picked = [available[pair] for pair in requested]
 
             # The UI suppresses overlapping suggestions because it cannot show
@@ -2342,21 +2351,23 @@ class InstructionService:
                      (start < ce and end > cs))
                     for cs, ce in claimed
                 ):
-                    return None, None
+                    return None, None, "invalid_selection"
                 claimed.append((start, end))
 
             text = main_text
             for _idx, h in sorted(picked, key=lambda item: item[1]["start"], reverse=True):
                 start, end = int(h["start"]), int(h["end"])
                 if main_text[start:end] != h["before"]:
-                    return None, None
+                    return None, None, "stale"
                 text = text[:start] + h["after"] + text[end:]
-            return text, picked
+            return text, picked, None
 
         async with _HUNK_CPU:
-            new_text, picked = await asyncio.to_thread(_validate_and_apply)
+            new_text, picked, fail_status = await asyncio.to_thread(_validate_and_apply)
+        if fail_status is not None:
+            return None, fail_status
         if new_text is None or picked is None or new_text == main_text:
-            return None, "conflict"
+            return None, "stale"
 
         accepted = [
             (rows[idx][0], h["key"], h.get("after"))
@@ -2403,7 +2414,7 @@ class InstructionService:
             if failed_build and not failed_build.is_main:
                 failed_build.status = "rejected"
                 await db.commit()
-            return None, "conflict"
+            return None, "stale"
 
         # Only write review decisions after the compare-and-swap promotion
         # succeeds. A failed or racing action therefore remains retryable and
@@ -2622,16 +2633,17 @@ class InstructionService:
             or (str(against_main_version_id) if against_main_version_id else None)
             != (str(main_vid) if main_vid else None)
         ):
-            return None, "conflict"
+            return None, "stale"
         requested = [(str(bid), str(key)) for bid, key in (selected_hunks or [])]
         if not requested or len(set(requested)) != len(requested):
-            return None, "conflict"
+            # Malformed request (see accept_all_hunks) — not a race.
+            return None, "invalid_selection"
         requested_set = set(requested)
         requested_build_ids = {bid for bid, _key in requested}
         rows = await self._pending_suggestion_builds(db, instruction_id, organization)
         rows = [r for r in rows if str(r[0].id) in requested_build_ids]
         if {str(r[0].id) for r in rows} != requested_build_ids:
-            return None, "conflict"
+            return None, "stale"
         # Same shape as review_hunks: read the ORM here, rebase the whole batch in
         # one worker thread under _HUNK_CPU, sharing a single cache (every
         # suggestion rebases against the SAME main text, so the quadratic
@@ -2647,6 +2659,8 @@ class InstructionService:
         row_build_ids = [str(build.id) for build, _text, _vid in rows]
 
         def _selected_live_hunks():
+            # Returns (selected, fail_status) — same status split as
+            # accept_all_hunks's _validate_and_apply.
             cache = RebasedHunkCache()
             available: dict[tuple[str, str], tuple[int, dict]] = {}
             for idx, (base_text, proposed_text, rejected) in enumerate(rebase_inputs):
@@ -2657,16 +2671,16 @@ class InstructionService:
                         continue
                     pair = (row_build_ids[idx], h["key"])
                     if pair in available:
-                        return None
+                        return None, "invalid_selection"
                     available[pair] = (idx, h)
             if any(pair not in available for pair in requested_set):
-                return None
-            return [available[pair] for pair in requested]
+                return None, "stale"
+            return [available[pair] for pair in requested], None
 
         async with _HUNK_CPU:
-            selected = await asyncio.to_thread(_selected_live_hunks)
+            selected, fail_status = await asyncio.to_thread(_selected_live_hunks)
         if selected is None:
-            return None, "conflict"
+            return None, fail_status or "stale"
 
         verdicts = []
         for idx, h in selected:

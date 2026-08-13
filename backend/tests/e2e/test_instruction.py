@@ -1880,3 +1880,165 @@ def test_delete_voids_pending_suggestions_on_every_surface(
     again = _pending_badge_state(test_client, headers)
     assert again["pending_total"] == 0
     assert not ({clean, drifted} & again["sweep_ids"])
+
+
+# ==================== Position-aware hunk keys (twin-edit collision) ====================
+
+# Two lines identical for well over 24 chars before the edited token, each
+# getting the SAME replacement — the shape that made content-hashed keys
+# collide (same before/after/left-context ⇒ same key), which made Accept all
+# fail closed with a misleading "moved since you viewed" 409.
+_TWIN_BASE = (
+    "### Measure: RPO Prev Year\n"
+    "- alpha maps to dbo.fact_depm_revaluation.ver_asof_date (snapshot key)\n"
+    "- beta maps to dbo.fact_depm_revaluation.ver_asof_date (snapshot key)\n"
+    "Use USD only.\n"
+)
+_TWIN_PROPOSED = _TWIN_BASE.replace("ver_asof_date", "fk_ver_asof_date")
+
+
+@pytest.mark.e2e
+def test_accept_all_with_repeated_identical_edits(
+    test_client, create_global_instruction, get_instruction, create_user, login_user, whoami,
+):
+    """Regression: a suggestion making the same edit twice must yield two
+    DISTINCT hunk keys, and Accept all of exactly what the review displayed
+    must succeed — not 409 as a phantom staleness conflict."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    iid = create_global_instruction(
+        text=_TWIN_BASE, user_token=token, org_id=org_id, status="published",
+    )["id"]
+    _inject_suggestion_build(org_id, iid, _TWIN_PROPOSED)
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    hunks = review["suggestions"][0]["hunks"]
+    assert len(hunks) == 2, hunks
+    assert all(h["before"] == "ver_asof_date" and h["after"] == "fk_ver_asof_date" for h in hunks)
+    assert len({h["key"] for h in hunks}) == 2, "identical twin edits must not share a key"
+
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == _TWIN_PROPOSED
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == []
+
+
+@pytest.mark.e2e
+def test_accept_single_twin_hunk_applies_only_that_occurrence(
+    test_client, create_global_instruction, get_instruction, create_user, login_user, whoami,
+):
+    """With distinct keys the twins are individually addressable: accepting one
+    applies only that occurrence and leaves its twin pending."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    iid = create_global_instruction(
+        text=_TWIN_BASE, user_token=token, org_id=org_id, status="published",
+    )["id"]
+    bid = _inject_suggestion_build(org_id, iid, _TWIN_PROPOSED)
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    hunks = sorted(review["suggestions"][0]["hunks"], key=lambda h: h["start"])
+    first, second = hunks
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept",
+        json={"build_id": bid, "hunk_key": first["key"],
+              "against_main_build_id": review["main_build_id"],
+              "against_main_version_id": review["main_version_id"]},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+    expected = _TWIN_BASE.replace("ver_asof_date", "fk_ver_asof_date", 1)
+    assert get_instruction(iid, user_token=token, org_id=org_id)["text"] == expected
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    remaining = review["suggestions"][0]["hunks"]
+    assert [h["key"] for h in remaining] == [second["key"]], \
+        "the untouched twin must stay pending under its own stable key"
+
+
+@pytest.mark.e2e
+def test_rejection_recorded_under_legacy_unscoped_key_still_matches(
+    test_client, create_global_instruction, create_user, login_user, whoami,
+):
+    """Decisions recorded before keys became position-aware stored the unscoped
+    content hash. Those records must keep resolving their hunk (via the
+    unscoped-key alias) so old rejections don't resurface as pending."""
+    import json as _json
+    import os
+    from sqlalchemy import create_engine, text as _text
+    from app.services.text_hunks import compute_hunks
+
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    base, proposed = "one two three four", "one TWO three four"
+    iid = create_global_instruction(
+        text=base, user_token=token, org_id=org_id, status="published",
+    )["id"]
+    bid = _inject_suggestion_build(org_id, iid, proposed)
+
+    (hunk,) = compute_hunks(base, proposed)
+    legacy_key = hunk.unscoped_key
+    assert legacy_key != hunk.key, "precondition: scoped and legacy formats differ"
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                _text("UPDATE instruction_builds SET rejected_hunks = :rej WHERE id = :bid"),
+                {"rej": _json.dumps([{"instruction_id": str(iid), "key": legacy_key, "action": "reject"}]),
+                 "bid": bid},
+            )
+    finally:
+        engine.dispose()
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == [], \
+        "a hunk rejected under the pre-position-aware key must not resurface"
+
+
+@pytest.mark.e2e
+def test_duplicate_selection_is_not_reported_as_staleness(
+    test_client, create_global_instruction, create_user, login_user, whoami,
+):
+    """A malformed request (same pair twice) still 409s fail-closed, but as an
+    invalid-selection message — not "moved since you viewed", which sends the
+    reviewer into a refresh loop that can never help."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    iid = create_global_instruction(
+        text="one two three four", user_token=token, org_id=org_id, status="published",
+    )["id"]
+    bid = _inject_suggestion_build(org_id, iid, "one TWO three four")
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    (hunk,) = review["suggestions"][0]["hunks"]
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/accept-all",
+        json={"against_main_build_id": review["main_build_id"],
+              "against_main_version_id": review["main_version_id"],
+              "hunks": [{"build_id": bid, "hunk_key": hunk["key"]},
+                        {"build_id": bid, "hunk_key": hunk["key"]}]},
+        headers=headers,
+    )
+    assert resp.status_code == 409, resp.json()
+    assert "moved since you viewed" not in resp.json()["detail"]
