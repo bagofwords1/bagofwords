@@ -511,6 +511,23 @@ def test_batch_failure_rollup_any_success_resets():
     assert AgentV2._batch_failure_rollup([_cb_outcome("x", skipped=True)]) == {}
 
 
+def test_policy_skipped_terminal_outcome_still_stops_the_run():
+    """Execution policy may refuse a tool call while also terminating the turn.
+
+    ``skipped`` means the tool did not execute; it must not erase the policy's
+    terminal decision.  Otherwise the planner retries the refused action until
+    the global step limit.
+    """
+    outcome = _cb_outcome("edit_artifact", skipped=True)
+    outcome["observation"].update({
+        "analysis_complete": True,
+        "final_answer": "The operation limit was reached.",
+    })
+
+    assert AgentV2._outcome_ends_run(outcome) is True
+    assert AgentV2._outcome_ends_run(_cb_outcome("edit_artifact", skipped=True)) is False
+
+
 @pytest.mark.asyncio
 async def test_dispatch_uses_org_setting_concurrency(monkeypatch):
     """End-to-end through _dispatch_action_batch: the org setting alone
