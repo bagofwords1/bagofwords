@@ -217,6 +217,7 @@ import CardBlock from '@/components/dashboard/blocks/CardBlock.vue';
 import ColumnLayoutBlock from '@/components/dashboard/blocks/ColumnLayoutBlock.vue';
 import FilterBuilder from '@/components/dashboard/FilterBuilder.vue';
 import { resolveEntryByType } from '@/components/dashboard/registry'
+import { evaluateFilters as sharedEvaluateFilters } from '~/composables/useSharedFilters'
 import { themes } from '@/components/dashboard/themes'
     import { useDashboardTheme } from '@/components/dashboard/composables/useDashboardTheme'
 
@@ -550,40 +551,7 @@ import { themes } from '@/components/dashboard/themes'
 
     // Static filter evaluation function (used when FilterBuilder ref is not available)
     function evaluateFiltersStatic(row: any, groups: any[], targetVizId: string): boolean {
-        if (!groups.length) return true;
-        
-        // OR across groups
-        return groups.some(group => {
-            // AND within group
-            return group.conditions.every((cond: any) => {
-                const [vizId, ...rest] = (cond.column || '').split(':');
-                const columnName = rest.join(':');
-                // Only apply condition if it targets the current visualization
-                if (vizId !== targetVizId) return true;
-                
-                const value = row[columnName];
-                const target = cond.value;
-                
-                const stringValue = String(value).toLowerCase();
-                const stringTarget = String(target).toLowerCase();
-
-                switch (cond.operator) {
-                    case 'equals': return stringValue === stringTarget;
-                    case 'not_equals': return stringValue !== stringTarget;
-                    case 'contains': return stringValue.includes(stringTarget);
-                    case 'not_contains': return !stringValue.includes(stringTarget);
-                    case 'starts_with': return stringValue.startsWith(stringTarget);
-                    case 'ends_with': return stringValue.endsWith(stringTarget);
-                    case 'greater_than': return Number(value) > Number(target);
-                    case 'less_than': return Number(value) < Number(target);
-                    case 'gte': return Number(value) >= Number(target);
-                    case 'lte': return Number(value) <= Number(target);
-                    case 'is_empty': return value == null || value === '';
-                    case 'is_not_empty': return value != null && value !== '';
-                    default: return true;
-                }
-            });
-        });
+        return sharedEvaluateFilters(row, groups as any, targetVizId);
     }
 
     // --- Lifecycle Hooks ---
