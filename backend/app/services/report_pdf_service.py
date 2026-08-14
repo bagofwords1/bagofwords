@@ -26,6 +26,9 @@ import asyncio
 import json
 import logging
 import math
+import os
+import signal
+import uuid
 from pathlib import Path
 from typing import Any, Optional
 
@@ -193,6 +196,57 @@ _PRINT_CSS = """
 """
 
 
+def _kill_chromium_tree(marker: str) -> int:
+    """SIGKILL the Chromium launched with `marker` in its argv, descendants first.
+
+    When a render times out, the task cancellation can interrupt Playwright's
+    own teardown, and even a clean teardown cannot stop a renderer whose main
+    thread is spinning in JS: it never services the shutdown IPC, survives its
+    parent's death, reparents to init and burns a core forever. So the process
+    tree has to be walked and killed leaf-first while the parent links are
+    still intact. /proc-based and best-effort: on hosts without /proc (deploys
+    run on Linux) this is a silent no-op.
+    """
+    killed = 0
+    try:
+        children_by_parent: dict[int, list[int]] = {}
+        marked: list[int] = []
+        for entry in os.listdir("/proc"):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            try:
+                cmdline = Path(f"/proc/{pid}/cmdline").read_bytes().decode("utf-8", "replace")
+                stat = Path(f"/proc/{pid}/stat").read_text()
+            except OSError:
+                continue
+            try:
+                # Field 4 of /proc/pid/stat, after the parenthesised comm
+                # (which may itself contain spaces).
+                ppid = int(stat.rsplit(")", 1)[1].split()[1])
+            except (IndexError, ValueError):
+                continue
+            children_by_parent.setdefault(ppid, []).append(pid)
+            if marker in cmdline:
+                marked.append(pid)
+
+        def _descendants(pid: int):
+            for child in children_by_parent.get(pid, []):
+                yield from _descendants(child)
+                yield child
+
+        for root in marked:
+            for pid in [*_descendants(root), root]:
+                try:
+                    os.kill(pid, signal.SIGKILL)
+                    killed += 1
+                except OSError:
+                    pass
+    except OSError:
+        pass
+    return killed
+
+
 class ReportPdfService:
     """Generates PDF snapshots of artifacts using headless Chromium."""
 
@@ -211,6 +265,12 @@ class ReportPdfService:
     OVERFLOW_GUTTER_PX = 32
     # Seconds to let ECharts re-render after each layout change.
     SETTLE_SECONDS = 1.2
+    # Hard wall-clock cap on one Chromium render. The individual Playwright
+    # calls each have their own timeout, but page.pdf() does not — a wedged
+    # renderer (huge canvas at device_scale_factor=2, OOMing tab) would
+    # otherwise hang the awaiting request forever, and with it every caller
+    # queued on the per-report export lock.
+    RENDER_TIMEOUT_SECONDS = 150
 
     def __init__(self):
         self.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -227,10 +287,44 @@ class ReportPdfService:
             Relative path to the PDF file (e.g. "pdfs/{id}.pdf"), or None on failure.
         """
         try:
-            from playwright.async_api import async_playwright
+            from playwright.async_api import async_playwright  # noqa: F401
         except ImportError:
             logger.warning("Playwright not installed, skipping PDF generation")
             return None
+
+        # Unique argv marker so a timed-out render's Chromium tree can be
+        # found and killed — cancellation interrupts Playwright's teardown,
+        # and a wedged renderer survives even a clean one (see
+        # _kill_chromium_tree). Chromium ignores unknown switches.
+        marker = f"--bow-pdf-export={uuid.uuid4().hex}"
+        try:
+            return await asyncio.wait_for(
+                self._generate_pdf_inner(artifact_id, html_content, marker),
+                timeout=self.RENDER_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "PDF render for artifact %s exceeded %ss; aborting",
+                artifact_id, self.RENDER_TIMEOUT_SECONDS,
+            )
+            killed = await asyncio.to_thread(_kill_chromium_tree, marker)
+            if killed:
+                logger.info(
+                    "Killed %s leftover Chromium processes for artifact %s",
+                    killed, artifact_id,
+                )
+            return None
+        except Exception as e:
+            logger.exception(f"Failed to generate PDF for artifact {artifact_id}: {e}")
+            await asyncio.to_thread(_kill_chromium_tree, marker)
+            return None
+
+    async def _generate_pdf_inner(
+        self, artifact_id: str, html_content: str, marker: str
+    ) -> Optional[str]:
+        """The actual render. Callers go through generate_pdf, which bounds this
+        with RENDER_TIMEOUT_SECONDS and turns any failure into None."""
+        from playwright.async_api import async_playwright
 
         pdf_path = self.UPLOADS_DIR / f"{artifact_id}.pdf"
 
@@ -241,7 +335,7 @@ class ReportPdfService:
 
         try:
             async with async_playwright() as p:
-                browser = await p.chromium.launch(headless=True)
+                browser = await p.chromium.launch(headless=True, args=[marker])
                 # Lay out at the printable width from the start: responsive
                 # breakpoints and every JS-measured chart size are then computed
                 # for the paper, not for a desktop window that does not exist.
