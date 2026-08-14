@@ -592,6 +592,11 @@ class DataSourceService:
             from app.models.connection_table import ConnectionTable
             from app.services.connection_service import ConnectionService
 
+            # Already-indexed connections know their table count synchronously;
+            # summed for telemetry below (a freshly-created connection's count
+            # isn't known yet — it lands later via data_source_schema_synced).
+            total_table_count = 0
+
             for conn_id in existing_connection_ids:
                 conn_result = await db.execute(
                     select(Connection).filter(
@@ -610,6 +615,7 @@ class DataSourceService:
                     select(func.count(ConnectionTable.id)).filter(ConnectionTable.connection_id == conn_id)
                 )
                 conn_table_count = conn_tables_result.scalar() or 0
+                total_table_count += conn_table_count
 
                 if conn_table_count == 0 and conn.auth_policy == "system_only":
                     # Kick off background indexing — the runner populates
@@ -757,6 +763,7 @@ class DataSourceService:
                     "use_llm_sync": bool(use_llm_sync),
                     "from_existing_connection": bool(existing_connection_ids),
                     "connection_count": len(connections_to_link) if connections_to_link else 1,
+                    "table_count": total_table_count if existing_connection_ids else None,
                 },
                 user_id=current_user.id,
                 org_id=organization.id,

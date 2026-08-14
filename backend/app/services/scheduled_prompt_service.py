@@ -15,6 +15,7 @@ from app.schemas.scheduled_prompt_schema import ScheduledPromptCreate, Scheduled
 from app.core.scheduler import scheduler, cron_dow_to_apscheduler, claim_scheduled_run
 from app.services.notification_service import notification_service
 from app.settings.config import settings
+from app.core.telemetry import telemetry
 
 from apscheduler.jobstores.base import JobLookupError
 
@@ -117,6 +118,21 @@ class ScheduledPromptService:
             self._register_job(sp)
 
         logger.info(f"Created scheduled prompt {sp.id} for report {report_id}")
+        try:
+            await telemetry.capture(
+                "scheduled_prompt_created",
+                {
+                    "scheduled_prompt_id": str(sp.id),
+                    "report_id": str(report_id),
+                    "is_active": bool(sp.is_active),
+                    "spawn_new_report": bool(sp.spawn_new_report),
+                    "subscriber_count": len(subscribers) if subscribers else 0,
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         return sp
 
     async def update_scheduled_prompt(

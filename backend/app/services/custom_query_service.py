@@ -24,6 +24,7 @@ from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.scheduler import scheduler
+from app.core.telemetry import telemetry
 from app.data_sources.fast import artifacts, extractor, rls
 from app.ee.license import has_feature
 from app.data_sources.fast.fast_client import FastQueryClient, FastRelation
@@ -387,6 +388,23 @@ class CustomQueryService:
             db, connection, cq, activate_for_datasource_id=activate_for_datasource_id
         )
         self._schedule(connection.id, cq, timezone=await self._org_timezone(db, organization))
+
+        try:
+            await telemetry.capture(
+                "custom_query_created",
+                {
+                    "connection_id": str(connection.id),
+                    "connection_type": connection.type,
+                    "refresh_schedule_mode": refresh_schedule_mode,
+                    "refresh_interval_minutes": refresh_interval_minutes,
+                    "has_description": bool((description or "").strip()),
+                },
+                user_id=current_user.id if current_user else None,
+                org_id=str(organization.id) if organization else str(connection.organization_id),
+            )
+        except Exception:
+            pass
+
         return cq
 
     async def _activate_for_agents(

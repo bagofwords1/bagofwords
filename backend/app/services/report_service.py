@@ -189,6 +189,11 @@ class ReportService:
             await SessionEventService.emit_safe(
                 db, report=report, kind=kind, user=current_user, commit=False, meta=meta,
             )
+            await self._capture_share_telemetry(
+                report=report, share_type=share_type, visibility=visibility,
+                shared_user_ids=shared_user_ids, shared_group_ids=shared_group_ids,
+                current_user=current_user, shared=True,
+            )
         else:
             kind = REPORT_UNPUBLISHED if is_conv else ARTIFACT_UNSHARED
             content = ("Conversation sharing was turned off" if is_conv
@@ -197,6 +202,32 @@ class ReportService:
                 db, report=report, kind=kind, user=current_user, commit=False,
                 content=content, meta={"visibility": "none", "share_type": share_type},
             )
+            await self._capture_share_telemetry(
+                report=report, share_type=share_type, visibility="none",
+                shared_user_ids=None, shared_group_ids=None,
+                current_user=current_user, shared=False,
+            )
+
+    async def _capture_share_telemetry(
+        self, *, report, share_type, visibility, shared_user_ids, shared_group_ids,
+        current_user, shared: bool,
+    ) -> None:
+        """Telemetry for conversation/artifact share toggles. Counts only —
+        never the resolved names built in _emit_share_event's shared_with."""
+        try:
+            event = f"{share_type}_{'shared' if shared else 'unshared'}"
+            await telemetry.capture(
+                event,
+                {
+                    "visibility": visibility,
+                    "shared_user_count": len(shared_user_ids) if shared_user_ids else 0,
+                    "shared_group_count": len(shared_group_ids) if shared_group_ids else 0,
+                },
+                user_id=current_user.id if current_user else None,
+                org_id=str(report.organization_id) if getattr(report, "organization_id", None) else None,
+            )
+        except Exception:
+            pass
 
     async def set_visibility(
         self,

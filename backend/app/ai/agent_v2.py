@@ -5,6 +5,7 @@ import os
 import re as _re_mod
 import time as _time
 import uuid as _uuid_mod
+from collections import Counter
 from datetime import datetime
 from contextlib import asynccontextmanager
 from typing import Dict, List, Optional
@@ -621,6 +622,11 @@ class AgentV2:
         # Agent execution tracking
         self.project_manager = ProjectManager()
         self.current_execution = None
+
+        # In-memory telemetry rollups for this run, flushed once at
+        # agent_execution_completed — cheap counters, no DB/IO in the hot path.
+        self._tool_call_counts: Counter = Counter()
+        self._iteration_count: int = 0
 
         # Background DB writes scheduled during the loop. Drained before the
         # final `completion.finished` SSE so the API doesn't return a "done"
@@ -4091,6 +4097,7 @@ class AgentV2:
             _mlog(f"loop_starting step_limit={step_limit}")
 
             for loop_index in range(step_limit):
+                self._iteration_count += 1
                 try:
                     # Test-only fault injection (inert unless BOW_AGENT_LOOP_FAULTS is set):
                     # raises here so the rescue path below is exercisable end-to-end.
@@ -5452,16 +5459,26 @@ class AgentV2:
                                     else:
                                         asyncio.create_task(_bg_post_snap())
 
-                                    # Telemetry: tool finished
+                                    # Telemetry: tool finished (in-memory counter — no IO)
+                                    self._tool_call_counts[tool_name] += 1
                                     try:
+                                        _tool_props = {
+                                            "agent_execution_id": str(self.current_execution.id),
+                                            "tool_name": tool_name,
+                                            "status": "error" if _observation_failed(observation) else "success",
+                                            "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                        }
+                                        # Model-routing detail: route_model's own observation already
+                                        # carries from/to model + reason, so surface it on this same
+                                        # event instead of adding a dedicated routing event.
+                                        if tool_name == "route_model" and isinstance(observation, dict):
+                                            _tool_props["routed"] = observation.get("routed")
+                                            _tool_props["from_model"] = observation.get("from_model")
+                                            _tool_props["to_model"] = observation.get("model")
+                                            _tool_props["routing_reason"] = observation.get("reason")
                                         await telemetry.capture(
                                             "agent_tool_finished",
-                                            {
-                                                "agent_execution_id": str(self.current_execution.id),
-                                                "tool_name": tool_name,
-                                                "status": "error" if _observation_failed(observation) else "success",
-                                                "duration_ms": getattr(tool_execution, "duration_ms", None),
-                                            },
+                                            _tool_props,
                                             user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                                             org_id=str(self.organization.id) if self.organization else None,
                                         )
@@ -6167,14 +6184,26 @@ class AgentV2:
                     await self.db.commit()
             except Exception as e:
                 logger.warning(f"Failed to bump report last_activity_at: {e}")
-            # Telemetry: agent execution completed
+            # Telemetry: agent execution completed. Token totals come from
+            # token_usage_json, already computed by finish_agent_execution()
+            # just above — no extra query/IO here, just reading the field.
             try:
+                _exec_props = {
+                    "agent_execution_id": str(self.current_execution.id),
+                    "status": status,
+                    "model_id": getattr(self.model, "model_id", None),
+                    "iterations": self._iteration_count,
+                    "tool_call_counts": dict(self._tool_call_counts),
+                    "total_tool_calls": sum(self._tool_call_counts.values()),
+                }
+                _token_usage = getattr(self.current_execution, "token_usage_json", None) or {}
+                if _token_usage:
+                    _exec_props["prompt_tokens"] = _token_usage.get("prompt_tokens")
+                    _exec_props["completion_tokens"] = _token_usage.get("completion_tokens")
+                    _exec_props["total_tokens"] = _token_usage.get("total_tokens")
                 await telemetry.capture(
                     "agent_execution_completed",
-                    {
-                        "agent_execution_id": str(self.current_execution.id),
-                        "status": status,
-                    },
+                    _exec_props,
                     user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                     org_id=str(self.organization.id) if self.organization else None,
                 )
