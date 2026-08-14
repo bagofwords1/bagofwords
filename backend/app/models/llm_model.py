@@ -2,6 +2,13 @@ from sqlalchemy import Column, String, JSON, ForeignKey, Boolean, Integer, Float
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
+# Assumed context window for a custom model whose model_id matches nothing in
+# the catalog and whose admin set no explicit size. A NULL window quietly
+# degrades every window-derived budget (prompt trim, compaction thresholds,
+# transcript decay, fallback candidate selection), so custom models get a
+# conservative default instead; admins can raise it per model in settings.
+DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 131_072
+
 LLM_MODEL_DETAILS = [
     {
         "name": "GPT-5.6 Sol",
