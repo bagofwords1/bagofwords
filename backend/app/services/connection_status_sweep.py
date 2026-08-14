@@ -19,6 +19,11 @@ Design mirrors ``scheduled_reindex.sweep_due_reindexes``:
   * Tests run concurrently under a semaphore, each on its own short-lived
     session (``test_connection`` commits), so a slow warehouse never blocks a
     request or holds a request-scoped pool slot.
+  * Probes leave nothing behind on the source: ``atest_connection`` runs under
+    ``engine_pool.ephemeral()``, so each test dials a throwaway unpooled
+    connection and closes it. Before that, this sweep re-warming pooled
+    engines every 5 minutes was the only traffic on quiet sources — DBAs saw
+    sessions idle for an hour whose last statement was our ``SELECT 1``.
   * ``system_only`` connections only: per-user (``user_required``) status is
     resolved per user at read time and a system-side probe would test the
     wrong identity. Inactive connections ARE swept — a successful test is what
