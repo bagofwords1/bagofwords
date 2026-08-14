@@ -414,6 +414,21 @@ def redact_secrets(text: Optional[str], secrets: Dict[str, str]) -> Optional[str
     return text
 
 
+def http_credentials_from_secrets(secrets: Dict[str, str]) -> Optional[Dict[str, str]]:
+    """HTTP Basic/Digest credentials for the browser context, from the reserved
+    secret names HTTP_USERNAME / HTTP_PASSWORD. Unlike form fills these answer
+    the browser-level 401 challenge, so they must be set on the Playwright
+    context — there is no page element to type a placeholder into. Per-user
+    overlay applies like any other secret key."""
+    if not secrets:
+        return None
+    username = secrets.get("HTTP_USERNAME")
+    password = secrets.get("HTTP_PASSWORD")
+    if not username and not password:
+        return None
+    return {"username": username or "", "password": password or ""}
+
+
 def describe_available_secrets(ctx: "BrowserConnectionContext") -> str:
     """One line for tool errors/observations: which secret NAMES exist (never
     values), and which declared keys the user still has to provide."""
@@ -532,6 +547,12 @@ class BrowserSessionManager:
                 "viewport": DEFAULT_VIEWPORT,
                 "accept_downloads": ctx.allow_downloads,
             }
+            # HTTP Basic/Digest: reserved secret names HTTP_USERNAME /
+            # HTTP_PASSWORD answer 401 challenges at the context level.
+            http_creds = http_credentials_from_secrets(ctx.secrets)
+            if http_creds:
+                ctx_kwargs["http_credentials"] = http_creds
+                s.secret_injected = True
             # Sandbox/dev only: trust a MITM proxy's cert. Never set in prod.
             if os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes"):
                 ctx_kwargs["ignore_https_errors"] = True

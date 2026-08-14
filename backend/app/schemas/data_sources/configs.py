@@ -3028,6 +3028,11 @@ class BrowserSecretsCredentials(BaseModel):
     are scrubbed so a page that echoes a value back shows the placeholder, not
     the secret.
 
+    Reserved names: ``HTTP_USERNAME`` / ``HTTP_PASSWORD`` are additionally
+    applied as the browser's HTTP Basic/Digest credentials (they answer the
+    401 challenge at the browser level — no page form involved). ``proxy_*``
+    fields below authenticate against the connection's proxy server instead.
+
     ``None`` as a value is a deletion marker on write (merge-patch semantics);
     it never persists.
     """

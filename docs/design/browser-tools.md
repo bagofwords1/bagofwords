@@ -489,3 +489,10 @@ Capability gating and connection resolution use the run's resolved agents
 (no-proxy list) route the connection's traffic through a specific egress proxy,
 with `proxy_username`/`proxy_password` stored in the encrypted credentials.
 Falls back to `HTTPS_PROXY`/`NO_PROXY` env when unset.
+
+**HTTP Basic/Digest auth.** The reserved secret names `HTTP_USERNAME` /
+`HTTP_PASSWORD` are applied as the Playwright context's `http_credentials`, so
+the browser answers 401 challenges directly — no page form, no placeholder
+needed. They live in the same secret map (system or per-user, same overlay
+rules), are redacted from tool outputs like any other secret, and count as a
+secret injection for the vision gate.

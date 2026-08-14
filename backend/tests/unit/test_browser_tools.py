@@ -17,6 +17,7 @@ import pytest
 from app.ai.tools.implementations._browser_common import (
     _is_link_local_literal,
     get_browser_connection,
+    http_credentials_from_secrets,
     redact_secrets,
     resolve_secret_placeholders,
     url_matches_patterns,
@@ -224,6 +225,19 @@ class TestSecretPlaceholders:
 
     def test_none_text_passthrough(self):
         assert redact_secrets(None, self.SECRETS) is None
+
+
+class TestHttpCredentials:
+    def test_reserved_keys_become_http_credentials(self):
+        creds = http_credentials_from_secrets({"HTTP_USERNAME": "jane.doe", "HTTP_PASSWORD": "pw", "OTHER": "x"})
+        assert creds == {"username": "jane.doe", "password": "pw"}
+
+    def test_username_only(self):
+        assert http_credentials_from_secrets({"HTTP_USERNAME": "jane.doe"}) == {"username": "jane.doe", "password": ""}
+
+    def test_no_reserved_keys(self):
+        assert http_credentials_from_secrets({"API_TOKEN": "x"}) is None
+        assert http_credentials_from_secrets({}) is None
 
 
 class TestSecretMergePatch:
