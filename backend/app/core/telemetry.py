@@ -72,6 +72,33 @@ def _do_identify(distinct_id: str, properties: dict) -> None:
         logger.exception("telemetry._do_identify failed")
 
 
+def _do_group_identify(group_type: str, group_key: str, properties: dict) -> None:
+    """Blocking PostHog group_identify - runs in thread pool."""
+    try:
+        _posthog.group_identify(group_type, group_key, properties)
+    except Exception:
+        logger.exception("telemetry._do_group_identify failed")
+
+
+def _default_event_properties() -> dict:
+    """Cheap, process-local properties merged into every captured event.
+
+    Both lookups are in-memory/cached (no I/O): settings.version reads a
+    module-level string, and get_license_info() caches after its first call.
+    """
+    props: dict = {}
+    try:
+        props["app_version"] = settings.version
+    except Exception:
+        pass
+    try:
+        from app.ee.license import get_license_info
+        props["license_tier"] = get_license_info().tier
+    except Exception:
+        pass
+    return props
+
+
 class Telemetry:
     """Minimal server-side telemetry helper backed by PostHog.
 
@@ -102,7 +129,8 @@ class Telemetry:
         if not (cls._enabled() and _posthog is not None):
             return
         try:
-            props = dict(properties or {})
+            props = _default_event_properties()
+            props.update(properties or {})
             if org_id is not None:
                 props["org_id"] = str(org_id)
 
@@ -141,6 +169,57 @@ class Telemetry:
         except Exception:
             logger.exception("telemetry.identify failed")
 
+    @classmethod
+    async def group_identify(
+        cls,
+        group_type: str,
+        group_key: str,
+        properties: Optional[Mapping[str, Any]] = None,
+    ) -> None:
+        """Fire-and-forget PostHog group trait update. Never blocks the caller.
+
+        Sets traits (e.g. an org's email domain) on a PostHog group once, so
+        every event tagged with that group's key shows the trait without
+        resending it per-event.
+        """
+        if not (cls._enabled() and _posthog is not None):
+            return
+        try:
+            loop = asyncio.get_running_loop()
+            loop.run_in_executor(
+                _telemetry_executor,
+                _do_group_identify,
+                group_type,
+                str(group_key),
+                dict(properties or {}),
+            )
+        except Exception:
+            logger.exception("telemetry.group_identify failed")
+
 
 # Convenience alias for imports: from app.core.telemetry import telemetry
 telemetry = Telemetry
+
+# Free/consumer email providers excluded from org domain attribution — a
+# domain shared by millions of unrelated signups isn't a useful org signal
+# and would misrepresent unrelated orgs as the same "company".
+_FREE_EMAIL_DOMAINS = {
+    "gmail.com", "googlemail.com", "yahoo.com", "outlook.com", "hotmail.com",
+    "live.com", "icloud.com", "me.com", "aol.com", "protonmail.com",
+    "proton.me", "gmx.com", "yandex.com", "mail.com", "zoho.com",
+}
+
+
+def derive_org_domain(email: Optional[str]) -> Optional[str]:
+    """Derive a privacy-safe org identifier from a user's email.
+
+    Returns only the domain (never the local part or the full address), and
+    None for free/consumer providers so personal-email orgs aren't tagged
+    with a domain that doesn't identify a company.
+    """
+    if not email or "@" not in email:
+        return None
+    domain = email.rsplit("@", 1)[-1].strip().lower()
+    if not domain or domain in _FREE_EMAIL_DOMAINS:
+        return None
+    return domain

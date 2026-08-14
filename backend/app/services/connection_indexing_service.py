@@ -730,6 +730,31 @@ class ConnectionIndexingService:
                 pass
         finally:
             _clear_cancel_event(indexing_id)
+            # Telemetry: schema/catalog sync finished, covers every completion
+            # branch above via this single finally. Runs before engine.dispose()
+            # so _new_session() is still backed by a live engine. Best-effort and
+            # fully isolated from the run's own outcome — this is already a
+            # background job, so nothing here adds request-path latency.
+            try:
+                from app.core.telemetry import telemetry
+                async with _new_session() as tel_db:
+                    fresh = await tel_db.get(ConnectionIndexing, indexing_id)
+                    if fresh is not None and fresh.status == ConnectionIndexingStatus.COMPLETED.value:
+                        conn = await tel_db.get(Connection, fresh.connection_id)
+                        stats = fresh.stats_json or {}
+                        await telemetry.capture(
+                            "data_source_schema_synced",
+                            {
+                                "connection_id": fresh.connection_id,
+                                "connection_type": conn.type if conn else None,
+                                "table_count": stats.get("table_count"),
+                                "item_noun": stats.get("item_noun"),
+                            },
+                            user_id=fresh.user_id,
+                            org_id=conn.organization_id if conn else None,
+                        )
+            except Exception:
+                logger.debug("indexing.telemetry_failed", exc_info=True)
             try:
                 await engine.dispose()
             except Exception:

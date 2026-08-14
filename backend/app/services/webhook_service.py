@@ -23,6 +23,7 @@ from app.schemas.webhook_schema import (
     TriggerRunSchema,
     TriggerRunListResponse,
 )
+from app.core.telemetry import telemetry
 from app.services.webhook_adapters.factory import WebhookAdapterFactory
 from app.settings.config import settings
 from app.settings.database import create_async_session_factory
@@ -246,6 +247,21 @@ class WebhookService:
         await db.refresh(wh)
         logger.info("Created trigger %s for user %s (source=%s mode=%s agents=%d)",
                     wh.id, current_user.id, wh.source, wh.mode, len(ds_rows))
+        try:
+            await telemetry.capture(
+                "trigger_created",
+                {
+                    "trigger_id": str(wh.id),
+                    "source": wh.source,
+                    "mode": wh.mode,
+                    "classify_enabled": bool(wh.classify_enabled),
+                    "agent_count": len(ds_rows),
+                },
+                user_id=current_user.id,
+                org_id=organization.id,
+            )
+        except Exception:
+            pass
         return self._to_schema(wh, secret=secret)  # secret shown once
 
     async def list_triggers(self, db, current_user: User, organization: Organization) -> list[WebhookSchema]:

@@ -21,6 +21,7 @@ import hashlib
 from PIL import Image
 from io import BytesIO
 from app.ee.audit.service import audit_service
+from app.core.telemetry import telemetry
 
 
 class OrganizationSettingsService:
@@ -145,6 +146,7 @@ class OrganizationSettingsService:
             # Use dict() to ensure we have a mutable copy
             current_config = dict(settings.config)
             config_changed = False
+            changed_ai_features: list = []
 
             # Handle AI features updates
             if 'ai_features' in update_data['config']:
@@ -192,6 +194,7 @@ class OrganizationSettingsService:
 
                     if current_config['ai_features'][feature_name] != original_dict:
                         config_changed = True
+                        changed_ai_features.append((feature_name, current_feature_dict.get('value')))
 
 
             # Handle top-level feature updates
@@ -372,6 +375,30 @@ class OrganizationSettingsService:
                         invalidate_pii_cache(str(organization.id))
                     except Exception:
                         pass
+
+                # Telemetry: never the PII rule patterns/regexes themselves —
+                # just whether protection is on and how many rules exist.
+                try:
+                    for _feature_name, _feature_value in changed_ai_features:
+                        await telemetry.capture(
+                            "ai_feature_updated",
+                            {"feature_name": _feature_name, "new_value": _feature_value},
+                            user_id=current_user.id,
+                            org_id=organization.id,
+                        )
+                    if pii_changed:
+                        _pii_cfg = current_config.get('pii_protection') or {}
+                        await telemetry.capture(
+                            "pii_protection_updated",
+                            {
+                                "enabled": _pii_cfg.get("enabled"),
+                                "rule_count": len(_pii_cfg.get("custom_rules") or []),
+                            },
+                            user_id=current_user.id,
+                            org_id=organization.id,
+                        )
+                except Exception:
+                    pass
 
                 # Audit log
                 try:
@@ -1278,6 +1305,16 @@ class OrganizationSettingsService:
                 resource_type="organization_settings",
                 resource_id=str(settings.id),
                 details={"feature_name": feature_name, "value": new_value},
+            )
+        except Exception:
+            pass
+
+        try:
+            await telemetry.capture(
+                "ai_feature_updated",
+                {"feature_name": feature_name, "new_value": new_value},
+                user_id=current_user.id,
+                org_id=organization.id,
             )
         except Exception:
             pass

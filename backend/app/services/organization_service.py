@@ -30,7 +30,7 @@ from app.settings.config import settings
 from fastapi import Request
 from typing import Optional
 from app.settings.logging_config import get_logger
-from app.core.telemetry import telemetry
+from app.core.telemetry import telemetry, derive_org_domain
 
 logger = get_logger(__name__)
 
@@ -68,6 +68,9 @@ class OrganizationService:
                 user_id=current_user.id,
                 org_id=organization.id,
             )
+            domain = derive_org_domain(getattr(current_user, "email", None))
+            if domain:
+                await telemetry.group_identify("organization", str(organization.id), {"domain": domain})
         except Exception:
             pass
 
@@ -370,6 +373,12 @@ class OrganizationService:
                 user_id=current_user.id,
                 org_id=membership_with_user.organization_id,
             )
+            member_email = invitation_email or getattr(membership_with_user.user, "email", None)
+            domain = derive_org_domain(member_email)
+            if domain:
+                await telemetry.group_identify(
+                    "organization", str(membership_with_user.organization_id), {"domain": domain}
+                )
         except Exception:
             pass
         
