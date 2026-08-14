@@ -12,6 +12,14 @@
  * KPICard, useFilters, …) matches what this template provides.
  */
 
+/**
+ * Cache-buster for /libs/artifact-globals.js. The file is served without a
+ * content hash, so a browser can pair a cached OLD runtime with NEW artifact
+ * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
+ * gains or changes a global.
+ */
+export const ARTIFACT_GLOBALS_VERSION = '2';
+
 export interface ArtifactIframeFile {
   id: string;
   content_type: string;
@@ -269,7 +277,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">${loadingLabel}</div></div>
 
   <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
-  <script src="/libs/artifact-globals.js">${SC}
+  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
 
   <script>${polish}${errorBoundaryScript()}${SC}
 
