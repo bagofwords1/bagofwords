@@ -422,3 +422,91 @@ def test_timeout_failure_payload_carries_db_message_and_failed_sql():
     failed_sql = last_failed.get("sql")
     assert db_message and "exceeded" in db_message.lower()
     assert failed_sql == "select pg_sleep(2)"
+
+
+# ---------------------------------------------------------------------------
+# Keyword-only clients (Qlik-shaped execute_query)
+# ---------------------------------------------------------------------------
+#
+# Not every client's query surface is a statement string: the Qlik connectors
+# take keyword arguments only (app=..., dimensions=..., measures=...) and their
+# system prompts teach the agent that calling convention. The wrapper used to
+# require a positional `query`, so every such call died in the wrapper itself —
+# before the client was reached — with "missing 1 required positional
+# argument: 'query'".
+
+
+class _KeywordOnlyClient:
+    """A Qlik-shaped client: no positional statement, keyword query surface."""
+
+    def __init__(self):
+        self.calls = []
+        self._bow_connection_id = None
+
+    def execute_query(self, app=None, dimensions=None, measures=None, filters=None,
+                      max_rows=10000, table_name=None, **_kwargs):
+        self.calls.append({"app": app, "dimensions": dimensions, "measures": measures})
+        return pd.DataFrame({"Region": ["EMEA"], "Rev": [10]})
+
+
+def test_keyword_only_call_reaches_the_client():
+    client = _KeywordOnlyClient()
+    wrapper = _make_wrapper(client)
+
+    df = wrapper.execute_query(
+        app="Sales/Consumer Sales",
+        dimensions=["Region"],
+        measures=[{"expr": "Sum([Sales])", "alias": "Rev"}],
+    )
+
+    assert len(df) == 1
+    assert client.calls == [{
+        "app": "Sales/Consumer Sales",
+        "dimensions": ["Region"],
+        "measures": [{"expr": "Sum([Sales])", "alias": "Rev"}],
+    }]
+
+
+def test_keyword_only_call_is_captured_with_its_arguments():
+    """The synthesized capture is what the UI shows as "the query" for the
+    step — it must carry the dimensions/measures, not just an app name."""
+    client = _KeywordOnlyClient()
+    wrapper = _make_wrapper(client)
+    wrapper.execute_query(app="Sales/Consumer Sales", dimensions=["Region"])
+
+    assert len(wrapper._captured_queries) == 1
+    captured = wrapper._captured_queries[0]
+    assert "Sales/Consumer Sales" in captured
+    assert "Region" in captured
+
+    timing = wrapper._captured_timings[0]
+    assert timing["sql"] and "Sales/Consumer Sales" in timing["sql"]
+    assert timing["rows"] == 1
+
+
+def test_keyword_only_call_works_through_the_query_alias():
+    client = _KeywordOnlyClient()
+    wrapper = _make_wrapper(client)
+    df = wrapper.query(app="Sales/Consumer Sales", dimensions=["Region"])
+    assert len(df) == 1
+    assert client.calls[0]["app"] == "Sales/Consumer Sales"
+
+
+def test_keyword_only_call_still_honours_the_timeout():
+    class _SlowKeywordClient(_KeywordOnlyClient):
+        def execute_query(self, **kwargs):
+            time.sleep(2)
+            return pd.DataFrame()
+
+    wrapper = _make_wrapper(_SlowKeywordClient(), timeout=1)
+    with pytest.raises(QueryTimeoutError):
+        wrapper.execute_query(app="Sales/Consumer Sales", dimensions=["Region"])
+
+
+def test_positional_calls_are_unchanged():
+    """The sentinel default must not disturb the SQL-shaped path."""
+    client = _StubClient()
+    wrapper = _make_wrapper(client)
+    wrapper.execute_query("select 1")
+    assert wrapper._captured_queries == ["select 1"]
+    assert wrapper._captured_timings[0]["sql"] == "select 1"
