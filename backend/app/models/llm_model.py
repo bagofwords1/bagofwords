@@ -6,8 +6,12 @@ from app.models.base import BaseSchema
 # the catalog and whose admin set no explicit size. A NULL window quietly
 # degrades every window-derived budget (prompt trim, compaction thresholds,
 # transcript decay, fallback candidate selection), so custom models get a
-# conservative default instead; admins can raise it per model in settings.
-DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 131_072
+# default instead; admins can adjust it per model in settings. 200k matches
+# DEFAULT_TOKEN_BUDGET (context trim) and the compaction service's assumed
+# window, and is a safe middle ground: most hosted models are ≥200k, and if
+# the real window is smaller the overflow handler's budget-shrink retry now
+# converges after one rejected call.
+DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 200_000
 
 LLM_MODEL_DETAILS = [
     {
