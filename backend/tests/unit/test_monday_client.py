@@ -277,6 +277,21 @@ def test_execute_query_column_selection_and_label_translation(monkeypatch):
     assert items_call["variables"]["cols"] == ["color_1", "numbers_1"]
 
 
+def test_execute_query_accepts_base_columns_in_selection(monkeypatch):
+    """The published schema lists item_id/name/group on every table, so specs
+    legitimately request them — they must be accepted (and skipped), not fail
+    as unknown columns."""
+    calls = fake_post(monkeypatch, boards_responder(ALL_BOARDS))
+    df = MondayClient(api_token="t").execute_query(json.dumps({
+        "board": "Sales Pipeline",
+        "columns": ["item_id", "name", "group", "Status"],
+        "limit": 3,
+    }))
+    assert list(df.columns) == ["item_id", "name", "group", "Status"]
+    items_call = next(c for c in calls if "items_page" in c["query"])
+    assert items_call["variables"]["cols"] == ["color_1"]  # only the board column is fetched
+
+
 def test_execute_query_bad_specs(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
     client = MondayClient(api_token="t")

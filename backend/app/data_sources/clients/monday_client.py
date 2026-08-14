@@ -420,11 +420,18 @@ class MondayClient(DataSourceClient):
             by_key.setdefault(title, column)
         return by_key
 
+    # Always-present DataFrame columns. The published schema lists them on every
+    # board table, so generated specs legitimately request them — accept and
+    # skip them instead of failing (they are returned regardless).
+    _BASE_COLUMNS = {"item_id", "name", "group"}
+
     def _selected_columns(self, requested, board_columns: List[dict], by_key: Dict[str, dict]) -> List[dict]:
         if not requested:
             return board_columns
         selected, missing = [], []
         for ref in requested:
+            if str(ref).lower() in self._BASE_COLUMNS:
+                continue
             column = by_key.get(str(ref)) or by_key.get(str(ref).lower())
             if column is None:
                 missing.append(str(ref))
@@ -433,7 +440,8 @@ class MondayClient(DataSourceClient):
         if missing:
             available = ", ".join(f"{c['title']} ({c['id']})" for c in board_columns)
             raise ValueError(
-                f"Unknown column(s) {missing} — available columns: {available}"
+                f"Unknown column(s) {missing} — available columns: {available} "
+                "(item_id, name and group are always included and need not be requested)"
             )
         return selected
 
