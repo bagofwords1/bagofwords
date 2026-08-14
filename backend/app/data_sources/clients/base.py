@@ -154,7 +154,19 @@ class DataSourceClient(ABC):
     # Async wrappers — offload blocking I/O to a thread so the event loop stays free.
 
     async def atest_connection(self):
-        return await asyncio.to_thread(self.test_connection)
+        # A health probe answers "can I establish a connection right now?" —
+        # serving it from a warm pooled connection half-defeats the question,
+        # and the periodic status sweep re-warming pools every few minutes
+        # kept idle server sessions open forever on quiet sources. Ephemeral
+        # mode hands the probe throwaway NullPool engines instead, so a test
+        # leaves zero sessions behind (see engine_pool.ephemeral).
+        from app.data_sources.engine_pool import ephemeral
+
+        def _probe():
+            with ephemeral():
+                return self.test_connection()
+
+        return await asyncio.to_thread(_probe)
 
     async def aget_schemas(
         self,

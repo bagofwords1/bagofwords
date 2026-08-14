@@ -133,6 +133,78 @@ export function isIncompleteCondition(condition: FilterCondition): boolean {
   return isBlank(condition.value)
 }
 
+// The user types what the grid shows, and the grid hides the raw value's rough
+// edges: SQL Server CHAR columns pad with trailing spaces ("X707 " renders as
+// "X707"), numbers arrive as 7837 or "7837.0" depending on the producing tool,
+// and Python serializes booleans as "True"/"False". So every comparison
+// normalizes both sides: trim, compare numerically when both sides are numbers,
+// fold case.
+function normStr(x: any): string {
+  return x == null ? '' : String(x).trim()
+}
+
+function normFold(x: any): string {
+  return normStr(x).toLowerCase()
+}
+
+function toNum(x: any): number {
+  if (typeof x === 'number') return x
+  const s = normStr(x)
+  return s === '' ? NaN : Number(s)
+}
+
+function looseEquals(value: any, target: any): boolean {
+  const a = toNum(value)
+  const b = toNum(target)
+  if (Number.isFinite(a) && Number.isFinite(b)) return a === b
+  return normFold(value) === normFold(target)
+}
+
+export function evaluateOperator(value: any, operator: string, target: any, target2?: any): boolean {
+  switch (operator) {
+    case 'equals':
+      return looseEquals(value, target)
+    case 'not_equals':
+      return !looseEquals(value, target)
+    case 'contains':
+      return normFold(value).includes(normFold(target))
+    case 'not_contains':
+      return !normFold(value).includes(normFold(target))
+    case 'starts_with':
+      return normFold(value).startsWith(normFold(target))
+    case 'ends_with':
+      return normFold(value).endsWith(normFold(target))
+    case 'greater_than':
+      return toNum(value) > toNum(target)
+    case 'less_than':
+      return toNum(value) < toNum(target)
+    case 'gte':
+      return toNum(value) >= toNum(target)
+    case 'lte':
+      return toNum(value) <= toNum(target)
+    case 'between':
+      return toNum(value) >= toNum(target) && toNum(value) <= toNum(target2)
+    case 'before':
+      return new Date(value) < new Date(target)
+    case 'after':
+      return new Date(value) > new Date(target)
+    case 'in':
+      return Array.isArray(target) && target.some(t => looseEquals(value, t))
+    case 'not_in':
+      return !Array.isArray(target) || !target.some(t => looseEquals(value, t))
+    case 'is_empty':
+      return normStr(value) === ''
+    case 'is_not_empty':
+      return normStr(value) !== ''
+    case 'is_true':
+      return value === true || value === 1 || normFold(value) === 'true'
+    case 'is_false':
+      return value === false || value === 0 || normFold(value) === 'false'
+    default:
+      return true
+  }
+}
+
 export function evaluateCondition(row: any, condition: FilterCondition, targetVizId?: string): boolean {
   const { vizId: condVizId, columnName } = parseColumnKey(condition.column)
 
@@ -149,46 +221,7 @@ export function evaluateCondition(row: any, condition: FilterCondition, targetVi
   // Case-insensitive column lookup
   const columnKey = Object.keys(row).find(k => k.toLowerCase() === columnName.toLowerCase())
   const value = columnKey ? row[columnKey] : undefined
-  const target = condition.value
-  
-  switch (condition.operator) {
-    case 'equals':
-      return String(value).toLowerCase() === String(target).toLowerCase()
-    case 'not_equals':
-      return String(value).toLowerCase() !== String(target).toLowerCase()
-    case 'contains':
-      return String(value).toLowerCase().includes(String(target).toLowerCase())
-    case 'not_contains':
-      return !String(value).toLowerCase().includes(String(target).toLowerCase())
-    case 'starts_with':
-      return String(value).toLowerCase().startsWith(String(target).toLowerCase())
-    case 'ends_with':
-      return String(value).toLowerCase().endsWith(String(target).toLowerCase())
-    case 'greater_than':
-      return Number(value) > Number(target)
-    case 'less_than':
-      return Number(value) < Number(target)
-    case 'gte':
-      return Number(value) >= Number(target)
-    case 'lte':
-      return Number(value) <= Number(target)
-    case 'between':
-      return Number(value) >= Number(target) && Number(value) <= Number(condition.value2)
-    case 'before':
-      return new Date(value) < new Date(target)
-    case 'after':
-      return new Date(value) > new Date(target)
-    case 'is_empty':
-      return value == null || value === ''
-    case 'is_not_empty':
-      return value != null && value !== ''
-    case 'is_true':
-      return value === true || value === 'true' || value === 1
-    case 'is_false':
-      return value === false || value === 'false' || value === 0
-    default:
-      return true
-  }
+  return evaluateOperator(value, condition.operator, condition.value, condition.value2)
 }
 
 export function evaluateFilters(row: any, groups: FilterGroup[], targetVizId?: string): boolean {

@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.539 (August 14, 2026)
+- Context budget now trims geometrically with conservative token estimates instead of overrunning the model's window
+- Fixed python-pptx slide previews rendering as raw text when a preview image is missing
+- Added file-based Power BI (.pbix) connector
+- Added monday.com as a queryable data source (GraphQL API)
+- Added SharePoint Lists connector
+- Added DataTable component for artifacts with sorting, pagination, and CSV export
+- Dashboard filters now match against exactly what the grid shows, via one shared evaluator
+- Idle SQL source sessions are closed instead of being held open indefinitely
+- Fixed hunk key collisions when accepting repeated identical instruction edits
+- Fixed terminal agent outcomes being skipped in concurrent tool dispatch
+
 ## Version 0.0.538 (August 12, 2026)
 - Fixed reading a file whose name is stored in a legacy codepage (Hebrew shares, Windows-written directories) — the read failed and ended the rest of the agent's turn with it
 - Fixed garbled filenames in file listings when a folder and the file inside it use different legacy codepages

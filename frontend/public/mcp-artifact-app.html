@@ -29,7 +29,7 @@
     block below overrides useArtifactData with an event-driven variant because
     MCP delivers ARTIFACT_DATA via postMessage rather than inlined srcdoc.
   -->
-  <script src="/libs/artifact-globals.js"></script>
+  <script src="/libs/artifact-globals.js?v=2"></script>
 
   <style>
     html, body, #root {
@@ -192,6 +192,12 @@
 
       function injectArtifactCode(code, mode) {
         if (mode === 'slides') {
+          // Legacy slides stored HTML; the current pipeline stores python-pptx
+          // source, which must never be dumped into the DOM as markup.
+          if (!/<\s*(!doctype|html|head|body|script|style|div|section)\b/i.test(code || '')) {
+            showError('Slide previews are not available for this presentation.');
+            return;
+          }
           var root = document.getElementById('root');
           if (root) root.innerHTML = code;
           return;

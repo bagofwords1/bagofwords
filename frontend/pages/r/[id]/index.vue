@@ -172,6 +172,15 @@
                     class="absolute inset-0"
                 />
 
+                <!-- Slides without previews: python-pptx source is not
+                     browser-renderable — show a fallback, never the iframe -->
+                <div v-else-if="slidesPreviewsMissing && artifact" class="absolute inset-0 flex items-center justify-center text-gray-400">
+                    <div class="text-center">
+                        <Icon name="heroicons:presentation-chart-bar" class="w-12 h-12 mx-auto mb-3 opacity-50" />
+                        <p>Slide previews are not available for this presentation</p>
+                    </div>
+                </div>
+
                 <!-- Shared Document - read-only DocViewer -->
                 <DocViewer
                     v-else-if="isDocMode && artifact"
@@ -184,7 +193,7 @@
                 <iframe
                     v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews && !isDocMode"
                     :srcdoc="iframeSrcdoc"
-                    sandbox="allow-scripts allow-same-origin"
+                    sandbox="allow-scripts allow-same-origin allow-downloads"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 
@@ -245,7 +254,7 @@ import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
-import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
+import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 
 const route = useRoute();
 const report_id = route.params.id;
@@ -465,6 +474,15 @@ const hasSlidesWithPreviews = computed(() => {
     return Array.isArray(previewImages) && previewImages.length > 0;
 });
 
+// Slides artifact with no previews and python-pptx code — nothing the browser
+// can render, so the page shows a fallback instead of injecting the source
+// into the iframe (where it would appear as raw text).
+const slidesPreviewsMissing = computed(() => {
+    if (artifact.value?.mode !== 'slides') return false;
+    if (hasSlidesWithPreviews.value) return false;
+    return !isHtmlSlidesCode(artifact.value?.content?.code || '');
+});
+
 // Shared document (mode='doc') — rendered read-only in DocViewer, never an iframe
 const isDocMode = computed(() => artifact.value?.mode === 'doc');
 
@@ -651,6 +669,9 @@ const iframeSrcdoc = computed(() => {
 
     const artifactCode = artifact.value?.content?.code;
     if (!artifactCode) return null;
+
+    // python-pptx slides source must never be injected into the iframe
+    if (slidesPreviewsMissing.value) return null;
 
     return buildArtifactIframeHtml({
         data: {

@@ -364,12 +364,36 @@
 
     var calcText = _infoCalc(opts.calc);
 
+    // Download the rows this tab displays (filtered set when present, full
+    // otherwise) — the FULL array, not the 100-row on-screen slice.
+    var exportBtn = (dataRows.length && cols.length) ? h('button', {
+      key: 'dl', type: 'button', 'data-testid': 'bow-popover-export',
+      title: 'Download CSV' + (isFiltered ? ' (filtered rows)' : ''),
+      onClick: function(e) {
+        e.stopPropagation();
+        window.exportCSV(dataRows, {
+          columns: cols.map(function(c) { return c.field; }),
+          filename: (viz.title || 'export')
+        });
+      },
+      className: 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0'
+    }, [
+      h('svg', { key: 'i', width: 11, height: 11, viewBox: '0 0 16 16', fill: 'none' }, [
+        h('path', { key: 'a', d: 'M8 2v8m0 0l-3-3m3 3l3-3', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+        h('path', { key: 'b', d: 'M3 13h10', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })
+      ]),
+      h('span', { key: 't' }, 'CSV')
+    ]) : null;
+
     return h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
       calcText ? h('div', { key: 'calc' }, [
         h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, 'Calculation'),
         h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1.5' }, calcText)
       ]) : null,
-      metaBits.length ? h('div', { key: 'm', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')) : null,
+      (metaBits.length || exportBtn) ? h('div', { key: 'm', className: 'flex items-center justify-between gap-2' }, [
+        h('span', { key: 'mb', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')),
+        exportBtn
+      ]) : null,
       filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
       cols.length ? h('div', {
         key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
@@ -555,6 +579,291 @@
         props.subtitle ? h('p', { key: 's', className: subtitleCls }, props.subtitle) : null,
       ]) : null,
       h('div', { key: 'body' }, props.children),
+    ]);
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // DataTable — sortable, paginated, RTL-aware table with hover/selection
+  // highlight, numeric formatting and CSV export. The default renderer for
+  // table visualizations; prefer it over hand-rolled <table> markup.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  // Print support: pagination hides rows from the screen but they stay in the
+  // DOM (up to printCap), so PDF export shows the whole table.
+  (function() {
+    var st = document.createElement('style');
+    st.textContent =
+      '@media print {' +
+      '  .bow-dt-offpage { display: table-row !important; }' +
+      '  .bow-dt-chrome { display: none !important; }' +
+      '  .bow-dt-scroll { max-height: none !important; overflow: visible !important; }' +
+      '}';
+    (document.head || document.documentElement).appendChild(st);
+  })();
+
+  var _RTL_CHARS = /[֐-׿؀-ۿ܀-ݏיִ-ﭏ]/g;
+
+  // Heuristic direction detection: compare strong-RTL vs latin letter counts
+  // in the headers and a sample of string cell values.
+  function _dtDetectDir(cols, rows) {
+    var sample = '';
+    for (var i = 0; i < cols.length; i++) sample += (cols[i].header || '') + ' ';
+    for (var r = 0; r < rows.length && r < 5; r++) {
+      var row = rows[r] || {};
+      for (var c = 0; c < cols.length; c++) {
+        var v = row[cols[c].field];
+        if (typeof v === 'string') sample += v + ' ';
+      }
+    }
+    var rtl = (sample.match(_RTL_CHARS) || []).length;
+    var ltr = (sample.match(/[A-Za-z]/g) || []).length;
+    return rtl > ltr ? 'rtl' : 'ltr';
+  }
+
+  function _dtColIsNumeric(col, rows) {
+    if (col.dtype && /int|float|double|decimal|number/i.test(String(col.dtype))) return true;
+    var seen = 0;
+    for (var i = 0; i < rows.length && seen < 5; i++) {
+      var v = rows[i] ? rows[i][col.field] : null;
+      if (v == null) continue;
+      seen++;
+      if (typeof v !== 'number') return false;
+    }
+    return seen > 0;
+  }
+
+  // null/undefined sort last regardless of direction; numbers (and numeric
+  // strings) compare numerically, everything else locale-compares.
+  function _dtCompare(a, b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return 1;
+    if (b == null) return -1;
+    var na = typeof a === 'number' ? a : (a !== '' && !isNaN(Number(a)) ? Number(a) : null);
+    var nb = typeof b === 'number' ? b : (b !== '' && !isNaN(Number(b)) ? Number(b) : null);
+    if (na != null && nb != null) return na - nb;
+    return String(a).localeCompare(String(b));
+  }
+
+  window.DataTable = function(props) {
+    var viz = props.viz || {};
+    var baseRows = Array.isArray(props.rows) ? props.rows
+      : (Array.isArray(viz.rows) ? viz.rows : []);
+    var colSource = Array.isArray(props.columns) && props.columns.length
+      ? { columns: props.columns } : viz;
+    var cols = React.useMemo(function() {
+      return _infoCols(colSource, baseRows);
+    }, [props.columns, viz.columns, baseRows]);
+
+    var sortable = props.sortable !== false;
+    var selectable = props.selectable !== false;
+    var exportable = props.exportable !== false;
+    var searchable = !!props.searchable;
+    var pageSize = props.pageSize != null ? props.pageSize : 15;
+    var printCap = props.printCap != null ? props.printCap : 1000;
+    // When paginated, the page size already bounds the height — a scroll clamp
+    // on top of pagination would hide part of the current page. The default
+    // 400px clamp only applies to non-paginated (pageSize=0) tables.
+    var maxHeight = props.maxHeight != null ? props.maxHeight
+      : (pageSize > 0 ? 'none' : 400);
+
+    var _sort = React.useState(null), sort = _sort[0], setSort = _sort[1];
+    var _pg = React.useState(0), page = _pg[0], setPage = _pg[1];
+    var _q = React.useState(''), query = _q[0], setQuery = _q[1];
+    var _sel = React.useState(null), selRow = _sel[0], setSelRow = _sel[1];
+
+    var dir = props.dir || _dtDetectDir(cols, baseRows);
+
+    var numericByField = React.useMemo(function() {
+      var m = {};
+      for (var i = 0; i < cols.length; i++) m[cols[i].field] = _dtColIsNumeric(cols[i], baseRows);
+      return m;
+    }, [cols, baseRows]);
+
+    // search → sort → paginate
+    var filtered = React.useMemo(function() {
+      if (!query) return baseRows;
+      var q = query.toLowerCase();
+      return baseRows.filter(function(row) {
+        for (var i = 0; i < cols.length; i++) {
+          var v = row ? row[cols[i].field] : null;
+          if (v != null && String(v).toLowerCase().indexOf(q) !== -1) return true;
+        }
+        return false;
+      });
+    }, [baseRows, cols, query]);
+
+    var sorted = React.useMemo(function() {
+      if (!sort) return filtered;
+      var out = filtered.slice();
+      out.sort(function(ra, rb) {
+        var a = ra ? ra[sort.field] : null;
+        var b = rb ? rb[sort.field] : null;
+        // nulls last in BOTH directions — outside the desc negation
+        if (a == null && b == null) return 0;
+        if (a == null) return 1;
+        if (b == null) return -1;
+        var c = _dtCompare(a, b);
+        return sort.desc ? -c : c;
+      });
+      return out;
+    }, [filtered, sort]);
+
+    var paged = pageSize > 0;
+    var pageCount = paged ? Math.max(1, Math.ceil(sorted.length / pageSize)) : 1;
+    var curPage = Math.min(page, pageCount - 1);
+    var start = paged ? curPage * pageSize : 0;
+    var end = paged ? Math.min(start + pageSize, sorted.length) : sorted.length;
+    // DOM rows: everything up to printCap so print/PDF sees the full table;
+    // rows outside the current page are hidden on screen via .bow-dt-offpage.
+    var domRows = sorted.slice(0, Math.max(end, Math.min(sorted.length, printCap)));
+
+    function clickHeader(field) {
+      if (!sortable) return;
+      setPage(0);
+      setSort(function(s) {
+        if (!s || s.field !== field) return { field: field, desc: false };
+        if (!s.desc) return { field: field, desc: true };
+        return null;
+      });
+    }
+
+    function clickRow(row, absIdx) {
+      if (props.onRowClick) props.onRowClick(row, absIdx);
+      if (selectable) setSelRow(function(cur) { return cur === row ? null : row; });
+    }
+
+    var isRtl = dir === 'rtl';
+
+    // ── toolbar (search / export) ──
+    var toolbar = null;
+    if (searchable || exportable) {
+      toolbar = h('div', {
+        key: 'tb',
+        className: 'bow-dt-chrome flex items-center justify-between gap-2 mb-2'
+      }, [
+        searchable ? h('input', {
+          key: 's', type: 'text', value: query,
+          'data-testid': 'bow-dt-search',
+          placeholder: props.searchPlaceholder || 'Search...',
+          onChange: function(e) { setQuery(e.target.value); setPage(0); },
+          className: 'rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 bg-white outline-none focus:border-blue-400 min-w-[160px]'
+        }) : h('span', { key: 's' }),
+        exportable ? h('button', {
+          key: 'x', type: 'button', 'data-testid': 'bow-dt-export',
+          title: 'Download CSV',
+          onClick: function() {
+            window.exportCSV(sorted, {
+              columns: cols.map(function(c) { return c.field; }),
+              filename: (viz.title || 'table')
+            });
+          },
+          className: 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 border border-slate-200 hover:text-slate-800 hover:bg-slate-50 transition-colors shrink-0'
+        }, [
+          h('svg', { key: 'i', width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none' }, [
+            h('path', { key: 'a', d: 'M8 2v8m0 0l-3-3m3 3l3-3', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }),
+            h('path', { key: 'b', d: 'M3 13h10', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })
+          ]),
+          h('span', { key: 't' }, 'CSV')
+        ]) : null
+      ]);
+    }
+
+    // ── header ──
+    var thead = h('thead', { key: 'h', className: 'text-xs uppercase bg-slate-50 sticky top-0 z-[1]' },
+      h('tr', {}, cols.map(function(c, i) {
+        var numeric = numericByField[c.field];
+        var isSorted = sort && sort.field === c.field;
+        return h('th', {
+          key: i,
+          onClick: function() { clickHeader(c.field); },
+          'aria-sort': isSorted ? (sort.desc ? 'descending' : 'ascending') : undefined,
+          className: 'px-4 py-3 font-medium text-slate-500 whitespace-nowrap select-none '
+            + (numeric ? 'text-end' : 'text-start')
+            + (sortable ? ' cursor-pointer hover:text-slate-800' : '')
+        }, h('span', { className: 'inline-flex items-center gap-1' }, [
+          h('span', { key: 't' }, c.header),
+          sortable ? h('span', {
+            key: 'a',
+            className: 'text-[9px] leading-none ' + (isSorted ? 'text-slate-700' : 'text-slate-300')
+          }, isSorted ? (sort.desc ? '▼' : '▲') : '⇅') : null
+        ]));
+      })));
+
+    // ── body ──
+    var tbody = h('tbody', { key: 'b' }, domRows.map(function(row, i) {
+      var onPage = i >= start && i < end;
+      var isSel = selectable && selRow === row;
+      var zebra = props.striped && ((i - start) % 2 === 1);
+      return h('tr', {
+        key: i,
+        onClick: function() { clickRow(row, i); },
+        className: (onPage ? '' : 'bow-dt-offpage hidden ')
+          + 'border-b border-slate-100 transition-colors '
+          + (isSel ? 'bg-blue-50 hover:bg-blue-50 '
+              : (zebra ? 'bg-slate-50/40 ' : '') + 'hover:bg-slate-100 ')
+          + ((selectable || props.onRowClick) ? 'cursor-pointer' : '')
+      }, cols.map(function(c, j) {
+        var numeric = numericByField[c.field];
+        return h('td', {
+          key: j,
+          dir: 'auto',
+          className: 'px-4 py-2 text-slate-700 ' + (numeric ? 'text-end tabular-nums' : 'text-start')
+        }, _infoCell(row ? row[c.field] : null));
+      }));
+    }));
+
+    // ── footer: pagination + counts ──
+    var footer = null;
+    var footBits = [];
+    if (query) footBits.push(sorted.length + ' of ' + baseRows.length + ' rows match');
+    if (sorted.length > printCap) footBits.push('first ' + printCap + ' rows in print/PDF');
+    if (paged && sorted.length > pageSize) {
+      footer = h('div', {
+        key: 'f',
+        className: 'bow-dt-chrome flex items-center justify-between gap-2 pt-2 text-xs text-slate-500'
+      }, [
+        h('span', { key: 'c', 'data-testid': 'bow-dt-range' },
+          (sorted.length ? (start + 1) : 0) + '–' + end + ' of ' + sorted.length
+          + (footBits.length ? '  ·  ' + footBits.join('  ·  ') : '')),
+        h('span', { key: 'nav', className: 'inline-flex items-center gap-1' }, [
+          h('button', {
+            key: 'p', type: 'button', 'data-testid': 'bow-dt-prev', disabled: curPage === 0,
+            onClick: function() { setPage(Math.max(0, curPage - 1)); },
+            className: 'px-2 py-1 rounded-md border border-slate-200 disabled:opacity-40 disabled:cursor-default hover:bg-slate-50'
+          }, isRtl ? '›' : '‹'),
+          h('span', { key: 'pg', className: 'px-1 tabular-nums' }, (curPage + 1) + '/' + pageCount),
+          h('button', {
+            key: 'n', type: 'button', 'data-testid': 'bow-dt-next', disabled: curPage >= pageCount - 1,
+            onClick: function() { setPage(Math.min(pageCount - 1, curPage + 1)); },
+            className: 'px-2 py-1 rounded-md border border-slate-200 disabled:opacity-40 disabled:cursor-default hover:bg-slate-50'
+          }, isRtl ? '‹' : '›')
+        ])
+      ]);
+    } else if (footBits.length) {
+      footer = h('div', { key: 'f', className: 'bow-dt-chrome pt-2 text-xs text-slate-500', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
+    }
+
+    var infoBtn = (props.info && props.viz)
+      ? h('div', { key: 'i', className: 'absolute top-0 z-10 ' + (isRtl ? 'left-0' : 'right-0') },
+          h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc }))
+      : null;
+
+    var empty = !cols.length || !baseRows.length;
+
+    return h('div', {
+      dir: dir,
+      'data-testid': 'bow-datatable',
+      className: 'relative' + (props.className ? ' ' + props.className : ''),
+      style: props.style
+    }, empty ? [
+      infoBtn,
+      h('div', { key: 'e', className: 'text-sm text-slate-400 py-8 text-center' }, props.emptyText || 'No data available')
+    ] : [
+      infoBtn,
+      toolbar,
+      h('div', { key: 'scroll', className: 'bow-dt-scroll overflow-auto', style: { maxHeight: maxHeight } },
+        h('table', { className: 'w-full text-sm' }, [thead, tbody])),
+      footer
     ]);
   };
 

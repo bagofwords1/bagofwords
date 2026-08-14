@@ -32,6 +32,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftConfig,
     TableauConfig,
     SalesforceConfig,
+    MondayConfig,
     ServiceNowConfig,
     ZabbixConfig,
     ZabbixTokenCredentials,
@@ -94,6 +95,8 @@ from app.schemas.data_sources.configs import (
     S3RoleCredentials,
     S3DefaultCredentials,
     # QVD Files
+    PBIXConfig,
+    PBIXCredentials,
     QVDConfig,
     QVDCredentials,
     # CSV Files
@@ -113,6 +116,8 @@ from app.schemas.data_sources.configs import (
     # SharePoint / OneDrive / Google Drive (file connectors)
     SharePointConfig,
     SharePointCredentials,
+    SharePointListsConfig,
+    SharePointListsCredentials,
     OneDriveConfig,
     OneDriveCredentials,
     OneNoteConfig,
@@ -177,6 +182,7 @@ from app.schemas.data_sources.configs import (
     SalesforceCredentials,
     SalesforceJWTCredentials,
     SalesforceClientCredentials,
+    MondayApiTokenCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
@@ -619,6 +625,27 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "monday": DataSourceRegistryEntry(
+        type="monday",
+        category="services",
+        title="Monday data",
+        description="Query monday.com boards as data — items, statuses, dates, people and numbers become tables the agent can filter and aggregate.",
+        config_schema=MondayConfig,
+        credentials_auth=AuthOptions(default="api_token", by_auth={
+            # The api_token schema also carries optional oauth_client_id/secret
+            # (ServiceNow pattern): the service token drives catalog indexing,
+            # the OAuth app fields power the per-user "oauth" sign-in below.
+            # `user` scope on api_token = bring-your-own-token.
+            "api_token": AuthVariant(title="API Token", schema=MondayApiTokenCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth: authorization-code flow against
+            # auth.monday.com; queries run as the signed-in user so board
+            # permissions apply natively. monday access tokens do not expire
+            # and no refresh token is issued.
+            "oauth": AuthVariant(title="Sign in with monday.com", schema=OAuthDelegatedCredentials, scopes=["user"]),
+        }),
+        client_path="app.data_sources.clients.monday_client.MondayClient",
         version="beta",
     ),
     "priority_erp": DataSourceRegistryEntry(
@@ -1141,6 +1168,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.qvd_client.QVDClient",
         requires_license="enterprise",
     ),
+    "pbix": DataSourceRegistryEntry(
+        type="pbix",
+        category="files",
+        title="Power BI (.pbix)",
+        description=(
+            "Query Power BI (.pbix) files with SQL. Point at file paths or glob patterns; "
+            "each file's embedded semantic model becomes queryable tables (data reflects "
+            "the last refresh saved into the file)."
+        ),
+        config_schema=PBIXConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=PBIXCredentials,
+                    scopes=["system"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.pbix_client.PBIXClient",
+        catalog_nouns=("model table", "model tables"),
+    ),
     "csv": DataSourceRegistryEntry(
         type="csv",
         category="files",
@@ -1253,6 +1303,42 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         is_document_based=True,
         data_shape="files",
         catalog_ownership="shared",
+        requires_license="enterprise",
+    ),
+    "sharepoint_lists": DataSourceRegistryEntry(
+        type="sharepoint_lists",
+        category="files",
+        title="SharePoint Lists",
+        description="Query SharePoint lists as tables — every list on a site becomes a queryable table with typed columns and OData filters.",
+        config_schema=SharePointListsConfig,
+        # Same auth shape as the SharePoint files connector: the admin's Entra
+        # app credentials power both the (optional) app-only catalog crawl and
+        # the per-user "Sign in with Microsoft" flow. Unlike drives, Graph list
+        # reads DO work app-only when the app holds Sites.Read.All application
+        # permission — delegated sign-in is the default, not a requirement.
+        credentials_auth=AuthOptions(
+            default="service_principal",
+            by_auth={
+                "service_principal": AuthVariant(
+                    title="Entra ID App (Service Principal)",
+                    schema=SharePointListsCredentials,
+                    scopes=["system", "user"],
+                ),
+                "oauth": AuthVariant(
+                    title="Sign in with Microsoft",
+                    schema=OAuthDelegatedCredentials,
+                    scopes=["user"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.graph_list_client.SharepointListsClient",
+        # Tables shape — lists carry typed columns and are queried via
+        # execute_query specs, so the standard tables agent path (schema
+        # context + create_data) applies. Catalog is shared: the site's lists
+        # are one universe; per-user overlays are ACL-filtered subsets.
+        data_shape="tables",
+        catalog_ownership="shared",
+        catalog_nouns=("list", "lists"),
         requires_license="enterprise",
     ),
     "onedrive": DataSourceRegistryEntry(

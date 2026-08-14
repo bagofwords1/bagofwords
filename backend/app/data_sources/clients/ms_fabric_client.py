@@ -11,6 +11,11 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 
 import pyodbc
+
+# ODBC driver-manager pooling would hold server sessions open after close(),
+# under SQLAlchemy's pool; engine_pool disables it too, but this module dials
+# pyodbc directly so it must not depend on import order.
+pyodbc.pooling = False
 from azure.identity import ClientSecretCredential
 
 logger = logging.getLogger(__name__)

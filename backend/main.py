@@ -43,6 +43,7 @@ from app.models.user import User
 from app.services.maintenance_service import purge_step_payloads_keep_latest_per_query
 from app.data_sources.clients.qvd_client import warm_all_qvd_caches
 from app.data_sources.clients.powerbi_report_server_client import warm_all_pbirs_caches
+from app.data_sources.clients.pbix_client import warm_all_pbix_file_caches
 from app.services.scheduled_reindex import sweep_due_reindexes
 from app.services.connection_status_sweep import sweep_stale_connection_status
 from app.core.otel import setup_telemetry, instrument_app
@@ -495,6 +496,24 @@ async def startup_event():
             logger.info("Scheduled job: pbirs_warmup every 1 hour")
         except Exception as e:
             logger.error(f"Failed to schedule PBIRS warmup job: {e}")
+
+    # Background warmup of file-based PBIX Parquet caches so a first query after
+    # a .pbix file edit doesn't pay the in-process pbixray decode.
+    if is_scheduler_leader:
+        try:
+            scheduler.add_job(
+                warm_all_pbix_file_caches,
+                trigger="interval",
+                hours=1,
+                id="pbix_file_warmup",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: pbix_file_warmup every 1 hour")
+        except Exception as e:
+            logger.error(f"Failed to schedule PBIX file warmup job: {e}")
 
     # Periodic schema auto-reload: re-index connection schemas whose tables are
     # stale past their per-connection interval (enterprise `scheduled_reindex`).

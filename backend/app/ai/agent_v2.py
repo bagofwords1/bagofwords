@@ -3495,6 +3495,23 @@ class AgentV2:
         return rollup
 
     @staticmethod
+    def _outcome_ends_run(outcome: dict) -> bool:
+        """Whether an action outcome carries a terminal policy decision.
+
+        A skipped outcome means the requested tool did not execute.  It does
+        not mean the outcome itself is disposable: execution policies such as
+        the artifact-call budget deliberately refuse the action *and* return a
+        final answer that must end the planner loop.
+        """
+        if not isinstance(outcome, dict):
+            return False
+        observation = outcome.get("observation")
+        return bool(
+            isinstance(observation, dict)
+            and observation.get("analysis_complete")
+        )
+
+    @staticmethod
     def _carry_substantive_observation(prev, new, outcomes: list):
         """Bookkeeping-only steps must not evict the planner's working data.
 
@@ -5676,7 +5693,13 @@ class AgentV2:
                                 else:
                                     failed_tool_count.pop(_tn, None)
                             for _o in outcomes:
-                                if _o.get("skipped"):
+                                # Most skipped actions are non-events for breaker
+                                # accounting.  A policy may, however, reject an
+                                # action with a terminal answer (artifact budget is
+                                # one example).  That outcome must reach the normal
+                                # analysis_complete finalizer or the planner will
+                                # request the refused action until the step limit.
+                                if _o.get("skipped") and not self._outcome_ends_run(_o):
                                     continue
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")
