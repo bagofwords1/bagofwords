@@ -172,7 +172,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | NetSuite | Business app |
 | Salesforce | Business app |
 | ServiceNow | Business app |
-| monday.com | Business app |
+| Monday data | Business app |
 | AWS Cost Explorer | Business app |
 | PostHog | Business app |
 | Outlook Mail | Business app |

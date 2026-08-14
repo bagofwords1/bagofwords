@@ -626,7 +626,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
     "monday": DataSourceRegistryEntry(
         type="monday",
         category="services",
-        title="monday.com",
+        title="Monday data",
         description="Query monday.com boards as data — items, statuses, dates, people and numbers become tables the agent can filter and aggregate.",
         config_schema=MondayConfig,
         credentials_auth=AuthOptions(default="api_token", by_auth={
