@@ -21,6 +21,7 @@ from app.data_sources.clients.pbix_common import (
     PBIX_MAX_BYTES,
     extract_pbix_model,
     materialize_pbix_parquets,
+    materialize_pbix_parquets_isolated,
     safe_view_name,
 )
 from app.data_sources.clients.progress import (
@@ -163,7 +164,13 @@ class PBIXClient(DataSourceClient):
             )
         t0 = time.perf_counter()
         logger.info("pbix.convert.start", extra={"pbix_file": filepath, "pbix_bytes": size})
-        manifest = materialize_pbix_parquets(filepath, cache_dir)
+        # Default: decode in a rlimit-bounded worker subprocess so a runaway
+        # pbixray decode can never OOM this process. The in-process path exists
+        # for tests, which fake the pbixray module.
+        if os.environ.get("BOW_PBIX_INPROCESS_EXTRACT") == "1":
+            manifest = materialize_pbix_parquets(filepath, cache_dir)
+        else:
+            manifest = materialize_pbix_parquets_isolated(filepath, cache_dir)
         logger.info(
             "pbix.convert.done",
             extra={

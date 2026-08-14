@@ -31,6 +31,7 @@ from app.data_sources.clients.pbix_common import (
     dax_to_dtype,
     extract_pbix_model,
     materialize_pbix_parquets,
+    materialize_pbix_parquets_isolated,
     safe_view_name,
 )
 
@@ -295,12 +296,73 @@ class TestQueryPath:
             df = c.execute_query("SELECT * FROM Sales")
         assert len(df) == 1
 
-    def test_cold_cache_materializes_lazily(self, fake_pbixray, tmp_path, cache_dir):
+    def test_cold_cache_materializes_lazily(self, fake_pbixray, tmp_path, cache_dir, monkeypatch):
+        # In-process extract: the faked pbixray module can't cross a subprocess.
+        monkeypatch.setenv("BOW_PBIX_INPROCESS_EXTRACT", "1")
         f = tmp_path / "m.pbix"
         _write_pbix(f)
         c = PBIXClient(str(f))
         df = c.execute_query('SELECT SUM("Amount") AS s FROM Sales')
         assert df.iloc[0]["s"] == 60.0
+
+
+_SHIM_PBIXRAY = '''
+import os, signal
+import pandas as pd
+
+class PBIXRay:
+    """PYTHONPATH shim standing in for pbixray inside the worker subprocess."""
+    def __init__(self, path):
+        self.path = path
+
+    @property
+    def schema(self):
+        return pd.DataFrame([
+            {"TableName": "Good", "ColumnName": "A", "PandasDataType": "Int64"},
+            {"TableName": "Poison", "ColumnName": "B", "PandasDataType": "Int64"},
+            {"TableName": "Tail", "ColumnName": "C", "PandasDataType": "Int64"},
+        ])
+
+    def get_table(self, name):
+        if name == "Poison" and os.environ.get("SHIM_POISON") == "kill":
+            os.kill(os.getpid(), signal.SIGKILL)
+        if name == "Poison":
+            raise ValueError("decode error")
+        return pd.DataFrame({"x": [1, 2]})
+'''
+
+
+class TestIsolatedMaterialize:
+    """Exercises the real worker subprocess via a PYTHONPATH pbixray shim."""
+
+    @pytest.fixture()
+    def shim(self, tmp_path, monkeypatch):
+        shim_dir = tmp_path / "shim"
+        shim_dir.mkdir()
+        (shim_dir / "pbixray.py").write_text(_SHIM_PBIXRAY)
+        existing = os.environ.get("PYTHONPATH", "")
+        monkeypatch.setenv("PYTHONPATH", f"{shim_dir}{os.pathsep}{existing}" if existing else str(shim_dir))
+        return shim_dir
+
+    def test_clean_error_skipped_in_worker(self, shim, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHIM_POISON", "raise")
+        manifest = materialize_pbix_parquets_isolated(
+            str(tmp_path / "x.pbix"), tmp_path / "cache", timeout_s=120,
+        )
+        assert set(manifest) == {"Good", "Tail"}
+        assert (tmp_path / "cache" / "manifest.json").exists()
+        assert not (tmp_path / "cache" / "manifest.partial.json").exists()
+
+    def test_worker_kill_excludes_table_and_retries(self, shim, tmp_path, monkeypatch):
+        monkeypatch.setenv("SHIM_POISON", "kill")
+        manifest = materialize_pbix_parquets_isolated(
+            str(tmp_path / "x.pbix"), tmp_path / "cache", timeout_s=120,
+        )
+        # Worker was SIGKILLed on 'Poison'; parent excluded it and re-ran, and
+        # the surviving tables (incl. one decoded before the kill) are served.
+        assert set(manifest) == {"Good", "Tail"}
+        for fname in manifest.values():
+            assert (tmp_path / "cache" / fname).exists()
 
 
 class TestWarmAll:

@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +31,17 @@ PBIX_MAX_BYTES = 200 * 1024 * 1024  # 200MB
 # this are skipped — parsing very large Vertipaq tables blows memory on the
 # decode path. 5M is comfortably above typical semantic-model fact tables.
 PBIX_MAX_ROWS_PER_TABLE = 5_000_000
+
+# Address-space ceiling for the extraction worker subprocess. pbixray's
+# Vertipaq decoder can hit runaway allocations on malformed column stores;
+# the rlimit turns those into a catchable MemoryError inside the worker
+# instead of an OOM kill of whichever process ran the decode.
+PBIX_EXTRACT_MEMORY_MB = int(os.environ.get("BOW_PBIX_EXTRACT_MEMORY_MB", "4096"))
+
+# Wall-clock budget per worker attempt.
+PBIX_EXTRACT_TIMEOUT_S = int(os.environ.get("BOW_PBIX_EXTRACT_TIMEOUT_S", "1800"))
+
+_WORKER_SCRIPT = Path(__file__).resolve().parent / "pbix_extract_worker.py"
 
 
 def safe_view_name(name: str) -> str:
@@ -201,3 +215,86 @@ def materialize_pbix_parquets(
         json.dump(manifest, f)
 
     return manifest
+
+def materialize_pbix_parquets_isolated(
+    pbix_path: str,
+    cache_dir: Path,
+    *,
+    max_rows_per_table: int = PBIX_MAX_ROWS_PER_TABLE,
+    memory_limit_mb: int = PBIX_EXTRACT_MEMORY_MB,
+    timeout_s: int = PBIX_EXTRACT_TIMEOUT_S,
+) -> dict[str, str]:
+    """Like materialize_pbix_parquets, but each decode attempt runs in a
+    short-lived worker subprocess with an address-space ceiling.
+
+    Rationale: pbixray decodes Vertipaq column stores fully in memory and can
+    hit runaway allocations on malformed pages — bad enough to draw the OOM
+    killer. Running in a rlimit-bounded child turns that into a per-table
+    MemoryError the worker skips; if the child dies anyway (SIGKILL), the
+    journaled state names the in-flight table, which is excluded on the next
+    attempt while already-written parquets are reused. The caller's process
+    never decodes pbix data itself.
+    """
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    excluded: list[str] = []
+    last_stderr = ""
+    # Each retry excludes one more poisoned table, so attempts are bounded by
+    # the table count; 50 is a generous backstop for any real model.
+    for _ in range(50):
+        try:
+            proc = subprocess.run(
+                [
+                    sys.executable,
+                    str(_WORKER_SCRIPT),
+                    pbix_path,
+                    str(cache_dir),
+                    str(max_rows_per_table),
+                    str(memory_limit_mb),
+                    json.dumps(excluded),
+                ],
+                capture_output=True,
+                text=True,
+                timeout=timeout_s,
+            )
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"pbix extraction timed out after {timeout_s}s on {pbix_path}"
+            ) from e
+
+        last_stderr = (proc.stderr or "").strip()
+        if proc.returncode == 0:
+            manifest_path = cache_dir / "manifest.json"
+            with manifest_path.open("r", encoding="utf-8") as f:
+                manifest = json.load(f)
+            if excluded:
+                logger.warning(
+                    f"pbix {pbix_path}: extracted {len(manifest)} table(s); "
+                    f"excluded after worker crashes: {excluded}"
+                )
+            return manifest
+
+        # Non-zero exit: a clean worker error (2/3) is final; a kill (negative
+        # returncode) excludes the journaled in-flight table and retries.
+        state_path = cache_dir / "state.json"
+        current = None
+        if state_path.exists():
+            try:
+                current = json.loads(state_path.read_text()).get("current")
+            except Exception:
+                current = None
+        if proc.returncode < 0 and current and current not in excluded:
+            logger.warning(
+                f"pbix {pbix_path}: worker killed (signal {-proc.returncode}) while "
+                f"decoding table '{current}'; excluding it and retrying"
+            )
+            excluded.append(current)
+            continue
+        raise RuntimeError(
+            f"pbix extraction failed for {pbix_path} (exit {proc.returncode}): "
+            f"{last_stderr[-500:]}"
+        )
+
+    raise RuntimeError(
+        f"pbix extraction did not converge for {pbix_path}; excluded={excluded}, "
+        f"stderr={last_stderr[-300:]}"
+    )
