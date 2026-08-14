@@ -161,16 +161,29 @@ class MondayClient(DataSourceClient):
 
     def test_connection(self):
         try:
-            data = self._gql("query { me { name email } account { name } boards (limit: 1) { id } }")
-            me = data.get("me") or {}
-            account = data.get("account") or {}
-            return {
-                "success": True,
-                "message": (
-                    f"Connected to monday.com as {me.get('name')} ({me.get('email')}) "
-                    f"on account '{account.get('name')}'"
-                ),
-            }
+            try:
+                data = self._gql("query { me { name email } account { name } boards (limit: 1) { id } }")
+                me = data.get("me") or {}
+                account = data.get("account") or {}
+                return {
+                    "success": True,
+                    "message": (
+                        f"Connected to monday.com as {me.get('name')} ({me.get('email')}) "
+                        f"on account '{account.get('name')}'"
+                    ),
+                }
+            except RuntimeError as e:
+                # OAuth tokens minted before me:read was requested (or apps that
+                # never enabled it) fail ONLY the Query.me identity probe —
+                # boards remain fully queryable, so degrade instead of failing.
+                if "Query.me" not in str(e) and "missing required scopes" not in str(e):
+                    raise
+                data = self._gql("query { account { name } boards (limit: 1) { id } }")
+                account = data.get("account") or {}
+                return {
+                    "success": True,
+                    "message": f"Connected to monday.com on account '{account.get('name')}'",
+                }
         except Exception as e:
             return {"success": False, "message": str(e)}
 

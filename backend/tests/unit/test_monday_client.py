@@ -164,6 +164,21 @@ def test_connection_success(monkeypatch):
     assert "Test User" in result["message"] and "Acme" in result["message"]
 
 
+def test_connection_degrades_without_me_scope(monkeypatch):
+    """A delegated OAuth token without me:read fails only the Query.me probe —
+    test_connection must fall back to account-level fields, not fail."""
+    def responder(query, variables):
+        if "me {" in query:
+            return FakeResponse({"errors": [{"message":
+                "Unauthorized to load field 'Query.me', Reason: missing required scopes"}]})
+        return FakeResponse({"data": {"account": {"name": "Acme"}, "boards": [{"id": "111"}]}})
+
+    fake_post(monkeypatch, responder)
+    result = MondayClient(access_token="delegated").test_connection()
+    assert result["success"] is True
+    assert "Acme" in result["message"]
+
+
 def test_connection_auth_failure(monkeypatch):
     fake_post(monkeypatch, lambda q, v: FakeResponse("<html>denied</html>", status_code=401))
     result = MondayClient(api_token="bad").test_connection()
