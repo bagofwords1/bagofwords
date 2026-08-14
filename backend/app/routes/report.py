@@ -611,6 +611,13 @@ import asyncio as _asyncio
 from collections import defaultdict as _defaultdict
 _pdf_export_locks: dict[str, "_asyncio.Lock"] = _defaultdict(_asyncio.Lock)
 
+# Upper bound on one export request: waiting for the lock (at most one render
+# already in flight) plus our own render. The render itself is capped at
+# ReportPdfService.RENDER_TIMEOUT_SECONDS; without this outer bound a request
+# queued behind a wedged render would wait forever and the client would sit at
+# "Exporting..." with no way to learn it failed.
+_PDF_EXPORT_TIMEOUT_SECONDS = 330
+
 
 @router.get("/r/{report_id}/export_pdf")
 async def export_public_report_pdf(
@@ -631,8 +638,19 @@ async def export_public_report_pdf(
 
     from app.services.report_pdf_service import ReportPdfService
 
-    async with _pdf_export_locks[str(report_id)]:
-        pdf_path = await ReportPdfService().generate_for_report(str(report_id))
+    async def _generate_locked() -> str | None:
+        async with _pdf_export_locks[str(report_id)]:
+            return await ReportPdfService().generate_for_report(str(report_id))
+
+    try:
+        pdf_path = await _asyncio.wait_for(
+            _generate_locked(), timeout=_PDF_EXPORT_TIMEOUT_SECONDS
+        )
+    except _asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="PDF export timed out. Please try again.",
+        )
 
     import os
     if not pdf_path or not os.path.isfile(pdf_path):

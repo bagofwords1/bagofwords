@@ -211,6 +211,12 @@ class ReportPdfService:
     OVERFLOW_GUTTER_PX = 32
     # Seconds to let ECharts re-render after each layout change.
     SETTLE_SECONDS = 1.2
+    # Hard wall-clock cap on one Chromium render. The individual Playwright
+    # calls each have their own timeout, but page.pdf() does not — a wedged
+    # renderer (huge canvas at device_scale_factor=2, OOMing tab) would
+    # otherwise hang the awaiting request forever, and with it every caller
+    # queued on the per-report export lock.
+    RENDER_TIMEOUT_SECONDS = 150
 
     def __init__(self):
         self.UPLOADS_DIR.mkdir(parents=True, exist_ok=True)
@@ -227,10 +233,30 @@ class ReportPdfService:
             Relative path to the PDF file (e.g. "pdfs/{id}.pdf"), or None on failure.
         """
         try:
-            from playwright.async_api import async_playwright
+            from playwright.async_api import async_playwright  # noqa: F401
         except ImportError:
             logger.warning("Playwright not installed, skipping PDF generation")
             return None
+
+        try:
+            return await asyncio.wait_for(
+                self._generate_pdf_inner(artifact_id, html_content),
+                timeout=self.RENDER_TIMEOUT_SECONDS,
+            )
+        except asyncio.TimeoutError:
+            logger.error(
+                "PDF render for artifact %s exceeded %ss; aborting",
+                artifact_id, self.RENDER_TIMEOUT_SECONDS,
+            )
+            return None
+        except Exception as e:
+            logger.exception(f"Failed to generate PDF for artifact {artifact_id}: {e}")
+            return None
+
+    async def _generate_pdf_inner(self, artifact_id: str, html_content: str) -> Optional[str]:
+        """The actual render. Callers go through generate_pdf, which bounds this
+        with RENDER_TIMEOUT_SECONDS and turns any failure into None."""
+        from playwright.async_api import async_playwright
 
         pdf_path = self.UPLOADS_DIR / f"{artifact_id}.pdf"
 

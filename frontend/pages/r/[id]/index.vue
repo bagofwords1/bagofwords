@@ -372,7 +372,13 @@ async function handleExportPdf() {
     try {
         const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/export_pdf`, {
             responseType: 'blob' as any,
-        });
+            // The server bounds an export at ~5.5 min (render cap + lock wait);
+            // this backstop keeps the button from spinning forever if the
+            // request itself goes into a black hole (dropped connection, proxy
+            // buffering with no response). Without it the finally below never
+            // runs and the UI is stuck at "Exporting...".
+            timeout: 360_000,
+        } as any);
         if (fetchError.value || !data.value) throw fetchError.value || new Error('PDF export failed');
         const blob = data.value as Blob;
         const url = URL.createObjectURL(blob);
