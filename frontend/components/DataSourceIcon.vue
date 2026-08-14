@@ -101,6 +101,8 @@ const iconPath = computed(() => {
         outlook_mail: 'outlook_mail.svg',
         elasticsearch: 'elasticsearch.svg',
         s3: 's3.svg',
+        // Same brand asset as the monday MCP preset (CONNECTOR_ICON_FILE above).
+        monday: 'monday.svg',
     };
     if (TYPE_ICON_FILE[t]) {
         return `/data_sources_icons/${TYPE_ICON_FILE[t]}`;

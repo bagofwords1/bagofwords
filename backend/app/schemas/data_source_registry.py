@@ -32,6 +32,7 @@ from app.schemas.data_sources.configs import (
     AwsRedshiftConfig,
     TableauConfig,
     SalesforceConfig,
+    MondayConfig,
     ServiceNowConfig,
     ZabbixConfig,
     ZabbixTokenCredentials,
@@ -179,6 +180,7 @@ from app.schemas.data_sources.configs import (
     SalesforceCredentials,
     SalesforceJWTCredentials,
     SalesforceClientCredentials,
+    MondayApiTokenCredentials,
     ServiceNowCredentials,
     MongoDBCredentials,
     PostHogCredentials,
@@ -621,6 +623,27 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         # Explicit path: dynamic resolution would derive "ServicenowClient" (lowercase n).
         client_path="app.data_sources.clients.servicenow_client.ServiceNowClient",
+        version="beta",
+    ),
+    "monday": DataSourceRegistryEntry(
+        type="monday",
+        category="services",
+        title="Monday data",
+        description="Query monday.com boards as data — items, statuses, dates, people and numbers become tables the agent can filter and aggregate.",
+        config_schema=MondayConfig,
+        credentials_auth=AuthOptions(default="api_token", by_auth={
+            # The api_token schema also carries optional oauth_client_id/secret
+            # (ServiceNow pattern): the service token drives catalog indexing,
+            # the OAuth app fields power the per-user "oauth" sign-in below.
+            # `user` scope on api_token = bring-your-own-token.
+            "api_token": AuthVariant(title="API Token", schema=MondayApiTokenCredentials, scopes=["system", "user"]),
+            # Per-user delegated OAuth: authorization-code flow against
+            # auth.monday.com; queries run as the signed-in user so board
+            # permissions apply natively. monday access tokens do not expire
+            # and no refresh token is issued.
+            "oauth": AuthVariant(title="Sign in with monday.com", schema=OAuthDelegatedCredentials, scopes=["user"]),
+        }),
+        client_path="app.data_sources.clients.monday_client.MondayClient",
         version="beta",
     ),
     "priority_erp": DataSourceRegistryEntry(

@@ -186,6 +186,27 @@ class TestGetOAuthParams:
         with pytest.raises(ValueError, match="account"):
             get_oauth_params(conn)
 
+    def test_monday(self):
+        conn = _make_connection(
+            type="monday",
+            credentials={
+                "api_token": "svc-token",
+                "oauth_client_id": "mc1", "oauth_client_secret": "ms1",
+            },
+        )
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "monday"
+        assert params["authorize_url"] == "https://auth.monday.com/oauth2/authorize"
+        assert params["token_url"] == "https://auth.monday.com/oauth2/token"
+        assert params["client_id"] == "mc1"
+        assert params["client_secret"] == "ms1"
+        assert params["scopes"] == "boards:read workspaces:read users:read account:read"
+
+    def test_monday_missing_oauth_creds_raises(self):
+        conn = _make_connection(type="monday", credentials={"api_token": "svc-token"})
+        with pytest.raises(ValueError, match="oauth_client_id"):
+            get_oauth_params(conn)
+
     def test_servicenow(self):
         conn = _make_connection(
             type="servicenow",
