@@ -1,6 +1,7 @@
 # Release Notes
 
 ## Version 0.0.539 (August 14, 2026)
+- Added file-based Power BI (.pbix) connector
 - Added monday.com as a queryable data source (GraphQL API)
 - Added SharePoint Lists connector
 - Added DataTable component for artifacts with sorting, pagination, and CSV export
