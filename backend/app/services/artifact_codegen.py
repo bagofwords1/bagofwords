@@ -244,32 +244,9 @@ def _build_metric_card(data_model: dict, viz_index: int) -> str:
 
 
 def _build_table(data_model: dict, viz_index: int) -> str:
-    """Table JSX — renders viz[N].columns / viz[N].rows as a Tailwind table."""
-    v = f"viz[{viz_index}]"
-    return (
-        f"(() => {{\n"
-        f"  const cols = {v}.columns || [];\n"
-        f"  const rows = {v}.rows || [];\n"
-        f"  return <div style={{{{maxHeight: 400, overflow: 'auto'}}}}>\n"
-        f'    <table className="w-full text-sm text-left">\n'
-        f'      <thead className="text-xs uppercase bg-slate-50 sticky top-0">\n'
-        f"        <tr>{{cols.map((c, i) =>\n"
-        f'          <th key={{i}} className="px-4 py-3 font-medium text-slate-500">{{c.headerName || c.field}}</th>\n'
-        f"        )}}</tr>\n"
-        f"      </thead>\n"
-        f"      <tbody>\n"
-        f"        {{rows.map((row, i) =>\n"
-        f'          <tr key={{i}} className="border-b border-slate-100 hover:bg-slate-50">\n'
-        f"            {{cols.map((c, j) =>\n"
-        f'              <td key={{j}} className="px-4 py-2 text-slate-700">{{row[c.field] != null ? String(row[c.field]) : \'\'}}</td>\n'
-        f"            )}}\n"
-        f"          </tr>\n"
-        f"        )}}\n"
-        f"      </tbody>\n"
-        f"    </table>\n"
-        f"  </div>;\n"
-        f"}})()"
-    )
+    """Table JSX — renders viz[N] via the global <DataTable> component
+    (sorting, pagination, hover/selection highlight, RTL, CSV export)."""
+    return f"<DataTable viz={{viz[{viz_index}]}} />"
 
 
 # ---------------------------------------------------------------------------

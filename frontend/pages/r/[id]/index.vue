@@ -184,7 +184,7 @@
                 <iframe
                     v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews && !isDocMode"
                     :srcdoc="iframeSrcdoc"
-                    sandbox="allow-scripts allow-same-origin"
+                    sandbox="allow-scripts allow-same-origin allow-downloads"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
 

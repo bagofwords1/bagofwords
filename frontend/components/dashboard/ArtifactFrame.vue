@@ -247,7 +247,7 @@
         v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !snapshotWithheld && !iframeError && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
-        sandbox="allow-scripts allow-same-origin"
+        sandbox="allow-scripts allow-same-origin allow-downloads"
         class="absolute inset-0 w-full h-full border-0 bg-white z-0"
         @load="onIframeLoad"
       />
@@ -341,7 +341,7 @@
             <iframe
               v-else-if="isFullscreenOpen && iframeSrcdoc"
               :srcdoc="iframeSrcdoc"
-              sandbox="allow-scripts allow-same-origin"
+              sandbox="allow-scripts allow-same-origin allow-downloads"
               class="absolute inset-0 w-full h-full border-0"
             />
           </div>
