@@ -372,6 +372,11 @@ async function handleExportPdf() {
     try {
         const { data, error: fetchError } = await useMyFetch(`/api/r/${report_id}/export_pdf`, {
             responseType: 'blob' as any,
+            // ofetch's default retry list includes 409/504 — exactly what a
+            // failed/timed-out export returns — and a silent retry re-runs a
+            // multi-minute server-side render, doubling how long the button
+            // spins before the user sees the error. Fail once, fail visibly.
+            retry: 0,
             // The server bounds an export at ~5.5 min (render cap + lock wait);
             // this backstop keeps the button from spinning forever if the
             // request itself goes into a black hole (dropped connection, proxy
@@ -394,7 +399,14 @@ async function handleExportPdf() {
         URL.revokeObjectURL(url);
     } catch (e: any) {
         console.error('PDF export failed:', e);
-        exportPdfError.value = e?.data?.detail || e?.message || 'PDF export failed';
+        // With responseType 'blob' the error body arrives as a Blob, so the
+        // server's JSON {detail} has to be read out of it — otherwise the user
+        // sees the raw ofetch message instead of e.g. "PDF export timed out".
+        let detail = e?.data?.detail;
+        if (!detail && e?.data instanceof Blob) {
+            try { detail = JSON.parse(await e.data.text())?.detail; } catch { /* not JSON */ }
+        }
+        exportPdfError.value = detail || e?.message || 'PDF export failed';
         // Surface it in the top bar's existing error slot.
         runError.value = exportPdfError.value;
     } finally {

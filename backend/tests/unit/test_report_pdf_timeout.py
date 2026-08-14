@@ -18,7 +18,7 @@ from app.services.report_pdf_service import ReportPdfService
 async def test_generate_pdf_times_out_instead_of_hanging(monkeypatch):
     service = ReportPdfService()
 
-    async def hang_forever(artifact_id, html_content):
+    async def hang_forever(artifact_id, html_content, marker):
         await asyncio.sleep(3600)
 
     monkeypatch.setattr(service, "_generate_pdf_inner", hang_forever)
@@ -35,7 +35,7 @@ async def test_generate_pdf_times_out_instead_of_hanging(monkeypatch):
 async def test_generate_pdf_returns_none_on_render_failure(monkeypatch):
     service = ReportPdfService()
 
-    async def explode(artifact_id, html_content):
+    async def explode(artifact_id, html_content, marker):
         raise RuntimeError("chromium crashed")
 
     monkeypatch.setattr(service, "_generate_pdf_inner", explode)
