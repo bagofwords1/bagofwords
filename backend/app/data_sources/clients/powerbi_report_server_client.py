@@ -35,30 +35,15 @@ _PBIX_SCHEMA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / 
 # queries and invalidated on report edit via the modified_date key.
 _PBIX_DATA_CACHE_DIR = Path(__file__).resolve().parent.parent.parent.parent / "uploads" / "pbix_data_cache"
 
-# Max pbix size we'll attempt to parse (bytes). Larger files are skipped — they
-# use more memory/time than is worthwhile for metadata-only discovery.
-_PBIX_MAX_BYTES = 200 * 1024 * 1024  # 200MB
-
-# Per-table row cap when materializing pbix data to Parquet. Tables exceeding
-# this are skipped — parsing very large Vertipaq tables blows memory on the
-# decode path. 5M is comfortably above typical semantic-model fact tables.
-_PBIX_MAX_ROWS_PER_TABLE = 5_000_000
-
-# Auto-generated internal Power BI date tables — filtered out of schema output.
-_AUTO_DATE_TABLE_RE = re.compile(r"^(LocalDateTable|DateTableTemplate)_[0-9a-fA-F\-]+$")
-
-# DuckDB view names need to be simple identifiers. Vertipaq table names can
-# contain spaces, symbols, or be reserved keywords — sanitize to a safe form.
-_SAFE_NAME_RE = re.compile(r"[^A-Za-z0-9_]+")
-
-
-def _safe_view_name(name: str) -> str:
-    cleaned = _SAFE_NAME_RE.sub("_", name).strip("_")
-    if not cleaned:
-        cleaned = "tbl"
-    if cleaned[0].isdigit():
-        cleaned = f"t_{cleaned}"
-    return cleaned
+# Shared pbix helpers (also used by the file-based PBIX connector). Re-bound
+# under the module-private names this file and its tests have always used.
+from app.data_sources.clients.pbix_common import (
+    AUTO_DATE_TABLE_RE as _AUTO_DATE_TABLE_RE,
+    PBIX_MAX_BYTES as _PBIX_MAX_BYTES,
+    PBIX_MAX_ROWS_PER_TABLE as _PBIX_MAX_ROWS_PER_TABLE,
+    dax_to_dtype as _dax_to_dtype,
+    safe_view_name as _safe_view_name,
+)
 
 
 def _pbix_cache_path(report_id: str, modified_date: Optional[str]) -> Path:
@@ -71,23 +56,6 @@ def _pbix_data_cache_dir(report_id: str, modified_date: Optional[str]) -> Path:
     key = f"{report_id}|{modified_date or ''}"
     h = hashlib.sha256(key.encode("utf-8")).hexdigest()[:16]
     return _PBIX_DATA_CACHE_DIR / h
-
-
-def _dax_to_dtype(dax_type: Optional[str]) -> str:
-    if not dax_type:
-        return "unknown"
-    t = str(dax_type).lower()
-    if "int" in t:
-        return "int"
-    if "float" in t or "double" in t or "decimal" in t or "number" in t:
-        return "float"
-    if "bool" in t:
-        return "bool"
-    if "date" in t or "time" in t:
-        return "datetime"
-    if "string" in t or "text" in t or "object" in t:
-        return "string"
-    return t
 
 
 def _strip_ns(tag: str) -> str:

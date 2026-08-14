@@ -2330,6 +2330,22 @@ class QVDConfig(BaseModel):
     )
 
 
+# Power BI (.pbix) Files
+class PBIXCredentials(BaseModel):
+    """No credentials needed - file system access only."""
+    class Config:
+        extra = "allow"
+
+
+class PBIXConfig(BaseModel):
+    file_paths: str = Field(
+        ...,
+        title="File Paths",
+        description="Power BI (.pbix) file paths or glob patterns (one per line). e.g., /data/*.pbix",
+        json_schema_extra={"ui:type": "textarea"}
+    )
+
+
 # CSV Files (comma/delimiter-separated values)
 class CSVCredentials(BaseModel):
     """No credentials needed - file system access only."""

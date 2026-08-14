@@ -94,6 +94,8 @@ from app.schemas.data_sources.configs import (
     S3RoleCredentials,
     S3DefaultCredentials,
     # QVD Files
+    PBIXConfig,
+    PBIXCredentials,
     QVDConfig,
     QVDCredentials,
     # CSV Files
@@ -1140,6 +1142,29 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.qvd_client.QVDClient",
         requires_license="enterprise",
+    ),
+    "pbix": DataSourceRegistryEntry(
+        type="pbix",
+        category="files",
+        title="Power BI (.pbix)",
+        description=(
+            "Query Power BI (.pbix) files with SQL. Point at file paths or glob patterns; "
+            "each file's embedded semantic model becomes queryable tables (data reflects "
+            "the last refresh saved into the file)."
+        ),
+        config_schema=PBIXConfig,
+        credentials_auth=AuthOptions(
+            default="none",
+            by_auth={
+                "none": AuthVariant(
+                    title="No Authentication",
+                    schema=PBIXCredentials,
+                    scopes=["system"]
+                )
+            }
+        ),
+        client_path="app.data_sources.clients.pbix_client.PBIXClient",
+        catalog_nouns=("model table", "model tables"),
     ),
     "csv": DataSourceRegistryEntry(
         type="csv",
