@@ -280,8 +280,10 @@ def get_oauth_params(connection: Connection) -> dict:
             "client_id": client_id,
             "client_secret": client_secret,
             # Read-only scopes: enough to index boards and run queries as the
-            # signed-in user. Write scopes are deliberately excluded.
-            "scopes": "boards:read workspaces:read users:read account:read",
+            # signed-in user. Write scopes are deliberately excluded. `me:read`
+            # covers the Query.me identity probe in test_connection — personal
+            # API tokens carry it implicitly, delegated tokens must request it.
+            "scopes": "me:read boards:read workspaces:read users:read account:read",
             "provider_name": "monday",
         }
 

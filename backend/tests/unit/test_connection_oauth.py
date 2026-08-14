@@ -200,7 +200,7 @@ class TestGetOAuthParams:
         assert params["token_url"] == "https://auth.monday.com/oauth2/token"
         assert params["client_id"] == "mc1"
         assert params["client_secret"] == "ms1"
-        assert params["scopes"] == "boards:read workspaces:read users:read account:read"
+        assert params["scopes"] == "me:read boards:read workspaces:read users:read account:read"
 
     def test_monday_missing_oauth_creds_raises(self):
         conn = _make_connection(type="monday", credentials={"api_token": "svc-token"})
