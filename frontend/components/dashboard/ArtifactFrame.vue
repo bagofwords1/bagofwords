@@ -203,6 +203,28 @@
         class="absolute inset-0"
       />
 
+      <!-- Slides without previews: content.code is python-pptx source, which
+           the browser cannot render — never inject it into the iframe. -->
+      <div v-else-if="slidesPreviewsMissing" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
+        <Icon name="heroicons:presentation-chart-bar" class="w-8 h-8 text-gray-400 mb-3" />
+        <template v-if="selectedArtifact?.status === 'failed'">
+          <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Slides generation failed</h3>
+          <p class="text-xs text-gray-400 mb-4 max-w-sm text-center">
+            The presentation could not be built. Ask the agent to regenerate the slides.
+          </p>
+        </template>
+        <template v-else>
+          <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Slide previews unavailable</h3>
+          <p class="text-xs text-gray-400 mb-4 max-w-sm text-center">
+            The deck was built, but preview images could not be generated on the server. You can still download the PowerPoint file.
+          </p>
+          <UButton @click="exportPptx" :disabled="isExporting" size="xs" color="purple" variant="soft">
+            <Icon name="heroicons:arrow-down-tray" class="w-4 h-4" />
+            Export PPTX
+          </UButton>
+        </template>
+      </div>
+
       <!-- Doc Mode - owner editing (TipTap) -->
       <DocEditor
         v-else-if="isDocMode && selectedArtifact && isEditingDoc"
@@ -256,7 +278,7 @@
            slides render as page images through SlideViewer, so there is no
            iframe for the element picker to talk to) -->
       <div
-        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews"
+        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews && !slidesPreviewsMissing"
         class="absolute bottom-4 left-4 z-20"
       >
         <button
@@ -337,6 +359,11 @@
               :visualizations="visualizationsData"
               class="absolute inset-0"
             />
+            <!-- Slides without previews have no renderable content -->
+            <div v-else-if="isFullscreenOpen && slidesPreviewsMissing" class="absolute inset-0 flex flex-col items-center justify-center text-gray-400">
+              <Icon name="heroicons:presentation-chart-bar" class="w-8 h-8 mb-2" />
+              <span class="text-sm">Slide previews unavailable</span>
+            </div>
             <!-- Other artifacts use iframe -->
             <iframe
               v-else-if="isFullscreenOpen && iframeSrcdoc"
@@ -361,7 +388,7 @@ import SlideViewer from './SlideViewer.vue';
 import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
-import { buildArtifactIframeHtml } from '~/utils/artifactIframe';
+import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -675,6 +702,16 @@ const hasSlidesWithPreviews = computed(() => {
   if (selectedArtifact.value.mode !== 'slides') return false;
   const previewImages = selectedArtifact.value.content?.preview_images;
   return Array.isArray(previewImages) && previewImages.length > 0;
+});
+
+// Slides artifact whose previews are missing (preview generation failed, or
+// the pptx build itself failed) and whose code is python-pptx source, not
+// legacy HTML slides. Such an artifact has nothing browser-renderable — show
+// the dedicated fallback instead of the iframe.
+const slidesPreviewsMissing = computed(() => {
+  if (selectedArtifact.value?.mode !== 'slides') return false;
+  if (hasSlidesWithPreviews.value) return false;
+  return !isHtmlSlidesCode(selectedArtifact.value?.content?.code || '');
 });
 
 // Doc mode: markdown document rendered by DocViewer (no iframe, no JSX)
@@ -1462,6 +1499,10 @@ const iframeSrcdoc = computed(() => {
   // code routinely assumes rows exist — don't execute it at all. The
   // ViewerRunGate covers this state until the viewer's own run resolves it.
   if (snapshotWithheld.value) return undefined;
+
+  // Slides without previews carry python-pptx source; it must never be
+  // injected into the iframe (the browser would render it as raw text).
+  if (slidesPreviewsMissing.value) return undefined;
 
   // If artifacts exist, wait for the selected artifact to be fully loaded
   if (artifactsList.value.length > 0 && !selectedArtifact.value?.content?.code) return undefined;

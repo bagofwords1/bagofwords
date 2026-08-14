@@ -41,6 +41,16 @@ export interface ArtifactIframeOptions {
 
 const SC = '</' + 'script>';
 
+/**
+ * Legacy slides artifacts stored browser-renderable HTML in content.code;
+ * the current pipeline stores python-pptx source that only the backend can
+ * execute. Only markup may be injected into the slides iframe — Python
+ * dumped into a <body> renders as a wall of source text.
+ */
+export function isHtmlSlidesCode(code: string): boolean {
+  return /<\s*(!doctype|html|head|body|script|style|div|section)\b/i.test(code || '');
+}
+
 function buildSlidesHtml(data: ArtifactIframeData, code: string): string {
   return `<!DOCTYPE html>
 <html>
