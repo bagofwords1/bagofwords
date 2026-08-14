@@ -9,7 +9,7 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.settings.config import settings
 from app.models.llm_provider import LLM_PROVIDER_DETAILS
-from app.models.llm_model import LLM_MODEL_DETAILS
+from app.models.llm_model import LLM_MODEL_DETAILS, DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
 from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate, LLMProviderTestConnection
 from app.ai.llm.llm import LLM
 from app.dependencies import async_session_maker
@@ -273,6 +273,10 @@ class LLMService:
             input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
             output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
         )
+        # Same NULL-window guard as _create_models: a custom model with no
+        # explicit size gets the conservative default, never NULL.
+        if row.is_custom and row.context_window_tokens is None:
+            row.context_window_tokens = DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
         db.add(row)
         await db.commit()
         await db.refresh(row)
@@ -1046,6 +1050,10 @@ class LLMService:
             )
             if catalog and catalog.get("context_window_tokens") is not None:
                 model.context_window_tokens = catalog["context_window_tokens"]
+            elif model.is_custom and model.context_window_tokens is None:
+                # Clearing the override on a custom model must not reintroduce
+                # a NULL window — fall back to the same default used at creation.
+                model.context_window_tokens = DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
         await db.commit()
 
         logger.info("LLM model context window set: id=%s, name=%s, model_id=%s, context_window_tokens=%s, override=%s, org_id=%s", model.id, model.name, model.model_id, model.context_window_tokens, tokens, organization.id)
@@ -1452,6 +1460,11 @@ class LLMService:
             # A non-null context-window override always wins over catalog/user values.
             if cw_override is not None:
                 db_model.context_window_tokens = int(cw_override)
+            # Custom model, no catalog match, no user/admin size: assume a
+            # conservative default rather than leaving the window NULL (which
+            # silently degrades every window-derived budget downstream).
+            if db_model.is_custom and db_model.context_window_tokens is None:
+                db_model.context_window_tokens = DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
 
             db.add(db_model)
 

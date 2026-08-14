@@ -127,8 +127,14 @@ def _section_token_length(text: Optional[str]) -> int:
 
 
 def _estimate_tokens_fast(text: str) -> int:
-    """Fast token estimate without tiktoken overhead (~4 chars/token)."""
-    return len(text) // 4 if text else 0
+    """Fast token estimate without tiktoken overhead.
+
+    3 chars/token, deliberately conservative: dense content (numeric data,
+    JSON, non-Latin text) tokenizes closer to 2-3 chars/token, and this
+    estimate gates the pre-send trim — an optimistic 4 chars/token let
+    prompts pass the trim and still be rejected by the provider.
+    """
+    return len(text) // 3 if text else 0
 
 
 def _trim_text_tail(text: str, keep_ratio: float, label: str = "") -> str:
@@ -143,22 +149,44 @@ def _trim_text_tail(text: str, keep_ratio: float, label: str = "") -> str:
     return prefix + trimmed
 
 
+# Sections trim_context_to_budget may cut, first → last. Ordered by how
+# recoverable the content is: file previews and old messages can be re-read
+# on demand; schemas and instructions are cut only when nothing else is left.
+# Every section IS cuttable — a section with no cutting stage is how a single
+# oversized field (a multi-MB always-load instruction, a warehouse-wide
+# schema render) used to sail through untouched and get the whole prompt
+# rejected identically on every retry.
+_TRIM_STAGES = (
+    "files_context",
+    "messages_context",
+    "resources_combined",
+    "resources_context",
+    "schemas_combined",
+    "schemas_excerpt",
+    "entities_context",
+    "mentions_context",
+    "instructions",
+)
+# Don't bother halving a section below this size — the floor keeps a stub of
+# every section so the model still knows the section exists, and guarantees
+# the halving loop terminates.
+_TRIM_FLOOR_CHARS = 2_000
+
+
 def trim_context_to_budget(
     planner_input,
     model_context_window: Optional[int] = None,
 ) -> None:
-    """Trim PlannerInput string fields in priority order to fit token budget.
+    """Trim PlannerInput fields in priority order until the prompt fits.
 
-    Mutates *planner_input* in place. Each trimmable section is cut by its
-    ``keep_ratio``; after each cut we re-estimate and stop as soon as the
-    total is under budget.
-
-    Priority (cut first → last):
-      1. past_observations  – serialised JSON list, oldest dropped first
-      2. files_context      – previews are re-readable on demand via read_file
-      3. messages_context   – oldest conversation pairs dropped
-      4. resources_combined – least important for correctness
-      5. schemas_combined   – nuclear option, but better than a hard failure
+    Mutates *planner_input* in place. Unlike the previous ratio-based
+    best-effort (one fixed cut per section, then give up), this ENFORCES the
+    budget: each section in ``_TRIM_STAGES`` is halved repeatedly — keeping
+    the tail, newest content — until the total estimate fits or the section
+    hits the floor, then the next section is attacked. A prompt only stays
+    over budget when every section is already at its floor, which is logged
+    as a warning instead of silently sending a prompt the provider will
+    reject on every retry.
     """
     budget = (model_context_window or DEFAULT_TOKEN_BUDGET) - _OUTPUT_RESERVE
     if budget <= 0:
@@ -192,62 +220,51 @@ def trim_context_to_budget(
                 total += 500
         return total
 
-    total = _estimate_total()
-    if total <= budget:
+    if _estimate_total() <= budget:
         return  # nothing to do
 
-    # --- Priority 1: past_observations (drop oldest, keep last 2) ---
+    # --- Pass 0: drop old observations (cheap, biggest win on tool-heavy runs) ---
     past = getattr(planner_input, "past_observations", None)
     if past and len(past) > 2:
         planner_input.past_observations = past[-2:]
-        total = _estimate_total()
-        if total <= budget:
+        if _estimate_total() <= budget:
             return
 
-    # --- Priority 2: files_context (keep 30%) ---
-    # Backstop only: the tiered files builder should keep this section small.
-    # Previews are recoverable on demand (read_file/inspect_data), so cutting
-    # here is safer than cutting conversation history or schemas.
-    fls = getattr(planner_input, "files_context", None) or ""
-    if fls and _estimate_tokens_fast(fls) > 500:
-        planner_input.files_context = _trim_text_tail(fls, 0.3, "files")
-        total = _estimate_total()
-        if total <= budget:
+    # --- Halve sections in priority order until the estimate fits ---
+    # Strict priority: a later section is only touched once every earlier one
+    # is at its floor. Halving is geometric, so even a pathologically large
+    # single section converges in ~log2(size/floor) steps.
+    for field in _TRIM_STAGES:
+        cut_from = None
+        while _estimate_total() > budget:
+            text = getattr(planner_input, field, None) or ""
+            if not isinstance(text, str) or len(text) <= _TRIM_FLOOR_CHARS:
+                break
+            if cut_from is None:
+                cut_from = len(text)
+            setattr(planner_input, field, _trim_text_tail(text, 0.5, field))
+        if cut_from is not None and field == "instructions":
+            # Cutting into admin-authored instructions is a last resort the
+            # org should hear about — it means the always-load corpus (or the
+            # model's window) is undersized for this workspace.
+            _hub_logger.warning(
+                "[trim] context over budget after all other sections — cut "
+                "<instructions> from %d chars to fit window (budget=%d tokens)",
+                cut_from, budget,
+            )
+        if _estimate_total() <= budget:
             return
 
-    # --- Priority 3: messages_context (keep newest 50%) ---
-    msg = getattr(planner_input, "messages_context", None) or ""
-    if msg and _estimate_tokens_fast(msg) > 500:
-        planner_input.messages_context = _trim_text_tail(msg, 0.5, "messages")
-        total = _estimate_total()
-        if total <= budget:
-            return
+    # --- Everything at floor: drop to the single newest observation ---
+    past = getattr(planner_input, "past_observations", None)
+    if past and len(past) > 1:
+        planner_input.past_observations = past[-1:]
 
-    # --- Priority 4: resources_combined (keep 30%) ---
-    res = getattr(planner_input, "resources_combined", None) or ""
-    if res and _estimate_tokens_fast(res) > 500:
-        planner_input.resources_combined = _trim_text_tail(res, 0.3, "resources")
-        total = _estimate_total()
-        if total <= budget:
-            return
-
-    # --- Priority 5: schemas_combined (keep 50%) ---
-    schemas = getattr(planner_input, "schemas_combined", None) or ""
-    if schemas and _estimate_tokens_fast(schemas) > 1000:
-        planner_input.schemas_combined = _trim_text_tail(schemas, 0.5, "schemas")
-        total = _estimate_total()
-        if total <= budget:
-            return
-
-    # If still over, do a more aggressive second pass
-    if total > budget:
-        if getattr(planner_input, "past_observations", None):
-            planner_input.past_observations = planner_input.past_observations[-1:]
-        planner_input.messages_context = _trim_text_tail(
-            getattr(planner_input, "messages_context", "") or "", 0.25, "messages"
-        )
-        planner_input.schemas_combined = _trim_text_tail(
-            getattr(planner_input, "schemas_combined", "") or "", 0.3, "schemas"
+    if _estimate_total() > budget:
+        _hub_logger.warning(
+            "[trim] prompt still over budget after trimming every section to "
+            "floor (estimate=%d tokens, budget=%d) — provider may reject it",
+            _estimate_total(), budget,
         )
 
 
