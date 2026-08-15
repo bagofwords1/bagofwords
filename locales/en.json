@@ -1598,6 +1598,13 @@
     },
     "connection": "Connection",
     "addAgent": "+ Add agent or connection...",
+    "advancedPermissions": "Advanced permissions",
+    "tiers": {
+        "query": "Can query",
+        "queryHint": "Ask this agent questions",
+        "manage": "Can manage",
+        "manageHint": "Edit instructions, entities, evals, settings and members"
+    },
     "modelAccess": "Model access",
     "modelAccessHint": "Restricted models",
     "noRestrictedModels": "No restricted models"

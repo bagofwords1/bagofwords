@@ -197,8 +197,50 @@
                             />
                         </div>
                         <div class="p-3">
-                            <!-- Flat checkbox UI for all resource permissions -->
-                            <div class="grid grid-cols-2 gap-x-3 gap-y-1">
+                            <!-- Agent grants use the same two access tiers as the agent
+                                 panel's "Add people" modal: an EMPTY grant is the query
+                                 tier (any grant row on a data source implies `view` in
+                                 the backend resolver), `manage` is the owner/manager
+                                 superset. Raw checkboxes live in Advanced. -->
+                            <template v-if="grant.resource_type === 'data_source'">
+                                <div class="space-y-0.5">
+                                    <button
+                                        v-for="tier in DS_ACCESS_TIERS"
+                                        :key="tier.key"
+                                        type="button"
+                                        class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-gray-50 dark:hover:bg-gray-800/50"
+                                        @click="selectGrantTier(grant, tier.key)"
+                                    >
+                                        <span
+                                            class="mt-0.5 w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
+                                            :class="grantTier(grant) === tier.key ? 'border-gray-900 dark:border-white' : 'border-gray-300 dark:border-gray-700'"
+                                        >
+                                            <span v-if="grantTier(grant) === tier.key" class="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
+                                        </span>
+                                        <span class="min-w-0">
+                                            <span class="block text-sm text-gray-900 dark:text-white">{{ $t(`rolesManager.tiers.${tier.key}`) }}</span>
+                                            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $t(`rolesManager.tiers.${tier.key}Hint`) }}</span>
+                                        </span>
+                                    </button>
+                                </div>
+                                <button
+                                    type="button"
+                                    class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                                    @click="grant.showAdvanced = !grant.showAdvanced"
+                                >
+                                    {{ $t('rolesManager.advancedPermissions') }}
+                                    <UIcon
+                                        name="i-heroicons-chevron-down"
+                                        class="w-3 h-3 transition-transform"
+                                        :class="(grant.showAdvanced || grantTier(grant) === null) ? 'rotate-180' : ''"
+                                    />
+                                </button>
+                            </template>
+                            <div
+                                v-if="grant.resource_type !== 'data_source' || grant.showAdvanced || grantTier(grant) === null"
+                                class="grid grid-cols-2 gap-x-3 gap-y-1"
+                                :class="{ 'mt-2': grant.resource_type === 'data_source' }"
+                            >
                                 <label
                                     v-for="perm in getResourcePermissions(grant.resource_type)"
                                     :key="perm"
@@ -294,6 +336,7 @@ interface ResourceGrantForm {
     resource_id: string
     resource_name: string
     permissions: string[]
+    showAdvanced?: boolean
 }
 
 interface UsagePolicySummary {
@@ -372,11 +415,14 @@ const resourcePermissions = ref<Record<string, string[]>>({})
 // A role's authority is org-wide permissions PLUS its per-resource grants.
 // Counting only `permissions` made a correctly-configured role that grants,
 // say, "Create agents" on one connection render as "0 permissions" — it looked
-// broken when it was merely scoped.
+// broken when it was merely scoped. An agent grant with no permission strings
+// is the query tier (the grant row itself conveys view/query access), so it
+// counts as one.
 const rolePermissionCount = (role: any) =>
     (role?.permissions?.length || 0) +
     (role?.resource_grants || []).reduce(
-        (n: number, g: any) => n + (g?.permissions?.length || 0), 0)
+        (n: number, g: any) => n + (g?.permissions?.length
+            || (g?.resource_type === 'data_source' ? 1 : 0)), 0)
 
 async function loadPermissionsRegistry() {
     try {
@@ -505,6 +551,28 @@ function toggleResourcePerm(grant: ResourceGrantForm, perm: string, checked: boo
     } else {
         grant.permissions = grant.permissions.filter((p) => p !== perm)
     }
+}
+
+// ── Agent-grant access tiers ─────────────────────────────────────────────
+// Mirrors AgentSettingsPanel's "Add people" modal: query (empty grant) or
+// manage (`manage` implies the other manage_* perms server-side). Any other
+// combination comes from Advanced and matches no tier.
+
+const DS_ACCESS_TIERS: { key: string; perms: string[] }[] = [
+    { key: 'query', perms: [] },
+    { key: 'manage', perms: ['manage'] },
+]
+
+const sameSet = (a: string[], b: string[]) =>
+    a.length === b.length && a.every((x) => b.includes(x))
+
+function grantTier(grant: ResourceGrantForm): string | null {
+    return DS_ACCESS_TIERS.find((tier) => sameSet(tier.perms, grant.permissions))?.key ?? null
+}
+
+function selectGrantTier(grant: ResourceGrantForm, key: string) {
+    const tier = DS_ACCESS_TIERS.find((t) => t.key === key)
+    if (tier) grant.permissions = [...tier.perms]
 }
 
 // ── Available resources for the picker ───────────────────────────────────

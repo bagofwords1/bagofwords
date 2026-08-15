@@ -1478,6 +1478,13 @@
       "manage": "Gerenciar configurações"
     },
     "addAgent": "+ Adicionar agente...",
+    "advancedPermissions": "Permissões avançadas",
+    "tiers": {
+        "query": "Pode consultar",
+        "queryHint": "Fazer perguntas a este agente",
+        "manage": "Pode gerenciar",
+        "manageHint": "Editar instruções, entidades, avaliações, configurações e membros"
+    },
     "modelAccess": "Acesso a modelos",
     "modelAccessHint": "Modelos restritos",
     "noRestrictedModels": "Nenhum modelo restrito"

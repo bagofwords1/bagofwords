@@ -1478,6 +1478,13 @@
       "manage": "Gestione delle impostazioni"
     },
     "addAgent": "+ Aggiungi agente...",
+    "advancedPermissions": "Autorizzazioni avanzate",
+    "tiers": {
+        "query": "Può interrogare",
+        "queryHint": "Fare domande a questo agente",
+        "manage": "Può gestire",
+        "manageHint": "Modificare istruzioni, entità, valutazioni, impostazioni e membri"
+    },
     "modelAccess": "Accesso ai modelli",
     "modelAccessHint": "Modelli con restrizioni",
     "noRestrictedModels": "Nessun modello con restrizioni"

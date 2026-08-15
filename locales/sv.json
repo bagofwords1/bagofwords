@@ -1478,6 +1478,13 @@
       "manage": "Hantera inställningar"
     },
     "addAgent": "+ Lägg till agent...",
+    "advancedPermissions": "Avancerade behörigheter",
+    "tiers": {
+        "query": "Kan fråga",
+        "queryHint": "Ställ frågor till denna agent",
+        "manage": "Kan hantera",
+        "manageHint": "Redigera instruktioner, entiteter, utvärderingar, inställningar och medlemmar"
+    },
     "modelAccess": "Modellåtkomst",
     "modelAccessHint": "Begränsade modeller",
     "noRestrictedModels": "Inga begränsade modeller"

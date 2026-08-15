@@ -1478,6 +1478,13 @@
       "manage": "Einstellungen verwalten"
     },
     "addAgent": "+ Agent hinzufügen ...",
+    "advancedPermissions": "Erweiterte Berechtigungen",
+    "tiers": {
+        "query": "Darf abfragen",
+        "queryHint": "Diesem Agenten Fragen stellen",
+        "manage": "Darf verwalten",
+        "manageHint": "Anweisungen, Entitäten, Auswertungen, Einstellungen und Mitglieder bearbeiten"
+    },
     "modelAccess": "Modellzugriff",
     "modelAccessHint": "Eingeschränkte Modelle",
     "noRestrictedModels": "Keine eingeschränkten Modelle"

@@ -1561,6 +1561,13 @@
       "manage_data_sources": "Gestionar agentes"
     },
     "addAgent": "+ Añadir agente...",
+    "advancedPermissions": "Permisos avanzados",
+    "tiers": {
+        "query": "Puede consultar",
+        "queryHint": "Hacer preguntas a este agente",
+        "manage": "Puede gestionar",
+        "manageHint": "Editar instrucciones, entidades, evaluaciones, ajustes y miembros"
+    },
     "modelAccess": "Acceso a modelos",
     "modelAccessHint": "Modelos restringidos",
     "noRestrictedModels": "No hay modelos restringidos",
