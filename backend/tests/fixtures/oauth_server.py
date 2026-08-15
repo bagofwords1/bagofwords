@@ -1,15 +1,26 @@
-"""OAuth MCP server test fixtures."""
+"""OAuth authorization-server test fixtures."""
 
 import pytest
 
 
 @pytest.fixture
 def create_oauth_client(test_client):
-    """Create an OAuth MCP client for an organization."""
-    def _create_oauth_client(user_token, org_id, name="Test Claude Web", redirect_uris=None):
+    """Create an OAuth client for an organization."""
+    def _create_oauth_client(
+        user_token,
+        org_id,
+        name="Test OAuth App",
+        redirect_uris=None,
+        scopes=None,
+        trusted=None,
+    ):
         body = {"name": name}
         if redirect_uris is not None:
             body["redirect_uris"] = redirect_uris
+        if scopes is not None:
+            body["scopes"] = scopes
+        if trusted is not None:
+            body["trusted"] = trusted
         response = test_client.post(
             "/api/oauth/clients",
             json=body,

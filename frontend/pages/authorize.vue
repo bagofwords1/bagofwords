@@ -1,94 +1,91 @@
 <template>
-  <div class="flex h-screen justify-center py-20 px-5 sm:px-0">
-    <div class="w-full text-center sm:w-[420px]">
-      <div>
-        <img src="/assets/logo-128.png" alt="Bag of Words" class="h-10 w-10 mx-auto" />
+  <main class="flex min-h-screen items-start justify-center bg-gray-50 px-5 py-16 dark:bg-gray-950 sm:py-24">
+    <div class="w-full max-w-md">
+      <div class="text-center">
+        <img src="/assets/logo-128.png" alt="Bag of Words" class="mx-auto h-11 w-11" />
       </div>
 
-      <!-- Loading -->
-      <div v-if="pageLoading" class="mt-8">
-        <Spinner class="w-8 h-8 mx-auto text-gray-400" />
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-4">Loading...</p>
+      <div v-if="pageLoading || trustedAutoApprove" class="mt-8 rounded-2xl border border-gray-200 bg-white px-7 py-10 text-center shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <Spinner class="mx-auto h-7 w-7 text-blue-500" />
+        <h1 class="mt-4 text-base font-medium text-gray-900 dark:text-white">
+          {{ trustedAutoApprove ? $t('settings.integrations.channels.oauth.trustedConnecting') : $t('settings.integrations.channels.oauth.authorizationLoading') }}
+        </h1>
+        <p v-if="trustedAutoApprove" class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ clientName }}</p>
       </div>
 
-      <!-- Error -->
-      <div v-else-if="errorMessage" class="mt-6">
-        <div class="px-6 py-5 border border-red-200 rounded-xl bg-red-50 dark:bg-red-950">
-          <p class="text-sm text-red-700">{{ errorMessage }}</p>
+      <div v-else-if="errorMessage" class="mt-8 rounded-2xl border border-red-200 bg-white p-6 text-center shadow-sm dark:border-red-900 dark:bg-gray-900">
+        <div class="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-red-50 dark:bg-red-950">
+          <UIcon name="i-heroicons-exclamation-triangle" class="h-5 w-5 text-red-600 dark:text-red-400" />
         </div>
-        <button
-          @click="deny"
-          class="mt-4 text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 underline"
-        >
-          Go back
+        <h1 class="mt-3 text-base font-semibold text-gray-900 dark:text-white">{{ $t('settings.integrations.channels.oauth.authorizationError') }}</h1>
+        <p class="mt-2 text-sm leading-6 text-red-700 dark:text-red-300">{{ errorMessage }}</p>
+        <button class="mt-5 text-sm text-gray-500 underline underline-offset-4 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200" @click="goBack">
+          {{ $t('settings.integrations.channels.oauth.goBack') }}
         </button>
       </div>
 
-      <!-- Consent screen -->
-      <div v-else class="mt-4">
-        <h1 class="font-medium text-2xl mb-2">Authorize Access</h1>
-        <p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-          <strong>{{ clientName }}</strong> wants to access your Bag of Words account.
-        </p>
+      <div v-else class="mt-8 overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm dark:border-gray-800 dark:bg-gray-900">
+        <div class="border-b border-gray-100 px-6 py-5 text-center dark:border-gray-800">
+          <div class="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-blue-50 text-sm font-semibold text-blue-700 ring-1 ring-blue-100 dark:bg-blue-950/50 dark:text-blue-300 dark:ring-blue-900">
+            {{ clientInitials }}
+          </div>
+          <h1 class="mt-3 text-xl font-semibold tracking-tight text-gray-900 dark:text-white">{{ $t('settings.integrations.channels.oauth.authorizationTitle') }}</h1>
+          <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">
+            {{ $t('settings.integrations.channels.oauth.wantsAccess', { name: clientName }) }}
+          </p>
+        </div>
 
-        <div class="px-6 py-5 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm bg-white dark:bg-gray-900 text-start">
-          <!-- Scope info -->
-          <div class="mb-5">
-            <div class="text-xs uppercase tracking-wide text-gray-400 mb-2">Permissions requested</div>
-            <div class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <UIcon name="heroicons-check-circle" class="w-4 h-4 text-green-500 flex-shrink-0" />
-              Access your MCP tools (query data, create reports)
+        <div class="px-6 py-5">
+          <div class="text-xs font-medium uppercase tracking-wide text-gray-400">{{ $t('settings.integrations.channels.oauth.permissionsRequested') }}</div>
+          <div class="mt-3 space-y-3">
+            <div v-for="requestedScope in requestedScopes" :key="requestedScope" class="flex gap-3 rounded-xl bg-gray-50 p-3 dark:bg-gray-950/60">
+              <div class="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-green-100 dark:bg-green-950">
+                <UIcon name="i-heroicons-check" class="h-3.5 w-3.5 text-green-700 dark:text-green-300" />
+              </div>
+              <div>
+                <div class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ scopeTitle(requestedScope) }}</div>
+                <div class="mt-0.5 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ scopeDescription(requestedScope) }}</div>
+              </div>
             </div>
           </div>
 
-          <!-- Action buttons -->
-          <div class="flex gap-3">
-            <button
-              @click="deny"
-              class="flex-1 px-4 py-2.5 text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
-            >
-              Deny
-            </button>
-            <button
-              @click="approve"
-              :disabled="approving"
-              class="flex-1 px-4 py-2.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
-            >
-              <template v-if="approving">
-                <Spinner class="h-4 w-4 me-2" />
-                Authorizing...
-              </template>
-              <template v-else>Approve</template>
-            </button>
+          <div class="mt-6 flex gap-3">
+            <UButton color="gray" variant="outline" size="lg" class="min-w-0 flex-1 justify-center" @click="deny">
+              {{ $t('settings.integrations.channels.oauth.deny') }}
+            </UButton>
+            <UButton color="blue" size="lg" class="min-w-0 flex-1 justify-center" :loading="approving" @click="approve">
+              {{ approving ? $t('settings.integrations.channels.oauth.authorizing') : $t('settings.integrations.channels.oauth.approve') }}
+            </UButton>
           </div>
         </div>
 
-        <p class="text-xs text-gray-400 mt-4">
-          You'll be redirected back to {{ clientName }} after approving.
+        <p class="border-t border-gray-100 px-6 py-3 text-center text-xs text-gray-400 dark:border-gray-800">
+          {{ $t('settings.integrations.channels.oauth.redirectNotice', { name: clientName }) }}
         </p>
       </div>
     </div>
-  </div>
+  </main>
 </template>
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 
-definePageMeta({
-  layout: 'users',
-})
+definePageMeta({ layout: 'users' })
 
 const route = useRoute()
 const { status, getSession } = useAuth()
 const { rawToken } = useAuthState()
+const { t } = useI18n()
 const config = useRuntimeConfig()
 
 const pageLoading = ref(true)
+const trustedAutoApprove = ref(false)
+const requestValidated = ref(false)
 const errorMessage = ref('')
-const clientName = ref('Unknown Application')
+const clientName = ref('')
+const requestedScopes = ref<string[]>([])
 const approving = ref(false)
 
-// Extract OAuth params from query string
 const clientId = route.query.client_id as string
 const redirectUri = route.query.redirect_uri as string
 const state = route.query.state as string | undefined
@@ -97,54 +94,66 @@ const codeChallenge = route.query.code_challenge as string
 const codeChallengeMethod = (route.query.code_challenge_method as string) || 'S256'
 const responseType = (route.query.response_type as string) || 'code'
 
+const clientInitials = computed(() => clientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'OA')
+
+function scopeTitle(value: string) {
+  return value === 'app'
+    ? t('settings.integrations.channels.oauth.appScope')
+    : t('settings.integrations.channels.oauth.mcpScope')
+}
+
+function scopeDescription(value: string) {
+  return value === 'app'
+    ? t('settings.integrations.channels.oauth.appPermission')
+    : t('settings.integrations.channels.oauth.mcpPermission')
+}
+
 onMounted(async () => {
-  // Check if user is authenticated
   await getSession()
   if (status.value !== 'authenticated') {
-    // Redirect to sign-in with return URL
-    const currentUrl = window.location.pathname + window.location.search
-    navigateTo(`/users/sign-in?redirect=${encodeURIComponent(currentUrl)}`)
+    const returnTo = window.location.pathname + window.location.search
+    await navigateTo(`/users/sign-in?redirect=${encodeURIComponent(returnTo)}`)
     return
   }
 
-  // Validate required params
   if (!clientId || !redirectUri || !codeChallenge) {
-    errorMessage.value = 'Invalid authorization request. Missing required parameters.'
+    errorMessage.value = t('settings.integrations.channels.oauth.invalidAuthorizationRequest')
+    pageLoading.value = false
+    return
+  }
+  if (responseType !== 'code' || codeChallengeMethod !== 'S256') {
+    errorMessage.value = t('settings.integrations.channels.oauth.unsupportedAuthorizationRequest')
     pageLoading.value = false
     return
   }
 
-  if (responseType !== 'code') {
-    errorMessage.value = 'Unsupported response type. Only "code" is supported.'
-    pageLoading.value = false
-    return
-  }
-
-  // Fetch client info
   try {
     const data = await $fetch(`/api/oauth/clients/${clientId}/info`, {
       baseURL: config.public.baseURL,
-    })
-    clientName.value = (data as any)?.name || 'Unknown Application'
-  } catch (e) {
-    errorMessage.value = 'Unknown client. The application requesting access was not found.'
+      params: { redirect_uri: redirectUri, scope },
+    }) as any
+    clientName.value = data.name
+    requestedScopes.value = data.requested_scopes || scope.split(' ')
+    requestValidated.value = true
     pageLoading.value = false
-    return
+    if (data.trusted) {
+      trustedAutoApprove.value = true
+      await nextTick()
+      await approve()
+    }
+  } catch {
+    errorMessage.value = t('settings.integrations.channels.oauth.unknownAuthorizationClient')
+    pageLoading.value = false
   }
-
-  pageLoading.value = false
 })
 
 async function approve() {
+  if (!requestValidated.value || approving.value) return
   approving.value = true
   try {
     const { organization } = useOrganization()
-    const headers: Record<string, string> = {
-      Authorization: `Bearer ${rawToken.value}`,
-    }
-    if (organization.value?.id) {
-      headers['X-Organization-Id'] = organization.value.id
-    }
+    const headers: Record<string, string> = { Authorization: `Bearer ${rawToken.value}` }
+    if (organization.value?.id) headers['X-Organization-Id'] = organization.value.id
 
     const data = await $fetch('/api/oauth/authorize', {
       baseURL: config.public.baseURL,
@@ -158,32 +167,25 @@ async function approve() {
         code_challenge: codeChallenge,
         code_challenge_method: codeChallengeMethod,
       },
-    })
-
-    const redirectUrl = (data as any)?.redirect_url
-    if (redirectUrl) {
-      window.location.href = redirectUrl
-    } else {
-      errorMessage.value = 'Failed to generate authorization code.'
-      approving.value = false
-    }
-  } catch (e: any) {
-    const detail = e?.data?.detail || e?.message || 'Authorization failed'
-    errorMessage.value = typeof detail === 'string' ? detail : JSON.stringify(detail)
+    }) as any
+    if (!data.redirect_url) throw new Error('missing_redirect')
+    window.location.assign(data.redirect_url)
+  } catch {
+    trustedAutoApprove.value = false
+    errorMessage.value = t('settings.integrations.channels.oauth.authorizationFailed')
     approving.value = false
   }
 }
 
 function deny() {
-  if (redirectUri) {
-    const separator = redirectUri.includes('?') ? '&' : '?'
-    const params = `error=access_denied`
-    const url = state
-      ? `${redirectUri}${separator}${params}&state=${encodeURIComponent(state)}`
-      : `${redirectUri}${separator}${params}`
-    window.location.href = url
-  } else {
-    navigateTo('/')
-  }
+  if (!requestValidated.value) return goBack()
+  const callback = new URL(redirectUri)
+  callback.searchParams.set('error', 'access_denied')
+  if (state) callback.searchParams.set('state', state)
+  window.location.assign(callback.toString())
+}
+
+function goBack() {
+  navigateTo('/')
 }
 </script>

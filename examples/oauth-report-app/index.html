@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light" />
+    <title>Northstar Insights · Powered by BOW</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <a class="brand" href="/" aria-label="Northstar Insights home">
+          <span class="brand-mark" aria-hidden="true">
+            <svg viewBox="0 0 32 32" role="img"><path d="M16 2.5 19 13l10.5 3L19 19l-3 10.5L13 19 2.5 16 13 13 16 2.5Z" /></svg>
+          </span>
+          <span><strong>Northstar</strong><small>Insights</small></span>
+        </a>
+
+        <div class="sidebar-section">
+          <p class="eyebrow">Workspace</p>
+          <button class="nav-item active" type="button"><span>⌁</span>Live analyst</button>
+          <button class="nav-item" id="refreshReports" type="button"><span>↻</span>Refresh reports</button>
+        </div>
+
+        <div class="sidebar-section reports-section">
+          <div class="section-heading"><p class="eyebrow">App reports</p><span id="reportCount">0</span></div>
+          <div id="reportList" class="report-list">
+            <p class="empty-list">Connect to BOW to load your reports.</p>
+          </div>
+        </div>
+
+        <div class="powered-by">
+          <span class="status-dot"></span>
+          <span>Powered by <strong>Bag of Words</strong></span>
+        </div>
+      </aside>
+
+      <main>
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">AI workspace</p>
+            <h1>Live analyst</h1>
+          </div>
+          <div class="session-actions">
+            <span id="identityPill" class="identity-pill hidden"></span>
+            <button id="logoutButton" class="button ghost hidden" type="button">Disconnect</button>
+            <button id="connectButton" class="button primary" type="button">Connect with BOW</button>
+          </div>
+        </header>
+
+        <section id="connectPanel" class="connect-panel">
+          <div class="connect-copy">
+            <span class="feature-badge">OAuth 2.1 + PKCE</span>
+            <h2>Your data app, backed by BOW.</h2>
+            <p>Sign in once, create reports, and stream agent work—including data queries and artifacts—in your own product.</p>
+          </div>
+          <form id="connectionForm" class="connection-form">
+            <label>
+              BOW app URL
+              <input id="bowOrigin" type="url" value="http://127.0.0.1:3001" required />
+            </label>
+            <label>
+              OAuth client ID
+              <input id="clientId" type="text" autocomplete="off" placeholder="Paste the client ID from OAuth Apps" required />
+            </label>
+            <button class="button primary wide" type="submit">Sign in to BOW <span>→</span></button>
+            <p class="security-note"><span>⌾</span>No password or client secret is stored by this app.</p>
+          </form>
+        </section>
+
+        <section id="workspace" class="workspace hidden">
+          <div class="workspace-grid">
+            <section class="conversation-card">
+              <div class="card-header">
+                <div>
+                  <p class="eyebrow">Report</p>
+                  <h2 id="activeReportTitle">New report</h2>
+                </div>
+                <span id="streamStatus" class="stream-status ready"><i></i>Ready</span>
+              </div>
+
+              <div id="timeline" class="timeline" aria-live="polite">
+                <div class="welcome-state">
+                  <span class="welcome-icon">✦</span>
+                  <h3>What should we explore?</h3>
+                  <p>Northstar will create a BOW report and show every planning and tool step as it streams.</p>
+                  <div class="starter-grid">
+                    <button class="starter" type="button" data-prompt="Ask me one concise clarification question with clickable choices before doing any analysis.">
+                      <strong>Clarify the brief</strong><span>Exercise the interactive clarify tool</span>
+                    </button>
+                    <button class="starter" type="button" data-prompt="Use the available Demo database. Create data showing a useful business trend, then create a polished one-page artifact that explains the result. Use the create_data and create_artifact tools.">
+                      <strong>Build an insight</strong><span>Run create_data and create_artifact</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <form id="promptForm" class="prompt-box">
+                <textarea id="promptInput" rows="3" placeholder="Ask Northstar to analyze your data…" required></textarea>
+                <div class="prompt-footer">
+                  <span><i></i>Streams from BOW</span>
+                  <button id="runButton" class="send-button" type="submit">Run analysis <b>↑</b></button>
+                </div>
+              </form>
+            </section>
+
+            <aside class="activity-card">
+              <div class="activity-header">
+                <div><p class="eyebrow">Execution</p><h2>Live activity</h2></div>
+                <span id="eventCount">0 events</span>
+              </div>
+              <div id="activityFeed" class="activity-feed">
+                <div class="activity-empty"><span>⌁</span><p>Agent events will appear here in real time.</p></div>
+              </div>
+            </aside>
+          </div>
+        </section>
+      </main>
+    </div>
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

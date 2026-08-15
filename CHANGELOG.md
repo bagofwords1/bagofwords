@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.540 (August 15, 2026)
+- Added OAuth access to the full BOW API for custom data apps
+
 ## Version 0.0.539 (August 14, 2026)
 - Context budget now trims geometrically with conservative token estimates instead of overrunning the model's window
 - Fixed python-pptx slide previews rendering as raw text when a preview image is missing

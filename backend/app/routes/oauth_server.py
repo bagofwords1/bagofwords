@@ -1,9 +1,8 @@
 """OAuth 2.1 Authorization Server routes.
 
 Provides the endpoints external apps use to obtain access tokens via the
-OAuth 2.1 Authorization Code + PKCE flow. Currently the only protected
-resource is the MCP endpoint; additional resources can be added without
-changing the auth flow.
+OAuth 2.1 Authorization Code + PKCE flow. Separate scopes protect the MCP
+surface and the main application API.
 
 Two routers:
   - well_known_router: mounted at root for /.well-known/* metadata
@@ -11,28 +10,27 @@ Two routers:
 """
 
 import logging
-from urllib.parse import urlencode
+from typing import Optional
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from fastapi import APIRouter, Depends, Request, HTTPException, Form
+from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from typing import Optional
 
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission
 from app.dependencies import get_async_db, get_current_organization
-from app.models.user import User
-from app.models.organization import Organization
-from app.services.oauth_server_service import OAuthServerService
 from app.ee.audit.service import audit_service
-from app.settings.config import settings
+from app.models.organization import Organization
+from app.models.user import User
+from app.services.oauth_server_service import OAuthServerService
 
 logger = logging.getLogger(__name__)
 
 # Scopes this authorization server can issue. Extend this list when adding a
 # new protected resource; the well-known metadata handlers read from it.
-SUPPORTED_SCOPES = ["mcp"]
-DEFAULT_SCOPE = SUPPORTED_SCOPES[0]
+SUPPORTED_SCOPES = ["mcp", "app"]
+DEFAULT_SCOPE = "mcp"
 
 # ── Well-known metadata (mounted at root, no /api prefix) ──────────
 
@@ -52,7 +50,18 @@ async def protected_resource_metadata(request: Request):
     return JSONResponse({
         "resource": f"{base}/api/mcp",
         "authorization_servers": [base],
-        "scopes_supported": list(SUPPORTED_SCOPES),
+        "scopes_supported": ["mcp"],
+    })
+
+
+@well_known_router.get("/.well-known/oauth-protected-resource/api")
+async def app_protected_resource_metadata(request: Request):
+    """RFC 9728 metadata for the main application API."""
+    base = _base_url(request)
+    return JSONResponse({
+        "resource": f"{base}/api",
+        "authorization_servers": [base],
+        "scopes_supported": ["app"],
     })
 
 
@@ -87,6 +96,7 @@ async def authorize_redirect(
     scope: Optional[str] = None,
     code_challenge: Optional[str] = None,
     code_challenge_method: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db),
 ):
     """OAuth authorize endpoint.
 
@@ -99,6 +109,21 @@ async def authorize_redirect(
             status_code=400,
         )
 
+    if not code_challenge or code_challenge_method != "S256":
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": "PKCE S256 is required"},
+            status_code=400,
+        )
+
+    service = OAuthServerService()
+    client = await service.validate_client(db, client_id)
+    if not client or not service.validate_redirect_uri(client, redirect_uri):
+        return JSONResponse(
+            {"error": "invalid_request", "error_description": "Invalid client or redirect URI"},
+            status_code=400,
+        )
+    normalized_scope = _validate_scopes(scope, client.scopes)
+
     # Build redirect to frontend consent page. Use a path-only URL so this
     # endpoint can never be used to bounce users to an external origin
     # (Snyk python/OR open-redirect). The actual OAuth redirect_uri the client
@@ -108,7 +133,7 @@ async def authorize_redirect(
         "client_id": client_id,
         "redirect_uri": redirect_uri,
         "response_type": response_type,
-        "scope": scope or DEFAULT_SCOPE,
+        "scope": normalized_scope,
     }
     if state:
         params["state"] = state
@@ -171,15 +196,7 @@ async def authorize_approve(
 
     # Validate requested scope: must be a non-empty subset of both the server's
     # SUPPORTED_SCOPES and the client's registered scopes.
-    scope_source = raw_scope if isinstance(raw_scope, str) and raw_scope.strip() else DEFAULT_SCOPE
-    requested_scopes = scope_source.split()
-    if not requested_scopes:
-        raise HTTPException(status_code=400, detail="invalid_scope")
-    client_scopes = set((client.scopes or "").split())
-    for s in requested_scopes:
-        if s not in SUPPORTED_SCOPES or s not in client_scopes:
-            raise HTTPException(status_code=400, detail=f"invalid_scope: {s}")
-    scope = " ".join(requested_scopes)
+    scope = _validate_scopes(raw_scope, client.scopes)
 
     # Create authorization code
     code = await service.create_authorization_code(
@@ -193,11 +210,12 @@ async def authorize_approve(
     )
 
     # Build callback URL
-    callback = redirect_uri
-    separator = "&" if "?" in callback else "?"
-    callback += f"{separator}code={code}"
+    parsed_callback = urlsplit(redirect_uri)
+    callback_query = parse_qsl(parsed_callback.query, keep_blank_values=True)
+    callback_query.append(("code", code))
     if state:
-        callback += f"&state={state}"
+        callback_query.append(("state", state))
+    callback = urlunsplit(parsed_callback._replace(query=urlencode(callback_query)))
 
     return {"redirect_url": callback}
 
@@ -304,14 +322,11 @@ async def create_client(
         raise HTTPException(status_code=400, detail="name is required")
 
     raw_scopes = body.get("scopes")
-    scopes_source = raw_scopes if isinstance(raw_scopes, str) and raw_scopes.strip() else DEFAULT_SCOPE
-    requested = scopes_source.split()
-    if not requested:
-        raise HTTPException(status_code=400, detail="scopes must include at least one supported scope")
-    for s in requested:
-        if s not in SUPPORTED_SCOPES:
-            raise HTTPException(status_code=400, detail=f"Unsupported scope: {s}")
-    scopes = " ".join(requested)
+    scopes = _validate_scopes(raw_scopes)
+
+    trusted = body.get("trusted", False)
+    if not isinstance(trusted, bool):
+        raise HTTPException(status_code=400, detail="trusted must be a boolean")
 
     redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
 
@@ -322,6 +337,7 @@ async def create_client(
         name=name,
         scopes=scopes,
         redirect_uris=redirect_uris,
+        trusted=trusted,
     )
     try:
         await audit_service.log(
@@ -348,6 +364,18 @@ def _validate_redirect_uris(redirect_uris):
     return redirect_uris
 
 
+def _validate_scopes(raw_scopes, client_scopes: Optional[str] = None) -> str:
+    scopes_source = raw_scopes if isinstance(raw_scopes, str) and raw_scopes.strip() else DEFAULT_SCOPE
+    requested = list(dict.fromkeys(scopes_source.split()))
+    if not requested:
+        raise HTTPException(status_code=400, detail="invalid_scope")
+    registered = set((client_scopes or " ".join(SUPPORTED_SCOPES)).split())
+    for scope in requested:
+        if scope not in SUPPORTED_SCOPES or scope not in registered:
+            raise HTTPException(status_code=400, detail=f"invalid_scope: {scope}")
+    return " ".join(requested)
+
+
 @router.patch("/clients/{client_db_id}")
 @requires_permission("manage_settings")
 async def update_client(
@@ -357,7 +385,7 @@ async def update_client(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Update an OAuth client's name and/or redirect URIs."""
+    """Update an OAuth client's name, redirect URIs, scopes, or trust."""
     body = await request.json()
 
     name = None
@@ -368,7 +396,13 @@ async def update_client(
 
     redirect_uris = _validate_redirect_uris(body.get("redirect_uris"))
 
-    if name is None and redirect_uris is None:
+    scopes = _validate_scopes(body.get("scopes")) if "scopes" in body else None
+
+    trusted = body.get("trusted") if "trusted" in body else None
+    if trusted is not None and not isinstance(trusted, bool):
+        raise HTTPException(status_code=400, detail="trusted must be a boolean")
+
+    if name is None and redirect_uris is None and scopes is None and trusted is None:
         raise HTTPException(status_code=400, detail="Nothing to update")
 
     service = OAuthServerService()
@@ -378,6 +412,8 @@ async def update_client(
         organization_id=organization.id,
         name=name,
         redirect_uris=redirect_uris,
+        scopes=scopes,
+        trusted=trusted,
     )
     if not updated:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -385,7 +421,12 @@ async def update_client(
         await audit_service.log(
             db=db, organization_id=organization.id, action="oauth_client.updated",
             user_id=current_user.id, resource_type="oauth_client", resource_id=client_db_id,
-            details={"name": name, "redirect_uris_changed": redirect_uris is not None},
+            details={
+                "name": name,
+                "redirect_uris_changed": redirect_uris is not None,
+                "scopes": scopes,
+                "trusted": trusted,
+            },
             request=request,
         )
     except Exception:
@@ -396,13 +437,21 @@ async def update_client(
 @router.get("/clients/{client_id}/info")
 async def get_client_info(
     client_id: str,
+    redirect_uri: Optional[str] = None,
+    scope: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Public endpoint: get client name for consent screen."""
+    """Validate and return the public consent-screen client metadata."""
     service = OAuthServerService()
     info = await service.get_client_info(db, client_id)
     if not info:
         raise HTTPException(status_code=404, detail="Client not found")
+    client = await service.validate_client(db, client_id)
+    if redirect_uri is not None and not service.validate_redirect_uri(client, redirect_uri):
+        raise HTTPException(status_code=400, detail="Invalid redirect_uri")
+    if scope is not None:
+        normalized = _validate_scopes(scope, client.scopes)
+        info["requested_scopes"] = normalized.split()
     return info
 
 

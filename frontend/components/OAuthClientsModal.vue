@@ -1,212 +1,296 @@
 <template>
-  <div class="p-4">
-    <div class="flex items-center gap-2 mb-2">
-      <UIcon name="heroicons-key" class="w-5 h-5 text-gray-700 dark:text-gray-300" />
-      <h1 class="text-lg font-semibold">{{ $t('settings.integrations.channels.oauth.title') }}</h1>
-    </div>
-    <p class="text-sm text-gray-500 dark:text-gray-400">
-      {{ $t('settings.integrations.channels.oauth.subtitle') }}
-    </p>
-    <hr class="my-4" />
+  <section class="pb-10">
+    <header class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div>
+        <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+          {{ $t('settings.integrations.channels.oauth.title') }}
+        </h3>
+        <p class="mt-1 max-w-2xl text-sm leading-6 text-gray-500 dark:text-gray-400">
+          {{ $t('settings.integrations.channels.oauth.subtitle') }}
+        </p>
+      </div>
+      <div class="flex shrink-0 items-center gap-2">
+        <UButton color="gray" variant="ghost" size="sm" @click="showEndpointsModal = true">
+          {{ $t('settings.integrations.channels.oauth.endpointReference') }}
+        </UButton>
+        <UButton color="blue" size="sm" icon="i-heroicons-plus" @click="openCreate">
+          {{ $t('settings.integrations.channels.oauth.registerApp') }}
+        </UButton>
+      </div>
+    </header>
 
-    <!-- Loading -->
-    <div v-if="loading" class="py-8 flex items-center justify-center">
-      <Spinner class="w-6 h-6 text-gray-400" />
+    <div v-if="loading" class="flex items-center justify-center py-20">
+      <Spinner class="h-6 w-6 text-gray-400" />
     </div>
 
-    <div v-else>
-      <!-- Clients list / empty state -->
-      <div v-if="clients.length === 0" class="bg-gray-50 dark:bg-gray-900 rounded-lg border border-gray-200 dark:border-gray-700 border-dashed px-4 py-6 text-center mb-4">
-        <p class="text-sm text-gray-500 dark:text-gray-400 mb-3">{{ $t('settings.integrations.channels.oauth.noneYet') }}</p>
+    <template v-else>
+      <div v-if="clients.length > 5" class="mt-6 max-w-sm">
+        <div class="relative">
+          <UIcon name="i-heroicons-magnifying-glass" class="pointer-events-none absolute start-3 top-2.5 h-4 w-4 text-gray-400" />
+          <input
+            v-model="search"
+            type="search"
+            class="w-full rounded-lg border border-gray-200 bg-white py-2 pe-3 ps-9 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-800 dark:bg-gray-900 dark:focus:ring-blue-950"
+            :placeholder="$t('settings.integrations.channels.oauth.searchPlaceholder')"
+          />
+        </div>
       </div>
 
-      <div v-else class="border border-gray-200 dark:border-gray-700 rounded-lg divide-y divide-gray-200 dark:divide-gray-700 mb-4">
-        <div
-          v-for="client in clients"
+      <div v-if="clients.length === 0" class="mt-6 rounded-xl border border-dashed border-gray-300 px-6 py-12 text-center dark:border-gray-700">
+        <UIcon name="i-heroicons-key" class="mx-auto h-6 w-6 text-gray-400" />
+        <h4 class="mt-3 text-sm font-medium text-gray-900 dark:text-white">
+          {{ $t('settings.integrations.channels.oauth.noneYet') }}
+        </h4>
+        <p class="mx-auto mt-1 max-w-sm text-xs leading-5 text-gray-500 dark:text-gray-400">
+          {{ $t('settings.integrations.channels.oauth.emptyHelp') }}
+        </p>
+        <UButton class="mt-4" color="blue" variant="soft" size="sm" icon="i-heroicons-plus" @click="openCreate">
+          {{ $t('settings.integrations.channels.oauth.registerApp') }}
+        </UButton>
+      </div>
+
+      <div v-else-if="filteredClients.length === 0" class="mt-6 rounded-xl border border-gray-200 py-10 text-center text-sm text-gray-500 dark:border-gray-800 dark:text-gray-400">
+        {{ $t('settings.integrations.channels.oauth.noMatches') }}
+      </div>
+
+      <div v-else class="mt-6 overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-800 dark:bg-gray-900">
+        <article
+          v-for="client in filteredClients"
           :key="client.id"
-          class="px-3 py-2 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+          class="flex items-center gap-3 border-b border-gray-100 px-4 py-3 last:border-b-0 dark:border-gray-800"
         >
-          <div class="flex items-center justify-between">
-            <div class="min-w-0 flex-1">
-              <div class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ client.name }}</div>
-              <div class="flex items-center gap-2 mt-0.5">
-                <code class="font-mono text-[11px] text-gray-600 dark:text-gray-400 truncate">{{ client.client_id }}</code>
-                <span class="text-[10px] text-gray-400">{{ formatDate(client.created_at) }}</span>
-              </div>
+          <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-gray-100 text-xs font-semibold text-gray-600 dark:bg-gray-800 dark:text-gray-300">
+            {{ initials(client.name) }}
+          </div>
+
+          <div class="min-w-0 flex-1">
+            <div class="flex min-w-0 flex-wrap items-center gap-1.5">
+              <h4 class="truncate text-sm font-medium text-gray-900 dark:text-white">{{ client.name }}</h4>
+              <span
+                v-for="scopeName in client.scopes"
+                :key="scopeName"
+                class="rounded px-1.5 py-0.5 text-[10px] font-medium ring-1"
+                :class="scopeName === 'app'
+                  ? 'bg-blue-50 text-blue-700 ring-blue-200 dark:bg-blue-950/40 dark:text-blue-300 dark:ring-blue-900'
+                  : 'bg-violet-50 text-violet-700 ring-violet-200 dark:bg-violet-950/40 dark:text-violet-300 dark:ring-violet-900'"
+              >
+                {{ scopeLabel(scopeName) }}
+              </span>
+              <span v-if="client.trusted" class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium text-amber-700 ring-1 ring-amber-200 dark:text-amber-300 dark:ring-amber-900">
+                <UIcon name="i-heroicons-bolt" class="h-3 w-3" />
+                {{ $t('settings.integrations.channels.oauth.trusted') }}
+              </span>
             </div>
-            <div class="flex items-center gap-1 flex-shrink-0 ms-3">
-              <UButton
-                size="xs"
-                color="gray"
-                variant="ghost"
-                @click="copy(client.client_id)"
-                :title="$t('settings.integrations.channels.oauth.copyClientId')"
-              >
-                <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-              </UButton>
-              <UButton
-                size="xs"
-                color="gray"
-                variant="ghost"
-                @click="startEdit(client)"
-                :title="$t('settings.integrations.channels.oauth.editRedirectUris')"
-              >
-                <UIcon name="heroicons-pencil-square" class="w-4 h-4" />
-              </UButton>
-              <UButton
-                size="xs"
-                color="gray"
-                variant="ghost"
-                @click="rotate(client)"
-                :loading="rotatingId === client.id"
-                :title="$t('settings.integrations.channels.oauth.rotateSecret')"
-              >
-                <UIcon name="heroicons-arrow-path" class="w-4 h-4" />
-              </UButton>
-              <UButton
-                size="xs"
-                color="red"
-                variant="ghost"
-                @click="remove(client)"
-                :title="$t('settings.integrations.channels.oauth.delete')"
-              >
-                <UIcon name="heroicons-trash" class="w-4 h-4" />
-              </UButton>
+
+            <div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-gray-500 dark:text-gray-400">
+              <button type="button" class="inline-flex min-w-0 items-center gap-1 hover:text-gray-800 dark:hover:text-gray-200" @click="copy(client.client_id)">
+                <code class="max-w-48 truncate font-mono">{{ client.client_id }}</code>
+                <UIcon name="i-heroicons-clipboard-document" class="h-3 w-3 shrink-0" />
+              </button>
+              <span aria-hidden="true" class="text-gray-300 dark:text-gray-700">·</span>
+              <span>{{ $t('settings.integrations.channels.oauth.activeTokenCount', { count: client.active_token_count || 0 }, client.active_token_count || 0) }}</span>
+              <span aria-hidden="true" class="hidden text-gray-300 sm:inline dark:text-gray-700">·</span>
+              <span class="hidden sm:inline">{{ lastUsedLabel(client) }}</span>
             </div>
           </div>
 
-          <!-- Show freshly generated secret inline -->
-          <div v-if="freshSecretByClientId[client.client_id]" class="mt-2 bg-amber-50 dark:bg-amber-950 border border-amber-200 rounded p-2">
-            <div class="text-[10px] text-amber-700 uppercase tracking-wide mb-1">{{ $t('settings.integrations.channels.oauth.clientSecretOnce') }}</div>
-            <div class="flex items-center justify-between gap-2">
-              <code class="font-mono text-xs text-amber-900 break-all">{{ freshSecretByClientId[client.client_id] }}</code>
-              <UButton
-                size="xs"
-                color="gray"
-                variant="ghost"
-                @click="copy(freshSecretByClientId[client.client_id])"
-              >
-                <UIcon name="heroicons-clipboard-document" class="w-4 h-4" />
-              </UButton>
-            </div>
-          </div>
-
-          <!-- Inline edit form for redirect URIs -->
-          <div v-if="editingId === client.id" class="mt-2 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2">
-            <label class="block text-[11px] text-gray-500 dark:text-gray-400 uppercase tracking-wide mb-1">{{ $t('settings.integrations.channels.oauth.redirectUris') }}</label>
-            <textarea
-              v-model="editRedirectUris"
-              rows="3"
-              class="w-full border rounded px-2 py-1 text-sm font-mono"
-              :placeholder="$t('settings.integrations.channels.oauth.redirectUriPlaceholder')"
-            />
-            <p class="text-[11px] text-gray-400 mt-1">{{ $t('settings.integrations.channels.oauth.oneUriPerLine') }}</p>
-            <div class="flex justify-end gap-2 mt-2">
-              <UButton size="xs" color="gray" variant="ghost" @click="cancelEdit">{{ $t('settings.integrations.channels.common.cancel') }}</UButton>
-              <UButton
-                size="xs"
-                color="blue"
-                :loading="savingId === client.id"
-                :disabled="!editRedirectUrisList.length"
-                @click="saveEdit(client)"
-              >{{ $t('settings.integrations.channels.common.save') }}</UButton>
-            </div>
-          </div>
-
-          <!-- Registered redirect URIs -->
-          <div v-else-if="client.redirect_uris?.length" class="mt-1">
-            <details class="text-[11px] text-gray-500 dark:text-gray-400">
-              <summary class="cursor-pointer hover:text-gray-700 dark:hover:text-gray-300">
-                {{ $t('settings.integrations.channels.oauth.redirectUriCount', { count: client.redirect_uris.length }, client.redirect_uris.length) }}
-              </summary>
-              <ul class="mt-1 space-y-0.5">
-                <li
-                  v-for="uri in client.redirect_uris"
-                  :key="uri"
-                  class="font-mono break-all text-gray-600 dark:text-gray-400"
-                >{{ uri }}</li>
-              </ul>
-            </details>
-          </div>
-        </div>
-      </div>
-
-      <!-- Add new client form -->
-      <form @submit.prevent="submit" class="space-y-3">
-        <div>
-          <label class="block text-sm font-medium mb-1">{{ $t('settings.integrations.channels.oauth.addClient') }}</label>
-          <div class="flex gap-2">
-            <input
-              v-model="newName"
-              type="text"
-              class="flex-1 border rounded px-2 py-1 text-sm"
-              :placeholder="$t('settings.integrations.channels.oauth.addClientPlaceholder')"
-              required
-            />
+          <UDropdown :items="clientActionItems[client.id]" :popper="{ placement: 'bottom-end', strategy: 'fixed' }">
             <UButton
-              type="submit"
-              size="sm"
-              color="blue"
-              :loading="creating"
-              :disabled="!newName.trim()"
-            >
-              <UIcon name="heroicons-plus" class="w-4 h-4 me-1" />
-              {{ $t('settings.integrations.channels.oauth.add') }}
-            </UButton>
-          </div>
-        </div>
+              color="gray"
+              variant="ghost"
+              size="xs"
+              :icon="rotatingId === client.id ? 'i-heroicons-arrow-path' : 'i-heroicons-ellipsis-horizontal'"
+              :class="rotatingId === client.id ? '[&_svg]:animate-spin' : ''"
+              :disabled="rotatingId === client.id"
+              :aria-label="$t('settings.integrations.channels.oauth.actions')"
+            />
+            <template #item="{ item }">
+              <span class="truncate" :class="item.danger ? 'text-red-600 dark:text-red-400' : ''">{{ item.label }}</span>
+              <UIcon v-if="item.icon" :name="item.icon" class="ms-auto h-4 w-4 shrink-0" :class="item.danger ? 'text-red-500' : 'text-gray-400'" />
+            </template>
+          </UDropdown>
+        </article>
+      </div>
+    </template>
 
-        <details class="text-sm">
-          <summary class="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-            {{ $t('settings.integrations.channels.oauth.customRedirectUris') }}
-          </summary>
-          <div class="mt-2">
+    <UModal v-model="showAppModal" :prevent-close="submitting" :ui="{ width: 'sm:max-w-xl' }">
+      <UCard :ui="{ body: { padding: 'px-5 py-5' }, header: { padding: 'px-5 py-4' }, footer: { padding: 'px-5 py-3' } }">
+        <template #header>
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+                {{ formMode === 'create' ? $t('settings.integrations.channels.oauth.createTitle') : $t('settings.integrations.channels.oauth.editApp') }}
+              </h3>
+              <p v-if="formMode === 'create'" class="mt-1 text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ $t('settings.integrations.channels.oauth.createHelp') }}
+              </p>
+            </div>
+            <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" :aria-label="$t('settings.integrations.channels.common.close')" :disabled="submitting" @click="showAppModal = false" />
+          </div>
+        </template>
+
+        <form id="oauth-app-form" class="space-y-5" @submit.prevent="submitApp">
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200">
+              {{ $t('settings.integrations.channels.oauth.appName') }}
+            </label>
+            <input
+              v-model="formName"
+              type="text"
+              required
+              autofocus
+              class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-blue-950"
+              :placeholder="$t('settings.integrations.channels.oauth.appNamePlaceholder')"
+            />
+          </div>
+
+          <fieldset>
+            <legend class="text-sm font-medium text-gray-800 dark:text-gray-200">
+              {{ $t('settings.integrations.channels.oauth.scopes') }}
+            </legend>
+            <div class="mt-2 grid gap-2 sm:grid-cols-2">
+              <label
+                v-for="item in scopeOptions"
+                :key="item.value"
+                class="flex cursor-pointer gap-3 rounded-lg border p-3 transition-colors"
+                :class="formScopes.includes(item.value)
+                  ? 'border-blue-400 bg-blue-50/50 ring-1 ring-blue-100 dark:border-blue-700 dark:bg-blue-950/20 dark:ring-blue-950'
+                  : 'border-gray-200 dark:border-gray-700'"
+              >
+                <input v-model="formScopes" type="checkbox" :value="item.value" class="mt-0.5 h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span>
+                  <span class="block text-sm font-medium text-gray-800 dark:text-gray-200">{{ item.label }}</span>
+                  <span class="mt-0.5 block text-xs leading-4 text-gray-500 dark:text-gray-400">{{ item.description }}</span>
+                </span>
+              </label>
+            </div>
+            <p v-if="!formScopes.length" class="mt-1.5 text-xs text-red-600">
+              {{ $t('settings.integrations.channels.oauth.scopesRequired') }}
+            </p>
+            <p v-else-if="formMode === 'edit' && scopesChanged" class="mt-1.5 text-xs leading-5 text-amber-700 dark:text-amber-300">
+              {{ $t('settings.integrations.channels.oauth.scopeChangeRevokes') }}
+            </p>
+          </fieldset>
+
+          <div>
+            <label class="mb-1.5 block text-sm font-medium text-gray-800 dark:text-gray-200">
+              {{ $t('settings.integrations.channels.oauth.redirectUris') }}
+            </label>
             <textarea
-              v-model="newRedirectUris"
+              v-model="formRedirectUris"
               rows="3"
-              class="w-full border rounded px-2 py-1 text-sm font-mono"
+              required
+              class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 font-mono text-xs shadow-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100 dark:border-gray-700 dark:bg-gray-900 dark:focus:ring-blue-950"
               :placeholder="$t('settings.integrations.channels.oauth.redirectUriPlaceholder')"
             />
-            <p class="text-[11px] text-gray-400 mt-1">
-              {{ $t('settings.integrations.channels.oauth.customRedirectUrisHint') }}
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ $t('settings.integrations.channels.oauth.oneUriPerLine') }}
             </p>
           </div>
-        </details>
-      </form>
 
-      <!-- Claude Web setup instructions -->
-      <details class="mt-5 text-sm">
-        <summary class="cursor-pointer text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300">
-          {{ $t('settings.integrations.channels.oauth.setupInstructions') }}
-        </summary>
-        <div class="mt-3 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg p-3 space-y-2">
-          <div class="flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400">
-            <div class="w-1.5 h-1.5 rounded-full bg-green-500"></div>
-            <code class="font-mono text-gray-700 dark:text-gray-300">{{ mcpServerUrl }}</code>
+          <label class="flex items-start justify-between gap-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
+            <span>
+              <span class="flex items-center gap-2 text-sm font-medium text-gray-800 dark:text-gray-200">
+                {{ $t('settings.integrations.channels.oauth.trusted') }}
+                <span class="rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
+                  {{ $t('settings.integrations.channels.oauth.internalOnly') }}
+                </span>
+              </span>
+              <span class="mt-1 block max-w-md text-xs leading-5 text-gray-500 dark:text-gray-400">
+                {{ $t('settings.integrations.channels.oauth.trustedHelp') }}
+              </span>
+            </span>
+            <UToggle v-model="formTrusted" class="mt-0.5 shrink-0" />
+          </label>
+        </form>
+
+        <template #footer>
+          <div class="flex justify-end gap-2">
+            <UButton color="gray" variant="ghost" size="sm" :disabled="submitting" @click="showAppModal = false">
+              {{ $t('settings.integrations.channels.common.cancel') }}
+            </UButton>
+            <UButton form="oauth-app-form" type="submit" color="blue" size="sm" :loading="submitting" :disabled="!canSubmit">
+              {{ formMode === 'create' ? $t('settings.integrations.channels.oauth.registerApp') : $t('settings.integrations.channels.common.save') }}
+            </UButton>
           </div>
-          <ol class="text-sm text-gray-600 dark:text-gray-400 space-y-1.5 list-decimal list-inside">
-            <li>{{ $t('settings.integrations.channels.oauth.setupStep1') }}</li>
-            <li>{{ $t('settings.integrations.channels.oauth.setupStep2') }}</li>
-            <li>{{ $t('settings.integrations.channels.oauth.setupStep3') }}</li>
-            <li>{{ $t('settings.integrations.channels.oauth.setupStep4') }}</li>
-            <li>{{ $t('settings.integrations.channels.oauth.setupStep5') }}</li>
-          </ol>
-        </div>
-      </details>
-    </div>
+        </template>
+      </UCard>
+    </UModal>
 
-    <button class="absolute top-2 end-2 text-gray-400 hover:text-gray-600" :title="$t('settings.integrations.channels.common.close')" @click="$emit('close')">✕</button>
-  </div>
+    <UModal v-model="showSecretModal" :ui="{ width: 'sm:max-w-lg' }">
+      <UCard :ui="{ body: { padding: 'px-5 py-5' }, header: { padding: 'px-5 py-4' }, footer: { padding: 'px-5 py-3' } }">
+        <template #header>
+          <div class="flex items-center justify-between gap-4">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+              {{ $t('settings.integrations.channels.oauth.clientSecretOnce') }}
+            </h3>
+            <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" :aria-label="$t('settings.integrations.channels.common.close')" @click="showSecretModal = false" />
+          </div>
+        </template>
+
+        <div class="space-y-4">
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ $t('settings.integrations.channels.oauth.clientIdLabel') }}
+            </div>
+            <div class="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-950/60">
+              <code class="min-w-0 flex-1 break-all font-mono text-xs text-gray-700 dark:text-gray-300">{{ revealedClientId }}</code>
+              <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-clipboard-document" :aria-label="$t('settings.integrations.channels.oauth.copyClientId')" @click="copy(revealedClientId)" />
+            </div>
+          </div>
+          <div>
+            <div class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ $t('settings.integrations.channels.oauth.clientSecretOnce') }}
+            </div>
+            <div class="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-900 dark:bg-amber-950/40">
+              <code class="min-w-0 flex-1 break-all font-mono text-xs text-amber-950 dark:text-amber-100">{{ revealedSecret }}</code>
+              <UButton color="amber" variant="ghost" size="xs" icon="i-heroicons-clipboard-document" :aria-label="$t('settings.integrations.channels.oauth.copy')" @click="copy(revealedSecret)" />
+            </div>
+            <p class="mt-2 text-xs text-amber-700 dark:text-amber-300">
+              {{ $t('settings.integrations.channels.oauth.secretHelp') }}
+            </p>
+          </div>
+        </div>
+
+        <template #footer>
+          <div class="flex justify-end">
+            <UButton color="blue" size="sm" @click="showSecretModal = false">
+              {{ $t('settings.integrations.channels.common.close') }}
+            </UButton>
+          </div>
+        </template>
+      </UCard>
+    </UModal>
+
+    <UModal v-model="showEndpointsModal" :ui="{ width: 'sm:max-w-xl' }">
+      <UCard :ui="{ body: { padding: 'px-5 py-5' }, header: { padding: 'px-5 py-4' } }">
+        <template #header>
+          <div class="flex items-center justify-between gap-4">
+            <h3 class="text-base font-semibold text-gray-900 dark:text-white">
+              {{ $t('settings.integrations.channels.oauth.endpointReference') }}
+            </h3>
+            <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" :aria-label="$t('settings.integrations.channels.common.close')" @click="showEndpointsModal = false" />
+          </div>
+        </template>
+        <dl class="space-y-3">
+          <div v-for="endpoint in endpoints" :key="endpoint.label">
+            <dt class="mb-1 text-xs font-medium text-gray-500 dark:text-gray-400">{{ endpoint.label }}</dt>
+            <dd class="flex items-center gap-2 rounded-lg bg-gray-50 px-3 py-2 dark:bg-gray-950/60">
+              <code class="min-w-0 flex-1 truncate font-mono text-xs text-gray-700 dark:text-gray-300">{{ endpoint.value }}</code>
+              <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-clipboard-document" :aria-label="$t('settings.integrations.channels.oauth.copy')" @click="copy(endpoint.value)" />
+            </dd>
+          </div>
+        </dl>
+      </UCard>
+    </UModal>
+  </section>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const emit = defineEmits<{
-  close: []
-  updated: []
-}>()
+const emit = defineEmits<{ updated: [] }>()
 
 interface OAuthClient {
   id: string
@@ -214,157 +298,196 @@ interface OAuthClient {
   client_secret?: string
   name: string
   redirect_uris: string[]
+  scopes: string[]
+  trusted: boolean
+  active_token_count: number
+  last_used_at: string | null
+  last_issued_at: string | null
   created_at: string
 }
 
 const toast = useToast()
 const { t } = useI18n()
-
 const loading = ref(true)
 const clients = ref<OAuthClient[]>([])
-const creating = ref(false)
+const search = ref('')
+const showAppModal = ref(false)
+const showSecretModal = ref(false)
+const showEndpointsModal = ref(false)
+const formMode = ref<'create' | 'edit'>('create')
+const editingClient = ref<OAuthClient | null>(null)
+const submitting = ref(false)
 const rotatingId = ref<string | null>(null)
-const editingId = ref<string | null>(null)
-const editRedirectUris = ref('')
-const savingId = ref<string | null>(null)
-const newName = ref('')
-const newRedirectUris = ref('')
+const revealedClientId = ref('')
+const revealedSecret = ref('')
 const baseUrl = ref('')
 
-const editRedirectUrisList = computed(() =>
-  editRedirectUris.value.split('\n').map(s => s.trim()).filter(Boolean)
-)
+const formName = ref('')
+const formRedirectUris = ref('')
+const formScopes = ref<string[]>(['app'])
+const formTrusted = ref(false)
 
-// Map of client_id → freshly revealed secret (shown until modal closes or user dismisses)
-const freshSecretByClientId = ref<Record<string, string>>({})
+const scopeOptions = computed(() => [
+  { value: 'app', label: t('settings.integrations.channels.oauth.appScope'), description: t('settings.integrations.channels.oauth.appScopeDesc') },
+  { value: 'mcp', label: t('settings.integrations.channels.oauth.mcpScope'), description: t('settings.integrations.channels.oauth.mcpScopeDesc') },
+])
 
-const mcpServerUrl = computed(() => {
-  const base = baseUrl.value || window.location.origin
-  return `${base}/api/mcp`
+const parseUris = (value: string) => value.split('\n').map(uri => uri.trim()).filter(Boolean)
+const canSubmit = computed(() => Boolean(formName.value.trim() && parseUris(formRedirectUris.value).length && formScopes.value.length))
+const scopesChanged = computed(() => {
+  if (!editingClient.value) return false
+  return [...formScopes.value].sort().join(' ') !== [...editingClient.value.scopes].sort().join(' ')
 })
 
-const _df = useFormatDate()
-function formatDate(dateStr: string) {
-  return _df.format(dateStr, {
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  })
+const filteredClients = computed(() => {
+  const term = search.value.trim().toLowerCase()
+  if (!term) return clients.value
+  return clients.value.filter(client => [client.name, client.client_id, ...client.scopes, ...client.redirect_uris].some(value => value.toLowerCase().includes(term)))
+})
+
+const endpointRoot = computed(() => (baseUrl.value || (import.meta.client ? window.location.origin : '')).replace(/\/$/, ''))
+const endpoints = computed(() => [
+  { label: t('settings.integrations.channels.oauth.authorizationEndpoint'), value: `${endpointRoot.value}/api/oauth/authorize` },
+  { label: t('settings.integrations.channels.oauth.tokenEndpoint'), value: `${endpointRoot.value}/api/oauth/token` },
+  { label: t('settings.integrations.channels.oauth.discoveryEndpoint'), value: `${endpointRoot.value}/.well-known/oauth-authorization-server` },
+])
+
+const clientActionItems = computed<Record<string, any[][]>>(() => {
+  const items: Record<string, any[][]> = {}
+  for (const client of clients.value) {
+    items[client.id] = [
+      [
+        { label: t('settings.integrations.channels.oauth.editApp'), icon: 'i-heroicons-pencil-square', click: () => openEdit(client) },
+        { label: t('settings.integrations.channels.oauth.rotateSecret'), icon: 'i-heroicons-arrow-path', click: () => rotate(client) },
+      ],
+      [
+        { label: t('settings.integrations.channels.oauth.delete'), icon: 'i-heroicons-trash', danger: true, click: () => remove(client) },
+      ],
+    ]
+  }
+  return items
+})
+
+const dateFormatter = useFormatDate()
+function formatDate(value: string) {
+  return dateFormatter.format(value, { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
-async function copy(text: string | undefined) {
-  if (!text) return
-  await navigator.clipboard.writeText(text)
+function initials(name: string) {
+  return name.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'OA'
+}
+
+function scopeLabel(scope: string) {
+  return scope === 'app' ? t('settings.integrations.channels.oauth.appScope') : t('settings.integrations.channels.oauth.mcpScope')
+}
+
+function lastUsedLabel(client: OAuthClient) {
+  if (client.last_used_at) return t('settings.integrations.channels.oauth.lastUsed', { date: formatDate(client.last_used_at) })
+  if (client.last_issued_at) return t('settings.integrations.channels.oauth.issued', { date: formatDate(client.last_issued_at) })
+  return t('settings.integrations.channels.oauth.neverUsed')
+}
+
+async function copy(value?: string) {
+  if (!value) return
+  await navigator.clipboard.writeText(value)
   toast.add({ title: t('settings.integrations.channels.oauth.copied'), icon: 'i-heroicons-check-circle', color: 'green' })
 }
 
+function openCreate() {
+  formMode.value = 'create'
+  editingClient.value = null
+  formName.value = ''
+  formRedirectUris.value = import.meta.client ? `${window.location.origin}/oauth/callback` : ''
+  formScopes.value = ['app']
+  formTrusted.value = false
+  showAppModal.value = true
+}
+
+function openEdit(client: OAuthClient) {
+  formMode.value = 'edit'
+  editingClient.value = client
+  formName.value = client.name
+  formRedirectUris.value = client.redirect_uris.join('\n')
+  formScopes.value = [...client.scopes]
+  formTrusted.value = client.trusted
+  showAppModal.value = true
+}
+
+function revealCredentials(clientId: string, secret?: string) {
+  if (!secret) return
+  revealedClientId.value = clientId
+  revealedSecret.value = secret
+  showSecretModal.value = true
+}
+
 async function loadBaseUrl() {
-  try {
-    const res = await useMyFetch('/settings')
-    if (res.data.value) {
-      baseUrl.value = (res.data.value as any).base_url || ''
-    }
-  } catch (e) {
-    // fall back to window.location.origin
-  }
+  const response = await useMyFetch('/settings')
+  if (response.data.value) baseUrl.value = (response.data.value as any).base_url || ''
 }
 
 async function loadClients() {
-  try {
-    const res = await useMyFetch('/api/oauth/clients')
-    clients.value = (res.data.value as OAuthClient[]) || []
-  } catch (e) {
-    clients.value = []
-  }
+  const response = await useMyFetch('/api/oauth/clients')
+  clients.value = (response.data.value as OAuthClient[]) || []
 }
 
-async function submit() {
-  const name = newName.value.trim()
-  if (!name) return
-  const redirectUris = newRedirectUris.value
-    .split('\n')
-    .map(s => s.trim())
-    .filter(Boolean)
-  creating.value = true
+async function submitApp() {
+  if (!canSubmit.value) return
+  submitting.value = true
   try {
-    const body: { name: string; redirect_uris?: string[] } = { name }
-    if (redirectUris.length) body.redirect_uris = redirectUris
-    const res = await useMyFetch('/api/oauth/clients', {
-      method: 'POST',
-      body
-    })
-    if (res.data.value) {
-      const created = res.data.value as OAuthClient
+    if (formMode.value === 'create') {
+      const response = await useMyFetch('/api/oauth/clients', {
+        method: 'POST',
+        body: {
+          name: formName.value.trim(),
+          redirect_uris: parseUris(formRedirectUris.value),
+          scopes: formScopes.value.join(' '),
+          trusted: formTrusted.value,
+        },
+      })
+      if (response.error.value) throw response.error.value
+      const created = response.data.value as OAuthClient
       clients.value = [created, ...clients.value]
-      if (created.client_secret) {
-        freshSecretByClientId.value[created.client_id] = created.client_secret
-      }
-      newName.value = ''
-      newRedirectUris.value = ''
+      showAppModal.value = false
+      revealCredentials(created.client_id, created.client_secret)
       toast.add({ title: t('settings.integrations.channels.oauth.createdToast'), icon: 'i-heroicons-check-circle', color: 'green' })
-      emit('updated')
+    } else if (editingClient.value) {
+      const response = await useMyFetch(`/api/oauth/clients/${editingClient.value.id}`, {
+        method: 'PATCH',
+        body: {
+          name: formName.value.trim(),
+          redirect_uris: parseUris(formRedirectUris.value),
+          scopes: formScopes.value.join(' '),
+          trusted: formTrusted.value,
+        },
+      })
+      if (response.error.value) throw response.error.value
+      const updated = response.data.value as OAuthClient
+      const index = clients.value.findIndex(item => item.id === editingClient.value?.id)
+      if (index !== -1) clients.value[index] = { ...clients.value[index], ...updated }
+      showAppModal.value = false
+      toast.add({ title: t('settings.integrations.channels.oauth.updatedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
     }
-  } catch (e) {
-    toast.add({ title: t('settings.integrations.channels.oauth.failedCreate'), icon: 'i-heroicons-x-circle', color: 'red' })
-  } finally {
-    creating.value = false
-  }
-}
-
-function startEdit(client: OAuthClient) {
-  editingId.value = client.id
-  editRedirectUris.value = (client.redirect_uris || []).join('\n')
-}
-
-function cancelEdit() {
-  editingId.value = null
-  editRedirectUris.value = ''
-}
-
-async function saveEdit(client: OAuthClient) {
-  const uris = editRedirectUrisList.value
-  if (!uris.length) return
-  savingId.value = client.id
-  try {
-    const res = await useMyFetch(`/api/oauth/clients/${client.id}`, {
-      method: 'PATCH',
-      body: { redirect_uris: uris }
+    emit('updated')
+  } catch {
+    toast.add({
+      title: t(formMode.value === 'create' ? 'settings.integrations.channels.oauth.failedCreate' : 'settings.integrations.channels.oauth.failedUpdate'),
+      icon: 'i-heroicons-x-circle',
+      color: 'red',
     })
-    if (res.data.value) {
-      const updated = res.data.value as OAuthClient
-      const idx = clients.value.findIndex(c => c.id === client.id)
-      if (idx !== -1) clients.value[idx].redirect_uris = updated.redirect_uris
-      cancelEdit()
-      toast.add({ title: t('settings.integrations.channels.oauth.redirectUpdatedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
-      emit('updated')
-    }
-  } catch (e) {
-    toast.add({ title: t('settings.integrations.channels.oauth.failedUpdateRedirect'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
-    savingId.value = null
+    submitting.value = false
   }
 }
 
 async function rotate(client: OAuthClient) {
   rotatingId.value = client.id
   try {
-    const res = await useMyFetch(`/api/oauth/clients/${client.id}/rotate`, {
-      method: 'POST'
-    })
-    if (res.data.value) {
-      const updated = res.data.value as OAuthClient
-      const idx = clients.value.findIndex(c => c.id === client.id)
-      if (idx !== -1) {
-        clients.value[idx].client_id = updated.client_id
-      }
-      if (updated.client_secret) {
-        freshSecretByClientId.value[updated.client_id] = updated.client_secret
-      }
-      toast.add({ title: t('settings.integrations.channels.oauth.rotatedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
-      emit('updated')
-    }
-  } catch (e) {
+    const response = await useMyFetch(`/api/oauth/clients/${client.id}/rotate`, { method: 'POST' })
+    if (response.error.value) throw response.error.value
+    const rotated = response.data.value as OAuthClient
+    revealCredentials(client.client_id, rotated.client_secret)
+    toast.add({ title: t('settings.integrations.channels.oauth.rotatedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
+  } catch {
     toast.add({ title: t('settings.integrations.channels.oauth.failedRotate'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     rotatingId.value = null
@@ -373,20 +496,22 @@ async function rotate(client: OAuthClient) {
 
 async function remove(client: OAuthClient) {
   if (!confirm(t('settings.integrations.channels.oauth.confirmDelete', { name: client.name }))) return
-  try {
-    await useMyFetch(`/api/oauth/clients/${client.id}`, { method: 'DELETE' })
-    clients.value = clients.value.filter(c => c.id !== client.id)
-    delete freshSecretByClientId.value[client.client_id]
-    toast.add({ title: t('settings.integrations.channels.oauth.deletedToast'), icon: 'i-heroicons-check-circle', color: 'green' })
-    emit('updated')
-  } catch (e) {
+  const response = await useMyFetch(`/api/oauth/clients/${client.id}`, { method: 'DELETE' })
+  if (response.error.value) {
     toast.add({ title: t('settings.integrations.channels.oauth.failedDelete'), icon: 'i-heroicons-x-circle', color: 'red' })
+    return
   }
+  clients.value = clients.value.filter(item => item.id !== client.id)
+  toast.add({ title: t('settings.integrations.channels.oauth.deletedToast'), description: t('settings.integrations.channels.oauth.deleteImpact'), icon: 'i-heroicons-check-circle', color: 'green' })
+  emit('updated')
 }
 
 onMounted(async () => {
   loading.value = true
-  await Promise.all([loadBaseUrl(), loadClients()])
-  loading.value = false
+  try {
+    await Promise.all([loadBaseUrl(), loadClients()])
+  } finally {
+    loading.value = false
+  }
 })
 </script>

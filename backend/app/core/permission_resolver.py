@@ -168,6 +168,7 @@ async def principal_belongs_to_org(db: AsyncSession, user, org_id: str) -> bool:
         select(Membership).where(
             Membership.user_id == str(user.id),
             Membership.organization_id == str(org_id),
+            Membership.deleted_at.is_(None),
         )
     )
     return result.scalar_one_or_none() is not None
