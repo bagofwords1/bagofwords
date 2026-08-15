@@ -1478,6 +1478,13 @@
       "manage": "Gérer les paramètres"
     },
     "addAgent": "+ Ajouter un agent...",
+    "advancedPermissions": "Permissions avancées",
+    "tiers": {
+        "query": "Peut interroger",
+        "queryHint": "Poser des questions à cet agent",
+        "manage": "Peut gérer",
+        "manageHint": "Modifier les instructions, entités, évaluations, paramètres et membres"
+    },
     "modelAccess": "Accès aux modèles",
     "modelAccessHint": "Modèles restreints",
     "noRestrictedModels": "Aucun modèle restreint"

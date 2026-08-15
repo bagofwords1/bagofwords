@@ -1561,6 +1561,13 @@
       "manage_data_sources": "נהל סוכנים"
     },
     "addAgent": "+ הוסף סוכן...",
+    "advancedPermissions": "הרשאות מתקדמות",
+    "tiers": {
+        "query": "יכול לשאול",
+        "queryHint": "לשאול את הסוכן הזה שאלות",
+        "manage": "יכול לנהל",
+        "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
+    },
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",
     "noRestrictedModels": "אין מודלים מוגבלים",
