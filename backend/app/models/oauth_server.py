@@ -8,8 +8,9 @@ Table names are prefixed ``oauth_mcp_*`` for historical reasons; the underlying
 schema is generic OAuth 2.1 and can back any protected resource.
 """
 
-from sqlalchemy import Column, String, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, Column, DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import relationship
+
 from app.models.base import BaseSchema
 
 
@@ -23,6 +24,7 @@ class OAuthClient(BaseSchema):
     name = Column(String(255), nullable=False)
     redirect_uris = Column(Text, nullable=False)  # JSON array of allowed redirect URIs
     scopes = Column(String(255), nullable=False)
+    trusted = Column(Boolean, nullable=False, default=False, server_default="false")
 
     organization = relationship("Organization")
 

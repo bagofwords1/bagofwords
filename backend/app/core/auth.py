@@ -985,13 +985,36 @@ async def current_user(
     """
     Get the current user from either JWT token or API key.
 
-    Tries JWT first, then falls back to API key authentication.
+    Tries JWT first, then OAuth, then falls back to API key authentication.
     API keys can be passed via X-API-Key header or Authorization: Bearer <key> (for bow_ prefixed keys).
     """
     # Try JWT first
     if jwt_user is not None:
         await _update_last_seen(jwt_user, db)
         return jwt_user
+
+    # OAuth access tokens must be recognized before the generic ``bow_`` API
+    # key path because ``bow_oauth_`` intentionally shares that broad prefix.
+    # Main-app routes require the app scope; MCP performs its own mcp-scoped
+    # authentication in routes/mcp.py.
+    auth_header = request.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer bow_oauth_"):
+        from app.services.oauth_server_service import OAuthServerService
+
+        token = auth_header[7:]
+        context = await OAuthServerService().validate_access_token_context(
+            db,
+            token,
+            required_scope="app",
+        )
+        if context:
+            request.state.oauth_token_context = context
+            return context.user
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid, expired, or insufficiently scoped OAuth token",
+            headers={"WWW-Authenticate": 'Bearer error="invalid_token"'},
+        )
     
     # Try API key from X-API-Key header
     if api_key:
@@ -1002,8 +1025,7 @@ async def current_user(
             return user
     
     # Try API key from Authorization header (for MCP clients that use Bearer format)
-    auth_header = request.headers.get("Authorization", "")
-    if auth_header.startswith("Bearer bow_"):
+    if auth_header.startswith("Bearer bow_") and not auth_header.startswith("Bearer bow_oauth_"):
         from app.services.api_key_service import ApiKeyService
         api_key_service = ApiKeyService()
         bearer_api_key = auth_header[7:]  # Remove "Bearer " prefix

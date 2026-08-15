@@ -105,6 +105,29 @@ async def resolve_organization(request: Request, db: AsyncSession) -> Organizati
     HTTP routes go through ``get_current_organization``, which layers the
     membership check on top.
     """
+    # OAuth access tokens are tenant-bound. Resolve them before considering a
+    # caller-controlled organization header so a token can never be replayed
+    # into another tenant. ``current_user`` caches this context on request.state.
+    oauth_context = getattr(request.state, "oauth_token_context", None)
+    auth_header = request.headers.get("Authorization", "")
+    if oauth_context is not None:
+        return oauth_context.organization
+    if auth_header.startswith("Bearer bow_oauth_"):
+        from app.services.oauth_server_service import OAuthServerService
+
+        oauth_context = await OAuthServerService().validate_access_token_context(
+            db,
+            auth_header[7:],
+            required_scope="app",
+        )
+        if not oauth_context:
+            raise AppError.unauthorized(
+                ErrorCode.API_KEY_INVALID,
+                "Invalid, expired, or insufficiently scoped OAuth token",
+            )
+        request.state.oauth_token_context = oauth_context
+        return oauth_context.organization
+
     organization_id: Optional[str] = request.headers.get("X-Organization-Id")
 
     if organization_id:
@@ -117,9 +140,10 @@ async def resolve_organization(request: Request, db: AsyncSession) -> Organizati
 
     # No header - try to get from API key
     api_key = request.headers.get("X-API-Key") or ""
-    auth_header = request.headers.get("Authorization", "")
-
-    if api_key.startswith("bow_") or auth_header.startswith("Bearer bow_"):
+    if api_key.startswith("bow_") or (
+        auth_header.startswith("Bearer bow_")
+        and not auth_header.startswith("Bearer bow_oauth_")
+    ):
         from app.services.api_key_service import ApiKeyService
         api_key_service = ApiKeyService()
 
