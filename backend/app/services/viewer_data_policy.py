@@ -215,14 +215,32 @@ async def entity_data_withheld(
     The entity owner is the trusted identity (the report analog): they see the
     snapshot; every other reader is withheld. Entities have no per-user result
     store, so a withheld reader gets empty data and must run/refresh the entity
-    themselves to see their own rows. (Refresher identity is not tracked
-    separately today; refresh is expected to be owner-scoped.)
+    themselves to see their own rows. (Refresh persistence honors the same
+    predicate: run_entity_with_update only writes the shared snapshot when this
+    returns False for the runner, so a non-owner refresh on a user-scoped
+    source stays transient.)
     """
     owner_id = str(getattr(entity, "owner_id", "") or "")
     if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:
         return False
     ids = await _entity_data_source_ids(db, str(entity.id))
     return await _any_user_scoped_connection(db, ids) or await _any_rls_relation(db, ids)
+
+
+async def resolve_entity_data(
+    db: AsyncSession, entity: Any, requesting_user: Any = None
+) -> dict:
+    """The entity snapshot a given reader may see — {} when withheld.
+
+    Single authority for every surface that serves Entity.data rows: the
+    entity read endpoint, the planner context builders (entities section,
+    mentions), code-execution loadables and the describe_entity tool must
+    resolve through this instead of reading Entity.data directly, exactly
+    like step surfaces go through resolve_step_data.
+    """
+    if await entity_data_withheld(db, entity, requesting_user):
+        return {}
+    return entity.data or {}
 
 
 async def snapshot_withheld_for_viewers(

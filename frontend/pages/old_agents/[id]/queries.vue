@@ -142,7 +142,7 @@ const allItems = ref<EntityItem[]>([])
 const loading = ref(false)
 const q = ref('')
 const filterType = ref<'published' | 'suggested'>('published')
-const isAdmin = computed(() => useCan('update_entities'))
+const isAdmin = computed(() => useCan('manage_entities'))
 const currentUserId = computed(() => (authData.value as any)?.user?.id)
 
 const suggestedCount = computed(() =>

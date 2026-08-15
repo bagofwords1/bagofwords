@@ -80,8 +80,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             instruction_id = all_args.get('instruction_id')
             query_id = all_args.get('query_id')  # For routes with object_id parameter
             artifact_id = all_args.get('artifact_id')  # For routes with object_id parameter
+            entity_id = all_args.get('entity_id')  # For routes with object_id parameter
 
-            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id or artifact_id
+            object_id = report_id or completion_id or data_source_id or widget_id or memory_id or instruction_id or query_id or artifact_id or entity_id
         
 
             if not all([user, organization, db]):
@@ -205,6 +206,14 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
             else:
                 has_role_permission = resolved.has_org_permission(permission)
             if not has_role_permission:
+                # Special owner allowance: Entity owner may act on their own
+                # entity while it is not globally approved (private drafts and
+                # pending suggestions). Mirrors the Instruction allowance below.
+                # Approved (catalog) entities stay admin/manager territory.
+                if obj is not None and type(obj).__name__ == 'Entity':
+                    if (str(getattr(obj, 'owner_id', '')) == str(user.id)
+                            and getattr(obj, 'global_status', None) != 'approved'):
+                        return await func(*args, **kwargs)
                 # Special owner allowance: Instruction owner may modify/delete when not published
                 if isinstance(obj, Instruction):
                     is_owner = obj and getattr(obj, 'user_id', None) == user.id

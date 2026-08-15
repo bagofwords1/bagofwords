@@ -488,8 +488,9 @@ class DataSourceService:
         Create memberships for a list of user IDs.
 
         Writes to both DataSourceMembership (legacy) and ResourceGrant (RBAC).
-        `permissions` controls the RBAC grant; defaults to ["view", "view_schema"]
-        to match legacy DSM semantics. Pass ["manage"] for the owner.
+        `permissions` controls the RBAC grant; the default (None) creates an
+        empty grant, which still confers implicit view/view_schema via the
+        resolver's any-grant rule. Pass ["manage"] for the owner.
         """
         if not user_ids:
             return

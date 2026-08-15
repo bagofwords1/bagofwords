@@ -197,7 +197,9 @@ const page = ref(1)
 const limit = 20
 const q = ref('')
 const filterType = ref<'published' | 'suggested'>('published')
-const isAdmin = computed(() => useCan('update_entities'))
+// Org entity admins (manage_entities / full admin) see all drafts+suggestions;
+// 'update_entities' was never a real permission string.
+const isAdmin = computed(() => useCan('manage_entities'))
 
 const currentUserId = computed(() => (authData.value as any)?.user?.id)
 
