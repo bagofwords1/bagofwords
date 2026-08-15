@@ -28,7 +28,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.implementations._artifact_images import load_image_bytes
-from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
+from app.ai.code_execution.pptx_executor import PptxPreviewService
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.models.artifact import Artifact
@@ -1292,6 +1292,79 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     )
                     return
 
+        # Slides mode: execute the edited python-pptx code (repairing in-tool
+        # on failure) BEFORE persisting anything — mirror of the page-mode
+        # validate-before-persist above. A failed edit leaves the artifact
+        # untouched instead of shipping a broken latest version. The deck is
+        # built to a temp path and moved under the new version's id after
+        # the row exists.
+        _pptx_tmp_path: Optional[Path] = None
+        _pptx_repair_attempts = 0
+        if artifact.mode == "slides":
+            import tempfile as _tempfile
+
+            _pptx_tmp_path = Path(_tempfile.mkstemp(suffix=".pptx")[1])
+            _pptx_tmp_path.unlink(missing_ok=True)
+            _pptx_result: Optional[Dict[str, Any]] = None
+            async for _item in self._create_tool._execute_and_repair_pptx(
+                new_code,
+                visualizations,
+                {
+                    "id": str(report.id) if report else None,
+                    "title": getattr(report, "title", None) if report else None,
+                    "theme": getattr(report, "theme", None) if report else None,
+                },
+                _pptx_tmp_path,
+                await load_image_bytes(db, merged_files or []),
+                runtime_ctx,
+                deadline_monotonic=_repair_deadline,
+            ):
+                if isinstance(_item, dict):
+                    _pptx_result = _item
+                else:
+                    yield _item
+
+            if _pptx_result is None or not _pptx_result["ok"]:
+                _error_msg = (_pptx_result or {}).get("error") or "unknown pptx execution error"
+                _attempts = int((_pptx_result or {}).get("repair_attempts") or 0)
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {
+                            "success": False,
+                            "artifact_id": str(artifact.id),
+                            "error": f"Edited code failed PPTX execution: {_error_msg}",
+                        },
+                        "observation": {
+                            "summary": (
+                                f"Edit rejected for artifact '{artifact.title or 'Untitled'}' (v{artifact.version}): "
+                                f"the edited code fails to build the presentation after "
+                                f"{_attempts} in-tool repair attempt(s). The artifact was NOT modified — "
+                                f"the previous version remains live. Error: {_error_msg}"
+                            ),
+                            "error": {
+                                "type": "pptx_execution_failed",
+                                "message": _error_msg,
+                                "repair_attempts": _attempts,
+                                "remediation": (
+                                    "Retry edit_artifact with an edit_prompt that quotes the exact error "
+                                    "above and describes a simpler change, or rebuild via create_artifact if "
+                                    "the edit fundamentally conflicts with the existing code."
+                                ),
+                            },
+                            "artifact_id": str(artifact.id),
+                            "mode": artifact.mode,
+                            "version": artifact.version,
+                            "diff_applied": False,
+                            "warnings": warnings,
+                        },
+                    },
+                )
+                return
+
+            new_code = _pptx_result["code"]
+            _pptx_repair_attempts = int(_pptx_result["repair_attempts"] or 0)
+
         # Update title if provided
         new_title = data.title or artifact.title
 
@@ -1329,48 +1402,31 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         await db.commit()
         await db.refresh(new_artifact)
 
-        # Slides mode: the edited code is only half the artifact — without
-        # re-running it the new version carries no .pptx and no preview images,
-        # so the viewer has nothing to show and the export endpoint falls back
-        # to reconstructing a deck that no longer matches the code.
-        if new_artifact.mode == "slides":
-            yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_pptx_code"})
-            pptx_ok = True
-            try:
-                uploads_dir = Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
-                uploads_dir.mkdir(parents=True, exist_ok=True)
-                out_path = uploads_dir / f"{new_artifact.id}.pptx"
-                result_path, _ = PptxCodeExecutor(logger=logger).execute_pptx_code(
-                    code=new_code,
-                    visualizations=visualizations,
-                    report={
-                        "id": str(report.id) if report else None,
-                        "title": getattr(report, "title", None) if report else None,
-                        "theme": getattr(report, "theme", None) if report else None,
-                    },
-                    output_path=out_path,
-                    images=await load_image_bytes(db, merged_files or []),
-                )
-                new_artifact.pptx_path = str(result_path)
-            except Exception as e:
-                logger.error(f"edit_artifact: PPTX execution failed: {e}")
-                pptx_ok = False
+        # Slides mode: the deck was already built (and repaired if needed)
+        # BEFORE the version was persisted — move it under the new version's
+        # id and render previews.
+        if new_artifact.mode == "slides" and _pptx_tmp_path is not None:
+            import shutil as _shutil
+
+            uploads_dir = Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            out_path = uploads_dir / f"{new_artifact.id}.pptx"
+            _shutil.move(str(_pptx_tmp_path), str(out_path))
+            new_artifact.pptx_path = str(out_path)
 
             # A preview failure costs only the preview — the deck still opens.
-            if pptx_ok and new_artifact.pptx_path:
-                yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_previews"})
-                try:
-                    previews = PptxPreviewService(logger=logger).generate_previews(
-                        pptx_path=Path(new_artifact.pptx_path),
-                        artifact_id=str(new_artifact.id),
-                    )
-                    if previews:
-                        new_artifact.content = {**new_artifact.content, "preview_images": previews}
-                        new_artifact.thumbnail_path = previews[0]
-                except Exception as e:
-                    logger.warning(f"edit_artifact: preview generation failed; deck still usable: {e}")
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "generating_previews"})
+            try:
+                previews = PptxPreviewService(logger=logger).generate_previews(
+                    pptx_path=out_path,
+                    artifact_id=str(new_artifact.id),
+                )
+                if previews:
+                    new_artifact.content = {**new_artifact.content, "preview_images": previews}
+                    new_artifact.thumbnail_path = previews[0]
+            except Exception as e:
+                logger.warning(f"edit_artifact: preview generation failed; deck still usable: {e}")
 
-            new_artifact.status = "completed" if pptx_ok else "failed"
             await db.commit()
             await db.refresh(new_artifact)
 
@@ -1433,6 +1489,19 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             _console_warnings = [e for e in render_errors if e.startswith("[console.error]")]
             if _console_warnings:
                 summary_msg += f" {len(_console_warnings)} non-fatal console error(s) were logged."
+        elif new_artifact.mode == "slides":
+            if _pptx_repair_attempts:
+                summary_msg += f". PPTX execution passed after {_pptx_repair_attempts} in-tool repair attempt(s)."
+            else:
+                summary_msg += ". PPTX execution passed."
+            _previews = (new_artifact.content or {}).get("preview_images") or []
+            if _previews:
+                summary_msg += f" Generated {len(_previews)} slide preview images."
+            else:
+                summary_msg += (
+                    " The deck was built, but slide preview images could not be generated on this "
+                    "server — the PPTX file is still downloadable."
+                )
         if removed_viz_info:
             _removed_titles = ", ".join(rv.get("title", rv.get("id", "?")) for rv in removed_viz_info)
             summary_msg += f" Removed visualization(s): {_removed_titles}."
@@ -1460,6 +1529,21 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             observation["render_errors"] = render_errors
         if render_repair_attempts:
             observation["repair_attempts"] = render_repair_attempts
+        if _pptx_repair_attempts:
+            observation["repair_attempts"] = _pptx_repair_attempts
+
+        # Attach the first slide preview for planner reflection — same gate as
+        # the page-mode screenshot (the preview shows the data).
+        if new_artifact.mode == "slides":
+            _slides_previews = (new_artifact.content or {}).get("preview_images") or []
+            _slides_preview_b64 = self._create_tool._first_preview_base64(_slides_previews)
+            if _slides_preview_b64 and allow_llm_see_data and model and getattr(model, "supports_vision", False):
+                observation["summary"] += " First slide preview is attached — review it for visual correctness."
+                observation["images"] = [{
+                    "data": _slides_preview_b64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
 
         # Add preview screenshot for planner reflection (page mode)
         if _attach_screenshot:

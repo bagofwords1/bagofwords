@@ -405,6 +405,180 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
             logger.exception("In-tool code repair failed")
             return None
 
+    async def _fix_pptx_code(
+        self,
+        code: str,
+        error: str,
+        runtime_ctx: Dict[str, Any],
+    ) -> Optional[str]:
+        """Compact in-tool repair for slides: current code + exact error → corrected code.
+
+        Slides twin of _fix_code: the model already produced this code; it
+        needs the executor's error, not the whole generation context.
+        Returns the corrected code, or None if repair was unavailable/failed.
+        """
+        sigkill_event = runtime_ctx.get("sigkill_event")
+        if sigkill_event and sigkill_event.is_set():
+            return None
+
+        fix_prompt = f"""You previously wrote the python-pptx code below. It runs in a sandboxed namespace that already provides: Presentation, Inches, Pt, Emu, RGBColor, PP_ALIGN, MSO_ANCHOR, MSO_SHAPE, XL_CHART_TYPE, XL_LEGEND_POSITION, CategoryChartData, ChartData, plus the data variables `visualizations` (list of dicts with 'title', 'columns', 'rows'), `report`, `image`/`image_ids`, and `_pptx_output_path` (the code must call prs.save(_pptx_output_path)). Note that each entry of viz['columns'] is a DICT like {{'field': 'Revenue', 'headerName': 'Revenue'}} — use col['field'] to get the row key, never pass the dict itself where a string is expected. When executed, it failed with this error:
+
+{error}
+
+Current code:
+```python
+{code}
+```
+
+Fix ONLY what the error requires — do not redesign, restyle, or restructure anything else. Common causes: passing a non-string (e.g. a column dict) to a text property, indexing a row with the wrong key, referencing an undefined name, wrong python-pptx API usage.
+
+Output the FULL corrected code in a ```python code block. No explanations, no diff markers."""
+
+        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        try:
+            chunks: list[str] = []
+            async for evt in llm.inference_stream_v2(
+                messages=[Message(role="user", content=fix_prompt)],
+                usage_scope="create_artifact_fix",
+            ):
+                if sigkill_event and sigkill_event.is_set():
+                    return None
+                if isinstance(evt, TextDeltaEvent):
+                    chunks.append(evt.text)
+            fixed = self._extract_code("".join(chunks), mode="slides")
+            return fixed if fixed and fixed.strip() else None
+        except Exception:
+            logger.exception("In-tool PPTX code repair failed")
+            return None
+
+    @staticmethod
+    def _pptx_error_text(exc: Exception) -> str:
+        """Trimmed executor error for repair prompts and observations.
+
+        Keeps the frames inside the generated code (reported as <string>) and
+        the final exception line — the sandbox internals above them are noise
+        the repair model can't act on.
+        """
+        import traceback as _tb
+
+        lines = _tb.format_exception(type(exc), exc, exc.__traceback__)
+        flat = "".join(lines).splitlines()
+        kept = [l for l in flat if '<string>' in l]
+        # Final line always carries the exception type + message
+        if flat:
+            kept.append(flat[-1])
+        text = "\n".join(kept[-12:]) if kept else str(exc)
+        return text[:2000]
+
+    @staticmethod
+    def _first_preview_base64(preview_images: List[str]) -> Optional[str]:
+        """Base64 of the first slide preview PNG, or None if unavailable."""
+        if not preview_images:
+            return None
+        import base64
+
+        path = Path(__file__).parent.parent.parent.parent.parent / "uploads" / preview_images[0]
+        try:
+            return base64.b64encode(path.read_bytes()).decode("ascii")
+        except OSError:
+            return None
+
+    async def _execute_and_repair_pptx(
+        self,
+        code: str,
+        visualizations: List[Dict[str, Any]],
+        report_data: Dict[str, Any],
+        output_path: Path,
+        images: Dict[str, bytes],
+        runtime_ctx: Dict[str, Any],
+        deadline_monotonic: Optional[float] = None,
+    ) -> AsyncIterator[Any]:
+        """Execute slides code and repair it in-tool when it fails.
+
+        Slides twin of _validate_and_repair_stream. Async generator: yields
+        ToolProgressEvent items for the UI, then a final dict result:
+          {"code", "ok", "error", "repair_attempts"}
+
+        - Only executor exceptions gate; a successful run ends the loop.
+        - If repair can't produce a working deck, the ORIGINAL code and its
+          error are returned so what's persisted matches what was executed.
+        """
+        import time as _time
+
+        def _time_left() -> bool:
+            return deadline_monotonic is None or _time.monotonic() < deadline_monotonic
+
+        sigkill_event = runtime_ctx.get("sigkill_event")
+        executor = PptxCodeExecutor(logger=logger)
+
+        def _try(candidate_code: str) -> Optional[str]:
+            """Run once; returns None on success, trimmed error text on failure."""
+            try:
+                executor.execute_pptx_code(
+                    code=candidate_code,
+                    visualizations=visualizations,
+                    report=report_data,
+                    output_path=output_path,
+                    images=images,
+                )
+                return None
+            except Exception as e:
+                logger.error(f"PPTX execution failed: {e}")
+                return self._pptx_error_text(e)
+
+        yield ToolProgressEvent(type="tool.progress", payload={"stage": "executing_pptx_code"})
+        error = _try(code)
+
+        original_code = code
+        original_error = error
+        candidate = code
+        attempts = 0
+
+        while (
+            error
+            and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
+            and _time_left()
+            and not (sigkill_event and sigkill_event.is_set())
+        ):
+            attempts += 1
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={"stage": "repairing_code", "attempt": attempts, "error_count": 1},
+            )
+            fixed = await self._fix_pptx_code(candidate, error, runtime_ctx)
+            if not fixed or fixed == candidate:
+                break
+
+            yield ToolProgressEvent(
+                type="tool.progress",
+                payload={"stage": "executing_pptx_code", "attempt": attempts},
+            )
+            error = _try(fixed)
+            candidate = fixed
+
+        if not error:
+            yield {
+                "code": candidate,
+                "ok": True,
+                "error": None,
+                "repair_attempts": attempts,
+            }
+        else:
+            # Repair didn't converge — return the original, verified-broken
+            # state rather than an unverified intermediate, and drop any deck
+            # a partial attempt may have left behind.
+            try:
+                if output_path.exists():
+                    output_path.unlink()
+            except OSError:
+                pass
+            yield {
+                "code": original_code,
+                "ok": False,
+                "error": original_error,
+                "repair_attempts": attempts,
+            }
+
     async def _validate_and_repair_stream(
         self,
         code: str,
@@ -1002,45 +1176,47 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
 
         pptx_path: Optional[str] = None
         pptx_success: bool = True
+        pptx_error: Optional[str] = None
+        pptx_repair_attempts: int = 0
         preview_images: List[str] = []
 
         if data.mode == "slides":
             # ═══════════════════════════════════════════════════════════════════
-            # SLIDES MODE: Execute python-pptx code and generate previews
+            # SLIDES MODE: Execute python-pptx code (repairing in-tool on
+            # failure, mirroring page-mode render validation) and generate
+            # previews.
             # ═══════════════════════════════════════════════════════════════════
-            yield ToolProgressEvent(
-                type="tool.progress",
-                payload={"stage": "executing_pptx_code"}
-            )
+            report_data = {
+                "id": str(report.id) if report else None,
+                "title": getattr(report, "title", None) if report else None,
+                "theme": getattr(report, "theme", None) if report else None,
+            }
 
-            try:
-                # Prepare data for execution
-                report_data = {
-                    "id": str(report.id) if report else None,
-                    "title": getattr(report, "title", None) if report else None,
-                    "theme": getattr(report, "theme", None) if report else None,
-                }
+            uploads_dir = Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            output_path = uploads_dir / f"{artifact.id}.pptx"
 
-                # Setup output path
-                uploads_dir = Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
-                uploads_dir.mkdir(parents=True, exist_ok=True)
-                output_path = uploads_dir / f"{artifact.id}.pptx"
-
-                # Execute the python-pptx code
-                executor = PptxCodeExecutor(logger=logger)
-                result_path, output_log = executor.execute_pptx_code(
-                    code=code,
-                    visualizations=visualizations,
-                    report=report_data,
-                    output_path=output_path,
-                    images=await load_image_bytes(db, included_files),
-                )
-
-                pptx_path = str(result_path)
-
-            except Exception as e:
-                logger.error(f"PPTX execution failed: {e}")
-                pptx_success = False
+            _pptx_result: Optional[Dict[str, Any]] = None
+            async for _item in self._execute_and_repair_pptx(
+                code,
+                visualizations,
+                report_data,
+                output_path,
+                await load_image_bytes(db, included_files),
+                runtime_ctx,
+                deadline_monotonic=_repair_deadline,
+            ):
+                if isinstance(_item, dict):
+                    _pptx_result = _item
+                else:
+                    yield _item
+            if _pptx_result is not None:
+                code = _pptx_result["code"]
+                pptx_success = bool(_pptx_result["ok"])
+                pptx_error = _pptx_result["error"]
+                pptx_repair_attempts = int(_pptx_result["repair_attempts"] or 0)
+            if pptx_success:
+                pptx_path = str(output_path)
 
             # Previews are rendered by LibreOffice, which is a separate concern
             # from building the deck: it can be missing an import filter or be
@@ -1134,6 +1310,10 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
         artifact.content = content
         if data.mode == "slides":
             artifact.status = "completed" if pptx_success else "failed"
+            # Persist the executor error like page mode persists render errors,
+            # so read_artifact and later repairs can see WHY the deck failed.
+            if pptx_error:
+                artifact.render_errors = [pptx_error]
         else:
             artifact.status = "completed" if render_clean else "failed"
 
@@ -1164,6 +1344,55 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
             if first_preview.exists():
                 artifact.thumbnail_path = preview_images[0]
                 await db.commit()
+
+        # Slides mode that failed pptx execution (after bounded in-tool
+        # repair): return a structured failure so the planner sees the real
+        # error — mirror of the page-mode branch below. The artifact row is
+        # persisted as status="failed" for debugging, but it is not presented
+        # as a working deck.
+        if data.mode == "slides" and not pptx_success:
+            _error_msg = pptx_error or "unknown pptx execution error"
+            slides_failure_observation: Dict[str, Any] = {
+                "summary": (
+                    f"Artifact '{data.title or 'Untitled'}' failed to build the presentation "
+                    f"after {pptx_repair_attempts} in-tool repair attempt(s). "
+                    f"Error: {_error_msg}"
+                ),
+                "error": {
+                    "type": "pptx_execution_failed",
+                    "message": _error_msg,
+                    "repair_attempts": pptx_repair_attempts,
+                    "remediation": (
+                        "The generated python-pptx code does not execute. Call edit_artifact with an "
+                        "edit_prompt that quotes the exact error above, or create_artifact to rebuild "
+                        "with a simpler deck if the error persists."
+                    ),
+                },
+                "artifact_id": str(artifact.id),
+                "mode": data.mode,
+                "visualization_count": len(visualizations),
+                "visualization_ids": included_viz_ids,
+                "render_errors": [_error_msg],
+            }
+            if warnings:
+                slides_failure_observation["warnings"] = warnings
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "artifact_id": str(artifact.id),
+                        "error": f"PPTX execution failed: {_error_msg}",
+                        "code_preview": {
+                            "language": "python",
+                            "code": code,
+                            "collapsed_default": True,
+                        },
+                    },
+                    "observation": slides_failure_observation,
+                },
+            )
+            return
 
         # Page mode that failed render validation (after bounded in-tool
         # repair): return a structured failure so the planner sees the real
@@ -1253,8 +1482,16 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
 
         # Build observation message
         summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
-        if data.mode == "slides" and preview_images:
-            summary_msg += f". Generated {len(preview_images)} slide preview images."
+        if data.mode == "slides":
+            if pptx_repair_attempts:
+                summary_msg += f". PPTX execution passed after {pptx_repair_attempts} in-tool repair attempt(s)."
+            if preview_images:
+                summary_msg += f" Generated {len(preview_images)} slide preview images."
+            else:
+                summary_msg += (
+                    " The deck was built, but slide preview images could not be generated on this "
+                    "server — the PPTX file is still downloadable."
+                )
         elif data.mode == "page":
             if repair_attempts:
                 summary_msg += f". Render validation passed after {repair_attempts} in-tool repair attempt(s)."
@@ -1300,6 +1537,19 @@ Output the FULL corrected code wrapped in <script type="text/babel"> ... </scrip
                 observation["slide_count"] = len(preview_images)
             if pptx_path:
                 observation["pptx_path"] = pptx_path
+            if pptx_repair_attempts:
+                observation["repair_attempts"] = pptx_repair_attempts
+            # Attach the first slide preview for planner reflection — same
+            # privacy + vision gate as the page-mode screenshot (the preview
+            # shows the data).
+            _slides_preview_b64 = self._first_preview_base64(preview_images)
+            if _slides_preview_b64 and allow_llm_see_data and _model and getattr(_model, "supports_vision", False):
+                observation["summary"] += " First slide preview is attached — review it for visual correctness."
+                observation["images"] = [{
+                    "data": _slides_preview_b64,
+                    "media_type": "image/png",
+                    "source_type": "base64",
+                }]
 
         if warnings:
             observation["warnings"] = warnings
@@ -1557,15 +1807,17 @@ fill.fore_color.rgb = RGBColor(15, 23, 42)
 list is empty for a narrative deck):
 ```python
 viz = visualizations[0]
-columns = viz['columns']  # e.g. ['AlbumTitle', 'Revenue', 'UnitsSold']
+# Each entry of viz['columns'] is a DICT, e.g. {{'field': 'Revenue', 'headerName': 'Revenue'}}.
+# Extract the row keys from the 'field' values first:
+fields = [c['field'] if isinstance(c, dict) else str(c) for c in viz['columns']]  # e.g. ['AlbumTitle', 'Revenue']
 rows = viz['rows']        # list of dicts like {{'AlbumTitle': 'Greatest Hits', 'Revenue': 1500.0}}
 
 # Get categories and values for a chart:
-categories = [str(row[columns[0]]) for row in rows]  # First column as labels
-values = [float(row[columns[1]]) if row[columns[1]] else 0 for row in rows]  # Second column as values
+categories = [str(row.get(fields[0], '')) for row in rows]  # First column as labels
+values = [float(row.get(fields[1]) or 0) for row in rows]   # Second column as values
 
-# IMPORTANT: columns[i] returns a string like 'Revenue', then use that to index into row
-# row[columns[1]] is the same as row['Revenue'] if columns[1] == 'Revenue'
+# IMPORTANT: never pass a column dict itself to a text property or a row index —
+# use fields[i] (a string like 'Revenue'): row[fields[1]] is row['Revenue']
 ```
 
 ═══════════════════════════════════════════════════════════════════════════════

@@ -227,65 +227,6 @@ class PptxCodeExecutor:
 
         return output_path, output_log
 
-    def execute_with_retries(
-        self,
-        *,
-        code: str,
-        visualizations: List[Dict[str, Any]],
-        report: Dict[str, Any],
-        output_path: Path,
-        fix_code_fn: Optional[callable] = None,
-        max_retries: int = 2,
-    ) -> Tuple[Path, str, List[Tuple[str, str]]]:
-        """
-        Execute PPTX code with retry logic.
-
-        Args:
-            code: Initial python-pptx code
-            visualizations: Visualization data
-            report: Report info
-            output_path: Output path for PPTX
-            fix_code_fn: Optional async function to fix code on error
-            max_retries: Maximum number of retry attempts
-
-        Returns:
-            Tuple of (output_path, stdout_log, code_and_error_messages)
-        """
-        code_and_error_messages: List[Tuple[str, str]] = []
-        current_code = code
-
-        for attempt in range(max_retries):
-            try:
-                result_path, output_log = self.execute_pptx_code(
-                    code=current_code,
-                    visualizations=visualizations,
-                    report=report,
-                    output_path=output_path,
-                )
-                return result_path, output_log, code_and_error_messages
-            except Exception as e:
-                error_msg = str(e)
-                code_and_error_messages.append((current_code, error_msg))
-
-                if self.logger:
-                    self.logger.warning(
-                        f"PPTX execution attempt {attempt + 1} failed: {error_msg}"
-                    )
-
-                # If we have a fix function and more retries, try to fix
-                if fix_code_fn and attempt < max_retries - 1:
-                    try:
-                        current_code = fix_code_fn(current_code, error_msg)
-                    except Exception as fix_error:
-                        if self.logger:
-                            self.logger.error(f"Code fix failed: {fix_error}")
-                        raise e
-                else:
-                    raise e
-
-        # Should not reach here, but just in case
-        raise RuntimeError("Max retries exceeded for PPTX code execution")
-
 
 # =============================================================================
 # PPTX to Image Preview Conversion
