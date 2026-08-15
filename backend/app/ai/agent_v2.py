@@ -626,6 +626,7 @@ class AgentV2:
         # In-memory telemetry rollups for this run, flushed once at
         # agent_execution_completed — cheap counters, no DB/IO in the hot path.
         self._tool_call_counts: Counter = Counter()
+        self._mcp_tool_call_counts: Counter = Counter()
         self._iteration_count: int = 0
 
         # Background DB writes scheduled during the loop. Drained before the
@@ -5193,13 +5194,23 @@ class AgentV2:
                                     )
                                     # Telemetry: tool started
                                     try:
+                                        _start_props = {
+                                            "agent_execution_id": str(self.current_execution.id),
+                                            "tool_name": tool_name,
+                                            "tool_action": action.type,
+                                            "platform": self.platform,
+                                        }
+                                        # MCP calls are dispatched through one meta-tool
+                                        # (execute_mcp); the actual downstream tool/server
+                                        # lives in the call's own arguments, not the outer
+                                        # tool_name, so surface it here instead of adding a
+                                        # separate per-MCP-tool event.
+                                        if tool_name == "execute_mcp" and isinstance(tool_input, dict):
+                                            _start_props["mcp_tool_name"] = tool_input.get("tool_name")
+                                            _start_props["mcp_connection_id"] = tool_input.get("connection_id")
                                         await telemetry.capture(
                                             "agent_tool_started",
-                                            {
-                                                "agent_execution_id": str(self.current_execution.id),
-                                                "tool_name": tool_name,
-                                                "tool_action": action.type,
-                                            },
+                                            _start_props,
                                             user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
                                             org_id=str(self.organization.id) if self.organization else None,
                                         )
@@ -5459,14 +5470,19 @@ class AgentV2:
                                     else:
                                         asyncio.create_task(_bg_post_snap())
 
-                                    # Telemetry: tool finished (in-memory counter — no IO)
+                                    # Telemetry: tool finished (in-memory counters — no IO)
                                     self._tool_call_counts[tool_name] += 1
+                                    if tool_name == "execute_mcp" and isinstance(tool_input, dict):
+                                        _mcp_name = tool_input.get("tool_name")
+                                        if _mcp_name:
+                                            self._mcp_tool_call_counts[_mcp_name] += 1
                                     try:
                                         _tool_props = {
                                             "agent_execution_id": str(self.current_execution.id),
                                             "tool_name": tool_name,
                                             "status": "error" if _observation_failed(observation) else "success",
                                             "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                            "platform": self.platform,
                                         }
                                         # Model-routing detail: route_model's own observation already
                                         # carries from/to model + reason, so surface it on this same
@@ -5476,6 +5492,11 @@ class AgentV2:
                                             _tool_props["from_model"] = observation.get("from_model")
                                             _tool_props["to_model"] = observation.get("model")
                                             _tool_props["routing_reason"] = observation.get("reason")
+                                        # Same idea for MCP: surface the actual downstream
+                                        # tool/server, mirroring the agent_tool_started event.
+                                        if tool_name == "execute_mcp" and isinstance(tool_input, dict):
+                                            _tool_props["mcp_tool_name"] = tool_input.get("tool_name")
+                                            _tool_props["mcp_connection_id"] = tool_input.get("connection_id")
                                         await telemetry.capture(
                                             "agent_tool_finished",
                                             _tool_props,
@@ -6192,9 +6213,11 @@ class AgentV2:
                     "agent_execution_id": str(self.current_execution.id),
                     "status": status,
                     "model_id": getattr(self.model, "model_id", None),
+                    "platform": self.platform,
                     "iterations": self._iteration_count,
                     "tool_call_counts": dict(self._tool_call_counts),
                     "total_tool_calls": sum(self._tool_call_counts.values()),
+                    "mcp_tool_call_counts": dict(self._mcp_tool_call_counts),
                 }
                 _token_usage = getattr(self.current_execution, "token_usage_json", None) or {}
                 if _token_usage:
