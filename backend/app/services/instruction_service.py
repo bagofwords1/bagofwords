@@ -4387,6 +4387,116 @@ class InstructionService:
             "pages": (total + limit - 1) // limit if limit > 0 else 1
         }
 
+    async def export_agent_instructions_zip(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        data_source_id: str,
+    ) -> tuple[bytes, str]:
+        """Serialize one agent's live instructions to a zip of markdown files.
+
+        Each instruction becomes one ``.md`` file with YAML frontmatter carrying
+        the metadata that ``instruction_sync_service`` reads back (title,
+        category, status, load_mode, kind), so an exported zip round-trips into a
+        git repo the agent can re-sync. Returns ``(zip_bytes, agent_name)``.
+
+        Authorization is enforced at the route layer (per-agent
+        ``manage_instructions``); this method assumes the caller may read the
+        agent. It still runs through ``get_instructions`` so the same visibility
+        rules as the list apply.
+        """
+        import io
+        import zipfile
+        import yaml
+
+        ds = (await db.execute(
+            select(DataSource).where(and_(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id,
+            ))
+        )).scalar_one_or_none()
+        agent_name = (getattr(ds, "name", None) or "agent") if ds else "agent"
+
+        # Live instructions the main build carries for this agent — what the list
+        # shows. Global (agent-less) instructions are intentionally excluded:
+        # export is per-agent.
+        result = await self.get_instructions(
+            db, organization, current_user,
+            skip=0, limit=2000,
+            data_source_ids=[data_source_id],
+            include_global=False,
+            include_own=True,
+            live=True,
+        )
+        items = result.get("items", [])
+
+        # Resolve references (table / metadata-resource / memory scopes) for the
+        # visible instructions in one query, so a table- or tool-scoped rule
+        # carries that scope in its exported frontmatter. display_text is the
+        # human label shown in the UI; fall back to type:id when it's absent.
+        from app.models.instruction_reference import InstructionReference
+        refs_by_instruction: dict = {}
+        inst_ids = [str(it.id) for it in items]
+        if inst_ids:
+            ref_rows = (await db.execute(
+                select(
+                    InstructionReference.instruction_id,
+                    InstructionReference.object_type,
+                    InstructionReference.object_id,
+                    InstructionReference.display_text,
+                ).where(InstructionReference.instruction_id.in_(inst_ids))
+            )).all()
+            for iid, otype, oid, dtext in ref_rows:
+                label = dtext or f"{otype}:{oid}"
+                refs_by_instruction.setdefault(str(iid), []).append(label)
+
+        def _slug(value: str) -> str:
+            value = re.sub(r"[^\w\s-]", "", value or "").strip().replace(" ", "-").lower()
+            return value
+
+        buf = io.BytesIO()
+        used_names: set[str] = set()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for it in items:
+                # Prefer the git source path (already unique + meaningful), else a
+                # slug of the title, else the id — always ending in .md.
+                base = None
+                if getattr(it, "source_file_path", None):
+                    base = it.source_file_path.rsplit("/", 1)[-1]
+                    if not base.endswith(".md"):
+                        base = f"{base}.md"
+                if not base:
+                    base = f"{_slug(it.title) or str(it.id)}.md"
+
+                name = base
+                n = 1
+                while name in used_names:
+                    stem = base[:-3] if base.endswith(".md") else base
+                    name = f"{stem}-{n}.md"
+                    n += 1
+                used_names.add(name)
+
+                # Frontmatter: only meaningful keys, in a stable order.
+                fm: dict = {}
+                if getattr(it, "title", None):
+                    fm["title"] = it.title
+                fm["category"] = getattr(it, "category", None) or "general"
+                fm["status"] = getattr(it, "status", None) or "published"
+                fm["load_mode"] = getattr(it, "load_mode", None) or "always"
+                if getattr(it, "kind", None) and it.kind != "instruction":
+                    fm["kind"] = it.kind
+                refs = refs_by_instruction.get(str(it.id))
+                if refs:
+                    fm["references"] = refs
+
+                front = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
+                body = it.text or ""
+                content = f"---\n{front}\n---\n\n{body}\n"
+                zf.writestr(name, content)
+
+        return buf.getvalue(), agent_name
+
     async def _table_inaccessible_instruction_ids(
         self,
         db: AsyncSession,

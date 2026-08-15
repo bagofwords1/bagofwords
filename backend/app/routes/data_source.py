@@ -696,3 +696,32 @@ async def remove_connection_from_domain(
     except Exception:
         pass
     return result
+
+
+@router.get("/data_sources/{data_source_id}/instructions/export")
+@requires_resource_permission('data_source', 'manage_instructions')
+async def export_agent_instructions(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Download this agent's live instructions as a zip of markdown files.
+
+    Gated on per-agent ``manage_instructions`` (full admins pass via the
+    wildcard). Per-agent only — global/agent-less instructions are excluded.
+    """
+    import re as _re
+    from fastapi.responses import StreamingResponse
+    from app.services.instruction_service import InstructionService
+
+    zip_bytes, agent_name = await InstructionService().export_agent_instructions_zip(
+        db, organization, current_user, data_source_id
+    )
+    safe = _re.sub(r"[^\w.-]+", "-", agent_name).strip("-") or "agent"
+    filename = f"{safe}-instructions.zip"
+    return StreamingResponse(
+        iter([zip_bytes]),
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
