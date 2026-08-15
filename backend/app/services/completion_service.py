@@ -2446,6 +2446,7 @@ class CompletionService:
                                         "system_completion_id": str(system_completion.id),
                                         "model_id": model.model_id,
                                         "has_widget": bool(widget_obj is not None),
+                                        "platform": resolved_platform,
                                     },
                                     user_id=current_user.id,
                                     org_id=organization.id,
@@ -2478,6 +2479,7 @@ class CompletionService:
                                     {
                                         "report_id": str(report.id),
                                         "system_completion_id": str(system_completion.id),
+                                        "platform": resolved_platform,
                                     },
                                     user_id=current_user.id,
                                     org_id=organization.id,
