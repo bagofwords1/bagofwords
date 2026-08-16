@@ -726,6 +726,7 @@ async def export_agent_instructions(
     excluded.
     """
     import re as _re
+    from urllib.parse import quote as _quote
     from fastapi.responses import StreamingResponse
     from app.services.instruction_service import InstructionService
 
@@ -744,10 +745,20 @@ async def export_agent_instructions(
             status_code=504,
             detail="Agent export timed out. Please try again.",
         )
-    safe = _re.sub(r"[^\w.-]+", "-", agent_name).strip("-") or "agent"
-    filename = f"{safe}-agent-export.zip"
+    # Response headers must be latin-1 (Starlette encodes them as such), but an
+    # agent name can be any script (Hebrew, Arabic, ...). RFC 5987: send an
+    # ASCII-only filename= fallback plus a percent-encoded UTF-8 filename*= —
+    # browsers prefer the latter, so the download keeps the real name.
+    ascii_stem = _re.sub(r"[^A-Za-z0-9.-]+", "-", agent_name).strip("-") or "agent"
+    utf8_stem = _re.sub(r"[^\w.-]+", "-", agent_name, flags=_re.UNICODE).strip("-") or "agent"
+    utf8_filename = _quote(f"{utf8_stem}-agent-export.zip", safe="")
     return StreamingResponse(
         iter([zip_bytes]),
         media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        headers={
+            "Content-Disposition": (
+                f'attachment; filename="{ascii_stem}-agent-export.zip"; '
+                f"filename*=UTF-8''{utf8_filename}"
+            )
+        },
     )

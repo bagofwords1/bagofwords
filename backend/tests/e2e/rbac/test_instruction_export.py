@@ -62,7 +62,7 @@ def test_export_downloads_all_agent_instructions_as_markdown_zip(
     assert resp.status_code == 200, resp.text
     assert resp.headers["content-type"] == "application/zip"
     assert "attachment" in resp.headers.get("content-disposition", "")
-    assert resp.headers["content-disposition"].endswith('.zip"')
+    assert '-agent-export.zip"' in resp.headers["content-disposition"]
 
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
@@ -89,6 +89,44 @@ def test_export_downloads_all_agent_instructions_as_markdown_zip(
     import yaml as _yaml
     manifest = _yaml.safe_load(zf.read("agent.yaml").decode("utf-8"))
     assert manifest.get("name") == "Export Agent"
+
+
+@pytest.mark.e2e
+def test_export_handles_non_latin_agent_name(
+    create_data_source, create_instruction,
+    create_user, login_user, whoami, test_client, tmp_path,
+):
+    """A Hebrew/Arabic agent name must not 500 the download: response headers
+    are latin-1, so the route sends an ASCII filename= fallback plus an RFC
+    5987 UTF-8 filename*= carrying the real name."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    agent = create_data_source(
+        name="סוכן מכירות",
+        type="network_dir",
+        config={"root_path": str(tmp_path)},
+        credentials={"auth_type": "none"},
+        user_token=token,
+        org_id=org_id,
+    )
+    create_instruction(
+        text="Hebrew agent rule", category="general",
+        data_source_ids=[agent["id"]], status="published",
+        user_token=token, org_id=org_id,
+    )
+
+    resp = test_client.get(
+        f"/api/data_sources/{agent['id']}/instructions/export",
+        headers=_headers(token, org_id),
+    )
+    assert resp.status_code == 200, resp.text
+    cd = resp.headers["content-disposition"]
+    cd.encode("latin-1")  # header must be encodable — the original crash
+    assert "filename*=UTF-8''" in cd
+    zf = zipfile.ZipFile(io.BytesIO(resp.content))
+    assert any(n.startswith("instructions/") for n in zf.namelist())
 
 
 @pytest.mark.e2e
