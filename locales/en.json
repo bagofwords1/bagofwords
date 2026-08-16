@@ -1508,7 +1508,9 @@
     "saveEntity": "Save Entity",
     "suggestEntity": "Suggest Entity",
     "saveFailed": "Failed to save entity",
-    "stepRequired": "Step is required to save"
+    "stepRequired": "Step is required to save",
+    "publishedToast": "Query published to the catalog",
+    "suggestedToast": "Suggestion submitted for review"
   },
   "mentionInput": {
     "placeholder": "Type {'@'} to mention...",
