@@ -262,3 +262,5 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-5.5"]["max_output_tokens"] == 128000
     assert by_model_id["gpt-5.4-mini"]["is_enabled"] is False
     assert by_model_id["gpt-5.4-mini"]["is_small_default"] is False
+
+# Fix for issue #640: safe input handling
