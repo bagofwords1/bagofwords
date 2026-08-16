@@ -132,6 +132,7 @@ watch(canCreateEntities, (can) => {
 })
 
 // Watch for modal opening and update form with latest props
+const { getSession } = useAuth()
 watch(() => props.visible, (isVisible) => {
   if (isVisible) {
     // Reset/update form when modal opens
@@ -142,6 +143,16 @@ watch(() => props.visible, (isVisible) => {
       status: canCreateEntities.value ? 'published' : 'draft',
       data_source_ids: props.initialDataSourceIds || [],
     }
+    // The permission store is a session snapshot; grants earned mid-session
+    // (e.g. `manage` on an agent the user just created) aren't in it yet and
+    // would wrongly downgrade the modal to suggest-tier. Refreshing the
+    // session re-resolves the store (fetchPermissions plugin watches it), and
+    // the computeds above re-evaluate reactively.
+    getSession().then(() => {
+      if (canCreateEntities.value && form.value.status !== 'published') {
+        form.value.status = 'published'
+      }
+    }).catch(() => {})
   }
 })
 

@@ -264,7 +264,7 @@ const entityType = computed(() => {
 })
 
 const isOwner = computed(() => {
-  const currentUserId = (authData.value as any)?.user?.id
+  const currentUserId = ((authData.value as any)?.user?.id ?? (authData.value as any)?.id)
   return currentUserId && detail.value?.owner_id === currentUserId
 })
 

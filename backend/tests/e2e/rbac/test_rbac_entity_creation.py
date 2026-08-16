@@ -249,6 +249,50 @@ def test_owner_lifecycle_suggest_withdraw_update_delete(test_client, world):
     assert dele.status_code == 200, dele.text
 
 
+@pytest.mark.e2e
+def test_agent_owner_without_grant_row_still_manages(test_client, world):
+    """Ownership is authoritative: data_sources.owner_user_id confers `manage`
+    even when the owner's ResourceGrant row is missing (legacy creation paths,
+    failed backfills). Regression for owners stuck in suggest-tier."""
+    admin = world["admin"]
+
+    async def orphan_owner():
+        from sqlalchemy import delete, update
+        from app.models.data_source import DataSource
+        from app.models.resource_grant import ResourceGrant
+        async with async_session_maker() as db:
+            # Make the OWNER the admin's victim... rather: assign ownership to
+            # the plain member and strip every grant they hold on the agent.
+            await db.execute(update(DataSource).where(
+                DataSource.id == world["ds_public"]["id"]
+            ).values(owner_user_id=world["member"]["user_id"]))
+            await db.execute(delete(ResourceGrant).where(
+                ResourceGrant.resource_type == "data_source",
+                ResourceGrant.resource_id == world["ds_public"]["id"],
+                ResourceGrant.principal_id == world["member"]["user_id"],
+            ))
+            await db.commit()
+
+    _run(orphan_owner())
+
+    resp = test_client.post(
+        "/api/entities",
+        json={
+            "type": "model", "title": "owner no grant", "slug": f"own-{uuid.uuid4().hex[:6]}",
+            "code": "select 1", "data": {}, "status": "draft",
+            "data_source_ids": [world["ds_public"]["id"]],
+        },
+        headers=_hdr(world["member"]["token"], world["org_id"]),
+    )
+    assert resp.status_code == 200, resp.text
+
+    # whoami surfaces the derived grant so the frontend store agrees.
+    who = test_client.get("/api/users/whoami", headers=_hdr(world["member"]["token"], world["org_id"]))
+    org = next(o for o in who.json()["organizations"] if o["id"] == world["org_id"])
+    key = f"data_source:{world['ds_public']['id']}"
+    assert "manage" in (org.get("resource_permissions") or {}).get(key, []), org.get("resource_permissions")
+
+
 # ── 2. User-scoped snapshot withholding ──────────────────────────────────
 
 @pytest.fixture

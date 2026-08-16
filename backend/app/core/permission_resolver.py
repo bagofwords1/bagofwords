@@ -439,11 +439,35 @@ async def _resolve_permissions_inner(
     for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
         resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
 
+    # Agent ownership is authoritative: data_sources.owner_user_id holds the
+    # `manage` tier on their own agent even when the owner grant row is
+    # missing (legacy creation paths, pre-backfill rows, failed writes).
+    # Expanded here so route checks, whoami and the frontend permission store
+    # all agree with the "creator manages their agent" rule.
+    for ds_id in await _owned_data_source_ids(db, user_id, org_id):
+        resource_permissions.setdefault(("data_source", ds_id), set()).add("manage")
+
     return ResolvedPermissions(
         org_permissions=org_permissions,
         resource_permissions=resource_permissions,
         role_names=role_names,
     )
+
+
+async def _owned_data_source_ids(
+    db: AsyncSession, user_id: str, org_id: str,
+) -> list[str]:
+    """Data source ids the user owns (data_sources.owner_user_id) in the org."""
+    from app.models.data_source import DataSource
+
+    rows = await db.execute(
+        select(DataSource.id).where(
+            DataSource.owner_user_id == str(user_id),
+            DataSource.organization_id == str(org_id),
+            DataSource.deleted_at.is_(None),
+        )
+    )
+    return [str(r[0]) for r in rows.all()]
 
 
 async def _agents_fully_backed_by_connections(
@@ -595,11 +619,26 @@ async def resolve_permissions_bulk(
         # 4. Expand connection manage_data_sources → per-agent manage. Rare (only
         #    when the user holds explicit per-connection grants); ~free otherwise
         #    (early return on empty). Kept per-org for exact parity.
+        #    Also expand agent ownership → manage (single org-spanning query),
+        #    mirroring _resolve_permissions_inner.
+        from app.models.data_source import DataSource
+        owned_rows = (await db.execute(
+            select(DataSource.organization_id, DataSource.id).where(
+                DataSource.owner_user_id == str(user_id),
+                DataSource.organization_id.in_(org_ids),
+                DataSource.deleted_at.is_(None),
+            )
+        )).all()
+        owned_by_org: dict[str, list] = {}
+        for o_id, ds_id in owned_rows:
+            owned_by_org.setdefault(o_id, []).append(str(ds_id))
         for org_id in org_ids:
             res_perms = res_perms_by_org[org_id]
             managed_conn_ids = [rid for (rtype, rid), perms in res_perms.items()
                                 if rtype == "connection" and "manage_data_sources" in perms]
             for ds_id in await _agents_fully_backed_by_connections(db, managed_conn_ids):
+                res_perms.setdefault(("data_source", ds_id), set()).add("manage")
+            for ds_id in owned_by_org.get(org_id, []):
                 res_perms.setdefault(("data_source", ds_id), set()).add("manage")
             result[org_id] = ResolvedPermissions(
                 org_permissions=org_perms[org_id],
