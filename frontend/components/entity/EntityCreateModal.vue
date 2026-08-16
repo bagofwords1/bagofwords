@@ -31,6 +31,11 @@
                 <div class="font-medium mb-1">{{ $t('entityCreate.noPermissionHeading') }}</div>
                 <div>{{ $t('entityCreate.noPermissionBody') }}</div>
               </div>
+              <!-- Save failure: surface the backend's reason instead of failing silently -->
+              <div v-if="errorMsg" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800">
+                <div class="font-medium mb-1">{{ $t('entityCreate.saveFailed') }}</div>
+                <div>{{ errorMsg }}</div>
+              </div>
               <EntityForm v-model="form" :show-status="canCreateEntities" />
             </div>
           </div>
@@ -63,6 +68,7 @@ import { useCanAll, useCanAny } from '~/composables/usePermissions'
 import EntityForm from './EntityForm.vue'
 
 const { t } = useI18n()
+const toast = useToast()
 
 interface Props {
   visible: boolean
@@ -116,6 +122,15 @@ const canCreateEntities = computed(() => {
 // own query; the backend enforces access to the attached agents.
 const canSuggestEntities = computed(() => true)
 
+// Keep the Status field truthful: the publish verdict depends on the selected
+// agents, which can change after the modal opens (async report snapshot, user
+// edits the Data Sources select). If the verdict drops to suggest-tier while
+// Status still says Published, the save would silently downgrade to a
+// suggestion — reset it so the UI always shows what will actually happen.
+watch(canCreateEntities, (can) => {
+  if (!can && form.value.status === 'published') form.value.status = 'draft'
+})
+
 // Watch for modal opening and update form with latest props
 watch(() => props.visible, (isVisible) => {
   if (isVisible) {
@@ -163,10 +178,20 @@ async function onSave() {
 
     const { data, error } = await useMyFetch(`/api/entities/from_step/${props.stepId}`, { method: 'POST', body })
     if (error.value) throw error.value
-    emit('saved', data.value)
+    // Announce what actually happened — published to catalog vs suggestion
+    // pending review — so a save never ends without visible feedback.
+    const saved: any = data.value
+    toast.add({
+      title: saved?.global_status === 'approved' && saved?.status === 'published'
+        ? t('entityCreate.publishedToast')
+        : t('entityCreate.suggestedToast'),
+      color: 'green',
+    })
+    emit('saved', saved)
     open.value = false
   } catch (e: any) {
     errorMsg.value = e?.data?.detail || e?.message || t('entityCreate.saveFailed')
+    toast.add({ title: t('entityCreate.saveFailed'), description: errorMsg.value, color: 'red' })
   } finally {
     saving.value = false
   }
