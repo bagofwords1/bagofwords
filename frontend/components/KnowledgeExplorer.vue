@@ -441,6 +441,7 @@
                 </div>
                 <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
                 <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
+                <button v-if="canManageAgent(agentView.agentId)" type="button" :disabled="exportingInstructions" class="h-7 w-7 rounded-md flex items-center justify-center border border-gray-200 dark:border-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400 disabled:opacity-50" :title="$t('agentsPage.exportInstructions')" @click="exportAgentInstructions(agentView.agentId)"><UIcon :name="exportingInstructions ? 'i-heroicons-arrow-path' : 'i-heroicons-arrow-down-tray'" :class="['w-3.5 h-3.5', exportingInstructions && 'animate-spin']" /></button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
@@ -3646,6 +3647,41 @@ const downloadMarkdown = () => {
   a.click()
   document.body.removeChild(a)
   URL.revokeObjectURL(url)
+}
+
+// Export one agent as a zip bundle (instructions markdown + agent.yaml +
+// evals/*.yaml). Gated on per-agent `manage` (canManageAgent) — full admins
+// pass via the wildcard. Backend enforces the same permission.
+const exportingInstructions = ref(false)
+const exportAgentInstructions = async (agentId?: string) => {
+  if (!agentId || exportingInstructions.value) return
+  exportingInstructions.value = true
+  try {
+    const { data, error } = await useMyFetch<Blob>(`/api/data_sources/${agentId}/instructions/export`, { method: 'GET', responseType: 'blob' as any })
+    if (error.value || !data.value) {
+      // With responseType: 'blob' the error body arrives as a Blob — parse it
+      // so the backend's `detail` ("Agent export timed out…", "Agent not
+      // found") reaches the toast instead of a bare "Error".
+      let detail = error.value?.data?.detail
+      if (!detail && error.value?.data instanceof Blob) {
+        try { detail = JSON.parse(await (error.value.data as Blob).text())?.detail } catch { /* not JSON */ }
+      }
+      throw new Error(detail || t('agentsPage.toastError'))
+    }
+    const name = (agentDetail.value?.name || agentViewName.value || 'agent').replace(/[^\w\d֐-׿؀-ۿ .-]+/g, '').trim() || 'agent'
+    const url = URL.createObjectURL(data.value as Blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${name}-agent-export.zip`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' })
+  } finally {
+    exportingInstructions.value = false
+  }
 }
 const refLabel = (ref: any) => ref.display_text || ref.object?.name || ref.object_type
 const _df = useFormatDate()

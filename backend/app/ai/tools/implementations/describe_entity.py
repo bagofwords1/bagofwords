@@ -277,12 +277,18 @@ class DescribeEntityTool(Tool):
             )
             return
 
-        # Determine data source: cached or re-executed
-        entity_data = entity.data or {}
+        # Determine data source: cached or re-executed. The cached snapshot is
+        # resolved through the viewer-data policy: on a user-scoped
+        # (user_required/RLS) source it is the OWNER's row slice — any other
+        # reader gets no cached rows and the tool re-executes under THEIR
+        # credentials instead.
+        from app.services.viewer_data_policy import entity_data_withheld
+        snapshot_withheld = await entity_data_withheld(db, entity, user)
+        entity_data = {} if snapshot_withheld else (entity.data or {})
         execution_log = None
         errors: List[str] = []
 
-        if data.should_rerun:
+        if data.should_rerun or snapshot_withheld:
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "code_execution"})
             try:
                 from app.ai.code_execution.code_execution import StreamingCodeExecutor
@@ -312,8 +318,9 @@ class DescribeEntityTool(Tool):
 
             except Exception as e:
                 errors.append(f"Code execution failed: {str(e)}")
-                # Fall back to cached data
-                entity_data = entity.data or {}
+                # Fall back to cached data — but never to a snapshot the
+                # policy withholds from this reader.
+                entity_data = {} if snapshot_withheld else (entity.data or {})
 
         # Build data profile
         allow_llm_see_data = True

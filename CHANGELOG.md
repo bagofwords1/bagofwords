@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.541 (August 16, 2026)
+- Added per-agent export — download an agent's instructions, config, and evals as a zip bundle
+- Fixed entity creation permissions so agent managers and owners can save queries
+
 ## Version 0.0.540 (August 15, 2026)
 - Added OAuth access to the full BOW API for custom data apps
 

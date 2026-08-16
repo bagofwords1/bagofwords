@@ -162,7 +162,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
-import { useCan } from '~/composables/usePermissions'
+import { useCan, useCanAll } from '~/composables/usePermissions'
 import { useAuth } from '#imports'
 import Spinner from '~/components/Spinner.vue'
 
@@ -197,14 +197,28 @@ const page = ref(1)
 const limit = 20
 const q = ref('')
 const filterType = ref<'published' | 'suggested'>('published')
-const isAdmin = computed(() => useCan('update_entities'))
+// Org entity admins (manage_entities / full admin) see all drafts+suggestions;
+// 'update_entities' was never a real permission string.
+const isAdmin = computed(() => useCan('manage_entities'))
 
-const currentUserId = computed(() => (authData.value as any)?.user?.id)
+const currentUserId = computed(() => ((authData.value as any)?.user?.id ?? (authData.value as any)?.id))
+
+// Whether the viewer may see a draft/suggestion row: org entity admins see
+// all, owners see their own, and agent managers (per-DS create_entities on
+// every attached agent) see the suggestions queued for their agents. Used by
+// BOTH the tab badge and the list filter so the count always matches the rows.
+const canSeeDraftItem = (item: any) => {
+  if (isAdmin.value) return true
+  if (item.owner_id === currentUserId.value) return true
+  const ids = (item.data_sources || []).map((d: any) => d?.id).filter(Boolean)
+  return ids.length > 0 && useCanAll('create_entities', 'data_source', ids)
+}
 
 const suggestedCount = computed(() => {
   return allItems.value.filter(item => {
     const type = getEntityType(item)
-    return (type === 'private' || type === 'suggested' || type === 'draft') && !isArchived(item)
+    return (type === 'private' || type === 'suggested' || type === 'draft')
+      && !isArchived(item) && canSeeDraftItem(item)
   }).length
 })
 
@@ -225,16 +239,13 @@ const filteredItems = computed(() => {
     // Show only global/published entities (approved AND published)
     filtered = filtered.filter(item => getEntityType(item) === 'global')
   } else if (filterType.value === 'suggested') {
-    // Show draft and suggested entities
+    // Show draft and suggested entities the viewer may see (same predicate
+    // as the tab badge, so the count can never disagree with the rows).
     filtered = filtered.filter(item => {
       const type = getEntityType(item)
-      return type === 'private' || type === 'suggested' || type === 'draft'
+      return (type === 'private' || type === 'suggested' || type === 'draft')
+        && canSeeDraftItem(item)
     })
-    
-    // If not admin, show only user's own drafts/suggestions
-    if (!isAdmin.value) {
-      filtered = filtered.filter(item => item.owner_id === currentUserId.value)
-    }
   }
 
   // Apply search filter

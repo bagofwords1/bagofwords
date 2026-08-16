@@ -251,6 +251,17 @@ class LoadablesResolver:
             if entity is None:
                 result["errors"].append(err)
                 continue
+            # Per-reader snapshot resolution: the cached grid is the OWNER's
+            # row slice on a user-scoped (user_required/RLS) source and must
+            # not be handed to another user's code execution.
+            from app.services.viewer_data_policy import entity_data_withheld
+            if await entity_data_withheld(self.db, entity, self.current_user):
+                result["errors"].append(
+                    f"load_entity({key!r}): its cached data was materialized under "
+                    f"another user's credentials (user-scoped source) and is not "
+                    f"shareable. Query the source tables directly instead."
+                )
+                continue
             result["entities"][key] = grid_to_df(entity.data)
 
         return result

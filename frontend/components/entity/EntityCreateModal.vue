@@ -31,6 +31,11 @@
                 <div class="font-medium mb-1">{{ $t('entityCreate.noPermissionHeading') }}</div>
                 <div>{{ $t('entityCreate.noPermissionBody') }}</div>
               </div>
+              <!-- Save failure: surface the backend's reason instead of failing silently -->
+              <div v-if="errorMsg" class="mb-4 p-3 bg-red-50 dark:bg-red-950 border border-red-200 rounded-lg text-xs text-red-800">
+                <div class="font-medium mb-1">{{ $t('entityCreate.saveFailed') }}</div>
+                <div>{{ errorMsg }}</div>
+              </div>
               <EntityForm v-model="form" :show-status="canCreateEntities" />
             </div>
           </div>
@@ -59,10 +64,11 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMyFetch } from '~/composables/useMyFetch'
-import { useCan } from '~/composables/usePermissions'
+import { useCanAll, useCanAny } from '~/composables/usePermissions'
 import EntityForm from './EntityForm.vue'
 
 const { t } = useI18n()
+const toast = useToast()
 
 interface Props {
   visible: boolean
@@ -84,8 +90,6 @@ const open = computed({
   set: (v: boolean) => { if (!v) emit('close') }
 })
 
-const canCreateEntities = computed(() => useCan('create_entities'))
-const canSuggestEntities = computed(() => useCan('suggest_entities'))
 const errorMsg = ref('')
 const saving = ref(false)
 const viewType = computed(() => String((props.initialView && props.initialView.type) || ''))
@@ -100,11 +104,35 @@ const form = ref<{
   type: (viewType.value === 'count' ? 'metric' : 'model'),
   title: props.initialTitle || '',
   description: null,
-  status: canCreateEntities.value ? 'published' : 'draft',
+  status: 'draft', // set on open by the watcher below (needs canCreateEntities)
   data_source_ids: props.initialDataSourceIds || [],
 })
 
+// Publishing needs per-agent `create_entities` on EVERY attached agent
+// (agent owners hold it via their `manage` grant; org `manage_entities` and
+// full admins via implication). There is no org-level 'create_entities'
+// permission — the old org-level check locked out agent owners entirely.
+const canCreateEntities = computed(() => {
+  const ids = (form.value?.data_source_ids || []).filter(Boolean)
+  return ids.length
+    ? useCanAll('create_entities', 'data_source', ids)
+    : useCanAny('create_entities', 'data_source')
+})
+// Any member may SUGGEST an entity (draft pending admin approval) from their
+// own query; the backend enforces access to the attached agents.
+const canSuggestEntities = computed(() => true)
+
+// Keep the Status field truthful: the publish verdict depends on the selected
+// agents, which can change after the modal opens (async report snapshot, user
+// edits the Data Sources select). If the verdict drops to suggest-tier while
+// Status still says Published, the save would silently downgrade to a
+// suggestion — reset it so the UI always shows what will actually happen.
+watch(canCreateEntities, (can) => {
+  if (!can && form.value.status === 'published') form.value.status = 'draft'
+})
+
 // Watch for modal opening and update form with latest props
+const { getSession } = useAuth()
 watch(() => props.visible, (isVisible) => {
   if (isVisible) {
     // Reset/update form when modal opens
@@ -115,6 +143,16 @@ watch(() => props.visible, (isVisible) => {
       status: canCreateEntities.value ? 'published' : 'draft',
       data_source_ids: props.initialDataSourceIds || [],
     }
+    // The permission store is a session snapshot; grants earned mid-session
+    // (e.g. `manage` on an agent the user just created) aren't in it yet and
+    // would wrongly downgrade the modal to suggest-tier. Refreshing the
+    // session re-resolves the store (fetchPermissions plugin watches it), and
+    // the computeds above re-evaluate reactively.
+    getSession().then(() => {
+      if (canCreateEntities.value && form.value.status !== 'published') {
+        form.value.status = 'published'
+      }
+    }).catch(() => {})
   }
 })
 
@@ -151,10 +189,20 @@ async function onSave() {
 
     const { data, error } = await useMyFetch(`/api/entities/from_step/${props.stepId}`, { method: 'POST', body })
     if (error.value) throw error.value
-    emit('saved', data.value)
+    // Announce what actually happened — published to catalog vs suggestion
+    // pending review — so a save never ends without visible feedback.
+    const saved: any = data.value
+    toast.add({
+      title: saved?.global_status === 'approved' && saved?.status === 'published'
+        ? t('entityCreate.publishedToast')
+        : t('entityCreate.suggestedToast'),
+      color: 'green',
+    })
+    emit('saved', saved)
     open.value = false
   } catch (e: any) {
     errorMsg.value = e?.data?.detail || e?.message || t('entityCreate.saveFailed')
+    toast.add({ title: t('entityCreate.saveFailed'), description: errorMsg.value, color: 'red' })
   } finally {
     saving.value = false
   }

@@ -4387,6 +4387,191 @@ class InstructionService:
             "pages": (total + limit - 1) // limit if limit > 0 else 1
         }
 
+    async def export_agent_bundle_zip(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        data_source_id: str,
+    ) -> tuple[bytes, str]:
+        """Serialize one agent to a portable zip bundle. Returns ``(zip_bytes,
+        agent_name)``. Layout::
+
+            instructions/*.md   one file per live instruction, YAML frontmatter
+            agent.yaml          the agent manifest (config, tables, tools, members)
+            evals/*.yaml        one file per test suite scoped to this agent
+
+        Each instruction's frontmatter carries the metadata that
+        ``instruction_sync_service`` reads back (title, category, status,
+        load_mode, kind, references), so the markdown round-trips into a git repo
+        the agent can re-sync. ``agent.yaml`` / ``evals/*.yaml`` reuse the same
+        serializers as ``GET /agents/{name}.yaml`` and
+        ``GET /tests/suites/{id}/export``.
+
+        Authorization is enforced at the route layer (per-agent ``manage``, which
+        implies ``manage_instructions`` and ``manage_evals``); this method assumes
+        the caller may manage the agent. Instructions still run through
+        ``get_instructions`` so the same visibility rules as the list apply. The
+        agent.yaml and evals sections are best-effort: a failure in either is
+        logged and skipped rather than failing the whole download.
+        """
+        import io
+        import zipfile
+        import yaml
+
+        ds = (await db.execute(
+            select(DataSource).where(and_(
+                DataSource.id == data_source_id,
+                DataSource.organization_id == organization.id,
+            ))
+        )).scalar_one_or_none()
+        if ds is None:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        agent_name = getattr(ds, "name", None) or "agent"
+
+        # Live instructions the main build carries for this agent — what the list
+        # shows. Global (agent-less) instructions are intentionally excluded:
+        # export is per-agent. Paged rather than one capped call, so an agent
+        # with more instructions than any single page can't silently export a
+        # partial archive (a truncated backup reads as a complete one).
+        items = []
+        page_size = 500
+        skip = 0
+        while True:
+            result = await self.get_instructions(
+                db, organization, current_user,
+                skip=skip, limit=page_size,
+                data_source_ids=[data_source_id],
+                include_global=False,
+                include_own=True,
+                live=True,
+            )
+            batch = result.get("items", [])
+            items.extend(batch)
+            skip += page_size
+            # Continue while the SQL-level total says more pages exist. A short
+            # page alone is NOT a stop signal: the per-user table-accessibility
+            # post-filter trims pages after SQL pagination, so a mid-list page
+            # can come back short while rows remain beyond it.
+            if skip >= int(result.get("total") or 0):
+                break
+
+        # Resolve references (table / metadata-resource / memory scopes) for the
+        # visible instructions in one query, so a table- or tool-scoped rule
+        # carries that scope in its exported frontmatter. display_text is the
+        # human label shown in the UI; fall back to type:id when it's absent.
+        from app.models.instruction_reference import InstructionReference
+        refs_by_instruction: dict = {}
+        inst_ids = [str(it.id) for it in items]
+        if inst_ids:
+            ref_rows = (await db.execute(
+                select(
+                    InstructionReference.instruction_id,
+                    InstructionReference.object_type,
+                    InstructionReference.object_id,
+                    InstructionReference.display_text,
+                ).where(InstructionReference.instruction_id.in_(inst_ids))
+            )).all()
+            for iid, otype, oid, dtext in ref_rows:
+                label = dtext or f"{otype}:{oid}"
+                refs_by_instruction.setdefault(str(iid), []).append(label)
+
+        def _slug(value: str) -> str:
+            value = re.sub(r"[^\w\s-]", "", value or "").strip().replace(" ", "-").lower()
+            return value
+
+        buf = io.BytesIO()
+        used_names: set[str] = set()
+        with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
+            for it in items:
+                # Prefer the git source path (already unique + meaningful), else a
+                # slug of the title, else the id — always ending in .md.
+                base = None
+                if getattr(it, "source_file_path", None):
+                    base = it.source_file_path.rsplit("/", 1)[-1]
+                    if not base.endswith(".md"):
+                        base = f"{base}.md"
+                if not base:
+                    base = f"{_slug(it.title) or str(it.id)}.md"
+
+                name = base
+                n = 1
+                while name in used_names:
+                    stem = base[:-3] if base.endswith(".md") else base
+                    name = f"{stem}-{n}.md"
+                    n += 1
+                used_names.add(name)
+                name = f"instructions/{name}"
+
+                # Frontmatter: only meaningful keys, in a stable order.
+                fm: dict = {}
+                if getattr(it, "title", None):
+                    fm["title"] = it.title
+                fm["category"] = getattr(it, "category", None) or "general"
+                fm["status"] = getattr(it, "status", None) or "published"
+                fm["load_mode"] = getattr(it, "load_mode", None) or "always"
+                if getattr(it, "kind", None) and it.kind != "instruction":
+                    fm["kind"] = it.kind
+                refs = refs_by_instruction.get(str(it.id))
+                if refs:
+                    fm["references"] = refs
+
+                front = yaml.safe_dump(fm, sort_keys=False, allow_unicode=True).strip()
+                body = it.text or ""
+                content = f"---\n{front}\n---\n\n{body}\n"
+                zf.writestr(name, content)
+
+            # agent.yaml — the full agent manifest (same serializer as
+            # GET /agents/{name}.yaml). Best-effort: skip on any failure.
+            try:
+                from app.services.agent_yaml_service import AgentYamlService
+                agent_yaml = await AgentYamlService().export(
+                    db, organization, current_user, ds.name
+                )
+                zf.writestr("agent.yaml", agent_yaml)
+            except Exception as e:
+                logger.warning(f"Skipping agent.yaml in export for {data_source_id}: {e}")
+
+            # evals/*.yaml — one file per test suite scoped to this agent (same
+            # serializer as GET /tests/suites/{id}/export). Best-effort per suite.
+            try:
+                from app.services.test_suite_service import TestSuiteService
+                suite_service = TestSuiteService()
+                # Page through the agent's suites — a single capped call would
+                # silently drop suites past the cap.
+                suites = []
+                page = 1
+                while True:
+                    batch = await suite_service.list_suites(
+                        db, str(organization.id), current_user,
+                        page=page, limit=100, data_source_id=data_source_id,
+                    )
+                    suites.extend(batch)
+                    if len(batch) < 100:
+                        break
+                    page += 1
+                used_suite_names: set[str] = set()
+                for suite in suites:
+                    try:
+                        suite_yaml = await suite_service.export_yaml(
+                            db, str(organization.id), current_user, str(suite.id)
+                        )
+                    except Exception as e:
+                        logger.warning(f"Skipping eval suite {suite.id} in export: {e}")
+                        continue
+                    base = f"{_slug(getattr(suite, 'name', '')) or str(suite.id)}.yaml"
+                    sname = base
+                    k = 1
+                    while sname in used_suite_names:
+                        sname = f"{base[:-5]}-{k}.yaml"
+                        k += 1
+                    used_suite_names.add(sname)
+                    zf.writestr(f"evals/{sname}", suite_yaml)
+            except Exception as e:
+                logger.warning(f"Skipping evals in export for {data_source_id}: {e}")
+
+        return buf.getvalue(), agent_name
+
     async def _table_inaccessible_instruction_ids(
         self,
         db: AsyncSession,

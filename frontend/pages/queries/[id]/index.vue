@@ -228,11 +228,25 @@ const { data: authData } = useAuth()
 const id = computed(() => String(route.params.id || ''))
 const detail = ref<EntityDetail | null>(null)
 const loading = ref(true)
-const canCreateEntities = computed(() => useCan('create_entities'))
-const canUpdateEntities = computed(() => useCan('update_entities'))
-const canSuggestEntities = computed(() => useCan('suggest_entities'))
-const canApproveEntities = computed(() => useCan('approve_entities'))
-const canDeleteEntities = computed(() => useCan('delete_entities'))
+// Per-agent `create_entities` on EVERY attached agent gates manage actions
+// (agent owners hold it via `manage`; org `manage_entities` / full admin via
+// implication). The old org-level checks used permission names that don't
+// exist ('create_entities'/'update_entities'/... are per-agent or nonexistent
+// strings), so every affordance was admin-only.
+const detailDsIds = computed(() => (detail.value?.data_sources || []).map((d: any) => d?.id).filter(Boolean))
+const canManageEntity = computed(() =>
+  detailDsIds.value.length ? useCanAll('create_entities', 'data_source', detailDsIds.value) : useCan('manage_entities')
+)
+const canCreateEntities = canManageEntity
+// The entity's owner may edit/delete their own entity while it is not
+// globally approved (mirrors the backend owner allowance).
+const ownerEditable = computed(() => isOwner.value && ['private', 'suggested', 'archived'].includes(String(entityType.value)))
+const canUpdateEntities = computed(() => canManageEntity.value || ownerEditable.value)
+const canDeleteEntities = computed(() => canManageEntity.value || ownerEditable.value)
+// Suggesting is open to any member for their own private entity.
+const canSuggestEntities = computed(() => true)
+// Approving/rejecting suggestions stays an org-admin capability.
+const canApproveEntities = computed(() => useCan('manage_entities'))
 
 // Entity workflow status
 const entityType = computed(() => {
@@ -250,7 +264,7 @@ const entityType = computed(() => {
 })
 
 const isOwner = computed(() => {
-  const currentUserId = (authData.value as any)?.user?.id
+  const currentUserId = ((authData.value as any)?.user?.id ?? (authData.value as any)?.id)
   return currentUserId && detail.value?.owner_id === currentUserId
 })
 

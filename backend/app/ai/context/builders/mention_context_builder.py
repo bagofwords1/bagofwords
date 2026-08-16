@@ -12,11 +12,13 @@ from app.ai.context.sections.mentions_section import MentionsSection
 
 
 class MentionContextBuilder:
-    def __init__(self, db: AsyncSession, organization, report, head_completion):
+    def __init__(self, db: AsyncSession, organization, report, head_completion, user=None):
         self.db = db
         self.organization = organization
         self.report = report
         self.head_completion = head_completion
+        # Requesting user for per-reader entity snapshot resolution.
+        self.user = user
 
     async def build(self, max_items_per_group: int = 10, max_columns_preview: int = 8, max_tags_preview: int = 8) -> MentionsSection:
         files: List[dict] = []
@@ -89,11 +91,15 @@ class MentionContextBuilder:
                 elif m.type == MentionType.ENTITY:
                     ent = await self.db.get(Entity, str(m.object_id))
                     tags = (getattr(ent, "tags", None) or [])[:max_tags_preview]
-                    # Derive columns and sample from entity.data if present
+                    # Derive columns and sample from the POLICY-resolved data:
+                    # on a user-scoped source the cached snapshot is the
+                    # owner's row slice and must not leak into another
+                    # reader's prompt.
+                    from app.services.viewer_data_policy import resolve_entity_data
                     entity_columns = None
                     entity_sample_rows = None
                     try:
-                        data_json = getattr(ent, "data", None) or {}
+                        data_json = await resolve_entity_data(self.db, ent, self.user) if ent is not None else {}
                         # Expect optional shape: {"columns": ["col1", ...], "rows": [{...}, ...]}
                         cols = data_json.get("columns") if isinstance(data_json, dict) else None
                         rows = data_json.get("rows") if isinstance(data_json, dict) else None

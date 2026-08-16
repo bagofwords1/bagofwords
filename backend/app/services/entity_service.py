@@ -26,6 +26,40 @@ class EntityService:
         self.query_service = QueryService()
 
 
+    async def step_report_data_source_ids(
+        self, db: AsyncSession, step_id: str, organization: Organization,
+    ) -> List[str]:
+        """Data source ids the entity WOULD attach when created from this step
+        with no explicit override: the step report's data sources, falling
+        back to the data sources @-mentioned in the report's chat (a report
+        whose agent was attached via mention has no report-level association
+        rows, yet that agent is what the step's query ran against). Lets the
+        route run its permission checks against the exact same set."""
+        from app.models.report import Report
+
+        result = await db.execute(
+            select(Step)
+            .options(selectinload(Step.query).selectinload(Query.report).selectinload(Report.data_sources))
+            .where(Step.id == str(step_id))
+        )
+        step = result.scalar_one_or_none()
+        if not step or not step.query or not step.query.report:
+            return []
+        report = step.query.report
+        if str(report.organization_id) != str(organization.id):
+            return []
+        ds_ids = list({str(ds.id) for ds in (report.data_sources or [])})
+        if ds_ids:
+            return ds_ids
+        from app.models.mention import Mention, MentionType
+        rows = await db.execute(
+            select(Mention.object_id).where(
+                Mention.report_id == str(report.id),
+                Mention.type == MentionType.DATA_SOURCE,
+            ).distinct()
+        )
+        return [str(r[0]) for r in rows.all()]
+
     async def create_entity_from_step(
         self,
         db: AsyncSession,
@@ -39,8 +73,15 @@ class EntityService:
         description_override: Optional[str] = None,
         publish: bool = False,
         data_source_ids_override: Optional[List[str]] = None,
+        creator_can_publish: Optional[bool] = None,
     ) -> Entity:
-        """Create an Entity from a successful Step. Copies data/code as-is."""
+        """Create an Entity from a successful Step.
+
+        `creator_can_publish` is the route's per-DS `create_entities` verdict:
+        True → the dual-status admin branch (approved, optionally published);
+        False → suggestion pending approval. None (legacy callers) falls back
+        to the org-admin check.
+        """
         # Load step with query -> report (for data sources)
         from sqlalchemy import select
         from sqlalchemy.orm import selectinload
@@ -79,9 +120,19 @@ class EntityService:
         description = description_override if description_override is not None else (step.description or None)
         ent_type = (type_override or ("metric" if (chosen_view or {}).get("type") == "count" else "model"))
 
-        # Check if user is admin (has create_entities permission)
-        user_permissions = await self._get_user_permissions(db, current_user, organization)
-        is_admin = self._is_admin_permissions(user_permissions)
+        # Publish tier: the route's per-DS `create_entities` verdict when given,
+        # else the org-admin fallback (legacy callers).
+        if creator_can_publish is None:
+            user_permissions = await self._get_user_permissions(db, current_user, organization)
+            creator_can_publish = self._is_admin_permissions(user_permissions)
+
+        # Copy the step rows THROUGH the viewer-data policy, not Step.data
+        # directly: on a user-scoped (user_required/RLS) source the shared
+        # snapshot is the report owner's row slice, and a non-owner saving the
+        # step must not mint an entity carrying another identity's rows. The
+        # resolution returns the creator's own slice, or {} when withheld.
+        from app.services.viewer_data_policy import resolve_step_data
+        resolution = await resolve_step_data(db, step, step.query.report, current_user)
 
         entity = Entity(
             organization_id=str(organization.id),
@@ -92,16 +143,16 @@ class EntityService:
             description=description,
             tags=[],
             code=step.code or "",
-            data=step.data or {},
+            data=resolution.data or {},
             original_data_model=step.data_model or {},
             view=(chosen_view or getattr(step, "view", None) or {"type": "table"}),
             last_refreshed_at=step.updated_at,
             source_step_id=str(step_id),  # Link back to source step
         )
 
-        # Apply dual-status workflow based on user role
-        if is_admin:
-            # Admin can create global entities - respect their publish choice
+        # Apply dual-status workflow based on the publish verdict
+        if creator_can_publish:
+            # Entity manager for these agents - respect their publish choice
             entity.private_status = None
             entity.global_status = "approved"
             entity.status = "published" if publish else "draft"
@@ -355,7 +406,13 @@ class EntityService:
         payload: EntityUpdate,
         organization: Organization,
         current_user: User,
+        *,
+        resource_authorized: bool = False,
     ) -> Optional[Entity]:
+        """`resource_authorized=True` means the route verified the caller holds
+        per-DS `create_entities` on every attached data source (agent
+        owner/manager tier) — they get full edit control like an org admin,
+        but review transitions (approve/reject) stay org-admin only."""
         result = await db.execute(select(Entity).where(Entity.id == entity_id, Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
@@ -366,10 +423,13 @@ class EntityService:
         from fastapi import HTTPException
         if not user_permissions:
             raise HTTPException(status_code=403, detail="Permission denied: not an organization member")
-        
+
         # Determine what type of update this is and check permissions
         from app.models.entity import Entity as EntityModel
-        update_type = self._determine_update_type(entity, payload, current_user, user_permissions)
+        update_type = self._determine_update_type(
+            entity, payload, current_user, user_permissions,
+            resource_authorized=resource_authorized,
+        )
         
         # Handle the update based on type
         if update_type == "admin_review":
@@ -476,9 +536,27 @@ class EntityService:
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
         executor = StreamingCodeExecutor(organization_settings=org_settings)
+
+        # Snapshot-identity guard: execution runs under the CALLER's
+        # credentials, but Entity.data is a SHARED snapshot the policy treats
+        # as the owner's identity. On a credential-differentiated source
+        # (user_required/RLS) a non-owner refresh must not overwrite the
+        # shared snapshot with their own row slice — they get their result in
+        # the response only. entity_data_withheld is exactly that predicate
+        # (False for the owner and for system-only sources).
+        from app.services.viewer_data_policy import entity_data_withheld
+        persist_data = not await entity_data_withheld(db, entity, current_user)
+
         try:
             exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
             df = executor.format_df_for_widget(exec_df)
+            if not persist_data:
+                # Transient run: hand the caller their own rows without
+                # touching the shared snapshot or its metadata. Detach the
+                # instance first so the mutation can never be flushed.
+                db.expunge(entity)
+                entity.data = df
+                return entity
             # Persist execution results
             entity.data = df
             entity.last_refreshed_at = datetime.utcnow()
@@ -505,10 +583,11 @@ class EntityService:
             await db.refresh(entity)
             return entity
         except Exception as e:
-            # Persist last_refreshed_at but do not overwrite existing data on failure
-            entity.last_refreshed_at = datetime.utcnow()
-            await db.flush()
-            await db.commit()
+            if persist_data:
+                # Persist last_refreshed_at but do not overwrite existing data on failure
+                entity.last_refreshed_at = datetime.utcnow()
+                await db.flush()
+                await db.commit()
             # Re-raise as ValueError for route to map to 404/400 as designed
             raise ValueError(str(e))
 
@@ -548,9 +627,60 @@ class EntityService:
         except Exception as e:
             return {"data": None, "error": str(e)}
 
+    async def _get_owned_entity(
+        self, db: AsyncSession, entity_id: str, current_user: User, organization: Organization,
+    ) -> Entity:
+        from fastapi import HTTPException
+        result = await db.execute(select(Entity).where(
+            Entity.id == str(entity_id), Entity.organization_id == str(organization.id)
+        ))
+        entity = result.scalar_one_or_none()
+        if not entity:
+            raise HTTPException(status_code=404, detail="Entity not found")
+        if str(entity.owner_id) != str(current_user.id):
+            raise HTTPException(status_code=403, detail="Only the entity owner can do this")
+        return entity
+
+    async def suggest_entity(
+        self, db: AsyncSession, entity_id: str, current_user: User, organization: Organization,
+    ) -> Entity:
+        """Owner promotes their private entity to a suggestion:
+        Private Published -> Suggested (draft pending admin review)."""
+        from fastapi import HTTPException
+        entity = await self._get_owned_entity(db, entity_id, current_user, organization)
+        if entity.global_status == "approved":
+            raise HTTPException(status_code=400, detail="Entity is already approved")
+        if entity.global_status == "suggested":
+            return entity  # idempotent
+        entity.private_status = entity.private_status or "published"
+        entity.global_status = "suggested"
+        entity.status = "draft"
+        await db.flush()
+        await db.commit()
+        await db.refresh(entity)
+        return entity
+
+    async def withdraw_suggestion(
+        self, db: AsyncSession, entity_id: str, current_user: User, organization: Organization,
+    ) -> Entity:
+        """Owner withdraws their suggestion back to private:
+        Suggested -> Private Published."""
+        from fastapi import HTTPException
+        entity = await self._get_owned_entity(db, entity_id, current_user, organization)
+        if entity.global_status != "suggested":
+            raise HTTPException(status_code=400, detail="Entity is not a pending suggestion")
+        entity.global_status = None
+        entity.private_status = "published"
+        entity.status = "draft"
+        await db.flush()
+        await db.commit()
+        await db.refresh(entity)
+        return entity
+
     def _is_admin_permissions(self, user_permissions: set) -> bool:
-        """MVP: entity admin = full_admin_access. Per-DS create is checked at the route layer."""
-        return 'full_admin_access' in user_permissions
+        """Entity admin = full_admin_access or org-level manage_entities.
+        Per-DS create is checked at the route layer."""
+        return bool({'full_admin_access', 'manage_entities'} & set(user_permissions))
 
     async def _get_user_permissions(self, db: AsyncSession, user: User, organization: Organization) -> set:
         """Get user's org-level permissions via the RBAC resolver."""
@@ -559,29 +689,37 @@ class EntityService:
         resolved = await resolve_permissions(db, str(user.id), str(organization.id))
         return set(resolved.org_permissions)
 
-    def _determine_update_type(self, entity: Entity, payload: EntityUpdate, current_user: User, user_permissions: set) -> str:
-        """Determine what type of update this is based on permissions and changes"""
+    def _determine_update_type(
+        self, entity: Entity, payload: EntityUpdate, current_user: User,
+        user_permissions: set, *, resource_authorized: bool = False,
+    ) -> str:
+        """Determine what type of update this is based on permissions and changes.
+
+        `resource_authorized` = the caller holds per-DS `create_entities` on
+        every attached data source (verified at the route). They edit with
+        admin-level field control, but the review transition (approve/reject a
+        suggestion) stays an org-admin capability.
+        """
         is_admin = self._is_admin_permissions(user_permissions)
         is_owner = entity.owner_id == current_user.id
         is_suggested = entity.global_status == "suggested"
         has_status_change = payload.status and payload.status != entity.status
-        
+
         # Admin reviewing a suggested entity (approve or reject)
         if is_admin and is_suggested and has_status_change:
             if payload.status in ["published", "archived"]:
                 return "admin_review"
-        
-        # Admin editing any entity (not review)
-        elif is_admin:
+
+        # Admin or per-DS entity manager editing any entity (not review)
+        if is_admin or resource_authorized:
             return "admin_edit"
-        
+
         # Owner editing their own entity when not globally approved (suggested or private)
-        elif is_owner and (entity.global_status != "approved") and user_permissions:
+        if is_owner and (entity.global_status != "approved") and user_permissions:
             return "owner_edit"
-        
+
         # No permission
-        else:
-            return "no_permission"
+        return "no_permission"
 
     async def _handle_admin_review(self, entity: Entity, payload: EntityUpdate, admin_user: User):
         """Handle admin reviewing a suggested entity (approve or reject)"""
