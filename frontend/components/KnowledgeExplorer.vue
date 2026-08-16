@@ -3658,7 +3658,16 @@ const exportAgentInstructions = async (agentId?: string) => {
   exportingInstructions.value = true
   try {
     const { data, error } = await useMyFetch<Blob>(`/api/data_sources/${agentId}/instructions/export`, { method: 'GET', responseType: 'blob' as any })
-    if (error.value || !data.value) throw new Error(error.value?.data?.detail || t('agentsPage.toastError'))
+    if (error.value || !data.value) {
+      // With responseType: 'blob' the error body arrives as a Blob — parse it
+      // so the backend's `detail` ("Agent export timed out…", "Agent not
+      // found") reaches the toast instead of a bare "Error".
+      let detail = error.value?.data?.detail
+      if (!detail && error.value?.data instanceof Blob) {
+        try { detail = JSON.parse(await (error.value.data as Blob).text())?.detail } catch { /* not JSON */ }
+      }
+      throw new Error(detail || t('agentsPage.toastError'))
+    }
     const name = (agentDetail.value?.name || agentViewName.value || 'agent').replace(/[^\w\d֐-׿؀-ۿ .-]+/g, '').trim() || 'agent'
     const url = URL.createObjectURL(data.value as Blob)
     const a = document.createElement('a')

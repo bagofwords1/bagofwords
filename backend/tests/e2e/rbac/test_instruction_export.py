@@ -117,3 +117,11 @@ def test_export_requires_manage_on_the_agent(
     # The admin (full_admin_access wildcard) → 200.
     admin_resp = test_client.get(url, headers=_headers(admin_token, org_id))
     assert admin_resp.status_code == 200, admin_resp.text
+
+    # A nonexistent agent id → 404, not an empty zip (the admin wildcard passes
+    # the permission decorator, so the service must reject the missing row).
+    ghost = test_client.get(
+        "/api/data_sources/00000000-0000-0000-0000-000000000000/instructions/export",
+        headers=_headers(admin_token, org_id),
+    )
+    assert ghost.status_code == 404, ghost.text

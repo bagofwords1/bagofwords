@@ -4425,7 +4425,9 @@ class InstructionService:
                 DataSource.organization_id == organization.id,
             ))
         )).scalar_one_or_none()
-        agent_name = (getattr(ds, "name", None) or "agent") if ds else "agent"
+        if ds is None:
+            raise HTTPException(status_code=404, detail="Agent not found")
+        agent_name = getattr(ds, "name", None) or "agent"
 
         # Live instructions the main build carries for this agent — what the list
         # shows. Global (agent-less) instructions are intentionally excluded:
@@ -4521,15 +4523,14 @@ class InstructionService:
 
             # agent.yaml — the full agent manifest (same serializer as
             # GET /agents/{name}.yaml). Best-effort: skip on any failure.
-            if ds is not None:
-                try:
-                    from app.services.agent_yaml_service import AgentYamlService
-                    agent_yaml = await AgentYamlService().export(
-                        db, organization, current_user, ds.name
-                    )
-                    zf.writestr("agent.yaml", agent_yaml)
-                except Exception as e:
-                    logger.warning(f"Skipping agent.yaml in export for {data_source_id}: {e}")
+            try:
+                from app.services.agent_yaml_service import AgentYamlService
+                agent_yaml = await AgentYamlService().export(
+                    db, organization, current_user, ds.name
+                )
+                zf.writestr("agent.yaml", agent_yaml)
+            except Exception as e:
+                logger.warning(f"Skipping agent.yaml in export for {data_source_id}: {e}")
 
             # evals/*.yaml — one file per test suite scoped to this agent (same
             # serializer as GET /tests/suites/{id}/export). Best-effort per suite.
