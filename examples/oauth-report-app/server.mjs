@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { extname, isAbsolute, join, normalize, relative } from 'node:path'
+import { extname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
@@ -17,11 +17,21 @@ const contentTypes = {
   '.svg': 'image/svg+xml',
 }
 
+// This demo serves a fixed, flat set of static assets from `root` (no
+// subdirectories). Rather than sanitize the request path, we map it to an
+// explicit allowlist whose values are absolute paths computed once at startup.
+// Untrusted request input is therefore never used to build the filesystem
+// path handed to createReadStream — it only selects a known-safe constant —
+// which removes any possibility of path traversal.
+const publicFiles = {
+  'index.html': join(root, 'index.html'),
+  'app.js': join(root, 'app.js'),
+  'styles.css': join(root, 'styles.css'),
+}
+
 function safeStaticPath(pathname) {
   const requested = pathname === '/' || pathname === '/callback' ? 'index.html' : pathname.slice(1)
-  const resolved = normalize(join(root, requested))
-  const withinRoot = relative(root, resolved)
-  return !withinRoot.startsWith('..') && !isAbsolute(withinRoot) ? resolved : null
+  return Object.prototype.hasOwnProperty.call(publicFiles, requested) ? publicFiles[requested] : null
 }
 
 async function proxyToBow(request, response) {
