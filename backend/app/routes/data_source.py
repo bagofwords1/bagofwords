@@ -698,6 +698,17 @@ async def remove_connection_from_domain(
     return result
 
 
+# One bundle build per agent at a time, same pattern as the report PDF export
+# (_pdf_export_locks in report.py): concurrent clicks on the same agent would
+# run the full instruction/evals serialization side by side for an identical
+# result. The outer timeout bounds a request queued behind a wedged build so
+# the client gets a clear 504 instead of sitting at a spinner forever.
+import asyncio as _asyncio
+from collections import defaultdict as _defaultdict
+_bundle_export_locks: dict[str, "_asyncio.Lock"] = _defaultdict(_asyncio.Lock)
+_BUNDLE_EXPORT_TIMEOUT_SECONDS = 60
+
+
 @router.get("/data_sources/{data_source_id}/instructions/export")
 @requires_resource_permission('data_source', 'manage')
 async def export_agent_instructions(
@@ -718,9 +729,21 @@ async def export_agent_instructions(
     from fastapi.responses import StreamingResponse
     from app.services.instruction_service import InstructionService
 
-    zip_bytes, agent_name = await InstructionService().export_agent_bundle_zip(
-        db, organization, current_user, data_source_id
-    )
+    async def _build_locked() -> tuple[bytes, str]:
+        async with _bundle_export_locks[str(data_source_id)]:
+            return await InstructionService().export_agent_bundle_zip(
+                db, organization, current_user, data_source_id
+            )
+
+    try:
+        zip_bytes, agent_name = await _asyncio.wait_for(
+            _build_locked(), timeout=_BUNDLE_EXPORT_TIMEOUT_SECONDS
+        )
+    except _asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Agent export timed out. Please try again.",
+        )
     safe = _re.sub(r"[^\w.-]+", "-", agent_name).strip("-") or "agent"
     filename = f"{safe}-agent-export.zip"
     return StreamingResponse(

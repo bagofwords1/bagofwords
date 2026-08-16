@@ -4429,16 +4429,30 @@ class InstructionService:
 
         # Live instructions the main build carries for this agent — what the list
         # shows. Global (agent-less) instructions are intentionally excluded:
-        # export is per-agent.
-        result = await self.get_instructions(
-            db, organization, current_user,
-            skip=0, limit=2000,
-            data_source_ids=[data_source_id],
-            include_global=False,
-            include_own=True,
-            live=True,
-        )
-        items = result.get("items", [])
+        # export is per-agent. Paged rather than one capped call, so an agent
+        # with more instructions than any single page can't silently export a
+        # partial archive (a truncated backup reads as a complete one).
+        items = []
+        page_size = 500
+        skip = 0
+        while True:
+            result = await self.get_instructions(
+                db, organization, current_user,
+                skip=skip, limit=page_size,
+                data_source_ids=[data_source_id],
+                include_global=False,
+                include_own=True,
+                live=True,
+            )
+            batch = result.get("items", [])
+            items.extend(batch)
+            skip += page_size
+            # Continue while the SQL-level total says more pages exist. A short
+            # page alone is NOT a stop signal: the per-user table-accessibility
+            # post-filter trims pages after SQL pagination, so a mid-list page
+            # can come back short while rows remain beyond it.
+            if skip >= int(result.get("total") or 0):
+                break
 
         # Resolve references (table / metadata-resource / memory scopes) for the
         # visible instructions in one query, so a table- or tool-scoped rule
@@ -4522,10 +4536,19 @@ class InstructionService:
             try:
                 from app.services.test_suite_service import TestSuiteService
                 suite_service = TestSuiteService()
-                suites = await suite_service.list_suites(
-                    db, str(organization.id), current_user,
-                    page=1, limit=200, data_source_id=data_source_id,
-                )
+                # Page through the agent's suites — a single capped call would
+                # silently drop suites past the cap.
+                suites = []
+                page = 1
+                while True:
+                    batch = await suite_service.list_suites(
+                        db, str(organization.id), current_user,
+                        page=page, limit=100, data_source_id=data_source_id,
+                    )
+                    suites.extend(batch)
+                    if len(batch) < 100:
+                        break
+                    page += 1
                 used_suite_names: set[str] = set()
                 for suite in suites:
                     try:
