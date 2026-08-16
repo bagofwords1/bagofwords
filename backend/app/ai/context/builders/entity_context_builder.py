@@ -17,10 +17,13 @@ class EntityContextBuilder:
     entities associated with the current report's data sources.
     """
 
-    def __init__(self, db: AsyncSession, organization: Organization, report=None):
+    def __init__(self, db: AsyncSession, organization: Organization, report=None, user=None):
         self.db = db
         self.organization = organization
         self.report = report
+        # The requesting user: entity snapshots are credential-scoped on
+        # user_required/RLS sources and must be resolved per reader.
+        self.user = user
 
     # ------------------------------------------------------------------ #
     # Keyword extraction helpers (kept local to the builder to avoid      #
@@ -124,6 +127,8 @@ class EntityContextBuilder:
             require_source_assoc=require_source_assoc,
             data_source_ids=data_source_ids,
         )
+        from app.services.viewer_data_policy import resolve_entity_data
+
         items: List[EntityItem] = []
         for e in ents:
             try:
@@ -131,6 +136,10 @@ class EntityContextBuilder:
                 ds_names = [n for n in ds_names if n]
             except Exception:
                 ds_names = []
+            # Per-reader snapshot resolution: on a user-scoped source the
+            # cached rows are the OWNER's slice — withheld readers get the
+            # entity without data (title/description/code stay discoverable).
+            data = await resolve_entity_data(self.db, e, self.user)
             items.append(
                 EntityItem(
                     id=str(e.id),
@@ -138,7 +147,7 @@ class EntityContextBuilder:
                     title=e.title,
                     description=e.description or "",
                     code=getattr(e, 'code', None),
-                    data=getattr(e, 'data', None),
+                    data=data or None,
                     data_model=(getattr(e, 'original_data_model', None) or getattr(e, 'view', None)),
                     ds_names=ds_names,
                 )

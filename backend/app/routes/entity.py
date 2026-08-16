@@ -25,6 +25,59 @@ router = APIRouter(prefix="/entities", tags=["entities"])
 service = EntityService()
 
 
+async def _holds_create_entities(db, user, organization, ds_ids: List[str]) -> bool:
+    """Non-raising: does the user hold per-DS `create_entities` on ALL of
+    ds_ids (org `manage_entities`/full admin included via implication)?"""
+    try:
+        await check_resource_permissions(
+            db, str(user.id), str(organization.id),
+            "data_source", ds_ids, "create_entities",
+        )
+        return True
+    except HTTPException:
+        return False
+
+
+async def _require_ds_access(db, user, organization, ds_ids: List[str]) -> None:
+    """403 unless the user can ACCESS every listed data source (member grant,
+    public DS, or admin). This is the suggest-tier gate: weaker than the
+    per-DS `create_entities` grant that publishing requires."""
+    from app.core.permission_resolver import user_can_access_data_source
+    from app.models.data_source import DataSource
+
+    for rid in ds_ids:
+        ds = await db.get(DataSource, str(rid))
+        if (
+            ds is None
+            or str(ds.organization_id) != str(organization.id)
+            or not await user_can_access_data_source(db, str(user.id), str(organization.id), ds)
+        ):
+            label = getattr(ds, "name", None) or str(rid)
+            raise HTTPException(
+                status_code=403,
+                detail=f'No access to agent "{label}".',
+            )
+
+
+async def _require_entity_run_access(db, entity_id: str, organization, user) -> None:
+    """Body check for run/preview: the entity's owner needs ACCESS to every
+    attached data source; anyone else needs per-DS `create_entities` on all of
+    them (org admins pass via implication)."""
+    existing = await service.get_entity(db, entity_id, organization, user)
+    if not existing:
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if not ds_ids:
+        return
+    if str(existing.owner_id) == str(user.id):
+        await _require_ds_access(db, user, organization, ds_ids)
+    else:
+        await check_resource_permissions(
+            db, str(user.id), str(organization.id),
+            "data_source", ds_ids, "create_entities",
+        )
+
+
 @router.post("", response_model=EntitySchema)
 @requires_permission('create_entities', resource_scoped=True)
 async def create_private_entity(
@@ -126,7 +179,7 @@ async def get_entity(
 
 
 @router.put("/{entity_id}", response_model=EntitySchema)
-@requires_permission('manage_entities', model=Entity, resource_scoped=True)
+@requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
 async def update_entity(
     entity_id: str,
     payload: EntityUpdate,
@@ -134,38 +187,58 @@ async def update_entity(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Update an entity. Org `manage_entities` admins bypass; otherwise must hold
-    per-DS `create_entities` grant on every attached DS (existing + new)."""
+    """Update an entity. Org `manage_entities` admins bypass; per-DS
+    `create_entities` holders (agent owners via `manage`) may edit entities on
+    their agents; the entity's own owner may edit it while it is not globally
+    approved (decorator owner allowance) provided they still have access to
+    its data sources."""
     existing = await service.get_entity(db, entity_id, organization, current_user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    is_owner_unapproved = (
+        str(existing.owner_id) == str(current_user.id)
+        and existing.global_status != 'approved'
+    )
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", existing_ds_ids, "create_entities",
-        )
+    resource_authorized = (
+        await _holds_create_entities(db, current_user, organization, existing_ds_ids)
+        if existing_ds_ids else False
+    )
+    if existing_ds_ids and not resource_authorized:
+        if is_owner_unapproved:
+            await _require_ds_access(db, current_user, organization, existing_ds_ids)
+        else:
+            await check_resource_permissions(
+                db, str(current_user.id), str(organization.id),
+                "data_source", existing_ds_ids, "create_entities",
+            )
     # `is not None`: an empty list is falsy, so a truthiness check let a
     # per-agent author clear the scope and turn their entity into a global one,
     # bypassing the /entities/global gate.
     if payload.data_source_ids is not None:
         if payload.data_source_ids:
-            await check_resource_permissions(
-                db, str(current_user.id), str(organization.id),
-                "data_source", payload.data_source_ids, "create_entities",
-            )
-        else:
+            if is_owner_unapproved and not resource_authorized:
+                await _require_ds_access(db, current_user, organization, payload.data_source_ids)
+            else:
+                await check_resource_permissions(
+                    db, str(current_user.id), str(organization.id),
+                    "data_source", payload.data_source_ids, "create_entities",
+                )
+        elif not is_owner_unapproved:
             await require_org_permission(
                 db, str(current_user.id), str(organization.id), "manage_entities",
             )
-    entity = await service.update_entity(db, entity_id, payload, organization, current_user)
+    entity = await service.update_entity(
+        db, entity_id, payload, organization, current_user,
+        resource_authorized=resource_authorized,
+    )
     if not entity:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     return EntitySchema.model_validate(entity)
 
 
 @router.delete("/{entity_id}")
-@requires_permission('manage_entities', model=Entity, resource_scoped=True)
+@requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
 async def delete_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -175,8 +248,12 @@ async def delete_entity(
     existing = await service.get_entity(db, entity_id, organization, current_user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    is_owner_unapproved = (
+        str(existing.owner_id) == str(current_user.id)
+        and existing.global_status != 'approved'
+    )
     existing_ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if existing_ds_ids:
+    if existing_ds_ids and not is_owner_unapproved:
         await check_resource_permissions(
             db, str(current_user.id), str(organization.id),
             "data_source", existing_ds_ids, "create_entities",
@@ -188,7 +265,7 @@ async def delete_entity(
 
 
 @router.post("/from_step/{step_id}", response_model=EntitySchema)
-@requires_permission('create_entities', resource_scoped=True)
+@requires_permission('create_reports')
 async def create_entity_from_step(
     step_id: str,
     payload: EntityFromStepCreate,
@@ -196,15 +273,39 @@ async def create_entity_from_step(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
+    """Create an entity from a successful step.
+
+    Two tiers, mirroring the dual-status workflow:
+    - SUGGEST (draft pending admin approval): any member who can ACCESS every
+      data source the entity will attach — saving your own query for review
+      is baseline product usage, not an admin capability.
+    - PUBLISH directly: per-DS `create_entities` on every attached data source
+      (agent owners via `manage`, org `manage_entities`, full admins).
     """
-    Create entity from step. Accessible to both admins (create_entities) and
-    regular users (suggest_entities). Permission checking happens at service level.
-    """
-    if payload.data_source_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", payload.data_source_ids, "create_entities",
+    # Resolve the target data sources up front so the permission check matches
+    # exactly what the service will attach (payload override, else the step
+    # report's data sources).
+    target_ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
+    if not target_ds_ids:
+        target_ds_ids = await service.step_report_data_source_ids(db, step_id, organization)
+
+    if target_ds_ids:
+        can_publish = await _holds_create_entities(db, current_user, organization, target_ds_ids)
+    else:
+        # DS-less entity → org-wide: publishing stays an org-admin capability.
+        from app.core.permission_resolver import resolve_permissions
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        can_publish = resolved.has_org_permission("manage_entities")
+
+    if payload.publish and not can_publish:
+        raise HTTPException(
+            status_code=403,
+            detail="Publishing an entity needs 'create_entities' on every attached agent. "
+                   "You can still save it as a suggestion for review.",
         )
+    if not can_publish and target_ds_ids:
+        await _require_ds_access(db, current_user, organization, target_ds_ids)
+
     try:
         entity = await service.create_entity_from_step(
             db,
@@ -216,7 +317,10 @@ async def create_entity_from_step(
             slug_override=payload.slug,
             description_override=payload.description,
             publish=bool(payload.publish or False),
-            data_source_ids_override=payload.data_source_ids,
+            # Pass the RESOLVED target set (payload override or report/mention
+            # fallback) so the service attaches exactly what was checked.
+            data_source_ids_override=(payload.data_source_ids or target_ds_ids or None),
+            creator_can_publish=can_publish,
         )
         return EntitySchema.model_validate(entity)
     except ValueError as e:
@@ -224,7 +328,7 @@ async def create_entity_from_step(
 
 
 @router.post("/{entity_id}/run", response_model=EntitySchema)
-@requires_permission('manage_entities', model=Entity)
+@requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
 async def run_entity(
     entity_id: str,
     payload: EntityRunPayload,
@@ -232,6 +336,11 @@ async def run_entity(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
+    """Run/refresh an entity. `create_entities` holders on all its agents, org
+    admins, or the entity's owner (with DS access) — execution always uses the
+    CALLER's credentials, and the service only persists the result when the
+    caller's identity may legitimately author the shared snapshot."""
+    await _require_entity_run_access(db, entity_id, organization, current_user)
     try:
         entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)
         return EntitySchema.model_validate(entity)
@@ -240,7 +349,7 @@ async def run_entity(
 
 
 @router.post("/{entity_id}/preview")
-@requires_permission('manage_entities', model=Entity)
+@requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
 async def preview_entity(
     entity_id: str,
     payload: EntityPreviewPayload,
@@ -248,6 +357,8 @@ async def preview_entity(
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
+    """Preview (execute without persisting) — same access tier as run."""
+    await _require_entity_run_access(db, entity_id, organization, current_user)
     try:
         result = await service.preview_entity(db, entity_id, payload, organization, current_user=current_user)
         return result
@@ -257,7 +368,7 @@ async def preview_entity(
 
 # Suggestion workflow endpoints
 @router.post("/{entity_id}/suggest", response_model=EntitySchema)
-@requires_permission('manage_entities')
+@requires_permission('create_reports')
 async def suggest_entity(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),
@@ -270,7 +381,7 @@ async def suggest_entity(
 
 
 @router.post("/{entity_id}/withdraw", response_model=EntitySchema)
-@requires_permission('manage_entities')
+@requires_permission('create_reports')
 async def withdraw_suggestion(
     entity_id: str,
     db: AsyncSession = Depends(get_async_db),

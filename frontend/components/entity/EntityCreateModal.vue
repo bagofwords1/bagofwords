@@ -59,7 +59,7 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useMyFetch } from '~/composables/useMyFetch'
-import { useCan } from '~/composables/usePermissions'
+import { useCanAll, useCanAny } from '~/composables/usePermissions'
 import EntityForm from './EntityForm.vue'
 
 const { t } = useI18n()
@@ -84,8 +84,6 @@ const open = computed({
   set: (v: boolean) => { if (!v) emit('close') }
 })
 
-const canCreateEntities = computed(() => useCan('create_entities'))
-const canSuggestEntities = computed(() => useCan('suggest_entities'))
 const errorMsg = ref('')
 const saving = ref(false)
 const viewType = computed(() => String((props.initialView && props.initialView.type) || ''))
@@ -100,9 +98,23 @@ const form = ref<{
   type: (viewType.value === 'count' ? 'metric' : 'model'),
   title: props.initialTitle || '',
   description: null,
-  status: canCreateEntities.value ? 'published' : 'draft',
+  status: 'draft', // set on open by the watcher below (needs canCreateEntities)
   data_source_ids: props.initialDataSourceIds || [],
 })
+
+// Publishing needs per-agent `create_entities` on EVERY attached agent
+// (agent owners hold it via their `manage` grant; org `manage_entities` and
+// full admins via implication). There is no org-level 'create_entities'
+// permission — the old org-level check locked out agent owners entirely.
+const canCreateEntities = computed(() => {
+  const ids = (form.value?.data_source_ids || []).filter(Boolean)
+  return ids.length
+    ? useCanAll('create_entities', 'data_source', ids)
+    : useCanAny('create_entities', 'data_source')
+})
+// Any member may SUGGEST an entity (draft pending admin approval) from their
+// own query; the backend enforces access to the attached agents.
+const canSuggestEntities = computed(() => true)
 
 // Watch for modal opening and update form with latest props
 watch(() => props.visible, (isVisible) => {
