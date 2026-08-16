@@ -66,11 +66,13 @@ def test_export_downloads_all_agent_instructions_as_markdown_zip(
 
     zf = zipfile.ZipFile(io.BytesIO(resp.content))
     names = zf.namelist()
-    # Exactly the five agent instructions — the global one is excluded.
-    assert len(names) == len(specs), names
-    assert all(n.endswith(".md") for n in names)
 
-    dump = "\n\n".join(zf.read(n).decode("utf-8") for n in names)
+    # Instructions live under instructions/*.md — exactly the five agent
+    # instructions, the global one excluded.
+    md_names = [n for n in names if n.startswith("instructions/") and n.endswith(".md")]
+    assert len(md_names) == len(specs), names
+
+    dump = "\n\n".join(zf.read(n).decode("utf-8") for n in md_names)
     # Every category is represented in a YAML frontmatter block.
     for _text, cat in specs:
         assert f"category: {cat}" in dump, f"missing category {cat}"
@@ -78,13 +80,19 @@ def test_export_downloads_all_agent_instructions_as_markdown_zip(
     assert "Prefer CTEs over nested subqueries." in dump
     # The global instruction's text is absent.
     assert "Org-wide rule" not in dump
-    # Each file has a frontmatter fence.
-    for n in names:
+    # Each instruction file has a frontmatter fence.
+    for n in md_names:
         assert zf.read(n).decode("utf-8").startswith("---\n")
+
+    # agent.yaml is included and is valid YAML naming this agent.
+    assert "agent.yaml" in names, names
+    import yaml as _yaml
+    manifest = _yaml.safe_load(zf.read("agent.yaml").decode("utf-8"))
+    assert manifest.get("name") == "Export Agent"
 
 
 @pytest.mark.e2e
-def test_export_requires_manage_instructions_on_the_agent(
+def test_export_requires_manage_on_the_agent(
     create_data_source, create_instruction, invite_user_to_org,
     create_user, login_user, whoami, test_client, tmp_path,
     _rbac_relaxed_signup_flags,
@@ -101,8 +109,7 @@ def test_export_requires_manage_instructions_on_the_agent(
     # Unauthenticated → 401.
     assert test_client.get(url).status_code == 401
 
-    # A plain member (no manage_instructions, not a member of this private
-    # agent) → 403.
+    # A plain member (no `manage` on this private agent) → 403.
     member = invite_user_to_org(admin_token=admin_token, org_id=org_id, role="member")
     member_resp = test_client.get(url, headers=_headers(member["token"], org_id))
     assert member_resp.status_code == 403, member_resp.text

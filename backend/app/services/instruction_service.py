@@ -4387,24 +4387,33 @@ class InstructionService:
             "pages": (total + limit - 1) // limit if limit > 0 else 1
         }
 
-    async def export_agent_instructions_zip(
+    async def export_agent_bundle_zip(
         self,
         db: AsyncSession,
         organization: Organization,
         current_user: User,
         data_source_id: str,
     ) -> tuple[bytes, str]:
-        """Serialize one agent's live instructions to a zip of markdown files.
+        """Serialize one agent to a portable zip bundle. Returns ``(zip_bytes,
+        agent_name)``. Layout::
 
-        Each instruction becomes one ``.md`` file with YAML frontmatter carrying
-        the metadata that ``instruction_sync_service`` reads back (title,
-        category, status, load_mode, kind), so an exported zip round-trips into a
-        git repo the agent can re-sync. Returns ``(zip_bytes, agent_name)``.
+            instructions/*.md   one file per live instruction, YAML frontmatter
+            agent.yaml          the agent manifest (config, tables, tools, members)
+            evals/*.yaml        one file per test suite scoped to this agent
 
-        Authorization is enforced at the route layer (per-agent
-        ``manage_instructions``); this method assumes the caller may read the
-        agent. It still runs through ``get_instructions`` so the same visibility
-        rules as the list apply.
+        Each instruction's frontmatter carries the metadata that
+        ``instruction_sync_service`` reads back (title, category, status,
+        load_mode, kind, references), so the markdown round-trips into a git repo
+        the agent can re-sync. ``agent.yaml`` / ``evals/*.yaml`` reuse the same
+        serializers as ``GET /agents/{name}.yaml`` and
+        ``GET /tests/suites/{id}/export``.
+
+        Authorization is enforced at the route layer (per-agent ``manage``, which
+        implies ``manage_instructions`` and ``manage_evals``); this method assumes
+        the caller may manage the agent. Instructions still run through
+        ``get_instructions`` so the same visibility rules as the list apply. The
+        agent.yaml and evals sections are best-effort: a failure in either is
+        logged and skipped rather than failing the whole download.
         """
         import io
         import zipfile
@@ -4476,6 +4485,7 @@ class InstructionService:
                     name = f"{stem}-{n}.md"
                     n += 1
                 used_names.add(name)
+                name = f"instructions/{name}"
 
                 # Frontmatter: only meaningful keys, in a stable order.
                 fm: dict = {}
@@ -4494,6 +4504,47 @@ class InstructionService:
                 body = it.text or ""
                 content = f"---\n{front}\n---\n\n{body}\n"
                 zf.writestr(name, content)
+
+            # agent.yaml — the full agent manifest (same serializer as
+            # GET /agents/{name}.yaml). Best-effort: skip on any failure.
+            if ds is not None:
+                try:
+                    from app.services.agent_yaml_service import AgentYamlService
+                    agent_yaml = await AgentYamlService().export(
+                        db, organization, current_user, ds.name
+                    )
+                    zf.writestr("agent.yaml", agent_yaml)
+                except Exception as e:
+                    logger.warning(f"Skipping agent.yaml in export for {data_source_id}: {e}")
+
+            # evals/*.yaml — one file per test suite scoped to this agent (same
+            # serializer as GET /tests/suites/{id}/export). Best-effort per suite.
+            try:
+                from app.services.test_suite_service import TestSuiteService
+                suite_service = TestSuiteService()
+                suites = await suite_service.list_suites(
+                    db, str(organization.id), current_user,
+                    page=1, limit=200, data_source_id=data_source_id,
+                )
+                used_suite_names: set[str] = set()
+                for suite in suites:
+                    try:
+                        suite_yaml = await suite_service.export_yaml(
+                            db, str(organization.id), current_user, str(suite.id)
+                        )
+                    except Exception as e:
+                        logger.warning(f"Skipping eval suite {suite.id} in export: {e}")
+                        continue
+                    base = f"{_slug(getattr(suite, 'name', '')) or str(suite.id)}.yaml"
+                    sname = base
+                    k = 1
+                    while sname in used_suite_names:
+                        sname = f"{base[:-5]}-{k}.yaml"
+                        k += 1
+                    used_suite_names.add(sname)
+                    zf.writestr(f"evals/{sname}", suite_yaml)
+            except Exception as e:
+                logger.warning(f"Skipping evals in export for {data_source_id}: {e}")
 
         return buf.getvalue(), agent_name
 

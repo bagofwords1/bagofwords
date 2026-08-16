@@ -103,7 +103,7 @@
     "selfLearning": "Self Learning",
     "selfLearningTip": "Configure how this agent learns from new suggestions",
     "newReport": "New report",
-    "exportInstructions": "Export instructions as markdown (.zip)",
+    "exportInstructions": "Export agent bundle — instructions, config & evals (.zip)",
     "connect": "Connect",
     "manageConnections": "Manage connections",
     "loadingFiles": "Loading files from the source…",

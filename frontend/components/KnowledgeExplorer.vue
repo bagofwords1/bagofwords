@@ -441,7 +441,7 @@
                 </div>
                 <button v-if="canManageAgent(agentView.agentId)" class="h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium whitespace-nowrap hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1" :title="$t('agentsPage.selfLearningTip')" @click="showSelfLearning = true"><UIcon name="i-heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />{{ $t('agentsPage.selfLearning') }}</button>
                 <button class="h-7 px-2.5 rounded-md bg-blue-600 text-white text-xs font-medium whitespace-nowrap hover:bg-blue-700 inline-flex items-center gap-1" @click="createReportForAgent(agentView.agentId)"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.newReport') }}</button>
-                <button v-if="canAddInstrFor(agentView.agentId)" type="button" :disabled="exportingInstructions" class="h-7 w-7 rounded-md flex items-center justify-center border border-gray-200 dark:border-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400 disabled:opacity-50" :title="$t('agentsPage.exportInstructions')" @click="exportAgentInstructions(agentView.agentId)"><UIcon :name="exportingInstructions ? 'i-heroicons-arrow-path' : 'i-heroicons-arrow-down-tray'" :class="['w-3.5 h-3.5', exportingInstructions && 'animate-spin']" /></button>
+                <button v-if="canManageAgent(agentView.agentId)" type="button" :disabled="exportingInstructions" class="h-7 w-7 rounded-md flex items-center justify-center border border-gray-200 dark:border-gray-800 text-gray-400 dark:text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800/50 hover:text-gray-600 dark:hover:text-gray-400 disabled:opacity-50" :title="$t('agentsPage.exportInstructions')" @click="exportAgentInstructions(agentView.agentId)"><UIcon :name="exportingInstructions ? 'i-heroicons-arrow-path' : 'i-heroicons-arrow-down-tray'" :class="['w-3.5 h-3.5', exportingInstructions && 'animate-spin']" /></button>
                 <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" @click="exitAgentView"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
               </div>
             </div>
@@ -3649,9 +3649,9 @@ const downloadMarkdown = () => {
   URL.revokeObjectURL(url)
 }
 
-// Export one agent's live instructions as a zip of markdown files. Gated on
-// per-agent manage_instructions (canAddInstrFor) — full admins pass via the
-// wildcard. Backend enforces the same permission.
+// Export one agent as a zip bundle (instructions markdown + agent.yaml +
+// evals/*.yaml). Gated on per-agent `manage` (canManageAgent) — full admins
+// pass via the wildcard. Backend enforces the same permission.
 const exportingInstructions = ref(false)
 const exportAgentInstructions = async (agentId?: string) => {
   if (!agentId || exportingInstructions.value) return
@@ -3663,7 +3663,7 @@ const exportAgentInstructions = async (agentId?: string) => {
     const url = URL.createObjectURL(data.value as Blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${name}-instructions.zip`
+    a.download = `${name}-agent-export.zip`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
