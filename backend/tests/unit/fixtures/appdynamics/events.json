@@ -2,7 +2,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: web-portal-node-1, Tier: web-portal",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131654",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131654",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786976397592,
@@ -37,7 +37,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131563",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131563",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786976339600,
@@ -72,7 +72,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: api-services-node-1, Tier: api-services",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131562",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131562",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786976338594,
@@ -107,7 +107,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: web-portal-node-1, Tier: web-portal",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131250",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131250",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786975977188,
@@ -142,7 +142,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: api-services-node-1, Tier: api-services",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131249",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131249",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786975976749,
@@ -177,7 +177,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131246",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131246",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786975976411,
@@ -212,7 +212,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129576",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129576",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786973758716,
@@ -247,7 +247,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129577",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129577",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786973756758,
@@ -282,7 +282,7 @@
  {
   "severity": "INFO",
   "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
-  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129550",
+  "deepLinkUrl": "https://appd.example.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129550",
   "archived": false,
   "markedAsRead": false,
   "eventTime": 1786973754575,
