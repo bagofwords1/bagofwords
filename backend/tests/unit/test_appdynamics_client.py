@@ -50,6 +50,25 @@ class _FakeRequests:
         self.routes = routes
         self.token_responses = list(token_responses or [])
         self.calls = []   # (method, url, params, auth, headers)
+        self.sessions_created = 0
+
+    def Session(self):
+        # The client keeps ONE requests.Session for HTTP keep-alive; route its
+        # get/post back through this fake and count instantiations.
+        self.sessions_created += 1
+        fake = self
+
+        class _S:
+            def get(self, *a, **kw):
+                return fake.get(*a, **kw)
+
+            def post(self, *a, **kw):
+                return fake.post(*a, **kw)
+
+            def close(self):
+                pass
+
+        return _S()
 
     def _route(self, url):
         for suffix, val in self.routes.items():
@@ -125,6 +144,46 @@ def test_basic_auth_tuple_sent(patch_requests):
     method, url, params, auth, headers = fake.calls[0]
     assert auth == ("svc_bow@customer1", "pw")
     assert headers is None
+
+
+def test_single_session_reused_across_calls(patch_requests):
+    fake = patch_requests({
+        "/rest/applications": APPS,
+        "/tiers": TIERS_100,
+        "/metrics": [],
+    })
+    c = _client()
+    c.test_connection()
+    c.execute_query('{"table": "service_flows", "application": "retail-banking"}')
+    assert len(fake.calls) >= 3
+    assert fake.sessions_created == 1, "keep-alive requires one shared Session"
+
+
+def test_applications_list_cached_across_queries(patch_requests, monkeypatch):
+    fake = patch_requests({
+        "/rest/applications": APPS,
+        "/100/tiers": TIERS_100,
+        "/200/tiers": TIERS_200,
+        "/100/nodes": [], "/200/nodes": [],
+    })
+    c = _client()
+    c.execute_query('{"table": "tiers"}')
+    c.execute_query('{"table": "nodes"}')
+    app_calls = [u for _, u, _, _, _ in fake.calls if u.endswith("/rest/applications")]
+    assert len(app_calls) == 1, "applications list must be cached within the TTL"
+
+    # After the TTL expires the list is refetched. (Capture the real clock
+    # first — appdynamics_client.time IS the stdlib module, so patching its
+    # `time` attribute would otherwise make the lambda call itself.)
+    import time as _time
+    real_time = _time.time
+    monkeypatch.setattr(
+        "app.data_sources.clients.appdynamics_client.time.time",
+        lambda: real_time() + 3600,
+    )
+    c.execute_query('{"table": "tiers"}')
+    app_calls = [u for _, u, _, _, _ in fake.calls if u.endswith("/rest/applications")]
+    assert len(app_calls) == 2
 
 
 def test_output_json_on_every_call(patch_requests):

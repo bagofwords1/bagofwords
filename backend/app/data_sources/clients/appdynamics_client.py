@@ -50,6 +50,9 @@ FLOW_TIER_LIMIT = 200        # max tiers browsed per app when deriving flows
 SUMMARY_APP_LIMIT = 25       # apps named in catalog descriptions
 SUMMARY_EDGE_LIMIT = 60      # flow edges embedded in the catalog description
 TOKEN_EXPIRY_SLACK = 30      # refresh OAuth tokens this many seconds early
+APP_CACHE_TTL = 30           # seconds to reuse the applications list — every
+                             # execute_query resolves apps first, and topology
+                             # does not churn at sub-minute granularity
 
 # Matches "Call-HTTP to Discovered backend call \"X\"", "Call-JDBC to X", etc.
 _EXTERNAL_CALL_RE = re.compile(
@@ -216,6 +219,18 @@ class AppDynamicsClient(DataSourceClient):
         # OAuth token cache (api_client auth only).
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
+        # Shared session for HTTP keep-alive: schema discovery makes many
+        # sequential calls, and without connection reuse each one pays a full
+        # TCP+TLS handshake (~700ms against a SaaS controller).
+        self._session: Optional[requests.Session] = None
+        # Short-TTL applications-list cache (see APP_CACHE_TTL).
+        self._apps_cache: Optional[List[dict]] = None
+        self._apps_cache_at: float = 0.0
+
+    def _http(self) -> requests.Session:
+        if self._session is None:
+            self._session = requests.Session()
+        return self._session
 
     @property
     def description(self):
@@ -240,7 +255,7 @@ class AppDynamicsClient(DataSourceClient):
     def _fetch_token(self) -> str:
         url = f"{self.base_url}/controller/api/oauth/access_token"
         try:
-            resp = requests.post(
+            resp = self._http().post(
                 url,
                 data={
                     "grant_type": "client_credentials",
@@ -296,8 +311,8 @@ class AppDynamicsClient(DataSourceClient):
         for attempt in (0, 1):
             kwargs = self._request_kwargs()
             try:
-                resp = requests.get(url, params=q, verify=self.verify_ssl,
-                                    timeout=HTTP_TIMEOUT, **kwargs)
+                resp = self._http().get(url, params=q, verify=self.verify_ssl,
+                                        timeout=HTTP_TIMEOUT, **kwargs)
             except requests.exceptions.SSLError as e:
                 raise RuntimeError(
                     f"AppDynamics TLS error: {e}. Enable 'Skip TLS verification' "
@@ -558,7 +573,12 @@ class AppDynamicsClient(DataSourceClient):
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _list_applications(self) -> List[dict]:
-        return list(self._get("rest/applications") or [])
+        if self._apps_cache is not None and time.time() - self._apps_cache_at < APP_CACHE_TTL:
+            return self._apps_cache
+        apps = list(self._get("rest/applications") or [])
+        self._apps_cache = apps
+        self._apps_cache_at = time.time()
+        return apps
 
     def _resolve_apps(self, application) -> List[dict]:
         """Resolve the spec's `application` (name or id) to app dicts; when

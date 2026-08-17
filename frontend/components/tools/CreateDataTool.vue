@@ -16,17 +16,18 @@
         <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
             <span v-if="gidx > 0" class="ms-1 text-gray-300 dark:text-gray-600">|</span>
-            <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.names.join(', ')" />
-            <span class="ms-1 text-gray-500 dark:text-gray-400 inline-flex items-center flex-wrap">
-              <span v-for="(nm, nidx) in group.names" :key="nidx" class="inline-flex items-center">
+            <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.title" />
+            <span class="ms-1 text-gray-500 dark:text-gray-400 inline-flex items-center flex-wrap" :title="group.title">
+              <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
                 <UIcon
                   v-if="isCached(nm)"
                   name="heroicons-bolt"
                   class="w-2.5 h-2.5 me-0.5 text-amber-500 flex-shrink-0"
                   title="Cached locally — this read did not query the source"
                 />
-                <span>{{ nm }}</span><span v-if="nidx < group.names.length - 1">,&nbsp;</span>
+                <span>{{ nm }}</span><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
               </span>
+              <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-gray-400 dark:text-gray-500">&nbsp;+{{ group.more }}</span></UTooltip>
             </span>
           </template>
         </span>
@@ -161,6 +162,7 @@
 
 <script setup lang="ts">
 import { useCachedTableNames } from '~/composables/useFastTable'
+import { groupToolTables, type ToolTableGroup } from '~/composables/useToolTables'
 import { computed, ref, reactive } from 'vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
@@ -388,25 +390,9 @@ const executedOnCache = computed(() => {
 })
 const isCached = (n: string) => isCachedTable(n) || executedOnCache.value
 
-const groupedTables = computed<Array<{ type: string; names: string[] }>>(() => {
-  const aj = (props.toolExecution as any)?.arguments_json || {}
-  if (!Array.isArray(aj.tables_by_source)) return []
-  const groups: Record<string, string[]> = {}
-  for (const group of aj.tables_by_source) {
-    let connType = 'resource'
-    if (group.data_source_id && props.dataSources?.length) {
-      const ds = props.dataSources.find((d) => d.id === group.data_source_id)
-      if (ds) {
-        connType = ds.connections?.[0]?.type || ds.type || ds.data_source_type || 'resource'
-      }
-    }
-    if (!groups[connType]) groups[connType] = []
-    if (Array.isArray(group.tables)) {
-      groups[connType].push(...group.tables)
-    }
-  }
-  return Object.entries(groups).map(([type, names]) => ({ type, names }))
-})
+const groupedTables = computed<ToolTableGroup[]>(() =>
+  groupToolTables((props.toolExecution as any)?.arguments_json, props.dataSources)
+)
 
 // Hide the data preview by default for small table results (< 10 rows).
 // The agent describes these in its text answer, so the inline table is
