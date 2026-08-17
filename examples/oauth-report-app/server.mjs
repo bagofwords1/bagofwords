@@ -1,10 +1,11 @@
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { extname, isAbsolute, join, normalize, relative } from 'node:path'
+import { extname, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
 const root = fileURLToPath(new URL('.', import.meta.url))
+const rootWithSep = root.endsWith(sep) ? root : root + sep
 const host = process.env.DEMO_HOST || '127.0.0.1'
 const port = Number(process.env.DEMO_PORT || 4173)
 const bowApiOrigin = process.env.BOW_API_ORIGIN || 'http://127.0.0.1:8000'
@@ -18,10 +19,23 @@ const contentTypes = {
 }
 
 function safeStaticPath(pathname) {
-  const requested = pathname === '/' || pathname === '/callback' ? 'index.html' : pathname.slice(1)
-  const resolved = normalize(join(root, requested))
-  const withinRoot = relative(root, resolved)
-  return !withinRoot.startsWith('..') && !isAbsolute(withinRoot) ? resolved : null
+  // Decode once so percent-encoded traversal (e.g. %2e%2e / %2f) cannot slip
+  // past the checks below; a malformed sequence is rejected outright.
+  let decoded
+  try {
+    decoded = decodeURIComponent(pathname)
+  } catch {
+    return null
+  }
+  // Reject null bytes and any explicit parent-directory segment before the
+  // value is ever joined to a filesystem path.
+  if (decoded.includes('\0') || decoded.split(/[\\/]/).includes('..')) {
+    return null
+  }
+  const requested = decoded === '/' || decoded === '/callback' ? 'index.html' : decoded.replace(/^\/+/, '')
+  const resolved = resolve(rootWithSep, requested)
+  // Defense in depth: only serve files that resolve to inside the demo root.
+  return resolved.startsWith(rootWithSep) ? resolved : null
 }
 
 async function proxyToBow(request, response) {
