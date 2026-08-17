@@ -10,6 +10,7 @@ export interface ToolTableGroup {
   visible: string[]    // first MAX_VISIBLE_TABLES names for the ticker line
   more: number         // how many names were truncated (0 = none)
   title: string        // full comma-joined list for :title
+  moreTitle: string    // the truncated names — hover tooltip for the "+N" chip
 }
 
 export const MAX_VISIBLE_TABLES = 3
@@ -44,13 +45,18 @@ export function groupToolTables(
     }
   }
 
-  return Object.entries(groups).map(([type, names]) => ({
-    type,
-    names,
+  return Object.entries(groups).map(([type, names]) => {
     // Truncate per source group. When exactly one name would be hidden,
     // just show it — "+1" costs the same width as the name it hides.
-    visible: names.length > maxVisible + 1 ? names.slice(0, maxVisible) : names,
-    more: names.length > maxVisible + 1 ? names.length - maxVisible : 0,
-    title: names.join(', '),
-  }))
+    const truncate = names.length > maxVisible + 1
+    const visible = truncate ? names.slice(0, maxVisible) : names
+    return {
+      type,
+      names,
+      visible,
+      more: truncate ? names.length - maxVisible : 0,
+      title: names.join(', '),
+      moreTitle: truncate ? names.slice(maxVisible).join(', ') : '',
+    }
+  })
 }
