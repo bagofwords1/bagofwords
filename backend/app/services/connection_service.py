@@ -10,7 +10,7 @@ from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
-from sqlalchemy import delete, func
+from sqlalchemy import delete, update, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -27,6 +27,7 @@ from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
 from app.models.webhook_data_source_association import webhook_data_source_association
+from app.models.domain_connection import domain_connection
 from app.schemas.data_source_registry import (
     resolve_client_class,
     list_available_data_sources,
@@ -771,6 +772,15 @@ class ConnectionService:
                             delete(webhook_data_source_association).where(
                                 webhook_data_source_association.c.data_source_id == ds.id
                             )
+                        )
+                        # Preserve per-agent Drafts suites and their cases. The
+                        # suite link is a home only, so removing the sole-linked
+                        # agent turns it back into an org-level suite.
+                        from app.models.eval import TestSuite
+                        await db.execute(
+                            update(TestSuite)
+                            .where(TestSuite.data_source_id == ds.id)
+                            .values(data_source_id=None)
                         )
                         await db.delete(ds)
 
@@ -1731,7 +1741,15 @@ class ConnectionService:
             # Models contributed by users' own discovery live on DataSourceTable
             # instead — include them so the connect test has something to probe
             # and does not reject a member who can genuinely query.
-            ds_ids = [str(ds.id) for ds in (connection.data_sources or [])]
+            # Do not touch ``connection.data_sources`` here: after credential
+            # resolution/commits the relationship may be expired, and async
+            # lazy-loading it raises MissingGreenlet. Read the junction table
+            # explicitly through the active AsyncSession instead.
+            ds_ids = [str(row[0]) for row in (await db.execute(
+                select(domain_connection.c.data_source_id).where(
+                    domain_connection.c.connection_id == str(connection.id)
+                )
+            )).all()]
             if ds_ids:
                 rows += (await db.execute(
                     select(DataSourceTable.name, DataSourceTable.metadata_json).where(

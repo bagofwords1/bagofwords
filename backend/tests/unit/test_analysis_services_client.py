@@ -465,6 +465,11 @@ class TestExecuteQuery:
 # ---------------------------------------------------------------------------
 
 class TestTopLevel:
+    def test_registry_auth_variant_metadata_is_accepted(self):
+        client = _client(auth_type="userpass")
+
+        assert client.username == "u"
+
     def test_test_connection_ok(self):
         client = _client()
         _install_post(client, [_make_response(CATALOGS_TWO)])

@@ -95,12 +95,13 @@ from uuid import UUID
 import json
 from datetime import datetime, timezone
 
-from sqlalchemy import insert, delete, or_, and_, func, exists, false as sa_false
+from sqlalchemy import insert, delete, update, or_, and_, func, exists, false as sa_false
 from sqlalchemy.exc import IntegrityError
 from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.webhook_data_source_association import webhook_data_source_association
+from app.models.eval import TestSuite
 
 from typing import List, Dict, Any, Optional
 from sqlalchemy.orm import selectinload, lazyload
@@ -1883,7 +1884,11 @@ class DataSourceService:
             raise ValueError(f"Schema not found for {data_source_type}: {str(e)}")
     
     async def delete_data_source(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
-        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+        # Rollbacks expire ORM instances. Keep scalar ids for the FK retry and
+        # audit paths so error handling never triggers async lazy IO.
+        organization_id = str(organization.id)
+        current_user_id = str(current_user.id)
+        result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization_id))
         data_source = result.scalar_one_or_none()
         if not data_source:
             raise HTTPException(status_code=404, detail="Data source not found")
@@ -1909,6 +1914,16 @@ class DataSourceService:
         )
         await db.execute(
             delete(UserDataSourceCredentials).where(UserDataSourceCredentials.data_source_id == data_source_id)
+        )
+
+        # A suite's data_source_id is only its Drafts home, not ownership.
+        # Preserve the suite and its cases as org-level content when its agent
+        # goes away. Older production constraints lack ON DELETE SET NULL, so
+        # this explicit update is required even after the model is corrected.
+        await db.execute(
+            update(TestSuite)
+            .where(TestSuite.data_source_id == data_source_id)
+            .values(data_source_id=None)
         )
 
         # 2b) Detach this agent from any trigger webhooks. The M2M is declared
@@ -1971,7 +1986,7 @@ class DataSourceService:
                 if attempt == max_attempts - 1:
                     raise
                 # The data source object is expired after rollback; re-fetch it.
-                result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization.id))
+                result = await db.execute(select(DataSource).filter(DataSource.id == data_source_id, DataSource.organization_id == organization_id))
                 data_source = result.scalar_one_or_none()
                 if not data_source:
                     # Already removed elsewhere; nothing left to delete.
@@ -1982,9 +1997,9 @@ class DataSourceService:
         try:
             await audit_service.log(
                 db=db,
-                organization_id=str(organization.id),
+                organization_id=organization_id,
                 action="data_source.deleted",
-                user_id=str(current_user.id),
+                user_id=current_user_id,
                 resource_type="data_source",
                 resource_id=str(data_source_id),
                 details={"name": data_source_name},

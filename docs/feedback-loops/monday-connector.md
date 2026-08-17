@@ -8,7 +8,7 @@ monday.com trial account (EU region) with Claude 4.5 Haiku as the only model.
 ## What was built
 
 - `backend/app/data_sources/clients/monday_client.py` — `MondayClient(DataSourceClient)`
-  over the GraphQL API (`api.monday.com/v2`, API-Version 2024-10). Boards →
+  over the GraphQL API (`api.monday.com/v2`, API-Version 2026-04). Boards →
   `Table` (name-disambiguated with `[board_id]` on duplicates), columns →
   `TableColumn` named by column TITLE (id in the description), status/dropdown
   labels surfaced in column descriptions, `board_relation` columns → FKs.
@@ -26,7 +26,7 @@ monday.com trial account (EU region) with Claude 4.5 Haiku as the only model.
   not expire; no refresh token exists, so there is no refresh path.
 - `connection_service.default_user_auth_modes`: monday added to the
   oauth_client_id → `["oauth"]` list.
-- Tests: `tests/unit/test_monday_client.py` (11), two monday cases in
+- Tests: `tests/unit/test_monday_client.py` (14), two monday cases in
   `tests/unit/test_connection_oauth.py`, `monday` in
   `tests/integrations/ds_clients.py` (remote mode, needs
   `{"monday": {"enabled": true, "api_token": "..."}}`).
@@ -72,3 +72,59 @@ monday.com trial account (EU region) with Claude 4.5 Haiku as the only model.
    here (Chromium egress blocked in the remote sandbox + account is Google
    SSO) — the last mile needs a human click on the authorize URL produced by
    `GET /connections/{id}/oauth/authorize`.
+
+## Regression loop — multi-level boards missing from discovery
+
+### Root cause (validated)
+
+The connector pinned monday API version `2024-10` and its paginated `boards`
+query did not specify `hierarchy_types`. monday excludes multi-level boards
+from that legacy query for backwards compatibility, so an API token could see
+the board in monday's UI while Bag of Words silently indexed only classic
+boards. The omission was at
+`backend/app/data_sources/clients/monday_client.py:29` and
+`backend/app/data_sources/clients/monday_client.py:202` before the fix.
+
+### Loop A — deterministic reproduction
+
+The HTTP boundary stub returns a classic board for a legacy/unqualified query
+and returns both classic and multi-level boards only when the request uses a
+supporting API version and explicitly selects both hierarchy types:
+
+```bash
+cd backend
+UV_CACHE_DIR=/tmp/bow-monday-uv-cache uv run pytest \
+  tests/unit/test_monday_client.py::test_get_schemas_discovers_classic_and_multi_level_boards -q
+```
+
+Before the fix, the observed result was:
+
+```text
+FAILED test_get_schemas_discovers_classic_and_multi_level_boards
+Extra items in the right set: 'Portfolio Projects'
+1 failed
+```
+
+### The fix and verification
+
+`monday_client.py` now pins stable API version `2026-04`, explicitly sends
+`hierarchy_types: [classic, multi_level]`, requests `hierarchy_type`, and
+persists it in each table's metadata. Re-running the full connector unit suite:
+
+```bash
+cd backend
+UV_CACHE_DIR=/tmp/bow-monday-uv-cache uv run pytest \
+  tests/unit/test_monday_client.py -q --disable-warnings
+```
+
+Observed:
+
+```text
+..............                                                           [100%]
+14 passed
+```
+
+This proves every active board visible to the API-token identity is discovered
+regardless of classic versus multi-level storage. It does not change the
+existing workspace/board configuration filters, token permission boundaries,
+or the connector's top-level-item query semantics.

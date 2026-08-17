@@ -173,3 +173,20 @@ an execution error.
 - No Power BI code or connection data is changed. The SSAS query-time metadata
   attachment mirrors that already-working connector without sharing its API or
   credentials.
+
+## Saved-connection refresh regression
+
+After the connector shipped, the generic registry supplied its `auth_type`
+form discriminator while reconstructing a saved SSAS client. The subclass's
+open-ended `**kwargs` signature caused that UI metadata to reach the strict
+XMLA base constructor, and Reload failed with
+`XmlaClient.__init__() got an unexpected keyword argument 'auth_type'`.
+
+`AnalysisServicesClient` now declares the complete XMLA constructor contract
+and accepts `auth_type` only at the connector boundary. A regression test first
+reproduced the exact exception. The focused SSAS/BW/Infor and lifecycle suite
+now passes 88 tests. A live Agents-page Reload then returned HTTP 200, refreshed
+all seven tables, and retained 130 fields, 23 measures, and eight relationships.
+The same run also exposed an expired ORM relationship during metadata
+attachment; that path now reads the connection-agent junction table explicitly
+through the active async session and completes without `MissingGreenlet`.
