@@ -29,8 +29,29 @@ class AnalysisServicesClient(XmlaClient):
     EMPTY_NOTE = "No databases visible to this user — check permissions."
     QUERY_REQUIRED_MSG = "An MDX or DAX query is required"
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        host: str,
+        username: Optional[str] = None,
+        password: Optional[str] = None,
+        catalog: Optional[str] = None,
+        verify_ssl: bool = True,
+        timeout_sec: int = 60,
+        auth_type: Optional[str] = None,
+    ):
+        # ``auth_type`` identifies the registry form variant (currently only
+        # ``userpass``); it is not an XMLA transport option. Accept it at the
+        # connector boundary so saved credentials from the generic connection
+        # flow cannot leak it into XmlaClient's strict constructor.
+        self.auth_type = auth_type or "userpass"
+        super().__init__(
+            host=host,
+            username=username,
+            password=password,
+            catalog=catalog,
+            verify_ssl=verify_ssl,
+            timeout_sec=timeout_sec,
+        )
         self._schemas_cache: Optional[List[Table]] = None
         self._table_metadata_map: Dict[str, Dict] = {}
 

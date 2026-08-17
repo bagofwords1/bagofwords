@@ -27,7 +27,10 @@ from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
 
 API_URL = "https://api.monday.com/v2"
-API_VERSION = "2024-10"
+# Multi-level boards first became queryable in 2025-10. Pin the oldest current
+# stable version that includes them, and still request both hierarchy types
+# explicitly so discovery does not depend on monday's version-specific default.
+API_VERSION = "2026-04"
 
 MAX_ROWS = 10_000        # hard cap per execute_query
 PAGE_SIZE = 500          # items_page maximum page size
@@ -199,8 +202,9 @@ class MondayClient(DataSourceClient):
             data = self._gql(
                 """
                 query ($limit: Int!, $page: Int!) {
-                  boards (limit: $limit, page: $page, state: active, order_by: created_at) {
-                    id name description board_kind items_count
+                  boards (limit: $limit, page: $page, state: active, order_by: created_at,
+                          hierarchy_types: [classic, multi_level]) {
+                    id name description board_kind hierarchy_type items_count
                     workspace { id name }
                     columns { id title type settings_str }
                   }
@@ -339,7 +343,11 @@ class MondayClient(DataSourceClient):
             pks=[TableColumn(name="item_id", dtype="int")],
             fks=fks,
             description="; ".join(description_bits) or None,
-            metadata_json={"board_id": str(board["id"]), "workspace": workspace},
+            metadata_json={
+                "board_id": str(board["id"]),
+                "workspace": workspace,
+                "hierarchy_type": board.get("hierarchy_type") or "classic",
+            },
         )
 
     def get_schemas(self, progress_callback=None) -> List[Table]:
