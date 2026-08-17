@@ -1,0 +1,18 @@
+# Mock AppDynamics Controller (21.x REST shapes) — see mock_controller.py.
+# A real controller can't be containerized here (licensed binaries, GBs of
+# RAM), so this serves the exact API surface AppDynamicsClient touches.
+#
+#   docker compose up -d
+#   curl -u 'admin@customer1:Secret123!' 'http://localhost:8090/controller/rest/applications?output=JSON'
+services:
+  appdynamics-mock:
+    image: python:3.12-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_controller.py:/srv/mock_controller.py:ro
+    command: sh -c "pip install --quiet fastapi uvicorn python-multipart && python mock_controller.py"
+    environment:
+      APPD_MOCK_PORT: "8090"
+      # Shrink to make OAuth refresh-on-401 observable: APPD_MOCK_TOKEN_TTL: "10"
+    ports:
+      - "8090:8090"

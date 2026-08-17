@@ -1,6 +1,9 @@
 # Research: AppDynamics connector — `AppDynamicsClient`
 
-Status: **research only — nothing implemented**. This doc captures the API surface,
+Status: **IMPLEMENTED** (beta) — see `docs/feedback-loops/appdynamics-connector.md`
+for the full sandbox verification (real LLM + Playwright, service-map and
+metric prompts against the `tools/appdynamics/` simulator).
+Originally a research doc; it captures the API surface,
 auth model, bank/privileged-environment constraints, the MCP angle, and a proposed
 shape that matches the existing Splunk / ServiceNow / Zabbix connectors. It follows
 the `docs/design/zabbix-connector.md` format so it can graduate into an
