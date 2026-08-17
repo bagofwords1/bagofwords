@@ -70,6 +70,12 @@ BOARD_SUBITEMS = {
 
 BOARD_DUPE_A = {**BOARD_LINKED, "id": "444", "name": "Tasks", "workspace": {"id": "9", "name": "Sales"}}
 BOARD_DUPE_B = {**BOARD_LINKED, "id": "555", "name": "Tasks", "workspace": {"id": "10", "name": "Ops"}}
+BOARD_MULTI_LEVEL = {
+    **BOARD_LINKED,
+    "id": "666",
+    "name": "Portfolio Projects",
+    "hierarchy_type": "multi_level",
+}
 
 
 def item(item_id, name, values):
@@ -213,6 +219,7 @@ def test_get_schemas_shape(monkeypatch):
     assert "Done" in columns["Status"].description
     assert main.pks[0].name == "item_id"
     assert main.metadata_json["board_id"] == "111"
+    assert main.metadata_json["hierarchy_type"] == "classic"
 
     # board_relation -> FK to the linked board's table name
     assert len(main.fks) == 1
@@ -228,6 +235,31 @@ def test_get_schemas_scoping(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
     tables = MondayClient(api_token="t", boards="111").get_schemas()
     assert [t.name for t in tables] == ["Sales Pipeline"]
+
+
+def test_get_schemas_discovers_classic_and_multi_level_boards(monkeypatch):
+    """Every active board visible to the token is part of the catalog,
+    regardless of whether monday stores it as a classic or multi-level board."""
+    def post(url, json=None, headers=None, timeout=None):
+        query = json["query"]
+        variables = json.get("variables") or {}
+        if "boards (" not in query or "page" not in variables:
+            raise AssertionError(f"unexpected query: {query}")
+
+        includes_all_hierarchies = "hierarchy_types: [classic, multi_level]" in query
+        supports_multi_level = (headers or {}).get("API-Version", "") >= "2025-10"
+        boards = [BOARD_MAIN]
+        if includes_all_hierarchies and supports_multi_level:
+            boards.append(BOARD_MULTI_LEVEL)
+        return FakeResponse({"data": {"boards": boards if variables["page"] == 1 else []}})
+
+    monkeypatch.setattr("app.data_sources.clients.monday_client.requests.post", post)
+
+    tables = MondayClient(api_token="t").get_schemas()
+
+    assert {table.name for table in tables} == {"Sales Pipeline", "Portfolio Projects"}
+    multi_level = next(table for table in tables if table.name == "Portfolio Projects")
+    assert multi_level.metadata_json["hierarchy_type"] == "multi_level"
 
 
 # ── execute_query ───────────────────────────────────────────────────────────

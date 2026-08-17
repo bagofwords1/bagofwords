@@ -37,7 +37,12 @@ class TestSuite(BaseSchema):
     #
     # Needed because an EMPTY per-agent Drafts has no cases to derive its agent
     # from, so "agent X's drafts" would be unfindable without it.
-    data_source_id = Column(String(36), ForeignKey('data_sources.id'), nullable=True, index=True)
+    data_source_id = Column(
+        String(36),
+        ForeignKey('data_sources.id', ondelete='SET NULL'),
+        nullable=True,
+        index=True,
+    )
 
     cases = relationship("TestCase", back_populates="suite", cascade="all, delete-orphan")
 
@@ -150,6 +155,5 @@ class TestResult(BaseSchema):
 
     # Assertion result
     result_json = Column(JSON, nullable=True, default=None)
-
 
 

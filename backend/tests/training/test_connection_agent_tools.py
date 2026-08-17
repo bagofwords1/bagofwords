@@ -24,6 +24,7 @@ from app.models.data_source_connection_tool import DataSourceConnectionTool
 from app.models.datasource_table import DataSourceTable
 from app.models.membership import Membership
 from app.models.report import Report
+from app.models.eval import TestSuite as EvalSuite
 from app.models.resource_grant import ResourceGrant
 from app.models.role import Role
 from app.models.role_assignment import RoleAssignment
@@ -487,6 +488,81 @@ async def test_agent_attached_to_trigger_webhook_can_be_deleted():
         )).all(), "association rows must not outlive the agent"
         # The trigger itself survives — only the link is dropped.
         assert await db.get(Webhook, wh.id) is not None
+
+
+@pytest.mark.asyncio
+async def test_agent_with_drafts_suite_can_be_deleted_without_losing_suite():
+    """The per-agent Drafts suite is a home, not an ownership boundary.
+
+    Removing its agent must preserve the suite and its cases by turning it into
+    an org-level suite. PostgreSQL otherwise rejects the agent DELETE on
+    ``fk_test_suites_data_source_id``.
+    """
+    from app.services.data_source_service import DataSourceService
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Evaluated {ids['suffix']}",
+            "connection_ids": [ids["conn_mcp"]],
+            "tools": ["get_*"],
+        }, {"db": db, "organization": org, "user": admin})
+        ds_id = ev.payload["output"]["data_source_id"]
+
+        suite = EvalSuite(
+            organization_id=str(org.id),
+            name=f"Drafts {ids['suffix']}",
+            data_source_id=ds_id,
+        )
+        db.add(suite)
+        await db.commit()
+        suite_id = str(suite.id)
+
+        await DataSourceService().delete_data_source(db, ds_id, org, admin)
+
+        preserved = await db.get(EvalSuite, suite_id)
+        assert preserved is not None
+        assert preserved.data_source_id is None
+
+
+@pytest.mark.asyncio
+async def test_connection_delete_detaches_drafts_suite_from_owned_agent():
+    """Deleting a connection also deletes its sole-linked agent and must
+    detach that agent's Drafts suite before the parent row is removed."""
+    from app.services.connection_service import ConnectionService
+
+    ids = await _seed()
+    async with async_session_maker() as db:
+        org = await db.get(Organization, ids["org"])
+        admin = await db.get(User, ids["admin"])
+
+        ev = await _final(CreateAgentTool(), {
+            "name": f"Connection-owned {ids['suffix']}",
+            "connection_ids": [ids["conn_other"]],
+            "schemas": [],
+        }, {"db": db, "organization": org, "user": admin})
+        ds_id = ev.payload["output"]["data_source_id"]
+
+        suite = EvalSuite(
+            organization_id=str(org.id),
+            name=f"Drafts {ids['suffix']}",
+            data_source_id=ds_id,
+        )
+        db.add(suite)
+        await db.commit()
+        suite_id = str(suite.id)
+
+        await ConnectionService().delete_connection(
+            db, ids["conn_other"], org, admin
+        )
+
+        assert await db.get(DataSource, ds_id) is None
+        preserved = await db.get(EvalSuite, suite_id)
+        assert preserved is not None
+        assert preserved.data_source_id is None
 
 
 @pytest.mark.asyncio
