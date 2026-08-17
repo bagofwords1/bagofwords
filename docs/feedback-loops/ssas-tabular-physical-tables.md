@@ -40,8 +40,17 @@ The test failed before the implementation with the two cube/perspective names.
   before using the historic cube discovery path.
 - Map CSDL entity sets and types to one BOW table per physical Tabular table.
 - Preserve exact display names and DAX identifiers for columns and measures.
-- Parse active many-to-one CSDL associations into BOW foreign keys; inactive
-  role-playing relationships are omitted rather than represented as active.
+- Parse active many-to-one CSDL associations into BOW foreign keys. Preserve
+  inactive role-playing relationships as semantic metadata, without
+  misrepresenting them as active foreign keys, so the agent can use DAX
+  `USERELATIONSHIP` when appropriate.
+- Preserve CSDL keys, format strings, nullability, length/precision, content
+  types, and other structural annotations in indexed metadata.
+- When the connection account is an Analysis Services administrator, enrich
+  the CSDL baseline with TMSCHEMA measures, calculated columns, hierarchies,
+  levels, relationships, partition summaries, KPIs, roles, perspectives, and
+  cultures. A denied admin probe immediately and safely falls back to CSDL.
+- Keep sensitive partition source queries out of indexed metadata.
 - Mark Tabular tables with `modelType=TABULAR`, `supportsDax=true`, and
   `preferredDialect=DAX`. Multidimensional fallback tables are marked `MDX`.
 - Reuse indexed table metadata during execution, following the existing Power
@@ -64,24 +73,37 @@ Adventure Works Internet Sales/Product Subcategory   4 columns
 Adventure Works Internet Sales/Internet Sales       45 columns, 21 measures
 ```
 
-Six active relationships were indexed across the related tables. A live DAX
-`EVALUATE TOPN(3, 'Product')` query returned three product rows through the
-connector.
+Six active relationships were indexed as foreign keys. All eight model
+relationships were retained as metadata, including the two inactive Date
+role-playing relationships. The read-only CSDL path also retained one declared
+primary key and 27 formatted fields. A live DAX
+`EVALUATE ROW("Internet Total Sales", [Internet Total Sales])` query returned a
+non-null result through the connector.
+
+The live reader account is intentionally not an Analysis Services
+administrator. Its `TMSCHEMA_TABLES` permission probe was denied, after which
+the connector returned the complete CSDL baseline without attempting the
+remaining privileged rowsets. The privileged enrichment path is covered with
+a representative TMSCHEMA fixture that checks expressions, descriptions,
+display folders, sort-by columns, hierarchies and levels, relationship flags,
+partition summaries, roles, perspectives, and cultures.
 
 Automated verification:
 
 ```text
-81 passed  — SSAS, shared XMLA providers, and schema-context unit tests
+108 passed — SSAS, shared XMLA providers, and schema-context unit tests
 11 passed  — generic connection and data-source E2E tests on SQLite
-148 passed — Power BI client, Report Server, relationships, context, and access tests
+171 passed — Power BI client, Report Server, relationships, context, and access tests
 ```
 
 ## Local product and LLM verification
 
 The connection was created through the real local product API and used by the
 live frontend. Connection testing reported `Connected successfully. Found 7
-tables.`; indexing completed with seven tables. All seven were activated for a
-dedicated Adventure Works agent.
+tables.`; indexing completed with seven tables. A subsequent reindex through
+the live Agents UI persisted the CSDL source marker, 27 format annotations,
+all eight relationships (including two inactive), and the declared key. All
+seven tables were activated for a dedicated Adventure Works agent.
 
 The attached report used the deployment's configured model. For
 "top 5 product categories by Internet Total Sales," the model selected the
@@ -105,6 +127,19 @@ SSAS returned three categories: Bikes ($28,318,144.65), Accessories
 ($700,759.96), and Clothing ($339,772.61). The final clean report completed
 from one prompt in two agent steps with `create_data.success=true`, three rows,
 and no execution errors.
+
+After metadata enrichment, a second report using the deployment's configured
+model selected the physical `Internet Sales` table and executed:
+
+```DAX
+EVALUATE ROW(
+    "Internet Total Sales",
+    [Internet Total Sales]
+)
+```
+
+It returned one formatted value (`$29,358,677.22`) and completed without an
+execution error.
 
 ## Regression boundaries
 

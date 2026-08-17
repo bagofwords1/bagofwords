@@ -105,6 +105,48 @@ def test_ssas_model_type_reaches_agent_context():
     assert 'preferredDialect="DAX"' in out
 
 
+def test_ssas_tabular_semantics_reach_agent_context():
+    """Formats, sort order, hierarchies and inactive joins change valid DAX."""
+    table = Table(
+        name="AdventureWorks/Date",
+        columns=[TableColumn(
+            name="Month", dtype="String", metadata={
+                "role": "column",
+                "format_string": "MMMM",
+                "sort_by_column": "Month Number",
+                "data_category": "Time",
+            },
+        )],
+        pks=[], fks=[], is_active=True,
+        metadata_json={"analysis_services": {
+            "modelType": "TABULAR", "supportsDax": True, "preferredDialect": "DAX",
+            "entity_contents": "Time",
+            "hierarchies": [{
+                "name": "Calendar", "levels": [
+                    {"name": "Month", "column": "Month", "ordinal": 0},
+                ],
+            }],
+            "relationships": [{
+                "name": "Ship Date", "state": "inactive", "fromColumn": "Ship Date Key",
+                "toTable": "Date", "toColumn": "Date Key",
+            }],
+        }},
+    )
+
+    out = _ctx([table]).render_combined(top_k_per_ds=10, index_limit=200)
+
+    assert 'format_string="MMMM"' in out
+    assert 'sort_by_column="Month Number"' in out
+    assert 'entity_contents="Time"' in out
+    assert '<hierarchy name="Calendar">' in out
+    assert "<level " in out
+    assert 'name="Month"' in out
+    assert 'column="Month"' in out
+    assert 'ordinal="0"' in out
+    assert 'state="inactive"' in out
+    assert 'to_table="Date"' in out
+
+
 def test_tableau_luid_reaches_the_agent_path():
     """TableauClient.execute_query takes datasource_luid as a required arg.
 

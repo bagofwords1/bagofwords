@@ -77,25 +77,38 @@ CSDL_TABULAR = (
     'Association="Retail.Internet_Sales_Product_Product_Product_Id">'
     '<End EntitySet="Internet_Sales" /><End EntitySet="Product" /><bi:AssociationSet />'
     '</AssociationSet>'
+    '<AssociationSet Name="Internet_Sales_Product_Inactive" '
+    'Association="Retail.Internet_Sales_Product_Inactive">'
+    '<End EntitySet="Internet_Sales" /><End EntitySet="Product" />'
+    '<bi:AssociationSet State="Inactive" />'
+    '</AssociationSet>'
     '</EntityContainer>'
     '<EntityType Name="Product">'
+    '<Key><PropertyRef Name="Product_Id" /></Key>'
     '<Property Name="RowNumber_internal" Type="Int64"><bi:Property Hidden="true" Contents="RowNumber" /></Property>'
-    '<Property Name="Product_Id" Type="Int64">'
+    '<Property Name="Product_Id" Type="Int64" Nullable="false" Precision="19" Scale="0">'
     '<bi:Property Caption="Product Id" ReferenceName="Product Id" /></Property>'
-    '<Property Name="Product_Name" Type="String">'
-    '<bi:Property Caption="Product Name" ReferenceName="Product Name" /></Property>'
-    '<bi:EntityType /></EntityType>'
+    '<Property Name="Product_Name" Type="String" Nullable="true" MaxLength="100" '
+    'Unicode="true" FixedLength="false">'
+    '<bi:Property Caption="Product Name" ReferenceName="Product Name" '
+    'FormatString="General" Stability="Stable" /></Property>'
+    '<bi:EntityType Contents="Dimension" /></EntityType>'
     '<EntityType Name="Internet_Sales">'
     '<Property Name="Product_Id" Type="Int64">'
     '<bi:Property Caption="Product Id" ReferenceName="Product Id" /></Property>'
     '<Property Name="Sales_Amount" Type="Decimal">'
     '<bi:Property Caption="Sales Amount" ReferenceName="Sales Amount" /></Property>'
     '<Property Name="Total_Sales" Type="Decimal">'
-    '<bi:Measure Caption="Total Sales" ReferenceName="Total Sales" /></Property>'
+    '<bi:Measure Caption="Total Sales" ReferenceName="Total Sales" '
+    'FormatString="$#,0.00" /></Property>'
     '<bi:EntityType /></EntityType>'
     '<Association Name="Internet_Sales_Product_Product_Product_Id">'
     '<End Role="Internet_Sales_Product_Id" Type="Retail.Internet_Sales" Multiplicity="*" />'
     '<End Role="Product_Product_Id" Type="Retail.Product" Multiplicity="0..1" />'
+    '</Association>'
+    '<Association Name="Internet_Sales_Product_Inactive">'
+    '<End Role="Internet_Sales_Product_Id" Type="Retail.Internet_Sales" Multiplicity="*" />'
+    '<End Role="Product_Product_Id2" Type="Retail.Product" Multiplicity="0..1" />'
     '</Association>'
     '</Schema></METADATA></row></root></return></DiscoverResponse></soap:Body></soap:Envelope>'
 ).encode()
@@ -158,6 +171,76 @@ def _install_tabular_discovery_router(client: AnalysisServicesClient):
             return _make_response(HIERARCHIES_SALES)
         if "MDSCHEMA_MEASURES" in request:
             return _make_response(MEASURES_SALES)
+        raise AssertionError(f"Unexpected XMLA request: {request[:300]}")
+
+    session.post.side_effect = _post
+    client._http = session
+    return session
+
+
+def _install_admin_tabular_discovery_router(client: AnalysisServicesClient):
+    """CSDL baseline plus the query-authoring TMSCHEMA rowsets."""
+    rowsets = {
+        "TMSCHEMA_TABLES": (
+            "<row><ID>10</ID><Name>Product</Name><Description>Products sold</Description>"
+            "<DataCategory>Product</DataCategory><IsHidden>false</IsHidden></row>"
+            "<row><ID>20</ID><Name>Internet Sales</Name><Description>Sales facts</Description>"
+            "<IsHidden>false</IsHidden></row>"
+        ),
+        "TMSCHEMA_COLUMNS": (
+            "<row><ID>100</ID><TableID>10</TableID><Name>Product Id</Name>"
+            "<DataType>Int64</DataType><IsHidden>false</IsHidden></row>"
+            "<row><ID>101</ID><TableID>10</TableID><Name>Product Name</Name>"
+            "<Description>Display product name</Description><DataType>String</DataType>"
+            "<DataCategory>Product</DataCategory><DisplayFolder>Catalog</DisplayFolder>"
+            "<SortByColumnID>100</SortByColumnID><SummarizeBy>None</SummarizeBy></row>"
+            "<row><ID>201</ID><TableID>20</TableID><Name>Product Id</Name>"
+            "<DataType>Int64</DataType></row>"
+        ),
+        "TMSCHEMA_MEASURES": (
+            "<row><ID>500</ID><TableID>20</TableID><Name>Total Sales</Name>"
+            "<Description>Revenue measure</Description><DataType>Decimal</DataType>"
+            "<Expression>SUM(&apos;Internet Sales&apos;[Sales Amount])</Expression>"
+            "<FormatString>$#,0.00</FormatString><DisplayFolder>Finance</DisplayFolder>"
+            "<IsHidden>false</IsHidden></row>"
+        ),
+        "TMSCHEMA_RELATIONSHIPS": (
+            "<row><Name>Product Sales</Name><FromTableID>20</FromTableID>"
+            "<FromColumnID>201</FromColumnID><ToTableID>10</ToTableID>"
+            "<ToColumnID>100</ToColumnID><IsActive>true</IsActive>"
+            "<CrossFilteringBehavior>OneDirection</CrossFilteringBehavior></row>"
+        ),
+        "TMSCHEMA_HIERARCHIES": (
+            "<row><ID>300</ID><TableID>10</TableID><Name>Products</Name>"
+            "<Description>Product drill path</Description><DisplayFolder>Catalog</DisplayFolder>"
+            "<IsHidden>false</IsHidden></row>"
+        ),
+        "TMSCHEMA_LEVELS": (
+            "<row><HierarchyID>300</HierarchyID><Name>Product</Name>"
+            "<ColumnID>101</ColumnID><Ordinal>0</Ordinal></row>"
+        ),
+        "TMSCHEMA_PARTITIONS": (
+            "<row><TableID>20</TableID><Name>Internet Sales</Name>"
+            "<Mode>Import</Mode><State>Ready</State></row>"
+        ),
+        "TMSCHEMA_ROLES": (
+            "<row><Name>Readers</Name><ModelPermission>Read</ModelPermission></row>"
+        ),
+        "TMSCHEMA_PERSPECTIVES": "<row><Name>Sales</Name></row>",
+        "TMSCHEMA_CULTURES": "<row><Name>en-US</Name></row>",
+        "TMSCHEMA_KPIS": "",
+    }
+    session = MagicMock()
+
+    def _post(url, data=None, headers=None, timeout=None, verify=None):
+        request = (data or b"").decode("utf-8", errors="ignore")
+        if "DISCOVER_CSDL_METADATA" in request:
+            return _make_response(CSDL_TABULAR)
+        for rowset, rows in rowsets.items():
+            if rowset in request:
+                return _make_response(_execute_envelope(rows))
+        if "MDSCHEMA_CUBES" in request:
+            return _make_response(CUBES_TABULAR_MODEL_AND_PERSPECTIVE)
         raise AssertionError(f"Unexpected XMLA request: {request[:300]}")
 
     session.post.side_effect = _post
@@ -229,16 +312,81 @@ class TestModelDetection:
             ("Total Sales", "measure"),
         ]
         assert sales.columns[2].metadata["unique_name"] == "[Total Sales]"
+        assert sales.columns[2].metadata["format_string"] == "$#,0.00"
+        assert product.columns[1].metadata == {
+            "role": "column",
+            "unique_name": "'Product'[Product Name]",
+            "nullable": True,
+            "max_length": 100,
+            "unicode": True,
+            "fixed_length": False,
+            "format_string": "General",
+            "stability": "Stable",
+        }
+        assert [column.name for column in product.pks] == ["Product Id"]
         assert len(sales.fks) == 1
         assert sales.fks[0].column.name == "Product Id"
         assert sales.fks[0].references_name == "Retail/Product"
         assert sales.fks[0].references_column.name == "Product Id"
-        assert sales.metadata_json["analysis_services"] == {
+        assert product.metadata_json["analysis_services"]["entity_contents"] == "Dimension"
+        relationships = {
+            relationship["name"]: relationship
+            for relationship in sales.metadata_json["analysis_services"]["relationships"]
+        }
+        assert relationships["Internet_Sales_Product_Inactive"] == {
+            "name": "Internet_Sales_Product_Inactive",
+            "state": "inactive",
+            "fromTable": "Internet Sales",
+            "fromColumn": "Product Id",
+            "toTable": "Product",
+            "toColumn": "Product Id",
+            "fromMultiplicity": "*",
+            "toMultiplicity": "0..1",
+        }
+        assert relationships["Internet_Sales_Product_Product_Product_Id"]["state"] == "active"
+        assert {
+            key: value
+            for key, value in sales.metadata_json["analysis_services"].items()
+            if key != "relationships"
+        } == {
             "catalog": "Retail",
             "tableName": "Internet Sales",
             "modelType": "TABULAR",
             "supportsDax": True,
             "preferredDialect": "DAX",
+            "metadata_source": "CSDL",
+        }
+
+    def test_tabular_admin_metadata_enriches_without_replacing_csdl(self):
+        client = _client(catalog="Retail")
+        _install_admin_tabular_discovery_router(client)
+
+        product, sales = client.get_schemas()
+
+        product_name = next(c for c in product.columns if c.name == "Product Name")
+        total_sales = next(c for c in sales.columns if c.name == "Total Sales")
+        assert product.description == "Products sold"
+        assert product_name.description == "Display product name"
+        assert product_name.metadata["sort_by_column"] == "Product Id"
+        assert product_name.metadata["display_folder"] == "Catalog"
+        assert total_sales.description == "Revenue measure"
+        assert total_sales.metadata["expression"] == "SUM('Internet Sales'[Sales Amount])"
+        assert total_sales.metadata["display_folder"] == "Finance"
+        assert product.metadata_json["analysis_services"]["metadata_source"] == "CSDL+TMSCHEMA"
+        assert product.metadata_json["analysis_services"]["hierarchies"] == [{
+            "name": "Products",
+            "description": "Product drill path",
+            "displayFolder": "Catalog",
+            "hidden": False,
+            "levels": [{"name": "Product", "ordinal": 0, "column": "Product Name"}],
+        }]
+        assert sales.metadata_json["analysis_services"]["partitions"] == [{
+            "name": "Internet Sales", "mode": "Import", "state": "Ready",
+        }]
+        assert product.metadata_json["analysis_services"]["model_metadata"] == {
+            "roles": [{"name": "Readers", "permission": "Read"}],
+            "perspectives": ["Sales"],
+            "cultures": ["en-US"],
         }
 
 
