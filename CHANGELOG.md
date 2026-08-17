@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.542 (August 17, 2026)
+- Added physical tables and semantic metadata for SQL Server Analysis Services Tabular models
+
 ## Version 0.0.541 (August 16, 2026)
 - Added per-agent export — download an agent's instructions, config, and evals as a zip bundle
 - Fixed entity creation permissions so agent managers and owners can save queries

@@ -55,7 +55,11 @@ class TestSourceMetadataRedaction:
 class TestOverlayColumnEnrichment:
     """The enrichment logic itself, exercised the way the builder applies it."""
 
-    WHITELIST = ("role", "kind", "hidden", "is_partition", "relationship_key", "returns")
+    WHITELIST = (
+        "role", "kind", "hidden", "is_partition", "relationship_key", "returns",
+        "format_string", "data_category", "display_folder", "sort_by_column",
+        "summarize_by", "contents",
+    )
 
     @staticmethod
     def _enrich(canonical_meta):
@@ -87,6 +91,18 @@ class TestOverlayColumnEnrichment:
 
     def test_hidden_flag_crosses(self):
         assert self._enrich({"role": "column", "hidden": True})["hidden"] is True
+
+    def test_semantic_formatting_and_sorting_cross(self):
+        out = self._enrich({
+            "format_string": "$#,0.00",
+            "data_category": "Currency",
+            "sort_by_column": "Month Number",
+        })
+        assert out == {
+            "format_string": "$#,0.00",
+            "data_category": "Currency",
+            "sort_by_column": "Month Number",
+        }
 
     def test_no_structural_keys_yields_none(self):
         assert self._enrich({"expression": "SUM(x)"}) is None
