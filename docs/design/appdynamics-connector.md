@@ -276,6 +276,49 @@ consumes MCP servers as a `type="mcp"` data source / `McpPreset`):
 count applications, because an API Client with no application grants connects
 fine but sees an empty world — return an actionable message.
 
+## Agreed build plan (customer-confirmed, in order)
+
+1. **Mock API first** — `tools/appdynamics/` simulator matching real AppD
+   request/response shapes, **verified against the 21.x docs**: fixture JSON
+   lifted verbatim from the doc pages' sample payloads, not hand-written.
+   (The free-trial route is dead — signup unavailable — so the simulator is
+   the primary dev target, and the bank's controller is the only real AppD
+   we will ever touch. Consequence: schedule the first live `Test connection`
+   against the bank controller EARLY — right after auth works — and treat it
+   as the fixture-reconciliation moment, since docs can drift from reality.)
+2. **Build the integration** (client + schemas + registry entry).
+3. **Auth tests** — username/password with the `@`-append rule (below): both
+   `user` + account → `user@customer1`, and a pasted `user@customer1` →
+   passed through unchanged (no double-append). Simulator asserts the exact
+   Basic-auth decode in both cases; unit tests pin the transform.
+4. **End-to-end** via sandbox-feedback-loop against the simulator: create the
+   connection through the real UI, index, ask topology/metric questions,
+   verify at DB/log/HTTP layers, screenshot.
+5. **Logo**: download once from
+   `https://connect.redhat.com/s3api/prod-s3api/appdynamics_logo.png` →
+   `frontend/public/data_sources_icons/appdynamics.png` (PNG = convention,
+   no icon-map edit).
+
+**UI contract (customer mock of the Edit Connection form):** Connection Name;
+Controller URL; Account Name; Authentication dropdown defaulting to
+"Username + Password" with helper text "Use Username + Password when the
+controller cannot issue an API client — common on locked-down on-prem
+controllers."; Username with hint "The account name above is appended
+automatically unless the username already contains \"@\"."; masked Password;
+checkbox **"Skip TLS verification"** ("Use only for self-signed or private-CA
+certs on trusted networks (e.g. on-prem controllers). Leave off to verify
+certificates.") mapping to `verify_ssl` inverted. All of this derives from the
+Pydantic schemas — field `title`/`description` strings carry these labels
+verbatim; no frontend code. Note: the checkbox supersedes the earlier
+`ca_bundle_path` idea for v1 (matches Splunk/Zabbix); keep `ca_bundle_path`
+as a follow-up if the bank's security review requires verification over skip.
+
+**`@`-append rule (the subtle bug surface):** effective Basic-auth login =
+`username` if it already contains `@`, else `f"{username}@{account_name}"`.
+Edge case: email-style usernames legitimately containing `@` collide with the
+heuristic — the rule stays, escape hatch is typing the full `user@account`
+form manually.
+
 ## Verification strategy (no real controller in CI)
 
 A Zabbix-style testcontainer is **not possible**: there is no official
