@@ -159,6 +159,33 @@ def test_single_session_reused_across_calls(patch_requests):
     assert fake.sessions_created == 1, "keep-alive requires one shared Session"
 
 
+def test_applications_list_cached_across_queries(patch_requests, monkeypatch):
+    fake = patch_requests({
+        "/rest/applications": APPS,
+        "/100/tiers": TIERS_100,
+        "/200/tiers": TIERS_200,
+        "/100/nodes": [], "/200/nodes": [],
+    })
+    c = _client()
+    c.execute_query('{"table": "tiers"}')
+    c.execute_query('{"table": "nodes"}')
+    app_calls = [u for _, u, _, _, _ in fake.calls if u.endswith("/rest/applications")]
+    assert len(app_calls) == 1, "applications list must be cached within the TTL"
+
+    # After the TTL expires the list is refetched. (Capture the real clock
+    # first — appdynamics_client.time IS the stdlib module, so patching its
+    # `time` attribute would otherwise make the lambda call itself.)
+    import time as _time
+    real_time = _time.time
+    monkeypatch.setattr(
+        "app.data_sources.clients.appdynamics_client.time.time",
+        lambda: real_time() + 3600,
+    )
+    c.execute_query('{"table": "tiers"}')
+    app_calls = [u for _, u, _, _, _ in fake.calls if u.endswith("/rest/applications")]
+    assert len(app_calls) == 2
+
+
 def test_output_json_on_every_call(patch_requests):
     fake = patch_requests({
         "/rest/applications": APPS,

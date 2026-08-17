@@ -50,6 +50,9 @@ FLOW_TIER_LIMIT = 200        # max tiers browsed per app when deriving flows
 SUMMARY_APP_LIMIT = 25       # apps named in catalog descriptions
 SUMMARY_EDGE_LIMIT = 60      # flow edges embedded in the catalog description
 TOKEN_EXPIRY_SLACK = 30      # refresh OAuth tokens this many seconds early
+APP_CACHE_TTL = 30           # seconds to reuse the applications list — every
+                             # execute_query resolves apps first, and topology
+                             # does not churn at sub-minute granularity
 
 # Matches "Call-HTTP to Discovered backend call \"X\"", "Call-JDBC to X", etc.
 _EXTERNAL_CALL_RE = re.compile(
@@ -220,6 +223,9 @@ class AppDynamicsClient(DataSourceClient):
         # sequential calls, and without connection reuse each one pays a full
         # TCP+TLS handshake (~700ms against a SaaS controller).
         self._session: Optional[requests.Session] = None
+        # Short-TTL applications-list cache (see APP_CACHE_TTL).
+        self._apps_cache: Optional[List[dict]] = None
+        self._apps_cache_at: float = 0.0
 
     def _http(self) -> requests.Session:
         if self._session is None:
@@ -567,7 +573,12 @@ class AppDynamicsClient(DataSourceClient):
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _list_applications(self) -> List[dict]:
-        return list(self._get("rest/applications") or [])
+        if self._apps_cache is not None and time.time() - self._apps_cache_at < APP_CACHE_TTL:
+            return self._apps_cache
+        apps = list(self._get("rest/applications") or [])
+        self._apps_cache = apps
+        self._apps_cache_at = time.time()
+        return apps
 
     def _resolve_apps(self, application) -> List[dict]:
         """Resolve the spec's `application` (name or id) to app dicts; when
