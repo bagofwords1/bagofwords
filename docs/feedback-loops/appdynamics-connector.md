@@ -45,6 +45,38 @@ configured in `/settings/models` with `$ANTHROPIC_KEY`, Claude 4.5 Haiku).
      series fetch for the trend chart) — every call carried `output=JSON`
      and account-qualified Basic auth.
 
+## Live-controller validation (SaaS trial, v26.7.0)
+
+A free-trial SaaS controller was seeded from this sandbox: three Flask tiers
+instrumented with the official Python agent 26.7.1 (`pyagent run`, env-var
+config, routed through the egress proxy via
+`APPDYNAMICS_CONTROLLER_HTTP_PROXY_HOST/PORT`), app `bow-sample-bank`,
+~45 min of synthetic traffic. Results, all with the UNMODIFIED client:
+
+- Basic auth with the account access key works as `user@account`; a bare
+  username is a 401 on the real controller (the @-append rule is mandatory).
+- Default output is XML on the real controller — `output=JSON` required.
+- `test_connection`, the 10-table catalog + enrichment, `service_flows`
+  (real cross-tier edges from External Calls names), `business_transactions`,
+  and `metric_data` rollups all worked live (e.g. `/transfer` ≈ 413ms avg vs
+  `/login` ≈ 21ms — matching the app's built-in latency profile).
+- **Fixture reconciliation caught one real bug**: event type `DEPLOYMENT`
+  (from docs) is a 400 on the real API — the valid type is
+  `APPLICATION_DEPLOYMENT`. `DEFAULT_EVENT_TYPES` and the simulator fixed.
+- Real response bodies captured into `backend/tests/unit/fixtures/appdynamics/`
+  (see its README for provenance + findings).
+
+Agent-seeding gotchas (if re-seeding a controller from a sandbox):
+- Multiple `pyagent` processes MUST have distinct `APPDYNAMICS_AGENT_BASE_DIR`s
+  — a shared `/tmp/appd` makes simultaneous agents race on node identity and
+  every tier collapses into one. Stagger startups.
+- Stale metric-tree branches from a mislabeled run persist for the retention
+  window (they appear as extra service_flows edges — harmless, but explains
+  "impossible" edges like a tier calling itself).
+- Kill agent processes via /proc cmdline scan, not `pkill -f` (the pattern
+  matches your own shell and kills it; a surviving proxy keeps the stale
+  identity alive).
+
 ## Gotchas found while driving the UI (for the next agent)
 
 - The report page can have TWO `[contenteditable]`s (chat composer + open

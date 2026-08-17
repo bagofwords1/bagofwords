@@ -1,0 +1,222 @@
+[
+ {
+  "metricId": 33765728,
+  "metricName": "BTM|BTs|BT:332605|Component:522613|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|web-portal|/accounts|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 4,
+    "current": 39,
+    "min": 36,
+    "max": 58,
+    "useRange": true,
+    "count": 135,
+    "sum": 5167,
+    "value": 38,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765737,
+  "metricName": "BTM|BTs|BT:332606|Component:522613|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|web-portal|/statement|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 4,
+    "current": 57,
+    "min": 55,
+    "max": 75,
+    "useRange": true,
+    "count": 68,
+    "sum": 3857,
+    "value": 57,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765409,
+  "metricName": "BTM|BTs|BT:332598|Component:522611|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|payments|/transfer|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 43,
+    "current": 0,
+    "min": 0,
+    "max": 448,
+    "useRange": true,
+    "count": 574,
+    "sum": 237057,
+    "value": 413,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765746,
+  "metricName": "BTM|BTs|BT:332607|Component:522613|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|web-portal|/login|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 4,
+    "current": 21,
+    "min": 20,
+    "max": 22,
+    "useRange": true,
+    "count": 66,
+    "sum": 1376,
+    "value": 21,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765861,
+  "metricName": "BTM|BTs|BT:332611|Component:522613|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|web-portal|/|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 1,
+    "current": 2,
+    "min": 2,
+    "max": 2,
+    "useRange": true,
+    "count": 1,
+    "sum": 2,
+    "value": 2,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765418,
+  "metricName": "BTM|BTs|BT:332599|Component:522611|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|payments|/accounts|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 43,
+    "current": 0,
+    "min": 0,
+    "max": 78,
+    "useRange": true,
+    "count": 1147,
+    "sum": 43531,
+    "value": 38,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765755,
+  "metricName": "BTM|BTs|BT:332608|Component:522613|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|web-portal|/transfer|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 4,
+    "current": 411,
+    "min": 410,
+    "max": 466,
+    "useRange": true,
+    "count": 68,
+    "sum": 28217,
+    "value": 415,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765427,
+  "metricName": "BTM|BTs|BT:332600|Component:522611|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|payments|/login|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 43,
+    "current": 0,
+    "min": 0,
+    "max": 38,
+    "useRange": true,
+    "count": 573,
+    "sum": 11893,
+    "value": 21,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765843,
+  "metricName": "BTM|BTs|BT:332609|Component:522614|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|api-services|/|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 3,
+    "current": 0,
+    "min": 0,
+    "max": 3,
+    "useRange": true,
+    "count": 1,
+    "sum": 3,
+    "value": 3,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765852,
+  "metricName": "BTM|BTs|BT:332610|Component:522611|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|payments|/|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 3,
+    "current": 0,
+    "min": 0,
+    "max": 3,
+    "useRange": true,
+    "count": 1,
+    "sum": 3,
+    "value": 3,
+    "standardDeviation": 0
+   }
+  ]
+ },
+ {
+  "metricId": 33765436,
+  "metricName": "BTM|BTs|BT:332601|Component:522611|Average Response Time (ms)",
+  "metricPath": "Business Transaction Performance|Business Transactions|payments|/statement|Average Response Time (ms)",
+  "frequency": "SIXTY_MIN",
+  "metricValues": [
+   {
+    "startTimeInMillis": 1786972860000,
+    "occurrences": 43,
+    "current": 0,
+    "min": 0,
+    "max": 106,
+    "useRange": true,
+    "count": 574,
+    "sum": 32435,
+    "value": 57,
+    "standardDeviation": 0
+   }
+  ]
+ }
+]

@@ -152,7 +152,7 @@ EVENTS = {
         {"id": 70002, "type": "APP_SERVER_RESTART", "severity": "WARN",
          "summary": "App server restart detected on bnk-pay-01",
          "eventTime": None, "deepLinkUrl": "", "affectedEntities": [{"entityType": "APPLICATION_COMPONENT_NODE", "name": "payments-node-1"}]},
-        {"id": 70003, "type": "DEPLOYMENT", "severity": "INFO",
+        {"id": 70003, "type": "APPLICATION_DEPLOYMENT", "severity": "INFO",
          "summary": "Deployment: api-services v2.14.1 rolled out",
          "eventTime": None, "deepLinkUrl": "", "affectedEntities": [{"entityType": "APPLICATION_COMPONENT", "name": "api-services"}]},
     ],

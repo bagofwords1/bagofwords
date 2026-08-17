@@ -1,0 +1,317 @@
+[
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: web-portal-node-1, Tier: web-portal",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131654",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786976397592,
+  "subType": "",
+  "id": 216131654,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "web-portal-node-1",
+    "entityId": 1381988
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "web-portal",
+    "entityId": 522613
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131563",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786976339600,
+  "subType": "",
+  "id": 216131563,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "payments-node-1",
+    "entityId": 1381983
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "payments",
+    "entityId": 522611
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: api-services-node-1, Tier: api-services",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131562",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786976338594,
+  "subType": "",
+  "id": 216131562,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "api-services-node-1",
+    "entityId": 1381989
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "api-services",
+    "entityId": 522614
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: web-portal-node-1, Tier: web-portal",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131250",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786975977188,
+  "subType": "",
+  "id": 216131250,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "web-portal-node-1",
+    "entityId": 1381988
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "web-portal",
+    "entityId": 522613
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: api-services-node-1, Tier: api-services",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131249",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786975976749,
+  "subType": "",
+  "id": 216131249,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "api-services",
+    "entityId": 522614
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "api-services-node-1",
+    "entityId": 1381989
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216131246",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786975976411,
+  "subType": "",
+  "id": 216131246,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "payments-node-1",
+    "entityId": 1381983
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "payments",
+    "entityId": 522611
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129576",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786973758716,
+  "subType": "",
+  "id": 216129576,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "payments",
+    "entityId": 522611
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "payments-node-1",
+    "entityId": 1381983
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129577",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786973756758,
+  "subType": "",
+  "id": 216129577,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   },
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "payments",
+    "entityId": 522611
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "payments-node-1",
+    "entityId": 1381983
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ },
+ {
+  "severity": "INFO",
+  "summary": "Proxy was re-started Node: payments-node-1, Tier: payments",
+  "deepLinkUrl": "https://cloud202608170211412.saas.appdynamics.com/#location=APP_EVENT_VIEWER_MODAL&eventSummary=216129550",
+  "archived": false,
+  "markedAsRead": false,
+  "eventTime": 1786973754575,
+  "subType": "",
+  "id": 216129550,
+  "type": "APP_SERVER_RESTART",
+  "affectedEntities": [
+   {
+    "entityType": "MACHINE_INSTANCE",
+    "name": "vm",
+    "entityId": 2199622
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT_NODE",
+    "name": "payments-node-1",
+    "entityId": 1381983
+   },
+   {
+    "entityType": "APPLICATION_COMPONENT",
+    "name": "payments",
+    "entityId": 522611
+   },
+   {
+    "entityType": "APPLICATION",
+    "name": "bow-sample-bank",
+    "entityId": 191470
+   }
+  ],
+  "markedAsResolved": false,
+  "properties": []
+ }
+]

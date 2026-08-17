@@ -60,10 +60,12 @@ _EXTERNAL_CALL_RE = re.compile(
 
 # Event types that exist on every 21.x controller and cover the common
 # "what happened" questions. The API rejects calls without event-types.
+# NB: verified against a live 26.7 controller — the deploy-marker type is
+# APPLICATION_DEPLOYMENT; plain "DEPLOYMENT" is a 400.
 DEFAULT_EVENT_TYPES = (
     "APPLICATION_ERROR,APPLICATION_CONFIG_CHANGE,APP_SERVER_RESTART,"
     "DIAGNOSTIC_SESSION,POLICY_OPEN_WARNING,POLICY_OPEN_CRITICAL,"
-    "POLICY_CLOSE_WARNING,POLICY_CLOSE_CRITICAL,DEPLOYMENT"
+    "POLICY_CLOSE_WARNING,POLICY_CLOSE_CRITICAL,APPLICATION_DEPLOYMENT"
 )
 DEFAULT_EVENT_SEVERITIES = "INFO,WARN,ERROR"
 

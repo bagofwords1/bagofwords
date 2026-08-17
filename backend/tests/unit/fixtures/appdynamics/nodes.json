@@ -1,0 +1,44 @@
+[
+ {
+  "appAgentVersion": "Python Agent v26.7.1.9060 (proxy v26.7.0.38049) compatible with 4.5.0.21130 Python Version 3.11.15",
+  "appAgentPresent": true,
+  "machineId": 2199622,
+  "agentType": "PYTHON_APP_AGENT",
+  "tierId": 522611,
+  "machineOSType": "Linux",
+  "tierName": "payments",
+  "machineAgentPresent": false,
+  "name": "payments-node-1",
+  "id": 1381983,
+  "type": "Other",
+  "machineName": "vm"
+ },
+ {
+  "appAgentVersion": "Python Agent v26.7.1.9060 (proxy v26.7.0.38049) compatible with 4.5.0.21130 Python Version 3.11.15",
+  "appAgentPresent": true,
+  "machineId": 2199622,
+  "agentType": "PYTHON_APP_AGENT",
+  "tierId": 522613,
+  "machineOSType": "Linux",
+  "tierName": "web-portal",
+  "machineAgentPresent": false,
+  "name": "web-portal-node-1",
+  "id": 1381988,
+  "type": "Other",
+  "machineName": "vm"
+ },
+ {
+  "appAgentVersion": "Python Agent v26.7.1.9060 (proxy v26.7.0.38049) compatible with 4.5.0.21130 Python Version 3.11.15",
+  "appAgentPresent": true,
+  "machineId": 2199622,
+  "agentType": "PYTHON_APP_AGENT",
+  "tierId": 522614,
+  "machineOSType": "Linux",
+  "tierName": "api-services",
+  "machineAgentPresent": false,
+  "name": "api-services-node-1",
+  "id": 1381989,
+  "type": "Other",
+  "machineName": "vm"
+ }
+]
