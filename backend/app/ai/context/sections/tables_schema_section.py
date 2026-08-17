@@ -121,7 +121,7 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     "tableau": ("datasourceLuid",),
     # AnalysisServicesClient's system prompt instructs the agent to pick MDX vs
     # DAX from modelType — it can't do that if modelType isn't in context.
-    "analysis_services": ("modelType", "supportsDax"),
+    "analysis_services": ("modelType", "supportsDax", "preferredDialect"),
 }
 
 # Flat (non-namespaced) table metadata worth surfacing, keyed by connector.
@@ -1077,5 +1077,4 @@ class TablesSchemaContext(ContextSection):
             ))
         
         return SchemaUsageSnapshot(data_sources=ds_usages)
-
 

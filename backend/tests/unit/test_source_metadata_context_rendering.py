@@ -24,8 +24,8 @@ inside `execute_query`; XMLA `cubeUniqueName` is `f"[{cube}]"` where `cube` is
 the second segment of `Table.name`; every SQL client builds `name=fqn`.
 """
 from app.ai.context.sections.tables_schema_section import TablesSchemaContext
-from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table, TableColumn
+from app.schemas.data_source_schema import DataSourceSummarySchema
 
 
 def _ctx(tables, ds_type="analysis_services"):
@@ -97,11 +97,12 @@ def test_ssas_model_type_reaches_agent_context():
     """The SSAS system prompt says to pick MDX vs DAX from modelType."""
     meta = {"analysis_services": {
         "catalog": "AdventureWorks", "cube": "Sales",
-        "modelType": "TABULAR", "supportsDax": True,
+        "modelType": "TABULAR", "supportsDax": True, "preferredDialect": "DAX",
     }}
     out = _ctx([_cube_table(meta)]).render_combined(top_k_per_ds=10, index_limit=200)
     assert 'modelType="TABULAR"' in out
     assert 'supportsDax="true"' in out
+    assert 'preferredDialect="DAX"' in out
 
 
 def test_tableau_luid_reaches_the_agent_path():

@@ -1,13 +1,14 @@
-from app.data_sources.clients.base import DataSourceClient
-from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
-from typing import List, Dict, Optional
 import re
-import requests
-import pandas as pd
-from defusedxml import ElementTree as ET
+from typing import Dict, List, Optional
 from xml.etree.ElementTree import Element
 from xml.sax.saxutils import escape as xml_escape
 
+import pandas as pd
+import requests
+from defusedxml import ElementTree as ET
+
+from app.ai.prompt_formatters import ServiceFormatter, Table, TableColumn
+from app.data_sources.clients.base import DataSourceClient
 
 # Standard XML for Analysis (XMLA) namespaces. Every XMLA provider — SSAS,
 # Infor d/EPM OLAP, Mondrian, icCube — speaks the same SOAP contract, so these
@@ -270,51 +271,61 @@ class XmlaClient(DataSourceClient):
         """Return one Table per cube across all (scoped) catalogs."""
         tables: List[Table] = []
         for catalog in self._list_catalogs():
-            ctx = self._catalog_context(catalog)
-            for cube in self._list_cubes(catalog):
-                cube_name = cube["name"]
-                columns: List[TableColumn] = []
+            tables.extend(self._cube_tables_for_catalog(catalog, self._catalog_context(catalog)))
+        return tables
 
-                for h in self._list_hierarchies(catalog, cube_name):
-                    columns.append(TableColumn(
-                        name=h["caption"],
-                        dtype="dimension",
-                        description=h.get("description"),
-                        metadata={
-                            "role": "dimension",
-                            "unique_name": h["unique_name"],
-                            "dimension": h.get("dimension_unique_name"),
-                        },
-                    ))
+    def _cube_tables_for_catalog(self, catalog: str, context: Optional[Dict] = None) -> List[Table]:
+        """Build the historic cube-shaped schema for one catalog.
 
-                for m in self._list_measures(catalog, cube_name):
-                    columns.append(TableColumn(
-                        name=m["caption"],
-                        dtype="measure",
-                        description=m.get("description"),
-                        metadata={
-                            "role": "measure",
-                            "unique_name": m["unique_name"],
-                            "data_type": m.get("data_type"),
-                        },
-                    ))
+        Kept as a dedicated helper so providers that support both cube and
+        physical-table metadata can choose per catalog without changing the
+        shared Multidimensional contract.
+        """
+        tables: List[Table] = []
+        for cube in self._list_cubes(catalog):
+            cube_name = cube["name"]
+            columns: List[TableColumn] = []
 
-                meta = {
-                    "catalog": catalog,
-                    "cube": cube_name,
-                    "cubeUniqueName": f"[{cube_name}]",
-                }
-                meta.update(ctx)
-
-                tables.append(Table(
-                    name=f"{catalog}/{cube_name}",
-                    description=cube.get("description"),
-                    columns=columns,
-                    pks=[],
-                    fks=[],
-                    is_active=True,
-                    metadata_json={self.META_KEY: meta},
+            for h in self._list_hierarchies(catalog, cube_name):
+                columns.append(TableColumn(
+                    name=h["caption"],
+                    dtype="dimension",
+                    description=h.get("description"),
+                    metadata={
+                        "role": "dimension",
+                        "unique_name": h["unique_name"],
+                        "dimension": h.get("dimension_unique_name"),
+                    },
                 ))
+
+            for m in self._list_measures(catalog, cube_name):
+                columns.append(TableColumn(
+                    name=m["caption"],
+                    dtype="measure",
+                    description=m.get("description"),
+                    metadata={
+                        "role": "measure",
+                        "unique_name": m["unique_name"],
+                        "data_type": m.get("data_type"),
+                    },
+                ))
+
+            meta = {
+                "catalog": catalog,
+                "cube": cube_name,
+                "cubeUniqueName": f"[{cube_name}]",
+            }
+            meta.update(context or {})
+
+            tables.append(Table(
+                name=f"{catalog}/{cube_name}",
+                description=cube.get("description"),
+                columns=columns,
+                pks=[],
+                fks=[],
+                is_active=True,
+                metadata_json={self.META_KEY: meta},
+            ))
         return tables
 
     def get_schema(self, table_name: str) -> Table:
