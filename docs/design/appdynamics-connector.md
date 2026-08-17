@@ -74,7 +74,7 @@ defer it (same reasoning as deferring Splunk's non-search endpoints).
 
 ## Data model: REST resources → virtual tables
 
-Zabbix-style fixed catalog of **nine virtual tables**; `application` is the
+Zabbix-style fixed catalog of **ten virtual tables**; `application` is the
 common FK thread. Two groups with different indexing behavior:
 
 **Topology (indexed eagerly — rows fetched at `get_schemas` time, cheap list
@@ -85,6 +85,22 @@ calls only):**
 - `nodes` (pk `id`; name, machineName, agentVersion; fks → tiers, applications)
 - `backends` (pk `id`; name, exitPointType — DB/queue/HTTP; fk → applications)
 - `business_transactions` (pk `id`; name, tierName, entryPointType; fk → applications)
+- `service_flows` (from_tier fk → tiers, to_target, to_type `tier|backend`,
+  exit_type HTTP/JDBC/JMS/…, application_id fk) — **the service map as an edge
+  list**, derived at index time. There is no official flow-map endpoint (the UI
+  uses unsupported session-auth `/controller/restui/*` — do not depend on it);
+  instead, enumerate metric *names* (not data) under
+  `Overall Application Performance|<tier>|External Calls|` via the
+  metrics-browse endpoint — one cheap call per tier. Each child name encodes an
+  edge (`Call-HTTP to Discovered backend call "X"`, calls to other tiers,
+  cross-app flows if configured); parse target + exit type from the name.
+  Because `prompt_schema` renders indexed rows via `ServiceFormatter`, the full
+  dependency graph lands in the coder agent's context automatically — no
+  platform changes; `system_prompt()` explains how to join it with
+  tiers/backends for upstream/downstream questions. Optional query-time
+  enrichment: calls-per-minute metric-data as edge weight. Caveat: an edge
+  exists only if calls occurred in the retention window (same limitation as
+  AppD's own flow map).
 
 **Activity (declared in the catalog with fixed column shapes; rows fetched only
 at query time with a time range — never at index time):**
@@ -308,7 +324,7 @@ bank's lab controller.
 
 ## Scope summary
 
-Read-only, Controller-API-only (target: on-prem 21.4), fixed nine-table
+Read-only, Controller-API-only (target: on-prem 21.4), fixed ten-table
 virtual catalog, two auth variants (**username/password default**, API Client
 OAuth secondary), `requests`-only, enterprise-gated, no MCP dependency.
 Estimated shape and size: very close to `zabbix_client.py` (~450 lines); the
