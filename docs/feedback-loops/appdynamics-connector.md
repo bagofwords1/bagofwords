@@ -77,6 +77,30 @@ Agent-seeding gotchas (if re-seeding a controller from a sandbox):
   matches your own shell and kills it; a surviving proxy keeps the stale
   identity alive).
 
+## Multi-tier Java estate (AD-AIR) — second live application
+
+`tools/appdynamics/ad-air-estate.sh` launches **ACME-Air**: 7 containers of the
+official `appdynamics/ad-air-java-services` image (one Spring Boot jar; the
+tier identity comes entirely from the agent's `tierName`), instrumented with
+the current `appdynamics/java-agent` (26.7.0) mounted from the host, plus a
+load container. Verified live: the connector returned an **8-edge estate-wide
+service map spanning both applications** (bow-sample-bank web-portal→api→
+payments; ACME-Air web-api→{auth,api}-services, api-services→flight-services,
+approval-services→sap-services), 10 tiers, and 14 live BT metric series.
+
+Sandbox specifics that made it work (re-use as needed):
+- dockerd started manually (`dockerd --iptables=false --bridge=none`); a
+  user-defined network (`docker network create adair`) provides
+  service-name DNS between tiers without NAT.
+- The sandbox egress proxy listens on loopback only — containers reach it via
+  a tiny TCP relay bound on 0.0.0.0:3128 forwarded to the proxy, with agents
+  configured `-Dappdynamics.http.proxyHost=<bridge-gw> -Dappdynamics.http.proxyPort=3128`.
+  (NB the Java agent's proxy properties are `appdynamics.http.proxyHost/Port` —
+  `appdynamics.controller.proxy.*` is silently ignored.)
+- The AD-AIR jar's DB/queue calls are simulated sleeps (no JDBC drivers in the
+  jar), so this estate exercises multi-tier HTTP topology; real JDBC backend
+  nodes still need an app with a real driver.
+
 ## Gotchas found while driving the UI (for the next agent)
 
 - The report page can have TWO `[contenteditable]`s (chat composer + open
