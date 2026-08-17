@@ -88,6 +88,13 @@ a representative TMSCHEMA fixture that checks expressions, descriptions,
 display folders, sort-by columns, hierarchies and levels, relationship flags,
 partition summaries, roles, perspectives, and cultures.
 
+After granting the same account Full Control on the model database, a live UI
+reindex changed all seven tables to `metadata_source=CSDL+TMSCHEMA` and
+persisted 130 fields (107 physical columns and 23 measures), 24 DAX
+expressions, four hierarchies, 11 partition summaries, two KPIs, four roles,
+one perspective, and all eight relationships. Partition summaries contained
+only `name`, `mode`, and `state`; source queries were not stored.
+
 Automated verification:
 
 ```text
@@ -140,6 +147,21 @@ EVALUATE ROW(
 
 It returned one formatted value (`$29,358,677.22`) and completed without an
 execution error.
+
+With the privileged metadata indexed, a hierarchy-aware prompt selected the
+physical `Date` and `Internet Sales` tables and generated:
+
+```DAX
+EVALUATE
+SUMMARIZECOLUMNS(
+    'Date'[Calendar Year],
+    "Internet Total Sales", [Internet Total Sales]
+)
+ORDER BY 'Date'[Calendar Year] ASC
+```
+
+It returned five correctly ordered and formatted rows for 2010–2014 without
+an execution error.
 
 ## Regression boundaries
 
