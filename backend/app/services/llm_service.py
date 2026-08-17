@@ -272,6 +272,9 @@ class LLMService:
             max_output_tokens=getattr(model, "max_output_tokens", None),
             input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
             output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
+            # Model-specific config (e.g. an explicit sampling temperature) —
+            # update_model already accepts and merges this; creation should too.
+            config=dict(getattr(model, "config", None) or {}) or None,
         )
         # Same NULL-window guard as _create_models: a custom model with no
         # explicit size gets the conservative default, never NULL.
@@ -724,12 +727,19 @@ class LLMService:
         )
         providers = providers.unique().scalars().all()
 
-        # Sync new models for each provider
+        # Sync every provider whose provider_type has catalog entries, so a
+        # deployment upgrade's new catalog models reach existing orgs on the
+        # next models-list load — customer-created (bring-your-own-key)
+        # providers included, not just BOW-managed preset ones. Provider types
+        # with no catalog (the OpenAI-compatible "custom" type) have nothing
+        # to sync from and are skipped entirely.
+        catalog_provider_types = {m["provider_type"] for m in LLM_MODEL_DETAILS}
         for provider in providers:
-            # Only auto-sync preset providers with our curated catalog.
-            # Custom (non-preset) providers should respect the user's explicit selections.
-            if provider.is_preset:
-                await self._sync_provider_with_latest_models(db, provider, organization)
+            if provider.is_preset or provider.provider_type in catalog_provider_types:
+                await self._sync_provider_with_latest_models(
+                    db, provider, organization,
+                    customer_managed=not provider.is_preset,
+                )
 
         await db.commit()
 
@@ -1004,6 +1014,60 @@ class LLMService:
             pass
 
         return {"success": True}
+
+    async def set_temperature(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        temperature: float | None,
+    ):
+        """Set (or clear) a model's explicit sampling temperature.
+
+        Stored on ``LLMModel.config['temperature']`` and merged so other config
+        keys (e.g. routing_hint) are preserved. None clears the override — the
+        client then sends no temperature parameter at all and the endpoint's own
+        default applies, which is the only universally safe behavior (a growing
+        set of models rejects any non-default temperature with a 400).
+        """
+        if temperature is not None and not (0.0 <= temperature <= 2.0):
+            raise HTTPException(status_code=400, detail="Temperature must be between 0 and 2")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        if temperature is not None:
+            cfg["temperature"] = temperature
+        else:
+            cfg.pop("temperature", None)
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model temperature set: id=%s, model_id=%s, temperature=%s, org_id=%s",
+            model.id, model.model_id, temperature, organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.temperature_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={"model_id": model.model_id, "temperature": temperature},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "temperature": temperature}
 
     async def set_context_window(
         self,
@@ -2151,22 +2215,43 @@ class LLMService:
         self,
         db: AsyncSession,
         provider: LLMProvider,
-        organization: Organization
+        organization: Organization,
+        customer_managed: bool = False,
     ):
-        """Sync a provider with the latest models from LLM_MODEL_DETAILS"""
+        """Sync a provider with the latest models from LLM_MODEL_DETAILS.
+
+        ``customer_managed`` marks a bring-your-own-key provider the admin
+        created and curates. The catalog is still the source of truth for
+        model *metadata* and for which models exist, but the admin's choices
+        win over the catalog's opinions:
+          - a model the admin disabled stays disabled (no enabled-state sync),
+          - a model the admin deleted stays deleted (tombstones honored),
+          - the org's default/small-default models are never re-pointed —
+            except as a safety net when the org would otherwise be left with
+            no enabled default at all (e.g. its default model id was retired
+            from the catalog).
+        New catalog models are added enabled for both kinds of provider.
+        """
         available_models = [
-            model for model in LLM_MODEL_DETAILS 
+            model for model in LLM_MODEL_DETAILS
             if model["provider_type"] == provider.provider_type
         ]
         catalog_by_id = {model["model_id"]: model for model in available_models}
 
-        existing_models = await db.execute(
+        all_rows = (await db.execute(
             select(LLMModel)
             .filter(LLMModel.provider_id == provider.id)
-            .filter(LLMModel.deleted_at == None)
-        )
-        provider_models = existing_models.unique().scalars().all()
+        )).unique().scalars().all()
+        provider_models = [m for m in all_rows if m.deleted_at is None]
         existing_by_id = {model.model_id: model for model in provider_models}
+        # On customer-managed providers a soft-deleted row is a tombstone: the
+        # admin removed that model on purpose, so the add-missing pass below
+        # must not resurrect it. Preset (BOW-managed) providers keep the
+        # historical recreate-anything-missing behavior.
+        blocked_ids = (
+            {m.model_id for m in all_rows if m.deleted_at is not None}
+            if customer_managed else set()
+        )
 
         provider_had_default = any(model.is_default for model in provider_models)
         provider_had_small_default = any(model.is_small_default for model in provider_models)
@@ -2189,16 +2274,25 @@ class LLMService:
                 db.add(model)
                 continue
 
-            self._apply_catalog_model_details(model, model_data, sync_enabled=True)
-            if not model_data.get("is_default", False) or not model.is_enabled:
-                model.is_default = False
-            if not model_data.get("is_small_default", False) or not model.is_enabled:
-                model.is_small_default = False
+            # Customer-managed: refresh catalog metadata but never sync the
+            # enabled flag (the admin's on/off choices stand) and never strip
+            # the admin's default flags to match catalog opinion.
+            self._apply_catalog_model_details(model, model_data, sync_enabled=not customer_managed)
+            if not customer_managed:
+                if not model_data.get("is_default", False) or not model.is_enabled:
+                    model.is_default = False
+                if not model_data.get("is_small_default", False) or not model.is_enabled:
+                    model.is_small_default = False
             db.add(model)
 
-        # Add any missing models
+        # Add any missing models. On customer-managed providers only usable
+        # (catalog-enabled) models are added — a catalog entry that ships
+        # disabled would just clutter the admin's curated list with a dead row.
+        # Preset providers keep the full catalog mirror.
         for model_data in available_models:
-            if model_data["model_id"] not in existing_by_id:
+            if customer_managed and not model_data.get("is_enabled", True):
+                continue
+            if model_data["model_id"] not in existing_by_id and model_data["model_id"] not in blocked_ids:
                 model = LLMModel(
                     name=model_data["name"],
                     model_id=model_data["model_id"],
@@ -2233,7 +2327,14 @@ class LLMService:
         )
         desired_default = existing_by_id.get(default_data["model_id"]) if default_data else None
         has_enabled_default = any(model.is_default and model.is_enabled for model in org_models)
-        if desired_default and desired_default.is_enabled and (provider_had_default or not has_enabled_default):
+        # Customer-managed providers never have their default re-pointed to the
+        # catalog's pick — promotion runs only as a safety net when the org has
+        # no enabled default left (e.g. its default's model id was retired).
+        default_promotion_allowed = (
+            (not has_enabled_default) if customer_managed
+            else (provider_had_default or not has_enabled_default)
+        )
+        if desired_default and desired_default.is_enabled and default_promotion_allowed:
             for model in org_models:
                 model.is_default = False
                 db.add(model)
@@ -2246,7 +2347,11 @@ class LLMService:
         )
         desired_small_default = existing_by_id.get(small_default_data["model_id"]) if small_default_data else None
         has_enabled_small_default = any(model.is_small_default and model.is_enabled for model in org_models)
-        if desired_small_default and desired_small_default.is_enabled and (provider_had_small_default or not has_enabled_small_default):
+        small_default_promotion_allowed = (
+            (not has_enabled_small_default) if customer_managed
+            else (provider_had_small_default or not has_enabled_small_default)
+        )
+        if desired_small_default and desired_small_default.is_enabled and small_default_promotion_allowed:
             for model in org_models:
                 model.is_small_default = False
                 db.add(model)

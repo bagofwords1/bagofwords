@@ -34,10 +34,11 @@ class Google(LLMClient):
     # instead of 0 — the cost is negligible and the request actually goes through.
     MIN_THINKING_BUDGET = 128
 
-    def __init__(self, api_key: str | None = None):
+    def __init__(self, api_key: str | None = None, temperature: float | None = None):
         super().__init__()
         self.client = genai.Client(api_key=api_key)
-        self.temperature = 0.3
+        # Admin-configured override, or the historical default.
+        self.temperature = 0.3 if temperature is None else temperature
 
     @classmethod
     def _thinking_budget(cls, requested: int | None = None) -> int:
