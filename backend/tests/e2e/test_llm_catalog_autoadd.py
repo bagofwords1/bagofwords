@@ -6,7 +6,8 @@ through the UI, which are NOT preset. GET /llm/models is the sync point.
 
 Proves, for a customer-managed (non-preset) provider:
   * catalog models the org never had are auto-added, enabled, on the next
-    models-list load,
+    models-list load — but ONLY catalog-enabled entries; entries the catalog
+    ships disabled are skipped entirely (no dead rows in a curated list),
   * the org's default/small-default stay exactly where the admin put them,
   * a model the admin soft-deleted is a tombstone — never resurrected,
   * a model the admin disabled stays disabled (no enabled-state sync),
@@ -25,7 +26,11 @@ from app.models.llm_model import LLMModel, LLM_MODEL_DETAILS
 from app.models.llm_provider import LLMProvider
 
 ANTHROPIC_CATALOG_IDS = {
-    m["model_id"] for m in LLM_MODEL_DETAILS if m["provider_type"] == "anthropic"
+    m["model_id"] for m in LLM_MODEL_DETAILS
+    if m["provider_type"] == "anthropic" and m.get("is_enabled", True)
+}
+CATALOG_DISABLED_IDS = {
+    m["model_id"] for m in LLM_MODEL_DETAILS if not m.get("is_enabled", True)
 }
 # A catalog model the seeded org starts with (stays its default throughout).
 SEEDED_MODEL_ID = next(
@@ -63,6 +68,17 @@ async def _seed_customer_anthropic(org_id):
             is_small_default=True,
             context_window_tokens=200_000,
         ))
+        # An OpenAI BYOK provider with no models: the catalog has entries that
+        # ship disabled under this type, so the skip-disabled rule is exercised.
+        openai_provider = LLMProvider(
+            organization_id=org_id,
+            name="OpenAI BYOK",
+            provider_type="openai",
+            is_preset=False,
+            is_enabled=True,
+            use_preset_credentials=False,
+        )
+        db.add(openai_provider)
         await db.commit()
         return str(provider.id)
 
@@ -113,17 +129,16 @@ def test_new_catalog_models_autoadd_to_customer_provider(
     # The GET itself is the upgrade sync point.
     models = _by_id(get_models(token, org_id))
 
-    # Every anthropic catalog model now exists, enabled — not just the seeded one.
+    # Every catalog-ENABLED anthropic model now exists, enabled.
     missing = ANTHROPIC_CATALOG_IDS - set(models)
     assert not missing, f"catalog models not auto-added: {missing}"
     assert len(ANTHROPIC_CATALOG_IDS) > 1, "catalog too small for the test to mean anything"
     for mid in ANTHROPIC_CATALOG_IDS:
-        catalog_enabled = next(
-            m.get("is_enabled", True) for m in LLM_MODEL_DETAILS
-            if m["provider_type"] == "anthropic" and m["model_id"] == mid
-        )
-        if catalog_enabled:
-            assert models[mid]["is_enabled"], f"auto-added model {mid} should be enabled"
+        assert models[mid]["is_enabled"], f"auto-added model {mid} should be enabled"
+
+    # Catalog entries that ship disabled are NOT added at all — no dead rows.
+    added_disabled = CATALOG_DISABLED_IDS & set(models)
+    assert not added_disabled, f"catalog-disabled entries were added: {added_disabled}"
 
     # The admin's defaults are untouched: still the seeded model, on both flags.
     assert models[SEEDED_MODEL_ID]["is_default"], "org default was re-pointed by the sync"

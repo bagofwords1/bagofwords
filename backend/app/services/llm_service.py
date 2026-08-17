@@ -2285,8 +2285,13 @@ class LLMService:
                     model.is_small_default = False
             db.add(model)
 
-        # Add any missing models
+        # Add any missing models. On customer-managed providers only usable
+        # (catalog-enabled) models are added — a catalog entry that ships
+        # disabled would just clutter the admin's curated list with a dead row.
+        # Preset providers keep the full catalog mirror.
         for model_data in available_models:
+            if customer_managed and not model_data.get("is_enabled", True):
+                continue
             if model_data["model_id"] not in existing_by_id and model_data["model_id"] not in blocked_ids:
                 model = LLMModel(
                     name=model_data["name"],
