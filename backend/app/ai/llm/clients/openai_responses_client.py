@@ -50,6 +50,10 @@ class OpenAIResponsesClient(LLMClient):
     annotations) and never pass through our ToolRunner.
     """
 
+    # Class-level default so instances created without __init__ (test doubles
+    # built via __new__) still resolve the attribute.
+    temperature: Optional[float] = None
+
     def __init__(
         self,
         api_key: str,

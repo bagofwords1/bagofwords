@@ -23,6 +23,10 @@ from app.ai.llm.types import (
 
 
 class AzureClient(LLMClient):
+    # Class-level default so instances created without __init__ (test doubles
+    # built via __new__) still resolve the attribute.
+    temperature: float | None = None
+
     def __init__(self, api_key: str, endpoint_url: str, api_version: str | None = None,
                  temperature: float | None = None):
         super().__init__()
