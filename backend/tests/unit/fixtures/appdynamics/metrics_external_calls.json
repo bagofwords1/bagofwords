@@ -1,0 +1,24 @@
+{
+ "api-services": [
+  {
+   "name": "Call-HTTP to payments",
+   "type": "folder"
+  }
+ ],
+ "payments": [
+  {
+   "name": "Call-HTTP to payments",
+   "type": "folder"
+  }
+ ],
+ "web-portal": [
+  {
+   "name": "Call-HTTP to api-services",
+   "type": "folder"
+  },
+  {
+   "name": "Call-HTTP to payments",
+   "type": "folder"
+  }
+ ]
+}

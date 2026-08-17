@@ -1,0 +1,112 @@
+[
+ {
+  "internalName": "/transfer",
+  "tierId": 522611,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "payments",
+  "background": false,
+  "name": "/transfer",
+  "id": 332598,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/accounts",
+  "tierId": 522611,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "payments",
+  "background": false,
+  "name": "/accounts",
+  "id": 332599,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/login",
+  "tierId": 522611,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "payments",
+  "background": false,
+  "name": "/login",
+  "id": 332600,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/statement",
+  "tierId": 522611,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "payments",
+  "background": false,
+  "name": "/statement",
+  "id": 332601,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/accounts",
+  "tierId": 522613,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "web-portal",
+  "background": false,
+  "name": "/accounts",
+  "id": 332605,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/statement",
+  "tierId": 522613,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "web-portal",
+  "background": false,
+  "name": "/statement",
+  "id": 332606,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/login",
+  "tierId": 522613,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "web-portal",
+  "background": false,
+  "name": "/login",
+  "id": 332607,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/transfer",
+  "tierId": 522613,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "web-portal",
+  "background": false,
+  "name": "/transfer",
+  "id": 332608,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/",
+  "tierId": 522614,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "api-services",
+  "background": false,
+  "name": "/",
+  "id": 332609,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/",
+  "tierId": 522611,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "payments",
+  "background": false,
+  "name": "/",
+  "id": 332610,
+  "entryPointTypeString": "PYTHON_WEB"
+ },
+ {
+  "internalName": "/",
+  "tierId": 522613,
+  "entryPointType": "PYTHON_WEB",
+  "tierName": "web-portal",
+  "background": false,
+  "name": "/",
+  "id": 332611,
+  "entryPointTypeString": "PYTHON_WEB"
+ }
+]

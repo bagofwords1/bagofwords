@@ -180,6 +180,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | OpenSearch | Search and observability |
 | Splunk | Search and observability |
 | Zabbix | Monitoring and observability |
+| AppDynamics | Monitoring and observability |
 | Jaeger | Tracing and observability |
 | Tableau | BI tool |
 | Power BI | BI tool |

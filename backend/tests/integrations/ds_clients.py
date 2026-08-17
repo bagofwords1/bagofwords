@@ -39,6 +39,14 @@ DATA_SOURCES = [
     # integrations.json at a live instance — `tools/zabbix/docker-compose.yaml`
     # + `seed_zabbix.py` stand one up locally with an API token.
     "zabbix",
+    # Remote mode: no real AppDynamics controller can run in CI (licensed
+    # binaries, GBs of RAM), so integrations.json points at either a live
+    # controller or the doc-shaped simulator:
+    # `tools/appdynamics/docker-compose.yaml` (mock_controller.py) —
+    #   {"appdynamics": {"enabled": true, "controller_url": "http://localhost:8090",
+    #                    "account_name": "customer1", "username": "admin",
+    #                    "password": "Secret123!"}}
+    "appdynamics",
     # Remote mode: `tools/elastic/docker-compose.yaml` + `seed_elastic.py` stand
     # up a local Elasticsearch 8 with an API key. Not a bundled testcontainer to
     # avoid pulling in elasticsearch-py's strict server-version handshake.

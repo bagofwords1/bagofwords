@@ -37,6 +37,9 @@ from app.schemas.data_sources.configs import (
     ZabbixConfig,
     ZabbixTokenCredentials,
     ZabbixUserPassCredentials,
+    AppDynamicsConfig,
+    AppDynamicsUserPassCredentials,
+    AppDynamicsApiClientCredentials,
     ElasticsearchConfig,
     ElasticsearchApiKeyCredentials,
     ElasticsearchCredentials,
@@ -672,6 +675,25 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.priority_erp_client.PriorityErpClient",
         # Priority catalogs *forms*, not database tables — say so in the copy.
         catalog_nouns=("form", "forms"),
+        version="beta",
+    ),
+    "appdynamics": DataSourceRegistryEntry(
+        type="appdynamics",
+        category="infra",
+        title="AppDynamics",
+        description="APM platform (Cisco / Splunk AppDynamics). Query applications, tiers, the service map, business transactions, metrics, events and health-rule violations via the Controller REST API.",
+        config_schema=AppDynamicsConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # Basic auth with the account-qualified login (user@account) — the
+            # default for locked-down on-prem controllers that cannot issue an
+            # API client. Per-user scope = bring-your-own credentials.
+            "userpass": AuthVariant(title="Username + Password", schema=AppDynamicsUserPassCredentials, scopes=["system", "user"]),
+            # API Client OAuth client-credentials (short-lived tokens, cached
+            # and refreshed automatically) — the auditable service identity.
+            "api_client": AuthVariant(title="API Client (OAuth)", schema=AppDynamicsApiClientCredentials, scopes=["system", "user"]),
+        }),
+        # Explicit path: dynamic resolution would derive "AppdynamicsClient".
+        client_path="app.data_sources.clients.appdynamics_client.AppDynamicsClient",
         version="beta",
     ),
     "zabbix": DataSourceRegistryEntry(

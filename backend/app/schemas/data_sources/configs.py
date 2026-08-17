@@ -762,6 +762,53 @@ class PriorityErpConfig(BaseModel):
     )
 
 
+# AppDynamics (Cisco / Splunk AppDynamics)
+class AppDynamicsUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="The account name above is appended automatically unless the username already contains \"@\".",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class AppDynamicsApiClientCredentials(BaseModel):
+    client_name: str = Field(
+        ...,
+        title="API Client Name",
+        description="Name of an API Client created under Settings → Administration → API Clients.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    client_secret: str = Field(
+        ...,
+        title="Client Secret",
+        description="The API Client's secret. Short-lived OAuth tokens are fetched and refreshed automatically.",
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class AppDynamicsConfig(BaseModel):
+    controller_url: str = Field(
+        ...,
+        title="Controller URL",
+        description="Your AppDynamics controller URL, e.g. https://appd.acme.com:8090 (on-prem) or https://acme.saas.appdynamics.com.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    account_name: str = Field(
+        "customer1",
+        title="Account Name",
+        description="The controller account. On-premises single-tenant controllers use \"customer1\".",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the controller's TLS certificate. Disable only for self-signed or private-CA certs on trusted networks (e.g. on-prem controllers).",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+
+
 # Zabbix
 class ZabbixTokenCredentials(BaseModel):
     api_token: str = Field(

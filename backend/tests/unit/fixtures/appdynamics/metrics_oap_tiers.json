@@ -1,0 +1,70 @@
+[
+ {
+  "name": "Calls per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "End to End Messages per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "api-services",
+  "type": "folder"
+ },
+ {
+  "name": "web-portal",
+  "type": "folder"
+ },
+ {
+  "name": "Errors per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "payments",
+  "type": "folder"
+ },
+ {
+  "name": "Infrastructure Errors per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "Normal Average Response Time (ms)",
+  "type": "leaf"
+ },
+ {
+  "name": "Average End to End Latency (ms)",
+  "type": "leaf"
+ },
+ {
+  "name": "Error Page Redirects per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "Number of Slow Calls",
+  "type": "leaf"
+ },
+ {
+  "name": "Exceptions per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "Number of Slow End to End Messages",
+  "type": "leaf"
+ },
+ {
+  "name": "HTTP Error Codes per Minute",
+  "type": "leaf"
+ },
+ {
+  "name": "Number of Very Slow Calls",
+  "type": "leaf"
+ },
+ {
+  "name": "Average Response Time (ms)",
+  "type": "leaf"
+ },
+ {
+  "name": "Stall Count",
+  "type": "leaf"
+ }
+]
