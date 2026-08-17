@@ -23,8 +23,12 @@ from app.ai.llm.types import (
 
 
 class AzureClient(LLMClient):
-    def __init__(self, api_key: str, endpoint_url: str, api_version: str | None = None):
+    def __init__(self, api_key: str, endpoint_url: str, api_version: str | None = None,
+                 temperature: float | None = None):
         super().__init__()
+        # Admin-configured override; None keeps the per-call historical default
+        # (see _default_temperature).
+        self.temperature = temperature
         # endpoint_url should be the Azure OpenAI resource endpoint, e.g. https://<resource>.openai.azure.com
         effective_api_version = api_version or "2024-10-21"
         self.client = AzureOpenAI(
@@ -37,6 +41,13 @@ class AzureClient(LLMClient):
             azure_endpoint=endpoint_url,
             api_version=effective_api_version,
         )
+
+    def _resolve_temperature(self, model_id: str) -> float:
+        """Admin-configured value when set, else the historical default
+        (gpt-5 deployments only accept their default of 1)."""
+        if self.temperature is not None:
+            return self.temperature
+        return 1.0 if "gpt-5" in model_id else 0.3
 
     @staticmethod
     def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:
@@ -59,9 +70,7 @@ class AzureClient(LLMClient):
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
         # For Azure, model_id is the deployment (deployment name)
-        temperature = 0.3
-        if "gpt-5" in model_id:
-            temperature = 1.0
+        temperature = self._resolve_temperature(model_id)
 
         chat_completion = self.client.chat.completions.create(
             messages=[
@@ -82,9 +91,7 @@ class AzureClient(LLMClient):
         self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
     ) -> AsyncGenerator[str, None]:
         # For Azure, model_id is the deployment (deployment name)
-        temperature = 0.3
-        if "gpt-5" in model_id:
-            temperature = 1.0
+        temperature = self._resolve_temperature(model_id)
 
         stream = await self.async_client.chat.completions.create(
             messages=[
@@ -255,7 +262,7 @@ class AzureClient(LLMClient):
         if images:
             self._attach_images(oai_messages, images)
 
-        temperature = 1.0 if "gpt-5" in model_id else 0.3
+        temperature = self._resolve_temperature(model_id)
         request_kwargs: dict[str, Any] = {
             "model": model_id,
             "messages": oai_messages,

@@ -272,6 +272,9 @@ class LLMService:
             max_output_tokens=getattr(model, "max_output_tokens", None),
             input_cost_per_million_tokens_usd=getattr(model, "input_cost_per_million_tokens_usd", None),
             output_cost_per_million_tokens_usd=getattr(model, "output_cost_per_million_tokens_usd", None),
+            # Model-specific config (e.g. an explicit sampling temperature) —
+            # update_model already accepts and merges this; creation should too.
+            config=dict(getattr(model, "config", None) or {}) or None,
         )
         # Same NULL-window guard as _create_models: a custom model with no
         # explicit size gets the conservative default, never NULL.
@@ -1004,6 +1007,60 @@ class LLMService:
             pass
 
         return {"success": True}
+
+    async def set_temperature(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+        model_id: str,
+        temperature: float | None,
+    ):
+        """Set (or clear) a model's explicit sampling temperature.
+
+        Stored on ``LLMModel.config['temperature']`` and merged so other config
+        keys (e.g. routing_hint) are preserved. None clears the override — the
+        client then sends no temperature parameter at all and the endpoint's own
+        default applies, which is the only universally safe behavior (a growing
+        set of models rejects any non-default temperature with a 400).
+        """
+        if temperature is not None and not (0.0 <= temperature <= 2.0):
+            raise HTTPException(status_code=400, detail="Temperature must be between 0 and 2")
+
+        model = await db.execute(
+            select(LLMModel).join(LLMProvider).filter(
+                LLMModel.id == model_id,
+                LLMProvider.organization_id == organization.id,
+            )
+        )
+        model = model.scalar_one_or_none()
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+
+        cfg = dict(model.config or {})
+        if temperature is not None:
+            cfg["temperature"] = temperature
+        else:
+            cfg.pop("temperature", None)
+        # Reassign (not mutate) so SQLAlchemy detects the JSON change.
+        model.config = cfg
+        await db.commit()
+
+        logger.info(
+            "LLM model temperature set: id=%s, model_id=%s, temperature=%s, org_id=%s",
+            model.id, model.model_id, temperature, organization.id,
+        )
+        try:
+            await audit_service.log(
+                db=db, organization_id=str(organization.id),
+                action="llm_model.temperature_set", user_id=str(current_user.id),
+                resource_type="llm_model", resource_id=str(model.id),
+                details={"model_id": model.model_id, "temperature": temperature},
+            )
+        except Exception:
+            pass
+
+        return {"success": True, "temperature": temperature}
 
     async def set_context_window(
         self,

@@ -41,6 +41,25 @@ class TestBuildChatParams:
         assert params["temperature"] == 0.0
 
 
+class TestOtherClientsHonorOverride:
+    """Clients that do send temperature keep their historical default when no
+    override is configured, and use the admin-configured value when one is."""
+
+    def test_azure_default_and_override(self):
+        from app.ai.llm.clients.azure_client import AzureClient
+        default = AzureClient(api_key="k", endpoint_url="https://r.openai.azure.com")
+        assert default._resolve_temperature("gpt-4o") == 0.3
+        assert default._resolve_temperature("gpt-5") == 1.0
+        overridden = AzureClient(api_key="k", endpoint_url="https://r.openai.azure.com", temperature=0.9)
+        assert overridden._resolve_temperature("gpt-4o") == 0.9
+
+    def test_anthropic_default_and_override(self):
+        from app.ai.llm.clients.anthropic_client import Anthropic
+        assert Anthropic(api_key="k").temperature == 0.3
+        assert Anthropic(api_key="k", temperature=1.0).temperature == 1.0
+        assert Anthropic(api_key="k", temperature=0.0).temperature == 0.0
+
+
 class TestParseTemperature:
     @pytest.mark.parametrize("raw,expected", [
         (None, None),

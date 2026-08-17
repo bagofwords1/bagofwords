@@ -107,6 +107,29 @@
                         />
                     </div>
                 </div>
+                <!-- Temperature. Deliberately tri-state: empty = no temperature
+                     parameter is sent and the provider's default applies. The
+                     input must never be pre-filled with a number — saving an
+                     untouched dialog must not silently set one. -->
+                <div class="flex items-center justify-between py-2.5">
+                    <UTooltip :text="$t('settings.llms.temperatureTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.colTemperature') }}</span>
+                    </UTooltip>
+                    <div class="flex items-center gap-1.5">
+                        <UTooltip v-if="model.config?.temperature != null" :text="$t('settings.llms.temperatureResetTooltip')">
+                            <button type="button" class="text-gray-400 hover:text-gray-600" data-testid="card-temperature-reset" @click="resetTemperature">
+                                <UIcon name="i-heroicons-arrow-uturn-left" class="w-3.5 h-3.5" />
+                            </button>
+                        </UTooltip>
+                        <input
+                            v-model="temperatureDraft"
+                            type="number" min="0" max="2" step="0.1"
+                            :placeholder="$t('settings.llms.temperaturePlaceholder')"
+                            data-testid="card-temperature-input"
+                            class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-28 text-sm text-end focus:outline-none focus:border-blue-500"
+                        />
+                    </div>
+                </div>
                 <!-- Cost -->
                 <div class="flex items-center justify-between py-2.5">
                     <UTooltip :text="$t('settings.llms.costEditTooltip')">
@@ -188,6 +211,9 @@ const enabledDraft = ref(false);
 const visionDraft = ref(false);
 const imageGenDraft = ref(false);
 const contextDraft = ref<number | null>(null);
+// String draft so "" (provider default) stays distinct from 0 (an explicit,
+// valid temperature).
+const temperatureDraft = ref<string>('');
 const costInDraft = ref<number | null>(null);
 const costOutDraft = ref<number | null>(null);
 const confirmingDelete = ref(false);
@@ -201,6 +227,7 @@ const syncDrafts = () => {
     visionDraft.value = !!props.model?.supports_vision;
     imageGenDraft.value = !!props.model?.supports_image_generation;
     contextDraft.value = props.model?.context_window_tokens ?? null;
+    temperatureDraft.value = props.model?.config?.temperature != null ? String(props.model.config.temperature) : '';
     costInDraft.value = props.model?.input_cost_per_million_tokens_usd ?? null;
     costOutDraft.value = props.model?.output_cost_per_million_tokens_usd ?? null;
 };
@@ -219,6 +246,7 @@ const isDirty = computed(() => {
         || visionDraft.value !== !!props.model.supports_vision
         || imageGenDraft.value !== !!props.model.supports_image_generation
         || norm(contextDraft.value) !== norm(props.model.context_window_tokens)
+        || norm(temperatureDraft.value) !== norm(props.model.config?.temperature)
         || norm(costInDraft.value) !== norm(props.model.input_cost_per_million_tokens_usd)
         || norm(costOutDraft.value) !== norm(props.model.output_cost_per_million_tokens_usd);
 });
@@ -243,6 +271,15 @@ const setDefault = async (small: boolean) => {
     }
 };
 
+const resetTemperature = async () => {
+    // No query param = clear the override; the client stops sending temperature.
+    const response = await useMyFetch(`/llm/models/${props.model.id}/set_temperature`, { method: 'POST' });
+    if (response.status.value === 'success') {
+        emit('updated');
+        nextTick(() => { temperatureDraft.value = ''; });
+    } else fail('Could not update temperature');
+};
+
 const resetContextWindow = async () => {
     const response = await useMyFetch(`/llm/models/${props.model.id}/set_context_window`, { method: 'POST' });
     if (response.status.value === 'success') {
@@ -262,6 +299,12 @@ const save = async () => {
     const contextChanged = tokens !== norm(model.context_window_tokens);
     if (contextChanged && (tokens == null || !Number.isFinite(tokens) || tokens <= 0)) {
         fail('Context window must be a positive number of tokens');
+        return;
+    }
+    const temp = norm(temperatureDraft.value);
+    const temperatureChanged = temp !== norm(model.config?.temperature);
+    if (temperatureChanged && temp != null && (!Number.isFinite(temp) || temp < 0 || temp > 2)) {
+        fail('Temperature must be between 0 and 2');
         return;
     }
     const inC = norm(costInDraft.value), outC = norm(costOutDraft.value);
@@ -290,6 +333,14 @@ const save = async () => {
                 method: 'POST', query: { tokens: Math.floor(tokens as number) }
             });
             if (response.status.value !== 'success') { fail('Could not update context window'); return; }
+        }
+        if (temperatureChanged) {
+            // Empty draft clears the override (no query param); the client then
+            // sends no temperature at all.
+            const response = await useMyFetch(`/llm/models/${model.id}/set_temperature`, {
+                method: 'POST', ...(temp != null ? { query: { temperature: temp } } : {})
+            });
+            if (response.status.value !== 'success') { fail('Could not update temperature'); return; }
         }
         if (pricingChanged) {
             const response = await useMyFetch(`/llm/models/${model.id}/pricing`, {

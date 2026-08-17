@@ -55,6 +55,7 @@ class OpenAIResponsesClient(LLMClient):
         api_key: str,
         base_url: Optional[str] = None,
         enable_web_search: bool = False,
+        temperature: Optional[float] = None,
     ):
         super().__init__()
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -63,6 +64,10 @@ class OpenAIResponsesClient(LLMClient):
         self.client = OpenAI(**client_kwargs)
         self.async_client = AsyncOpenAI(**client_kwargs)
         self.enable_web_search = enable_web_search
+        # Admin-configured override; None keeps each path's historical default
+        # (the legacy Chat Completions helpers send 0.3/1.0, the Responses path
+        # sends nothing).
+        self.temperature = temperature
 
     async def generate_image(
         self,
@@ -119,7 +124,7 @@ class OpenAIResponsesClient(LLMClient):
         return content
 
     def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
-        temperature = 1.0 if "gpt-5" in model_id else 0.3
+        temperature = self.temperature if self.temperature is not None else (1.0 if "gpt-5" in model_id else 0.3)
         chat_completion = self.client.chat.completions.create(
             model=model_id,
             messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
@@ -136,7 +141,7 @@ class OpenAIResponsesClient(LLMClient):
     async def inference_stream(
         self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None
     ) -> AsyncGenerator[str, None]:
-        temperature = 1.0 if "gpt-5" in model_id else 0.3
+        temperature = self.temperature if self.temperature is not None else (1.0 if "gpt-5" in model_id else 0.3)
         stream = await self.async_client.chat.completions.create(
             model=model_id,
             messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
@@ -301,6 +306,11 @@ class OpenAIResponsesClient(LLMClient):
             "input": input_items,
             "stream": True,
         }
+        # The Responses path historically sends no temperature (reasoning models
+        # reject it); only an explicit admin-configured value is forwarded, and
+        # not to reasoning models, which 400 on any sampling parameter.
+        if self.temperature is not None and not model_id.startswith(("o1", "o3", "o4", "gpt-5")):
+            request_kwargs["temperature"] = self.temperature
         if system:
             request_kwargs["instructions"] = system
         request_tools: list[dict] = self._translate_tools(tools) if tools else []

@@ -53,12 +53,15 @@ def _accepts_temperature(model_id: str) -> bool:
 
 
 class Anthropic(LLMClient):
-    def __init__(self, api_key: str, base_url: str = None):
+    def __init__(self, api_key: str, base_url: str = None, temperature: Optional[float] = None):
         super().__init__()
         self.client = AnthropicAPI(api_key=api_key)
         self.async_client = AsyncAnthropic(api_key=api_key)
         self.max_tokens = 32768
-        self.temperature = 0.3
+        # Admin-configured override, or the historical default. Either way the
+        # _accepts_temperature gate stays authoritative: model families that
+        # reject sampling params never receive the parameter.
+        self.temperature = 0.3 if temperature is None else temperature
 
     @staticmethod
     def _build_content(prompt: str, images: Optional[list[ImageInput]] = None) -> str | list[dict[str, Any]]:

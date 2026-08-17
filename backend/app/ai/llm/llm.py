@@ -143,11 +143,17 @@ class LLM:
         self._usage_limit_context = usage_context
         additional_config = self.model.provider.additional_config or {}
         enable_web_search = bool(additional_config.get("enable_web_search", False))
-        # Optional explicit sampling temperature for OpenAI-compatible endpoints.
-        # When unset (the default) no temperature is sent at all — the endpoint's
-        # own default applies, and models that reject non-default temperatures
-        # (Claude Sonnet 5+, gpt-5 behind LiteLLM aliases) stop 400ing.
-        configured_temperature = _parse_temperature(additional_config.get("temperature"))
+        # Optional explicit sampling temperature. Model-level config (set via
+        # POST /llm/models/{id}/set_temperature, stored on LLMModel.config) wins
+        # over the provider-level additional_config escape hatch. When neither is
+        # set, each client keeps its default posture — the OpenAI-compatible
+        # client sends no temperature at all (the endpoint's own default
+        # applies, and models that reject non-default temperatures — Claude
+        # Sonnet 5+, gpt-5 behind LiteLLM aliases — stop 400ing).
+        model_config = getattr(self.model, "config", None) or {}
+        configured_temperature = _parse_temperature(model_config.get("temperature"))
+        if configured_temperature is None:
+            configured_temperature = _parse_temperature(additional_config.get("temperature"))
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
             if base_url:
@@ -158,11 +164,12 @@ class LLM:
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     enable_web_search=enable_web_search,
+                    temperature=configured_temperature,
                 )
         elif self.provider == "anthropic":
-            self.client = Anthropic(api_key=self.api_key)
+            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature)
         elif self.provider == "google":
-            self.client = Google(api_key=self.api_key)
+            self.client = Google(api_key=self.api_key, temperature=configured_temperature)
         elif self.provider == "azure":
             endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
@@ -177,9 +184,10 @@ class LLM:
                     api_key=self.api_key,
                     base_url=self._azure_v1_base_url(endpoint_url),
                     enable_web_search=enable_web_search,
+                    temperature=configured_temperature,
                 )
             else:
-                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url)
+                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url, temperature=configured_temperature)
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:

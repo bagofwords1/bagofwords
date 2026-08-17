@@ -232,6 +232,18 @@ async def toggle_model_image_generation(
     """Manually mark/unmark a model as an image-generation model."""
     return await llm_service.toggle_image_generation(db, organization, current_user, model_id, enabled)
 
+@router.post("/llm/models/{model_id}/set_temperature")
+@requires_permission('manage_llm')
+async def set_model_temperature(
+    model_id: str,
+    temperature: float | None = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Set a model's explicit sampling temperature (0-2). Omit to reset — no temperature is sent and the endpoint's default applies."""
+    return await llm_service.set_temperature(db, organization, current_user, model_id, temperature)
+
 @router.post("/llm/models/{model_id}/set_context_window")
 @requires_permission('manage_llm')
 async def set_model_context_window(
