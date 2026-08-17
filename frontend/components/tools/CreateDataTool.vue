@@ -27,7 +27,7 @@
                 />
                 <span>{{ nm }}</span><span v-if="nidx < group.visible.length - 1">,&nbsp;</span>
               </span>
-              <span v-if="group.more" class="text-gray-400 dark:text-gray-500 cursor-help" :title="group.moreTitle">&nbsp;+{{ group.more }}</span>
+              <UTooltip v-if="group.more" :text="group.moreTitle"><span class="text-gray-400 dark:text-gray-500">&nbsp;+{{ group.more }}</span></UTooltip>
             </span>
           </template>
         </span>
