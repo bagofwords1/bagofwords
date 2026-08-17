@@ -216,6 +216,15 @@ class AppDynamicsClient(DataSourceClient):
         # OAuth token cache (api_client auth only).
         self._token: Optional[str] = None
         self._token_expiry: float = 0.0
+        # Shared session for HTTP keep-alive: schema discovery makes many
+        # sequential calls, and without connection reuse each one pays a full
+        # TCP+TLS handshake (~700ms against a SaaS controller).
+        self._session: Optional[requests.Session] = None
+
+    def _http(self) -> requests.Session:
+        if self._session is None:
+            self._session = requests.Session()
+        return self._session
 
     @property
     def description(self):
@@ -240,7 +249,7 @@ class AppDynamicsClient(DataSourceClient):
     def _fetch_token(self) -> str:
         url = f"{self.base_url}/controller/api/oauth/access_token"
         try:
-            resp = requests.post(
+            resp = self._http().post(
                 url,
                 data={
                     "grant_type": "client_credentials",
@@ -296,8 +305,8 @@ class AppDynamicsClient(DataSourceClient):
         for attempt in (0, 1):
             kwargs = self._request_kwargs()
             try:
-                resp = requests.get(url, params=q, verify=self.verify_ssl,
-                                    timeout=HTTP_TIMEOUT, **kwargs)
+                resp = self._http().get(url, params=q, verify=self.verify_ssl,
+                                        timeout=HTTP_TIMEOUT, **kwargs)
             except requests.exceptions.SSLError as e:
                 raise RuntimeError(
                     f"AppDynamics TLS error: {e}. Enable 'Skip TLS verification' "
