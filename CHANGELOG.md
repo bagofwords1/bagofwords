@@ -1,7 +1,7 @@
 # Release Notes
 
-## Unreleased
-- Added AppDynamics (Cisco / Splunk AppDynamics) APM connector — topology, service map (service_flows), business transactions, metrics, events, health-rule violations and snapshots via the Controller REST API (beta)
+## Version 0.0.543 (August 17, 2026)
+- Added AppDynamics (Cisco / Splunk AppDynamics) APM connector — topology, service map, business transactions, metrics, events, health-rule violations and snapshots via the Controller REST API (beta)
 
 ## Version 0.0.542 (August 17, 2026)
 - Added physical tables and semantic metadata for SQL Server Analysis Services Tabular models
