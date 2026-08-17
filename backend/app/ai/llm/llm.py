@@ -70,6 +70,24 @@ def _is_transient_llm_error(exc: BaseException, *, provider: str, model: Optiona
         return False
 
 
+def _parse_temperature(raw) -> Optional[float]:
+    """Sampling temperature from provider additional_config, or None.
+
+    None means "don't send the parameter" — the only universally safe default
+    for OpenAI-compatible endpoints. Values outside [0, 2] (the OpenAI API's
+    accepted range) are treated as unset rather than forwarded to fail.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not (0.0 <= value <= 2.0):
+        return None
+    return value
+
+
 def _retry_delay(attempt: int) -> float:
     """Jittered exponential backoff: 0.5s, 1s, 2s… capped at 4s."""
     return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
@@ -125,11 +143,16 @@ class LLM:
         self._usage_limit_context = usage_context
         additional_config = self.model.provider.additional_config or {}
         enable_web_search = bool(additional_config.get("enable_web_search", False))
+        # Optional explicit sampling temperature for OpenAI-compatible endpoints.
+        # When unset (the default) no temperature is sent at all — the endpoint's
+        # own default applies, and models that reject non-default temperatures
+        # (Claude Sonnet 5+, gpt-5 behind LiteLLM aliases) stop 400ing.
+        configured_temperature = _parse_temperature(additional_config.get("temperature"))
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
             if base_url:
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
-                self.client = OpenAi(api_key=self.api_key, base_url=base_url)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature)
             else:
                 # Default OpenAI → Responses API (supports reasoning content)
                 self.client = OpenAIResponsesClient(
@@ -164,7 +187,7 @@ class LLM:
             verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
-            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl)
+            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")

@@ -28,8 +28,25 @@ from app.ai.llm.types import (
 
 
 class OpenAi(LLMClient):
-    def __init__(self, api_key: str, base_url: str = "https://api.openai.com/v1", verify_ssl: bool = True):
+    # Class-level default so instances created without __init__ (test doubles
+    # built via __new__) still resolve the attribute.
+    temperature: Optional[float] = None
+
+    def __init__(
+        self,
+        api_key: str,
+        base_url: str = "https://api.openai.com/v1",
+        verify_ssl: bool = True,
+        temperature: Optional[float] = None,
+    ):
         super().__init__()
+        # No temperature is sent unless one was explicitly configured. This
+        # client serves every OpenAI-COMPATIBLE endpoint (custom providers,
+        # LiteLLM, vLLM, Ollama), where model ids are gateway aliases — a
+        # growing set of models behind them (Claude Sonnet 5+, gpt-5, o-series)
+        # rejects any temperature but their default with a 400, and no
+        # name-based detection can recognize an alias.
+        self.temperature = temperature
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if not verify_ssl:
             kwargs["http_client"] = httpx.Client(verify=verify_ssl)
@@ -59,8 +76,8 @@ class OpenAi(LLMClient):
             })
         return content
 
-    @staticmethod
     def _build_chat_params(
+        self,
         model_id: str,
         prompt: str,
         *,
@@ -73,8 +90,6 @@ class OpenAi(LLMClient):
         We only pass `reasoning_effort` for models that support OpenAI's reasoning API
         to avoid API errors for non-reasoning models.
         """
-        temperature = 1 if "gpt-5" in model_id else 0.3
-
         params: dict[str, Any] = {
             "messages": [
                 {
@@ -83,8 +98,9 @@ class OpenAi(LLMClient):
                 }
             ],
             "model": model_id,
-            "temperature": temperature,
         }
+        if self.temperature is not None:
+            params["temperature"] = self.temperature
 
         if stream:
             params["stream"] = True
@@ -360,14 +376,14 @@ class OpenAi(LLMClient):
         if images:
             self._attach_images(oai_messages, images)
 
-        temperature = 1 if "gpt-5" in model_id else 0.3
         request_kwargs: dict[str, Any] = {
             "model": model_id,
             "messages": oai_messages,
-            "temperature": temperature,
             "stream": True,
             "stream_options": {"include_usage": True},
         }
+        if self.temperature is not None:
+            request_kwargs["temperature"] = self.temperature
         if tools:
             request_kwargs["tools"] = self._translate_tools(tools)
             request_kwargs["tool_choice"] = "auto"
