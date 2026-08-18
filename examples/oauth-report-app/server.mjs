@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { extname, isAbsolute, join, normalize, relative } from 'node:path'
+import { basename, extname, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
@@ -17,11 +17,18 @@ const contentTypes = {
   '.svg': 'image/svg+xml',
 }
 
+// Assets live as flat files in this directory, so collapse any request to its
+// basename before touching the filesystem. basename() strips every directory
+// component (including "..") from attacker-controlled input, so traversal
+// sequences like "/../../etc/passwd" degrade to a bare filename that can only
+// resolve inside `root`. The resolved-within-root check below is defense in
+// depth in case the served layout ever gains subdirectories.
+const rootDir = resolve(root)
 function safeStaticPath(pathname) {
-  const requested = pathname === '/' || pathname === '/callback' ? 'index.html' : pathname.slice(1)
-  const resolved = normalize(join(root, requested))
-  const withinRoot = relative(root, resolved)
-  return !withinRoot.startsWith('..') && !isAbsolute(withinRoot) ? resolved : null
+  const requested = pathname === '/' || pathname === '/callback' ? 'index.html' : basename(pathname)
+  if (!requested || requested === '.' || requested === '..') return null
+  const resolved = resolve(rootDir, requested)
+  return resolved === rootDir || resolved.startsWith(rootDir + sep) ? resolved : null
 }
 
 async function proxyToBow(request, response) {
