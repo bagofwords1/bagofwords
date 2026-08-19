@@ -647,7 +647,12 @@ def build_view_from_data_model(
         return ViewSchema(view=view)
 
     if chart_type == "table":
-        view = TableView(title=title, defaultFilters=default_filters)
+        # No defaultFilters on tables: the query already returned exactly the
+        # rows to show, and the inference pass's row-narrowing filters exist to
+        # pick the one row a single-value card renders. Attached to a table
+        # they silently hide rows (e.g. 1 of 31 shown) with no way to undo it
+        # from the filter UI.
+        view = TableView(title=title)
         return ViewSchema(view=view)
 
     # Presentation formatting for single-value cards (validated upstream by
