@@ -2260,14 +2260,23 @@ class LLMService:
             model_data = catalog_by_id.get(model.model_id)
             if not model.is_preset:
                 continue
-            # Preset row whose id left the catalog: the provider retired the
-            # model, so every call to it is a permanent 404 that no retry or
-            # fallback can heal. Disable it and surrender the default flags —
-            # the promotion below then moves the org onto the catalog's current
-            # default instead of leaving it pinned to a dead id. Custom models
-            # (skipped above) stay untouched; the row itself is kept so history
-            # and usage records still resolve.
+            # Preset row whose id left the catalog. On a BOW-managed preset
+            # provider the catalog is an exhaustive mirror, so a missing id
+            # means the provider retired the model and every call to it is a
+            # permanent 404 that no retry or fallback can heal: disable it and
+            # surrender the default flags — the promotion below then moves the
+            # org onto the catalog's current default instead of leaving it
+            # pinned to a dead id. On a customer-managed provider the catalog
+            # is only a curated subset — ids that fell out of it (e.g. older
+            # dated Anthropic snapshots) are usually still perfectly valid at
+            # the provider, and force-disabling them on every models-list load
+            # would silently revert the admin's enable toggle forever. Leave
+            # those rows exactly as the admin set them. Custom models (skipped
+            # above) stay untouched; the row itself is kept so history and
+            # usage records still resolve.
             if not model_data:
+                if customer_managed:
+                    continue
                 model.is_enabled = False
                 model.is_default = False
                 model.is_small_default = False

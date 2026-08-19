@@ -677,6 +677,12 @@ const openAddProvider = () => {
     providerModalOpen.value = true;
 };
 
+const updateErrorDetail = (response: any): string => {
+    const errAny = (response.error as any);
+    const err = (errAny && (errAny.value || errAny)) || {};
+    return String(err?.data?.detail || err?.data?.message || err?.message || 'Could not update model');
+};
+
 const setDefaultModel = async (modelId: string, small = false) => {
     const response = await useMyFetch(`/llm/models/${modelId}/set_default`, {
         method: 'POST',
@@ -693,7 +699,7 @@ const setDefaultModel = async (modelId: string, small = false) => {
     else {
         toast.add({
             title: 'Error',
-            description: 'Could not update model',
+            description: updateErrorDetail(response),
             color: 'red'
         });
     }
@@ -713,9 +719,12 @@ const toggleModel = async (modelId: string, enabled: boolean) => {
         });
     }
     else {
+        // Refresh so the toggle reflects the server's actual state instead of
+        // staying flipped on a rejected change.
+        await getModels();
         toast.add({
             title: 'Error',
-            description: 'Could not update model',
+            description: updateErrorDetail(response),
             color: 'red'
         });
     }
