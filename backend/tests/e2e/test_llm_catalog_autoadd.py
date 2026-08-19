@@ -11,6 +11,9 @@ Proves, for a customer-managed (non-preset) provider:
   * the org's default/small-default stay exactly where the admin put them,
   * a model the admin soft-deleted is a tombstone — never resurrected,
   * a model the admin disabled stays disabled (no enabled-state sync),
+  * a preset row whose model id is no longer in the catalog (e.g. an older
+    dated Anthropic snapshot) keeps the admin's enabled/default choices —
+    the sync must not force-disable it on every models-list load,
   * provider types with no catalog entries (the OpenAI-compatible "custom"
     type) are left completely untouched.
 
@@ -193,3 +196,102 @@ def test_deleted_and_disabled_choices_survive_resync(
     models = _by_id(get_models(token, org_id))
     assert victim not in models
     assert models[disabled]["is_enabled"] is False
+
+
+# A preset model id that used to ship in the catalog but no longer does —
+# still a perfectly valid id at the provider, just not curated any more.
+EX_CATALOG_MODEL_ID = "claude-opus-4-6"
+assert EX_CATALOG_MODEL_ID not in {m["model_id"] for m in LLM_MODEL_DETAILS}
+
+
+async def _seed_ex_catalog_model(org_id, provider_id, enabled):
+    async with async_session_maker() as db:
+        db.add(LLMModel(
+            organization_id=org_id,
+            provider_id=provider_id,
+            name="Claude 4.6 Opus",
+            model_id=EX_CATALOG_MODEL_ID,
+            is_preset=True,
+            is_enabled=enabled,
+            context_window_tokens=200_000,
+        ))
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_ex_catalog_model_keeps_admin_toggle_on_customer_provider(
+    create_user, login_user, whoami, get_models, test_client
+):
+    """A preset row whose id fell out of the curated catalog stays exactly as
+    the admin set it on a customer-managed provider. Before the fix the sync
+    force-disabled it on every GET /llm/models, so enabling it through the UI
+    silently reverted ("Could not update model" for the customer)."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    provider_id = _run(_seed_customer_anthropic(org_id))
+    _run(_seed_ex_catalog_model(org_id, provider_id, enabled=False))
+
+    # The sync leaves the disabled ex-catalog row disabled...
+    models = _by_id(get_models(token, org_id))
+    assert models[EX_CATALOG_MODEL_ID]["is_enabled"] is False
+
+    # ...and the admin can enable it, and the choice SURVIVES the next syncs.
+    resp = test_client.post(
+        f"/api/llm/models/{models[EX_CATALOG_MODEL_ID]['id']}/toggle",
+        params={"enabled": True},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    for _ in range(2):
+        models = _by_id(get_models(token, org_id))
+        assert models[EX_CATALOG_MODEL_ID]["is_enabled"] is True, (
+            "sync force-disabled an ex-catalog model the admin enabled"
+        )
+
+    # It can also be made the org default, and the default sticks.
+    resp = test_client.post(
+        f"/api/llm/models/{models[EX_CATALOG_MODEL_ID]['id']}/set_default",
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    models = _by_id(get_models(token, org_id))
+    assert models[EX_CATALOG_MODEL_ID]["is_default"] is True, (
+        "sync re-pointed the org default away from an ex-catalog model"
+    )
+
+
+@pytest.mark.e2e
+def test_ex_catalog_model_still_disabled_on_preset_provider(
+    create_user, login_user, whoami, get_models, test_client
+):
+    """On a BOW-managed preset provider the catalog IS exhaustive, so a row
+    whose id left it really is retired: the sync keeps disabling it."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    async def _seed_preset_anthropic():
+        async with async_session_maker() as db:
+            provider = LLMProvider(
+                organization_id=org_id,
+                name="claude",
+                provider_type="anthropic",
+                is_preset=True,
+                is_enabled=True,
+                use_preset_credentials=True,
+            )
+            db.add(provider)
+            await db.flush()
+            await db.commit()
+            return str(provider.id)
+
+    provider_id = _run(_seed_preset_anthropic())
+    _run(_seed_ex_catalog_model(org_id, provider_id, enabled=True))
+
+    models = _by_id(get_models(token, org_id))
+    assert models[EX_CATALOG_MODEL_ID]["is_enabled"] is False, (
+        "retired model on a preset provider was not disabled by the sync"
+    )
