@@ -226,22 +226,24 @@ export function evaluateCondition(row: any, condition: FilterCondition, targetVi
 
 export function evaluateFilters(row: any, groups: FilterGroup[], targetVizId?: string): boolean {
   if (!groups.length) return true
-  
-  // Check if any condition applies to this visualization
-  const hasRelevantConditions = groups.some(group =>
-    group.conditions.some(cond => {
-      const { vizId } = parseColumnKey(cond.column)
-      return vizId === targetVizId
-    })
-  )
-  
+
+  // Only groups that actually carry conditions for this visualization take part
+  // in the OR. A group holding solely another viz's conditions would otherwise
+  // evaluate as all-skipped -> true, and one such group ORs every row back in,
+  // silently disabling filtering for every other visualization on the page.
+  const relevantGroups = targetVizId
+    ? groups.filter(group =>
+        group.conditions.some(cond => parseColumnKey(cond.column).vizId === targetVizId)
+      )
+    : groups
+
   // If no conditions apply, don't filter
-  if (targetVizId && !hasRelevantConditions) {
+  if (!relevantGroups.length) {
     return true
   }
-  
+
   // OR across groups, AND within group
-  return groups.some(group =>
+  return relevantGroups.some(group =>
     group.conditions.every(cond => evaluateCondition(row, cond, targetVizId))
   )
 }

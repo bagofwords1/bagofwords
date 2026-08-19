@@ -374,7 +374,6 @@ import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import {
   parseColumnKey,
   evaluateFilters as sharedEvaluateFilters,
-  evaluateOperator,
   type FilterGroup
 } from '~/composables/useSharedFilters'
 
@@ -526,24 +525,15 @@ const activeFilterCount = computed(() => {
   return count
 })
 
-// Apply shared filters to get filtered rows
+// Apply shared filters to get filtered rows. The view's defaultFilters are NOT
+// applied directly here: they reach this computed only through the seeded
+// shared-filter state (seedDefaultFiltersFromView), so the filter popover shows
+// them and Clear/removing the condition actually restores the rows. First-paint
+// correctness for single-value cards is preserved because the seed watcher runs
+// synchronously (immediate) during setup, before the first render.
 const filteredRows = computed(() => {
-  let rows = effectiveStep.value?.data?.rows
+  const rows = effectiveStep.value?.data?.rows
   if (!Array.isArray(rows)) return []
-
-  // Apply the view's own defaultFilters directly. The standalone preview has no
-  // dashboard shared-filter pipeline guaranteed to be ready on first paint, so
-  // relying solely on the seeded shared filters races: a single-value card over
-  // a melted/long KPI table (Metric | Value | Format) would otherwise render
-  // row 0 / a sum of every metric instead of the asked-for row. Dashboards do
-  // not use this component (they filter rows upstream), so this is safe and does
-  // not interfere with user-overridable shared filters there.
-  const v = normalizedView.value as any
-  const viewInner = v?.view || v
-  const defaults = Array.isArray(viewInner?.defaultFilters) ? viewInner.defaultFilters : []
-  if (defaults.length) {
-    rows = rows.filter((row: any) => defaults.every((f: any) => matchDefaultFilter(row, f)))
-  }
 
   if (sharedFilters.value.length === 0 || !visualizationId.value) return rows
 
@@ -551,16 +541,6 @@ const filteredRows = computed(() => {
     sharedEvaluateFilters(row, sharedFilters.value, visualizationId.value)
   )
 })
-
-// Lightweight evaluator for a view's plain-column defaultFilters (no vizId
-// prefix). Delegates to the shared operator semantics so default filters and
-// user filters agree on whitespace/number/case normalization.
-function matchDefaultFilter(row: any, f: any): boolean {
-  if (!row || !f || !f.column) return true
-  const key = Object.keys(row).find(k => k.toLowerCase() === String(f.column).toLowerCase())
-  if (key === undefined) return true
-  return evaluateOperator(row[key], String(f.operator || 'equals'), f.value, f.value2)
-}
 
 // Normalize the view to ensure it's in the v2 format { view: {...}, version: 'v2' }
 const normalizedView = computed(() => {
@@ -580,10 +560,24 @@ const normalizedView = computed(() => {
 // seed once per viz id so clearing filters doesn't re-seed.
 // ------------------------------------------------------------------
 const seededDefaultsFor = ref<Set<string>>(new Set())
+const lastSeededVizId = ref<string | null>(null)
 
 function seedDefaultFiltersFromView() {
   const vizId = visualizationId.value
   if (!vizId || seededDefaultsFor.value.has(vizId)) return
+
+  // The visualization id can change after hydration (synthetic `viz-<id>`
+  // fallback -> real visualization id). Drop the conditions we seeded under the
+  // previous id so they don't linger as ghost state nobody can see or remove.
+  if (lastSeededVizId.value && lastSeededVizId.value !== vizId) {
+    const staleId = lastSeededVizId.value
+    sharedFilters.value = sharedFilters.value
+      .map(g => ({
+        ...g,
+        conditions: g.conditions.filter(c => parseColumnKey(c.column).vizId !== staleId)
+      }))
+      .filter(g => g.conditions.length > 0)
+  }
 
   const v = normalizedView.value as any
   const viewInner = v?.view || v
@@ -623,6 +617,7 @@ function seedDefaultFiltersFromView() {
   const next = [...sharedFilters.value, group]
   sharedFilters.value = next
   seededDefaultsFor.value.add(vizId)
+  lastSeededVizId.value = vizId
 
   // Broadcast so VisualizationFilter/FilterBuilder receive the seeded state
   try {
@@ -1147,6 +1142,18 @@ function broadcastDefaultStep(step: any) {
 onMounted(() => {
   // Listen for shared filter updates from VisualizationFilter and FilterBuilder
   window.addEventListener('filter:updated', handleSharedFilterUpdate as any)
+
+  // Defaults seeded during setup were broadcast before children (the filter
+  // popover) registered their listeners, so that event was lost. Re-broadcast
+  // once now — children have mounted by the time the parent's onMounted runs —
+  // so the popover shows the seeded conditions and can remove them.
+  if (sharedFilters.value.length > 0) {
+    try {
+      window.dispatchEvent(new CustomEvent('filter:updated', {
+        detail: { reportId: reportId.value, filters: sharedFilters.value, source: filterInstanceId }
+      }))
+    } catch {}
+  }
 
   // Track which viz IDs are in the active artifact (for "Added to Dashboard" state)
   function handleArtifactVizIds(ev: Event) {
