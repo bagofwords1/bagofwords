@@ -1,7 +1,10 @@
 import asyncio
+import hashlib
+import json
 import random
 import time
-from typing import Any, Dict, AsyncIterator, Optional
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import ValidationError as PydValidationError
 
@@ -30,7 +33,7 @@ NON_RECOVERABLE_ERROR_PATTERNS = (
 )
 
 
-def is_non_recoverable_error(message: Optional[str]) -> bool:
+def is_non_recoverable_error(message: str | None) -> bool:
     m = (message or "").lower()
     return any(p in m for p in NON_RECOVERABLE_ERROR_PATTERNS)
 
@@ -49,14 +52,70 @@ class ToolRunner:
     def __init__(self, retry: RetryPolicy | None = None, timeout: TimeoutPolicy | None = None) -> None:
         self.retry = retry or RetryPolicy()
         self.timeout = timeout or TimeoutPolicy()
-        # Validation failures tracked per tool name: one runner instance is
-        # shared by the whole agent run, and tool calls may execute
-        # concurrently — a single shared counter would let tool A's success
-        # reset tool B's failure streak (or double-count across tools).
-        self.validation_failure_counts: Dict[str, int] = {}
-        self.max_validation_failures = 2   # Max before giving up
+        # A validation streak is the same tool + normalized arguments in
+        # adjacent planner rounds. Historical failures elsewhere in a long run
+        # are telemetry, not extra strikes against the current approach.
+        self.validation_failure_streaks: dict[str, tuple[str, int, int]] = {}
+        self._validation_call_index = 0
+        self.max_validation_failures = 3
 
-    async def run(self, tool, arguments: Dict[str, Any], runtime_ctx: Dict[str, Any], emit) -> Dict[str, Any]:
+    def _validation_round(self, runtime_ctx: dict[str, Any]) -> tuple[str, int]:
+        raw_round = runtime_ctx.get("planner_round_index")
+        if raw_round is not None:
+            try:
+                return str(runtime_ctx.get("planner_phase") or "main"), int(raw_round)
+            except (TypeError, ValueError):
+                pass
+        self._validation_call_index += 1
+        return "tool_call", self._validation_call_index
+
+    @staticmethod
+    def _validation_signature(tool_name: str, arguments: dict[str, Any]) -> str:
+        normalized = json.dumps(
+            arguments,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+            default=str,
+        )
+        digest = hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+        return f"{tool_name}:{digest}"
+
+    def _record_validation_failure(
+        self,
+        tool_name: str,
+        arguments: dict[str, Any],
+        round_token: tuple[str, int],
+    ) -> int:
+        phase, round_index = round_token
+        for signature, (prior_phase, prior_round, _) in list(
+            self.validation_failure_streaks.items()
+        ):
+            if prior_phase != phase or prior_round < round_index - 1:
+                self.validation_failure_streaks.pop(signature, None)
+
+        signature = self._validation_signature(tool_name, arguments)
+        previous = self.validation_failure_streaks.get(signature)
+        if previous is None or previous[0] != phase:
+            failures = 1
+        elif previous[1] == round_index:
+            # A parallel duplicate in one planner batch is one failed round.
+            failures = previous[2]
+        elif previous[1] == round_index - 1:
+            failures = previous[2] + 1
+        else:
+            failures = 1
+        self.validation_failure_streaks[signature] = (phase, round_index, failures)
+        return failures
+
+    async def run(
+        self,
+        tool,
+        arguments: dict[str, Any],
+        runtime_ctx: dict[str, Any],
+        emit,
+    ) -> dict[str, Any]:
+        validation_round = self._validation_round(runtime_ctx)
         # Runtime mode access control - check if tool is allowed in current mode.
         # Prefer `spec` (class-cached metadata) over `metadata` (rebuilds tool
         # schemas on every call) — this runs for every tool execution.
@@ -80,8 +139,9 @@ class ToolRunner:
         # it doesn't have. Short-circuit with the real one: broken JSON.
         from app.ai.llm.toolcall_args import ERROR_KEY, RAW_KEY, UNPARSABLE_KEY
         if isinstance(arguments, dict) and arguments.get(UNPARSABLE_KEY):
-            failures = self.validation_failure_counts.get(tool.name, 0) + 1
-            self.validation_failure_counts[tool.name] = failures
+            failures = self._record_validation_failure(
+                tool.name, arguments, validation_round
+            )
             json_error = arguments.get(ERROR_KEY) or "invalid JSON"
             raw_tail = str(arguments.get(RAW_KEY) or "")[-200:]
             error_message = (
@@ -102,11 +162,8 @@ class ToolRunner:
                 },
             }
             if failures >= self.max_validation_failures:
-                observation["analysis_complete"] = True
-                observation["final_answer"] = (
-                    "Unable to complete task: the model repeatedly produced "
-                    f"malformed tool-call arguments for '{tool.name}' ({json_error})."
-                )
+                observation["retry_exhausted"] = True
+                observation["suggested_action"] = "change_strategy"
             return {
                 "observation": observation,
                 "output": {"success": False, "error_message": error_message},
@@ -116,13 +173,10 @@ class ToolRunner:
         try:
             if getattr(tool, "input_model", None) is not None:
                 arguments = tool.input_model(**arguments).model_dump()
-            # A valid call ends the failure streak: the cap below is meant to
-            # stop a model stuck repeating the same malformed call, not to
-            # kill a long run over two isolated mistakes far apart.
-            self.validation_failure_counts.pop(tool.name, None)
         except PydValidationError as ve:
-            failures = self.validation_failure_counts.get(tool.name, 0) + 1
-            self.validation_failure_counts[tool.name] = failures
+            failures = self._record_validation_failure(
+                tool.name, arguments, validation_round
+            )
 
             # Build detailed error message
             error_details = ve.errors()
@@ -145,8 +199,8 @@ class ToolRunner:
                             "details": error_details,
                             "suggestion": "Check tool schema requirements and fix input format"
                         },
-                        "analysis_complete": True,
-                        "final_answer": f"Unable to complete task due to repeated tool validation errors: {'; '.join(field_errors)}"
+                        "retry_exhausted": True,
+                        "suggested_action": "change_strategy",
                     },
                     "output": failed_output,
                 }
@@ -171,69 +225,66 @@ class ToolRunner:
         last_error_type = None
         _run_start = time.monotonic()
         _ts_first_event: float | None = None
+        _hard_timeout_s = max(
+            self.timeout.hard_timeout_s,
+            self.timeout.start_timeout_s + self.timeout.idle_timeout_s,
+        )
+        _hard_deadline = _run_start + _hard_timeout_s
 
         while True:
             attempt += 1
-            start_ts = time.monotonic()
+            hard_timeout_reached = False
             try:
                 # envelope start
                 await emit({"type": "tool.start", "payload": {"attempt": attempt}})
 
-                # set up timeouts
-                idle_timer: Optional[asyncio.Task] = None
-                hard_timer: Optional[asyncio.Task] = None
-
-                async def idle_timeout(duration_s: int):
-                    await asyncio.sleep(duration_s)
-                    raise asyncio.TimeoutError("idle timeout")
-
-                async def hard_timeout():
-                    await asyncio.sleep(max(self.timeout.hard_timeout_s, self.timeout.start_timeout_s + self.timeout.idle_timeout_s))
-                    raise asyncio.TimeoutError("hard timeout")
-
-                # Start hard timeout watchdog
-                hard_timer = asyncio.create_task(hard_timeout())
-
                 last_observation = None
                 last_output = None
                 _stage_timestamps: list[tuple[str, float]] = []
+                remaining_hard_timeout = _hard_deadline - time.monotonic()
+                if remaining_hard_timeout <= 0:
+                    raise TimeoutError("hard timeout")
                 try:
-                    async for tevt in self._stream_with_idle(
-                        tool.run_stream(arguments, runtime_ctx),
-                        first_event_timeout_s=self.timeout.start_timeout_s,
-                        idle_timeout_s=self.timeout.idle_timeout_s,
-                    ):
-                        # Handle both Pydantic events and dict events
-                        if hasattr(tevt, 'type'):
-                            # Pydantic model
-                            et = tevt.type
-                            payload = tevt.payload if hasattr(tevt, 'payload') else {}
-                            # Convert to dict for emission
-                            emit_event = tevt.model_dump() if hasattr(tevt, 'model_dump') else tevt
-                        else:
-                            # Dict event
-                            et = tevt.get("type")
-                            payload = tevt.get("payload") or {}
-                            emit_event = tevt
+                    async with asyncio.timeout(remaining_hard_timeout):
+                        async for tevt in self._stream_with_idle(
+                            tool.run_stream(arguments, runtime_ctx),
+                            first_event_timeout_s=self.timeout.start_timeout_s,
+                            idle_timeout_s=self.timeout.idle_timeout_s,
+                        ):
+                            # Handle both Pydantic events and dict events
+                            if hasattr(tevt, 'type'):
+                                # Pydantic model
+                                et = tevt.type
+                                payload = tevt.payload if hasattr(tevt, 'payload') else {}
+                                # Convert to dict for emission
+                                emit_event = tevt.model_dump() if hasattr(tevt, 'model_dump') else tevt
+                            else:
+                                # Dict event
+                                et = tevt.get("type")
+                                payload = tevt.get("payload") or {}
+                                emit_event = tevt
 
-                        await emit(emit_event)
-                        if _ts_first_event is None and et != "tool.start":
-                            _ts_first_event = time.monotonic()
-                        if et == "tool.progress" and payload.get("timing", True):
-                            _stage_timestamps.append((payload.get("stage", "unknown"), time.monotonic()))
+                            await emit(emit_event)
+                            if _ts_first_event is None and et != "tool.start":
+                                _ts_first_event = time.monotonic()
+                            if et == "tool.progress" and payload.get("timing", True):
+                                _stage_timestamps.append((payload.get("stage", "unknown"), time.monotonic()))
 
-                        if et == "tool.error":
-                            last_observation = {
-                                "summary": f"Execution failed for '{tool.name}'",
-                                "error": {"type": "runtime_error", "message": payload.get("message") or "unknown"},
-                            }
-                            break
-                        if et == "tool.end":
-                            last_observation = payload.get("observation")
-                            last_output = payload.get("output")
-                finally:
-                    if hard_timer and not hard_timer.cancelled():
-                        hard_timer.cancel()
+                            if et == "tool.error":
+                                last_observation = {
+                                    "summary": f"Execution failed for '{tool.name}'",
+                                    "error": {"type": "runtime_error", "message": payload.get("message") or "unknown"},
+                                }
+                                break
+                            if et == "tool.end":
+                                last_observation = payload.get("observation")
+                                last_output = payload.get("output")
+                except TimeoutError as timeout_error:
+                    # asyncio.timeout() has an empty message. Idle timeouts
+                    # already carry their own label and remain distinguishable.
+                    if not str(timeout_error):
+                        raise TimeoutError("hard timeout") from timeout_error
+                    raise
 
                 # Output schema validation (generic). Failure envelopes
                 # (success=False) deliberately omit success-only fields —
@@ -290,10 +341,12 @@ class ToolRunner:
                 # Return both observation, output, and sub_timings
                 return {"observation": last_observation, "output": last_output, "sub_timings": sub_timings}
 
-            except asyncio.TimeoutError as te:
-                await emit({"type": "tool.error", "payload": {"message": str(te)}})
+            except TimeoutError as te:
+                timeout_message = str(te) or "hard timeout"
+                hard_timeout_reached = timeout_message == "hard timeout"
+                await emit({"type": "tool.error", "payload": {"message": timeout_message}})
                 err_type = "timeout_error"
-                last_error = str(te)
+                last_error = timeout_message
                 last_error_type = err_type
             except Exception as e:
                 await emit({"type": "tool.error", "payload": {"message": str(e)}})
@@ -304,7 +357,7 @@ class ToolRunner:
             # retry decision — non-recoverable errors (context window, provider
             # credit) are never retried: the identical call cannot succeed.
             _non_recoverable = is_non_recoverable_error(last_error)
-            if attempt >= self.retry.max_attempts or err_type not in self.retry.retry_on or _non_recoverable:
+            if hard_timeout_reached or attempt >= self.retry.max_attempts or err_type not in self.retry.retry_on or _non_recoverable:
                 # Preserve detailed error information for better debugging
                 error_details = {
                     "type": last_error_type or err_type,
@@ -320,12 +373,13 @@ class ToolRunner:
                         "account limit). Reduce the input size or resolve the account issue "
                         "instead of calling the tool again with the same arguments."
                     )
-                
+
                 return {
                     "summary": f"Execution failed for '{tool.name}' after {attempt} attempts",
+                    "success": False,
                     "error": error_details,
-                    "analysis_complete": True,
-                    "final_answer": f"Unable to execute {tool.name} - {last_error or 'repeated failures'}"
+                    "retry_exhausted": True,
+                    "suggested_action": "change_strategy",
                 }
 
             # backoff with jitter
@@ -344,27 +398,36 @@ class ToolRunner:
         next_ev = asyncio.create_task(it.__anext__())
         try:
             ev = await asyncio.wait_for(next_ev, timeout=first_event_timeout_s)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             next_ev.cancel()
-            raise asyncio.TimeoutError("idle timeout")
+            raise TimeoutError("idle timeout")
         except StopAsyncIteration:
             return
         else:
             yield ev
+        finally:
+            if not next_ev.done():
+                next_ev.cancel()
+                await asyncio.gather(next_ev, return_exceptions=True)
 
         # After first event, use recurring idle_timeout_s
         while True:
             idle_timer = asyncio.create_task(asyncio.sleep(idle_timeout_s))
             next_ev = asyncio.create_task(it.__anext__())
-            done, pending = await asyncio.wait({next_ev, idle_timer}, return_when=asyncio.FIRST_COMPLETED)
-            if next_ev in done:
-                idle_timer.cancel()
-                try:
-                    ev = next_ev.result()
-                except StopAsyncIteration:
-                    break
-                yield ev
-            else:
-                next_ev.cancel()
-                raise asyncio.TimeoutError("idle timeout")
-
+            try:
+                done, _ = await asyncio.wait(
+                    {next_ev, idle_timer}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if next_ev in done:
+                    try:
+                        ev = next_ev.result()
+                    except StopAsyncIteration:
+                        break
+                    yield ev
+                else:
+                    raise TimeoutError("idle timeout")
+            finally:
+                for task in (next_ev, idle_timer):
+                    if not task.done():
+                        task.cancel()
+                await asyncio.gather(next_ev, idle_timer, return_exceptions=True)

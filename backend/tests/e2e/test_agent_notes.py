@@ -25,12 +25,13 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-async def _run_tool(tool, tool_input: dict, report_id: str):
+async def _run_tool(tool, tool_input: dict, report_id: str, runtime_extra: dict | None = None):
     async with async_session_maker() as db:
         report = await db.get(Report, report_id)
         user = await db.get(User, report.user_id)
         organization = await db.get(Organization, report.organization_id)
         runtime_ctx = {"db": db, "report": report, "user": user, "organization": organization}
+        runtime_ctx.update(runtime_extra or {})
         events = []
         async for evt in tool.run_stream(tool_input, runtime_ctx):
             events.append(evt)
@@ -77,6 +78,60 @@ def test_create_note_persists(create_report, create_user, login_user, whoami):
     assert notes[0].title == "Plan"
     assert notes[0].source == "agent"
     assert "pull revenue" in notes[0].content
+
+
+@pytest.mark.e2e
+def test_create_note_preserves_execution_provenance_from_runtime_id(
+    create_report, create_user, login_user, whoami
+):
+    """The live agent passes the execution as an id in runtime context.
+
+    Agent executions are internal run state with no direct create API, so this
+    test seeds that one internal row after creating the report through the API.
+    """
+    from app.ai.tools.implementations.create_note import CreateNoteTool
+    from app.models.agent_execution import AgentExecution
+    from app.models.completion import Completion
+
+    report, *_ = _make_report(
+        create_report, create_user, login_user, whoami, "Notes provenance"
+    )
+
+    async def _seed_execution():
+        async with async_session_maker() as db:
+            report_row = await db.get(Report, report["id"])
+            completion = Completion(
+                report_id=str(report_row.id),
+                user_id=str(report_row.user_id),
+                prompt={"content": "probe"},
+                completion={"content": ""},
+                status="in_progress",
+                role="system",
+            )
+            db.add(completion)
+            await db.flush()
+            execution = AgentExecution(
+                completion_id=str(completion.id),
+                report_id=str(report_row.id),
+                organization_id=str(report_row.organization_id),
+                user_id=str(report_row.user_id),
+                status="in_progress",
+            )
+            db.add(execution)
+            await db.commit()
+            return str(execution.id)
+
+    execution_id = _run(_seed_execution())
+    payload = _end(_run(_run_tool(
+        CreateNoteTool(),
+        {"title": "Plan", "content": "- [ ] preserve provenance"},
+        report["id"],
+        {"agent_execution_id": execution_id},
+    )))
+    assert payload["output"]["success"] is True
+
+    notes = _run(_notes_for(report["id"]))
+    assert notes[-1].agent_execution_id == execution_id
 
 
 @pytest.mark.e2e

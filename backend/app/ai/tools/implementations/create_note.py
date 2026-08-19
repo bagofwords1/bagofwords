@@ -5,7 +5,8 @@ validates and persists it. Notes are injected back into the planner (and the
 knowledge harness) every iteration and shown in the report UI.
 """
 import logging
-from typing import Any, AsyncIterator, Dict, Type
+from collections.abc import AsyncIterator
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -61,15 +62,15 @@ class CreateNoteTool(Tool):
         )
 
     @property
-    def input_model(self) -> Type[BaseModel]:
+    def input_model(self) -> type[BaseModel]:
         return CreateNoteInput
 
     @property
-    def output_model(self) -> Type[BaseModel]:
+    def output_model(self) -> type[BaseModel]:
         return CreateNoteOutput
 
     async def run_stream(
-        self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]
+        self, tool_input: dict[str, Any], runtime_ctx: dict[str, Any]
     ) -> AsyncIterator[ToolEvent]:
         data = CreateNoteInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Note"})
@@ -87,11 +88,16 @@ class CreateNoteTool(Tool):
         user = runtime_ctx.get("user")
         organization = runtime_ctx.get("organization")
         agent_execution = runtime_ctx.get("agent_execution") or runtime_ctx.get("current_execution")
+        agent_execution_id = (
+            str(agent_execution.id)
+            if agent_execution is not None and getattr(agent_execution, "id", None)
+            else runtime_ctx.get("agent_execution_id")
+        )
 
         note = Note(
             report_id=str(report.id) if report else None,
             organization_id=str(organization.id) if organization else None,
-            agent_execution_id=str(agent_execution.id) if agent_execution else None,
+            agent_execution_id=str(agent_execution_id) if agent_execution_id else None,
             user_id=str(user.id) if user else None,
             title=data.title,
             content=content,

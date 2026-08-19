@@ -111,6 +111,44 @@ from app.errors.codes import ErrorCode
 # Hard fallback when neither connection nor org settings define a value.
 DEFAULT_QUERY_TIMEOUT_SECONDS = 60
 
+# ToolRunner treats a quiet tool stream as stalled after 180 seconds.  Some
+# healthy warehouse drivers block synchronously for almost that long without
+# producing rows or logs, so generated-code work emits a non-timing progress
+# pulse well below that boundary.  The same wrapper covers every caller of the
+# shared executor (inspect_data, create_data, write_csv, and MCP variants).
+_EXECUTION_HEARTBEAT_INTERVAL_S = 30.0
+
+
+async def _await_with_progress_heartbeat(awaitable, *, stage: str, attempt: int):
+    """Stream stage-preserving heartbeats until ``awaitable`` completes.
+
+    The private ``_result`` event is consumed inside StreamingCodeExecutor and
+    never crosses the tool boundary.  Cancelling/closing the outer tool stream
+    also cancels the in-flight codegen/query task so a timeout cannot orphan
+    expensive warehouse work in this process.
+    """
+    task = asyncio.ensure_future(awaitable)
+    interval = max(0.001, float(_EXECUTION_HEARTBEAT_INTERVAL_S))
+    try:
+        while True:
+            done, _ = await asyncio.wait({task}, timeout=interval)
+            if task in done:
+                yield {"type": "_result", "value": task.result()}
+                return
+            yield {
+                "type": "progress",
+                "payload": {
+                    "stage": stage,
+                    "attempt": attempt,
+                    "heartbeat": True,
+                    "timing": False,
+                },
+            }
+    finally:
+        if not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
 _tracer = get_tracer(__name__)
 
 import logging
@@ -1629,22 +1667,30 @@ class StreamingCodeExecutor:
                     break
                 # Call code generator with typed context and legacy params populated from context
                 _t_codegen = _time.monotonic()
-                final_code = await code_generator_fn(
-                    data_model={},
-                    prompt=derived_prompt,
-                    interpreted_prompt=derived_interpreted_prompt,
-                    schemas=derived_schemas,
-                    ds_clients=ds_clients,
-                    excel_files=excel_files,
-                    code_and_error_messages=code_and_error_messages,
-                    memories="",
-                    previous_messages="",
-                    retries=retries,
-                    prev_data_model_code_pair=None,
-                    sigkill_event=sigkill_event,
-                    code_context_builder=None,
-                    context=ctx,
-                )
+                async for _codegen_event in _await_with_progress_heartbeat(
+                    code_generator_fn(
+                        data_model={},
+                        prompt=derived_prompt,
+                        interpreted_prompt=derived_interpreted_prompt,
+                        schemas=derived_schemas,
+                        ds_clients=ds_clients,
+                        excel_files=excel_files,
+                        code_and_error_messages=code_and_error_messages,
+                        memories="",
+                        previous_messages="",
+                        retries=retries,
+                        prev_data_model_code_pair=None,
+                        sigkill_event=sigkill_event,
+                        code_context_builder=None,
+                        context=ctx,
+                    ),
+                    stage="code_generation",
+                    attempt=retries,
+                ):
+                    if _codegen_event["type"] == "_result":
+                        final_code = _codegen_event["value"]
+                    else:
+                        yield _codegen_event
                 codegen_ms = round((_time.monotonic() - _t_codegen) * 1000.0, 1)
                 yield {"type": "progress", "payload": {"stage": "code_generated", "attempt": retries, "code": final_code, "timing": False}}
             except Exception as e:
@@ -1692,11 +1738,22 @@ class StreamingCodeExecutor:
                 # scope so the failure branch can surface the failing SQL / DB error.
                 query_timings.clear()
                 executed_queries.clear()
-                exec_df, execution_log, _ = await self.execute_code_async(
-                    code=final_code, ds_clients=ds_clients, excel_files=excel_files,
-                    captured_timings=query_timings, captured_queries=executed_queries,
-                    loadables=loadables,
-                )
+                async for _execution_event in _await_with_progress_heartbeat(
+                    self.execute_code_async(
+                        code=final_code,
+                        ds_clients=ds_clients,
+                        excel_files=excel_files,
+                        captured_timings=query_timings,
+                        captured_queries=executed_queries,
+                        loadables=loadables,
+                    ),
+                    stage="data_query_execution",
+                    attempt=retries,
+                ):
+                    if _execution_event["type"] == "_result":
+                        exec_df, execution_log, _ = _execution_event["value"]
+                    else:
+                        yield _execution_event
                 execution_ms = round((_time.monotonic() - _t_exec) * 1000.0, 1)
                 yield {
                     "type": "progress",

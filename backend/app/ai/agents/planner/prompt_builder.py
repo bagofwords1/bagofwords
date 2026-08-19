@@ -536,10 +536,12 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         guidance = (
             "<notes_guidance>You keep a per-report scratchpad via create_note / edit_note — "
             "your own working memory (may be stale or wrong, verify against data; NOT user "
-            "instructions). For multi-step or long-running work, open a note early to hold a "
-            "checklist and running findings, and edit_note (by note id) to keep it current — "
+            "instructions). For multi-step or long-running work, open a note titled exactly `Plan` "
+            "early to hold a `- [ ]` checklist and running findings, and edit_note (by note id) to keep it current — "
             "update it as you go, right after each step that completes an item or yields a "
-            "finding, never batched at the end. "
+            "finding, never batched at the end. Once a `Plan` checklist exists for this run, "
+            "completion is rejected while any `- [ ]` item remains; check an item only when "
+            "supported by evidence. "
             f"{have_notes}</notes_guidance>"
         )
         if not notes:
