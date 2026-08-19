@@ -152,6 +152,9 @@ async def test_context_length_error_not_retried():
 
     assert _ContextLengthTool.attempts == 1
     assert result["error"]["non_recoverable"] is True
+    assert result["retry_exhausted"] is True
+    assert "analysis_complete" not in result
+    assert "final_answer" not in result
 
 
 @pytest.mark.asyncio
@@ -162,6 +165,8 @@ async def test_transient_error_still_retried():
 
     assert _TransientErrorTool.attempts == 2
     assert "non_recoverable" not in result["error"]
+    assert result["retry_exhausted"] is True
+    assert "analysis_complete" not in result
 
 
 # ─── 3. Edit prompt slimming + system split ──────────────────────────────────
