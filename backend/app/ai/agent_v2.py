@@ -357,6 +357,12 @@ def _resolve_reasoning_effort(
 
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.agents.notes_context import build_notes_context
+from app.ai.run_control import (
+    ApproachFailureTracker,
+    apply_failure_strategy_policy,
+    evaluate_completion_gate,
+    load_run_completion_checklist,
+)
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
 from app.ai.context.builders.observation_context_builder import ObservationContextBuilder
@@ -4039,9 +4045,15 @@ class AgentV2:
             invalid_retry_count = 0
             max_invalid_retries = 2
             
-            # Circuit breaker for repeated tool failures
-            failed_tool_count = {}
-            max_tool_failures = 3
+            # Track exact failed approaches (tool + hashed arguments) only
+            # across adjacent planner rounds. Exhaustion asks the planner to
+            # change strategy; it never completes the whole run.
+            approach_failures = ApproachFailureTracker(threshold=3)
+
+            # Rejected end_turn attempts while a current-run Plan still has
+            # unchecked items. The global step limit remains the safety bound.
+            completion_review_count = 0
+            substantive_tool_rounds = 0
             
             # Circuit breaker for repeated successful actions (infinite success loop)
             # Training mode needs more headroom — iterative create_data calls are expected
@@ -4603,6 +4615,62 @@ class AgentV2:
                             self._record_planner_token_metadata_from_decision(decision, view=view)
                             # Track whether analysis is complete
                             analysis_done = bool(getattr(decision, "analysis_complete", False))
+
+                            # ``end_turn`` is a request to finish, not proof
+                            # that a multi-step task is done. A current-run
+                            # Plan note with pending items forces another
+                            # planner iteration before anything is persisted as
+                            # a successful final decision.
+                            _gate_actions = list(getattr(decision, "actions", None) or [])
+                            if not _gate_actions and getattr(decision, "action", None) is not None:
+                                _gate_actions = [decision.action]
+                            if (
+                                analysis_done
+                                and not _gate_actions
+                                and getattr(self, "_notes_enabled", False)
+                                and self.current_execution is not None
+                            ):
+                                _checklist = await load_run_completion_checklist(
+                                    self.db,
+                                    execution_id=str(self.current_execution.id),
+                                )
+                                _completion_gate = evaluate_completion_gate(
+                                    _checklist,
+                                    # Once work has crossed into a genuinely
+                                    # multi-step run, absence of a Plan is
+                                    # itself an unfinished completion contract.
+                                    plan_required=substantive_tool_rounds >= 3,
+                                )
+                                if not _completion_gate.accepted:
+                                    completion_review_count += 1
+                                    analysis_done = False
+                                    decision.analysis_complete = False
+                                    # Do not replay the provisional final answer
+                                    # as accepted assistant transcript context.
+                                    self._last_assistant_text = ""
+                                    observation = {
+                                        "summary": (
+                                            "Completion was not accepted because this multi-step run "
+                                            "has no current Plan checklist."
+                                            if _completion_gate.reason == "missing_plan"
+                                            else "Completion was not accepted because the current Plan "
+                                            "note still has unchecked required items."
+                                        ),
+                                        "completion_review": {
+                                            "status": "incomplete",
+                                            "reason": _completion_gate.reason,
+                                            "attempt": completion_review_count,
+                                            "unchecked_items": list(_checklist.pending_items),
+                                        },
+                                        "instruction": (
+                                            "Continue the task. If the Plan is missing, create a note "
+                                            "titled exactly `Plan` with the remaining requirements. "
+                                            "Complete that work and use edit_note to check off each "
+                                            "item only when supported by the evidence already gathered."
+                                        ),
+                                    }
+                                    await _cancel_skeleton_block("unfinished_plan_checklist")
+                                    break
                         
                             # Retry flow: invalid planner output OR underlying LLM error
                             if getattr(decision, "error", None):
@@ -5295,6 +5363,8 @@ class AgentV2:
                                         "platform_context": self.platform_context,
                                         "tool_call_id": str(tool_execution.id) if tool_execution else None,
                                         "usage_limit_context": self.usage_limit_context,
+                                        "planner_phase": "main",
+                                        "planner_round_index": loop_index,
                                         "pending_officejs_registry": pending_officejs_registry,
                                     }
 
@@ -5716,20 +5786,18 @@ class AgentV2:
                             )
 
                             # ---- Aggregate outcomes (in action order, matching serial semantics) ----
-                            # Failure circuit breaker counts PER BATCH, not per action:
-                            # the 3-strike threshold means "consecutive failed planner
-                            # iterations". Counting each batch member would let a single
-                            # 5-action batch (e.g. the model guessed a wrong table name
-                            # in all five) trip the breaker and end the turn before the
-                            # planner ever sees the errors and corrects course. A tool
-                            # counts one failed round only when ALL its actions in the
-                            # batch failed; any success resets it (serial parity: one
-                            # action behaves exactly as before).
-                            for _tn, _fails in self._batch_failure_rollup(outcomes).items():
-                                if _fails:
-                                    failed_tool_count[_tn] = failed_tool_count.get(_tn, 0) + 1
-                                else:
-                                    failed_tool_count.pop(_tn, None)
+                            if any(
+                                isinstance(_o, dict)
+                                and not _o.get("skipped")
+                                and _o.get("tool_name") not in _BOOKKEEPING_TOOLS
+                                for _o in outcomes
+                            ):
+                                substantive_tool_rounds += 1
+                            apply_failure_strategy_policy(
+                                approach_failures,
+                                round_index=loop_index,
+                                outcomes=outcomes,
+                            )
                             for _o in outcomes:
                                 # Most skipped actions are non-events for breaker
                                 # accounting.  A policy may, however, reject an
@@ -5742,14 +5810,7 @@ class AgentV2:
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")
                                 _ti_args = _o.get("tool_input")
-                                if _observation_failed(_obs):
-                                    if failed_tool_count.get(_tn, 0) >= max_tool_failures:
-                                        analysis_done = True
-                                        _obs.update({
-                                            "analysis_complete": True,
-                                            "final_answer": f"Unable to complete the task. The {_tn} tool failed {failed_tool_count[_tn]} times with errors. Please check the tool configuration or try a different approach."
-                                        })
-                                else:
+                                if not _observation_failed(_obs):
                                     action_signature = f"{_tn}:{json.dumps(_ti_args, sort_keys=True)}"
                                     successful_tool_actions.append(action_signature)
                                     # Escalate identical repeats gently: first
