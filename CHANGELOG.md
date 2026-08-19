@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.544 (August 19, 2026)
+- Fixed agent runs ending early on recoverable tool errors, premature `end_turn` completions, and idle-timeout kills during quiet warehouse queries
+
 ## Version 0.0.543 (August 17, 2026)
 - Added AppDynamics (Cisco / Splunk AppDynamics) APM connector — topology, service map, business transactions, metrics, events, health-rule violations and snapshots via the Controller REST API (beta)
 
