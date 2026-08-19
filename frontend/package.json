@@ -37,6 +37,7 @@
     "vue-router": "^4.3.2"
   },
   "resolutions": {
+    "browserslist": ">=4.28.7 <5",
     "devalue": ">=5.8.1",
     "ws": "8.21.1",
     "glob": "^11.1.0",
