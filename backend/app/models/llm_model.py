@@ -268,6 +268,12 @@ class LLMModel(BaseSchema):
     # Pricing (USD per million tokens)
     input_cost_per_million_tokens_usd = Column(Float, nullable=True)
     output_cost_per_million_tokens_usd = Column(Float, nullable=True)
+    # Manual admin pricing overrides. NULL = follow the catalog (LLM_MODEL_DETAILS);
+    # a value = admin-set via the pricing endpoint (e.g. a negotiated or corrected
+    # rate), persisted across catalog re-syncs. The two columns above stay the
+    # resolved values the cost console and Auto-router savings math read.
+    input_cost_per_million_tokens_usd_override = Column(Float, nullable=True)
+    output_cost_per_million_tokens_usd_override = Column(Float, nullable=True)
     
     provider_id = Column(String, ForeignKey('llm_providers.id'), nullable=False)
     provider = relationship("LLMProvider", back_populates="models", lazy="selectin")
