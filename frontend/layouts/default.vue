@@ -56,6 +56,7 @@
   <div v-if="mobileOpen" class="sm:hidden fixed inset-0 z-40 bg-black/40" @click="closeMobile" />
 
   <aside id="separator-sidebar"
+    ref="sidebarEl"
     :class="[
       'fixed start-0 z-50 sm:z-40 bg-gray-50 dark:bg-gray-950 transition-transform duration-300 sm:transition-all sm:translate-x-0 sm:rtl:translate-x-0 border-e border-gray-200/80 dark:border-gray-800',
       mobileOpen ? 'translate-x-0 rtl:translate-x-0' : '-translate-x-full rtl:translate-x-full',
@@ -72,7 +73,7 @@
               </span>
             </UTooltip>
           </button>
-    <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col">
+    <div class="h-full px-3 py-4 bg-gray-50 dark:bg-gray-950 flex flex-col" :class="isShortSidebar ? 'overflow-y-auto' : ''">
 
       <ul class="font-normal text-[13px] !ps-0 shrink-0">
         <li class="flex items-center mb-3" :class="isCollapsed ? 'flex-col gap-1' : 'justify-between'">
@@ -197,9 +198,22 @@
       </ul>
 
       <!-- Projects — shared folders for reports. -->
-      <div v-if="!isCollapsed" class="shrink-0 mt-4">
-        <div class="px-2.5 pb-1 flex items-center justify-between group/phdr">
-          <NuxtLink to="/projects" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
+      <div v-if="!isCollapsed" class="flex flex-col min-h-0 mt-4" :style="projectsSectionStyle">
+        <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/phdr">
+          <!-- The title stays a link to /projects; folding is its own control so
+               neither gesture steals the other. -->
+          <div class="flex items-center gap-1 min-w-0">
+            <button
+              type="button"
+              @click="projectsOpen = !projectsOpen"
+              :aria-expanded="projectsOpen"
+              :aria-label="$t('projects.title')"
+              class="flex items-center justify-center w-4 h-4 -ms-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+            >
+              <UIcon :name="projectsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
+            </button>
+            <NuxtLink to="/projects" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('projects.title') }}</NuxtLink>
+          </div>
           <!-- While a report is in flight, the header explains where to drop it. -->
           <span v-if="draggingReport" class="text-[11px] font-medium text-blue-500 dark:text-blue-400 truncate ps-2">{{ $t('projects.dropHint') }}</span>
           <div v-else class="flex items-center gap-1 opacity-0 group-hover/phdr:opacity-100 focus-within:opacity-100 transition-opacity">
@@ -219,7 +233,7 @@
             </NuxtLink>
           </div>
         </div>
-        <ul class="font-normal text-[13px] !ps-0 space-y-0.5 max-h-44 overflow-y-auto -me-1 pe-1">
+        <ul v-show="projectsOpen" class="font-normal text-[13px] !ps-0 space-y-0.5 -me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <!-- Each row is a drop target for a report dragged from the list
                below: dropping files that report into the project without
                leaving the sidebar (the row menu's "Move to project" and its
@@ -268,14 +282,25 @@
       </div>
 
       <!-- Recent reports — pinned (starred) first; scrolls independently. -->
-      <div v-if="!isCollapsed" class="flex-1 min-h-0 flex flex-col mt-4">
+      <div v-if="!isCollapsed" class="min-h-0 flex flex-col mt-4" :style="reportsSectionStyle">
         <div class="px-2.5 pb-1 shrink-0 flex items-center justify-between group/hdr">
-          <NuxtLink to="/reports" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
+          <div class="flex items-center gap-1 min-w-0">
+            <button
+              type="button"
+              @click="reportsOpen = !reportsOpen"
+              :aria-expanded="reportsOpen"
+              :aria-label="$t('nav.reports')"
+              class="flex items-center justify-center w-4 h-4 -ms-1 rounded text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800/70"
+            >
+              <UIcon :name="reportsOpen ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3 rtl-flip" />
+            </button>
+            <NuxtLink to="/reports" class="text-[11px] font-semibold text-gray-400 uppercase tracking-wider hover:text-gray-700 dark:hover:text-gray-200 transition-colors">{{ $t('nav.reports') }}</NuxtLink>
+          </div>
           <NuxtLink to="/reports" class="inline-flex items-center gap-0.5 text-[11px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 opacity-0 group-hover/hdr:opacity-100 focus:opacity-100 transition-opacity">
             {{ $t('reports.viewAll') }}<UIcon name="i-heroicons-arrow-right" class="w-3 h-3" />
           </NuxtLink>
         </div>
-        <div class="flex-1 min-h-0 overflow-y-auto -me-1 pe-1">
+        <div v-show="reportsOpen" class="-me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
             <!-- Draggable onto a project row above. The row keeps its place in
                  this list after the move — a project is a label on the report,
@@ -894,6 +919,95 @@
   // that arrived over the stream since the list was fetched, so a report
   // jumps to the top the moment its run produces something new.
   const sortedRecentReports = computed(() => sortByActivity(recentReports.value))
+
+  // Sidebar height, split down the middle. PROJECTS used to be pinned at
+  // max-h-44 (176px) and shrink-0, so it held that height whether it had two
+  // rows or twenty, and REPORTS lived on whatever was left — which on a short
+  // window was almost nothing.
+  //
+  // Now the space between the nav and the footer is halved, with the half as a
+  // ceiling rather than an allotment: neither list may take more than half, and
+  // neither reserves a half it isn't using. Two projects and thirty reports
+  // gives PROJECTS its two rows and hands the other eight to REPORTS.
+  //
+  // `flex-basis: 50%` resolves against the whole sidebar rather than the gap
+  // between nav and footer, but both sections carry the same basis and the same
+  // shrink factor, so they absorb that overflow equally and land on exactly
+  // half of what is actually free. The max-height does the rest: clamping a
+  // section to its content is a max violation, which the flex algorithm
+  // resolves by freezing that section and giving the remainder to the other.
+  //
+  // Deliberately no min-height. A floor would only bind on windows under about
+  // 640px, and there it pushes the footer (Admin, the account row) out of the
+  // sidebar entirely. Halving already guarantees fairness — measured in Chrome,
+  // a 760px window lands on three rows each with or without a floor — so the
+  // floor bought nothing above 640px and broke the layout below it.
+  const SIDEBAR_ROW_PX = 31.5
+  const SIDEBAR_ROW_GAP_PX = 2
+  const SIDEBAR_SECTION_HEADER_PX = 20.5
+  const SIDEBAR_SECTION_SLACK_PX = 2
+
+  // A row is py-1.5 (12px) around text-[13px] at normal leading (~19.5px), rows
+  // sit 2px apart (space-y-0.5), and the uppercase header is ~20.5px. The slack
+  // keeps sub-pixel rounding from summoning a scrollbar on a list that fits.
+  // An empty list still renders one row — its call to action — so the minimum
+  // content is one row either way.
+  const sectionContentHeight = (count: number) => {
+    const rows = Math.max(1, count)
+    return Math.ceil(
+      SIDEBAR_SECTION_HEADER_PX + rows * SIDEBAR_ROW_PX + (rows - 1) * SIDEBAR_ROW_GAP_PX
+    ) + SIDEBAR_SECTION_SLACK_PX
+  }
+
+  // Dividing height between two panes assumes there is height to divide. The
+  // sidebar spends ~493px on chrome — logo, New report, seven nav items, Admin,
+  // the account row, the version line — before either list gets a pixel, so on
+  // a short viewport there is nothing left to halve: measured in Chrome, below
+  // 597px each list renders zero rows and you are left with two bare headers.
+  // (main is worse here, not better — it needs 742px before a single report is
+  // visible, and drops the footer off-screen below 673px.)
+  //
+  // So below the threshold the sidebar stops dividing and simply scrolls as one
+  // column: sections take their natural height, their inner scrollers are
+  // switched off, and every project and report stays reachable. That is what a
+  // phone drawer is expected to do anyway. Above it, nothing changes.
+  //
+  // Folding is worth noting as the thing that does NOT solve this: a folded
+  // section keeps its header, and the two headers are most of what eats the
+  // remaining space on a small phone.
+  const SIDEBAR_SCROLL_BELOW_PX = 620
+  const sidebarEl = ref<HTMLElement | null>(null)
+  // Assume roomy until measured so SSR and the first client render agree.
+  const sidebarHeight = ref(SIDEBAR_SCROLL_BELOW_PX + 1)
+  const isShortSidebar = computed(() => sidebarHeight.value < SIDEBAR_SCROLL_BELOW_PX)
+
+  // The element's own box, not window.innerHeight: the sidebar sits below the
+  // top banner when there is one, and on iOS its height changes as the address
+  // bar collapses and expands mid-scroll.
+  let sidebarResizeObserver: ResizeObserver | null = null
+  onMounted(() => {
+    if (!sidebarEl.value || typeof ResizeObserver === 'undefined') return
+    sidebarResizeObserver = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height
+      if (h) sidebarHeight.value = h
+    })
+    sidebarResizeObserver.observe(sidebarEl.value)
+  })
+  onBeforeUnmount(() => sidebarResizeObserver?.disconnect())
+
+  // Folding a section drops it to its header and gives up its share entirely,
+  // which is the deliberate way to hand the whole sidebar to the other list.
+  const projectsOpen = ref(true)
+  const reportsOpen = ref(true)
+  const sectionStyle = (count: number, open: boolean) => {
+    // Short sidebar: natural height, no ceiling — the container scrolls instead.
+    if (isShortSidebar.value) return { flex: '0 0 auto', maxHeight: 'none' }
+    return open
+      ? { flex: '1 1 50%', maxHeight: `${sectionContentHeight(count)}px` }
+      : { flex: '0 0 auto', maxHeight: 'none' }
+  }
+  const projectsSectionStyle = computed(() => sectionStyle(projects.value.length, projectsOpen.value))
+  const reportsSectionStyle = computed(() => sectionStyle(sortedRecentReports.value.length, reportsOpen.value))
   // Keep the list fresh when the user moves between reports (titles/new reports).
   watch(() => route.path, (path) => {
     if (path === '/reports' || path.startsWith('/reports/')) fetchRecentReports()
