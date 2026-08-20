@@ -1,7 +1,7 @@
 """add reports.include_data_tab
 
 Revision ID: shrdata01
-Revises: evalsuitefk01
+Revises: pricovr01
 Create Date: 2026-08-20 00:00:00.000000
 
 The share dialog's "Include Data Tab" checkbox: whether viewers of a shared
@@ -19,7 +19,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision: str = 'shrdata01'
-down_revision: Union[str, None] = 'evalsuitefk01'
+down_revision: Union[str, None] = 'pricovr01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
