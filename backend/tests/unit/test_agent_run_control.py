@@ -13,6 +13,7 @@ from app.ai.run_control import (
     apply_failure_strategy_policy,
     completion_checklist_for_notes,
     evaluate_completion_gate,
+    should_reject_completion,
 )
 
 
@@ -114,12 +115,24 @@ def test_fully_checked_current_plan_allows_completion():
     assert evaluate_completion_gate(status, plan_required=True).accepted is True
 
 
-def test_multistep_run_requires_a_plan_but_simple_run_does_not():
+def test_missing_plan_never_blocks_completion():
     no_plan = completion_checklist_for_notes([], execution_id="run-current")
 
     multistep = evaluate_completion_gate(no_plan, plan_required=True)
     simple = evaluate_completion_gate(no_plan, plan_required=False)
 
-    assert multistep.accepted is False
-    assert multistep.reason == "missing_plan"
+    assert multistep.accepted is True
     assert simple.accepted is True
+
+
+def test_unchecked_plan_rejections_are_bounded_for_liveness():
+    unchecked = completion_checklist_for_notes(
+        [_Note("Plan", "- [ ] verify the final requirement")],
+        execution_id="run-current",
+    )
+    gate = evaluate_completion_gate(unchecked, plan_required=True)
+
+    assert gate.accepted is False
+    assert should_reject_completion(gate, prior_rejections=0) is True
+    assert should_reject_completion(gate, prior_rejections=1) is True
+    assert should_reject_completion(gate, prior_rejections=2) is False
