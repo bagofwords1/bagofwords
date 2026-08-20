@@ -44,6 +44,7 @@
     "nuxt-echarts": "0.2.4",
     "vue": "3.5.18",
     "brace-expansion": ">=5.0.9",
+    "browserslist": ">=4.28.7 <5",
     "defu": ">=6.1.5",
     "nanoid": "^5.1.16",
     "dompurify": ">=3.4.11",
