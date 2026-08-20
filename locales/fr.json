@@ -2463,7 +2463,9 @@
     "sharingDisabled": "Partage désactivé",
     "sharingFailed": "Échec de la mise à jour du partage",
     "userNotFound": "Utilisateur introuvable dans l'organisation",
-    "copyFailed": "Échec de la copie"
+    "copyFailed": "Échec de la copie",
+    "includeDataTab": "Inclure l'onglet Données",
+    "includeDataTabDesc": "Les destinataires verront l'historique complet des données et le processus utilisé pour générer ce rapport"
   },
   "publish": {
     "published": "Publié",
