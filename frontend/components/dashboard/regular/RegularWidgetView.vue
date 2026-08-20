@@ -83,6 +83,18 @@ function handleFilterUpdate(ev: Event) {
 
 onMounted(() => {
   window.addEventListener('filter:updated', handleFilterUpdate)
+
+  // Defaults seeded during setup were broadcast before this component's
+  // children (the filter popover) registered their listeners, so that event
+  // was lost and the popover showed "No filters applied" over filtered rows.
+  // Re-broadcast once now that children have mounted.
+  if (filters.value.length > 0) {
+    try {
+      window.dispatchEvent(new CustomEvent('filter:updated', {
+        detail: { reportId: reportId.value, filters: filters.value, source: filterInstanceId }
+      }))
+    } catch {}
+  }
 })
 
 onUnmounted(() => {

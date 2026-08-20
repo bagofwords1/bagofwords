@@ -286,6 +286,31 @@ class TestDisplayFormatting:
         assert out["type"] == "metric_card"
         assert out["display"] == {"format": "currency", "currency": "ILS"}
 
+    def test_table_view_never_carries_default_filters(self):
+        # Inference-emitted row-narrowing filters are a single-value-card
+        # mechanism; on a table they'd hide rows the query deliberately
+        # returned (e.g. 1 of 31 shown, un-clearable from the filter UI).
+        dm = {
+            "type": "table",
+            "series": [],
+            "filters": [{"column": "פרויקט", "operator": "equals", "value": "P404"}],
+        }
+        view = build_view_from_data_model(dm, title="t", palette_theme="default")
+        v = view.model_dump(exclude_none=True)["view"]
+        assert v.get("defaultFilters", []) == []
+
+    def test_metric_card_view_keeps_default_filters(self):
+        dm = {
+            "type": "metric_card",
+            "series": [{"name": "Revenue", "value": "ערך"}],
+            "filters": [{"column": "מדד", "operator": "equals", "value": "מכר"}],
+        }
+        view = build_view_from_data_model(dm, title="t", palette_theme="default")
+        v = view.model_dump(exclude_none=True)["view"]
+        assert v["defaultFilters"] == [
+            {"column": "מדד", "operator": "equals", "value": "מכר"}
+        ]
+
     def test_invalid_display_ignored_by_view_builder(self):
         dm = {
             "type": "metric_card",
