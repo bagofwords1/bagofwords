@@ -362,6 +362,7 @@ from app.ai.run_control import (
     apply_failure_strategy_policy,
     evaluate_completion_gate,
     load_run_completion_checklist,
+    should_reject_completion,
 )
 from app.ai.context import ContextHub, ContextBuildSpec
 from app.ai.context.context_hub import DEFAULT_CONTEXT_LIMITS
@@ -4051,9 +4052,9 @@ class AgentV2:
             approach_failures = ApproachFailureTracker(threshold=3)
 
             # Rejected end_turn attempts while a current-run Plan still has
-            # unchecked items. The global step limit remains the safety bound.
+            # unchecked items. This has its own small liveness bound; the
+            # global step limit must never be the checklist escape hatch.
             completion_review_count = 0
-            substantive_tool_rounds = 0
             
             # Circuit breaker for repeated successful actions (infinite success loop)
             # Training mode needs more headroom — iterative create_data calls are expected
@@ -4636,12 +4637,12 @@ class AgentV2:
                                 )
                                 _completion_gate = evaluate_completion_gate(
                                     _checklist,
-                                    # Once work has crossed into a genuinely
-                                    # multi-step run, absence of a Plan is
-                                    # itself an unfinished completion contract.
-                                    plan_required=substantive_tool_rounds >= 3,
+                                    plan_required=False,
                                 )
-                                if not _completion_gate.accepted:
+                                if should_reject_completion(
+                                    _completion_gate,
+                                    prior_rejections=completion_review_count,
+                                ):
                                     completion_review_count += 1
                                     analysis_done = False
                                     decision.analysis_complete = False
@@ -4650,10 +4651,7 @@ class AgentV2:
                                     self._last_assistant_text = ""
                                     observation = {
                                         "summary": (
-                                            "Completion was not accepted because this multi-step run "
-                                            "has no current Plan checklist."
-                                            if _completion_gate.reason == "missing_plan"
-                                            else "Completion was not accepted because the current Plan "
+                                            "Completion was not accepted because the current Plan "
                                             "note still has unchecked required items."
                                         ),
                                         "completion_review": {
@@ -4663,14 +4661,47 @@ class AgentV2:
                                             "unchecked_items": list(_checklist.pending_items),
                                         },
                                         "instruction": (
-                                            "Continue the task. If the Plan is missing, create a note "
-                                            "titled exactly `Plan` with the remaining requirements. "
-                                            "Complete that work and use edit_note to check off each "
-                                            "item only when supported by the evidence already gathered."
+                                            "Continue the task. Complete the pending work and use "
+                                            "edit_note to check off each item only when supported by "
+                                            "the evidence already gathered."
                                         ),
                                     }
+                                    # Keep rejected completion candidates in the
+                                    # DB even though their UI skeleton is
+                                    # cancelled. Without this, repeated reviews
+                                    # disappear and a 100-step loop looks like a
+                                    # handful of ordinary actions over SSH.
+                                    try:
+                                        if decision_seq is None:
+                                            decision_seq = await self.project_manager.next_seq(
+                                                self.db, self.current_execution
+                                            )
+                                        await self.project_manager.save_plan_decision_from_model(
+                                            self.db,
+                                            agent_execution=self.current_execution,
+                                            seq=decision_seq,
+                                            loop_index=loop_index,
+                                            planner_decision_model=decision,
+                                            phase="completion_review",
+                                        )
+                                    except Exception as _review_persist_exc:
+                                        logger.warning(
+                                            "[agent] completion review persistence failed "
+                                            "(loop=%s): %r",
+                                            loop_index,
+                                            _review_persist_exc,
+                                        )
                                     await _cancel_skeleton_block("unfinished_plan_checklist")
                                     break
+                                if not _completion_gate.accepted:
+                                    logger.warning(
+                                        "[agent] accepting completion after %d checklist "
+                                        "rejections to preserve run liveness "
+                                        "(execution=%s, pending=%d)",
+                                        completion_review_count,
+                                        getattr(self.current_execution, "id", None),
+                                        len(_checklist.pending_items),
+                                    )
                         
                             # Retry flow: invalid planner output OR underlying LLM error
                             if getattr(decision, "error", None):
@@ -5786,13 +5817,6 @@ class AgentV2:
                             )
 
                             # ---- Aggregate outcomes (in action order, matching serial semantics) ----
-                            if any(
-                                isinstance(_o, dict)
-                                and not _o.get("skipped")
-                                and _o.get("tool_name") not in _BOOKKEEPING_TOOLS
-                                for _o in outcomes
-                            ):
-                                substantive_tool_rounds += 1
                             apply_failure_strategy_policy(
                                 approach_failures,
                                 round_index=loop_index,

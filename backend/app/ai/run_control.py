@@ -21,6 +21,7 @@ from app.models.note import Note
 _CHECKBOX_RE = re.compile(
     r"^\s*[-*+]\s+\[(?P<mark>[ xX])\]\s+(?P<label>.+?)\s*$"
 )
+MAX_COMPLETION_REJECTIONS = 2
 
 
 def _observation_failed(observation: Any) -> bool:
@@ -153,11 +154,25 @@ def evaluate_completion_gate(
     checklist: CompletionChecklist, *, plan_required: bool
 ) -> CompletionGateDecision:
     """Decide whether a planner end-turn may become run success."""
-    if plan_required and not checklist.found:
-        return CompletionGateDecision(accepted=False, reason="missing_plan")
+    # ``plan_required`` remains in the signature for caller compatibility, but
+    # a missing Plan can never be a hard completion blocker. Production showed
+    # that retroactively requiring one after useful work creates a liveness
+    # deadlock when the planner keeps requesting end_turn. An existing Plan is
+    # still a deterministic contract and its unchecked items remain enforceable.
+    _ = plan_required
     if checklist.pending_items:
         return CompletionGateDecision(accepted=False, reason="unchecked_plan")
     return CompletionGateDecision(accepted=True)
+
+
+def should_reject_completion(
+    decision: CompletionGateDecision,
+    *,
+    prior_rejections: int,
+    max_rejections: int = MAX_COMPLETION_REJECTIONS,
+) -> bool:
+    """Bound checklist review so the completion gate cannot exhaust a run."""
+    return not decision.accepted and prior_rejections < max(0, int(max_rejections))
 
 
 def completion_checklist_for_notes(

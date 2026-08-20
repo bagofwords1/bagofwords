@@ -63,6 +63,7 @@ KeyError: 'retry_exhausted'
 ModuleNotFoundError: No module named 'app.ai.run_control'
 TimeoutError: quiet code generation/query produced no heartbeat
 TimeoutError: heartbeat stream ignored the unobserved hard-timeout task
+ImportError: missing bounded completion-review policy
 ```
 
 The existing observation instead contained `analysis_complete=True` and a
@@ -81,10 +82,12 @@ approaches, current-run notes, or an unfinished completion contract.
 3. Notes titled exactly `Plan`, authored by the agent in the current
    `agent_execution_id`, form the deterministic completion checklist. Old-run,
    user-authored, and non-Plan notes cannot block completion.
-4. A planner end-turn is rejected when the Plan has unchecked items. After
-   three substantive tool rounds, a missing Plan is also rejected. The rejected
-   answer is not persisted as success; the outer loop calls the planner again
-   with the missing work.
+4. A planner end-turn is rejected when an existing Plan has unchecked items.
+   Missing Plan notes never block completion: there is no deterministic
+   checklist to enforce. Unchecked Plans get at most two review attempts before
+   liveness wins, so the checklist gate cannot consume the global step budget.
+   Rejected candidates are persisted with `phase=completion_review` so the loop
+   remains visible in production diagnostics.
 5. Agent-authored notes preserve the live execution ID, so the gate reviews
    only the checklist created by the run that is trying to finish.
 6. Generated-code callers share a 30-second heartbeat during both code
@@ -162,10 +165,24 @@ reconciliation` and does not contain the rejected `Premature answer`.
 - Only three adjacent failures of the same normalized approach trigger the
   strategy-change warning, and even then the run remains active.
 - Simple tasks without a Plan still finish normally.
-- Multi-step work cannot finish without a current-run Plan, and an existing
-  Plan cannot finish while required text checklist items remain unchecked.
+- Missing Plans never deadlock completion. Existing unchecked Plans trigger at
+  most two reconciliation loops, and each rejection is persisted for audit.
 - Explicit control tools and product policies that intentionally end or pause
   a turn retain their existing behavior; this change targets ordinary errors
   and premature planner completion.
 - Quiet codegen and warehouse execution remain visibly in their current stage,
   reset the idle watchdog, and remain bounded by the hard deadline.
+
+## Production regression caught after the first fix
+
+Report `6439421c-dc4c-4dad-ba64-bbd355a5d701` on production version `0.0.543`
+completed 18/18 tool executions successfully, updated the target instruction
+through v17, and then failed after 846 seconds with `planner_step_limit`.
+The run used all 100 planner iterations but persisted only 11 action decisions
+and zero notes. The missing iterations were completion candidates repeatedly
+rejected by the new `plan_required` rule, then deleted with their UI skeletons.
+
+This proved two liveness/observability defects in the first fix: a Plan could be
+required retroactively after useful work, and `completion_review_count` had no
+bound. The follow-up regression tests require missing Plans to pass immediately
+and cap unchecked-Plan rejection at two attempts.
