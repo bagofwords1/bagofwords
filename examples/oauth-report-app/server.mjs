@@ -1,6 +1,6 @@
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
-import { extname, isAbsolute, join, normalize, relative } from 'node:path'
+import { basename, extname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { fileURLToPath } from 'node:url'
 
@@ -18,10 +18,17 @@ const contentTypes = {
 }
 
 function safeStaticPath(pathname) {
-  const requested = pathname === '/' || pathname === '/callback' ? 'index.html' : pathname.slice(1)
-  const resolved = normalize(join(root, requested))
-  const withinRoot = relative(root, resolved)
-  return !withinRoot.startsWith('..') && !isAbsolute(withinRoot) ? resolved : null
+  // `basename` strips every directory component from the request, so the value
+  // can only ever name a file directly inside `root` — `../` sequences,
+  // absolute paths, and any other traversal are neutralised before the path
+  // touches the filesystem.
+  const requested = pathname === '/' || pathname === '/callback' ? 'index.html' : basename(pathname)
+  // Only serve known static asset types; anything else (including an
+  // extensionless path) is treated as not found rather than opened.
+  if (!requested || !Object.prototype.hasOwnProperty.call(contentTypes, extname(requested))) {
+    return null
+  }
+  return join(root, requested)
 }
 
 async function proxyToBow(request, response) {
