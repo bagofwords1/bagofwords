@@ -240,6 +240,7 @@ class ReportService:
         organization: Organization,
         run_identity: str | None = None,
         shared_group_ids: list[str] | None = None,
+        include_data_tab: bool | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
@@ -250,6 +251,8 @@ class ReportService:
         shared_user_ids, None leaves the existing group grants unchanged
         run_identity: artifact only — whose credentials viewer-triggered runs
         use ('viewer' | 'creator'); None leaves the current setting unchanged
+        include_data_tab: artifact only — show viewers the Data tab on
+        /r/{id}; None leaves the current setting unchanged
         """
         from app.models.report_share import ReportShare
         from app.models.group import Group
@@ -275,6 +278,7 @@ class ReportService:
                 raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
 
         field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
+        previous_visibility = getattr(report, field, None)
         setattr(report, field, visibility)
 
         if share_type == 'artifact' and run_identity in ('viewer', 'creator'):
@@ -291,6 +295,12 @@ class ReportService:
                         detail="This dashboard uses row-level security — viewers must run under their own identity, so 'run on my behalf' is not available.",
                     )
             report.shared_run_identity = run_identity
+
+        # Artifact-only, same as run_identity: the conversation share has no
+        # Data tab, so a conversation request carrying the field is ignored
+        # rather than writing a setting that means nothing there.
+        if share_type == 'artifact' and include_data_tab is not None:
+            report.include_data_tab = bool(include_data_tab)
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
@@ -387,14 +397,28 @@ class ReportService:
 
         # Silent session event: conversation/artifact sharing changed. Covers
         # both share_types via the same set_visibility path.
-        try:
-            await self._emit_share_event(
-                db, report=report, share_type=share_type, visibility=visibility,
-                shared_user_ids=shared_user_ids, current_user=current_user,
-                shared_group_ids=shared_group_ids,
-            )
-        except Exception:
-            pass
+        #
+        # Only when sharing ACTUALLY changed. This endpoint doubles as the write
+        # path for the display-only toggles (include_data_tab, run_identity),
+        # which re-send the current visibility and omit both principal lists to
+        # leave grants untouched. Emitting unconditionally posted a
+        # "shared with ..." event into the report's conversation on every such
+        # click. A None list means "leave unchanged", so its presence — not its
+        # contents — is what marks a real grant edit.
+        sharing_changed = (
+            previous_visibility != visibility
+            or shared_user_ids is not None
+            or shared_group_ids is not None
+        )
+        if sharing_changed:
+            try:
+                await self._emit_share_event(
+                    db, report=report, share_type=share_type, visibility=visibility,
+                    shared_user_ids=shared_user_ids, current_user=current_user,
+                    shared_group_ids=shared_group_ids,
+                )
+            except Exception:
+                pass
 
         # Notify-first: the durable in-app notification is the canonical record of
         # "shared with you" — created here on the share grant itself (email stays
@@ -469,6 +493,7 @@ class ReportService:
             "shared_user_ids": shared_user_ids or [],
             "shared_group_ids": shared_group_ids or [],
             "shared_run_identity": report.shared_run_identity,
+            "include_data_tab": report.include_data_tab,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
         }
 
@@ -646,6 +671,7 @@ class ReportService:
             artifact_visibility=getattr(report, "artifact_visibility", "none") or "none",
             conversation_visibility=getattr(report, "conversation_visibility", "none") or "none",
             shared_run_identity=getattr(report, "shared_run_identity", "viewer") or "viewer",
+            include_data_tab=bool(getattr(report, "include_data_tab", True)),
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
                 if s.share_type == 'artifact' and s.user_id and s.deleted_at is None

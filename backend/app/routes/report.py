@@ -286,6 +286,7 @@ async def set_report_visibility(
         payload.shared_user_ids, current_user, organization,
         run_identity=payload.run_identity,
         shared_group_ids=payload.shared_group_ids,
+        include_data_tab=payload.include_data_tab,
     )
 
 

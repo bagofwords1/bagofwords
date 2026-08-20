@@ -93,6 +93,9 @@ class ReportSchema(ReportBase):
     conversation_visibility: Literal["none", "shared", "internal", "public"] = "none"
     # Whose credentials a shared-artifact viewer's "Run" uses ('viewer' | 'creator')
     shared_run_identity: Literal["viewer", "creator"] = "viewer"
+    # Show the Data tab (the queries behind the report) to viewers of the
+    # shared artifact page. Artifact sharing only.
+    include_data_tab: bool = True
     # True when the report reads an RLS-enabled relation: viewers always run
     # under their own identity and 'run on my behalf' (creator mode) is blocked.
     has_rls: bool = False
@@ -185,6 +188,9 @@ class ReportVisibilityUpdate(BaseModel):
     # Artifact sharing only: whose credentials viewer-triggered runs use.
     # Omitted = leave unchanged.
     run_identity: Optional[Literal["viewer", "creator"]] = None
+    # Artifact sharing only: show viewers the Data tab on /r/{id}.
+    # Omitted = leave unchanged (same semantics as run_identity).
+    include_data_tab: Optional[bool] = None
 
 
 class ViewerRunResultSchema(BaseModel):

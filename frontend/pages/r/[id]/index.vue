@@ -51,6 +51,7 @@
                             Report
                         </button>
                         <button
+                            v-if="showDataTab"
                             @click="activeTab = 'data'"
                             :class="[
                                 'px-3 py-1.5 text-xs font-medium rounded transition-colors',
@@ -284,6 +285,16 @@ const isOwner = computed(() => {
 // Top bar state
 const showTopBar = ref(true);
 const activeTab = ref<'report' | 'data'>('report');
+// The owner's "Include Data Tab" share setting. The report loads after mount,
+// so this is true until proven otherwise — anything but an explicit false
+// keeps today's behavior (tab shown), including on older reports.
+const showDataTab = computed(() => report.value?.include_data_tab !== false);
+// The report arrives asynchronously: if the viewer already opened the Data tab
+// before it resolved, fall back to the report view rather than leaving them on
+// a panel whose tab just disappeared.
+watch(showDataTab, (visible) => {
+    if (!visible && activeTab.value === 'data') activeTab.value = 'report';
+});
 const lastRefreshedAt = ref<Date | null>(null);
 const isRefreshingOnView = ref(false);
 

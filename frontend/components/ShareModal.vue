@@ -72,6 +72,18 @@
                 </button>
             </div>
 
+            <!-- Include Data Tab option (dashboards only): whether viewers of
+                 the shared artifact page see the Data tab listing the queries
+                 behind the report. The conversation share has no such tab. -->
+            <div v-if="shareType === 'artifact' && isShared" class="flex items-start gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                <UCheckbox v-model="includeDataTab" size="sm" :disabled="isSaving"
+                    @update:model-value="onIncludeDataTabChange" />
+                <div class="flex flex-col min-w-0 flex-1">
+                    <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.includeDataTab') }}</span>
+                    <span class="text-[11px] text-gray-400">{{ $t('share.includeDataTabDesc') }}</span>
+                </div>
+            </div>
+
             <!-- Viewer run identity (dashboards only): whose credentials a
                  viewer's "Run" uses. Results are always stored per viewer.
                  Only shown when the choice exists — user-scoped sources
@@ -189,6 +201,8 @@ const showDropdown = ref(false)
 const pendingPrincipals = ref<{ kind: 'user' | 'group'; id?: string; name?: string; email?: string; memberCount?: number }[]>([])
 const sharedEntries = ref<any[]>([])
 const copied = ref(false)
+// Include Data Tab when sharing (show historical execution data)
+const includeDataTab = ref(true)
 
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
@@ -358,6 +372,10 @@ const fetchVisibility = async () => {
                 runAsCreator.value = data.shared_run_identity === 'creator'
                 if (props.report) props.report.shared_run_identity = data.shared_run_identity
             }
+            if (data.include_data_tab !== undefined) {
+                includeDataTab.value = data.include_data_tab !== false
+                if (props.report) props.report.include_data_tab = data.include_data_tab
+            }
             if (data.conversation_share_token !== undefined) {
                 conversationShareToken.value = data.conversation_share_token
                 if (props.report) props.report.conversation_share_token = data.conversation_share_token
@@ -388,6 +406,10 @@ const saveVisibility = async (visibility: string, userIds?: string[], groupIds?:
         const body: any = { visibility }
         if (userIds) body.shared_user_ids = userIds
         if (groupIds) body.shared_group_ids = groupIds
+        // include_data_tab is deliberately NOT sent here. It has its own write
+        // path (onIncludeDataTabChange), and omitting it means the backend
+        // leaves the stored value alone — so a visibility change or an invite
+        // can never overwrite the setting with a stale local ref.
         const res = await useMyFetch(`/reports/${props.report.id}/visibility/${props.shareType}`, {
             method: 'PUT',
             body,
@@ -433,6 +455,27 @@ const onRunIdentityChange = async (value: boolean) => {
         toast.add({ title: t('share.sharingUpdated'), color: 'green' })
     } catch {
         runAsCreator.value = identity !== 'creator'
+        toast.add({ title: t('share.sharingFailed'), color: 'red' })
+    } finally {
+        isSaving.value = false
+    }
+}
+
+const onIncludeDataTabChange = async (value: boolean) => {
+    isSaving.value = true
+    try {
+        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
+            method: 'PUT',
+            // Re-sends the current visibility unchanged; omitting
+            // shared_user_ids leaves the recipient list untouched.
+            body: { visibility: currentVisibility.value, include_data_tab: value },
+        })
+        if (res.error.value) throw res.error.value
+        if (props.report) props.report.include_data_tab = value
+        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
+    } catch {
+        // Put the box back where it was — the setting did not change.
+        includeDataTab.value = !value
         toast.add({ title: t('share.sharingFailed'), color: 'red' })
     } finally {
         isSaving.value = false
@@ -502,6 +545,7 @@ const openModal = async () => {
     currentVisibility.value = props.report?.[visibilityField.value] || 'none'
     conversationShareToken.value = props.report?.conversation_share_token ?? null
     runAsCreator.value = props.report?.shared_run_identity === 'creator'
+    includeDataTab.value = props.report?.include_data_tab !== false
     await Promise.all([fetchMembers(), fetchGroups(), fetchVisibility(), fetchShares()])
 }
 

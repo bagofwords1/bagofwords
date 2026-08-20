@@ -220,6 +220,141 @@ def test_get_report_includes_visibility_fields(
 
 
 # ---------------------------------------------------------------------------
+# Include Data Tab (artifact share only)
+# ---------------------------------------------------------------------------
+
+@pytest.mark.e2e
+def test_include_data_tab_defaults_on_and_persists_both_ways(
+    test_client, create_report, get_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """include_data_tab defaults to True and round-trips through both the
+    owner's GET /reports/{id} and the shared page's GET /r/{id}."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    report = create_report(title="Data Tab", user_token=token, org_id=org_id, data_sources=[])
+
+    # A report nobody has configured shows the tab.
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is True
+
+    set_visibility(report["id"], "artifact", "public", user_token=token, org_id=org_id)
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is True
+    assert test_client.get(f"/api/r/{report['id']}").json()["include_data_tab"] is True
+
+    # Turning it off reaches the shared page, which is what actually hides the tab.
+    set_visibility(report["id"], "artifact", "public", user_token=token, org_id=org_id,
+                   include_data_tab=False)
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is False
+    assert test_client.get(f"/api/r/{report['id']}").json()["include_data_tab"] is False
+
+    # And back on again — the setting is not one-way.
+    set_visibility(report["id"], "artifact", "public", user_token=token, org_id=org_id,
+                   include_data_tab=True)
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is True
+    assert test_client.get(f"/api/r/{report['id']}").json()["include_data_tab"] is True
+
+
+@pytest.mark.e2e
+def test_include_data_tab_unchanged_when_omitted(
+    test_client, create_report, get_report, set_visibility, get_shares,
+    create_user, login_user, whoami,
+):
+    """Requests that omit include_data_tab leave it alone.
+
+    The share dialog reuses this endpoint for unrelated edits (changing
+    visibility, inviting people); none of them may silently switch the Data
+    tab back on.
+    """
+    token, token2, org_id, user2_id = _setup_two_users(create_user, login_user, whoami, test_client)
+
+    report = create_report(title="Omitted Field", user_token=token, org_id=org_id, data_sources=[])
+    set_visibility(report["id"], "artifact", "public", user_token=token, org_id=org_id,
+                   include_data_tab=False)
+
+    # Every one of these is a real action the dialog performs.
+    set_visibility(report["id"], "artifact", "internal", user_token=token, org_id=org_id)
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is False
+
+    set_visibility(report["id"], "artifact", "shared", user_token=token, org_id=org_id,
+                   shared_user_ids=[user2_id])
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is False
+
+    set_visibility(report["id"], "artifact", "none", user_token=token, org_id=org_id)
+    assert get_report(report["id"], user_token=token, org_id=org_id)["include_data_tab"] is False
+
+
+@pytest.mark.e2e
+def test_include_data_tab_ignored_on_conversation_share(
+    test_client, create_report, get_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """The conversation share has no Data tab, so it cannot change the flag."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    report = create_report(title="Conversation Only", user_token=token, org_id=org_id, data_sources=[])
+
+    set_visibility(report["id"], "conversation", "public", user_token=token, org_id=org_id,
+                   include_data_tab=False)
+
+    fetched = get_report(report["id"], user_token=token, org_id=org_id)
+    assert fetched["include_data_tab"] is True
+    # The visibility change itself still applied.
+    assert fetched["conversation_visibility"] == "public"
+
+
+def _share_event_count(test_client, report_id, token, org_id):
+    """How many share session-events the report's conversation carries."""
+    r = test_client.get(
+        f"/api/reports/{report_id}/completions?limit=100",
+        headers={"Authorization": f"Bearer {token}", "X-Organization-Id": org_id},
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    items = body if isinstance(body, list) else (body.get("completions") or body.get("items") or [])
+    return sum(
+        1 for c in items
+        if str(c.get("message_type") or "").endswith("shared")
+        or str(c.get("message_type") or "") in {"artifact_unshared", "report_unpublished"}
+    )
+
+
+@pytest.mark.e2e
+def test_data_tab_toggle_does_not_emit_share_event(
+    test_client, create_report, set_visibility,
+    create_user, login_user, whoami,
+):
+    """Flipping the display-only Data tab must not post a share event.
+
+    The dialog reuses the visibility endpoint to persist include_data_tab, so
+    an unconditional emit put a "was shared with ..." message into the
+    report's conversation on every checkbox click.
+    """
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    report = create_report(title="Event Noise", user_token=token, org_id=org_id, data_sources=[])
+
+    set_visibility(report["id"], "artifact", "public", user_token=token, org_id=org_id)
+    after_share = _share_event_count(test_client, report["id"], token, org_id)
+    assert after_share >= 1, "a real visibility change must still emit its event"
+
+    # Three toggles, the way a user clicks a checkbox.
+    for value in (False, True, False):
+        set_visibility(report["id"], "artifact", "public", user_token=token,
+                       org_id=org_id, include_data_tab=value)
+    assert _share_event_count(test_client, report["id"], token, org_id) == after_share
+
+    # A genuine change still speaks up.
+    set_visibility(report["id"], "artifact", "internal", user_token=token, org_id=org_id)
+    assert _share_event_count(test_client, report["id"], token, org_id) > after_share
+
+
+# ---------------------------------------------------------------------------
 # Legacy backward compatibility
 # ---------------------------------------------------------------------------
 
