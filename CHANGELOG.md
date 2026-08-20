@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.544 (August 20, 2026)
+- Report owners can hide the Data tab from viewers of a shared report — an "Include Data Tab" checkbox in the share dialog controls whether /r/{id} shows the queries behind the report
+
 ## Version 0.0.543 (August 17, 2026)
 - Added AppDynamics (Cisco / Splunk AppDynamics) APM connector — topology, service map, business transactions, metrics, events, health-rule violations and snapshots via the Controller REST API (beta)
 

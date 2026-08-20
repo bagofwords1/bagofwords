@@ -2685,7 +2685,9 @@
     "sharingDisabled": "Compartir desactivado",
     "sharingFailed": "No se pudo actualizar la configuración de compartir",
     "userNotFound": "Usuario no encontrado en la organización",
-    "copyFailed": "No se pudo copiar"
+    "copyFailed": "No se pudo copiar",
+    "includeDataTab": "Incluir pestaña de datos",
+    "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe"
   },
   "publish": {
     "published": "Publicado",

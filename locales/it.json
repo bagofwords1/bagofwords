@@ -2463,7 +2463,9 @@
     "sharingDisabled": "Condivisione disabilitata",
     "sharingFailed": "Impossibile aggiornare la condivisione",
     "userNotFound": "Utente non trovato nell'organizzazione",
-    "copyFailed": "Impossibile copiare"
+    "copyFailed": "Impossibile copiare",
+    "includeDataTab": "Includi la scheda Dati",
+    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report"
   },
   "publish": {
     "published": "Pubblicato",

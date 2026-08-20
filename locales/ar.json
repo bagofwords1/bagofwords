@@ -2461,7 +2461,9 @@
     "sharingDisabled": "تم إيقاف المشاركة",
     "sharingFailed": "تعذّر تحديث المشاركة",
     "userNotFound": "المستخدم غير موجود في المؤسسة",
-    "copyFailed": "تعذّر النسخ"
+    "copyFailed": "تعذّر النسخ",
+    "includeDataTab": "تضمين علامة تبويب البيانات",
+    "includeDataTabDesc": "سيرى المستلمون سجل البيانات الكامل والعملية المستخدمة لإنشاء هذا التقرير"
   },
   "publish": {
     "published": "منشورة",

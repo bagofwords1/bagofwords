@@ -2463,7 +2463,9 @@
     "sharingDisabled": "Freigabe deaktiviert",
     "sharingFailed": "Freigabe konnte nicht aktualisiert werden",
     "userNotFound": "Benutzer in Organisation nicht gefunden",
-    "copyFailed": "Kopieren fehlgeschlagen"
+    "copyFailed": "Kopieren fehlgeschlagen",
+    "includeDataTab": "Registerkarte „Daten“ einschließen",
+    "includeDataTabDesc": "Empfänger sehen den vollständigen Datenverlauf und den Prozess, mit dem dieser Bericht erstellt wurde"
   },
   "publish": {
     "published": "Veröffentlicht",

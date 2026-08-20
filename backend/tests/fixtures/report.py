@@ -221,7 +221,7 @@ def get_public_report(test_client):
 
 @pytest.fixture
 def set_visibility(test_client):
-    def _set_visibility(report_id, share_type, visibility, user_token=None, org_id=None, shared_user_ids=None, shared_group_ids=None, expect_status=200):
+    def _set_visibility(report_id, share_type, visibility, user_token=None, org_id=None, shared_user_ids=None, shared_group_ids=None, include_data_tab=None, expect_status=200):
         if user_token is None:
             pytest.fail("User token is required for set_visibility")
         if org_id is None:
@@ -237,6 +237,10 @@ def set_visibility(test_client):
             body["shared_user_ids"] = shared_user_ids
         if shared_group_ids is not None:
             body["shared_group_ids"] = shared_group_ids
+        # Left out of the body entirely when None, so tests can exercise the
+        # "omitted leaves the setting unchanged" contract.
+        if include_data_tab is not None:
+            body["include_data_tab"] = include_data_tab
 
         response = test_client.put(
             f"/api/reports/{report_id}/visibility/{share_type}",

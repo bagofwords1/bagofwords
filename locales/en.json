@@ -2968,7 +2968,9 @@
     "sharingDisabled": "Sharing disabled",
     "sharingFailed": "Failed to update sharing",
     "userNotFound": "User not found in organization",
-    "copyFailed": "Failed to copy"
+    "copyFailed": "Failed to copy",
+    "includeDataTab": "Include Data Tab",
+    "includeDataTabDesc": "Recipients will see the complete data history and process used to generate this report"
   },
   "publish": {
     "published": "Published",

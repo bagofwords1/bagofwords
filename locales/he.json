@@ -2685,7 +2685,9 @@
     "sharingDisabled": "השיתוף הושבת",
     "sharingFailed": "עדכון השיתוף נכשל",
     "userNotFound": "המשתמש לא נמצא בארגון",
-    "copyFailed": "ההעתקה נכשלה"
+    "copyFailed": "ההעתקה נכשלה",
+    "includeDataTab": "כלול לשונית נתונים",
+    "includeDataTabDesc": "המשתמשים המוזמנים יראו את ההיסטוריה המלאה של הנתונים והתהליך בו נעשה שימוש ליצירת הדוח"
   },
   "publish": {
     "published": "פורסם",

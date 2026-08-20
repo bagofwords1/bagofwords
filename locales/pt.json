@@ -2463,7 +2463,9 @@
     "sharingDisabled": "Compartilhamento desativado",
     "sharingFailed": "Falha ao atualizar compartilhamento",
     "userNotFound": "Usuário não encontrado na organização",
-    "copyFailed": "Falha ao copiar"
+    "copyFailed": "Falha ao copiar",
+    "includeDataTab": "Incluir a aba Dados",
+    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório"
   },
   "publish": {
     "published": "Publicado",

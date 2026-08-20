@@ -2463,7 +2463,9 @@
     "sharingDisabled": "Delning inaktiverad",
     "sharingFailed": "Det gick inte att uppdatera delningen",
     "userNotFound": "Användaren hittades inte i organisationen",
-    "copyFailed": "Det gick inte att kopiera"
+    "copyFailed": "Det gick inte att kopiera",
+    "includeDataTab": "Inkludera fliken Data",
+    "includeDataTabDesc": "Mottagarna ser hela datahistoriken och processen som användes för att skapa den här rapporten"
   },
   "publish": {
     "published": "Publicerad",

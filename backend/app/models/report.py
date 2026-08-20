@@ -50,6 +50,13 @@ class Report(BaseSchema):
     # rows — never in the shared Step.data snapshot.
     shared_run_identity = Column(String, nullable=False, default='viewer', server_default='viewer')
 
+    # Show the Data tab (the per-query execution history behind the report) to
+    # viewers of the shared artifact page /r/{id}. Artifact sharing only.
+    # Display-only: the public queries/step endpoints serve the same payload
+    # either way, because they also feed the artifact iframe itself — hiding
+    # the tab is a presentation choice, not a data boundary.
+    include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
+
     cron_schedule = Column(String, nullable=True)
     # Rerun the artifact's queries when a viewer opens the shared report page
     # (/r/{id}). Independent of cron_schedule — a report can refresh on view
