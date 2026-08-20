@@ -18,7 +18,7 @@ import logging
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import quote
 
 import httpx
@@ -30,6 +30,7 @@ from app.data_sources.clients._document_text import (
     DOC_EXTS,
     doc_text_is_usable,
     extract_document_text_from_bytes,
+    extract_pdf_pages_text,
 )
 from app.data_sources.clients._file_source_common import (
     GlobScopeError,
@@ -72,6 +73,27 @@ def _ext(name: str) -> str:
     if not name or "." not in name:
         return ""
     return name.rsplit(".", 1)[-1].lower()
+
+
+def _extract_pdf_pages_from_bytes(data: bytes, name: str, first: int, last: int) -> tuple:
+    """Page-range PDF extraction over in-memory Graph bytes via a temp file
+    (the extractor dispatches on filename). Same approach as the S3 client's
+    helper of the same name."""
+    import os
+    import tempfile
+
+    tmp = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as fh:
+            fh.write(data)
+            tmp = fh.name
+        return extract_pdf_pages_text(tmp, first, last)
+    finally:
+        if tmp:
+            try:
+                os.unlink(tmp)
+            except OSError:
+                pass
 
 
 def _trim_to_data(df: "pd.DataFrame") -> "pd.DataFrame":
@@ -812,7 +834,14 @@ class GraphDriveClient(DataSourceClient):
             )
         return self._resolve_drive_id(), raw_id
 
-    def read_file(self, file_id: str, sheet: Optional[str] = None, max_bytes: Optional[int] = None, **_) -> Any:
+    def read_file(
+        self,
+        file_id: str,
+        sheet: Optional[str] = None,
+        max_bytes: Optional[int] = None,
+        page_range: Optional[Tuple[int, int]] = None,
+        **_,
+    ) -> Any:
         # Routes to the owning library AND resolves a filename → item id (the
         # LLM frequently passes "Book 7.xlsx" where an opaque id is expected,
         # which Graph rejects with 400).
@@ -828,6 +857,23 @@ class GraphDriveClient(DataSourceClient):
         self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
         ext = _ext(name)
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
+
+        # Page-range read for PDFs — same sentinel contract as network_dir/s3.
+        # Graph has no ranged read API for this; the file is already fully
+        # downloaded above, so extraction is the same local pypdf pass those
+        # clients use.
+        if page_range is not None:
+            if ext != "pdf":
+                raise ValueError("page_range is supported for PDF files only.")
+            text, pages_total = _extract_pdf_pages_from_bytes(content, name, page_range[0], page_range[1])
+            return {
+                "__doc_pages__": True,
+                "text": text,
+                "pages_total": pages_total,
+                "first": max(1, page_range[0]),
+                "last": min(page_range[1], pages_total),
+            }
+
         if max_bytes and len(content) > max_bytes:
             content = content[:max_bytes]
 
