@@ -14,8 +14,9 @@ that list is empty, so `db_clients == {}`, every step KeyErrors on its client,
 yet the endpoint returns HTTP 200 and advances report.last_run_at — the shared
 artifact shows stale data with a fresh timestamp.
 
-This test asserts the DESIRED behavior (rerun resolves Auto the same way the
-interactive path does), so it FAILS while the bug is present.
+This test asserts the fixed behavior (rerun resolves Auto the same way the
+interactive path does, via agent_focus_common.resolve_run_agents) and acts as
+the regression guard for it.
 
 Run:
     cd backend
@@ -132,9 +133,9 @@ def generate_df(ds_clients, excel_files):
 
     body = rerun_report(report["id"], user_token=token, org_id=org_id)
 
-    # DESIRED: the rerun resolves Auto exactly like the interactive path and
-    # the step succeeds. BUG TODAY: db_clients is {}, the step fails with
-    # KeyError '<Agent>:<Connection>', yet HTTP 200 + last_run_at advance.
+    # The rerun must resolve Auto exactly like the interactive path and the
+    # step must succeed. (The original bug: db_clients was {}, the step failed
+    # with KeyError '<Agent>:<Connection>', yet HTTP 200 + last_run_at advance.)
     step_after = _run(_read_step(seeded["step_id"]))
     assert body["steps_succeeded"] == 1, (
         f"rerun response: {body!r}; step after rerun: {step_after!r} "
@@ -143,3 +144,33 @@ def generate_df(ds_clients, excel_files):
 
     refreshed = get_report(report["id"], user_token=token, org_id=org_id)
     assert refreshed["last_run_at"] is not None
+
+
+FAILING_CODE = """
+def generate_df(ds_clients, excel_files):
+    raise RuntimeError("simulated upstream failure")
+"""
+
+
+@pytest.mark.e2e
+def test_fully_failed_rerun_does_not_advance_last_run_at(
+    create_report, create_user, login_user, whoami, rerun_report, get_report,
+):
+    """A run where EVERY step failed must not stamp the report as fresh:
+    stale data under a new timestamp hides the failure, and the
+    refresh-on-view staleness gate would suppress retries for an interval."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    report = create_report(title="All failing", user_token=token, org_id=org_id,
+                           data_sources=[])
+    _run(_seed_artifact_step(report["id"], FAILING_CODE))
+
+    body = rerun_report(report["id"], user_token=token, org_id=org_id)
+    assert body["steps_total"] == 1
+    assert body["steps_failed"] == 1
+
+    refreshed = get_report(report["id"], user_token=token, org_id=org_id)
+    assert refreshed["last_run_at"] is None, (
+        "a fully-failed rerun advanced last_run_at")
