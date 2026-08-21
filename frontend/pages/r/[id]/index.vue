@@ -24,8 +24,8 @@
 
     <div v-else class="h-dvh w-screen relative bg-gray-50 dark:bg-gray-900 flex flex-col overflow-hidden">
         <!-- Top Bar -->
-        <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 relative">
-            <!-- Left: Back to app (absolute) -->
+        <div v-if="showTopBar && reportLoaded" class="flex-shrink-0 h-10 bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 relative flex items-center">
+            <!-- Left: Back to app (absolute; fits inside the start content gutter) -->
             <a
                 href="/"
                 class="absolute start-2 sm:start-4 top-1/2 -translate-y-1/2 flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors"
@@ -34,11 +34,13 @@
                 <span class="hidden sm:inline">Back to app</span>
             </a>
 
-            <!-- Center: Tab Menu + Refreshed (matching dashboard content padding) -->
-            <div class="h-full flex-1 flex items-center">
-                <div class="w-full flex items-center justify-between px-11 sm:px-[200px]">
+            <!-- Center: Tab Menu + Refreshed. Tabs keep the dashboard content
+                 padding on the start side; the end side flexes against the
+                 in-flow action cluster so nothing can overlap it. -->
+            <div class="h-full flex-1 min-w-0 flex items-center">
+                <div class="w-full min-w-0 flex items-center justify-between gap-2 ps-11 sm:ps-[200px] pe-2 sm:pe-4">
                     <!-- Tab Menu -->
-                    <div class="flex items-center gap-1">
+                    <div class="flex items-center gap-1 flex-shrink-0">
                         <button
                             @click="activeTab = 'report'"
                             :class="[
@@ -64,23 +66,25 @@
                         </button>
                     </div>
 
-                    <!-- Refreshed text (hidden on mobile to avoid colliding with
-                         the absolute-positioned action cluster) -->
-                    <span v-if="runError" class="hidden sm:inline text-[11px] text-red-400 truncate max-w-[300px]" :title="runError">
+                    <!-- Refreshed text (hidden on mobile where the bar is too
+                         crowded; truncates instead of overlapping the actions) -->
+                    <span v-if="runError" class="hidden sm:inline min-w-0 text-[11px] text-red-400 truncate max-w-[300px]" :title="runError">
                         {{ runError }}
                     </span>
-                    <span v-else-if="isRefreshingOnView" class="hidden sm:inline-flex items-center gap-1 text-[11px] text-gray-400">
-                        <Icon name="heroicons:arrow-path" class="w-3 h-3 animate-spin" />
-                        Refreshing...
+                    <span v-else-if="isRefreshingOnView" class="hidden sm:inline-flex items-center gap-1 min-w-0 text-[11px] text-gray-400">
+                        <Icon name="heroicons:arrow-path" class="w-3 h-3 animate-spin flex-shrink-0" />
+                        <span class="truncate">Refreshing...</span>
                     </span>
-                    <span v-else-if="lastRefreshedAt" class="hidden sm:inline text-[11px] text-gray-400">
+                    <span v-else-if="lastRefreshedAt" class="hidden sm:inline min-w-0 text-[11px] text-gray-400 truncate">
                         Refreshed {{ formatTime(lastRefreshedAt) }}
                     </span>
                 </div>
             </div>
 
-            <!-- Right: Run + Fork + Edit Report + Close (absolute) -->
-            <div class="absolute end-2 sm:end-4 top-1/2 -translate-y-1/2 flex items-center gap-1 sm:gap-2">
+            <!-- Right: Run + Fork + Edit Report + Close (in normal flow so the
+                 bar always reserves the cluster's width — no overlap however
+                 many buttons are visible) -->
+            <div class="flex-shrink-0 h-full pe-2 sm:pe-4 flex items-center gap-1 sm:gap-2">
                 <!-- Run button: signed-in non-owner viewers re-run the dashboard's
                      queries into their own per-user results (whose credentials run
                      is the owner's share setting; never touches the shared data) -->
