@@ -1236,9 +1236,15 @@ class ReportService:
             # step — client construction resolves credentials (and for ODBC
             # sources pays a connection handshake) per data source.
             from app.services.data_source_service import DataSourceService
+            from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
             ds_service = DataSourceService()
             db_clients = {}
-            for data_source in report.data_sources:
+            # Auto (an unattached report) is a mode, not an empty set: resolve
+            # it against the run user's accessible agents exactly like the
+            # interactive path does, so saved step code that references
+            # "<Agent>:<Connection>" client keys finds them on rerun too.
+            run_agents = await resolve_run_agents(db, organization, current_user, report)
+            for data_source in run_agents:
                 try:
                     ds_clients = await ds_service.construct_clients(db, data_source, current_user=current_user)
                     db_clients.update(ds_clients)
@@ -1293,8 +1299,13 @@ class ReportService:
                     logger.warning(f"Failed to run widget {widget.id}: {e}; continuing")
                     continue
 
-        # Update last_run_at timestamp on the already-loaded ORM model
-        report.last_run_at = datetime.utcnow()
+        # Update last_run_at on the already-loaded ORM model — but only when
+        # the run actually produced something (or there was nothing to run).
+        # A fully-failed run must not stamp the report as fresh: the artifact
+        # would show stale data under a new timestamp, and the refresh-on-view
+        # staleness gate would then suppress retries for a whole interval.
+        if steps_total == 0 or steps_succeeded > 0:
+            report.last_run_at = datetime.utcnow()
         await db.commit()
 
         # Regenerate the artifact thumbnail in background — only when some
@@ -1441,10 +1452,14 @@ class ReportService:
         # a user_required connection) is reported; steps on other sources
         # still run.
         from app.services.data_source_service import DataSourceService
+        from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
         ds_service = DataSourceService()
         db_clients: dict = {}
         data_source_errors: list[dict] = []
-        for data_source in report.data_sources:
+        # Auto (an unattached report) resolves like the interactive path — the
+        # credential user's accessible agents — instead of to an empty set.
+        run_agents = await resolve_run_agents(db, organization, credential_user, report)
+        for data_source in run_agents:
             try:
                 ds_clients = await ds_service.construct_clients(db, data_source, current_user=credential_user)
                 db_clients.update(ds_clients)
