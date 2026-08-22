@@ -842,14 +842,18 @@ class QueryService:
             return schema
 
         owner_row = (await db.execute(
-            select(Report.user_id, Report.shared_run_identity).where(Report.id == str(q.report_id))
+            select(Report.user_id, Report.shared_run_identity, Report.organization_id)
+            .where(Report.id == str(q.report_id))
         )).first()
         if not owner_row or str(owner_row[0]) == str(viewer_user_id):
             return schema
 
         # Minimal report context for the accessor (avoids re-loading the row).
+        # organization_id must travel too: the withholding policy's org-level
+        # fallback (DS-less chat reports) keys off it.
         report_ctx = SimpleNamespace(
             id=str(q.report_id), user_id=str(owner_row[0]), shared_run_identity=owner_row[1],
+            organization_id=str(owner_row[2]) if owner_row[2] else None,
         )
         viewer = SimpleNamespace(id=str(viewer_user_id))
         from app.services.viewer_data_policy import resolve_step_data

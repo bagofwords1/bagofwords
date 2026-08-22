@@ -109,12 +109,15 @@ async def resolve_step_data(
     # No successful result of their own. Withhold the credential-differentiated
     # snapshot when the policy applies; otherwise serve it (system-only /
     # creator mode / plain sharing).
+    step_code = getattr(step, "code", None)
     if report is not None:
         report_id = getattr(report, "id", None)
         withheld = (
             report_id is not None
             and await snapshot_withheld_for_viewers(
-                db, str(report_id), getattr(report, "shared_run_identity", None)
+                db, str(report_id), getattr(report, "shared_run_identity", None),
+                fallback_org_id=getattr(report, "organization_id", None),
+                code=step_code,
             )
         )
     else:
@@ -123,7 +126,9 @@ async def resolve_step_data(
         report_id = getattr(step, "report_id", None) or (
             getattr(step.query, "report_id", None) if getattr(step, "query", None) else None
         )
-        withheld = report_id is not None and await report_snapshot_withheld(db, str(report_id))
+        withheld = report_id is not None and await report_snapshot_withheld(
+            db, str(report_id), code=step_code
+        )
 
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
@@ -148,6 +153,37 @@ async def _step_query_has_identity_params(db: AsyncSession, step) -> bool:
         )
     except Exception:
         return False
+
+
+async def _org_fallback_ds_ids(
+    db: AsyncSession, organization_id: str | None, code: str | None
+) -> list[str]:
+    """Data-source ids a DS-less report/entity may have executed against.
+
+    Chat-created reports don't associate data sources with the report row —
+    execution falls back to the org's data sources and generated code addresses
+    clients by "<data source name>:<connection>" keys (see
+    QueryService._report_data_sources). The withholding policy must mirror that
+    fallback or a snapshot built on a user-scoped source slips past it. When the
+    step/entity code is available, only the sources it names by key are counted
+    (a Membership-DB report must not start withholding because the org also has
+    a delegated Power BI source); with no code to inspect, all org sources
+    count — over-withholding is the safe direction.
+    """
+    if not organization_id:
+        return []
+    from app.models.data_source import DataSource
+    rows = (await db.execute(
+        select(DataSource.id, DataSource.name).where(
+            DataSource.organization_id == str(organization_id),
+            DataSource.deleted_at.is_(None),
+        )
+    )).all()
+    if code:
+        hits = [str(r[0]) for r in rows if r[1] and str(r[1]) in code]
+        if hits:
+            return hits
+    return [str(r[0]) for r in rows]
 
 
 async def _report_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:
@@ -274,6 +310,13 @@ async def entity_data_withheld(
     except Exception:
         pass
     ids = await _entity_data_source_ids(db, str(entity.id))
+    if not ids:
+        # Entities promoted from chat steps carry no data-source association —
+        # they executed against the org-level fallback, exactly like DS-less
+        # reports. Evaluate the org sources their code addresses.
+        ids = await _org_fallback_ds_ids(
+            db, getattr(entity, "organization_id", None), getattr(entity, "code", None)
+        )
     return await _any_user_scoped_connection(db, ids) or await _any_rls_relation(db, ids)
 
 
@@ -294,7 +337,8 @@ async def resolve_entity_data(
 
 
 async def snapshot_withheld_for_viewers(
-    db: AsyncSession, report_id: str, shared_run_identity: str | None
+    db: AsyncSession, report_id: str, shared_run_identity: str | None,
+    *, fallback_org_id: str | None = None, code: str | None = None,
 ) -> bool:
     """True when non-owner readers must not see the shared Step.data snapshot.
 
@@ -303,22 +347,34 @@ async def snapshot_withheld_for_viewers(
     policy), so an RLS snapshot is never legitimately shareable as-is. A
     user_required source is exempt in creator mode, where the owner has
     explicitly opted to share their own credential's view.
+
+    A report with no data-source association executed against the org-level
+    fallback, so when `fallback_org_id` is given the policy evaluates the org
+    sources the step's `code` addresses instead of an empty set.
     """
-    if await has_rls_relations(db, report_id):
+    ds_ids = await _report_data_source_ids(db, report_id)
+    if not ds_ids and fallback_org_id:
+        ds_ids = await _org_fallback_ds_ids(db, fallback_org_id, code)
+    if await _any_rls_relation(db, ds_ids):
         return True
     if (shared_run_identity or 'viewer') != 'viewer':
         return False
-    return await has_user_scoped_connections(db, report_id)
+    return await _any_user_scoped_connection(db, ds_ids)
 
 
-async def report_snapshot_withheld(db: AsyncSession, report_id: str) -> bool:
+async def report_snapshot_withheld(
+    db: AsyncSession, report_id: str, *, code: str | None = None
+) -> bool:
     """Same policy, loading the report's mode itself (for callers that only
     have a report_id, e.g. the email/PDF paths)."""
     from app.models.report import Report
 
     row = (await db.execute(
-        select(Report.shared_run_identity).where(Report.id == str(report_id))
+        select(Report.shared_run_identity, Report.organization_id)
+        .where(Report.id == str(report_id))
     )).first()
     if row is None:
         return False
-    return await snapshot_withheld_for_viewers(db, report_id, row[0])
+    return await snapshot_withheld_for_viewers(
+        db, report_id, row[0], fallback_org_id=row[1], code=code
+    )
