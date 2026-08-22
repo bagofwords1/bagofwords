@@ -450,6 +450,12 @@ class AgentV2:
         self.org_week_start = organization_settings.config.get('week_start') if organization_settings else None
 
         self.report = report
+        # Scalar ids cached once: the run holds these ORM instances across loop
+        # iterations, and any concurrent commit (e.g. a refresh-on-view rerun
+        # on the same report) expires them — a plain attribute read then raises
+        # MissingGreenlet under AsyncSession. Logging/steering/tracing must
+        # read the cached scalars, never the live instances.
+        self.report_id = str(report.id) if report is not None else None
         self.report_type = getattr(report, 'report_type', 'regular')
         self.model = model
         self.small_model = small_model
@@ -469,6 +475,9 @@ class AgentV2:
         self._fallback_engaged = False
         self.head_completion = head_completion
         self.system_completion = system_completion
+        self.system_completion_id = (
+            str(system_completion.id) if system_completion is not None else None
+        )
         self.widget = widget
         self.step = step
         _quota_org_id = str(getattr(self.organization, "id", "") or "")
@@ -878,7 +887,7 @@ class AgentV2:
                 _select(_Report)
                 .where(
                     _Report.project_id == str(proj.id),
-                    _Report.id != str(self.report.id),
+                    _Report.id != str(self.report_id),
                     _Report.status != "archived",
                     _Report.deleted_at.is_(None),
                     _Report.report_type == "regular",
@@ -1243,7 +1252,7 @@ class AgentV2:
                 select(Artifact)
                 .options(lazyload("*"))
                 .where(
-                    Artifact.report_id == str(self.report.id),
+                    Artifact.report_id == str(self.report_id),
                     Artifact.status == "completed",
                     # Docs (mode='doc') must never occupy the active-artifact slot:
                     # dashboard continuity rules and edit_artifact routing bind to it.
@@ -1404,7 +1413,7 @@ class AgentV2:
                 image_file_ids = [str(f.id) for f in self.image_files]
                 result = await self.db.execute(
                     select(report_file_association.c.file_id).where(
-                        report_file_association.c.report_id == str(self.report.id),
+                        report_file_association.c.report_id == str(self.report_id),
                         report_file_association.c.file_id.in_(image_file_ids),
                         report_file_association.c.completion_id == current_cid,
                     )
@@ -1522,7 +1531,7 @@ class AgentV2:
         from app.services.file_reference_service import ensure_materialized
 
         refs = (await self.db.execute(
-            select(FileReference).where(FileReference.report_id == str(self.report.id))
+            select(FileReference).where(FileReference.report_id == str(self.report_id))
         )).scalars().all()
         if not refs:
             return
@@ -1683,7 +1692,7 @@ class AgentV2:
             seq_si = await self.project_manager.next_seq(self.db, self.current_execution)
             await self._emit_sse_event(SSEEvent(
                 event="instructions.suggest.started",
-                completion_id=str(self.system_completion.id),
+                completion_id=str(self.system_completion_id),
                 agent_execution_id=str(self.current_execution.id),
                 seq=seq_si,
                 data={}
@@ -1792,7 +1801,7 @@ class AgentV2:
                     user_memory=user_memory,
                     user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
-                    notes_context=(await build_notes_context(self.db, str(self.report.id)) if harness_notes_enabled and self.report else None),
+                    notes_context=(await build_notes_context(self.db, str(self.report_id)) if harness_notes_enabled and self.report else None),
                     project_context=(await self._build_project_context()),
                 )
 
@@ -1865,7 +1874,7 @@ class AgentV2:
                                 seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="block.upsert",
-                                    completion_id=str(self.system_completion.id),
+                                    completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=seq_blk,
                                     data={"block": block_schema.model_dump()},
@@ -1968,7 +1977,7 @@ class AgentV2:
                         seq_ts = await self.project_manager.next_seq(self.db, self.current_execution)
                         await self._emit_sse_event(SSEEvent(
                             event="tool.started",
-                            completion_id=str(self.system_completion.id),
+                            completion_id=str(self.system_completion_id),
                             agent_execution_id=str(self.current_execution.id),
                             seq=seq_ts,
                             data={"tool_name": tool_name, "arguments": tool_input},
@@ -1988,7 +1997,7 @@ class AgentV2:
                                 seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event=ev.get("type", "tool.progress"),
-                                    completion_id=str(self.system_completion.id),
+                                    completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=seq_ev,
                                     data={"tool_name": _tn, "payload": ev.get("payload", {})},
@@ -2051,7 +2060,7 @@ class AgentV2:
                                 seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="block.upsert",
-                                    completion_id=str(self.system_completion.id),
+                                    completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=seq_blk,
                                     data={"block": block_schema.model_dump()},
@@ -2073,7 +2082,7 @@ class AgentV2:
                                 safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
                         await self._emit_sse_event(SSEEvent(
                             event="tool.finished",
-                            completion_id=str(self.system_completion.id),
+                            completion_id=str(self.system_completion_id),
                             agent_execution_id=str(self.current_execution.id),
                             seq=seq_fin,
                             data={
@@ -2160,7 +2169,7 @@ class AgentV2:
                                     seq_p = await self.project_manager.next_seq(self.db, self.current_execution)
                                     await self._emit_sse_event(SSEEvent(
                                         event="instructions.suggest.partial",
-                                        completion_id=str(self.system_completion.id),
+                                        completion_id=str(self.system_completion_id),
                                         agent_execution_id=str(self.current_execution.id),
                                         seq=seq_p,
                                         data={"instruction": draft_payload}
@@ -2230,7 +2239,7 @@ class AgentV2:
                 seq_f = await self.project_manager.next_seq(self.db, self.current_execution)
                 await self._emit_sse_event(SSEEvent(
                     event="instructions.suggest.finished",
-                    completion_id=str(self.system_completion.id),
+                    completion_id=str(self.system_completion_id),
                     agent_execution_id=str(self.current_execution.id),
                     seq=seq_f,
                     data={"instructions": drafts}
@@ -2244,7 +2253,7 @@ class AgentV2:
                 seq_e = await self.project_manager.next_seq(self.db, self.current_execution)
                 await self._emit_sse_event(SSEEvent(
                     event="instructions.suggest.finished",
-                    completion_id=str(self.system_completion.id),
+                    completion_id=str(self.system_completion_id),
                     agent_execution_id=str(self.current_execution.id),
                     seq=seq_e,
                     data={"instructions": drafts, "error": str(e)}
@@ -2378,7 +2387,7 @@ class AgentV2:
                 return
             from app.services.context_compaction_service import context_compaction_service
             from app.models.organization import Organization
-            report_id = str(self.report.id)
+            report_id = str(self.report_id)
             organization_id = str(self.organization.id) if self.organization else None
             SessionLocal = self._session_maker
             async with SessionLocal() as session:
@@ -2411,7 +2420,7 @@ class AgentV2:
                         try:
                             await self.event_queue.put(SSEEvent(
                                 event="context.compacted",
-                                completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                completion_id=str(self.system_completion_id) if self.system_completion else None,
                                 data={
                                     "covers_until_completion_id": result.get("covers_until_completion_id"),
                                     "compacted_turns": result.get("compacted_turns"),
@@ -2513,7 +2522,7 @@ class AgentV2:
             try:
                 await self.event_queue.put(SSEEvent(
                     event="completion.follow_ups",
-                    completion_id=str(self.system_completion.id),
+                    completion_id=str(self.system_completion_id),
                     data={"questions": list(questions)},
                 ))
             except Exception as e:
@@ -2601,7 +2610,7 @@ class AgentV2:
                         await service.record_batch_usage(
                             db=session,
                             org_id=str(self.organization.id),
-                            report_id=str(self.report.id) if self.report else None,
+                            report_id=str(self.report_id) if self.report else None,
                             user_id=user_id,
                             items=items_data,
                             user_role=None,  # Role not easily accessible here
@@ -2618,7 +2627,7 @@ class AgentV2:
             data = json.loads(message)
             if (
                 data.get("event") == "update_completion"
-                and data.get("completion_id") == str(self.system_completion.id)
+                and data.get("completion_id") == str(self.system_completion_id)
                 and data.get("sigkill") is not None
             ):
                 self.sigkill_event.set()
@@ -2627,7 +2636,7 @@ class AgentV2:
             if (
                 data.get("event") in ("insert_completion", "update_completion")
                 and data.get("message_type") == "steering"
-                and str(data.get("parent_id") or "") == str(self.system_completion.id)
+                and str(data.get("parent_id") or "") == str(self.system_completion_id)
             ):
                 cid = str(data.get("completion_id"))
                 prompt = data.get("prompt")
@@ -2659,7 +2668,7 @@ class AgentV2:
                 async with _casf()() as _poll_session:
                     rows = await _poll_session.execute(
                         _select(Completion.id, Completion.prompt).where(
-                            Completion.parent_id == str(self.system_completion.id),
+                            Completion.parent_id == str(self.system_completion_id),
                             Completion.role == 'user',
                             Completion.message_type == 'steering',
                         )
@@ -2688,7 +2697,7 @@ class AgentV2:
             try:
                 await self._emit_sse_event(SSEEvent(
                     event="completion.steering.applied",
-                    completion_id=str(self.system_completion.id),
+                    completion_id=str(self.system_completion_id),
                     data={"count": len(new_texts), "messages": new_texts, "ids": new_ids},
                 ))
             except Exception:
@@ -2762,7 +2771,7 @@ class AgentV2:
             if block is None:
                 block = CompletionBlock(
                     id=block_id,
-                    completion_id=str(self.system_completion.id),
+                    completion_id=str(self.system_completion_id),
                     agent_execution_id=str(self.current_execution.id),
                     source_type='decision',
                     plan_decision_id=None,
@@ -3108,7 +3117,7 @@ class AgentV2:
             _fb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
             await self._emit_sse_event(SSEEvent(
                 event="block.upsert",
-                completion_id=str(self.system_completion.id),
+                completion_id=str(self.system_completion_id),
                 agent_execution_id=str(self.current_execution.id),
                 seq=_fb_seq,
                 data={"block": _fb_schema.model_dump()},
@@ -3119,7 +3128,7 @@ class AgentV2:
             seq = await self.project_manager.next_seq(self.db, self.current_execution)
             await self._emit_sse_event(SSEEvent(
                 event="llm.fallback",
-                completion_id=str(self.system_completion.id),
+                completion_id=str(self.system_completion_id),
                 agent_execution_id=str(self.current_execution.id),
                 seq=seq,
                 data={
@@ -3309,7 +3318,7 @@ class AgentV2:
         if not self.system_completion or not self.current_execution:
             return
 
-        comp_id = str(self.system_completion.id)
+        comp_id = str(self.system_completion_id)
         exec_id = str(self.current_execution.id)
 
         async def _runner(_loop_index=getattr(self, "_loop_index_marker", None)):
@@ -3359,7 +3368,7 @@ class AgentV2:
             from app.models.agent_execution import AgentExecution as _AE
             from app.models.completion import Completion as _Comp
             sw_exec = await self._writes.get(_AE, str(self.current_execution.id))
-            sw_comp = await self._writes.get(_Comp, str(self.system_completion.id))
+            sw_comp = await self._writes.get(_Comp, str(self.system_completion_id))
             if sw_exec and sw_comp:
                 await self.project_manager.rebuild_completion_from_blocks(
                     self._writes, sw_comp, sw_exec
@@ -3797,7 +3806,7 @@ class AgentV2:
         # and the worker-thread judge (asyncio.to_thread copies the context).
         _attr_org = str(getattr(self.organization, "id", "") or "") or None
         _attr_user = str(getattr(self.head_completion, "user_id", "") or "") or None
-        _attr_report = str(self.report.id) if self.report else None
+        _attr_report = str(self.report_id) if self.report else None
         _single_ds = self.data_sources[0] if len(self.data_sources) == 1 else None
         _attr_ds = str(getattr(_single_ds, "id", "")) if _single_ds is not None else None
         # When the run started under the Auto router, stamp every LLM usage
@@ -3818,17 +3827,17 @@ class AgentV2:
         try:
             import time as _time
             _t0 = _time.monotonic()
-            _rid = str(self.report.id)[:8] if self.report else "?"
+            _rid = str(self.report_id)[:8] if self.report else "?"
             def _mlog(label):
                 logger.info(f"[agent:{_rid}] {label} +{(_time.monotonic()-_t0)*1000:.0f}ms")
 
             # Start agent execution tracking
             self.current_execution = await self.project_manager.start_agent_execution(
                 self.db,
-                completion_id=str(self.system_completion.id),
+                completion_id=str(self.system_completion_id),
                 organization_id=str(self.organization.id),
                 user_id=str(getattr(self.head_completion, 'user_id', None)) if hasattr(self.head_completion, 'user_id') and self.head_completion.user_id else None,
-                report_id=str(self.report.id) if self.report else None,
+                report_id=str(self.report_id) if self.report else None,
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
@@ -3847,7 +3856,7 @@ class AgentV2:
                 "agent_execution_started",
                 {
                     "agent_execution_id": str(self.current_execution.id),
-                    "report_id": str(self.report.id) if self.report else None,
+                    "report_id": str(self.report_id) if self.report else None,
                     "model_id": self.model.model_id if self.model else None,
                 },
             ))
@@ -3905,7 +3914,7 @@ class AgentV2:
             with tracer.start_as_current_span("agent.context_initial_load") as span:
                 span.set_attribute("agent.context.phase", "initial_prime_and_refresh")
                 if self.report is not None:
-                    span.set_attribute("report.id", str(self.report.id))
+                    span.set_attribute("report.id", str(self.report_id))
                 await asyncio.gather(
                     self.context_hub.prime_static(query=prompt_text),
                     self.context_hub.refresh_warm(),
@@ -3926,7 +3935,7 @@ class AgentV2:
                     seq_inst = await self.project_manager.next_seq(self.db, self.current_execution)
                     await self._emit_sse_event(SSEEvent(
                         event="instructions.context",
-                        completion_id=str(self.system_completion.id),
+                        completion_id=str(self.system_completion_id),
                         agent_execution_id=str(self.current_execution.id),
                         seq=seq_inst,
                         data={
@@ -4004,7 +4013,7 @@ class AgentV2:
             # Compute previous tool call before this user message (DB-based, robust)
             prev_tool_name_before_last_user = None
             try:
-                report_id = str(self.report.id) if self.report else None
+                report_id = str(self.report_id) if self.report else None
                 completion_created_at = getattr(self.system_completion, "created_at", None)
                 if report_id:
                     stmt = (
@@ -4282,7 +4291,7 @@ class AgentV2:
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
                             notes_enabled=getattr(self, "_notes_enabled", False),
-                            notes_context=(await build_notes_context(self.db, str(self.report.id)) if getattr(self, "_notes_enabled", False) and self.report else None),
+                            notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
                             project_context=(await self._build_project_context()),
                             web_search_enabled=self._web_search_enabled(),
                             web_search_domains=self._web_search_domains(),
@@ -4336,7 +4345,7 @@ class AgentV2:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)
                             await self._emit_sse_event(SSEEvent(
                                 event="planner.retry",
-                                completion_id=str(self.system_completion.id),
+                                completion_id=str(self.system_completion_id),
                                 agent_execution_id=str(self.current_execution.id),
                                 seq=seq,
                                 data={
@@ -4366,7 +4375,7 @@ class AgentV2:
                     try:
                         await self._emit_sse_event(SSEEvent(
                             event="block.upsert",
-                            completion_id=str(self.system_completion.id),
+                            completion_id=str(self.system_completion_id),
                             agent_execution_id=str(self.current_execution.id),
                             seq=pre_seq,
                             data={"block": {
@@ -4410,7 +4419,7 @@ class AgentV2:
                         plan_streamer = PlanningTextStreamer(
                             emit=self._emit_sse_event,
                             seq_fn=_next_seq,
-                            completion_id=str(self.system_completion.id),
+                            completion_id=str(self.system_completion_id),
                             agent_execution_id=str(self.current_execution.id),
                             block_id=current_block_id,
                             persist=_persist_partials,
@@ -4433,7 +4442,7 @@ class AgentV2:
                             )
                             await self._emit_sse_event(SSEEvent(
                                 event="block.upsert",
-                                completion_id=str(self.system_completion.id),
+                                completion_id=str(self.system_completion_id),
                                 agent_execution_id=str(self.current_execution.id),
                                 seq=_c_seq,
                                 data={"block": {
@@ -4547,7 +4556,7 @@ class AgentV2:
                                 _ws_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="block.upsert",
-                                    completion_id=str(self.system_completion.id),
+                                    completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=_ws_seq,
                                     data={"block": _ws_schema.model_dump()},
@@ -4599,7 +4608,7 @@ class AgentV2:
                                 event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="decision.partial",
-                                    completion_id=str(self.system_completion.id),
+                                    completion_id=str(self.system_completion_id),
                                     agent_execution_id=str(self.current_execution.id),
                                     seq=event_seq,
                                     data={
@@ -4780,7 +4789,7 @@ class AgentV2:
                                         seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                         await self._emit_sse_event(SSEEvent(
                                             event="llm.error",
-                                            completion_id=str(self.system_completion.id),
+                                            completion_id=str(self.system_completion_id),
                                             agent_execution_id=str(self.current_execution.id),
                                             seq=seq,
                                             data={**llm_err_payload, "context": "planner", "attempt": invalid_retry_count + 1},
@@ -4842,7 +4851,7 @@ class AgentV2:
                                             if self.event_queue:
                                                 await self.event_queue.put(SSEEvent(
                                                     event="completion.finished",
-                                                    completion_id=str(self.system_completion.id),
+                                                    completion_id=str(self.system_completion_id),
                                                     data={
                                                         "status": "error",
                                                         "error": {**(llm_err_payload or {"code": "validation_error", "summary": _final_msg, "provider_message": err_msg or ""}), "message": _final_msg},
@@ -4855,7 +4864,7 @@ class AgentV2:
                                                 if self.event_queue:
                                                     await self.event_queue.put(SSEEvent(
                                                         event="completion.finished",
-                                                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                                                        completion_id=str(self.system_completion_id) if self.system_completion else None,
                                                         data={
                                                             "status": "error",
                                                             "error": {**(llm_err_payload or {}), "message": err_msg or "Planner failed"},
@@ -4877,7 +4886,7 @@ class AgentV2:
                                     seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                     await self._emit_sse_event(SSEEvent(
                                         event="planner.retry",
-                                        completion_id=str(self.system_completion.id),
+                                        completion_id=str(self.system_completion_id),
                                         agent_execution_id=str(self.current_execution.id),
                                         seq=seq,
                                         data={
@@ -4919,7 +4928,7 @@ class AgentV2:
                             # Emit decision.final FIRST — UI renders immediately, no DB wait.
                             await self._emit_sse_event(SSEEvent(
                                 event="decision.final",
-                                completion_id=str(self.system_completion.id),
+                                completion_id=str(self.system_completion_id),
                                 agent_execution_id=str(self.current_execution.id),
                                 seq=event_seq,
                                 data={
@@ -4957,7 +4966,7 @@ class AgentV2:
                                         )
                                         await self._emit_sse_event(SSEEvent(
                                             event="block.upsert",
-                                            completion_id=str(self.system_completion.id),
+                                            completion_id=str(self.system_completion_id),
                                             agent_execution_id=str(self.current_execution.id),
                                             seq=_blk_seq,
                                             data={"block": block_schema.model_dump()}
@@ -4994,7 +5003,7 @@ class AgentV2:
                                         _bseq = await self.project_manager.next_seq(self.db, self.current_execution)
                                         await self._emit_sse_event(SSEEvent(
                                             event="block.upsert",
-                                            completion_id=str(self.system_completion.id),
+                                            completion_id=str(self.system_completion_id),
                                             agent_execution_id=str(self.current_execution.id),
                                             seq=_bseq,
                                             data={"block": _bs.model_dump()},
@@ -5015,7 +5024,7 @@ class AgentV2:
                                     )
                                     await self._emit_sse_event(SSEEvent(
                                         event="agent.warning",
-                                        completion_id=str(self.system_completion.id),
+                                        completion_id=str(self.system_completion_id),
                                         agent_execution_id=str(self.current_execution.id),
                                         seq=_warn_seq,
                                         data={"message": "Planning state could not be persisted; retrying may help"},
@@ -5091,7 +5100,7 @@ class AgentV2:
                                     if self.event_queue:
                                         await self.event_queue.put(SSEEvent(
                                             event="completion.finished",
-                                            completion_id=str(self.system_completion.id),
+                                            completion_id=str(self.system_completion_id),
                                             data={"status": "success"}
                                         ))
                                     completion_finished_emitted = True
@@ -5148,7 +5157,7 @@ class AgentV2:
                                             if self.event_queue:
                                                 await self.event_queue.put(SSEEvent(
                                                     event="completion.finished",
-                                                    completion_id=str(self.system_completion.id),
+                                                    completion_id=str(self.system_completion_id),
                                                     data={"status": "error",
                                                           "error": {**_np_err, "message": _np_msg}},
                                                 ))
@@ -5165,7 +5174,7 @@ class AgentV2:
                                     seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                     await self._emit_sse_event(SSEEvent(
                                         event="planner.retry",
-                                        completion_id=str(self.system_completion.id),
+                                        completion_id=str(self.system_completion_id),
                                         agent_execution_id=str(self.current_execution.id),
                                         seq=seq,
                                         data={
@@ -5202,7 +5211,7 @@ class AgentV2:
                                             _eb_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                             await self._emit_sse_event(SSEEvent(
                                                 event="block.upsert",
-                                                completion_id=str(self.system_completion.id),
+                                                completion_id=str(self.system_completion_id),
                                                 agent_execution_id=str(self.current_execution.id),
                                                 seq=_eb_seq,
                                                 data={"block": _eb_schema.model_dump()},
@@ -5320,7 +5329,7 @@ class AgentV2:
                                     seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                     await self._emit_sse_event(SSEEvent(
                                         event="tool.started",
-                                        completion_id=str(self.system_completion.id),
+                                        completion_id=str(self.system_completion_id),
                                         agent_execution_id=str(self.current_execution.id),
                                         seq=seq,
                                         data={
@@ -5417,7 +5426,7 @@ class AgentV2:
                                         seq_ev = await self.project_manager.next_seq(self.db, self.current_execution)
                                         await self._emit_sse_event(SSEEvent(
                                             event=ev.get("type", "tool.progress"),
-                                            completion_id=str(self.system_completion.id),
+                                            completion_id=str(self.system_completion_id),
                                             agent_execution_id=str(self.current_execution.id),
                                             seq=seq_ev,
                                             data={
@@ -5438,7 +5447,7 @@ class AgentV2:
                                     span.set_attribute("tool.name", tool_name)
                                     span.set_attribute("agent.loop_index", loop_index)
                                     if self.report is not None:
-                                        span.set_attribute("report.id", str(self.report.id))
+                                        span.set_attribute("report.id", str(self.report_id))
                                     if tool_execution is not None:
                                         span.set_attribute("tool_execution.id", str(tool_execution.id))
                                     tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
@@ -5614,7 +5623,7 @@ class AgentV2:
                                     # bg session so they share a transaction-ish boundary.
                                     # The block.upsert SSE moves into the bg task too —
                                     # serialize_block_v2 needs the block in DB.
-                                    _bg_comp_id = str(self.system_completion.id)
+                                    _bg_comp_id = str(self.system_completion_id)
                                     _bg_exec_id = str(self.current_execution.id)
                                     _bg_tool_exec = tool_execution  # in-memory, configured
 
@@ -5729,7 +5738,7 @@ class AgentV2:
                                             safe_result_json = {"summary": observation.get("summary", "") if observation else ""}
                                     await self._emit_sse_event(SSEEvent(
                                         event="tool.finished",
-                                        completion_id=str(self.system_completion.id),
+                                        completion_id=str(self.system_completion_id),
                                         agent_execution_id=str(self.current_execution.id),
                                         seq=seq_fin,
                                         data={
@@ -5765,7 +5774,7 @@ class AgentV2:
                                             seq_ti = await self.project_manager.next_seq(self.db, self.current_execution)
                                             await self._emit_sse_event(SSEEvent(
                                                 event="instructions.context",
-                                                completion_id=str(self.system_completion.id),
+                                                completion_id=str(self.system_completion_id),
                                                 agent_execution_id=str(self.current_execution.id),
                                                 seq=seq_ti,
                                                 data={
@@ -5913,7 +5922,7 @@ class AgentV2:
                                                     seq_blk = await self.project_manager.next_seq(self.db, self.current_execution)
                                                     await self._emit_sse_event(SSEEvent(
                                                         event="block.upsert",
-                                                        completion_id=str(self.system_completion.id),
+                                                        completion_id=str(self.system_completion_id),
                                                         agent_execution_id=str(self.current_execution.id),
                                                         seq=seq_blk,
                                                         data={"block": block_schema.model_dump()}
@@ -5937,7 +5946,7 @@ class AgentV2:
                                         if self.event_queue:
                                             await self.event_queue.put(SSEEvent(
                                                 event="completion.finished",
-                                                completion_id=str(self.system_completion.id),
+                                                completion_id=str(self.system_completion_id),
                                                 data={"status": "success"}
                                             ))
                                         completion_finished_emitted = True
@@ -6079,7 +6088,7 @@ class AgentV2:
                             seq = await self.project_manager.next_seq(self.db, self.current_execution)
                             await self._emit_sse_event(SSEEvent(
                                 event="planner.retry",
-                                completion_id=str(self.system_completion.id),
+                                completion_id=str(self.system_completion_id),
                                 agent_execution_id=str(self.current_execution.id),
                                 seq=seq,
                                 data={
@@ -6223,10 +6232,10 @@ class AgentV2:
 
                     # Capture the report id as a plain string NOW, while self.db is
                     # still open. _generate_title_background re-fetches by this id in
-                    # its own session, so reading self.report.id later (after the
+                    # its own session, so reading self.report_id later (after the
                     # session closes) can't raise "Instance is not bound to a Session"
                     # (the bug that silently skipped title generation, esp. on Postgres).
-                    report_id_for_title = str(self.report.id)
+                    report_id_for_title = str(self.report_id)
 
                     await self._generate_title_background(messages_context, plan_info, report_id_for_title)
             except Exception as e:
@@ -6284,7 +6293,7 @@ class AgentV2:
                 if self.report is not None:
                     await self.db.execute(
                         sa_update(Report)
-                        .where(Report.id == str(self.report.id))
+                        .where(Report.id == str(self.report_id))
                         .values(last_activity_at=datetime.utcnow())
                     )
                     await self.db.commit()
@@ -6357,7 +6366,7 @@ class AgentV2:
                 if self.event_queue:
                     finished_event = SSEEvent(
                         event="completion.finished",
-                        completion_id=str(self.system_completion.id),
+                        completion_id=str(self.system_completion_id),
                         data=(
                             {"status": completion_status, "error": _finished_error}
                             if _finished_error else {"status": completion_status}
@@ -6434,7 +6443,7 @@ class AgentV2:
                 if self.event_queue:
                     await self.event_queue.put(SSEEvent(
                         event="completion.finished",
-                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        completion_id=str(self.system_completion_id) if self.system_completion else None,
                         data={
                             "status": "error",
                             "error": error_payload,
@@ -6546,7 +6555,7 @@ class AgentV2:
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
             notes_enabled=_notes_on,
-            notes_context=(await build_notes_context(self.db, str(self.report.id)) if _notes_on and self.report else None),
+            notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),
             project_context=(await self._build_project_context()),
             web_search_enabled=self._web_search_enabled(),
             web_search_domains=self._web_search_domains(),
@@ -6615,7 +6624,7 @@ class AgentV2:
             if loop_index is not None:
                 span.set_attribute("agent.loop_index", loop_index)
             if self.report is not None:
-                span.set_attribute("report.id", str(self.report.id))
+                span.set_attribute("report.id", str(self.report_id))
             await self.context_hub.refresh_warm()
             view = self.context_hub.get_view()
             # Compaction rides on context assembly: every agent-path warm build
@@ -6659,7 +6668,7 @@ class AgentV2:
             if loop_index is not None:
                 span.set_attribute("agent.loop_index", loop_index)
             if self.report is not None:
-                span.set_attribute("report.id", str(self.report.id))
+                span.set_attribute("report.id", str(self.report_id))
             return await self.context_hub.build_context()
 
     async def _iter_planner_events_with_span(self, planner_input: PlannerInput, loop_index: int):
@@ -6673,7 +6682,7 @@ class AgentV2:
         span.set_attribute("agent.mode", self.mode or "")
         span.set_attribute("agent.tool_catalog.size", len(self.planner.tool_catalog or []))
         if self.report is not None:
-            span.set_attribute("report.id", str(self.report.id))
+            span.set_attribute("report.id", str(self.report_id))
         if self.model is not None:
             span.set_attribute("llm.model_id", getattr(self.model, "model_id", "") or "")
         counts: dict[str, int] = {}
@@ -6741,7 +6750,7 @@ class AgentV2:
                 try:
                     await self.event_queue.put(SSEEvent(
                         event="training.build_finalized",
-                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        completion_id=str(self.system_completion_id) if self.system_completion else None,
                         data={
                             "build_id": self.training_build_id,
                             "status": build.status if build else "draft",
@@ -6758,7 +6767,7 @@ class AgentV2:
                 try:
                     await self.event_queue.put(SSEEvent(
                         event="training.build_error",
-                        completion_id=str(self.system_completion.id) if self.system_completion else None,
+                        completion_id=str(self.system_completion_id) if self.system_completion else None,
                         data={
                             "build_id": self.training_build_id,
                             "error": str(e),
@@ -6782,11 +6791,11 @@ class AgentV2:
             evaluator = InstructionTriggerEvaluator(
                 db=self.db,
                 organization_settings=self.organization_settings,
-                report_id=str(self.report.id) if self.report else None,
+                report_id=str(self.report_id) if self.report else None,
                 current_execution_id=str(self.current_execution.id) if self.current_execution else None,
                 user_message=user_message,
                 mode=self.mode,
-                completion_id=str(self.system_completion.id) if self.system_completion else None,
+                completion_id=str(self.system_completion_id) if self.system_completion else None,
             )
             return await evaluator.evaluate(prev_tool_name_before_last_user)
         except Exception:
@@ -6996,8 +7005,8 @@ class AgentV2:
         cur_viz_id = str(inv.current_visualization.id) if getattr(inv, 'current_visualization', None) else None
         cur_query_id = str(inv.current_query.id) if getattr(inv, 'current_query', None) else None
         exec_id = str(self.current_execution.id) if getattr(self, 'current_execution', None) else None
-        report_id = str(self.report.id) if self.report else None
-        sys_completion_id = str(self.system_completion.id) if self.system_completion else None
+        report_id = str(self.report_id) if self.report else None
+        sys_completion_id = str(self.system_completion_id) if self.system_completion else None
         widget_id_for_artifact = str(inv.current_widget.id) if getattr(inv, 'current_widget', None) else None
 
         try:
@@ -7332,8 +7341,8 @@ class AgentV2:
         step_id = inv.current_step_id
         viz_id = str(inv.current_visualization.id) if getattr(inv, 'current_visualization', None) else None
         exec_id = str(self.current_execution.id) if getattr(self, 'current_execution', None) else None
-        report_id = str(self.report.id) if self.report else None
-        sys_completion_id = str(self.system_completion.id) if self.system_completion else None
+        report_id = str(self.report_id) if self.report else None
+        sys_completion_id = str(self.system_completion_id) if self.system_completion else None
         head_user_id = str(getattr(self.head_completion, 'user_id', None)) if (
             self.head_completion and getattr(self.head_completion, 'user_id', None)
         ) else None

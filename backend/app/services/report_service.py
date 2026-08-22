@@ -3092,6 +3092,24 @@ class ReportService:
         if not report.refresh_on_view:
             return _skip("not enabled")
 
+        # An agent run in flight on this report owns its step graph: an owner
+        # rerun underneath it races the agent's step writes (both sides fail)
+        # and its commits expire the agent's cached ORM state mid-loop. Skip —
+        # the agent's own run leaves the data fresh anyway. Age-bounded so an
+        # orphaned in_progress row can't disable refresh-on-view forever.
+        from datetime import timedelta as _td
+        from app.models.completion import Completion as _Completion
+        active = (await db.execute(
+            select(func.count(_Completion.id)).where(
+                _Completion.report_id == str(report_id),
+                _Completion.role == 'system',
+                _Completion.status == 'in_progress',
+                _Completion.created_at >= datetime.utcnow() - _td(minutes=30),
+            )
+        )).scalar() or 0
+        if active:
+            return _skip("agent run in progress")
+
         # Staleness gate. last_run_at is written as naive UTC (datetime.utcnow).
         if report.last_run_at is not None:
             age = (datetime.utcnow() - report.last_run_at).total_seconds()
