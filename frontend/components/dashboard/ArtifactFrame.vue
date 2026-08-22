@@ -134,6 +134,26 @@
           </a>
         </UTooltip>
 
+        <!-- View as (page artifacts only): preview the dashboard as an
+             anonymous viewer. Identity-only — data is unaffected. -->
+        <UTooltip
+          v-if="canViewAs"
+          :text="viewAsAnonymous ? 'Back to your view' : 'View as anonymous viewer — previews personalization, not data access'"
+        >
+          <button
+            @click="toggleViewAs"
+            :class="[
+              'text-lg items-center flex gap-1 px-2 py-1 rounded transition-colors',
+              viewAsAnonymous
+                ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 ring-1 ring-indigo-300'
+                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
+            ]"
+          >
+            <Icon :name="viewAsAnonymous ? 'heroicons:eye-slash' : 'heroicons:eye'" class="w-3.5 h-3.5" :class="viewAsAnonymous ? 'text-indigo-600' : 'text-gray-500 dark:text-gray-400'" />
+            <span v-if="viewAsAnonymous" class="text-xs text-indigo-600 font-medium">Anonymous</span>
+          </button>
+        </UTooltip>
+
         <!-- Share Dashboard -->
         <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
       </div>
@@ -141,6 +161,16 @@
 
     <!-- Iframe Container -->
     <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+      <!-- View-as banner: keep the simulated view unmistakable, and be honest
+           about its scope (identity only — data is not re-scoped). -->
+      <div
+        v-if="viewAsAnonymous && canViewAs"
+        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs"
+      >
+        <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
+        <span>Viewing as anonymous — previews personalization only, not data access</span>
+        <button @click="toggleViewAs" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
+      </div>
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
@@ -632,6 +662,24 @@ async function fetchViewerContext() {
   }
 }
 
+// "View as" preview (page artifacts): render the dashboard as an anonymous
+// viewer would see it. IDENTITY ONLY — current_user becomes null, but the
+// data payload is untouched: per-viewer data scoping happens server-side
+// (viewer runs / RLS), so this must never be presented as an access check.
+const viewAsAnonymous = ref(false);
+const canViewAs = computed(() =>
+  selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
+const effectiveViewerContext = computed(() =>
+  viewAsAnonymous.value ? null : viewerContext.value);
+function toggleViewAs() {
+  viewAsAnonymous.value = !viewAsAnonymous.value;
+}
+// Swapping identity re-sends data into an already-mounted iframe (srcdoc also
+// recomputes, but postMessage covers the no-reload path).
+watch(viewAsAnonymous, () => {
+  if (iframeReady.value) sendDataToIframe();
+});
+
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
@@ -1041,6 +1089,7 @@ watch(selectedArtifactId, async (newId, oldId) => {
   if (oldId === undefined) return;
   iframeError.value = null;
   iframeReady.value = false;
+  viewAsAnonymous.value = false;
   if (isPolishMode.value) exitPolishMode();
   await fetchSelectedArtifact();
   // Only refetch data if this is a user-initiated change (not initial load)
@@ -1082,7 +1131,7 @@ function sendDataToIframe() {
     report: toRaw(reportData.value),
     visualizations: toRaw(visualizationsData.value),
     files: toRaw(filesData.value),
-    current_user: toRaw(viewerContext.value)
+    current_user: toRaw(effectiveViewerContext.value)
   }));
 
   try {
@@ -1532,7 +1581,7 @@ const iframeSrcdoc = computed(() => {
       report: reportData.value,
       visualizations: visualizationsData.value,
       files: filesData.value,
-      current_user: viewerContext.value,
+      current_user: effectiveViewerContext.value,
     },
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
