@@ -356,6 +356,47 @@ class CreateArtifactTool(Tool):
         """
         return [e for e in (errors or []) if not e.startswith("[console.error]")]
 
+    @staticmethod
+    def params_wiring_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+        """Contract check: declared input params must be WIRED in the code.
+
+        A dashboard whose queries declare input parameters but whose code never
+        calls useParams()/setParam renders controls that only mutate local
+        state — selecting a value silently never re-runs the data. Returns
+        synthetic repair errors (empty when satisfied) that ride the same
+        repair loop as render errors. Identity params are exempt: they render
+        as a badge, not a control.
+        """
+        names: List[str] = []
+        seen: set = set()
+        for v in (artifact_data or {}).get("visualizations") or []:
+            for p in (v.get("parameters") or []) if isinstance(v, dict) else []:
+                name = p.get("name") if isinstance(p, dict) else None
+                if not name or name in seen or (p.get("source") or "input") == "identity":
+                    continue
+                seen.add(name)
+                names.append(name)
+        if not names:
+            return []
+        src = code or ""
+        if "useParams" not in src or "setParam" not in src:
+            return [
+                "[params contract] This dashboard's queries declare input parameter(s) "
+                f"{', '.join(names)}, but the code never calls useParams()/setParam — a "
+                "control that only sets local React state never re-runs the data. Wire "
+                "every param control to useParams().setParam('<name>', value) — bind "
+                "option.value (never the label), drive a loading state from "
+                "useParams().loading, and render useParams().error when set."
+            ]
+        missing = [n for n in names if n not in src]
+        if missing:
+            return [
+                "[params contract] Parameter(s) " + ", ".join(missing) + " are declared "
+                "by this dashboard's queries but never referenced in the code — each "
+                "needs a control wired to useParams().setParam('<name>', value)."
+            ]
+        return []
+
     async def _fix_code(
         self,
         code: str,
@@ -626,15 +667,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             return
         screenshot, errors = await self._take_preview_screenshot(html)
         fatal = self.fatal_render_errors(errors)
+        # Params-wiring contract rides the same repair loop: an unwired param
+        # renders fine but silently never re-runs the data — as much a defect
+        # as a thrown error, and fixable by the same in-tool repair.
+        wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
 
         original_code = code
         original_screenshot = screenshot
         original_errors = errors
+        original_wiring = list(wiring)
         candidate = code
         attempts = 0
 
         while (
-            fatal
+            (fatal or wiring)
             and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
@@ -642,9 +688,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             attempts += 1
             yield ToolProgressEvent(
                 type="tool.progress",
-                payload={"stage": "repairing_code", "attempt": attempts, "error_count": len(fatal)},
+                payload={"stage": "repairing_code", "attempt": attempts, "error_count": len(fatal) + len(wiring)},
             )
-            fixed = await self._fix_code(candidate, errors, mode, runtime_ctx)
+            fixed = await self._fix_code(candidate, list(errors) + wiring, mode, runtime_ctx)
             if not fixed or fixed == candidate:
                 break
 
@@ -656,14 +702,19 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             screenshot, errors = await self._take_preview_screenshot(html)
             candidate = fixed
             fatal = self.fatal_render_errors(errors)
+            wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
 
         if not fatal:
+            # Render fatality decides candidate vs original; unconverged wiring
+            # only ANNOTATES — a rendering dashboard with a dead control still
+            # beats no dashboard, but the caller must be able to say so.
             yield {
                 "code": candidate,
                 "clean": True,
                 "screenshot": screenshot,
                 "errors": errors,
                 "repair_attempts": attempts,
+                "params_wiring_errors": wiring,
             }
         else:
             # Repair didn't converge — return the original, verified-broken
@@ -674,6 +725,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "screenshot": original_screenshot,
                 "errors": original_errors,
                 "repair_attempts": attempts,
+                "params_wiring_errors": original_wiring,
             }
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
@@ -1272,6 +1324,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         render_errors: list[str] = []
         render_clean = True
         repair_attempts = 0
+        params_wiring_errors: list[str] = []
         thumbnail_html: Optional[str] = None
         artifact_data: Optional[Dict[str, Any]] = None
 
@@ -1308,6 +1361,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 screenshot_base64 = _validate_result["screenshot"]
                 render_errors = list(_validate_result["errors"] or [])
                 repair_attempts = int(_validate_result["repair_attempts"] or 0)
+                params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
             try:
                 thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
             except Exception as e:
@@ -1546,6 +1600,18 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             observation["render_errors"] = render_errors
         if repair_attempts:
             observation["repair_attempts"] = repair_attempts
+        # Wiring contract unmet after the repair budget: the dashboard renders
+        # but its param control(s) are dead — say so instead of shipping it
+        # silently, so the planner can follow up with edit_artifact.
+        if params_wiring_errors:
+            observation["params_wired"] = False
+            observation["params_wiring_errors"] = params_wiring_errors
+            observation["summary"] = (
+                summary_msg
+                + " WARNING: declared query parameters are NOT wired to controls — "
+                "selecting a value will not re-run the data. Fix with edit_artifact: "
+                + params_wiring_errors[0]
+            )
 
         # Add preview screenshot for planner reflection (page mode)
         if _attach_screenshot:
@@ -2322,12 +2388,16 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
                 "control driving all of them) wired to useParams().setParam(name, value); an "
                 "optional param gets an 'All' choice that sets null; identity-source params get NO "
                 "input — show a small 'scoped to you' badge; show a subtle loading state while "
-                "useParams().loading is true. Do NOT emulate these with useFilters/client-side "
+                "useParams().loading is true, and ALWAYS render useParams().error when set (a "
+                "small banner/toast) — a failed re-run must never look like a stale table. "
+                "Do NOT emulate these with useFilters/client-side "
                 "filtering — the fresh rows arrive through useArtifactData() automatically. "
                 "A control's choice list must be STABLE: populate it from useParamOptions(name) "
                 "(declared options / options-source query, host-resolved) — NEVER derive choices "
                 "from the rows that control filters, or selecting a value collapses the list to "
-                "the current selection.\n"
+                "the current selection. Bind option.value into setParam — never the label. "
+                "A list-typed param renders as a MULTI-select (or checkable list) that submits "
+                "an ARRAY of option.value entries; empty selection = null (All).\n"
             )
 
         language_directive = build_language_directive(organization_settings)

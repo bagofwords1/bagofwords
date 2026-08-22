@@ -899,6 +899,20 @@ async function runParamQueries(
         return;
     }
     const changedNames = Object.keys(changes || {});
+    // Names no query declares would silently no-op — surface them instead
+    // (mirrors ArtifactFrame).
+    const declaredNames = new Set(
+        Object.values(queryParamSpecs.value).flatMap((specs: any) =>
+            (specs || []).map((s: any) => s.name)));
+    const unknown = changedNames.filter(n => !declaredNames.has(n));
+    if (unknown.length) {
+        postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: {
+            loading: false,
+            error: `Unknown parameter(s): ${unknown.join(', ')} — declared: ${[...declaredNames].join(', ') || 'none'}. ` +
+                'Controls must call setParam with a declared param name.',
+        }});
+        return;
+    }
     for (const name of changedNames) paramValues.value[name] = (changes as any)[name];
 
     let affected = Object.entries(queryParamSpecs.value)

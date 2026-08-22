@@ -84,14 +84,15 @@
           <div v-if="cardParamSpecs.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
             <label v-for="spec in editableCardSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
               <span class="text-[11px]">{{ spec.label || spec.name }}</span>
-              <select v-if="cardParamOptions[spec.name]" v-model="cardParamValues[spec.name]"
+              <select v-if="cardParamOptions[spec.name] && spec.type !== 'list'" v-model="cardParamValues[spec.name]"
                 class="px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900" :data-testid="`card-param-${spec.name}`">
                 <option :value="null">All</option>
                 <option v-for="o in cardParamOptions[spec.name]" :key="String(o.value)" :value="o.value">{{ o.label }}</option>
               </select>
               <input v-else v-model="cardParamValues[spec.name]"
-                class="w-28 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
-                :placeholder="spec.default != null ? String(spec.default) : 'All'" :data-testid="`card-param-${spec.name}`" />
+                class="w-32 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
+                :placeholder="spec.type === 'list' ? 'a, b, … (empty = All)' : (spec.default != null ? String(spec.default) : 'All')"
+                :data-testid="`card-param-${spec.name}`" />
             </label>
             <span v-for="spec in identityCardSpecs" :key="spec.name"
               class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-[10px]">
@@ -573,8 +574,15 @@ async function runCardParams() {
   try {
     const params: Record<string, any> = {}
     for (const s of editableCardSpecs.value) {
-      const v = cardParamValues.value[s.name]
-      if (v !== undefined && v !== '' && v !== null) params[s.name] = v
+      let v = cardParamValues.value[s.name]
+      if (v === undefined || v === '' || v === null) continue
+      // list-typed params submit arrays; the input takes comma-separated text
+      if (s.type === 'list' && typeof v === 'string') {
+        const items = v.split(',').map((x: string) => x.trim()).filter(Boolean)
+        if (!items.length) continue
+        v = items
+      }
+      params[s.name] = v
     }
     const { data, error } = await useMyFetch(`/api/queries/${queryId.value}/run`, {
       method: 'POST', body: { mode: 'viewer', params },
@@ -597,9 +605,25 @@ function formatAppliedParams(applied: Record<string, any>): string {
     .join(', ')
 }
 
+function seedCardValuesFromApplied() {
+  // The inputs must agree with the data below them: seed from the snapshot's
+  // applied values so a Rock-filtered snapshot shows Rock selected, not an
+  // empty "All" placeholder contradicting the rows.
+  const applied = cardAppliedParams.value || {}
+  for (const s of editableCardSpecs.value) {
+    if (cardParamValues.value[s.name] !== undefined) continue
+    const av = (applied as any)[s.name]
+    if (av === null || av === undefined) continue
+    cardParamValues.value[s.name] = Array.isArray(av) ? av.join(', ') : av
+  }
+}
+
 onMounted(async () => {
   await ensureCardParams()
-  if (cardParamSpecs.value.length) await resolveCardOptions()
+  if (cardParamSpecs.value.length) {
+    seedCardValuesFromApplied()
+    await resolveCardOptions()
+  }
 })
 const hydratedVisualization = ref<any | null>(null)
 

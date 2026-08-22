@@ -1222,6 +1222,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         screenshot_base64: Optional[str] = None
         render_errors: list[str] = []
         render_repair_attempts = 0
+        params_wiring_errors: list[str] = []
         page_artifact_data: Optional[Dict[str, Any]] = None
 
         if artifact.mode == "page":
@@ -1257,6 +1258,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     screenshot_base64 = _validate_result["screenshot"]
                     render_errors = list(_validate_result["errors"] or [])
                     render_repair_attempts = int(_validate_result["repair_attempts"] or 0)
+                    params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
                 else:
                     _fatal = self._create_tool.fatal_render_errors(_validate_result["errors"] or [])
                     _first_error = _fatal[0] if _fatal else "unknown render error"
@@ -1534,6 +1536,16 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             observation["render_errors"] = render_errors
         if render_repair_attempts:
             observation["repair_attempts"] = render_repair_attempts
+        # Wiring contract unmet after the repair budget — annotate loudly so
+        # the planner can follow up rather than shipping a dead control.
+        if params_wiring_errors:
+            observation["params_wired"] = False
+            observation["params_wiring_errors"] = params_wiring_errors
+            observation["summary"] = (
+                observation.get("summary", "")
+                + " WARNING: declared query parameters are NOT wired to controls — "
+                "selecting a value will not re-run the data. " + params_wiring_errors[0]
+            )
         if _pptx_repair_attempts:
             observation["repair_attempts"] = _pptx_repair_attempts
 

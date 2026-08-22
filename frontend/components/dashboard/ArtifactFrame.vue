@@ -877,6 +877,20 @@ async function runParamQueries(
   opts: { force?: boolean; identityOnly?: boolean } = {},
 ) {
   const changedNames = Object.keys(changes || {});
+
+  // A name no query declares would silently no-op (nothing to run) — the
+  // classic generated-code bug of setParam('genre') vs a declared genre_id.
+  // Fail loudly into the params status channel instead.
+  const declaredNames = new Set(
+    Object.values(queryParamSpecs.value).flatMap((specs: any) =>
+      (specs || []).map((s: any) => s.name)));
+  const unknown = changedNames.filter(n => !declaredNames.has(n));
+  if (unknown.length) {
+    postParamsStatus(false,
+      `Unknown parameter(s): ${unknown.join(', ')} — declared: ${[...declaredNames].join(', ') || 'none'}. ` +
+      'Controls must call setParam with a declared param name.');
+    return;
+  }
   for (const name of changedNames) paramValues.value[name] = (changes as any)[name];
 
   let affected = Object.entries(queryParamSpecs.value)
