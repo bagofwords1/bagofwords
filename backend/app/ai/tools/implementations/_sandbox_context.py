@@ -144,3 +144,90 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "All globals (React, echarts, EChart, LoadingSpinner, useArtifactData, useFilters, useState, useEffect, useRef, useMemo, useCallback) are always available at runtime. "
     "NEVER destructure hooks from React (e.g. 'const { useState } = React') — Babel standalone cannot parse it. Use hooks directly as globals."
 )
+
+
+# ---------------------------------------------------------------------------
+# Identity context: injected into create/edit artifact generation prompts
+# (page mode) so the model can resolve identity intent against the org's
+# real vocabulary instead of guessing group names / attribute keys.
+# ---------------------------------------------------------------------------
+
+# The requester's example object shows the SHAPE; a handful of groups is
+# plenty for that (the runtime payload itself is capped separately).
+IDENTITY_EXAMPLE_MAX_GROUPS = 10
+# Org-wide group names let the model match groups the requester isn't in
+# (e.g. "show this section to Finance"). Capped — never the full directory.
+IDENTITY_ORG_MAX_GROUPS = 30
+
+
+async def build_identity_context(db, user, organization) -> str:
+    """Prompt section describing viewer identity for this org.
+
+    Contains the requesting user's own current_user object as ONE EXAMPLE
+    (their data, their generation request — same trust boundary as the rest
+    of the planner context) plus the org's group-name vocabulary. Values must
+    never be hardcoded by the model — the section says so explicitly, and the
+    validation render (current_user=null) surfaces baked-in names.
+
+    Returns "" on any failure or missing context: identity flavor must never
+    break artifact generation.
+    """
+    if db is None or user is None or organization is None:
+        return ""
+    try:
+        import json as _json
+
+        from sqlalchemy import select
+
+        from app.models.group import Group
+        from app.models.group_membership import GroupMembership
+        from app.models.membership import Membership
+
+        result = await db.execute(
+            select(Membership).where(
+                Membership.user_id == str(user.id),
+                Membership.organization_id == str(organization.id),
+            )
+        )
+        membership = result.scalars().first()
+
+        result = await db.execute(
+            select(Group.name)
+            .join(GroupMembership, GroupMembership.group_id == Group.id)
+            .where(
+                GroupMembership.user_id == str(user.id),
+                Group.organization_id == str(organization.id),
+            )
+            .order_by(Group.name)
+            .limit(IDENTITY_EXAMPLE_MAX_GROUPS)
+        )
+        user_groups = [r[0] for r in result.all()]
+
+        result = await db.execute(
+            select(Group.name)
+            .where(Group.organization_id == str(organization.id))
+            .order_by(Group.name)
+            .limit(IDENTITY_ORG_MAX_GROUPS)
+        )
+        org_groups = [r[0] for r in result.all()]
+
+        example = {
+            "id": str(user.id),
+            "name": getattr(user, "name", None),
+            "email": getattr(user, "email", None),
+            "role": membership.role if membership else None,
+            "profile_attributes": (membership.profile_attributes if membership else None) or None,
+            "groups": user_groups,
+        }
+        org_groups_line = (
+            f"\nOrg groups (first {IDENTITY_ORG_MAX_GROUPS}): {', '.join(org_groups)}"
+            if org_groups
+            else ""
+        )
+        return f"""
+**Viewer identity (current_user):** The requesting user's own object, as ONE EXAMPLE — every viewer gets their own values at render time, and anonymous viewers get `null`:
+{_json.dumps(example, default=str)}{org_groups_line}
+Use the example ONLY to learn the shape and which keys/groups exist in this org. NEVER hardcode these values into the artifact — always read `useCurrentUser()` at runtime (`u?.name`, `u?.groups`) so each viewer sees their own version, and keep every access null-guarded.
+Group checks are EXACT, case-sensitive string matches against the names above. When the user refers to a group loosely ("the leadership team", "managers"), find the closest name in the org groups list and use that EXACT string (e.g. `(u?.groups || []).includes('Leadership')`) — never the user's paraphrase. Only use a name outside the list if the user typed it verbatim and nothing in the list plausibly matches."""
+    except Exception:
+        return ""
