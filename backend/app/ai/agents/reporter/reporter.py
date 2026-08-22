@@ -35,6 +35,7 @@ class Reporter:
         {plan}
 
         Generate a title for the report. Should be concise and descriptive of the report. Not more than 5 words.
+        Title the SUBJECT of the report, never the person requesting it: no user names, emails, or possessives built from them ("Yochay's Album Catalog" -> "Album Catalog"). Reports are shared and viewed by many people; personalization happens inside dashboards at view time, not in titles.
         Write the title in the SAME language the user's messages above are written in — do not default to English. Keep code, table names, and identifiers as-is.
         {build_language_directive(self.organization_settings)}
         Your response should be just the title, nothing else. No quotes / markdown / etc.

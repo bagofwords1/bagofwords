@@ -31,7 +31,7 @@ class CreateArtifactInput(BaseModel):
         "Do NOT use this tool to modify an existing artifact; use edit_artifact instead. "
         "For a WRITTEN report/document/memo (not an interactive dashboard), use create_doc instead."
     ))
-    title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt.")
+    title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt. Must be viewer-agnostic: never a person's name/email or a possessive built from one ('Yochay's Catalog' -> 'Album Catalog') — artifacts are shared, and per-viewer personalization happens inside the artifact via current_user, not in its title.")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
     file_ids: Optional[List[str]] = Field(
         default=None,

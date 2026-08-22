@@ -1379,9 +1379,16 @@ async function useThisVersion() {
 }
 
 // Handle artifact:select event (select a specific artifact by ID)
-function handleArtifactSelect(event: Event) {
+async function handleArtifactSelect(event: Event) {
   const artifactId = (event as CustomEvent).detail?.artifact_id;
-  if (artifactId && artifactsList.value.some(a => a.id === artifactId)) {
+  if (!artifactId) return;
+  // Unknown id ≠ bad id: the list may simply be stale (artifact created while
+  // the pane was closed, a missed artifact:created event, another tab).
+  // Refresh once and retry instead of silently dropping the user's click.
+  if (!artifactsList.value.some(a => a.id === artifactId)) {
+    await fetchArtifactsList(true);
+  }
+  if (artifactsList.value.some(a => a.id === artifactId)) {
     selectedArtifactId.value = artifactId;
   }
 }
@@ -1454,7 +1461,10 @@ onMounted(async () => {
 async function fetchArtifactsList(force = false) {
   try {
     let artifacts: ArtifactItem[] | null = null;
-    if (!force && Array.isArray(props.artifacts)) {
+    // An EMPTY prop array is "not seeded yet", not an answer: the report page
+    // fetches the report once, so a pane opened after an artifact was created
+    // would otherwise trust a stale [] and show "No artifacts yet" forever.
+    if (!force && Array.isArray(props.artifacts) && props.artifacts.length > 0) {
       artifacts = props.artifacts;
     } else {
       const { data } = await useMyFetch(`/artifacts/report/${props.reportId}`);
