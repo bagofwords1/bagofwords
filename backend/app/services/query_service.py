@@ -395,10 +395,19 @@ class QueryService:
         await db.commit()
         await db.refresh(step)
 
-        # Execute code
-        # Load report context via widget relationship
-        await db.refresh(step, attribute_names=["widget"])
-        report = step.widget.report
+        # Execute code — load the report graph explicitly (lazy attribute
+        # access on widget.report dies in async for freshly created widgets).
+        report_stmt = (
+            select(Report)
+            .options(
+                lazyload("*"),
+                selectinload(Report.data_sources).options(lazyload("*")),
+                selectinload(Report.files).options(lazyload("*")),
+            )
+            .join(Widget, Widget.report_id == Report.id)
+            .where(Widget.id == str(q.widget_id))
+        )
+        report = (await db.execute(report_stmt)).scalar_one_or_none()
         if not report:
             raise ValueError("Report not found for step's widget")
 

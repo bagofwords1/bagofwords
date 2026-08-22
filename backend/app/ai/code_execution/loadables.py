@@ -271,18 +271,28 @@ class LoadablesResolver:
             if entity is None:
                 result["errors"].append(err)
                 continue
-            # Per-reader snapshot resolution: the cached grid is the OWNER's
-            # row slice on a user-scoped (user_required/RLS) source and must
-            # not be handed to another user's code execution.
-            from app.services.viewer_data_policy import entity_data_withheld
-            if await entity_data_withheld(self.db, entity, self.current_user):
+            # Per-reader snapshot resolution. Identity-parameterized entities
+            # resolve to the RUN USER's own slice (cached per viewer, executed
+            # with their identity binding on a miss); other entities serve the
+            # shared snapshot unless the credential policy withholds it.
+            from app.services.entity_service import EntityService
+            try:
+                data = await EntityService().resolve_entity_data_for_user(
+                    self.db, entity, self.organization, self.current_user
+                )
+            except Exception as e:
                 result["errors"].append(
-                    f"load_entity({key!r}): its cached data was materialized under "
-                    f"another user's credentials (user-scoped source) and is not "
-                    f"shareable. Query the source tables directly instead."
+                    f"load_entity({key!r}): failed to resolve the caller's slice: {str(e)[:200]}"
                 )
                 continue
-            result["entities"][key] = grid_to_df(entity.data)
+            if data is None:
+                result["errors"].append(
+                    f"load_entity({key!r}): its cached data was materialized under "
+                    f"another user's identity/credentials and is not shareable. "
+                    f"Query the source tables directly instead."
+                )
+                continue
+            result["entities"][key] = grid_to_df(data)
 
         return result
 

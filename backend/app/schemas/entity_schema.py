@@ -29,6 +29,9 @@ class EntityBase(BaseModel):
     tags: List[str] = Field(default_factory=list)
     code: str  # SQL or expression
     data: Dict[str, Any] = Field(default_factory=dict)
+    # Declared ParamSpec dicts + the values the shared snapshot ran with
+    parameters: Optional[list] = None
+    applied_params: Optional[Dict[str, Any]] = None
     data_model: Optional[Dict[str, Any]] = Field(default=None, alias="original_data_model")
     view: Optional[ViewSchema] = None
     status: str = "draft"  # 'draft' | 'published'

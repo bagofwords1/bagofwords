@@ -252,6 +252,17 @@ async def entity_data_withheld(
     owner_id = str(getattr(entity, "owner_id", "") or "")
     if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:
         return False
+    # Identity-parameterized entities: the shared snapshot is the owner's
+    # identity slice by construction — withhold it from every other reader
+    # (they resolve their own slice via entity_user_results).
+    try:
+        if any(
+            isinstance(p, dict) and p.get("source") == "identity"
+            for p in (getattr(entity, "parameters", None) or [])
+        ):
+            return True
+    except Exception:
+        pass
     ids = await _entity_data_source_ids(db, str(entity.id))
     return await _any_user_scoped_connection(db, ids) or await _any_rls_relation(db, ids)
 
