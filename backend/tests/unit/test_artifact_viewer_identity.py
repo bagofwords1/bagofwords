@@ -74,6 +74,13 @@ def test_no_baked_specifics_rules_present():
     assert "removing it entirely does not satisfy" in src
 
 
+def test_prompt_documents_rules_of_hooks():
+    """Hooks after an early return are silent in the baked-srcdoc runtime but
+    crash in postMessage runtimes — the contract must forbid the pattern."""
+    assert "RULES OF HOOKS" in SANDBOX_RUNTIME_PROMPT
+    assert "BEFORE any early return" in SANDBOX_RUNTIME_PROMPT
+
+
 def test_render_repair_attempt_budget():
     """Edits must not give up after a couple of repair rounds."""
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool

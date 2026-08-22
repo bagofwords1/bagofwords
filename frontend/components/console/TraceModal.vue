@@ -59,7 +59,7 @@
                     <div v-if="isConvLoading" class="flex-1 flex items-center justify-center">
                         <Spinner class="w-5 h-5 text-gray-400" />
                     </div>
-                    <div v-else class="flex-1 min-h-0 overflow-y-auto px-4 py-4 space-y-5">
+                    <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5">
                         <div v-for="(turn, i) in turns" :key="turn.completion_id || i"
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
                             <!-- User bubble -->
@@ -111,7 +111,7 @@
                     <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-800 text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400">Timeline</div>
                     <div v-if="isLoading" class="flex-1 flex items-center justify-center"><Spinner class="w-5 h-5 text-gray-400" /></div>
                     <div v-else-if="!visibleLeftItems.length" class="flex-1 flex items-center justify-center text-xs text-gray-400 dark:text-gray-500 px-4 text-center">Select a turn</div>
-                    <div v-else class="flex-1 min-h-0 overflow-y-auto p-3 space-y-1">
+                    <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-3 space-y-1">
                         <template v-for="item in visibleLeftItems" :key="item.id">
                             <div v-if="item.kind === 'section'"
                                  class="px-1 py-1 flex items-center gap-1 cursor-pointer text-[10px] text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 select-none"
@@ -181,7 +181,7 @@
                         </div>
                     </div>
 
-                    <div class="flex-1 min-h-0 overflow-y-auto p-5">
+                    <div class="flex-1 min-h-0 overflow-y-auto overscroll-contain p-5">
                         <!-- Loading -->
                         <div v-if="isLoading" class="h-full flex items-center justify-center">
                             <div class="text-center">
@@ -1218,10 +1218,20 @@ function shouldUseToolComponent(toolExecution: any): boolean {
     return getToolComponent(toolExecution.tool_name) !== null
 }
 
-// Watch for modal opening
+// Watch for modal opening. Also lock body scroll while open — the pages that
+// host this modal (diagnosis, report chat) scroll behind UModal's overlay
+// otherwise (same workaround as InstructionModalComponent).
 watch(() => props.modelValue, (newValue) => {
     if (newValue) {
         fetchConversation()
+        document.body.style.overflow = 'hidden'
+    } else {
+        document.body.style.overflow = ''
     }
+})
+
+onUnmounted(() => {
+    // Restore body scroll if the host page unmounts while the modal is open
+    document.body.style.overflow = ''
 })
 </script> 

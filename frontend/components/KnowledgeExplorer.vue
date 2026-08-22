@@ -204,10 +204,14 @@
           <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :disabled="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :disabled="needsSignIn(agent) && !canManageAgent(agent.id)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
-              <TreeGroup :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <!-- Content sections need a queryable agent, so they stay hidden while
+                   the viewer hasn't signed in with their own credentials. Settings
+                   (below) stays reachable for managers — deleting or reconfiguring
+                   an agent must not require personal credentials to it. -->
+              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -215,7 +219,7 @@
                 <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
+              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
                   <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" /></template>
@@ -229,7 +233,7 @@
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noToolsConnected')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="filesGroupCount(agent.id)" :indent="1" addable :active="panelView?.kind === 'files' && panelView?.agentId === agent.id" :open="isOpen('files:' + agent.id)" @toggle="onPanelRowClick('files', agent.id)" @add="triggerUpload(agent.id)">
+              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="filesGroupCount(agent.id)" :indent="1" addable :active="panelView?.kind === 'files' && panelView?.agentId === agent.id" :open="isOpen('files:' + agent.id)" @toggle="onPanelRowClick('files', agent.id)" @add="triggerUpload(agent.id)">
                 <!-- Directory connections: each glob rule, prefixed with its connection-type icon -->
                 <template v-for="fc in (agentFileConns[agent.id] || [])" :key="fc.id">
                   <div v-for="g in fc.globs" :key="fc.id + ':' + g"
@@ -258,7 +262,7 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
+              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <div>
@@ -273,7 +277,7 @@
                    the runs/self-learning panel, so the existing entry point is
                    not lost to the new hierarchy. -->
               <TreeGroup
-                v-if="canManageAgentEvals(agent.id)"
+                v-if="canManageAgentEvals(agent.id) && !needsSignIn(agent)"
                 :label="$t('agentsPage.evals')"
                 icon="i-heroicons-check-circle"
                 :indent="1"
@@ -2041,7 +2045,14 @@ const openAgent = async (id: string) => {
 // Close button: clear the view (the URL sync watcher drops the id from the URL).
 const exitAgentView = () => { closeAgentView() }
 const onAgentClick = (agent: any) => {
-  if (needsSignIn(agent)) { openAgentTab(agent.id); return }
+  if (needsSignIn(agent)) {
+    // Managers/admins keep an admin path without personal credentials: expand
+    // the node (which then shows only Settings) instead of forcing sign-in.
+    // The detail pane stays closed — it assumes a queryable agent. Everyone
+    // else goes to the sign-in flow, same as before.
+    if (canManageAgent(agent.id)) { expand('agent:' + agent.id); return }
+    openAgentTab(agent.id); return
+  }
   // Re-clicking the already-open agent just collapses its tree node; keeps the pane.
   if (agentView.value?.agentId === agent.id) { expand('agent:' + agent.id); return }
   if (!isOpen('agent:' + agent.id)) expand('agent:' + agent.id)
