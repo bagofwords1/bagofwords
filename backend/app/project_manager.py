@@ -464,15 +464,22 @@ class ProjectManager:
 
     async def update_query_parameters(self, db, step, parameters, applied_params=None):
         """Persist declared ParamSpec dicts onto the step's Query and the
-        resolved default values onto the Step itself."""
+        resolved default values onto the Step itself.
+
+        The Query is updated with a Core UPDATE, never by dirtying the ORM
+        object: Query.default_step_id and Step.query_id reference each other,
+        so a Query and a Step dirty in the same flush is a circular
+        dependency ("Circular dependency detected" at commit)."""
         step.applied_params = applied_params or None
         db.add(step)
         if getattr(step, "query_id", None):
+            from sqlalchemy import update as _update
             from app.models.query import Query as _Query
-            q = await db.get(_Query, str(step.query_id))
-            if q is not None:
-                q.parameters = list(parameters or []) or None
-                db.add(q)
+            await db.execute(
+                _update(_Query)
+                .where(_Query.id == str(step.query_id))
+                .values(parameters=list(parameters or []) or None)
+            )
         await db.commit()
         await db.refresh(step)
         return step

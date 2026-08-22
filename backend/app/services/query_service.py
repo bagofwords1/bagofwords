@@ -40,6 +40,30 @@ class QueryService:
     # Parameter helpers
     # ------------------------------------------------------------------
 
+    async def _report_data_sources(self, db: AsyncSession, report, organization_id: Optional[str]):
+        """Data sources whose clients a query run should construct.
+
+        Prefer the report's own association; fall back to the org's active
+        data sources — chat-created reports don't associate data sources with
+        the report row (the agent works org-level), and generated code
+        addresses clients by "<data source name>:<connection>" keys, so
+        constructing the org set resolves the same keys."""
+        ds_list = list(getattr(report, "data_sources", None) or [])
+        if ds_list:
+            return ds_list
+        org_id = organization_id or getattr(report, "organization_id", None)
+        if not org_id:
+            return []
+        from app.models.data_source import DataSource
+        # Model-default loader options: construct_clients touches relationship
+        # attributes (connections/credentials), which must arrive eagerly —
+        # lazy attribute IO dies in async.
+        stmt = select(DataSource).where(
+            DataSource.organization_id == str(org_id),
+            DataSource.deleted_at.is_(None),
+        )
+        return list((await db.execute(stmt)).scalars().unique().all())
+
     async def _resolve_identity_for(self, db: AsyncSession, user, organization_id: Optional[str]):
         """Full identity resolution (email, groups, profile attributes) via the
         single rls_identity_service authority. ANONYMOUS when no user."""
@@ -385,9 +409,12 @@ class QueryService:
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
-        for ds in report.data_sources:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
-            ds_clients.update(ds_conns)
+        for ds in await self._report_data_sources(db, report, organization_id):
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
+                ds_clients.update(ds_conns)
+            except Exception:
+                continue
         excel_files = report.files
         # Pre-resolve any load_step()/load_entity() refs in the saved code so
         # reruns of code that reuses prior results keep working.
@@ -562,18 +589,31 @@ class QueryService:
             }
 
         # Execute the default step's code with the resolved values, as the
-        # caller (their credentials on user-scoped connections).
-        await db.refresh(step, attribute_names=["widget"])
-        report = step.widget.report if step.widget else None
+        # caller (their credentials on user-scoped connections). Load the
+        # report graph explicitly — lazy attribute access dies in async.
+        report_stmt = (
+            select(Report)
+            .options(
+                lazyload("*"),
+                selectinload(Report.data_sources).options(lazyload("*")),
+                selectinload(Report.files).options(lazyload("*")),
+            )
+            .join(Widget, Widget.report_id == Report.id)
+            .where(Widget.id == str(step.widget_id))
+        )
+        report = (await db.execute(report_stmt)).scalar_one_or_none()
         if report is None:
             raise ValueError("Report not found for step's widget")
 
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         ds_clients = {}
-        for ds in report.data_sources:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=caller)
-            ds_clients.update(ds_conns)
+        for ds in await self._report_data_sources(db, report, organization_id):
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=caller)
+                ds_clients.update(ds_conns)
+            except Exception:
+                continue
 
         from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
         from app.models.organization import Organization
@@ -815,9 +855,12 @@ class QueryService:
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
-        for ds in report.data_sources:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
-            ds_clients.update(ds_conns)
+        for ds in await self._report_data_sources(db, report, organization_id):
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
+                ds_clients.update(ds_conns)
+            except Exception:
+                continue
         excel_files = report.files
         usage_context = self._usage_context(organization_id, user_id, source="query_preview", source_ref_id=query_id)
         # Pass organization_settings so widget serialization honors the org's

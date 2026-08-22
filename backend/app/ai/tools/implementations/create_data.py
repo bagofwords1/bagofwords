@@ -1708,12 +1708,15 @@ Do not use generic placeholders like "value" unless that is the actual column na
             from app.ai.code_execution.query_params import resolve_param_values as _resolve_pv
             _identity = None
             try:
-                _db = runtime_ctx.get("db")
                 _org = runtime_ctx.get("organization")
                 _usr = runtime_ctx.get("user")
-                if _db is not None and _org is not None and _usr is not None:
+                if _org is not None and _usr is not None:
+                    # Fresh short-lived session: create_data can run as a
+                    # parallel action, and the shared runtime_ctx session must
+                    # never be used from two concurrent tool runs.
                     from app.services.rls_identity_service import resolve_identity as _ri
-                    _identity = await _ri(_db, _usr, str(_org.id))
+                    async with async_session_maker() as _ident_db:
+                        _identity = await _ri(_ident_db, _usr, str(_org.id))
             except Exception:
                 _identity = None
             try:
