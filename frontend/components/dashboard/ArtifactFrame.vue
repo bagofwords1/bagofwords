@@ -184,7 +184,18 @@
         v-if="viewAsMode !== 'you' && canViewAs"
         class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 max-w-[90%]"
       >
-        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs">
+        <!-- Failed member fetch: never claim "Viewing as X" over an anonymous
+             payload — say what actually happened and offer a retry. -->
+        <div
+          v-if="previewViewerFailed"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500 text-white shadow-lg text-xs"
+        >
+          <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5" />
+          <span>Couldn't load {{ viewAsLabel }}'s identity — showing anonymous view</span>
+          <button @click="retryPreviewViewer" class="font-semibold underline underline-offset-2 hover:text-amber-100">Retry</button>
+          <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-amber-100">Exit</button>
+        </div>
+        <div v-else class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs">
           <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
           <span>Viewing as {{ viewAsLabel }}</span>
           <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
@@ -1156,6 +1167,11 @@ async function runAsViewer() {
 // reads must already be initialized.
 const viewAsMode = ref<string>('you');  // 'you' | 'anonymous' | <member user_id>
 const previewViewer = ref<any>(null);   // fetched context of the picked member
+// True when the picked member's viewer_context fetch failed or came back
+// empty. The render still falls back to anonymous (never the wrong person),
+// but the banner must SAY so — a banner claiming "Viewing as X" over an
+// anonymous payload silently misrepresents what's on screen.
+const previewViewerFailed = ref(false);
 const membersList = ref<any[]>([]);
 const canViewAs = computed(() =>
   selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
@@ -1201,15 +1217,29 @@ async function fetchMembersList() {
 }
 watch(canViewAs, (v) => { if (v) fetchMembersList(); }, { immediate: true });
 
+async function fetchPreviewViewer(memberId: string) {
+  previewViewerFailed.value = false;
+  try {
+    const { data, error } = await useMyFetch(`/api/users/${memberId}/viewer_context`);
+    previewViewer.value = (!error.value && data.value) ? data.value : null;
+  } catch {
+    previewViewer.value = null;
+  }
+  if (!previewViewer.value) previewViewerFailed.value = true;
+}
+
+async function retryPreviewViewer() {
+  const mode = viewAsMode.value;
+  if (mode === 'you' || mode === 'anonymous') return;
+  await fetchPreviewViewer(mode);
+  if (iframeReady.value) sendDataToIframe();
+}
+
 watch(viewAsMode, async (mode) => {
   previewViewer.value = null;
+  previewViewerFailed.value = false;
   if (mode !== 'you' && mode !== 'anonymous') {
-    try {
-      const { data } = await useMyFetch(`/api/users/${mode}/viewer_context`);
-      previewViewer.value = data.value || null;
-    } catch {
-      previewViewer.value = null;
-    }
+    await fetchPreviewViewer(mode);
   }
   // Identity-scoped queries re-run as the previewed member (server-verified:
   // owner/admin only; results are preview-only, cached under the CALLER).

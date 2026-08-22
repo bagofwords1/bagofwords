@@ -61,6 +61,26 @@ def test_viewer_groups_are_capped():
     assert "limit(VIEWER_CONTEXT_MAX_GROUPS)" in src
 
 
+def test_no_baked_specifics_rules_present():
+    """The anti-hardcoding contract: names/emails must never be baked into
+    generated code, even when they arrive via the report title."""
+    import inspect
+    from app.ai.tools.implementations._sandbox_context import build_identity_context
+
+    assert "NEVER hardcode a specific person's name" in SANDBOX_RUNTIME_PROMPT
+    src = inspect.getsource(build_identity_context)
+    assert "NO BAKED SPECIFICS" in src
+    # Making a name "dynamic" means binding, not deleting
+    assert "removing it entirely does not satisfy" in src
+
+
+def test_render_repair_attempt_budget():
+    """Edits must not give up after a couple of repair rounds."""
+    from app.ai.tools.implementations.create_artifact import CreateArtifactTool
+
+    assert CreateArtifactTool.MAX_RENDER_REPAIR_ATTEMPTS == 5
+
+
 def test_identity_context_never_breaks_generation():
     """build_identity_context must degrade to '' on missing context or DB
     failure — identity flavor can never fail artifact creation."""

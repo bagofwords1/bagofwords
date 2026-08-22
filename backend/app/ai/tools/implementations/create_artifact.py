@@ -344,7 +344,7 @@ class CreateArtifactTool(Tool):
     # Maximum in-tool repair LLM calls per artifact operation. Bounded so a
     # stubborn defect can't consume the whole tool timeout — after this the
     # tool returns a structured failure and the planner decides.
-    MAX_RENDER_REPAIR_ATTEMPTS = 2
+    MAX_RENDER_REPAIR_ATTEMPTS = 5
 
     @staticmethod
     def fatal_render_errors(errors: List[str]) -> List[str]:
