@@ -149,6 +149,43 @@ async def get_my_viewer_context(
     )
 
 
+@router.get("/users/{user_id}/viewer_context", response_model=ViewerContextSchema)
+async def get_member_viewer_context(
+    user_id: str,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Viewer context of another member of the active organization, for the
+    artifact 'View as' preview. Gated on org membership on both sides: the
+    caller must belong to the org (view_members is baseline for members), and
+    the target must have a membership here — same fields, same exclusions as
+    /users/me/viewer_context."""
+    caller_membership = await _get_current_membership(db, current_user, organization)
+    if not caller_membership:
+        raise HTTPException(status_code=403, detail="Not a member of this organization")
+    result = await db.execute(
+        select(Membership).where(
+            Membership.user_id == user_id,
+            Membership.organization_id == organization.id,
+        )
+    )
+    membership = result.scalars().first()
+    if not membership:
+        raise HTTPException(status_code=404, detail="Member not found in this organization")
+    target = await db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    return ViewerContextSchema(
+        id=str(target.id),
+        name=target.name,
+        email=target.email,
+        image_url=target.image_url,
+        role=membership.role,
+        profile_attributes=membership.profile_attributes or None,
+    )
+
+
 class UserDefaultModelSchema(BaseModel):
     # LLMModel.id (not the provider model string). None = follow the org default.
     model_id: Optional[str] = None

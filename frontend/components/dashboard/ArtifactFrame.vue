@@ -134,25 +134,34 @@
           </a>
         </UTooltip>
 
-        <!-- View as (page artifacts only): preview the dashboard as an
-             anonymous viewer. Identity-only — data is unaffected. -->
-        <UTooltip
+        <!-- View as (page artifacts only): preview the dashboard as another
+             viewer — anonymous or any org member, searchable by name/email.
+             Identity-only — data is unaffected. -->
+        <USelectMenu
           v-if="canViewAs"
-          :text="viewAsAnonymous ? 'Back to your view' : 'View as anonymous user'"
+          v-model="viewAsMode"
+          :options="viewAsOptions"
+          value-attribute="value"
+          option-attribute="label"
+          searchable
+          :search-attributes="['label', 'email']"
+          searchable-placeholder="Search members by name or email..."
+          size="xs"
+          class="min-w-[130px]"
         >
-          <button
-            @click="toggleViewAs"
-            :class="[
-              'text-lg items-center flex gap-1 px-2 py-1 rounded transition-colors',
-              viewAsAnonymous
-                ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-600 ring-1 ring-indigo-300'
-                : 'hover:bg-gray-100 dark:hover:bg-gray-700'
-            ]"
-          >
-            <Icon :name="viewAsAnonymous ? 'heroicons:eye-slash' : 'heroicons:eye'" class="w-3.5 h-3.5" :class="viewAsAnonymous ? 'text-indigo-600' : 'text-gray-500 dark:text-gray-400'" />
-            <span v-if="viewAsAnonymous" class="text-xs text-indigo-600 font-medium">Anonymous</span>
-          </button>
-        </UTooltip>
+          <template #label>
+            <span class="flex items-center gap-1 text-xs" :class="viewAsMode !== 'you' ? 'text-indigo-600 font-medium' : ''">
+              <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
+              {{ viewAsLabel }}
+            </span>
+          </template>
+          <template #option="{ option }">
+            <div class="flex flex-col">
+              <span class="text-xs">{{ option.label }}</span>
+              <span v-if="option.email" class="text-[10px] text-gray-400">{{ option.email }}</span>
+            </div>
+          </template>
+        </USelectMenu>
 
         <!-- Share Dashboard -->
         <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
@@ -164,12 +173,12 @@
       <!-- View-as banner: keep the simulated view unmistakable, and be honest
            about its scope (identity only — data is not re-scoped). -->
       <div
-        v-if="viewAsAnonymous && canViewAs"
+        v-if="viewAsMode !== 'you' && canViewAs"
         class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs"
       >
         <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
-        <span>Viewing as anonymous user</span>
-        <button @click="toggleViewAs" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
+        <span>Viewing as {{ viewAsLabel }}</span>
+        <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
       </div>
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
@@ -662,21 +671,70 @@ async function fetchViewerContext() {
   }
 }
 
-// "View as" preview (page artifacts): render the dashboard as an anonymous
-// viewer would see it. IDENTITY ONLY — current_user becomes null, but the
-// data payload is untouched: per-viewer data scoping happens server-side
-// (viewer runs / RLS), so this must never be presented as an access check.
-const viewAsAnonymous = ref(false);
+// "View as" preview (page artifacts): render the dashboard as another viewer
+// would see it — anonymous, or any org member (picked by name/email search).
+// IDENTITY ONLY — current_user is swapped, but the data payload is untouched:
+// per-viewer data scoping happens server-side (viewer runs / RLS), so this
+// must never be presented as an access check.
+const viewAsMode = ref<string>('you');  // 'you' | 'anonymous' | <member user_id>
+const previewViewer = ref<any>(null);   // fetched context of the picked member
+const membersList = ref<any[]>([]);
 const canViewAs = computed(() =>
   selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
-const effectiveViewerContext = computed(() =>
-  viewAsAnonymous.value ? null : viewerContext.value);
-function toggleViewAs() {
-  viewAsAnonymous.value = !viewAsAnonymous.value;
+
+const viewAsOptions = computed(() => [
+  { value: 'you', label: 'You', email: (viewerContext.value?.email as string) || '' },
+  { value: 'anonymous', label: 'Anonymous user', email: '' },
+  ...membersList.value
+    .filter((m: any) => m.user?.id && String(m.user.id) !== String(viewerContext.value?.id))
+    .map((m: any) => ({
+      value: String(m.user.id),
+      label: m.user.name || m.user.email || m.email || 'Member',
+      email: m.user.email || m.email || '',
+    })),
+]);
+
+const viewAsLabel = computed(() => {
+  if (viewAsMode.value === 'you') return 'View as';
+  if (viewAsMode.value === 'anonymous') return 'Anonymous user';
+  const opt = viewAsOptions.value.find(o => o.value === viewAsMode.value);
+  return opt?.label || 'Member';
+});
+
+const effectiveViewerContext = computed(() => {
+  if (viewAsMode.value === 'anonymous') return null;
+  if (viewAsMode.value === 'you') return viewerContext.value;
+  // A member is picked but their context hasn't resolved yet → render
+  // anonymously rather than as the wrong person.
+  return previewViewer.value;
+});
+
+// Members load lazily, once, when the picker becomes available.
+let membersFetched = false;
+async function fetchMembersList() {
+  if (membersFetched || !organization.value?.id) return;
+  membersFetched = true;
+  try {
+    const { data } = await useMyFetch(`/api/organizations/${organization.value.id}/members`);
+    membersList.value = Array.isArray(data.value) ? (data.value as any[]) : [];
+  } catch {
+    membersList.value = [];
+  }
 }
-// Swapping identity re-sends data into an already-mounted iframe (srcdoc also
-// recomputes, but postMessage covers the no-reload path).
-watch(viewAsAnonymous, () => {
+watch(canViewAs, (v) => { if (v) fetchMembersList(); }, { immediate: true });
+
+watch(viewAsMode, async (mode) => {
+  previewViewer.value = null;
+  if (mode !== 'you' && mode !== 'anonymous') {
+    try {
+      const { data } = await useMyFetch(`/api/users/${mode}/viewer_context`);
+      previewViewer.value = data.value || null;
+    } catch {
+      previewViewer.value = null;
+    }
+  }
+  // Swapping identity re-sends data into an already-mounted iframe (srcdoc
+  // also recomputes, but postMessage covers the no-reload path).
   if (iframeReady.value) sendDataToIframe();
 });
 
@@ -1089,7 +1147,7 @@ watch(selectedArtifactId, async (newId, oldId) => {
   if (oldId === undefined) return;
   iframeError.value = null;
   iframeReady.value = false;
-  viewAsAnonymous.value = false;
+  viewAsMode.value = 'you';
   if (isPolishMode.value) exitPolishMode();
   await fetchSelectedArtifact();
   // Only refetch data if this is a user-initiated change (not initial load)
