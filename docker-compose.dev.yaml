@@ -12,7 +12,9 @@
 #   POSTGRES_DB=bagofwords               # Database name
 #   POSTGRES_PORT=5432                   # PostgreSQL port (optional)
 #   APP_PORT=3000                        # Application port (optional)
-#   BOW_ENCRYPTION_KEY=                  # Fernet encryption key (44 chars, ends with =)
+#   BOW_ENCRYPTION_KEY=                  # Optional: Fernet key (44 chars, ends with =).
+#                                        # If unset, a key is auto-generated on first
+#                                        # start and persisted in the app_data_dev volume.
 #   BOW_LICENSE_KEY=                     # Enterprise license key (optional)
 #
 # Generate encryption key:
@@ -65,6 +67,8 @@ services:
       - uploads_data_dev:/app/backend/uploads
       - branding_data_dev:/app/backend/branding_uploads
       - logs_data_dev:/app/backend/logs
+      # Persists the auto-generated encryption key across restarts
+      - app_data_dev:/app/backend/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -85,6 +89,8 @@ volumes:
   branding_data_dev:
     driver: local
   logs_data_dev:
+    driver: local
+  app_data_dev:
     driver: local
 
 networks:
