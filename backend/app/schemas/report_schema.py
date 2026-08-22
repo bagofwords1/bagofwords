@@ -61,7 +61,8 @@ class ReportSchema(ReportBase):
     cron_schedule: Optional[str] = None
     # Rerun this report's queries when a viewer opens /r/{id}. This schema also
     # serves the public GET /r/{id}, so the shared page reads the flag directly.
-    refresh_on_view: bool = False
+    # Default ON — artifacts open on fresh data unless the owner opts out.
+    refresh_on_view: bool = True
     app_version: Optional[str] = None  # Version for routing decisions
     general: Optional[PublicGeneralSettings] = None
     theme_name: Optional[str] = None

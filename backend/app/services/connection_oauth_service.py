@@ -585,7 +585,12 @@ async def refresh_access_token(
             oauth_params["token_url"],
             data=data,
             auth=auth,
-            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                # GitHub's token endpoint returns form-encoded (or an HTML
+                # page) unless JSON is explicitly requested.
+                "Accept": "application/json",
+            },
             timeout=30,
         )
 
@@ -593,7 +598,30 @@ async def refresh_access_token(
         logger.error(f"OAuth token refresh failed: {resp.status_code} {resp.text}")
         raise ValueError(f"OAuth token refresh failed: {resp.text}")
 
-    token_data = resp.json()
+    # Parse defensively: JSON first, then form-encoded (GitHub's default),
+    # never a bare resp.json() — a non-JSON 200 used to surface as the
+    # meaningless "Expecting value: line 1 column 1 (char 0)".
+    try:
+        token_data = resp.json()
+    except Exception:
+        from urllib.parse import parse_qs
+
+        parsed = parse_qs(resp.text or "")
+        token_data = {k: v[0] for k, v in parsed.items() if v}
+        if not token_data.get("access_token") and not token_data.get("error"):
+            snippet = (resp.text or "")[:200]
+            raise ValueError(
+                f"OAuth token refresh returned an unrecognized body "
+                f"(content-type={resp.headers.get('content-type')}): {snippet}"
+            )
+
+    # Providers (GitHub included) report failures like bad_refresh_token as
+    # HTTP 200 with an error payload — treat that as a failure, not a token.
+    if token_data.get("error"):
+        desc = token_data.get("error_description") or token_data["error"]
+        logger.error(f"OAuth token refresh rejected: {desc}")
+        raise ValueError(f"OAuth token refresh rejected: {desc}")
+
     expires_in = token_data.get("expires_in", 3600)
     return {
         "access_token": token_data["access_token"],

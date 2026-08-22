@@ -197,6 +197,7 @@
                 <!-- Artifact Content - Full screen (modern reports with artifacts) -->
                 <iframe
                     v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews && !isDocMode"
+                    ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     sandbox="allow-scripts allow-same-origin allow-downloads"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
@@ -273,6 +274,17 @@ const report = ref<any>({
 });
 
 const artifact = ref<any>(null);
+// Viewer identity for ARTIFACT_DATA.current_user. Stays null for anonymous
+// viewers (401) or any fetch failure — the artifact renders anonymously.
+const viewerContext = ref<any>(null);
+async function fetchViewerContext() {
+    try {
+        const { data } = await useMyFetch('/api/users/me/viewer_context');
+        viewerContext.value = data.value || null;
+    } catch {
+        viewerContext.value = null;
+    }
+}
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
@@ -621,6 +633,9 @@ async function loadVisualizationData(artifactId?: string) {
         );
 
         const vizData = [];
+        const rowsByQuery = new Map<string, any[]>();
+        const appliedByQuery = new Map<string, any>();
+        const titleToId = new Map<string, string>();
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
         let anyOwnResult = false;
@@ -646,6 +661,14 @@ async function loadVisualizationData(artifactId?: string) {
                 if (!newestViewerRun || ts > newestViewerRun) newestViewerRun = ts;
             }
 
+            // Declared query parameters drive artifact controls (useParams()).
+            if (Array.isArray((query as any).parameters) && (query as any).parameters.length) {
+                queryParamSpecs.value[(query as any).id] = (query as any).parameters;
+            }
+            rowsByQuery.set(String((query as any).id), (step.value as any)?.data?.rows || []);
+            appliedByQuery.set(String((query as any).id), (step.value as any)?.applied_params || {});
+            if ((query as any).title) titleToId.set(String((query as any).title).toLowerCase(), String((query as any).id));
+
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];
             for (const viz of visualizations) {
@@ -656,7 +679,8 @@ async function loadVisualizationData(artifactId?: string) {
                     rows: (step.value as any)?.data?.rows || [],
                     columns: (step.value as any)?.data?.columns || [],
                     dataModel: (step.value as any)?.data_model || {},
-                    code: (step.value as any)?.code || ''
+                    code: (step.value as any)?.code || '',
+                    queryId: (query as any).id
                 });
             }
 
@@ -686,6 +710,7 @@ async function loadVisualizationData(artifactId?: string) {
         } else {
             visualizationsData.value = vizData;
         }
+        await resolveParamOptions(rowsByQuery, titleToId, appliedByQuery);
         viewerLastRunAt.value = newestViewerRun;
         snapshotWithheld.value = anyWithheld;
         hasOwnResult.value = anyOwnResult;
@@ -695,6 +720,273 @@ async function loadVisualizationData(artifactId?: string) {
     }
 }
 
+
+// ── Query parameters (authenticated viewers) ────────────────────────────────
+// Same contract as ArtifactFrame: the iframe posts ARTIFACT_SET_PARAMS /
+// ARTIFACT_REFRESH_PARAMS; this host runs the consuming queries in viewer
+// mode and pushes fresh rows back with a new ARTIFACT_DATA message.
+// Anonymous viewers can't run (auth required) — their controls no-op.
+const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+const queryParamSpecs = ref<Record<string, any[]>>({});
+const paramValues = ref<Record<string, any>>({});
+// Host-resolved stable choices per param (static options + options-source
+// query rows) — mirrors ArtifactFrame; useParamOptions() reads these.
+const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
+// Highest ARTIFACT_SET_PARAMS seq seen; echoed as paramsPayload().ack so the
+// runtime store knows which in-flight commits a data push reflects.
+let paramAckSeq = 0;
+// Latest run id per query — a slower, superseded run must not overwrite rows
+// a newer run already delivered.
+let paramRunCounter = 0;
+const latestParamRunForQid: Record<string, number> = {};
+// Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
+const srcdocSeed = ref<any>(null);
+
+function paramsPayload() {
+    const byName: Record<string, any> = {};
+    for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+        for (const spec of (specs as any[]) || []) {
+            if (!byName[spec.name]) byName[spec.name] = { ...spec, query_ids: [] };
+            byName[spec.name].query_ids.push(qid);
+        }
+    }
+    return {
+        declarations: Object.values(byName),
+        values: { ...paramValues.value },
+        options: { ...paramOptions.value },
+        ack: paramAckSeq,
+    };
+}
+
+// Resolve stable control choices. `rowsByQueryId` carries the step rows this
+// load already fetched; `titleToId` maps query titles (lowercased) to ids so
+// loose agent-persisted refs still resolve; a source query outside the
+// artifact is fetched from the report-level public list (plus its step) once.
+async function resolveParamOptions(
+    rowsByQueryId: Map<string, any[]>,
+    titleToId: Map<string, string>,
+    appliedByQueryId: Map<string, any> = new Map(),
+) {
+    const out: Record<string, Array<{ value: any; label: string }>> = {};
+    let fetchedAll = false;
+    for (const specs of Object.values(queryParamSpecs.value)) {
+        for (const spec of (specs as any[]) || []) {
+            if (!spec?.name) continue;
+            if (!out[spec.name] && Array.isArray(spec.options) && spec.options.length) {
+                out[spec.name] = spec.options.map((v: any) =>
+                    (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) });
+            }
+            const src = spec.options_source;
+            if (!src?.query_id) continue;
+            const lookup = () => {
+                const ref = String(src.query_id);
+                return rowsByQueryId.get(ref)
+                    ?? rowsByQueryId.get(titleToId.get(ref.toLowerCase()) || '');
+            };
+            let rows = lookup();
+            if (!rows && !fetchedAll) {
+                fetchedAll = true;
+                try {
+                    const { data } = await useMyFetch(`/api/r/${report_id}/queries`);
+                    const all = Array.isArray(data.value) ? (data.value as any[]) : [];
+                    const missing = all.filter(q => !rowsByQueryId.has(String(q.id)));
+                    const steps = await Promise.all(
+                        missing.map(q => useMyFetch(`/api/r/${report_id}/queries/${q.id}/step`)));
+                    missing.forEach((q, i) => {
+                        rowsByQueryId.set(String(q.id), (steps[i].data.value as any)?.data?.rows || []);
+                        if (q.title) titleToId.set(String(q.title).toLowerCase(), String(q.id));
+                    });
+                } catch { /* options degrade to static/none */ }
+                rows = lookup();
+            }
+            const seen = new Set<string>();
+            const opts: Array<{ value: any; label: string }> = [];
+            for (const r of rows || []) {
+                const value = r?.[src.value_column];
+                if (value === undefined || value === null) continue;
+                const key = String(value);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const label = src.label_column ? (r?.[src.label_column] ?? value) : value;
+                opts.push({ value, label: String(label) });
+            }
+            if (opts.length) out[spec.name] = opts;
+        }
+    }
+    // Last-resort tier (mirrors ArtifactFrame): derive stable choices once
+    // per load from the declaring query's initially loaded rows, matching a
+    // column by (singularized) param name. Never recomputed on param-driven
+    // pushes, so the list cannot narrow itself to the current selection.
+    const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+        const rows = rowsByQueryId.get(String(qid)) || [];
+        const applied = appliedByQueryId.get(String(qid)) || {};
+        const cols = rows.length ? Object.keys(rows[0] || {}) : [];
+        if (!rows.length || !cols.length) continue;
+        for (const spec of (specs as any[]) || []) {
+            if (!spec?.name || out[spec.name] || spec.source === 'identity') continue;
+            // Skip data the param already filtered — a degenerate one-value list.
+            if (applied[spec.name] !== null && applied[spec.name] !== undefined) continue;
+            let n = norm(spec.name);
+            if (n.endsWith('s')) n = n.slice(0, -1);
+            const valueCol = cols.find(c => norm(c) === norm(spec.name))
+                || cols.find(c => norm(c) === n)
+                || cols.find(c => norm(c).startsWith(n))
+                || cols.find(c => norm(c).includes(n));
+            if (!valueCol) continue;
+            const stem = norm(valueCol).replace(/id$/, '');
+            const labelCol = stem
+                ? cols.find(c => [stem + 'name', stem + 'title', stem].includes(norm(c)) && c !== valueCol)
+                : null;
+            const seen = new Set<string>();
+            const opts: Array<{ value: any; label: string }> = [];
+            for (const r of rows) {
+                const value = r?.[valueCol];
+                if (value === undefined || value === null) continue;
+                const key = String(value);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                opts.push({ value, label: String(labelCol ? (r?.[labelCol] ?? value) : value) });
+                if (opts.length >= 200) break;
+            }
+            if (opts.length) out[spec.name] = opts;
+        }
+    }
+    paramOptions.value = out;
+}
+
+function initParamValues() {
+    const next: Record<string, any> = {};
+    for (const specs of Object.values(queryParamSpecs.value)) {
+        for (const spec of (specs as any[]) || []) {
+            if (spec.source === 'identity') continue;
+            if (spec.default !== undefined && spec.default !== null) next[spec.name] = spec.default;
+        }
+    }
+    paramValues.value = next;
+}
+
+function queriesWithIdentityParams(): string[] {
+    return Object.entries(queryParamSpecs.value)
+        .filter(([, specs]) => ((specs as any[]) || []).some((s: any) =>
+            s.source === 'identity' || s.source === 'input_identity_default'))
+        .map(([qid]) => qid);
+}
+
+function postToArtifactIframe(msg: any) {
+    try {
+        artifactIframeRef.value?.contentWindow?.postMessage(msg, window.location.origin);
+    } catch { /* iframe not ready */ }
+}
+
+function pushArtifactData() {
+    postToArtifactIframe({
+        type: 'ARTIFACT_DATA',
+        payload: JSON.parse(JSON.stringify({
+            report: {
+                id: report.value.id,
+                title: report.value.title,
+                theme: report.value.theme_name || report.value.report_theme_name
+            },
+            visualizations: visualizationsData.value,
+            files: filesData.value,
+            current_user: viewerContext.value,
+            params: paramsPayload()
+        }))
+    });
+}
+
+async function runParamQueries(
+    changes: Record<string, any> | null,
+    targets: string[] | null = null,
+    opts: { force?: boolean; identityOnly?: boolean } = {},
+) {
+    if (!viewerContext.value) {
+        // Anonymous: no authenticated identity to run under.
+        postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: false, error: 'Sign in to change filters' } });
+        return;
+    }
+    const changedNames = Object.keys(changes || {});
+    // Names no query declares would silently no-op — surface them instead
+    // (mirrors ArtifactFrame).
+    const declaredNames = new Set(
+        Object.values(queryParamSpecs.value).flatMap((specs: any) =>
+            (specs || []).map((s: any) => s.name)));
+    const unknown = changedNames.filter(n => !declaredNames.has(n));
+    if (unknown.length) {
+        postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: {
+            loading: false,
+            error: `Unknown parameter(s): ${unknown.join(', ')} — declared: ${[...declaredNames].join(', ') || 'none'}. ` +
+                'Controls must call setParam with a declared param name.',
+        }});
+        return;
+    }
+    for (const name of changedNames) paramValues.value[name] = (changes as any)[name];
+
+    let affected = Object.entries(queryParamSpecs.value)
+        .filter(([qid, specs]) => {
+            if (targets && !targets.includes(qid)) return false;
+            const list = (specs as any[]) || [];
+            if (opts.identityOnly) {
+                return list.some((s: any) => s.source === 'identity' || s.source === 'input_identity_default');
+            }
+            if (!changedNames.length) return list.length > 0;
+            return list.some((s: any) => changedNames.includes(s.name));
+        })
+        .map(([qid]) => qid);
+    affected = [...new Set(affected)];
+    if (!affected.length) return;
+
+    const myRun = ++paramRunCounter;
+    for (const qid of affected) latestParamRunForQid[qid] = myRun;
+
+    postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: true } });
+    let firstError: string | null = null;
+    await Promise.all(affected.map(async (qid) => {
+        try {
+            const body: Record<string, any> = { mode: 'viewer', params: {}, force_refresh: !!opts.force };
+            for (const spec of (queryParamSpecs.value[qid] as any[]) || []) {
+                if (spec.source === 'identity') continue;
+                if (Object.prototype.hasOwnProperty.call(paramValues.value, spec.name)) {
+                    body.params[spec.name] = paramValues.value[spec.name];
+                }
+            }
+            const { data: runRes, error } = await useMyFetch(`/api/queries/${qid}/run`, { method: 'POST', body });
+            const res: any = runRes.value;
+            if (error.value || !res || res.status !== 'success') {
+                const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
+                if (!firstError) firstError = String(msg);
+                return;
+            }
+            if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
+            for (const viz of visualizationsData.value as any[]) {
+                if (viz.queryId === qid) {
+                    viz.rows = res.data?.rows || [];
+                    viz.columns = res.data?.columns || [];
+                }
+            }
+        } catch (e: any) {
+            if (!firstError) firstError = e?.message || 'Query run failed';
+        }
+    }));
+    visualizationsData.value = [...visualizationsData.value];
+    // A fully superseded run stays quiet: the newer run owns the status line
+    // and pushes its own (fresher) data.
+    if (myRun === paramRunCounter) {
+        postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: false, error: firstError } });
+        pushArtifactData();
+    }
+}
+
+function handleArtifactParamsMessage(event: MessageEvent) {
+    if (event.source !== artifactIframeRef.value?.contentWindow || !event.data) return;
+    if (event.data.type === 'ARTIFACT_SET_PARAMS') {
+        paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
+        runParamQueries(event.data.changes || {}, event.data.targets || null, {});
+    } else if (event.data.type === 'ARTIFACT_REFRESH_PARAMS') {
+        runParamQueries(null, event.data.targets || null, { force: true });
+    }
+}
 
 // Build the iframe srcdoc - only compute once all data is ready
 const iframeSrcdoc = computed(() => {
@@ -706,16 +998,19 @@ const iframeSrcdoc = computed(() => {
     // python-pptx slides source must never be injected into the iframe
     if (slidesPreviewsMissing.value) return null;
 
-    return buildArtifactIframeHtml({
-        data: {
-            report: {
-                id: report.value.id,
-                title: report.value.title,
-                theme: report.value.theme_name || report.value.report_theme_name
-            },
-            visualizations: visualizationsData.value,
-            files: filesData.value
+    const seed = srcdocSeed.value || {
+        report: {
+            id: report.value.id,
+            title: report.value.title,
+            theme: report.value.theme_name || report.value.report_theme_name
         },
+        visualizations: visualizationsData.value,
+        files: filesData.value,
+        current_user: viewerContext.value,
+        params: paramsPayload()
+    };
+    return buildArtifactIframeHtml({
+        data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
     });
@@ -782,10 +1077,12 @@ async function refreshOnView() {
 }
 
 onMounted(async () => {
-    // Load report and artifact in parallel first
+    // Load report and artifact in parallel first (viewer identity alongside —
+    // it gates nothing; anonymous viewers just get current_user=null)
     await Promise.all([
         loadReport(),
-        loadArtifact()
+        loadArtifact(),
+        fetchViewerContext()
     ]);
 
     // Load visualization data with artifact filter (if artifact exists)
@@ -797,6 +1094,30 @@ onMounted(async () => {
     if (!hasArtifacts.value) {
         await checkLegacyLayout();
     }
+
+    // Params: defaults from declarations; identity-scoped queries run as the
+    // signed-in viewer BEFORE first paint so the dashboard opens on their
+    // slice (per-viewer cached — revisits are cache hits). Anonymous viewers
+    // render the shared/withheld state unchanged.
+    initParamValues();
+    if (viewerContext.value && queriesWithIdentityParams().length) {
+        try { await runParamQueries(null, null, { identityOnly: true }); } catch { /* non-fatal */ }
+    }
+    window.addEventListener('message', handleArtifactParamsMessage);
+
+    // Freeze the srcdoc seed so later param runs update via postMessage
+    // without reloading the iframe.
+    srcdocSeed.value = JSON.parse(JSON.stringify({
+        report: {
+            id: report.value.id,
+            title: report.value.title,
+            theme: report.value.theme_name || report.value.report_theme_name
+        },
+        visualizations: visualizationsData.value,
+        files: filesData.value,
+        current_user: viewerContext.value,
+        params: paramsPayload()
+    }));
 
     // Mark data as ready - this triggers iframeSrcdoc to compute once with all data
     dataReady.value = true;

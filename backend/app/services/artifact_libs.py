@@ -38,31 +38,56 @@ _SLIDES_LIBS = [
 _GLOBALS_FILENAME = "artifact-globals.js"
 
 
-@lru_cache(maxsize=1)
 def _read_globals() -> str:
-    """Read the shared artifact-globals.js from the vendored libs directory."""
+    """Read the shared artifact-globals.js from the vendored libs directory.
+
+    The runtime surface (useParams, useCurrentUser, ...) must match what the
+    generation prompt teaches, so this always reads the FRESHEST copy — see
+    _find_libs_dir. Cached per (path, mtime) so a rebuild is picked up without
+    restarting the backend.
+    """
     libs_dir = _find_libs_dir()
     if libs_dir is None:
         raise FileNotFoundError(
             "Vendored JS libs directory not found. "
             "Run scripts/download-vendor-libs.sh during Docker build."
         )
-    return (libs_dir / _GLOBALS_FILENAME).read_text(encoding="utf-8")
+    path = libs_dir / _GLOBALS_FILENAME
+    return _read_file_cached(str(path), path.stat().st_mtime)
 
 
 def _find_libs_dir() -> Path | None:
-    """Find the directory containing vendored JS libraries."""
-    for d in _CANDIDATE_DIRS:
-        if d.is_dir() and any(d.iterdir()):
-            return d
-    return None
+    """Find the directory containing vendored JS libraries.
+
+    When several candidates exist, prefer the one whose artifact-globals.js is
+    NEWEST. A developer checkout often carries a stale frontend/.output build
+    next to a current public/libs — validating against the stale runtime made
+    every artifact using a newer global (e.g. useParams) fail with a phantom
+    "X is not defined" and burn the whole repair loop on correct code.
+    """
+    candidates = [d for d in _CANDIDATE_DIRS if d.is_dir() and any(d.iterdir())]
+    if not candidates:
+        return None
+
+    def _globals_mtime(d: Path) -> float:
+        try:
+            return (d / _GLOBALS_FILENAME).stat().st_mtime
+        except OSError:
+            return -1.0
+
+    return max(candidates, key=_globals_mtime)
 
 
-@lru_cache(maxsize=1)
+@lru_cache(maxsize=32)
+def _read_file_cached(path_str: str, mtime: float) -> str:
+    """Read a file, cached by (path, mtime) so updated files are re-read."""
+    return Path(path_str).read_text(encoding="utf-8")
+
+
 def _read_lib(libs_dir: Path, filename: str) -> str:
     """Read a vendored JS file and return its contents."""
     path = libs_dir / filename
-    return path.read_text(encoding="utf-8")
+    return _read_file_cached(str(path), path.stat().st_mtime)
 
 
 def get_inline_scripts(mode: str = "page") -> str:

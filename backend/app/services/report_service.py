@@ -21,6 +21,7 @@ from fastapi import HTTPException
 
 import uuid
 from sqlalchemy import select, or_, func, cast, delete, case, String as SAString
+from sqlalchemy.exc import IntegrityError, OperationalError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 from apscheduler.jobstores.base import JobLookupError
@@ -1733,10 +1734,15 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Report not found")
 
         now = datetime.utcnow()
+        # Plain strings only past this point: rollback() expires every ORM
+        # instance in the session (current_user included), and reading an
+        # expired attribute afterwards raises MissingGreenlet.
+        user_id = str(current_user.id)
+        report_id = str(report_id)
         existing_result = await db.execute(
             select(ReportView).filter(
                 ReportView.report_id == report_id,
-                ReportView.user_id == current_user.id,
+                ReportView.user_id == user_id,
             )
         )
         existing = existing_result.scalar_one_or_none()
@@ -1744,26 +1750,34 @@ class ReportService:
             existing.last_viewed_at = now
             existing.deleted_at = None
         else:
-            db.add(ReportView(report_id=report_id, user_id=current_user.id, last_viewed_at=now))
+            db.add(ReportView(report_id=report_id, user_id=user_id, last_viewed_at=now))
         try:
             await db.commit()
-        except Exception:
+        except IntegrityError:
             # Two tabs can race the first insert into the (report, user)
             # unique row; the loser retries as an update.
             await db.rollback()
             retry = await db.execute(
                 select(ReportView).filter(
                     ReportView.report_id == report_id,
-                    ReportView.user_id == current_user.id,
+                    ReportView.user_id == user_id,
                 )
             )
             row = retry.scalar_one_or_none()
             if row is not None:
                 row.last_viewed_at = now
                 row.deleted_at = None
-                await db.commit()
+                try:
+                    await db.commit()
+                except OperationalError:
+                    await db.rollback()
+        except OperationalError:
+            # Lock/busy timeout under concurrent writers (agent run, refresh
+            # rerun). The watermark is debounced and re-sent on the next
+            # viewed ping — dropping this write beats a 500.
+            await db.rollback()
 
-        return {"id": str(report_id), "viewed_at": now.isoformat()}
+        return {"id": report_id, "viewed_at": now.isoformat()}
 
     async def derive_activity_sets(self, db: AsyncSession, visible_ids: list[str]) -> dict:
         """Org-level activity facts for a bounded set of report ids.
@@ -2152,6 +2166,7 @@ class ReportService:
             view=view_dict,
             viewer_result=resolution.viewer_result,
             snapshot_withheld=resolution.withheld,
+            applied_params=getattr(step, "applied_params", None),
         )
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):
@@ -3090,6 +3105,24 @@ class ReportService:
 
         if not report.refresh_on_view:
             return _skip("not enabled")
+
+        # An agent run in flight on this report owns its step graph: an owner
+        # rerun underneath it races the agent's step writes (both sides fail)
+        # and its commits expire the agent's cached ORM state mid-loop. Skip —
+        # the agent's own run leaves the data fresh anyway. Age-bounded so an
+        # orphaned in_progress row can't disable refresh-on-view forever.
+        from datetime import timedelta as _td
+        from app.models.completion import Completion as _Completion
+        active = (await db.execute(
+            select(func.count(_Completion.id)).where(
+                _Completion.report_id == str(report_id),
+                _Completion.role == 'system',
+                _Completion.status == 'in_progress',
+                _Completion.created_at >= datetime.utcnow() - _td(minutes=30),
+            )
+        )).scalar() or 0
+        if active:
+            return _skip("agent run in progress")
 
         # Staleness gate. last_run_at is written as naive UTC (datetime.utcnow).
         if report.last_run_at is not None:

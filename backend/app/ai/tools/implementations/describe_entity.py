@@ -309,10 +309,17 @@ class DescribeEntityTool(Tool):
                 if not code_to_run.strip():
                     errors.append("Entity has no code to execute")
                 else:
+                    # Declared params resolve as the RUN user (identity
+                    # bindings give this reader their own slice).
+                    from app.services.entity_service import EntityService
+                    _resolved_params = await EntityService()._resolve_entity_params(
+                        db, entity, user, organization
+                    )
                     exec_df, execution_log, _ = executor.execute_code(
                         code=code_to_run,
                         ds_clients=ds_clients,
                         excel_files=[],
+                        params=_resolved_params,
                     )
                     entity_data = executor.format_df_for_widget(exec_df)
 

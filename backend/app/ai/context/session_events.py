@@ -74,6 +74,14 @@ INSTRUCTION_EDITED = "instruction_edited"
 INSTRUCTION_DELETED = "instruction_deleted"
 BUILD_PUBLISHED = "build_published"
 BUILD_REJECTED = "build_rejected"
+# query parameters — a HAND edit of a query's declared params (editor
+# sidebar/API), which the agent would otherwise never learn about: its
+# context still holds the create_data observation that declared the old
+# set, so its next edit could silently clobber the user's change. Agent
+# declarations emit nothing (they are already tool observations), and
+# viewer VALUE selections emit nothing (per-viewer interaction, recorded
+# as applied_params). Deliberately NOT UI-visible — context-only.
+QUERY_PARAMS_CHANGED = "query_params_changed"
 # analytics-only
 EXPORT_DOWNLOADED = "export_downloaded"
 
@@ -252,6 +260,27 @@ def default_event_content(kind: str, meta: dict | None = None) -> str:
         snippet = str(m.get("snippet") or "").strip()
         base = f"{_which(m)} was rejected — do not re-suggest it"
         return f"{base} ({snippet[:120]})" if snippet else base
+    if kind == QUERY_PARAMS_CHANGED:
+        qt = m.get("query_title") or "a query"
+        parts = []
+        added = m.get("added") or []
+        removed = m.get("removed") or []
+        changed = m.get("changed") or []
+        if added:
+            parts.append("added " + ", ".join(str(x) for x in added[:5]))
+        if removed:
+            parts.append("removed " + ", ".join(str(x) for x in removed[:5]))
+        if changed:
+            parts.append("changed " + ", ".join(
+                f'{c.get("name")}.{c.get("field")} ({c.get("from")!r}→{c.get("to")!r})'
+                for c in changed[:5] if isinstance(c, dict)
+            ))
+        detail = "; ".join(parts) if parts else "declarations updated"
+        return (
+            f'Declared parameters on query "{qt}" were edited by hand — {detail}. '
+            "These declarations supersede earlier tool outputs for this query."
+        )
+
     if kind == INSTRUCTION_CREATED:
         return f'Instruction "{m.get("title") or ""}" was created'
     if kind == INSTRUCTION_EDITED:

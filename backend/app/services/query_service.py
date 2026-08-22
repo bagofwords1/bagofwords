@@ -12,7 +12,15 @@ from app.models.user import User
 from app.models.step import Step
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
 from app.schemas.step_schema import StepSchema
+from app.schemas.param_schema import ParamSpec, parse_param_specs
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.code_execution.query_params import (
+    ParamError,
+    check_declarations_vs_code,
+    params_fingerprint,
+    resolve_param_values,
+    verify_identity_binds_in_queries,
+)
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 
@@ -23,10 +31,184 @@ def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
     return step_schema
 
 
+def param_specs_diff(old: list | None, new: list | None) -> Optional[dict]:
+    """Structured diff between two declared ParamSpec lists, or None when
+    equivalent. Feeds the QUERY_PARAMS_CHANGED session event so the agent
+    learns about hand edits its context would otherwise never see."""
+    _FIELDS = ("type", "source", "label", "default", "required", "identity_binding", "options", "options_source")
+    old_by = {p.get("name"): p for p in (old or []) if isinstance(p, dict) and p.get("name")}
+    new_by = {p.get("name"): p for p in (new or []) if isinstance(p, dict) and p.get("name")}
+    added = [n for n in new_by if n not in old_by]
+    removed = [n for n in old_by if n not in new_by]
+    changed = []
+    for name in new_by:
+        if name not in old_by:
+            continue
+        for f in _FIELDS:
+            ov, nv = old_by[name].get(f), new_by[name].get(f)
+            if ov != nv:
+                changed.append({"name": name, "field": f, "from": ov, "to": nv})
+    if not (added or removed or changed):
+        return None
+    return {"added": added, "removed": removed, "changed": changed}
+
+
+async def resolve_options_source_refs(
+    db: AsyncSession, report_id: str, parameters: list, *, exclude_query_id: str | None = None
+) -> list:
+    """Canonicalize loose options_source query references to real query ids.
+
+    The agent declares a param's options_source before it can know the source
+    query's UUID, so the ref is usually the query's TITLE (sometimes an id it
+    read from context). Resolve within the report: exact id → exact title
+    (case-insensitive) → title contains. An unresolvable ref — or one pointing
+    at the consuming query itself — drops the options_source rather than
+    persisting a dead link the UI would render as an empty control.
+    """
+    out = []
+    for p in parameters or []:
+        src = p.get("options_source") if isinstance(p, dict) else None
+        if not isinstance(src, dict):
+            out.append(p)
+            continue
+        ref = str(src.get("query_id") or "").strip()
+        resolved: Optional[str] = None
+        if ref and report_id:
+            from sqlalchemy import func
+            row = (await db.execute(
+                select(Query.id).where(Query.report_id == str(report_id), Query.id == ref)
+            )).first()
+            if row is None:
+                row = (await db.execute(
+                    select(Query.id).where(
+                        Query.report_id == str(report_id),
+                        func.lower(Query.title) == ref.lower(),
+                    )
+                )).first()
+            if row is None:
+                row = (await db.execute(
+                    select(Query.id).where(
+                        Query.report_id == str(report_id),
+                        Query.title.ilike(f"%{ref}%"),
+                    ).limit(1)
+                )).first()
+            if row is not None:
+                resolved = str(row[0])
+        if resolved is None or (exclude_query_id and resolved == str(exclude_query_id)):
+            out.append({**p, "options_source": None})
+        else:
+            out.append({**p, "options_source": {**src, "query_id": resolved}})
+    return out
+
+
 class QueryService:
 
     def __init__(self) -> None:
         pass
+
+    # ------------------------------------------------------------------
+    # Parameter helpers
+    # ------------------------------------------------------------------
+
+    async def _report_data_sources(self, db: AsyncSession, report, organization_id: Optional[str]):
+        """Data sources whose clients a query run should construct.
+
+        Prefer the report's own association; fall back to the org's active
+        data sources — chat-created reports don't associate data sources with
+        the report row (the agent works org-level), and generated code
+        addresses clients by "<data source name>:<connection>" keys, so
+        constructing the org set resolves the same keys."""
+        ds_list = list(getattr(report, "data_sources", None) or [])
+        if ds_list:
+            return ds_list
+        org_id = organization_id or getattr(report, "organization_id", None)
+        if not org_id:
+            return []
+        from app.models.data_source import DataSource
+        # Model-default loader options: construct_clients touches relationship
+        # attributes (connections/credentials), which must arrive eagerly —
+        # lazy attribute IO dies in async.
+        stmt = select(DataSource).where(
+            DataSource.organization_id == str(org_id),
+            DataSource.deleted_at.is_(None),
+        )
+        return list((await db.execute(stmt)).scalars().unique().all())
+
+    async def _resolve_identity_for(self, db: AsyncSession, user, organization_id: Optional[str]):
+        """Full identity resolution (email, groups, profile attributes) via the
+        single rls_identity_service authority. ANONYMOUS when no user."""
+        from app.services.rls_identity_service import resolve_identity
+        if user is None or not organization_id:
+            from app.data_sources.fast.rls import ANONYMOUS
+            return ANONYMOUS
+        return await resolve_identity(db, user, str(organization_id))
+
+    async def _resolve_run_as_user(
+        self,
+        db: AsyncSession,
+        query: Query,
+        caller: Optional[User],
+        organization_id: Optional[str],
+        run_as_user_id: Optional[str],
+    ) -> Optional[User]:
+        """'View as' authorization: only the report owner or an org admin may
+        resolve identity params as another member. Returns the target User or
+        raises ParamError."""
+        if not run_as_user_id or (caller and str(run_as_user_id) == str(caller.id)):
+            return None
+        if caller is None:
+            raise ParamError("view-as requires an authenticated caller")
+        allowed = False
+        if getattr(query, "report_id", None):
+            owner_row = (await db.execute(
+                select(Report.user_id).where(Report.id == str(query.report_id))
+            )).first()
+            if owner_row and str(owner_row[0]) == str(caller.id):
+                allowed = True
+        if not allowed and organization_id:
+            from app.models.membership import Membership
+            m = (await db.execute(
+                select(Membership).where(
+                    Membership.user_id == str(caller.id),
+                    Membership.organization_id == str(organization_id),
+                )
+            )).scalars().first()
+            if m and str(getattr(m, "role", "")) in ("admin", "owner"):
+                allowed = True
+        if not allowed:
+            raise ParamError("view-as is limited to the report owner or an org admin")
+        target = await db.get(User, str(run_as_user_id))
+        if target is None:
+            raise ParamError("view-as target user not found")
+        # Target must be a member of the same org.
+        if organization_id:
+            from app.models.membership import Membership
+            tm = (await db.execute(
+                select(Membership.id).where(
+                    Membership.user_id == str(target.id),
+                    Membership.organization_id == str(organization_id),
+                )
+            )).first()
+            if tm is None:
+                raise ParamError("view-as target is not a member of this organization")
+        return target
+
+    async def _resolve_params_for_run(
+        self,
+        db: AsyncSession,
+        specs: list[ParamSpec],
+        request_params: Optional[dict],
+        run_user: Optional[User],
+        organization_id: Optional[str],
+    ) -> dict:
+        if not specs:
+            if request_params:
+                raise ParamError(
+                    "this query declares no parameters but values were submitted"
+                )
+            return {}
+        identity = await self._resolve_identity_for(db, run_user, organization_id)
+        return resolve_param_values(specs, request_params, identity)
 
     async def create_query(
         self,
@@ -204,10 +386,60 @@ class QueryService:
 
         This mirrors a lightweight fork-run flow: new step (draft) -> execute -> persist data.
         """
+        if not (request.code or "").strip():
+            raise ValueError("code is required for a builder run")
         # Load query & widget (scoped to the caller's org)
         q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
             raise ValueError("Query not found")
+
+        run_user_for_params = await db.get(User, user_id) if user_id else None
+
+        # Parameter declarations: an explicit `parameters` list on the request
+        # replaces the query's declared set (builder save from the Params
+        # panel); otherwise the existing declarations apply. Declarations and
+        # code must stay consistent — a declared-but-dead param would render a
+        # control that does nothing.
+        if request.parameters is not None:
+            new_specs = [ParamSpec.model_validate(p) for p in (request.parameters or [])]
+            names = [s.name for s in new_specs]
+            dupes = sorted({n for n in names if names.count(n) > 1})
+            if dupes:
+                raise ParamError(f"duplicate parameter name(s): {', '.join(dupes)}")
+            consistency = check_declarations_vs_code(request.code or "", new_specs)
+            if consistency:
+                raise ParamError("; ".join(consistency))
+            await self._validate_options_sources(db, q, new_specs)
+            prev_params = list(getattr(q, "parameters", None) or [])
+            q.parameters = [s.model_dump() for s in new_specs]
+            db.add(q)
+            await db.commit()
+            await db.refresh(q)
+            specs = new_specs
+            # Hand edits to declarations are invisible to the agent otherwise
+            # (its context still holds the tool output that declared the old
+            # set) — record a context-only session event. Agent-side saves
+            # don't pass through here (they persist via update_query_parameters).
+            diff = param_specs_diff(prev_params, q.parameters)
+            if diff and getattr(q, "report_id", None):
+                try:
+                    from types import SimpleNamespace as _NS
+                    from app.services.session_event_service import SessionEventService
+                    from app.ai.context.session_events import QUERY_PARAMS_CHANGED
+                    await SessionEventService.emit_safe(
+                        db, report=_NS(id=str(q.report_id)), kind=QUERY_PARAMS_CHANGED,
+                        user=run_user_for_params,
+                        meta={"query_id": str(q.id), "query_title": q.title, **diff},
+                        target_type="query", target_id=str(q.id),
+                    )
+                except Exception:
+                    pass
+        else:
+            specs = parse_param_specs(getattr(q, "parameters", None))
+
+        resolved_params = await self._resolve_params_for_run(
+            db, specs, request.params, run_user_for_params, organization_id
+        )
 
         # Create a new step under the widget
         from app.models.step import Step
@@ -251,15 +483,25 @@ class QueryService:
             data_model=(request.data_model or cloned_data_model or {}),
             widget_id=str(q.widget_id),
             query_id=str(q.id),
+            applied_params=(resolved_params or None),
         )
         db.add(step)
         await db.commit()
         await db.refresh(step)
 
-        # Execute code
-        # Load report context via widget relationship
-        await db.refresh(step, attribute_names=["widget"])
-        report = step.widget.report
+        # Execute code — load the report graph explicitly (lazy attribute
+        # access on widget.report dies in async for freshly created widgets).
+        report_stmt = (
+            select(Report)
+            .options(
+                lazyload("*"),
+                selectinload(Report.data_sources).options(lazyload("*")),
+                selectinload(Report.files).options(lazyload("*")),
+            )
+            .join(Widget, Widget.report_id == Report.id)
+            .where(Widget.id == str(q.widget_id))
+        )
+        report = (await db.execute(report_stmt)).scalar_one_or_none()
         if not report:
             raise ValueError("Report not found for step's widget")
 
@@ -270,9 +512,12 @@ class QueryService:
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
-        for ds in report.data_sources:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
-            ds_clients.update(ds_conns)
+        for ds in await self._report_data_sources(db, report, organization_id):
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
+                ds_clients.update(ds_conns)
+            except Exception:
+                continue
         excel_files = report.files
         # Pre-resolve any load_step()/load_entity() refs in the saved code so
         # reruns of code that reuses prior results keep working.
@@ -289,12 +534,20 @@ class QueryService:
         )
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
+            captured_queries: list = []
             exec_df, execution_log, _ = await executor.execute_code_async(
                 code=step.code,
                 ds_clients=ds_clients,
                 excel_files=excel_files,
                 loadables=loadables,
+                captured_queries=captured_queries,
+                params=resolved_params,
             )
+            identity_err = verify_identity_binds_in_queries(
+                captured_queries, resolved_params, specs
+            )
+            if identity_err:
+                raise ParamError(identity_err)
             df = executor.format_df_for_widget(exec_df)
             # Persist results on the new step
             step.data = df
@@ -349,6 +602,238 @@ class QueryService:
 
         step_schema = _enrich_step_schema(step, StepSchema.from_orm(step))
         return (QuerySchema.model_validate(q).model_dump(), step_schema.model_dump() if hasattr(step_schema, 'model_dump') else step_schema.dict())
+
+    async def run_query_viewer(
+        self,
+        db: AsyncSession,
+        query_id: str,
+        request: QueryRunRequest,
+        organization_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> dict:
+        """Viewer-execute: run the query's default step code with param values.
+
+        Creates NO new Step. The result is cached per
+        (step, viewer, params_fingerprint) on step_user_results, so a repeat
+        request with the same values never re-executes. Identity params are
+        resolved server-side from the caller's session (or the audited
+        view-as target); identity-locked values submitted by the client are
+        rejected upstream in resolve_param_values.
+        """
+        q = await self.get_query(db, query_id, organization_id=organization_id)
+        if not q:
+            raise ValueError("Query not found")
+
+        # Resolve the default step (the version dashboards render).
+        step = None
+        if q.default_step_id:
+            step = await db.get(Step, str(q.default_step_id))
+        if step is None:
+            res = await db.execute(
+                select(Step)
+                .where(Step.widget_id == str(q.widget_id), Step.status == "success")
+                .order_by(Step.created_at.desc())
+            )
+            step = res.scalars().first()
+        if step is None or not (step.code or "").strip():
+            raise ValueError("Query has no runnable step")
+
+        caller = await db.get(User, user_id) if user_id else None
+        if caller is None:
+            raise ParamError("viewer run requires an authenticated user")
+
+        specs = parse_param_specs(getattr(q, "parameters", None))
+
+        # View-as: identity params resolve as the target member; results are
+        # cached under the CALLER's user_id so the target's own cache is never
+        # touched by a preview.
+        run_as = await self._resolve_run_as_user(
+            db, q, caller, organization_id, request.run_as_user_id
+        )
+        identity_user = run_as or caller
+
+        identity = await self._resolve_identity_for(db, identity_user, organization_id)
+        resolved = resolve_param_values(specs, request.params, identity)
+        fingerprint = params_fingerprint(resolved)
+        if run_as is not None:
+            # Distinct cache slot per impersonated identity, still keyed to
+            # the caller.
+            fingerprint = params_fingerprint({**resolved, "__view_as__": str(run_as.id)})
+
+        from app.models.step_user_result import StepUserResult
+        from datetime import datetime as _dt
+
+        existing = (await db.execute(
+            select(StepUserResult).where(
+                StepUserResult.step_id == str(step.id),
+                StepUserResult.user_id == str(caller.id),
+                StepUserResult.params_fingerprint == fingerprint,
+            )
+        )).scalars().first()
+
+        # Freshness: a cached slice is stale once the step OR any loadable
+        # upstream (load_step/load_entity dependency) has refreshed past it.
+        step_updated = getattr(step, "updated_at", None)
+        try:
+            from app.services.identity_taint import step_identity_scope
+            _, upstream_refresh = await step_identity_scope(db, step)
+        except Exception:
+            upstream_refresh = None
+        freshness_floor = step_updated
+        if upstream_refresh is not None and (
+            freshness_floor is None or upstream_refresh > freshness_floor
+        ):
+            freshness_floor = upstream_refresh
+        cache_fresh = (
+            existing is not None
+            and existing.status == "success"
+            and not request.force_refresh
+            and (
+                freshness_floor is None
+                or existing.last_run_at is None
+                or existing.last_run_at >= freshness_floor
+            )
+        )
+        if cache_fresh:
+            return {
+                "data": existing.data or {},
+                "applied_params": resolved,
+                "cached": True,
+                "status": "success",
+                "step_id": str(step.id),
+            }
+
+        # Execute the default step's code with the resolved values, as the
+        # caller (their credentials on user-scoped connections). Load the
+        # report graph explicitly — lazy attribute access dies in async.
+        report_stmt = (
+            select(Report)
+            .options(
+                lazyload("*"),
+                selectinload(Report.data_sources).options(lazyload("*")),
+                selectinload(Report.files).options(lazyload("*")),
+            )
+            .join(Widget, Widget.report_id == Report.id)
+            .where(Widget.id == str(step.widget_id))
+        )
+        report = (await db.execute(report_stmt)).scalar_one_or_none()
+        if report is None:
+            raise ValueError("Report not found for step's widget")
+
+        # Whose CREDENTIALS execute: mirror the viewer-rerun policy.
+        # 'creator' share mode runs under the report owner's credentials (the
+        # personalization tier: identity params still bind the CALLER); RLS
+        # relations force viewer credentials; owners always run as themselves.
+        credential_user = caller
+        identity_mode = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        if identity_mode == 'creator' and str(caller.id) != str(report.user_id):
+            from app.services.viewer_data_policy import has_rls_relations
+            if await has_rls_relations(db, str(report.id)):
+                identity_mode = 'viewer'
+        if identity_mode == 'creator' and str(caller.id) != str(report.user_id):
+            from app.models.membership import Membership
+            member = (await db.execute(
+                select(Membership).where(
+                    Membership.user_id == str(caller.id),
+                    Membership.organization_id == str(report.organization_id),
+                )
+            )).scalar_one_or_none()
+            if member is not None:
+                owner = await db.get(User, str(report.user_id))
+                if owner is not None:
+                    credential_user = owner
+
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_clients = {}
+        ds_errors = []
+        for ds in await self._report_data_sources(db, report, organization_id):
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=credential_user)
+                ds_clients.update(ds_conns)
+            except Exception as e:
+                ds_errors.append(str(getattr(e, "detail", None) or e))
+                continue
+        if not ds_clients and ds_errors:
+            raise ParamError("; ".join(ds_errors[:2]))
+
+        from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
+        from app.models.organization import Organization
+        org = await db.get(Organization, str(organization_id or report.organization_id)) \
+            if (organization_id or getattr(report, "organization_id", None)) else None
+        org_settings = await org.get_settings(db) if org else None
+        _ls_enabled, _ = load_step_settings(org_settings)
+        loadables = await resolve_loadables_for_code(
+            db, org, report, caller, step.code, enable_load_step=_ls_enabled
+        )
+        usage_context = self._usage_context(
+            organization_id, str(caller.id), source="query_viewer_run", source_ref_id=query_id
+        )
+        executor = StreamingCodeExecutor(
+            organization_settings=org_settings, usage_context=usage_context
+        )
+        captured_queries: list = []
+        try:
+            exec_df, execution_log, _ = await executor.execute_code_async(
+                code=step.code,
+                ds_clients=ds_clients,
+                excel_files=report.files,
+                loadables=loadables,
+                captured_queries=captured_queries,
+                params=resolved,
+            )
+            identity_err = verify_identity_binds_in_queries(
+                captured_queries, resolved, specs
+            )
+            if identity_err:
+                raise ParamError(identity_err)
+            df = executor.format_df_for_widget(exec_df)
+            status, status_reason = "success", None
+        except ParamError:
+            raise
+        except Exception as e:
+            df, status, status_reason = None, "error", str(e)
+        finally:
+            if usage_context is not None:
+                try:
+                    await usage_context.flush()
+                except Exception:
+                    pass
+
+        # Upsert the per-viewer cached result. Errors are not cached — a
+        # failed run must not pin a viewer to an error until force_refresh.
+        if status == "success":
+            if existing is None:
+                existing = StepUserResult(
+                    step_id=str(step.id),
+                    user_id=str(caller.id),
+                    organization_id=str(organization_id or report.organization_id),
+                    report_id=str(report.id),
+                    params_fingerprint=fingerprint,
+                )
+            existing.status = "success"
+            existing.status_reason = None
+            existing.data = df
+            existing.applied_params = dict(resolved) if resolved else None
+            existing.executed_as = "viewer"
+            existing.last_run_at = _dt.utcnow()
+            db.add(existing)
+            await db.commit()
+            return {
+                "data": df or {},
+                "applied_params": resolved,
+                "cached": False,
+                "status": "success",
+                "step_id": str(step.id),
+            }
+        return {
+            "data": {},
+            "applied_params": resolved,
+            "cached": False,
+            "status": "error",
+            "error": status_reason,
+            "step_id": str(step.id),
+        }
 
     async def get_default_step_for_query(
         self,
@@ -411,6 +896,82 @@ class QueryService:
         schema = await self._overlay_viewer_result(db, q, step, schema, viewer_user_id)
         return schema
 
+    async def _validate_options_sources(self, db: AsyncSession, q: Query, specs) -> None:
+        """Validate options_source references on save.
+
+        The source must be another query in the SAME report (the filter-space
+        pattern: 'Genres' feeds the genre control of 'Albums by Genre'), and
+        the named columns must exist in its default-step result when one has
+        run. A broken reference saved silently would render an empty control
+        that looks like a data bug.
+        """
+        for spec in specs:
+            src = getattr(spec, "options_source", None)
+            if src is None:
+                continue
+            if str(src.query_id) == str(q.id):
+                raise ParamError(
+                    f"param '{spec.name}': options_source must reference a different "
+                    "query — a control cannot take its choices from the query it filters"
+                )
+            row = (await db.execute(
+                select(Query).options(
+                    lazyload("*"),
+                    selectinload(Query.default_step).options(lazyload("*")),
+                ).where(
+                    Query.id == str(src.query_id),
+                    Query.report_id == str(q.report_id),
+                )
+            )).scalar_one_or_none()
+            if row is None:
+                raise ParamError(
+                    f"param '{spec.name}': options_source query {src.query_id} "
+                    "not found in this report"
+                )
+            step = getattr(row, "default_step", None)
+            data = (getattr(step, "data", None) or {}) if step is not None else {}
+            cols = {
+                str(c.get("field") or c.get("headerName") or "")
+                for c in (data.get("columns") or []) if isinstance(c, dict)
+            }
+            if cols:
+                for col in filter(None, (src.value_column, src.label_column)):
+                    if col not in cols:
+                        raise ParamError(
+                            f"param '{spec.name}': column '{col}' not found in "
+                            f"options query '{row.title}' (has: {', '.join(sorted(cols))})"
+                        )
+
+    async def annotate_credential_scope(
+        self,
+        db: AsyncSession,
+        q: Query,
+        schema,
+        memo: Optional[dict] = None,
+    ):
+        """Set schema.credential_scoped: does this query's report read a
+        user-scoped (delegated) connection? The View-as UI keys its "identity
+        params only — source rows still run with your credentials" note off
+        this. Pass one `memo` dict across a whole list to collapse repeat
+        report/org lookups."""
+        report_id = getattr(q, "report_id", None)
+        if not report_id:
+            return schema
+        memo = memo if memo is not None else {}
+        org_key = f"org:{report_id}"
+        if org_key not in memo:
+            row = (await db.execute(
+                select(Report.organization_id).where(Report.id == str(report_id))
+            )).first()
+            memo[org_key] = str(row[0]) if row and row[0] else None
+        step = getattr(q, "default_step", None)
+        code = getattr(step, "code", None) if step is not None else None
+        from app.services.viewer_data_policy import sources_credential_scoped
+        schema.credential_scoped = await sources_credential_scoped(
+            db, str(report_id), fallback_org_id=memo[org_key], code=code, memo=memo,
+        )
+        return schema
+
     async def overlay_viewer_on_query_schema(
         self,
         db: AsyncSession,
@@ -451,14 +1012,18 @@ class QueryService:
             return schema
 
         owner_row = (await db.execute(
-            select(Report.user_id, Report.shared_run_identity).where(Report.id == str(q.report_id))
+            select(Report.user_id, Report.shared_run_identity, Report.organization_id)
+            .where(Report.id == str(q.report_id))
         )).first()
         if not owner_row or str(owner_row[0]) == str(viewer_user_id):
             return schema
 
         # Minimal report context for the accessor (avoids re-loading the row).
+        # organization_id must travel too: the withholding policy's org-level
+        # fallback (DS-less chat reports) keys off it.
         report_ctx = SimpleNamespace(
             id=str(q.report_id), user_id=str(owner_row[0]), shared_run_identity=owner_row[1],
+            organization_id=str(owner_row[2]) if owner_row[2] else None,
         )
         viewer = SimpleNamespace(id=str(viewer_user_id))
         from app.services.viewer_data_policy import resolve_step_data
@@ -512,9 +1077,12 @@ class QueryService:
         ds_service = DataSourceService()
         run_user = await db.get(User, user_id) if user_id else None
         ds_clients = {}
-        for ds in report.data_sources:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
-            ds_clients.update(ds_conns)
+        for ds in await self._report_data_sources(db, report, organization_id):
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=run_user)
+                ds_clients.update(ds_conns)
+            except Exception:
+                continue
         excel_files = report.files
         usage_context = self._usage_context(organization_id, user_id, source="query_preview", source_ref_id=query_id)
         # Pass organization_settings so widget serialization honors the org's
@@ -524,14 +1092,29 @@ class QueryService:
         org_settings = await org.get_settings(db) if org else None
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
 
+        # Params: an explicit declarations list on the request is validated
+        # against the code (same rule as a builder save); otherwise the
+        # query's stored declarations apply.
+        if request.parameters is not None:
+            preview_specs = [ParamSpec.model_validate(p) for p in (request.parameters or [])]
+            consistency = check_declarations_vs_code(request.code or "", preview_specs)
+            if consistency:
+                raise ParamError("; ".join(consistency))
+        else:
+            preview_specs = parse_param_specs(getattr(q, "parameters", None))
+        resolved_params = await self._resolve_params_for_run(
+            db, preview_specs, request.params, run_user, organization_id
+        )
+
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(
                 code=request.code or "",
                 ds_clients=ds_clients,
                 excel_files=excel_files,
+                params=resolved_params,
             )
             df = executor.format_df_for_widget(exec_df)
-            return {"preview": df, "execution_log": execution_log}
+            return {"preview": df, "execution_log": execution_log, "applied_params": resolved_params}
         except Exception as e:
             # Surface error to client for preview display
             return {"preview": None, "error": str(e)}

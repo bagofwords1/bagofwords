@@ -210,15 +210,17 @@ def test_refresh_on_view_single_flights_once_the_gate_opens(
 
 @pytest.mark.e2e
 def test_refresh_on_view_skipped_when_not_enabled(
-    create_report, create_user, login_user, whoami, set_visibility, test_client
+    create_report, create_user, login_user, whoami, schedule_report, set_visibility, test_client
 ):
-    """Opt-in only — a shared report that never asked for this never reruns."""
+    """On by default, but an explicit opt-out is honored: a report whose owner
+    turned refresh-on-view off never reruns."""
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
 
-    report = create_report(title="Not opted in", user_token=token, org_id=org_id, data_sources=[])
+    report = create_report(title="Opted out", user_token=token, org_id=org_id, data_sources=[])
     seeded = _run(_seed_artifact(report["id"]))
+    schedule_report(report["id"], "None", user_token=token, org_id=org_id, refresh_on_view=False)
     _publish(set_visibility, report["id"], token, org_id)
 
     body = _view(test_client, report["id"]).json()
@@ -279,10 +281,10 @@ def test_get_report_exposes_refresh_on_view(
     org_id = whoami(token)["organizations"][0]["id"]
 
     report = create_report(title="Round trip", user_token=token, org_id=org_id, data_sources=[])
-    assert get_report(report["id"], user_token=token, org_id=org_id)["refresh_on_view"] is False
-
-    schedule_report(report["id"], "None", user_token=token, org_id=org_id, refresh_on_view=True)
     assert get_report(report["id"], user_token=token, org_id=org_id)["refresh_on_view"] is True
 
     schedule_report(report["id"], "None", user_token=token, org_id=org_id, refresh_on_view=False)
     assert get_report(report["id"], user_token=token, org_id=org_id)["refresh_on_view"] is False
+
+    schedule_report(report["id"], "None", user_token=token, org_id=org_id, refresh_on_view=True)
+    assert get_report(report["id"], user_token=token, org_id=org_id)["refresh_on_view"] is True

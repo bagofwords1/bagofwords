@@ -19,8 +19,40 @@ from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
 from app.models.artifact import Artifact
+from app.models.membership import Membership
 
 logger = logging.getLogger(__name__)
+
+
+async def _build_viewer_context(
+    db: AsyncSession, user: Optional[User], organization: Optional[Organization]
+) -> Optional[Dict[str, Any]]:
+    """ARTIFACT_DATA.current_user for MCP app rendering — same shape as
+    GET /users/me/viewer_context. None when there is no authenticated user."""
+    if user is None:
+        return None
+    membership = None
+    if organization is not None:
+        result = await db.execute(
+            select(Membership).where(
+                Membership.user_id == user.id,
+                Membership.organization_id == organization.id,
+            )
+        )
+        membership = result.scalars().first()
+    groups: List[str] = []
+    if organization is not None:
+        from app.routes.user_profile import _resolve_viewer_groups
+        groups = await _resolve_viewer_groups(db, str(user.id), str(organization.id))
+    return {
+        "id": str(user.id),
+        "name": user.name,
+        "email": user.email,
+        "image_url": getattr(user, "image_url", None),
+        "role": membership.role if membership else None,
+        "profile_attributes": (membership.profile_attributes if membership else None) or None,
+        "groups": groups,
+    }
 
 
 class GetVisualizationMCPTool(MCPTool):
@@ -194,4 +226,5 @@ class GetArtifactDataMCPTool(MCPTool):
             "code": code,
             "mode": artifact.mode or "page",
             "visualizations": visualizations,
+            "current_user": await _build_viewer_context(db, user, organization),
         }

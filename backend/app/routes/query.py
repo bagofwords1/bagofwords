@@ -40,9 +40,11 @@ async def list_queries(
     # embedded default_step.
     viewer_id = str(current_user.id) if current_user else None
     result = []
+    scope_memo: dict = {}
     for q in queries:
         schema = QuerySchema.model_validate(q)
         schema = await service.overlay_viewer_on_query_schema(db, q, schema, viewer_id)
+        schema = await service.annotate_credential_scope(db, q, schema, memo=scope_memo)
         result.append(schema)
     return result
 
@@ -83,7 +85,8 @@ async def get_query(
         raise HTTPException(status_code=404, detail="Query not found")
     schema = QuerySchema.model_validate(q)
     viewer_id = str(current_user.id) if current_user else None
-    return await service.overlay_viewer_on_query_schema(db, q, schema, viewer_id)
+    schema = await service.overlay_viewer_on_query_schema(db, q, schema, viewer_id)
+    return await service.annotate_credential_scope(db, q, schema)
 
 @router.post("/{query_id}/run", response_model=dict)
 @requires_permission('view_reports', model=Query)
@@ -95,6 +98,17 @@ async def run_query_new_step(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
+        if (payload.mode or "builder") == "viewer":
+            # Viewer-execute: run the default step's code with param values,
+            # cached per (step, viewer, values). No new Step is created.
+            result = await service.run_query_viewer(
+                db,
+                query_id,
+                payload,
+                organization_id=str(organization.id) if organization else None,
+                user_id=str(current_user.id) if current_user else None,
+            )
+            return result
         q_dict, step_obj = await service.run_query_new_step(
             db,
             query_id,

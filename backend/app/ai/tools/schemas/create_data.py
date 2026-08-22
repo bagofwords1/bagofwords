@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 # Reuse per-source targeting schema for consistent behavior
 from .create_widget import TablesBySource
 from .create_data_model import DataModel
+from app.schemas.param_schema import ParamSpec
 
 
 VisualizationType = Literal[
@@ -70,6 +71,31 @@ class CreateDataInput(BaseModel):
         default=None,
         description="Type of visualization to create. If not provided, a table will be created.",
     )
+    parameters: Optional[List[ParamSpec]] = Field(
+        default=None,
+        description=(
+            "Declare typed parameters ONLY when the request implies an axis of "
+            "variation ('by member', 'selectable status', a time window the viewer "
+            "will adjust) or per-viewer identity scoping ('each viewer sees their "
+            "own rows'). Each param: {name, type (string|number|date|date_range|id|list), "
+            "label, default, required, source}. source='input' for viewer-editable "
+            "controls; source='identity' for values LOCKED to the viewing user "
+            "(with identity_binding like 'viewer.email', "
+            "'viewer.profile_attributes.department', or 'viewer.groups'); "
+            "source='input_identity_default' for an input that merely defaults to "
+            "the viewer's identity value. The generated code will receive these as "
+            "a `params` dict. For an enum-like param over a dimension "
+            "(genres, statuses, regions), REAL CHOICES ARE REQUIRED: reference "
+            "the dimension query created for it (the filter-space pattern) via "
+            "options_source={query_id, value_column, label_column} — query_id "
+            "may be that query's exact TITLE (e.g. the title you gave an "
+            "earlier create_data this turn) or its id; the platform resolves "
+            "it within the report. Use static options=[...] only for a tiny "
+            "fixed set; omit choices only for free-form params (dates, search "
+            "text). Do NOT speculatively parameterize every literal — "
+            "no params is the common case."
+        ),
+    )
 
 
 class CreateDataOutput(BaseModel):
@@ -86,5 +112,9 @@ class CreateDataOutput(BaseModel):
     data_model: Optional[DataModel] = Field(default=None, description="Minimal data model: type + optional series/group_by/sort/limit; columns omitted")
     # Optional view options (styling/palette) to merge into Visualization.view.options
     view_options: Optional[Dict[str, Any]] = Field(default=None, description="Optional view.options overrides, e.g., colors palette")
+    # Declared parameters that survived codegen (only ones the code actually
+    # consumes), and the default values this run executed with.
+    parameters: Optional[List[Dict[str, Any]]] = Field(default=None, description="Declared ParamSpec dicts the generated code consumes")
+    applied_params: Optional[Dict[str, Any]] = Field(default=None, description="Resolved default param values this run executed with")
 
 

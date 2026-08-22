@@ -720,7 +720,21 @@ class QueryCapturingClientWrapper:
         with "missing 1 required positional argument". For keyword-only calls
         the bookkeeping (capture, timings, rate limit, quotas) uses a
         synthesized description of the call instead.
+
+        Parameterized queries: `execute_query(sql, params={...})` renders the
+        `:name` placeholders into safe typed literals HERE — the one audited
+        place values meet SQL — and the underlying client receives finished
+        plain SQL through its unchanged interface. The captured query is the
+        rendered text, so identity verification sees what actually ran.
         """
+        if "params" in kwargs:
+            param_values = kwargs.pop("params")
+            if isinstance(query, str) and isinstance(param_values, dict) and param_values:
+                from app.ai.code_execution.query_params import render_sql_with_params
+                query = render_sql_with_params(
+                    query, param_values,
+                    client_type_name=type(self._original).__name__,
+                )
         if query is _NO_QUERY:
             capture = _describe_keyword_call(kwargs)
         else:
@@ -1054,7 +1068,8 @@ class StreamingCodeExecutor:
     def execute_code(self, *, code: str, ds_clients: Dict, excel_files: List,
                      captured_timings: Optional[List[dict]] = None,
                      captured_queries: Optional[List[str]] = None,
-                     loadables: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                     loadables: Optional[Dict] = None,
+                     params: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         captured_timings: if provided, per-query wall-clock timings are appended to this list.
@@ -1078,6 +1093,12 @@ class StreamingCodeExecutor:
 
             # Security: Validate Python code and SQL strings before execution
             validate_python_code(code)
+            # Param values must never travel through string formatting — the
+            # rendering wrapper is the only place values meet SQL.
+            from app.ai.code_execution.query_params import check_params_not_formatted
+            _params_fmt_error = check_params_not_formatted(code)
+            if _params_fmt_error:
+                raise UnsafePythonError(_params_fmt_error)
 
             output_log = ""
             executed_queries: List[str] = captured_queries if captured_queries is not None else []
@@ -1145,6 +1166,7 @@ class StreamingCodeExecutor:
                     df = self._invoke_generate_df(
                         generate_df, wrapped_clients, excel_files, http_client,
                         load_step=load_step, load_entity=load_entity,
+                        params=params,
                     )
                     output_log = stdout_capture.getvalue()
                     lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
@@ -1255,19 +1277,22 @@ class StreamingCodeExecutor:
         fn: Callable, wrapped_clients: Dict, excel_files: List,
         http_client: Optional[SafeHttpClient],
         load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
+        params: Optional[Dict] = None,
     ):
         """Call generate_df, binding injectables by parameter name.
 
         `ds_clients` and `excel_files` are always passed positionally. Any of
-        `http`, `load_step`, `load_entity` are passed by keyword only when the
-        function declares a parameter of that name — so legacy two-arg
+        `http`, `load_step`, `load_entity`, `params` are passed by keyword only
+        when the function declares a parameter of that name — so legacy two-arg
         `(ds_clients, excel_files)` and three-arg `(…, http)` signatures keep
-        working unchanged.
+        working unchanged. `params` is always a dict (possibly empty) when the
+        function asks for it, so `params.get(...)` never explodes.
         """
         injectables = {
             "http": http_client,
             "load_step": load_step,
             "load_entity": load_entity,
+            "params": dict(params or {}),
         }
         try:
             names = set(inspect.signature(fn).parameters.keys())
@@ -1279,7 +1304,8 @@ class StreamingCodeExecutor:
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
                                  captured_timings: Optional[List[dict]] = None,
                                  captured_queries: Optional[List[str]] = None,
-                                 loadables: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                                 loadables: Optional[Dict] = None,
+                                 params: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Run execute_code in a thread so it doesn't block the event loop."""
         loop = asyncio.get_running_loop()
         if self.usage_context is not None:
@@ -1299,6 +1325,7 @@ class StreamingCodeExecutor:
                     captured_timings=captured_timings,
                     captured_queries=captured_queries,
                     loadables=loadables,
+                    params=params,
                 )
 
             result = await loop.run_in_executor(
@@ -1629,9 +1656,13 @@ class StreamingCodeExecutor:
         code_generator_fn: Callable = None,
         sigkill_event=None,
         loadable_resolver_fn: Optional[Callable] = None,
+        params: Optional[Dict] = None,
     ):
         """
         V2: Typed context-based generator. Yields the same event shapes as v1.
+
+        `params`: resolved parameter values injected into generate_df when the
+        generated code declares a `params` argument.
         """
         retries = 0
         # Respect explicit values (including 0→1). `or 2` was swallowing
@@ -1746,6 +1777,7 @@ class StreamingCodeExecutor:
                         captured_timings=query_timings,
                         captured_queries=executed_queries,
                         loadables=loadables,
+                        params=params,
                     ),
                     stage="data_query_execution",
                     attempt=retries,

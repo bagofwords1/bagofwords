@@ -45,6 +45,10 @@ class Step(BaseSchema):
     type = Column(String, nullable=False, default="table")
     data_model = Column(JSON, nullable=True, default=dict)
     view = Column(JSON, nullable=True, default=dict)
+    # The concrete param values this step's shared snapshot was produced with
+    # (resolved defaults at creation, or the builder's values on a /run save).
+    # Per-viewer runs record their values on StepUserResult, not here.
+    applied_params = Column(JSON(none_as_null=True), nullable=True, default=None)
 
     widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=False)
     widget = relationship("Widget", back_populates="steps")

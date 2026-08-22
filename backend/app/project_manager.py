@@ -385,6 +385,18 @@ class ProjectManager:
             return v
         except Exception as e:
             self.logger.warning(f"set_visualization_status failed: {e}")
+            # A failed flush (e.g. sqlite 'database is locked') poisons the
+            # shared session: every later operation raises PendingRollbackError
+            # and takes the whole agent iteration down with it. Swallowing the
+            # error is only safe if the session is usable again — roll back
+            # when the transaction is actually dead (mirrors the guard in
+            # agent_v2's crash handler; an unnecessary rollback would expire
+            # live instances).
+            try:
+                if not db.is_active:
+                    await db.rollback()
+            except Exception:
+                pass
             return visualization
 
     async def set_query_default_step_if_empty(self, db, query, step_id: str):
@@ -458,6 +470,44 @@ class ProjectManager:
     async def update_step_with_code(self, db, step, code):
         step.code = code
         db.add(step)
+        await db.commit()
+        await db.refresh(step)
+        return step
+
+    async def update_query_parameters(self, db, step, parameters, applied_params=None):
+        """Persist declared ParamSpec dicts onto the step's Query and the
+        resolved default values onto the Step itself.
+
+        The Query is updated with a Core UPDATE, never by dirtying the ORM
+        object: Query.default_step_id and Step.query_id reference each other,
+        so a Query and a Step dirty in the same flush is a circular
+        dependency ("Circular dependency detected" at commit)."""
+        step.applied_params = applied_params or None
+        db.add(step)
+        if getattr(step, "query_id", None):
+            from sqlalchemy import update as _update, select as _select
+            from app.models.query import Query as _Query
+            specs = list(parameters or [])
+            # Agent-declared options_source refs name the source query loosely
+            # (its title, usually — the model rarely holds the UUID).
+            # Canonicalize to the real query id within the report; a ref
+            # nothing matches is dropped so the UI never renders a dead link.
+            try:
+                row = (await db.execute(
+                    _select(_Query.report_id).where(_Query.id == str(step.query_id))
+                )).first()
+                if row and row[0]:
+                    from app.services.query_service import resolve_options_source_refs
+                    specs = await resolve_options_source_refs(
+                        db, str(row[0]), specs, exclude_query_id=str(step.query_id)
+                    )
+            except Exception:
+                pass
+            await db.execute(
+                _update(_Query)
+                .where(_Query.id == str(step.query_id))
+                .values(parameters=specs or None)
+            )
         await db.commit()
         await db.refresh(step)
         return step
