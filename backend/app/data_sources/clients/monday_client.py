@@ -16,6 +16,7 @@ label text in `compare_value` to indices using the board's column settings so
 generated queries can filter by the human-readable label.
 """
 import json
+import logging
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -25,6 +26,8 @@ import requests
 
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
+
+logger = logging.getLogger(__name__)
 
 API_URL = "https://api.monday.com/v2"
 # Multi-level boards first became queryable in 2025-10. Pin the oldest current
@@ -36,8 +39,20 @@ MAX_ROWS = 10_000        # hard cap per execute_query
 PAGE_SIZE = 500          # items_page maximum page size
 DEFAULT_LIMIT = 100      # when the query spec omits `limit`
 BOARDS_PAGE = 50         # boards per page during schema discovery
+WORKSPACES_PAGE = 50     # workspaces per page during the per-workspace sweep
 MAX_BOARDS = 1_000       # discovery cap — beyond this, scope with the config
+MAX_WORKSPACES = 1_000   # sanity cap for the workspace sweep
 RETRIES = 6              # per-request retries on 429/complexity/5xx
+
+# Board fields fetched during discovery. `type` distinguishes real boards from
+# auto-managed subitem shadow boards (sub_items_board) — filtering by name
+# prefix ("Subitems of ") wrongly drops real boards monday creates with that
+# name (e.g. "Expand subitems into a new board") and misses renamed/localized
+# shadow boards.
+_BOARD_FIELDS = (
+    "id name description board_kind hierarchy_type items_count type "
+    "workspace { id name } columns { id title type settings_str }"
+)
 
 # monday column type → pandas-ish dtype for prompt schemas.
 _TYPE_MAP = {
@@ -91,8 +106,10 @@ class MondayClient(DataSourceClient):
         self.access_token = access_token
         self.workspaces = [w.strip() for w in workspaces.split(",") if w.strip()] if workspaces else None
         self.boards = [b.strip() for b in boards.split(",") if b.strip()] if boards else None
-        # board catalog cache: list of raw board dicts from the API
+        # board catalog cache: list of raw board dicts from the API, and
+        # whether it was built with the per-workspace sweep (deep discovery)
         self._boards_cache: Optional[List[dict]] = None
+        self._deep_done = False
 
     # ── transport ───────────────────────────────────────────────────────────
 
@@ -192,41 +209,162 @@ class MondayClient(DataSourceClient):
 
     # ── board catalog ───────────────────────────────────────────────────────
 
-    def _fetch_boards(self) -> List[dict]:
-        """All active boards visible to the token, with columns, paginated."""
-        if self._boards_cache is not None:
-            return self._boards_cache
-        boards: List[dict] = []
+    def _fetch_workspaces(self) -> List[dict]:
+        """All active workspaces visible to the token (member or not).
+
+        Best-effort: discovery must survive a token that cannot list
+        workspaces (e.g. an OAuth token minted before workspaces:read was
+        requested) — the global board crawl still runs without the sweep.
+        """
+        workspaces: List[dict] = []
         page = 1
-        while len(boards) < MAX_BOARDS:
+        try:
+            while len(workspaces) < MAX_WORKSPACES:
+                data = self._gql(
+                    """
+                    query ($limit: Int!, $page: Int!) {
+                      workspaces (limit: $limit, page: $page, state: active,
+                                  membership_kind: all) {
+                        id name kind
+                      }
+                    }
+                    """,
+                    {"limit": WORKSPACES_PAGE, "page": page},
+                )
+                batch = [w for w in (data.get("workspaces") or []) if w]
+                if not batch:
+                    break
+                workspaces.extend(batch)
+                page += 1
+        except RuntimeError as e:
+            logger.warning("monday discovery: workspace listing failed (%s) — "
+                           "continuing with the global board crawl only.", e)
+        return workspaces
+
+    def _fetch_boards(self, deep: bool = False) -> List[dict]:
+        """All active boards visible to the token, with columns.
+
+        Discovery deliberately combines two passes:
+
+        1. A global `boards (limit, page)` crawl. Pagination stops only on an
+           EMPTY page — monday does not guarantee non-final pages are full, and
+           breaking on a short page silently truncates every board after it.
+        2. With `deep=True`, a per-workspace id sweep
+           (`boards (workspace_ids: [...])`), the strategy monday's own MCP
+           server uses. The global listing is known to omit boards that
+           direct/workspace-scoped queries return (observed with shareable
+           boards and cross-product workspaces); any board the sweep finds
+           that the crawl missed is recovered via `boards (ids:)`.
+
+        Schema discovery always runs deep. Query-time board resolution starts
+        shallow (one crawl) and escalates to deep only when the board isn't
+        found, so per-query latency doesn't grow with the workspace count.
+        """
+        if self._boards_cache is not None and (self._deep_done or not deep):
+            return self._boards_cache
+
+        boards_by_id: Dict[str, dict] = {}
+        page_sizes: List[int] = []
+        truncated = False
+        page = 1
+        while True:
             data = self._gql(
-                """
-                query ($limit: Int!, $page: Int!) {
+                f"""
+                query ($limit: Int!, $page: Int!) {{
                   boards (limit: $limit, page: $page, state: active, order_by: created_at,
-                          hierarchy_types: [classic, multi_level]) {
-                    id name description board_kind hierarchy_type items_count
-                    workspace { id name }
-                    columns { id title type settings_str }
-                  }
-                }
+                          hierarchy_types: [classic, multi_level]) {{
+                    {_BOARD_FIELDS}
+                  }}
+                }}
                 """,
                 {"limit": BOARDS_PAGE, "page": page},
             )
-            batch = data.get("boards") or []
-            boards.extend(batch)
-            if len(batch) < BOARDS_PAGE:
+            batch = [b for b in (data.get("boards") or []) if b]
+            page_sizes.append(len(batch))
+            if not batch:
+                break
+            for board in batch:
+                boards_by_id.setdefault(str(board["id"]), board)
+            if len(boards_by_id) >= MAX_BOARDS:
+                truncated = True
                 break
             page += 1
+        # page_sizes ends [..., last_non_empty, 0] on a full crawl — a short
+        # LAST non-empty page is normal; short pages before it are not.
+        if any(0 < size < BOARDS_PAGE for size in page_sizes[:-2]):
+            logger.info("monday discovery: global crawl returned short non-final "
+                        "pages %s — continued to the empty page.", page_sizes)
 
-        # Subitem boards are auto-managed shadows of their parent board.
-        boards = [b for b in boards if not (b.get("name") or "").startswith("Subitems of ")]
+        # Per-workspace sweep: cheap id-only pages, then recover full payloads
+        # for boards the global crawl did not return.
+        missing_ids: List[str] = []
+        for workspace in (self._fetch_workspaces() if deep else []):
+            page = 1
+            while True:
+                data = self._gql(
+                    """
+                    query ($limit: Int!, $page: Int!, $ws: [ID]) {
+                      boards (limit: $limit, page: $page, state: active,
+                              hierarchy_types: [classic, multi_level], workspace_ids: $ws) {
+                        id
+                      }
+                    }
+                    """,
+                    {"limit": BOARDS_PAGE, "page": page, "ws": [workspace["id"]]},
+                )
+                batch = [b for b in (data.get("boards") or []) if b]
+                if not batch:
+                    break
+                for board in batch:
+                    board_id = str(board["id"])
+                    if board_id not in boards_by_id and board_id not in missing_ids:
+                        missing_ids.append(board_id)
+                page += 1
+        for start in range(0, len(missing_ids), BOARDS_PAGE):
+            chunk = missing_ids[start:start + BOARDS_PAGE]
+            data = self._gql(
+                f"query ($ids: [ID!]) {{ boards (ids: $ids, state: active) {{ {_BOARD_FIELDS} }} }}",
+                {"ids": chunk},
+            )
+            for board in (data.get("boards") or []):
+                if board:
+                    boards_by_id.setdefault(str(board["id"]), board)
+        if missing_ids:
+            logger.warning("monday discovery: %d board(s) were missing from the global "
+                           "listing and recovered via the workspace sweep: %s",
+                           len(missing_ids), missing_ids[:20])
+
+        boards = list(boards_by_id.values())
+
+        # Subitem boards are auto-managed shadows of their parent board. Filter
+        # by API type; fall back to the name prefix only when `type` is absent.
+        def _is_subitem_board(board: dict) -> bool:
+            board_type = board.get("type")
+            if board_type is not None:
+                return board_type == "sub_items_board"
+            return (board.get("name") or "").startswith("Subitems of ")
+
+        boards = [b for b in boards if not _is_subitem_board(b)]
+
+        if truncated or len(boards) > MAX_BOARDS:
+            boards = boards[:MAX_BOARDS]
+            logger.warning("monday discovery: board catalog truncated at the %d-board "
+                           "cap — scope the connection with the workspaces/boards "
+                           "config to index the rest.", MAX_BOARDS)
 
         if self.workspaces:
             wanted = {w.lower() for w in self.workspaces}
+            # Boards in the legacy Main workspace come back with workspace: null
+            # (documented) — no id or name can match them, so let the aliases
+            # "main workspace" / "main" select them explicitly.
+            main_wanted = bool(wanted & {"main workspace", "main"})
             boards = [
                 b for b in boards
-                if str((b.get("workspace") or {}).get("id")) in wanted
-                or ((b.get("workspace") or {}).get("name") or "").lower() in wanted
+                if (
+                    (b.get("workspace") is None and main_wanted)
+                    or str((b.get("workspace") or {}).get("id")) in wanted
+                    or ((b.get("workspace") or {}).get("name") or "").lower() in wanted
+                )
             ]
         if self.boards:
             wanted = {x.lower() for x in self.boards}
@@ -234,7 +372,12 @@ class MondayClient(DataSourceClient):
                 b for b in boards
                 if str(b.get("id")) in wanted or (b.get("name") or "").lower() in wanted
             ]
+        logger.info("monday discovery: %d board(s) in the catalog "
+                    "(global crawl pages %s, %d recovered via workspace sweep%s).",
+                    len(boards), page_sizes, len(missing_ids),
+                    "" if deep else "; sweep skipped (shallow)")
         self._boards_cache = boards
+        self._deep_done = deep
         return boards
 
     def _table_names(self, boards: List[dict]) -> Dict[str, dict]:
@@ -254,8 +397,20 @@ class MondayClient(DataSourceClient):
 
     def _resolve_board(self, ref) -> dict:
         """Accept a board id (int/str), exact board name, or disambiguated
-        'name [id]' and return the raw board dict."""
-        boards = self._fetch_boards()
+        'name [id]' and return the raw board dict.
+
+        Starts from the shallow catalog; a miss escalates once to deep
+        discovery (per-workspace sweep) before failing, so boards the global
+        listing omits are still queryable."""
+        try:
+            return self._resolve_board_in(self._fetch_boards(), ref)
+        except ValueError:
+            if self._deep_done:
+                raise
+            self._boards_cache = None
+            return self._resolve_board_in(self._fetch_boards(deep=True), ref)
+
+    def _resolve_board_in(self, boards: List[dict], ref) -> dict:
         text = str(ref).strip()
         for board in boards:
             if str(board["id"]) == text:
@@ -351,7 +506,7 @@ class MondayClient(DataSourceClient):
         )
 
     def get_schemas(self, progress_callback=None) -> List[Table]:
-        boards = self._fetch_boards()
+        boards = self._fetch_boards(deep=True)
         names = self._table_names(boards)
         board_names_by_id = {str(b["id"]): n for n, b in names.items()}
         tables: List[Table] = []
@@ -367,7 +522,7 @@ class MondayClient(DataSourceClient):
 
     def get_schema(self, table_name: str) -> Table:
         board = self._resolve_board(table_name)
-        boards = self._fetch_boards()
+        boards = self._fetch_boards()  # cached by the resolve above
         names = self._table_names(boards)
         board_names_by_id = {str(b["id"]): n for n, b in names.items()}
         name = board_names_by_id.get(str(board["id"]), board.get("name") or str(board["id"]))
