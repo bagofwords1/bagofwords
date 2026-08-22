@@ -1408,6 +1408,16 @@ onMounted(async () => {
     autoRunTried.value = true;
     await runAsViewer();
   }
+
+  // Paint first, refresh second (refresh_on_view, default-on): the server
+  // enforces the flag, a staleness gate, and a cross-worker single-flight
+  // claim, so this is at most one owner-credential rerun per interval no
+  // matter how many people open the page. Mirrors the /r host.
+  try {
+    const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
+    const run: any = data.value;
+    if (run && !run.skipped && run.steps_succeeded) await refreshAll();
+  } catch { /* a failed background refresh must never break a rendered page */ }
 });
 
 // Fetch list of all artifacts for the report
