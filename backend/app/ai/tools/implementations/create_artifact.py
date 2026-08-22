@@ -311,6 +311,32 @@ class CreateArtifactTool(Tool):
     window.__BOW_INFO = false;
   {SC}
 
+  <script>
+    // Params-runtime safety net for the headless validation render: the real
+    // useParams/useParamOptions live in artifact-globals.js and need no host
+    // to merely render, but if the loaded globals bundle predates them (stale
+    // build output) correct artifact code would phantom-fail with
+    // "useParams is not defined" and burn the repair loop. Stubs mirror the
+    // no-params shape; they are defined ONLY when the globals didn't.
+    if (typeof window.useParams !== 'function') {{
+      window.useParams = function() {{
+        return {{ declarations: [], values: {{}}, pending: {{}}, loading: false,
+                 error: null, setParam: function() {{}}, setParams: function() {{}},
+                 apply: function() {{}}, refresh: function() {{}},
+                 getOptions: function() {{ return null; }} }};
+      }};
+    }}
+    if (typeof window.useParamOptions !== 'function') {{
+      window.useParamOptions = function() {{ return null; }};
+    }}
+    if (typeof window.useCurrentUser !== 'function') {{
+      window.useCurrentUser = function() {{
+        var d = window.ARTIFACT_DATA || {{}};
+        return d.current_user || null;
+      }};
+    }}
+  {SC}
+
   {code}
 
   <script>

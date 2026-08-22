@@ -385,6 +385,18 @@ class ProjectManager:
             return v
         except Exception as e:
             self.logger.warning(f"set_visualization_status failed: {e}")
+            # A failed flush (e.g. sqlite 'database is locked') poisons the
+            # shared session: every later operation raises PendingRollbackError
+            # and takes the whole agent iteration down with it. Swallowing the
+            # error is only safe if the session is usable again — roll back
+            # when the transaction is actually dead (mirrors the guard in
+            # agent_v2's crash handler; an unnecessary rollback would expire
+            # live instances).
+            try:
+                if not db.is_active:
+                    await db.rollback()
+            except Exception:
+                pass
             return visualization
 
     async def set_query_default_step_if_empty(self, db, query, step_id: str):
