@@ -178,6 +178,17 @@
 
     <!-- Iframe Container -->
     <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+      <!-- View-as switch in flight: cover the pane with a spinner until the
+           new identity (and any identity-scoped re-runs) fully settle, so the
+           transient anonymous fallback never flashes as the final render. -->
+      <div
+        v-if="previewLoading"
+        class="absolute inset-0 z-30 flex flex-col items-center justify-center gap-3 bg-white/70 dark:bg-gray-900/70 backdrop-blur-[1px]"
+      >
+        <Spinner class="w-6 h-6 text-indigo-500" />
+        <span class="text-xs text-gray-500 dark:text-gray-400">Switching view...</span>
+      </div>
+
       <!-- View-as banner: keep the simulated view unmistakable, and be honest
            about its scope (identity only — data is not re-scoped). -->
       <div
@@ -1189,6 +1200,10 @@ const previewViewer = ref<any>(null);   // fetched context of the picked member
 // but the banner must SAY so — a banner claiming "Viewing as X" over an
 // anonymous payload silently misrepresents what's on screen.
 const previewViewerFailed = ref(false);
+// True while a view-as switch is settling (member context fetch + identity
+// param re-run + data push). Drives a full-pane spinner so the transient
+// anonymous fallback never flashes as if it were the final render.
+const previewLoading = ref(false);
 const membersList = ref<any[]>([]);
 const canViewAs = computed(() =>
   selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
@@ -1255,23 +1270,28 @@ async function retryPreviewViewer() {
 watch(viewAsMode, async (mode) => {
   previewViewer.value = null;
   previewViewerFailed.value = false;
-  if (mode !== 'you' && mode !== 'anonymous') {
-    await fetchPreviewViewer(mode);
-  }
-  // Identity-scoped queries re-run as the previewed member (server-verified:
-  // owner/admin only; results are preview-only, cached under the CALLER).
-  // Back to 'you' re-scopes to the caller's own slice. Anonymous is
-  // identity-display only — the data path needs an authenticated identity.
+  previewLoading.value = true;
   try {
-    if (mode !== 'anonymous' && queriesWithIdentityParams().length) {
-      await runParamQueries(null, null, { identityOnly: true });
+    if (mode !== 'you' && mode !== 'anonymous') {
+      await fetchPreviewViewer(mode);
     }
-  } catch (e) {
-    console.error('[ArtifactFrame] View-as param re-run failed:', e);
+    // Identity-scoped queries re-run as the previewed member (server-verified:
+    // owner/admin only; results are preview-only, cached under the CALLER).
+    // Back to 'you' re-scopes to the caller's own slice. Anonymous is
+    // identity-display only — the data path needs an authenticated identity.
+    try {
+      if (mode !== 'anonymous' && queriesWithIdentityParams().length) {
+        await runParamQueries(null, null, { identityOnly: true });
+      }
+    } catch (e) {
+      console.error('[ArtifactFrame] View-as param re-run failed:', e);
+    }
+    // Swapping identity re-sends data into an already-mounted iframe (srcdoc
+    // also recomputes, but postMessage covers the no-reload path).
+    if (iframeReady.value) sendDataToIframe();
+  } finally {
+    previewLoading.value = false;
   }
-  // Swapping identity re-sends data into an already-mounted iframe (srcdoc
-  // also recomputes, but postMessage covers the no-reload path).
-  if (iframeReady.value) sendDataToIframe();
 });
 
 // Docs open in edit mode by default for the report owner; everyone else gets

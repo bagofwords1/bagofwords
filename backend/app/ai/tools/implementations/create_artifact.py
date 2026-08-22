@@ -35,7 +35,11 @@ from app.services.thumbnail_service import ThumbnailService
 from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
-from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT, build_identity_context
+from app.ai.tools.implementations._sandbox_context import (
+    SANDBOX_RUNTIME_PROMPT,
+    ANON_PREVIEW_NOTE,
+    build_identity_context,
+)
 from app.ai.tools.implementations._artifact_images import load_image_bytes
 from app.ai.prompt_language import build_language_directive
 
@@ -1622,6 +1626,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         )
         if _attach_screenshot:
             summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
+            summary_msg += ANON_PREVIEW_NOTE
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,

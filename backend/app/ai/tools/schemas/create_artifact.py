@@ -28,6 +28,11 @@ class CreateArtifactInput(BaseModel):
         "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your prompt describes a CHANGE to that artifact, not a fresh build. "
         "Preserve the existing title (don't invent 'Enhanced X' / 'Improved Y') unless the user asked to rename. Describe ALL existing vizs in the layout (they're still on the canvas) plus the new additions. "
         "Prefer `edit_artifact` for small/additive changes; only use `create_artifact` when the change is structurally too large for surgical diffs — and even then, carry all prior viz_ids forward.\n\n"
+        "PERSONALIZATION: personalization is a RUNTIME BINDING, never resolved text. When the user wants a personalized "
+        "greeting/title/section, write the INSTRUCTION ('greet the viewing user by name via current_user, with a neutral "
+        "fallback') — NEVER substitute the requester's actual name/email into this plan (not 'exactly: \"Yochay's Album "
+        "Catalog\"'). The artifact is shared: every viewer gets their own identity at render time. If a preview/screenshot "
+        "appears to lack personalization, that preview renders as an ANONYMOUS viewer — the fix is NEVER a literal name.\n\n"
         "Do NOT use this tool to modify an existing artifact; use edit_artifact instead. "
         "For a WRITTEN report/document/memo (not an interactive dashboard), use create_doc instead."
     ))
