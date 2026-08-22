@@ -12,8 +12,10 @@ export ENVIRONMENT=production
 #   3. Generate a key and persist it to the keyfile so it survives restarts
 KEY_FILE="${BOW_ENCRYPTION_KEY_FILE:-/app/backend/data/encryption.key}"
 if [ -z "$BOW_ENCRYPTION_KEY" ]; then
-    if [ -s "$KEY_FILE" ]; then
-        export BOW_ENCRYPTION_KEY="$(cat "$KEY_FILE")"
+    # -r guards against a non-empty but unreadable keyfile: without it, cat
+    # fails and an empty key would be exported while claiming success.
+    if [ -s "$KEY_FILE" ] && [ -r "$KEY_FILE" ] && KEY_FROM_FILE="$(cat "$KEY_FILE")" && [ -n "$KEY_FROM_FILE" ]; then
+        export BOW_ENCRYPTION_KEY="$KEY_FROM_FILE"
         echo "Loaded BOW_ENCRYPTION_KEY from $KEY_FILE"
     else
         export BOW_ENCRYPTION_KEY="$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")"
