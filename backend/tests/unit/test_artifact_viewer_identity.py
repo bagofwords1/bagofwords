@@ -61,6 +61,26 @@ def test_viewer_groups_are_capped():
     assert "limit(VIEWER_CONTEXT_MAX_GROUPS)" in src
 
 
+def test_identity_context_never_breaks_generation():
+    """build_identity_context must degrade to '' on missing context or DB
+    failure — identity flavor can never fail artifact creation."""
+    import asyncio
+    from app.ai.tools.implementations._sandbox_context import build_identity_context
+
+    class ExplodingDB:
+        async def execute(self, *a, **k):
+            raise RuntimeError("db down")
+
+    class Obj:
+        id = "u1"
+        name = "X"
+        email = "x@y.z"
+
+    assert asyncio.run(build_identity_context(None, Obj(), Obj())) == ""
+    assert asyncio.run(build_identity_context(ExplodingDB(), None, Obj())) == ""
+    assert asyncio.run(build_identity_context(ExplodingDB(), Obj(), Obj())) == ""
+
+
 def _extract_artifact_data(html: str) -> dict:
     m = re.search(r"window\.ARTIFACT_DATA\s*=\s*(\{.*?\});", html, re.S)
     assert m, "window.ARTIFACT_DATA not found in rendered HTML"
