@@ -40,6 +40,8 @@ export interface ArtifactViewerContext {
   image_url?: string | null;
   role?: string | null;
   profile_attributes?: Record<string, unknown> | null;
+  /** Org group names, alphabetical, server-capped. Empty/missing when none. */
+  groups?: string[] | null;
 }
 
 export interface ArtifactIframeData {

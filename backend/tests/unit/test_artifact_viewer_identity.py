@@ -18,7 +18,11 @@ from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_PROMPT,
     SANDBOX_RUNTIME_OBSERVATION,
 )
-from app.routes.user_profile import ViewerContextSchema
+from app.routes.user_profile import (
+    ViewerContextSchema,
+    VIEWER_CONTEXT_MAX_GROUPS,
+    _resolve_viewer_groups,
+)
 from app.services.thumbnail_service import ThumbnailService
 
 
@@ -35,12 +39,26 @@ def test_prompt_documents_current_user_contract():
 
 def test_viewer_context_schema_exposes_only_safe_fields():
     fields = set(ViewerContextSchema.model_fields.keys())
-    assert fields == {"id", "name", "email", "image_url", "role", "profile_attributes"}
+    assert fields == {"id", "name", "email", "image_url", "role", "profile_attributes", "groups"}
     # Regression guard: these must never be added — the object reaches
     # LLM-generated sandbox code in the browser.
     for forbidden in ("invite_token", "note", "memory", "default_llm_model_id",
                       "default_data_source_ids"):
         assert forbidden not in fields
+
+
+def test_prompt_documents_groups_contract():
+    assert "groups" in SANDBOX_RUNTIME_PROMPT
+    assert "server-capped" in SANDBOX_RUNTIME_PROMPT
+
+
+def test_viewer_groups_are_capped():
+    """The SQL LIMIT is the cap; pin the constant so a payload can never carry
+    an unbounded group list into every artifact render."""
+    assert 1 <= VIEWER_CONTEXT_MAX_GROUPS <= 50
+    import inspect
+    src = inspect.getsource(_resolve_viewer_groups)
+    assert "limit(VIEWER_CONTEXT_MAX_GROUPS)" in src
 
 
 def _extract_artifact_data(html: str) -> dict:

@@ -114,6 +114,13 @@ async def update_my_instructions(
     return UserInstructionsSchema(note=membership.note, memory=membership.memory)
 
 
+# Hard cap on group names in the viewer payload. The payload rides into every
+# artifact render AND into the sandbox prompt's mental model — an IdP-synced
+# org can carry hundreds of groups per user, which would eat context for no
+# rendering value. Alphabetical order keeps the truncation deterministic.
+VIEWER_CONTEXT_MAX_GROUPS = 20
+
+
 class ViewerContextSchema(BaseModel):
     # Identity payload injected into artifact iframes as ARTIFACT_DATA.current_user.
     # Deliberately minimal: identity + org role + IdP-synced profile attributes.
@@ -126,6 +133,29 @@ class ViewerContextSchema(BaseModel):
     # None when the viewer has no membership in the active organization.
     role: Optional[str] = None
     profile_attributes: Optional[dict] = None
+    # Org group NAMES (not ids/external ids), alphabetical, capped at
+    # VIEWER_CONTEXT_MAX_GROUPS. Empty list when the user is in none.
+    groups: list[str] = []
+
+
+async def _resolve_viewer_groups(
+    db: AsyncSession, user_id: str, organization_id: str
+) -> list[str]:
+    """Group names for the viewer payload: alphabetical, capped."""
+    from app.models.group import Group
+    from app.models.group_membership import GroupMembership
+
+    result = await db.execute(
+        select(Group.name)
+        .join(GroupMembership, GroupMembership.group_id == Group.id)
+        .where(
+            GroupMembership.user_id == str(user_id),
+            Group.organization_id == str(organization_id),
+        )
+        .order_by(Group.name)
+        .limit(VIEWER_CONTEXT_MAX_GROUPS)
+    )
+    return [r[0] for r in result.all()]
 
 
 @router.get("/users/me/viewer_context", response_model=ViewerContextSchema)
@@ -146,6 +176,7 @@ async def get_my_viewer_context(
         image_url=current_user.image_url,
         role=membership.role if membership else None,
         profile_attributes=(membership.profile_attributes if membership else None) or None,
+        groups=await _resolve_viewer_groups(db, str(current_user.id), str(organization.id)),
     )
 
 
@@ -183,6 +214,7 @@ async def get_member_viewer_context(
         image_url=target.image_url,
         role=membership.role,
         profile_attributes=membership.profile_attributes or None,
+        groups=await _resolve_viewer_groups(db, str(target.id), str(organization.id)),
     )
 
 

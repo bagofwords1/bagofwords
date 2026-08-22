@@ -671,73 +671,6 @@ async function fetchViewerContext() {
   }
 }
 
-// "View as" preview (page artifacts): render the dashboard as another viewer
-// would see it — anonymous, or any org member (picked by name/email search).
-// IDENTITY ONLY — current_user is swapped, but the data payload is untouched:
-// per-viewer data scoping happens server-side (viewer runs / RLS), so this
-// must never be presented as an access check.
-const viewAsMode = ref<string>('you');  // 'you' | 'anonymous' | <member user_id>
-const previewViewer = ref<any>(null);   // fetched context of the picked member
-const membersList = ref<any[]>([]);
-const canViewAs = computed(() =>
-  selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
-
-const viewAsOptions = computed(() => [
-  { value: 'you', label: 'You', email: (viewerContext.value?.email as string) || '' },
-  { value: 'anonymous', label: 'Anonymous user', email: '' },
-  ...membersList.value
-    .filter((m: any) => m.user?.id && String(m.user.id) !== String(viewerContext.value?.id))
-    .map((m: any) => ({
-      value: String(m.user.id),
-      label: m.user.name || m.user.email || m.email || 'Member',
-      email: m.user.email || m.email || '',
-    })),
-]);
-
-const viewAsLabel = computed(() => {
-  if (viewAsMode.value === 'you') return 'View as';
-  if (viewAsMode.value === 'anonymous') return 'Anonymous user';
-  const opt = viewAsOptions.value.find(o => o.value === viewAsMode.value);
-  return opt?.label || 'Member';
-});
-
-const effectiveViewerContext = computed(() => {
-  if (viewAsMode.value === 'anonymous') return null;
-  if (viewAsMode.value === 'you') return viewerContext.value;
-  // A member is picked but their context hasn't resolved yet → render
-  // anonymously rather than as the wrong person.
-  return previewViewer.value;
-});
-
-// Members load lazily, once, when the picker becomes available.
-let membersFetched = false;
-async function fetchMembersList() {
-  if (membersFetched || !organization.value?.id) return;
-  membersFetched = true;
-  try {
-    const { data } = await useMyFetch(`/api/organizations/${organization.value.id}/members`);
-    membersList.value = Array.isArray(data.value) ? (data.value as any[]) : [];
-  } catch {
-    membersList.value = [];
-  }
-}
-watch(canViewAs, (v) => { if (v) fetchMembersList(); }, { immediate: true });
-
-watch(viewAsMode, async (mode) => {
-  previewViewer.value = null;
-  if (mode !== 'you' && mode !== 'anonymous') {
-    try {
-      const { data } = await useMyFetch(`/api/users/${mode}/viewer_context`);
-      previewViewer.value = data.value || null;
-    } catch {
-      previewViewer.value = null;
-    }
-  }
-  // Swapping identity re-sends data into an already-mounted iframe (srcdoc
-  // also recomputes, but postMessage covers the no-reload path).
-  if (iframeReady.value) sendDataToIframe();
-});
-
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
@@ -910,6 +843,76 @@ async function runAsViewer() {
     isViewerRunning.value = false;
   }
 }
+
+// "View as" preview (page artifacts): render the dashboard as another viewer
+// would see it — anonymous, or any org member (picked by name/email search).
+// IDENTITY ONLY — current_user is swapped, but the data payload is untouched:
+// per-viewer data scoping happens server-side (viewer runs / RLS), so this
+// must never be presented as an access check.
+// NOTE: declared after selectedArtifact/isPendingArtifact/snapshotWithheld —
+// the immediate watch below evaluates canViewAs during setup, so the refs it
+// reads must already be initialized.
+const viewAsMode = ref<string>('you');  // 'you' | 'anonymous' | <member user_id>
+const previewViewer = ref<any>(null);   // fetched context of the picked member
+const membersList = ref<any[]>([]);
+const canViewAs = computed(() =>
+  selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
+
+const viewAsOptions = computed(() => [
+  { value: 'you', label: 'You', email: (viewerContext.value?.email as string) || '' },
+  { value: 'anonymous', label: 'Anonymous user', email: '' },
+  ...membersList.value
+    .filter((m: any) => m.user?.id && String(m.user.id) !== String(viewerContext.value?.id))
+    .map((m: any) => ({
+      value: String(m.user.id),
+      label: m.user.name || m.user.email || m.email || 'Member',
+      email: m.user.email || m.email || '',
+    })),
+]);
+
+const viewAsLabel = computed(() => {
+  if (viewAsMode.value === 'you') return 'View as';
+  if (viewAsMode.value === 'anonymous') return 'Anonymous user';
+  const opt = viewAsOptions.value.find(o => o.value === viewAsMode.value);
+  return opt?.label || 'Member';
+});
+
+const effectiveViewerContext = computed(() => {
+  if (viewAsMode.value === 'anonymous') return null;
+  if (viewAsMode.value === 'you') return viewerContext.value;
+  // A member is picked but their context hasn't resolved yet → render
+  // anonymously rather than as the wrong person.
+  return previewViewer.value;
+});
+
+// Members load lazily, once, when the picker becomes available.
+let membersFetched = false;
+async function fetchMembersList() {
+  if (membersFetched || !organization.value?.id) return;
+  membersFetched = true;
+  try {
+    const { data } = await useMyFetch(`/api/organizations/${organization.value.id}/members`);
+    membersList.value = Array.isArray(data.value) ? (data.value as any[]) : [];
+  } catch {
+    membersList.value = [];
+  }
+}
+watch(canViewAs, (v) => { if (v) fetchMembersList(); }, { immediate: true });
+
+watch(viewAsMode, async (mode) => {
+  previewViewer.value = null;
+  if (mode !== 'you' && mode !== 'anonymous') {
+    try {
+      const { data } = await useMyFetch(`/api/users/${mode}/viewer_context`);
+      previewViewer.value = data.value || null;
+    } catch {
+      previewViewer.value = null;
+    }
+  }
+  // Swapping identity re-sends data into an already-mounted iframe (srcdoc
+  // also recomputes, but postMessage covers the no-reload path).
+  if (iframeReady.value) sendDataToIframe();
+});
 
 // Docs open in edit mode by default for the report owner; everyone else gets
 // the read-only viewer. Keyed on the loaded artifact so mode + ownership are

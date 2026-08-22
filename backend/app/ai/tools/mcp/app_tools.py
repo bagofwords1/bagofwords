@@ -40,6 +40,10 @@ async def _build_viewer_context(
             )
         )
         membership = result.scalars().first()
+    groups: List[str] = []
+    if organization is not None:
+        from app.routes.user_profile import _resolve_viewer_groups
+        groups = await _resolve_viewer_groups(db, str(user.id), str(organization.id))
     return {
         "id": str(user.id),
         "name": user.name,
@@ -47,6 +51,7 @@ async def _build_viewer_context(
         "image_url": getattr(user, "image_url", None),
         "role": membership.role if membership else None,
         "profile_attributes": (membership.profile_attributes if membership else None) or None,
+        "groups": groups,
     }
 
 

@@ -54,14 +54,15 @@ references to any of them.
   - `report`: `{ id, title, theme }`
   - `visualizations`: array of `{ id, title, view, rows, columns, dataModel }`
   - `files`: array of `{ id, content_type, filename }` — embedded images/PDFs; render each with `<BowFile id={...} />`
-  - `current_user`: the VIEWING user, or `null` — `{ id, name, email, image_url, role, profile_attributes }`. Injected fresh per viewer at render time (never baked into the artifact), so the same dashboard can greet each viewer personally.
+  - `current_user`: the VIEWING user, or `null` — `{ id, name, email, image_url, role, profile_attributes, groups }`. Injected fresh per viewer at render time (never baked into the artifact), so the same dashboard can greet each viewer personally.
   - Always handle the `null` (loading) state before accessing data
 
 • **useCurrentUser()** — Global React hook for the viewing user
-  - Shortcut for `useArtifactData()?.current_user`. Returns `{ id, name, email, image_url, role, profile_attributes }` or `null`.
+  - Shortcut for `useArtifactData()?.current_user`. Returns `{ id, name, email, image_url, role, profile_attributes, groups }` or `null`.
   - **`current_user` MAY BE `null`** (anonymous public viewers, preview renders) and EVERY field inside it may be `null`. ALWAYS guard: `Hello{u?.name ? ', ' + u.name : ''}` — NEVER `u.name` bare. The artifact must render perfectly with `current_user = null`.
   - `role` is the user's organization role (e.g. 'admin', 'member'); `profile_attributes` is a free-form object of identity-provider attributes (e.g. jobTitle, department) whose keys DEPEND ON THE ORG — never assume a key exists.
-  - Use for DISPLAY-ONLY personalization: greetings ("Welcome back, Yochay"), showing the viewer's role/department, tailoring copy. It is NOT access control — all data in ARTIFACT_DATA is present regardless, so never claim to hide/protect data with it.
+  - `groups`: array of the viewer's org group NAMES (alphabetical, server-capped — a member of many groups sees a truncated list). May be `[]`, missing, or `null` — guard with `(u?.groups || []).includes('Sales')`. Group names are org-defined; only reference a group by name if the user's request names it.
+  - Use for DISPLAY-ONLY personalization: greetings ("Welcome back, Yochay"), showing the viewer's role/department/groups, group- or role-conditional sections, tailoring copy. It is NOT access control — all data in ARTIFACT_DATA is present regardless, so never claim to hide/protect data with it.
   - **DEFENSIVE CODING**: Row values, column fields, and nested properties can be `null`/`undefined`. ALWAYS guard before calling string methods like `.includes()`, `.toLowerCase()`, `.startsWith()`, etc. Use optional chaining (`?.`) or convert first: `String(val || '')`. Example: `(row.name || '').includes('x')` instead of `row.name.includes('x')`.
 
 • **useFilters()** — Global React hook for cross-visualization filtering
@@ -123,7 +124,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "do NOT redefine, import, or remove references to them: "
     "React (v18), ReactDOM, echarts (v5), Tailwind CSS (v3.4), Babel (JSX transpilation), "
     "useArtifactData() hook (returns { report, visualizations, files, current_user } or null while loading), "
-    "useCurrentUser() hook (the viewing user { id, name, email, image_url, role, profile_attributes } or null for "
+    "useCurrentUser() hook (the viewing user { id, name, email, image_url, role, profile_attributes, groups } or null for "
     "anonymous viewers/preview renders — injected per viewer at render time, every field nullable, guard all access; "
     "display-only personalization, not access control), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } "
