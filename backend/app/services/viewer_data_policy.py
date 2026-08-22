@@ -95,11 +95,15 @@ async def resolve_step_data(
             if row.status == 'success' and row.data:
                 return StepDataResolution(data=row.data, viewer_result=viewer_result)
 
-    # Identity-scoped queries: the shared snapshot is ONE identity's row
-    # slice (whoever produced it — usually the creator). It must never be
-    # served to a different viewer; they get their own per-viewer run (the
-    # host triggers it on load for signed-in viewers) or nothing.
-    if await _step_query_has_identity_params(db, step):
+    # Identity-scoped queries — declared OR inherited through the loadable
+    # dependency graph (a step consuming an identity-scoped step/entity is
+    # exactly as identity-differentiated as its input): the shared snapshot
+    # is ONE identity's row slice. It must never be served to a different
+    # viewer; they get their own per-viewer run (the host triggers it on
+    # load for signed-in viewers) or nothing.
+    from app.services.identity_taint import step_identity_scope
+    _tainted, _ = await step_identity_scope(db, step)
+    if _tainted:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
 
     # No successful result of their own. Withhold the credential-differentiated
@@ -252,15 +256,21 @@ async def entity_data_withheld(
     owner_id = str(getattr(entity, "owner_id", "") or "")
     if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:
         return False
-    # Identity-parameterized entities: the shared snapshot is the owner's
-    # identity slice by construction — withhold it from every other reader
-    # (they resolve their own slice via entity_user_results).
+    # Identity-parameterized entities — declared or inherited through their
+    # load_entity dependencies: the shared snapshot is the owner's identity
+    # slice by construction — withhold it from every other reader (they
+    # resolve their own slice via entity_user_results).
     try:
         if any(
             isinstance(p, dict) and p.get("source") == "identity"
             for p in (getattr(entity, "parameters", None) or [])
         ):
             return True
+        if db is not None:
+            from app.services.identity_taint import entity_identity_scope
+            _tainted, _ = await entity_identity_scope(db, entity)
+            if _tainted:
+                return True
     except Exception:
         pass
     ids = await _entity_data_source_ids(db, str(entity.id))

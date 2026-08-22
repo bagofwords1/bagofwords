@@ -89,9 +89,8 @@ class EntityService:
           with THEIR identity binding and cache it.
         - Anonymous readers of identity-scoped entities: None (withheld).
         """
-        from app.schemas.param_schema import parse_param_specs
-        specs = parse_param_specs(getattr(entity, "parameters", None))
-        has_identity = any(s.source == "identity" for s in specs)
+        from app.services.identity_taint import entity_identity_scope
+        has_identity, upstream_refresh = await entity_identity_scope(db, entity)
         owner_id = str(getattr(entity, "owner_id", "") or "")
         is_owner = user is not None and owner_id and str(user.id) == owner_id
         if not has_identity or is_owner:
@@ -113,7 +112,13 @@ class EntityService:
                 EntityUserResult.params_fingerprint == fingerprint,
             )
         )).scalars().first()
+        # Stale once the entity OR any of its loadable upstreams refreshed
+        # past the cached slice.
         refreshed_at = getattr(entity, "last_refreshed_at", None)
+        if upstream_refresh is not None and (
+            refreshed_at is None or upstream_refresh > refreshed_at
+        ):
+            refreshed_at = upstream_refresh
         if row is not None and row.status == "success" and (
             refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at
         ):
@@ -660,8 +665,18 @@ class EntityService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
+        ds_list = list(entity.data_sources or [])
+        if not ds_list:
+            # DS-less entities (promoted from chat-created reports): fall back
+            # to the org's data sources — generated code addresses clients by
+            # "<data source name>:<connection>" keys.
+            _ds_stmt = select(DataSource).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.deleted_at.is_(None),
+            )
+            ds_list = list((await db.execute(_ds_stmt)).scalars().unique().all())
         ds_clients = {}
-        for ds in (entity.data_sources or []):
+        for ds in ds_list:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
             ds_clients.update(ds_conns)
         excel_files = []
@@ -760,8 +775,18 @@ class EntityService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
+        ds_list = list(entity.data_sources or [])
+        if not ds_list:
+            # DS-less entities (promoted from chat-created reports): fall back
+            # to the org's data sources — generated code addresses clients by
+            # "<data source name>:<connection>" keys.
+            _ds_stmt = select(DataSource).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.deleted_at.is_(None),
+            )
+            ds_list = list((await db.execute(_ds_stmt)).scalars().unique().all())
         ds_clients = {}
-        for ds in (entity.data_sources or []):
+        for ds in ds_list:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
             ds_clients.update(ds_conns)
         excel_files = []

@@ -577,15 +577,27 @@ class QueryService:
             )
         )).scalars().first()
 
+        # Freshness: a cached slice is stale once the step OR any loadable
+        # upstream (load_step/load_entity dependency) has refreshed past it.
         step_updated = getattr(step, "updated_at", None)
+        try:
+            from app.services.identity_taint import step_identity_scope
+            _, upstream_refresh = await step_identity_scope(db, step)
+        except Exception:
+            upstream_refresh = None
+        freshness_floor = step_updated
+        if upstream_refresh is not None and (
+            freshness_floor is None or upstream_refresh > freshness_floor
+        ):
+            freshness_floor = upstream_refresh
         cache_fresh = (
             existing is not None
             and existing.status == "success"
             and not request.force_refresh
             and (
-                step_updated is None
+                freshness_floor is None
                 or existing.last_run_at is None
-                or existing.last_run_at >= step_updated
+                or existing.last_run_at >= freshness_floor
             )
         )
         if cache_fresh:

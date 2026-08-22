@@ -263,7 +263,22 @@ class LoadablesResolver:
                         f"Available steps: {sorted({s.title for s in steps if s.title})}"
                     )
                     continue
-                result["steps"][key] = grid_to_df(step.data)
+                # Per-reader resolution: the shared snapshot may be one
+                # identity's slice (identity params, declared or inherited,
+                # or credential-differentiated sources). The policy hands
+                # this reader their own result or withholds.
+                from app.services.viewer_data_policy import resolve_step_data
+                resolution = await resolve_step_data(
+                    self.db, step, self.report, self.current_user
+                )
+                if resolution.withheld:
+                    result["errors"].append(
+                        f"load_step({key!r}): its snapshot is scoped to another "
+                        f"identity and is not shareable. Query the source "
+                        f"directly (with the same parameters) instead."
+                    )
+                    continue
+                result["steps"][key] = grid_to_df(resolution.data)
 
         for ref in entity_refs or []:
             key = str(ref)
