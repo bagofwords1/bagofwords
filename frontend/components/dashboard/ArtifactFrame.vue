@@ -138,7 +138,7 @@
              anonymous viewer. Identity-only — data is unaffected. -->
         <UTooltip
           v-if="canViewAs"
-          :text="viewAsAnonymous ? 'Back to your view' : 'View as anonymous viewer — previews personalization, not data access'"
+          :text="viewAsAnonymous ? 'Back to your view' : 'View as anonymous user'"
         >
           <button
             @click="toggleViewAs"
@@ -168,7 +168,7 @@
         class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs"
       >
         <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
-        <span>Viewing as anonymous — previews personalization only, not data access</span>
+        <span>Viewing as anonymous user</span>
         <button @click="toggleViewAs" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
       </div>
       <!-- Loading State -->
