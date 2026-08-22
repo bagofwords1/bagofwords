@@ -29,6 +29,11 @@
           <div v-if="rowCount" class="text-[11px] text-gray-400 leading-none">
             {{ activeFilterCount > 0 ? $t('tools.widgetPreview.rowsFiltered', { filtered: filteredRowCount, total: rowCount }) : $t('tools.widgetPreview.rows', { count: rowCount }) }}
           </div>
+          <UTooltip v-if="cardParamSpecs.length" text="Parameterized query">
+            <div class="text-[11px] text-gray-400 leading-none flex items-center gap-0.5" data-testid="card-param-chip">
+              <Icon name="heroicons:adjustments-horizontal" class="w-3 h-3" />{{ cardParamSpecs.length }}
+            </div>
+          </UTooltip>
 
           <UTooltip v-if="hasChartForDownload" :text="$t('tools.widgetPreview.downloadPng')">
             <button
@@ -73,6 +78,36 @@
           </div>
         </template>
         <template v-else>
+          <!-- Params value bar: what this snapshot ran with + try other
+               values in place. Viewer-mode runs only — the shared snapshot
+               changes through the editor's Save, never from here. -->
+          <div v-if="cardParamSpecs.length" class="mb-2 flex flex-wrap items-center gap-2 text-xs border-b border-gray-50 dark:border-gray-800 pb-2" data-testid="param-value-bar" @click.stop>
+            <label v-for="spec in editableCardSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+              <span class="text-[11px]">{{ spec.label || spec.name }}</span>
+              <select v-if="cardParamOptions[spec.name]" v-model="cardParamValues[spec.name]"
+                class="px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900" :data-testid="`card-param-${spec.name}`">
+                <option :value="null">All</option>
+                <option v-for="o in cardParamOptions[spec.name]" :key="String(o.value)" :value="o.value">{{ o.label }}</option>
+              </select>
+              <input v-else v-model="cardParamValues[spec.name]"
+                class="w-28 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
+                :placeholder="spec.default != null ? String(spec.default) : 'All'" :data-testid="`card-param-${spec.name}`" />
+            </label>
+            <span v-for="spec in identityCardSpecs" :key="spec.name"
+              class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-[10px]">
+              {{ spec.label || spec.name }}: scoped to you
+            </span>
+            <button v-if="editableCardSpecs.length && !readonly" @click.stop="runCardParams" :disabled="cardRunLoading"
+              class="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+              data-testid="card-param-run">
+              <Icon name="heroicons-play" class="w-3 h-3" />{{ cardRunLoading ? 'Running…' : 'Run' }}
+            </button>
+            <span v-if="cardAppliedParams" class="text-[10px] text-gray-400" data-testid="card-applied">
+              ran with {{ formatAppliedParams(cardAppliedParams) }}
+            </span>
+            <span v-if="cardRunError" class="text-[10px] text-red-500">{{ cardRunError }}</span>
+          </div>
+
           <!-- Tab Navigation -->
           <div v-if="showTabs" class="flex border-b border-gray-100 dark:border-gray-800 mb-2">
             <button
@@ -472,6 +507,100 @@ const step = computed(() => {
 })
 const stepOverride = ref<any | null>(null)
 const effectiveStep = computed(() => stepOverride.value || step.value)
+
+// ── Params value bar ─────────────────────────────────────────────────────────
+// Shows what the snapshot ran with and lets the builder try other values right
+// on the card. Runs are viewer-mode (per-user cached, transient) — the shared
+// snapshot only changes through the editor's Save. Declaration editing stays
+// in the editor modal.
+const hydratedParams = ref<any[] | null>(null)
+const cardParamSpecs = computed<any[]>(() =>
+  hydratedParams.value
+  || (((props.toolExecution as any)?.result_json?.parameters as any[]) || []))
+const editableCardSpecs = computed(() =>
+  cardParamSpecs.value.filter((s: any) => s?.name && s.source !== 'identity'))
+const identityCardSpecs = computed(() =>
+  cardParamSpecs.value.filter((s: any) => s?.name && s.source === 'identity'))
+const cardParamValues = ref<Record<string, any>>({})
+const cardParamOptions = ref<Record<string, Array<{ value: any; label: string }>>>({})
+const cardAppliedParams = computed(() => (effectiveStep.value as any)?.applied_params || null)
+const cardRunLoading = ref(false)
+const cardRunError = ref<string | null>(null)
+
+async function ensureCardParams() {
+  if (cardParamSpecs.value.length || !queryId.value) return
+  try {
+    const { data, error } = await useMyFetch(`/api/queries/${queryId.value}`)
+    if (!error.value && Array.isArray((data.value as any)?.parameters)) {
+      hydratedParams.value = (data.value as any).parameters
+    }
+  } catch { /* no params bar */ }
+}
+
+async function resolveCardOptions() {
+  const out: Record<string, Array<{ value: any; label: string }>> = {}
+  for (const spec of editableCardSpecs.value) {
+    if (Array.isArray(spec.options) && spec.options.length) {
+      out[spec.name] = spec.options.map((v: any) =>
+        (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) })
+      continue
+    }
+    const src = spec.options_source
+    if (!src?.query_id) continue
+    try {
+      const { data } = await useMyFetch(`/api/queries/${src.query_id}`)
+      const rows = (data.value as any)?.default_step?.data?.rows || []
+      const seen = new Set<string>()
+      const opts: Array<{ value: any; label: string }> = []
+      for (const r of rows) {
+        const value = r?.[src.value_column]
+        if (value === undefined || value === null) continue
+        const key = String(value)
+        if (seen.has(key)) continue
+        seen.add(key)
+        opts.push({ value, label: String(src.label_column ? (r?.[src.label_column] ?? value) : value) })
+      }
+      if (opts.length) out[spec.name] = opts
+    } catch { /* plain input fallback */ }
+  }
+  cardParamOptions.value = out
+}
+
+async function runCardParams() {
+  if (!queryId.value || cardRunLoading.value) return
+  cardRunLoading.value = true
+  cardRunError.value = null
+  try {
+    const params: Record<string, any> = {}
+    for (const s of editableCardSpecs.value) {
+      const v = cardParamValues.value[s.name]
+      if (v !== undefined && v !== '' && v !== null) params[s.name] = v
+    }
+    const { data, error } = await useMyFetch(`/api/queries/${queryId.value}/run`, {
+      method: 'POST', body: { mode: 'viewer', params },
+    })
+    if (error.value) throw new Error((error.value as any)?.data?.detail || 'Run failed')
+    const res: any = data.value
+    if (res?.status === 'error') { cardRunError.value = res?.error || 'Run failed'; return }
+    const base = JSON.parse(JSON.stringify(effectiveStep.value || {}))
+    stepOverride.value = { ...base, data: res?.data || {}, applied_params: res?.applied_params || params }
+  } catch (e: any) {
+    cardRunError.value = e?.message || 'Run failed'
+  } finally {
+    cardRunLoading.value = false
+  }
+}
+
+function formatAppliedParams(applied: Record<string, any>): string {
+  return Object.entries(applied)
+    .map(([k, v]) => `${k} = ${v === null || v === undefined ? 'All' : JSON.stringify(v)}`)
+    .join(', ')
+}
+
+onMounted(async () => {
+  await ensureCardParams()
+  if (cardParamSpecs.value.length) await resolveCardOptions()
+})
 const hydratedVisualization = ref<any | null>(null)
 
 const visualization = computed(() => {

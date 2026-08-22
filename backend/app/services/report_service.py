@@ -2152,6 +2152,7 @@ class ReportService:
             view=view_dict,
             viewer_result=resolution.viewer_result,
             snapshot_withheld=resolution.withheld,
+            applied_params=getattr(step, "applied_params", None),
         )
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):

@@ -782,7 +782,63 @@ async function resolveParamOptions(loadedQueries: any[], fetchAll: () => Promise
       if (opts.length) out[spec.name] = opts;
     }
   }
+  derivedFallbackOptions(out, (qid) => {
+    const step = byId.get(String(qid))?.default_step;
+    return step ? { data: step.data, applied_params: step.applied_params } : null;
+  });
   paramOptions.value = out;
+}
+
+// Last-resort options tier: an input param with neither static options nor an
+// options-source query still deserves a populated control. Derive stable
+// choices ONCE per load from the initially loaded rows of its declaring
+// queries, matching a column by (singularized) param name — e.g. genre_id →
+// GenreId, genres → GenreName. Computed only here, never on param-driven data
+// pushes, so the list cannot narrow itself to the current selection.
+function derivedFallbackOptions(
+  out: Record<string, Array<{ value: any; label: string }>>,
+  dataOfQuery: (qid: string) => any,
+) {
+  const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+    const entry = dataOfQuery(qid) || {};
+    const data = entry.data || entry;
+    const applied = entry.applied_params || {};
+    const rows = data.rows || [];
+    const cols: string[] = (data.columns || []).map((c: any) => c.field || c.headerName).filter(Boolean);
+    if (!rows.length || !cols.length) continue;
+    for (const spec of (specs as any[]) || []) {
+      if (!spec?.name || out[spec.name] || spec.source === 'identity') continue;
+      // A snapshot the param already filtered yields a degenerate one-value
+      // list — only derive when the snapshot ran with this param = All.
+      if (applied[spec.name] !== null && applied[spec.name] !== undefined) continue;
+      let n = norm(spec.name);
+      if (n.endsWith('s')) n = n.slice(0, -1);
+      const valueCol = cols.find(c => norm(c) === norm(spec.name))
+        || cols.find(c => norm(c) === n)
+        || cols.find(c => norm(c).startsWith(n))
+        || cols.find(c => norm(c).includes(n));
+      if (!valueCol) continue;
+      // Friendlier labels: for an id-ish column, use a name/title sibling
+      // sharing the stem (genre_id → genre_name) when one exists.
+      const stem = norm(valueCol).replace(/id$/, '');
+      const labelCol = stem
+        ? cols.find(c => [stem + 'name', stem + 'title', stem].includes(norm(c)) && c !== valueCol)
+        : null;
+      const seen = new Set<string>();
+      const opts: Array<{ value: any; label: string }> = [];
+      for (const r of rows) {
+        const value = r?.[valueCol];
+        if (value === undefined || value === null) continue;
+        const key = String(value);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        opts.push({ value, label: String(labelCol ? (r?.[labelCol] ?? value) : value) });
+        if (opts.length >= 200) break;
+      }
+      if (opts.length) out[spec.name] = opts;
+    }
+  }
 }
 
 function paramSubsetForQuery(qid: string) {

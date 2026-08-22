@@ -380,6 +380,10 @@ class QueryService:
         # control that does nothing.
         if request.parameters is not None:
             new_specs = [ParamSpec.model_validate(p) for p in (request.parameters or [])]
+            names = [s.name for s in new_specs]
+            dupes = sorted({n for n in names if names.count(n) > 1})
+            if dupes:
+                raise ParamError(f"duplicate parameter name(s): {', '.join(dupes)}")
             consistency = check_declarations_vs_code(request.code or "", new_specs)
             if consistency:
                 raise ParamError("; ".join(consistency))

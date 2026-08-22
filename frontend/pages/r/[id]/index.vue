@@ -634,6 +634,7 @@ async function loadVisualizationData(artifactId?: string) {
 
         const vizData = [];
         const rowsByQuery = new Map<string, any[]>();
+        const appliedByQuery = new Map<string, any>();
         const titleToId = new Map<string, string>();
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
@@ -665,6 +666,7 @@ async function loadVisualizationData(artifactId?: string) {
                 queryParamSpecs.value[(query as any).id] = (query as any).parameters;
             }
             rowsByQuery.set(String((query as any).id), (step.value as any)?.data?.rows || []);
+            appliedByQuery.set(String((query as any).id), (step.value as any)?.applied_params || {});
             if ((query as any).title) titleToId.set(String((query as any).title).toLowerCase(), String((query as any).id));
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
@@ -708,7 +710,7 @@ async function loadVisualizationData(artifactId?: string) {
         } else {
             visualizationsData.value = vizData;
         }
-        await resolveParamOptions(rowsByQuery, titleToId);
+        await resolveParamOptions(rowsByQuery, titleToId, appliedByQuery);
         viewerLastRunAt.value = newestViewerRun;
         snapshotWithheld.value = anyWithheld;
         hasOwnResult.value = anyOwnResult;
@@ -752,7 +754,11 @@ function paramsPayload() {
 // load already fetched; `titleToId` maps query titles (lowercased) to ids so
 // loose agent-persisted refs still resolve; a source query outside the
 // artifact is fetched from the report-level public list (plus its step) once.
-async function resolveParamOptions(rowsByQueryId: Map<string, any[]>, titleToId: Map<string, string>) {
+async function resolveParamOptions(
+    rowsByQueryId: Map<string, any[]>,
+    titleToId: Map<string, string>,
+    appliedByQueryId: Map<string, any> = new Map(),
+) {
     const out: Record<string, Array<{ value: any; label: string }>> = {};
     let fetchedAll = false;
     for (const specs of Object.values(queryParamSpecs.value)) {
@@ -795,6 +801,45 @@ async function resolveParamOptions(rowsByQueryId: Map<string, any[]>, titleToId:
                 seen.add(key);
                 const label = src.label_column ? (r?.[src.label_column] ?? value) : value;
                 opts.push({ value, label: String(label) });
+            }
+            if (opts.length) out[spec.name] = opts;
+        }
+    }
+    // Last-resort tier (mirrors ArtifactFrame): derive stable choices once
+    // per load from the declaring query's initially loaded rows, matching a
+    // column by (singularized) param name. Never recomputed on param-driven
+    // pushes, so the list cannot narrow itself to the current selection.
+    const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+    for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+        const rows = rowsByQueryId.get(String(qid)) || [];
+        const applied = appliedByQueryId.get(String(qid)) || {};
+        const cols = rows.length ? Object.keys(rows[0] || {}) : [];
+        if (!rows.length || !cols.length) continue;
+        for (const spec of (specs as any[]) || []) {
+            if (!spec?.name || out[spec.name] || spec.source === 'identity') continue;
+            // Skip data the param already filtered — a degenerate one-value list.
+            if (applied[spec.name] !== null && applied[spec.name] !== undefined) continue;
+            let n = norm(spec.name);
+            if (n.endsWith('s')) n = n.slice(0, -1);
+            const valueCol = cols.find(c => norm(c) === norm(spec.name))
+                || cols.find(c => norm(c) === n)
+                || cols.find(c => norm(c).startsWith(n))
+                || cols.find(c => norm(c).includes(n));
+            if (!valueCol) continue;
+            const stem = norm(valueCol).replace(/id$/, '');
+            const labelCol = stem
+                ? cols.find(c => [stem + 'name', stem + 'title', stem].includes(norm(c)) && c !== valueCol)
+                : null;
+            const seen = new Set<string>();
+            const opts: Array<{ value: any; label: string }> = [];
+            for (const r of rows) {
+                const value = r?.[valueCol];
+                if (value === undefined || value === null) continue;
+                const key = String(value);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                opts.push({ value, label: String(labelCol ? (r?.[labelCol] ?? value) : value) });
+                if (opts.length >= 200) break;
             }
             if (opts.length) out[spec.name] = opts;
         }

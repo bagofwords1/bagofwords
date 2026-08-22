@@ -89,6 +89,9 @@ class PublicStepSchema(BaseModel):
     # True when the shared snapshot was hidden from this viewer (viewer-identity
     # mode on user-scoped connections) — `data` is empty until they run.
     snapshot_withheld: bool = False
+    # Param values the snapshot was materialized with — lets the host's
+    # snapshot-fallback options tier skip data a param already filtered.
+    applied_params: Optional[dict] = None
 
     class Config:
         from_attributes = True
