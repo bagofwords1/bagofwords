@@ -12,7 +12,15 @@ from app.models.user import User
 from app.models.step import Step
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
 from app.schemas.step_schema import StepSchema
+from app.schemas.param_schema import ParamSpec, parse_param_specs
 from app.ai.code_execution.code_execution import StreamingCodeExecutor
+from app.ai.code_execution.query_params import (
+    ParamError,
+    check_declarations_vs_code,
+    params_fingerprint,
+    resolve_param_values,
+    verify_identity_binds_in_queries,
+)
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 
@@ -27,6 +35,86 @@ class QueryService:
 
     def __init__(self) -> None:
         pass
+
+    # ------------------------------------------------------------------
+    # Parameter helpers
+    # ------------------------------------------------------------------
+
+    async def _resolve_identity_for(self, db: AsyncSession, user, organization_id: Optional[str]):
+        """Full identity resolution (email, groups, profile attributes) via the
+        single rls_identity_service authority. ANONYMOUS when no user."""
+        from app.services.rls_identity_service import resolve_identity
+        if user is None or not organization_id:
+            from app.data_sources.fast.rls import ANONYMOUS
+            return ANONYMOUS
+        return await resolve_identity(db, user, str(organization_id))
+
+    async def _resolve_run_as_user(
+        self,
+        db: AsyncSession,
+        query: Query,
+        caller: Optional[User],
+        organization_id: Optional[str],
+        run_as_user_id: Optional[str],
+    ) -> Optional[User]:
+        """'View as' authorization: only the report owner or an org admin may
+        resolve identity params as another member. Returns the target User or
+        raises ParamError."""
+        if not run_as_user_id or (caller and str(run_as_user_id) == str(caller.id)):
+            return None
+        if caller is None:
+            raise ParamError("view-as requires an authenticated caller")
+        allowed = False
+        if getattr(query, "report_id", None):
+            owner_row = (await db.execute(
+                select(Report.user_id).where(Report.id == str(query.report_id))
+            )).first()
+            if owner_row and str(owner_row[0]) == str(caller.id):
+                allowed = True
+        if not allowed and organization_id:
+            from app.models.membership import Membership
+            m = (await db.execute(
+                select(Membership).where(
+                    Membership.user_id == str(caller.id),
+                    Membership.organization_id == str(organization_id),
+                )
+            )).scalars().first()
+            if m and str(getattr(m, "role", "")) in ("admin", "owner"):
+                allowed = True
+        if not allowed:
+            raise ParamError("view-as is limited to the report owner or an org admin")
+        target = await db.get(User, str(run_as_user_id))
+        if target is None:
+            raise ParamError("view-as target user not found")
+        # Target must be a member of the same org.
+        if organization_id:
+            from app.models.membership import Membership
+            tm = (await db.execute(
+                select(Membership.id).where(
+                    Membership.user_id == str(target.id),
+                    Membership.organization_id == str(organization_id),
+                )
+            )).first()
+            if tm is None:
+                raise ParamError("view-as target is not a member of this organization")
+        return target
+
+    async def _resolve_params_for_run(
+        self,
+        db: AsyncSession,
+        specs: list[ParamSpec],
+        request_params: Optional[dict],
+        run_user: Optional[User],
+        organization_id: Optional[str],
+    ) -> dict:
+        if not specs:
+            if request_params:
+                raise ParamError(
+                    "this query declares no parameters but values were submitted"
+                )
+            return {}
+        identity = await self._resolve_identity_for(db, run_user, organization_id)
+        return resolve_param_values(specs, request_params, identity)
 
     async def create_query(
         self,
@@ -204,10 +292,36 @@ class QueryService:
 
         This mirrors a lightweight fork-run flow: new step (draft) -> execute -> persist data.
         """
+        if not (request.code or "").strip():
+            raise ValueError("code is required for a builder run")
         # Load query & widget (scoped to the caller's org)
         q = await self.get_query(db, query_id, organization_id=organization_id)
         if not q:
             raise ValueError("Query not found")
+
+        run_user_for_params = await db.get(User, user_id) if user_id else None
+
+        # Parameter declarations: an explicit `parameters` list on the request
+        # replaces the query's declared set (builder save from the Params
+        # panel); otherwise the existing declarations apply. Declarations and
+        # code must stay consistent — a declared-but-dead param would render a
+        # control that does nothing.
+        if request.parameters is not None:
+            new_specs = [ParamSpec.model_validate(p) for p in (request.parameters or [])]
+            consistency = check_declarations_vs_code(request.code or "", new_specs)
+            if consistency:
+                raise ParamError("; ".join(consistency))
+            q.parameters = [s.model_dump() for s in new_specs]
+            db.add(q)
+            await db.commit()
+            await db.refresh(q)
+            specs = new_specs
+        else:
+            specs = parse_param_specs(getattr(q, "parameters", None))
+
+        resolved_params = await self._resolve_params_for_run(
+            db, specs, request.params, run_user_for_params, organization_id
+        )
 
         # Create a new step under the widget
         from app.models.step import Step
@@ -251,6 +365,7 @@ class QueryService:
             data_model=(request.data_model or cloned_data_model or {}),
             widget_id=str(q.widget_id),
             query_id=str(q.id),
+            applied_params=(resolved_params or None),
         )
         db.add(step)
         await db.commit()
@@ -289,12 +404,20 @@ class QueryService:
         )
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
+            captured_queries: list = []
             exec_df, execution_log, _ = await executor.execute_code_async(
                 code=step.code,
                 ds_clients=ds_clients,
                 excel_files=excel_files,
                 loadables=loadables,
+                captured_queries=captured_queries,
+                params=resolved_params,
             )
+            identity_err = verify_identity_binds_in_queries(
+                captured_queries, resolved_params, specs
+            )
+            if identity_err:
+                raise ParamError(identity_err)
             df = executor.format_df_for_widget(exec_df)
             # Persist results on the new step
             step.data = df
@@ -349,6 +472,186 @@ class QueryService:
 
         step_schema = _enrich_step_schema(step, StepSchema.from_orm(step))
         return (QuerySchema.model_validate(q).model_dump(), step_schema.model_dump() if hasattr(step_schema, 'model_dump') else step_schema.dict())
+
+    async def run_query_viewer(
+        self,
+        db: AsyncSession,
+        query_id: str,
+        request: QueryRunRequest,
+        organization_id: Optional[str] = None,
+        user_id: Optional[str] = None,
+    ) -> dict:
+        """Viewer-execute: run the query's default step code with param values.
+
+        Creates NO new Step. The result is cached per
+        (step, viewer, params_fingerprint) on step_user_results, so a repeat
+        request with the same values never re-executes. Identity params are
+        resolved server-side from the caller's session (or the audited
+        view-as target); identity-locked values submitted by the client are
+        rejected upstream in resolve_param_values.
+        """
+        q = await self.get_query(db, query_id, organization_id=organization_id)
+        if not q:
+            raise ValueError("Query not found")
+
+        # Resolve the default step (the version dashboards render).
+        step = None
+        if q.default_step_id:
+            step = await db.get(Step, str(q.default_step_id))
+        if step is None:
+            res = await db.execute(
+                select(Step)
+                .where(Step.widget_id == str(q.widget_id), Step.status == "success")
+                .order_by(Step.created_at.desc())
+            )
+            step = res.scalars().first()
+        if step is None or not (step.code or "").strip():
+            raise ValueError("Query has no runnable step")
+
+        caller = await db.get(User, user_id) if user_id else None
+        if caller is None:
+            raise ParamError("viewer run requires an authenticated user")
+
+        specs = parse_param_specs(getattr(q, "parameters", None))
+
+        # View-as: identity params resolve as the target member; results are
+        # cached under the CALLER's user_id so the target's own cache is never
+        # touched by a preview.
+        run_as = await self._resolve_run_as_user(
+            db, q, caller, organization_id, request.run_as_user_id
+        )
+        identity_user = run_as or caller
+
+        identity = await self._resolve_identity_for(db, identity_user, organization_id)
+        resolved = resolve_param_values(specs, request.params, identity)
+        fingerprint = params_fingerprint(resolved)
+        if run_as is not None:
+            # Distinct cache slot per impersonated identity, still keyed to
+            # the caller.
+            fingerprint = params_fingerprint({**resolved, "__view_as__": str(run_as.id)})
+
+        from app.models.step_user_result import StepUserResult
+        from datetime import datetime as _dt
+
+        existing = (await db.execute(
+            select(StepUserResult).where(
+                StepUserResult.step_id == str(step.id),
+                StepUserResult.user_id == str(caller.id),
+                StepUserResult.params_fingerprint == fingerprint,
+            )
+        )).scalars().first()
+
+        step_updated = getattr(step, "updated_at", None)
+        cache_fresh = (
+            existing is not None
+            and existing.status == "success"
+            and not request.force_refresh
+            and (
+                step_updated is None
+                or existing.last_run_at is None
+                or existing.last_run_at >= step_updated
+            )
+        )
+        if cache_fresh:
+            return {
+                "data": existing.data or {},
+                "applied_params": resolved,
+                "cached": True,
+                "status": "success",
+                "step_id": str(step.id),
+            }
+
+        # Execute the default step's code with the resolved values, as the
+        # caller (their credentials on user-scoped connections).
+        await db.refresh(step, attribute_names=["widget"])
+        report = step.widget.report if step.widget else None
+        if report is None:
+            raise ValueError("Report not found for step's widget")
+
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_clients = {}
+        for ds in report.data_sources:
+            ds_conns = await ds_service.construct_clients(db, ds, current_user=caller)
+            ds_clients.update(ds_conns)
+
+        from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
+        from app.models.organization import Organization
+        org = await db.get(Organization, str(organization_id or report.organization_id)) \
+            if (organization_id or getattr(report, "organization_id", None)) else None
+        org_settings = await org.get_settings(db) if org else None
+        _ls_enabled, _ = load_step_settings(org_settings)
+        loadables = await resolve_loadables_for_code(
+            db, org, report, caller, step.code, enable_load_step=_ls_enabled
+        )
+        usage_context = self._usage_context(
+            organization_id, str(caller.id), source="query_viewer_run", source_ref_id=query_id
+        )
+        executor = StreamingCodeExecutor(
+            organization_settings=org_settings, usage_context=usage_context
+        )
+        captured_queries: list = []
+        try:
+            exec_df, execution_log, _ = await executor.execute_code_async(
+                code=step.code,
+                ds_clients=ds_clients,
+                excel_files=report.files,
+                loadables=loadables,
+                captured_queries=captured_queries,
+                params=resolved,
+            )
+            identity_err = verify_identity_binds_in_queries(
+                captured_queries, resolved, specs
+            )
+            if identity_err:
+                raise ParamError(identity_err)
+            df = executor.format_df_for_widget(exec_df)
+            status, status_reason = "success", None
+        except ParamError:
+            raise
+        except Exception as e:
+            df, status, status_reason = None, "error", str(e)
+        finally:
+            if usage_context is not None:
+                try:
+                    await usage_context.flush()
+                except Exception:
+                    pass
+
+        # Upsert the per-viewer cached result. Errors are not cached — a
+        # failed run must not pin a viewer to an error until force_refresh.
+        if status == "success":
+            if existing is None:
+                existing = StepUserResult(
+                    step_id=str(step.id),
+                    user_id=str(caller.id),
+                    organization_id=str(organization_id or report.organization_id),
+                    report_id=str(report.id),
+                    params_fingerprint=fingerprint,
+                )
+            existing.status = "success"
+            existing.status_reason = None
+            existing.data = df
+            existing.applied_params = dict(resolved) if resolved else None
+            existing.executed_as = "viewer"
+            existing.last_run_at = _dt.utcnow()
+            db.add(existing)
+            await db.commit()
+            return {
+                "data": df or {},
+                "applied_params": resolved,
+                "cached": False,
+                "status": "success",
+                "step_id": str(step.id),
+            }
+        return {
+            "data": {},
+            "applied_params": resolved,
+            "cached": False,
+            "status": "error",
+            "error": status_reason,
+            "step_id": str(step.id),
+        }
 
     async def get_default_step_for_query(
         self,
@@ -524,14 +827,29 @@ class QueryService:
         org_settings = await org.get_settings(db) if org else None
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
 
+        # Params: an explicit declarations list on the request is validated
+        # against the code (same rule as a builder save); otherwise the
+        # query's stored declarations apply.
+        if request.parameters is not None:
+            preview_specs = [ParamSpec.model_validate(p) for p in (request.parameters or [])]
+            consistency = check_declarations_vs_code(request.code or "", preview_specs)
+            if consistency:
+                raise ParamError("; ".join(consistency))
+        else:
+            preview_specs = parse_param_specs(getattr(q, "parameters", None))
+        resolved_params = await self._resolve_params_for_run(
+            db, preview_specs, request.params, run_user, organization_id
+        )
+
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(
                 code=request.code or "",
                 ds_clients=ds_clients,
                 excel_files=excel_files,
+                params=resolved_params,
             )
             df = executor.format_df_for_widget(exec_df)
-            return {"preview": df, "execution_log": execution_log}
+            return {"preview": df, "execution_log": execution_log, "applied_params": resolved_params}
         except Exception as e:
             # Surface error to client for preview display
             return {"preview": None, "error": str(e)}

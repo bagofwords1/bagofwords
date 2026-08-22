@@ -26,18 +26,36 @@ class QuerySchema(BaseModel):
     updated_at: datetime
     visualizations: Optional[list[VisualizationSchema]] = None
     default_step: Optional[StepSchema] = None
+    # Declared ParamSpec dicts (see app/schemas/param_schema.py)
+    parameters: Optional[list] = None
 
     class Config:
         from_attributes = True
 
 
 class QueryRunRequest(BaseModel):
-    code: str
+    # Builder mode ('builder', default): `code` is required — creates a new
+    # Step, executes it, repoints default_step_id. May also update the query's
+    # declared `parameters`.
+    # Viewer mode ('viewer'): `code` is ignored — executes the query's default
+    # step code with `params`, caches the result per (step, viewer, values),
+    # creates NO new Step.
+    code: Optional[str] = None
     title: Optional[str] = None
     data_model: Optional[dict] = None
     type: Optional[str] = None
     row_limit: Optional[int] = None
     tool_execution_id: Optional[str] = None
+    mode: Optional[str] = "builder"
+    # Param values for this run ({name: value})
+    params: Optional[dict] = None
+    # Builder mode only: replace the query's declared ParamSpec list
+    parameters: Optional[list] = None
+    # Viewer mode only: bypass the cached per-viewer result
+    force_refresh: bool = False
+    # View-as (owner/admin only, server-verified): resolve identity params as
+    # this org member instead of the caller. Results are preview-only.
+    run_as_user_id: Optional[str] = None
 
 
 class PublicQuerySchema(BaseModel):
@@ -46,6 +64,9 @@ class PublicQuerySchema(BaseModel):
     title: str
     default_step_id: Optional[str] = None
     visualizations: Optional[List[PublicVisualizationSchema]] = None
+    # Declared ParamSpec dicts — needed so shared dashboards can render
+    # controls; identity params are resolved server-side on /run regardless.
+    parameters: Optional[list] = None
 
     class Config:
         from_attributes = True

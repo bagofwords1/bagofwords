@@ -28,6 +28,8 @@ class StepSchema(StepBase):
     # True when the shared snapshot was hidden from this viewer (viewer-identity
     # mode on user-scoped connections) — `data` is empty until they run.
     snapshot_withheld: bool = False
+    # The resolved param values this step's snapshot was produced with.
+    applied_params: Optional[dict] = None
 
     class Config:
         from_attributes = True

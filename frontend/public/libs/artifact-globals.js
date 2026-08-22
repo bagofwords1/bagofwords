@@ -17,8 +17,34 @@
   window.useMemo = React.useMemo;
   window.useCallback = React.useCallback;
 
+  // ── Live data store ─────────────────────────────────────────────────────────
+  // The host can push fresh ARTIFACT_DATA at any time (param changes, view-as
+  // swaps) via postMessage without reloading the iframe. Components subscribe
+  // through useArtifactData()/useParams() and re-render on push.
+  window.__artifactDataListeners = [];
+  function notifyArtifactData() {
+    for (var i = 0; i < window.__artifactDataListeners.length; i++) {
+      try { window.__artifactDataListeners[i](); } catch (e) {}
+    }
+  }
+  window.__setArtifactData = function(data) {
+    window.ARTIFACT_DATA = data;
+    if (window.__paramStore) window.__paramStore._ingest(data);
+    notifyArtifactData();
+  };
+
   // ── useArtifactData() ───────────────────────────────────────────────────────
   window.useArtifactData = function() {
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      var fn = function() { forceUpdate(function(c) { return c + 1; }); };
+      window.__artifactDataListeners.push(fn);
+      return function() {
+        var idx = window.__artifactDataListeners.indexOf(fn);
+        if (idx >= 0) window.__artifactDataListeners.splice(idx, 1);
+      };
+    }, []);
     return window.ARTIFACT_DATA;
   };
 
@@ -206,6 +232,138 @@
       filterRows: filterRows
     };
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Params store + useParams — server-side query parameters.
+  //
+  // Unlike useFilters (client-side, filters rows already in the browser),
+  // params RE-RUN the underlying queries at the source: the iframe posts the
+  // intent to the authenticated host page, the host calls the backend, and
+  // fresh rows arrive via a new ARTIFACT_DATA push. Declarations come from
+  // ARTIFACT_DATA.params: { declarations: [{name, type, label, source,
+  // default, required, options, query_ids}], values: {name: value} }.
+  // Identity-source params are locked server-side — they carry no client
+  // value and render as "scoped to you", never as an input.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  window.__paramStore = (function() {
+    var declarations = [];
+    var values = {};
+    var pending = {};
+    var loading = false;
+    var error = null;
+    var listeners = [];
+    var timer = null;
+
+    function notify() {
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](); } catch (e) {}
+      }
+    }
+
+    function post(msg) {
+      try { window.parent.postMessage(msg, '*'); } catch (e) {}
+    }
+
+    function commit(targets) {
+      var changes = {};
+      var any = false;
+      for (var k in pending) { changes[k] = pending[k]; any = true; }
+      if (!any) return;
+      pending = {};
+      loading = true;
+      error = null;
+      notify();
+      post({ type: 'ARTIFACT_SET_PARAMS', changes: changes, targets: targets || null });
+    }
+
+    return {
+      _ingest: function(data) {
+        var p = (data && data.params) || {};
+        declarations = p.declarations || [];
+        values = p.values || {};
+        loading = false;
+        error = null;
+        notify();
+      },
+      _status: function(payload) {
+        loading = !!(payload && payload.loading);
+        error = (payload && payload.error) || null;
+        notify();
+      },
+      getDeclarations: function() { return declarations; },
+      getValues: function() { return values; },
+      getPending: function() { return pending; },
+      isLoading: function() { return loading; },
+      getError: function() { return error; },
+      setParam: function(name, value, opts) {
+        pending[name] = value;
+        notify();
+        if (opts && opts.apply === false) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+      },
+      setParams: function(changes, opts) {
+        for (var k in (changes || {})) pending[k] = changes[k];
+        notify();
+        if (opts && opts.apply === false) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+      },
+      apply: function(targets) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        commit(targets || null);
+      },
+      refresh: function(targets) {
+        loading = true;
+        notify();
+        post({ type: 'ARTIFACT_REFRESH_PARAMS', targets: targets || null });
+      },
+      sub: function(fn) {
+        listeners.push(fn);
+        return function() {
+          var idx = listeners.indexOf(fn);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }
+    };
+  })();
+
+  window.useParams = function() {
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      return window.__paramStore.sub(function() {
+        forceUpdate(function(c) { return c + 1; });
+      });
+    }, []);
+    var store = window.__paramStore;
+    return {
+      declarations: store.getDeclarations(),
+      values: store.getValues(),
+      pending: store.getPending(),
+      loading: store.isLoading(),
+      error: store.getError(),
+      setParam: store.setParam,
+      setParams: store.setParams,
+      apply: store.apply,
+      refresh: store.refresh
+    };
+  };
+
+  // Seed the store from the data embedded in the initial srcdoc.
+  try { window.__paramStore._ingest(window.ARTIFACT_DATA || {}); } catch (e) {}
+
+  // Host → iframe bridge: fresh data pushes and param-run status. Only the
+  // parent frame is trusted.
+  window.addEventListener('message', function(e) {
+    if (e.source !== window.parent || !e.data) return;
+    if (e.data.type === 'ARTIFACT_DATA' && e.data.payload) {
+      window.__setArtifactData(e.data.payload);
+    } else if (e.data.type === 'ARTIFACT_PARAMS_STATUS') {
+      window.__paramStore._status(e.data.payload || {});
+    }
+  });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoPopover — built-in provenance popup for prebuilt components.

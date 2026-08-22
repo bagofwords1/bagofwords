@@ -95,6 +95,17 @@ async def run_query_new_step(
     db: AsyncSession = Depends(get_async_db),
 ):
     try:
+        if (payload.mode or "builder") == "viewer":
+            # Viewer-execute: run the default step's code with param values,
+            # cached per (step, viewer, values). No new Step is created.
+            result = await service.run_query_viewer(
+                db,
+                query_id,
+                payload,
+                organization_id=str(organization.id) if organization else None,
+                user_id=str(current_user.id) if current_user else None,
+            )
+            return result
         q_dict, step_obj = await service.run_query_new_step(
             db,
             query_id,

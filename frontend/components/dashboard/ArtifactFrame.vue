@@ -674,6 +674,150 @@ async function fetchViewerContext() {
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
+
+// ── Query parameters ─────────────────────────────────────────────────────────
+// Declarations per query (qid → ParamSpec[]) and the current applied values.
+// Identity-source params never carry a client value — the server binds them
+// per viewer; the artifact only shows "scoped to you".
+const queryParamSpecs = ref<Record<string, any[]>>({});
+const paramValues = ref<Record<string, any>>({});
+const paramRunLoading = ref(false);
+// Snapshot embedded in the iframe's srcdoc; frozen per data load so live
+// param/view-as updates (postMessage) never trigger an iframe reload.
+const srcdocSeed = ref<any>(null);
+
+function paramsPayload() {
+  // Aggregate declarations by name: same-named params across queries render
+  // as ONE control that drives all of them.
+  const byName: Record<string, any> = {};
+  for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+    for (const spec of specs || []) {
+      if (!byName[spec.name]) byName[spec.name] = { ...spec, query_ids: [] };
+      byName[spec.name].query_ids.push(qid);
+    }
+  }
+  return {
+    declarations: Object.values(byName),
+    values: { ...paramValues.value },
+  };
+}
+
+function paramSubsetForQuery(qid: string) {
+  const out: Record<string, any> = {};
+  for (const spec of queryParamSpecs.value[qid] || []) {
+    if (spec.source === 'identity') continue; // server-resolved, client values rejected
+    if (Object.prototype.hasOwnProperty.call(paramValues.value, spec.name)) {
+      out[spec.name] = paramValues.value[spec.name];
+    }
+  }
+  return out;
+}
+
+function queriesWithIdentityParams(): string[] {
+  return Object.entries(queryParamSpecs.value)
+    .filter(([, specs]) => (specs || []).some((s: any) =>
+      s.source === 'identity' || s.source === 'input_identity_default'))
+    .map(([qid]) => qid);
+}
+
+function postParamsStatus(loading: boolean, error: string | null = null) {
+  paramRunLoading.value = loading;
+  try {
+    iframeRef.value?.contentWindow?.postMessage(
+      { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
+      window.location.origin,
+    );
+  } catch { /* iframe not ready */ }
+}
+
+// Execute the parameterized queries server-side (viewer mode: per-viewer
+// cached results, no new Step) and swap the fresh rows into the payload.
+async function runParamQueries(
+  changes: Record<string, any> | null,
+  targets: string[] | null = null,
+  opts: { force?: boolean; identityOnly?: boolean } = {},
+) {
+  const changedNames = Object.keys(changes || {});
+  for (const name of changedNames) paramValues.value[name] = (changes as any)[name];
+
+  let affected = Object.entries(queryParamSpecs.value)
+    .filter(([qid, specs]) => {
+      if (targets && !targets.includes(qid)) return false;
+      if (opts.identityOnly) {
+        return (specs || []).some((s: any) =>
+          s.source === 'identity' || s.source === 'input_identity_default');
+      }
+      if (!changedNames.length) return (specs || []).length > 0;
+      return (specs || []).some((s: any) => changedNames.includes(s.name));
+    })
+    .map(([qid]) => qid);
+  affected = [...new Set(affected)];
+  if (!affected.length) return;
+
+  postParamsStatus(true);
+  let firstError: string | null = null;
+  const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
+    ? viewAsMode.value : undefined;
+  await Promise.all(affected.map(async (qid) => {
+    try {
+      const { data: runRes, error } = await useMyFetch(`/api/queries/${qid}/run`, {
+        method: 'POST',
+        body: {
+          mode: 'viewer',
+          params: paramSubsetForQuery(qid),
+          force_refresh: !!opts.force,
+          ...(runAs ? { run_as_user_id: runAs } : {}),
+        },
+      });
+      const res: any = runRes.value;
+      if (error.value || !res || res.status !== 'success') {
+        const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
+        if (!firstError) firstError = String(msg);
+        return;
+      }
+      for (const viz of visualizationsData.value) {
+        if (viz.queryId === qid) {
+          viz.rows = res.data?.rows || [];
+          viz.columns = res.data?.columns || [];
+          viz.stepStatus = 'success';
+        }
+      }
+    } catch (e: any) {
+      if (!firstError) firstError = e?.message || 'Query run failed';
+    }
+  }));
+  // New array identity so watchers fire and the fresh rows reach the iframe.
+  visualizationsData.value = [...visualizationsData.value];
+  postParamsStatus(false, firstError);
+  syncParamsToUrl();
+}
+
+// Shareable state: param values mirror into the URL (?qp_<name>=...) and are
+// restored on load.
+const paramRoute = useRoute();
+const paramRouter = useRouter();
+function syncParamsToUrl() {
+  try {
+    const q: Record<string, any> = { ...paramRoute.query };
+    for (const k of Object.keys(q)) if (k.startsWith('qp_')) delete q[k];
+    for (const [name, value] of Object.entries(paramValues.value)) {
+      if (value === null || value === undefined || value === '') continue;
+      q[`qp_${name}`] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+    paramRouter.replace({ query: q });
+  } catch { /* non-fatal */ }
+}
+function readParamsFromUrl(): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(paramRoute.query || {})) {
+    if (!k.startsWith('qp_') || v == null) continue;
+    const name = k.slice(3);
+    const raw = Array.isArray(v) ? v[0] : v;
+    try { out[name] = JSON.parse(String(raw)); }
+    catch { out[name] = String(raw); }
+  }
+  return out;
+}
 const iframeReady = ref(false);
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
@@ -908,6 +1052,17 @@ watch(viewAsMode, async (mode) => {
     } catch {
       previewViewer.value = null;
     }
+  }
+  // Identity-scoped queries re-run as the previewed member (server-verified:
+  // owner/admin only; results are preview-only, cached under the CALLER).
+  // Back to 'you' re-scopes to the caller's own slice. Anonymous is
+  // identity-display only — the data path needs an authenticated identity.
+  try {
+    if (mode !== 'anonymous' && queriesWithIdentityParams().length) {
+      await runParamQueries(null, null, { identityOnly: true });
+    }
+  } catch (e) {
+    console.error('[ArtifactFrame] View-as param re-run failed:', e);
   }
   // Swapping identity re-sends data into an already-mounted iframe (srcdoc
   // also recomputes, but postMessage covers the no-reload path).
@@ -1181,6 +1336,16 @@ function handleIframeMessage(event: MessageEvent) {
     polishPromptVisible.value = true;
     polishInstruction.value = '';
     nextTick(() => polishInputRef.value?.focus());
+  } else if (event.data?.type === 'ARTIFACT_SET_PARAMS') {
+    // A control in the artifact committed param changes: run the consuming
+    // queries server-side and push fresh rows back down.
+    if (event.source === iframeRef.value?.contentWindow) {
+      runParamQueries(event.data.changes || {}, event.data.targets || null, {});
+    }
+  } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {
+    if (event.source === iframeRef.value?.contentWindow) {
+      runParamQueries(null, event.data.targets || null, { force: true });
+    }
   }
 }
 
@@ -1192,7 +1357,8 @@ function sendDataToIframe() {
     report: toRaw(reportData.value),
     visualizations: toRaw(visualizationsData.value),
     files: toRaw(filesData.value),
-    current_user: toRaw(effectiveViewerContext.value)
+    current_user: toRaw(effectiveViewerContext.value),
+    params: paramsPayload()
   }));
 
   try {
@@ -1248,11 +1414,17 @@ async function fetchData(artifactId?: string) {
     let anyOwnResult = false;
     let failedReason: string | null = null;
 
+    const nextParamSpecs: Record<string, any[]> = {};
     for (let qi = 0; qi < queries.length; qi++) {
       const query = queries[qi];
       // list_queries already embeds the viewer-safe default Step. Re-fetching
       // it once per query duplicated the dashboard waterfall and payload.
       const step = query.default_step;
+
+      // Declared query parameters (ParamSpec dicts) drive artifact controls.
+      if (Array.isArray(query.parameters) && query.parameters.length) {
+        nextParamSpecs[query.id] = query.parameters;
+      }
 
       // Per-viewer step-data policy markers: withheld snapshots gate the
       // render; an existing per-viewer result row gates auto-run.
@@ -1277,8 +1449,29 @@ async function fetchData(artifactId?: string) {
           code: step?.code || '',
           description: viz.description || query.description || step?.description || '',
           dataSource: singleDataSourceName,
+          queryId: query.id,
         });
       }
+    }
+    queryParamSpecs.value = nextParamSpecs;
+
+    // Initialize applied values: declaration defaults, overridden by any
+    // qp_<name> URL state (shareable dashboards). Identity params carry no
+    // client value — the server binds them per viewer.
+    {
+      const urlValues = readParamsFromUrl();
+      const nextValues: Record<string, any> = {};
+      for (const specs of Object.values(nextParamSpecs)) {
+        for (const spec of specs as any[]) {
+          if (spec.source === 'identity') continue;
+          if (Object.prototype.hasOwnProperty.call(urlValues, spec.name)) {
+            nextValues[spec.name] = urlValues[spec.name];
+          } else if (spec.default !== undefined && spec.default !== null) {
+            nextValues[spec.name] = spec.default;
+          }
+        }
+      }
+      paramValues.value = nextValues;
     }
 
     // Reorder vizData to match artifact's visualization_ids order
@@ -1311,6 +1504,33 @@ async function fetchData(artifactId?: string) {
       console.error('[ArtifactFrame] Failed to fetch embedded files:', e);
       filesData.value = [];
     }
+
+    // Identity-scoped queries apply the viewer's identity BEFORE first paint:
+    // the shared snapshot is the creator's slice, so run those queries as the
+    // viewer now (server binds identity; results are per-viewer cached, so a
+    // revisit is a cache hit). URL-restored input values apply here too.
+    try {
+      const urlValueNames = Object.keys(readParamsFromUrl());
+      if (urlValueNames.length) {
+        await runParamQueries(null, null, {});
+      } else if (queriesWithIdentityParams().length) {
+        await runParamQueries(null, null, { identityOnly: true });
+      }
+    } catch (e) {
+      console.error('[ArtifactFrame] Initial param run failed:', e);
+    }
+
+    // Freeze the srcdoc seed: the iframe's initial document embeds THIS
+    // snapshot. Later updates (param runs, view-as swaps) flow via
+    // postMessage into the live data store — never by recomputing srcdoc,
+    // which would reload the iframe and lose control state.
+    srcdocSeed.value = JSON.parse(JSON.stringify({
+      report: toRaw(reportData.value),
+      visualizations: toRaw(visualizationsData.value),
+      files: toRaw(filesData.value),
+      current_user: toRaw(effectiveViewerContext.value),
+      params: paramsPayload(),
+    }));
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
     dataReady.value = true;
@@ -1637,13 +1857,17 @@ const iframeSrcdoc = computed(() => {
     || selectedArtifact.value?.content?.code
     || sampleArtifactCode.value;
 
+  // Frozen seed (set once per data load) so live updates don't reload the
+  // iframe; falls back to live refs for the pre-data sample path.
+  const seed = srcdocSeed.value || {
+    report: reportData.value,
+    visualizations: visualizationsData.value,
+    files: filesData.value,
+    current_user: effectiveViewerContext.value,
+    params: paramsPayload(),
+  };
   return buildArtifactIframeHtml({
-    data: {
-      report: reportData.value,
-      visualizations: visualizationsData.value,
-      files: filesData.value,
-      current_user: effectiveViewerContext.value,
-    },
+    data: seed,
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
     polishMode: true,

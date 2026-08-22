@@ -197,6 +197,7 @@
                 <!-- Artifact Content - Full screen (modern reports with artifacts) -->
                 <iframe
                     v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews && !isDocMode"
+                    ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
                     sandbox="allow-scripts allow-same-origin allow-downloads"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
@@ -657,6 +658,11 @@ async function loadVisualizationData(artifactId?: string) {
                 if (!newestViewerRun || ts > newestViewerRun) newestViewerRun = ts;
             }
 
+            // Declared query parameters drive artifact controls (useParams()).
+            if (Array.isArray((query as any).parameters) && (query as any).parameters.length) {
+                queryParamSpecs.value[(query as any).id] = (query as any).parameters;
+            }
+
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];
             for (const viz of visualizations) {
@@ -667,7 +673,8 @@ async function loadVisualizationData(artifactId?: string) {
                     rows: (step.value as any)?.data?.rows || [],
                     columns: (step.value as any)?.data?.columns || [],
                     dataModel: (step.value as any)?.data_model || {},
-                    code: (step.value as any)?.code || ''
+                    code: (step.value as any)?.code || '',
+                    queryId: (query as any).id
                 });
             }
 
@@ -707,6 +714,138 @@ async function loadVisualizationData(artifactId?: string) {
 }
 
 
+// ── Query parameters (authenticated viewers) ────────────────────────────────
+// Same contract as ArtifactFrame: the iframe posts ARTIFACT_SET_PARAMS /
+// ARTIFACT_REFRESH_PARAMS; this host runs the consuming queries in viewer
+// mode and pushes fresh rows back with a new ARTIFACT_DATA message.
+// Anonymous viewers can't run (auth required) — their controls no-op.
+const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+const queryParamSpecs = ref<Record<string, any[]>>({});
+const paramValues = ref<Record<string, any>>({});
+// Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
+const srcdocSeed = ref<any>(null);
+
+function paramsPayload() {
+    const byName: Record<string, any> = {};
+    for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+        for (const spec of (specs as any[]) || []) {
+            if (!byName[spec.name]) byName[spec.name] = { ...spec, query_ids: [] };
+            byName[spec.name].query_ids.push(qid);
+        }
+    }
+    return { declarations: Object.values(byName), values: { ...paramValues.value } };
+}
+
+function initParamValues() {
+    const next: Record<string, any> = {};
+    for (const specs of Object.values(queryParamSpecs.value)) {
+        for (const spec of (specs as any[]) || []) {
+            if (spec.source === 'identity') continue;
+            if (spec.default !== undefined && spec.default !== null) next[spec.name] = spec.default;
+        }
+    }
+    paramValues.value = next;
+}
+
+function queriesWithIdentityParams(): string[] {
+    return Object.entries(queryParamSpecs.value)
+        .filter(([, specs]) => ((specs as any[]) || []).some((s: any) =>
+            s.source === 'identity' || s.source === 'input_identity_default'))
+        .map(([qid]) => qid);
+}
+
+function postToArtifactIframe(msg: any) {
+    try {
+        artifactIframeRef.value?.contentWindow?.postMessage(msg, window.location.origin);
+    } catch { /* iframe not ready */ }
+}
+
+function pushArtifactData() {
+    postToArtifactIframe({
+        type: 'ARTIFACT_DATA',
+        payload: JSON.parse(JSON.stringify({
+            report: {
+                id: report.value.id,
+                title: report.value.title,
+                theme: report.value.theme_name || report.value.report_theme_name
+            },
+            visualizations: visualizationsData.value,
+            files: filesData.value,
+            current_user: viewerContext.value,
+            params: paramsPayload()
+        }))
+    });
+}
+
+async function runParamQueries(
+    changes: Record<string, any> | null,
+    targets: string[] | null = null,
+    opts: { force?: boolean; identityOnly?: boolean } = {},
+) {
+    if (!viewerContext.value) {
+        // Anonymous: no authenticated identity to run under.
+        postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: false, error: 'Sign in to change filters' } });
+        return;
+    }
+    const changedNames = Object.keys(changes || {});
+    for (const name of changedNames) paramValues.value[name] = (changes as any)[name];
+
+    let affected = Object.entries(queryParamSpecs.value)
+        .filter(([qid, specs]) => {
+            if (targets && !targets.includes(qid)) return false;
+            const list = (specs as any[]) || [];
+            if (opts.identityOnly) {
+                return list.some((s: any) => s.source === 'identity' || s.source === 'input_identity_default');
+            }
+            if (!changedNames.length) return list.length > 0;
+            return list.some((s: any) => changedNames.includes(s.name));
+        })
+        .map(([qid]) => qid);
+    affected = [...new Set(affected)];
+    if (!affected.length) return;
+
+    postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: true } });
+    let firstError: string | null = null;
+    await Promise.all(affected.map(async (qid) => {
+        try {
+            const body: Record<string, any> = { mode: 'viewer', params: {}, force_refresh: !!opts.force };
+            for (const spec of (queryParamSpecs.value[qid] as any[]) || []) {
+                if (spec.source === 'identity') continue;
+                if (Object.prototype.hasOwnProperty.call(paramValues.value, spec.name)) {
+                    body.params[spec.name] = paramValues.value[spec.name];
+                }
+            }
+            const { data: runRes, error } = await useMyFetch(`/api/queries/${qid}/run`, { method: 'POST', body });
+            const res: any = runRes.value;
+            if (error.value || !res || res.status !== 'success') {
+                const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
+                if (!firstError) firstError = String(msg);
+                return;
+            }
+            for (const viz of visualizationsData.value as any[]) {
+                if (viz.queryId === qid) {
+                    viz.rows = res.data?.rows || [];
+                    viz.columns = res.data?.columns || [];
+                }
+            }
+        } catch (e: any) {
+            if (!firstError) firstError = e?.message || 'Query run failed';
+        }
+    }));
+    visualizationsData.value = [...visualizationsData.value];
+    postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: false, error: firstError } });
+    pushArtifactData();
+}
+
+function handleArtifactParamsMessage(event: MessageEvent) {
+    if (event.source !== artifactIframeRef.value?.contentWindow || !event.data) return;
+    if (event.data.type === 'ARTIFACT_SET_PARAMS') {
+        runParamQueries(event.data.changes || {}, event.data.targets || null, {});
+    } else if (event.data.type === 'ARTIFACT_REFRESH_PARAMS') {
+        runParamQueries(null, event.data.targets || null, { force: true });
+    }
+}
+
 // Build the iframe srcdoc - only compute once all data is ready
 const iframeSrcdoc = computed(() => {
     if (!dataReady.value) return null;
@@ -717,17 +856,19 @@ const iframeSrcdoc = computed(() => {
     // python-pptx slides source must never be injected into the iframe
     if (slidesPreviewsMissing.value) return null;
 
-    return buildArtifactIframeHtml({
-        data: {
-            report: {
-                id: report.value.id,
-                title: report.value.title,
-                theme: report.value.theme_name || report.value.report_theme_name
-            },
-            visualizations: visualizationsData.value,
-            files: filesData.value,
-            current_user: viewerContext.value
+    const seed = srcdocSeed.value || {
+        report: {
+            id: report.value.id,
+            title: report.value.title,
+            theme: report.value.theme_name || report.value.report_theme_name
         },
+        visualizations: visualizationsData.value,
+        files: filesData.value,
+        current_user: viewerContext.value,
+        params: paramsPayload()
+    };
+    return buildArtifactIframeHtml({
+        data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
     });
@@ -811,6 +952,30 @@ onMounted(async () => {
     if (!hasArtifacts.value) {
         await checkLegacyLayout();
     }
+
+    // Params: defaults from declarations; identity-scoped queries run as the
+    // signed-in viewer BEFORE first paint so the dashboard opens on their
+    // slice (per-viewer cached — revisits are cache hits). Anonymous viewers
+    // render the shared/withheld state unchanged.
+    initParamValues();
+    if (viewerContext.value && queriesWithIdentityParams().length) {
+        try { await runParamQueries(null, null, { identityOnly: true }); } catch { /* non-fatal */ }
+    }
+    window.addEventListener('message', handleArtifactParamsMessage);
+
+    // Freeze the srcdoc seed so later param runs update via postMessage
+    // without reloading the iframe.
+    srcdocSeed.value = JSON.parse(JSON.stringify({
+        report: {
+            id: report.value.id,
+            title: report.value.title,
+            theme: report.value.theme_name || report.value.report_theme_name
+        },
+        visualizations: visualizationsData.value,
+        files: filesData.value,
+        current_user: viewerContext.value,
+        params: paramsPayload()
+    }));
 
     // Mark data as ready - this triggers iframeSrcdoc to compute once with all data
     dataReady.value = true;

@@ -16,6 +16,13 @@
             @click="activeTab = 'code'"
           >Query</button>
           <button
+            v-if="canEditCode"
+            class="py-2 text-xs transition-colors border-b-2 -mb-px"
+            data-testid="params-tab"
+            :class="activeTab === 'params' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
+            @click="activeTab = 'params'"
+          >Params<span v-if="paramSpecs.length" class="ms-1 text-[10px] text-blue-500">({{ paramSpecs.length }})</span></button>
+          <button
             class="py-2 text-xs transition-colors border-b-2 -mb-px"
             :class="activeTab === 'visuals' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
             @click="activeTab = 'visuals'"
@@ -74,6 +81,95 @@
                   </table>
                 </div>
                 <div v-else class="text-xs" :class="errorMsg ? 'text-red-600' : 'text-gray-400'">{{ errorMsg || 'No preview yet.' }}</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Params tab: declare typed parameters + test values.
+               Declarations live on the Query; the code must consume each one
+               (params['name']) — Save validates that server-side. -->
+          <div v-else-if="canEditCode && activeTab === 'params'" class="h-full flex flex-col overflow-hidden" data-testid="params-panel">
+            <div class="flex-1 overflow-auto p-4 space-y-4">
+              <div class="text-xs text-gray-500 dark:text-gray-400">
+                Parameters are typed inputs the query's code receives as a <code class="text-[11px] bg-gray-100 dark:bg-gray-800 px-1 rounded">params</code> dict.
+                Viewers change <b>input</b> params from dashboard controls; <b>identity</b> params are locked to each viewer and bound server-side.
+                Every declared parameter must be read by the code (e.g. <code class="text-[11px] bg-gray-100 dark:bg-gray-800 px-1 rounded">params['name']</code>) — Save enforces this.
+              </div>
+              <div v-if="paramSpecs.length === 0" class="text-xs text-gray-400 border border-dashed rounded p-4 text-center">
+                No parameters declared for this query.
+              </div>
+              <div v-for="(spec, idx) in paramSpecs" :key="idx" class="border border-gray-200 dark:border-gray-700 rounded p-3 space-y-2" :data-testid="`param-row-${spec.name || idx}`">
+                <div class="flex items-center gap-2 flex-wrap">
+                  <input v-model="spec.name" placeholder="name" class="w-36 px-2 py-1 text-xs border rounded font-mono" data-testid="param-name" />
+                  <select v-model="spec.type" class="px-2 py-1 text-xs border rounded" data-testid="param-type">
+                    <option v-for="t in ['string','number','date','date_range','id','list']" :key="t" :value="t">{{ t }}</option>
+                  </select>
+                  <select v-model="spec.source" class="px-2 py-1 text-xs border rounded" data-testid="param-source">
+                    <option value="input">input (viewer-editable)</option>
+                    <option value="identity">identity (locked to viewer)</option>
+                    <option value="input_identity_default">input, defaults to viewer</option>
+                  </select>
+                  <label class="text-[11px] text-gray-500 flex items-center gap-1">
+                    <input type="checkbox" v-model="spec.required" /> required
+                  </label>
+                  <button class="ms-auto text-xs text-red-500 hover:text-red-700" data-testid="param-delete" @click="paramSpecs.splice(idx, 1)">Remove</button>
+                </div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <input v-model="spec.label" placeholder="label (control caption)" class="w-48 px-2 py-1 text-xs border rounded" />
+                  <template v-if="spec.source === 'input'">
+                    <input v-model="spec.default" placeholder="default (empty = All)" class="w-44 px-2 py-1 text-xs border rounded" data-testid="param-default" />
+                    <input :value="(spec.options || []).join(', ')" @input="spec.options = parseOptions(($event.target as HTMLInputElement).value)"
+                      placeholder="options, comma-separated (optional)" class="flex-1 min-w-[10rem] px-2 py-1 text-xs border rounded" />
+                  </template>
+                  <template v-else>
+                    <select v-model="spec.identity_binding" class="px-2 py-1 text-xs border rounded" data-testid="param-binding">
+                      <option value="viewer.email">viewer.email</option>
+                      <option value="viewer.user_id">viewer.user_id</option>
+                      <option value="viewer.groups">viewer.groups</option>
+                      <option v-if="spec.identity_binding && spec.identity_binding.startsWith('viewer.profile_attributes.')" :value="spec.identity_binding">{{ spec.identity_binding }}</option>
+                    </select>
+                    <input placeholder="or profile attribute key (e.g. department)" class="w-64 px-2 py-1 text-xs border rounded"
+                      @change="spec.identity_binding = ($event.target as HTMLInputElement).value ? ('viewer.profile_attributes.' + ($event.target as HTMLInputElement).value) : spec.identity_binding" />
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200">scoped to viewer</span>
+                  </template>
+                </div>
+              </div>
+              <button class="px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800" data-testid="param-add" @click="addParamSpec">+ Add parameter</button>
+
+              <!-- Test values: run the current code with concrete values -->
+              <div v-if="editableParamSpecs.length" class="border-t pt-3 space-y-2">
+                <div class="text-xs font-medium text-gray-700 dark:text-gray-300">Test values</div>
+                <div class="flex items-center gap-2 flex-wrap">
+                  <div v-for="spec in editableParamSpecs" :key="spec.name" class="flex items-center gap-1">
+                    <span class="text-[11px] text-gray-500 font-mono">{{ spec.name }}=</span>
+                    <input v-model="paramTestValues[spec.name]" :placeholder="spec.default != null ? String(spec.default) : '(All)'"
+                      class="w-36 px-2 py-1 text-xs border rounded" :data-testid="`param-value-${spec.name}`" />
+                  </div>
+                  <button class="px-3 py-1.5 text-xs rounded border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center" :disabled="running" data-testid="param-preview-run" @click="previewRun">
+                    <span v-if="running && runMode === 'preview'">Running…</span>
+                    <span v-else class="flex items-center"><Icon name="heroicons-play" class="w-3 h-3 me-1.5" />Run with values</span>
+                  </button>
+                </div>
+              </div>
+              <div v-if="errorMsg" class="text-xs text-red-600" data-testid="params-error">{{ errorMsg }}</div>
+              <div class="flex items-center justify-end gap-2 border-t pt-3">
+                <button class="px-3 py-1.5 text-xs rounded bg-gray-800 text-white hover:bg-gray-700" :disabled="running" data-testid="params-save" @click="runNewStep">
+                  <span v-if="running && runMode === 'save'">Saving…</span>
+                  <span v-else>Save parameters &amp; run</span>
+                </button>
+              </div>
+              <!-- Result preview -->
+              <div v-if="preview && preview.columns && preview.rows" class="border rounded max-h-64 overflow-auto">
+                <table class="min-w-full text-xs">
+                  <thead class="bg-gray-50 dark:bg-gray-900 sticky top-0">
+                    <tr><th v-for="col in preview.columns" :key="col.field" class="px-2 py-1 text-start font-medium text-gray-600 dark:text-gray-400">{{ col.headerName || col.field }}</th></tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="(row, rIdx) in preview.rows" :key="rIdx" class="border-t">
+                      <td v-for="col in preview.columns" :key="col.field" class="px-2 py-1 text-gray-800 dark:text-gray-200">{{ row[col.field] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
@@ -219,7 +315,53 @@ const open = computed({
 
 const { canEditCode } = useOrgSettings()
 
-const activeTab = ref<'code' | 'visuals'>(canEditCode.value ? 'code' : 'visuals')
+const activeTab = ref<'code' | 'params' | 'visuals'>(canEditCode.value ? 'code' : 'visuals')
+
+// ── Query parameters ────────────────────────────────────────────────────────
+// Declared ParamSpec rows (persisted on the Query via Save) + test values for
+// preview runs. Identity params carry no test value — the server binds them.
+const paramSpecs = ref<any[]>([])
+const paramTestValues = ref<Record<string, any>>({})
+
+const editableParamSpecs = computed(() =>
+  paramSpecs.value.filter((s: any) => s.source !== 'identity' && s.name))
+
+function addParamSpec() {
+  paramSpecs.value.push({
+    name: '', type: 'string', label: '', source: 'input',
+    default: null, required: false, identity_binding: 'viewer.email', options: null,
+  })
+}
+
+function parseOptions(raw: string): string[] | null {
+  const items = raw.split(',').map(s => s.trim()).filter(Boolean)
+  return items.length ? items : null
+}
+
+function cleanedParamSpecs(): any[] {
+  return paramSpecs.value
+    .filter((s: any) => s.name)
+    .map((s: any) => ({
+      name: s.name,
+      type: s.type || 'string',
+      label: s.label || null,
+      source: s.source || 'input',
+      default: s.default === '' ? null : s.default,
+      required: !!s.required,
+      identity_binding: (s.source === 'identity' || s.source === 'input_identity_default')
+        ? (s.identity_binding || 'viewer.email') : null,
+      options: Array.isArray(s.options) && s.options.length ? s.options : null,
+    }))
+}
+
+function collectedTestValues(): Record<string, any> {
+  const out: Record<string, any> = {}
+  for (const spec of editableParamSpecs.value) {
+    const v = paramTestValues.value[spec.name]
+    if (v !== undefined && v !== '') out[spec.name] = v
+  }
+  return out
+}
 
 watch(canEditCode, (v) => {
   if (!v) activeTab.value = 'visuals'
@@ -261,6 +403,13 @@ async function loadQueryData() {
     if (error.value) throw error.value
 
     queryData.value = data.value
+    // Hydrate declared parameters from the Query
+    try {
+      const declared = (data.value as any)?.parameters
+      paramSpecs.value = Array.isArray(declared)
+        ? declared.map((p: any) => ({ ...p }))
+        : []
+    } catch { paramSpecs.value = [] }
     // Load theme from owning report (queries themselves do not carry theme)
     try {
       const rid = (data.value as any)?.report_id
@@ -483,7 +632,12 @@ async function previewRun() {
     await ensureQueryId()
     const resp: any = await useMyFetch(`/api/queries/${queryId.value}/preview`, {
       method: 'POST',
-      body: { code: editorCode.value, title: props.title, type: 'table', tool_execution_id: props.toolExecutionId || null }
+      body: {
+        code: editorCode.value, title: props.title, type: 'table',
+        tool_execution_id: props.toolExecutionId || null,
+        parameters: cleanedParamSpecs(),
+        params: collectedTestValues(),
+      }
     })
     const payload = resp?.data?.value
     if (payload?.error) {
@@ -513,7 +667,9 @@ async function runNewStep() {
         code: editorCode.value,
         title: props.title,
         type: 'table',
-        tool_execution_id: props.toolExecutionId || null
+        tool_execution_id: props.toolExecutionId || null,
+        parameters: cleanedParamSpecs(),
+        params: collectedTestValues(),
       }
     })
     const payload = resp?.data?.value

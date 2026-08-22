@@ -461,6 +461,21 @@ class ProjectManager:
         await db.commit()
         await db.refresh(step)
         return step
+
+    async def update_query_parameters(self, db, step, parameters, applied_params=None):
+        """Persist declared ParamSpec dicts onto the step's Query and the
+        resolved default values onto the Step itself."""
+        step.applied_params = applied_params or None
+        db.add(step)
+        if getattr(step, "query_id", None):
+            from app.models.query import Query as _Query
+            q = await db.get(_Query, str(step.query_id))
+            if q is not None:
+                q.parameters = list(parameters or []) or None
+                db.add(q)
+        await db.commit()
+        await db.refresh(step)
+        return step
     
     async def update_step_with_data(self, db, step, data):
         safe_data = _to_json_safe(data)

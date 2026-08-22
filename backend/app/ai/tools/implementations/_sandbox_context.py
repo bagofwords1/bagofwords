@@ -63,6 +63,7 @@ references to any of them.
   - `role` is the user's organization role (e.g. 'admin', 'member'); `profile_attributes` is a free-form object of identity-provider attributes (e.g. jobTitle, department) whose keys DEPEND ON THE ORG — never assume a key exists.
   - `groups`: array of the viewer's org group NAMES (alphabetical, server-capped — a member of many groups sees a truncated list). May be `[]`, missing, or `null` — guard with `(u?.groups || []).includes('Sales')`. Group names are org-defined; only reference a group by name if the user's request names it.
   - Use for DISPLAY-ONLY personalization: greetings ("Welcome back, Yochay"), showing the viewer's role/department/groups, group- or role-conditional sections, tailoring copy. It is NOT access control — all data in ARTIFACT_DATA is present regardless, so never claim to hide/protect data with it.
+  - **When the request is to RESTRICT DATA by viewer** ("each person sees their own tasks"), do NOT simulate it by filtering rows with `current_user` — that ships everyone's rows to every browser. Data-level identity scoping is done server-side via identity-source query parameters (see useParams); if the queries don't declare one, the data is not per-viewer and the artifact must not pretend it is.
   - **DEFENSIVE CODING**: Row values, column fields, and nested properties can be `null`/`undefined`. ALWAYS guard before calling string methods like `.includes()`, `.toLowerCase()`, `.startsWith()`, etc. Use optional chaining (`?.`) or convert first: `String(val || '')`. Example: `(row.name || '').includes('x')` instead of `row.name.includes('x')`.
 
 • **useFilters()** — Global React hook for cross-visualization filtering
@@ -77,6 +78,18 @@ references to any of them.
   - Filter state is shared globally — `setFilter` in one component updates `filterRows` everywhere
   - Cross-viz safe: if a row does not have the filtered column (after mapping), it passes through unaffected
   - No automatic column detection — YOU choose which columns to filter using `dtype` and `unique_count` from `visualizations[N].columns`
+
+• **useParams()** — Global React hook for SERVER-SIDE query parameters (different from useFilters, which only filters rows already in the browser: params RE-RUN the underlying queries at the data source and fresh rows arrive automatically)
+  - Returns `{ declarations, values, pending, loading, error, setParam, setParams, apply, refresh }`
+  - `declarations`: array of `{ name, type, label, source, default, required, options, query_ids }` — the parameters the report's queries declare, aggregated by name (`query_ids` = which queries a control drives). MAY BE EMPTY — only render param controls for declared params.
+  - `values`: current applied values by name. `pending`: staged-but-uncommitted changes. `loading`: true while queries re-run. `error`: last run error or null.
+  - `setParam(name, value)`: stage + auto-apply (debounced ~250ms). The host re-runs every query declaring that param and pushes fresh rows into `useArtifactData()` — components re-render automatically; show a subtle loading state while `loading` is true.
+  - `setParam(name, value, { apply: false })` / `setParams({a, b}, { apply: false })`: stage only (for an explicit Apply-button pattern — use it when 3+ interdependent controls or heavy queries).
+  - `apply()` commits all pending; `apply(['<query_id>'])` commits to specific queries only. `refresh()` / `refresh(['<query_id>'])` force re-runs with current values (wire to a per-widget refresh button when it aids trust).
+  - Pass `null` as a value for an optional param to mean "All" (the query skips that predicate).
+  - `source: 'identity'` params are LOCKED to the viewing user (server-resolved). NEVER render an input for them — show a small "scoped to you" badge instead. `source: 'input_identity_default'` params open on the viewer's value but ARE editable.
+  - Param controls: reuse `<FilterSelect>` (single/multi), `<FilterDateRange>`, or plain inputs, wired to `setParam` instead of `setFilter`. Use `declarations[i].options` for choices when present.
+  - Chart drill-down that must RE-QUERY (change granularity/scope) = `setParams({...})` with the clicked value(s). Drill-down that only narrows rows already loaded = `useFilters().setFilter` (instant, no server trip). Choose per interaction.
 
 • **Pre-built UI components** — all global, prefer these for speed but build custom components when the design requires it:
   - `<LoadingSpinner size={24} className="" />` — animated spinner
@@ -127,6 +140,10 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "useCurrentUser() hook (the viewing user { id, name, email, image_url, role, profile_attributes, groups } or null for "
     "anonymous viewers/preview renders — injected per viewer at render time, every field nullable, guard all access; "
     "display-only personalization, not access control), "
+    "useParams() hook (server-side query parameters: { declarations, values, pending, loading, "
+    "error, setParam, setParams, apply, refresh } — setParam re-runs the declaring queries at the "
+    "data source and fresh rows arrive via useArtifactData; identity-source params are locked to "
+    "the viewer, render a 'scoped to you' badge, never an input), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } "
     "for cross-visualization filtering — no auto column detection, LLM chooses which columns to filter "
     "using dtype and unique_count from viz.columns (e.g. dtype 'object' + unique_count < 50 → FilterSelect, "

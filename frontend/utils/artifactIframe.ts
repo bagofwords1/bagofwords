@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '3';
+export const ARTIFACT_GLOBALS_VERSION = '4';
 
 export interface ArtifactIframeFile {
   id: string;
@@ -44,6 +44,26 @@ export interface ArtifactViewerContext {
   groups?: string[] | null;
 }
 
+/** One declared query parameter, aggregated across the artifact's queries. */
+export interface ArtifactParamDeclaration {
+  name: string;
+  type?: string | null;
+  label?: string | null;
+  source?: string | null; // 'input' | 'identity' | 'input_identity_default'
+  default?: unknown;
+  required?: boolean;
+  options?: unknown[] | null;
+  /** Queries (by id) that declare this param — a control drives all of them. */
+  query_ids?: string[];
+}
+
+export interface ArtifactParamsPayload {
+  declarations: ArtifactParamDeclaration[];
+  /** Current applied values by param name (identity params carry no value —
+   *  the server binds them per viewer). */
+  values: Record<string, unknown>;
+}
+
 export interface ArtifactIframeData {
   report: unknown;
   visualizations: unknown[];
@@ -52,6 +72,8 @@ export interface ArtifactIframeData {
   /** The viewing user, or null when anonymous. Every field is nullable —
    *  generated code must guard (current_user?.name). Display-only. */
   current_user?: ArtifactViewerContext | null;
+  /** Declared query parameters + current values (useParams() runtime). */
+  params?: ArtifactParamsPayload | null;
 }
 
 export interface ArtifactIframeOptions {
