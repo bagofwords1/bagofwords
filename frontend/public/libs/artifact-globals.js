@@ -22,6 +22,16 @@
     return window.ARTIFACT_DATA;
   };
 
+  // ── useCurrentUser() ────────────────────────────────────────────────────────
+  // The viewing user, injected by the host as ARTIFACT_DATA.current_user:
+  // { id, name, email, image_url, role, profile_attributes } — every field
+  // nullable. Returns null for anonymous viewers and headless renders, so
+  // callers must guard: useCurrentUser()?.name.
+  window.useCurrentUser = function() {
+    var data = window.ARTIFACT_DATA || {};
+    return data.current_user || null;
+  };
+
   // ── LoadingSpinner ──────────────────────────────────────────────────────────
   window.LoadingSpinner = function(props) {
     var size = props && props.size ? props.size : 24;

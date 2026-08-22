@@ -1263,6 +1263,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "theme": getattr(report, "theme", None) if report else None,
                 },
                 "visualizations": visualizations,
+                # Headless validation renders anonymously on purpose: identity
+                # is per-viewer, injected by the host at render time, and this
+                # exercises the null-guard path in every artifact before it is
+                # persisted.
+                "current_user": None,
             }
             # Inline embedded files as data URIs so the headless render
             # (which has no auth context) can show images/PDFs via <BowFile>.

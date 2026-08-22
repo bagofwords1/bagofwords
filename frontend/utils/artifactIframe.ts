@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '2';
+export const ARTIFACT_GLOBALS_VERSION = '3';
 
 export interface ArtifactIframeFile {
   id: string;
@@ -28,11 +28,28 @@ export interface ArtifactIframeFile {
   dataUri?: string;
 }
 
+/**
+ * Viewer identity injected per render (never stored on the artifact).
+ * Shape mirrors GET /users/me/viewer_context. null/undefined = anonymous
+ * viewer (public token pages, headless validation/thumbnail renders).
+ */
+export interface ArtifactViewerContext {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  image_url?: string | null;
+  role?: string | null;
+  profile_attributes?: Record<string, unknown> | null;
+}
+
 export interface ArtifactIframeData {
   report: unknown;
   visualizations: unknown[];
   /** Embedded images/PDFs, rendered by the <BowFile> sandbox global. */
   files?: ArtifactIframeFile[];
+  /** The viewing user, or null when anonymous. Every field is nullable —
+   *  generated code must guard (current_user?.name). Display-only. */
+  current_user?: ArtifactViewerContext | null;
 }
 
 export interface ArtifactIframeOptions {

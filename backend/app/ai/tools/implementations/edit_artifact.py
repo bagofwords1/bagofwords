@@ -1230,6 +1230,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     "theme": getattr(report, "theme", None) if report else None,
                 },
                 "visualizations": visualizations,
+                # Anonymous on purpose — see create_artifact: validation must
+                # exercise the current_user=null path.
+                "current_user": None,
             }
             if merged_files:
                 try:

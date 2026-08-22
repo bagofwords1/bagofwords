@@ -619,6 +619,19 @@ async function exportPptx() {
   }
 }
 
+// Viewer identity for ARTIFACT_DATA.current_user (per-render, never stored on
+// the artifact). null until fetched — and stays null on any failure so the
+// dashboard renders anonymously instead of blocking.
+const viewerContext = ref<any>(null);
+async function fetchViewerContext() {
+  try {
+    const { data } = await useMyFetch('/api/users/me/viewer_context');
+    viewerContext.value = data.value || null;
+  } catch {
+    viewerContext.value = null;
+  }
+}
+
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
@@ -943,8 +956,9 @@ onMounted(async () => {
   window.addEventListener('artifact:select', handleArtifactSelect);
   window.addEventListener('artifact:created', handleArtifactCreated);
 
-  // First fetch artifact list to know which artifact is selected
-  await fetchArtifactsList();
+  // First fetch artifact list to know which artifact is selected (viewer
+  // identity in parallel — it gates nothing, a failure just renders anonymous)
+  await Promise.all([fetchArtifactsList(), fetchViewerContext()]);
 
   // Load the selected artifact exactly once after initial selection. The
   // report page already fetched the latest artifact; reuse that object when
@@ -1067,7 +1081,8 @@ function sendDataToIframe() {
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
     visualizations: toRaw(visualizationsData.value),
-    files: toRaw(filesData.value)
+    files: toRaw(filesData.value),
+    current_user: toRaw(viewerContext.value)
   }));
 
   try {
@@ -1517,6 +1532,7 @@ const iframeSrcdoc = computed(() => {
       report: reportData.value,
       visualizations: visualizationsData.value,
       files: filesData.value,
+      current_user: viewerContext.value,
     },
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',

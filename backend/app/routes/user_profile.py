@@ -114,6 +114,41 @@ async def update_my_instructions(
     return UserInstructionsSchema(note=membership.note, memory=membership.memory)
 
 
+class ViewerContextSchema(BaseModel):
+    # Identity payload injected into artifact iframes as ARTIFACT_DATA.current_user.
+    # Deliberately minimal: identity + org role + IdP-synced profile attributes.
+    # Membership secrets/preferences (invite_token, note, memory, default_*)
+    # must never be added here — this object reaches LLM-generated sandbox code.
+    id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    image_url: Optional[str] = None
+    # None when the viewer has no membership in the active organization.
+    role: Optional[str] = None
+    profile_attributes: Optional[dict] = None
+
+
+@router.get("/users/me/viewer_context", response_model=ViewerContextSchema)
+async def get_my_viewer_context(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Canonical viewer identity for artifact rendering (ARTIFACT_DATA.current_user).
+
+    All artifact host surfaces (ArtifactFrame, /r/[id]) fetch this one shape;
+    anonymous viewers never reach it (401) and render with current_user=null."""
+    membership = await _get_current_membership(db, current_user, organization)
+    return ViewerContextSchema(
+        id=str(current_user.id),
+        name=current_user.name,
+        email=current_user.email,
+        image_url=current_user.image_url,
+        role=membership.role if membership else None,
+        profile_attributes=(membership.profile_attributes if membership else None) or None,
+    )
+
+
 class UserDefaultModelSchema(BaseModel):
     # LLMModel.id (not the provider model string). None = follow the org default.
     model_id: Optional[str] = None
