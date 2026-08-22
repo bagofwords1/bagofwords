@@ -83,8 +83,13 @@ async def test_bad_code_is_repaired_in_tool(tool, tmp_path, monkeypatch):
 async def test_unrepairable_code_returns_original_and_no_deck(tool, tmp_path, monkeypatch):
     out = tmp_path / "deck.pptx"
 
+    calls = {"n": 0}
+
     async def fake_fix(code, error, runtime_ctx):
-        return BAD_CODE + "\n# still broken"
+        # Distinct on every call: returning the same code twice trips the
+        # stalled-repair break before the budget is spent.
+        calls["n"] += 1
+        return BAD_CODE + f"\n# still broken {calls['n']}"
 
     monkeypatch.setattr(tool, "_fix_pptx_code", fake_fix)
     result, _ = await _run_loop(tool, BAD_CODE, out, {})
