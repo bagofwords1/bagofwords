@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.545 (August 22, 2026)
+- Introduced parameterized queries and personalized artifacts — dashboards take typed viewer inputs and identity-scoped parameters, with per-viewer results and refresh on open
+
 ## Version 0.0.544 (August 20, 2026)
 - Report owners can hide the Data tab from viewers of a shared report — an "Include Data Tab" checkbox in the share dialog controls whether /r/{id} shows the queries behind the report
 
