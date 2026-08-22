@@ -9,6 +9,9 @@ class StepItem(BaseModel):
     slug: Optional[str] = None
     row_count: Optional[int] = None
     columns: Optional[List[str]] = None
+    # Compact digest of the query's declared parameters, e.g.
+    # "member_email (string, input); assignee_email (string, identity)".
+    params: Optional[str] = None
 
 
 class StepsSection(ContextSection):
@@ -36,5 +39,7 @@ class StepsSection(ContextSection):
             inner = ""
             if s.columns:
                 inner = xml_tag("columns", xml_escape(", ".join(s.columns[:50])))
+            if s.params:
+                inner += xml_tag("params", xml_escape(s.params))
             parts.append(xml_tag("step", inner, attrs))
         return xml_tag(self.tag_name, "\n".join(parts), {"count": str(len(self.items))})

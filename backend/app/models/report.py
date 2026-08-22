@@ -65,7 +65,9 @@ class Report(BaseSchema):
     # ReportService.refresh_on_view_rerun (see REFRESH_ON_VIEW_MIN_INTERVAL_SECONDS):
     # because the interval is not owner-configurable, the gate doubles as the
     # ceiling — at most one rerun per report per interval regardless of traffic.
-    refresh_on_view = Column(Boolean, nullable=False, default=False, server_default='0')
+    # Default ON: artifacts open on fresh data unless the owner opts out (or
+    # picks a recurring schedule — the UI treats the modes as exclusive).
+    refresh_on_view = Column(Boolean, nullable=False, default=True, server_default='1')
     last_run_at = Column(DateTime, nullable=True, default=None)
     # Last conversation activity: bumped when a new user message is created and
     # when an agent turn finalizes. Distinct from `updated_at` (which bumps on any

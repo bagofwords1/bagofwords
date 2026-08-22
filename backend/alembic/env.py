@@ -99,6 +99,7 @@ from app.models.report_share import ReportShare
 from app.models.report_star import ReportStar
 from app.models.report_view import ReportView
 from app.models.step_user_result import StepUserResult
+from app.models.entity_user_result import EntityUserResult
 from app.models.project import Project, project_data_source_association, project_file_association
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem

@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '2';
+export const ARTIFACT_GLOBALS_VERSION = '5';
 
 export interface ArtifactIframeFile {
   id: string;
@@ -28,11 +28,57 @@ export interface ArtifactIframeFile {
   dataUri?: string;
 }
 
+/**
+ * Viewer identity injected per render (never stored on the artifact).
+ * Shape mirrors GET /users/me/viewer_context. null/undefined = anonymous
+ * viewer (public token pages, headless validation/thumbnail renders).
+ */
+export interface ArtifactViewerContext {
+  id: string;
+  name?: string | null;
+  email?: string | null;
+  image_url?: string | null;
+  role?: string | null;
+  profile_attributes?: Record<string, unknown> | null;
+  /** Org group names, alphabetical, server-capped. Empty/missing when none. */
+  groups?: string[] | null;
+}
+
+/** One declared query parameter, aggregated across the artifact's queries. */
+export interface ArtifactParamDeclaration {
+  name: string;
+  type?: string | null;
+  label?: string | null;
+  source?: string | null; // 'input' | 'identity' | 'input_identity_default'
+  default?: unknown;
+  required?: boolean;
+  options?: unknown[] | null;
+  /** Choices fed by another query in the report (the filter-space pattern). */
+  options_source?: { query_id: string; value_column: string; label_column?: string | null } | null;
+  /** Queries (by id) that declare this param — a control drives all of them. */
+  query_ids?: string[];
+}
+
+export interface ArtifactParamsPayload {
+  declarations: ArtifactParamDeclaration[];
+  /** Current applied values by param name (identity params carry no value —
+   *  the server binds them per viewer). */
+  values: Record<string, unknown>;
+  /** Host-resolved stable choices per param name (static options and
+   *  options-source query rows, normalized) — useParamOptions() reads this. */
+  options?: Record<string, Array<{ value: unknown; label: string }>>;
+}
+
 export interface ArtifactIframeData {
   report: unknown;
   visualizations: unknown[];
   /** Embedded images/PDFs, rendered by the <BowFile> sandbox global. */
   files?: ArtifactIframeFile[];
+  /** The viewing user, or null when anonymous. Every field is nullable —
+   *  generated code must guard (current_user?.name). Display-only. */
+  current_user?: ArtifactViewerContext | null;
+  /** Declared query parameters + current values (useParams() runtime). */
+  params?: ArtifactParamsPayload | null;
 }
 
 export interface ArtifactIframeOptions {

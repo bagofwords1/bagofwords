@@ -185,6 +185,8 @@ class ReadQueryTool(Tool):
             data_model=step_data_model,
             view=step_view,
             step_id=str(step.id) if step else None,
+            parameters=list(getattr(query, "parameters", None) or []) or None if query else None,
+            applied_params=getattr(step, "applied_params", None) if step else None,
         )
 
     async def run_stream(
@@ -314,6 +316,10 @@ class ReadQueryTool(Tool):
                 observation["view"] = r.view
             if r.step_id:
                 observation["step_id"] = r.step_id
+            if r.parameters:
+                observation["parameters"] = r.parameters
+                if r.applied_params is not None:
+                    observation["applied_params"] = r.applied_params
         elif succeeded:
             # Multiple results: provide a summary of each — each carrying its
             # own code, so reading N queries to compare them shows what they
@@ -329,6 +335,8 @@ class ReadQueryTool(Tool):
                 }
                 if r.code:
                     entry["code"] = _observation_code(r.code)
+                if r.parameters:
+                    entry["parameters"] = r.parameters
                 results_summary.append(entry)
             observation["results_summary"] = results_summary
 

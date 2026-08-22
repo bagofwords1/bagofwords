@@ -134,6 +134,43 @@
           </a>
         </UTooltip>
 
+        <!-- View as (page artifacts only): preview the dashboard as another
+             viewer — anonymous or any org member, searchable by name/email.
+             Identity-only — data is unaffected. -->
+        <USelectMenu
+          v-if="canViewAs"
+          v-model="viewAsMode"
+          :options="viewAsOptions"
+          value-attribute="value"
+          option-attribute="label"
+          searchable
+          :search-attributes="['label', 'email']"
+          searchable-placeholder="Search members by name or email..."
+          size="xs"
+          class="min-w-[130px]"
+        >
+          <template #label>
+            <span class="flex items-center gap-1 text-xs" :class="viewAsMode !== 'you' ? 'text-indigo-600 font-medium' : ''">
+              <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
+              {{ viewAsLabel }}
+            </span>
+          </template>
+          <template #option="{ option }">
+            <div class="flex flex-col">
+              <span class="text-xs">{{ option.label }}</span>
+              <span v-if="option.email" class="text-[10px] text-gray-400">{{ option.email }}</span>
+            </div>
+          </template>
+        </USelectMenu>
+        <!-- Delegated-source caveat, visible before a target is even picked -->
+        <UTooltip
+          v-if="canViewAs && credentialScoped"
+          text="View-as previews identity parameters only. Sources that authenticate per user (e.g. Power BI) still run with your credentials."
+          :popper="{ placement: 'bottom' }"
+        >
+          <Icon name="heroicons:information-circle" class="w-3.5 h-3.5 text-amber-500" />
+        </UTooltip>
+
         <!-- Share Dashboard -->
         <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
       </div>
@@ -141,6 +178,39 @@
 
     <!-- Iframe Container -->
     <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+      <!-- View-as banner: keep the simulated view unmistakable, and be honest
+           about its scope (identity only — data is not re-scoped). -->
+      <div
+        v-if="viewAsMode !== 'you' && canViewAs"
+        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 max-w-[90%]"
+      >
+        <!-- Failed member fetch: never claim "Viewing as X" over an anonymous
+             payload — say what actually happened and offer a retry. -->
+        <div
+          v-if="previewViewerFailed"
+          class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-500 text-white shadow-lg text-xs"
+        >
+          <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5" />
+          <span>Couldn't load {{ viewAsLabel }}'s identity — showing anonymous view</span>
+          <button @click="retryPreviewViewer" class="font-semibold underline underline-offset-2 hover:text-amber-100">Retry</button>
+          <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-amber-100">Exit</button>
+        </div>
+        <div v-else class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs">
+          <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
+          <span>Viewing as {{ viewAsLabel }}</span>
+          <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
+        </div>
+        <!-- Delegated sources can't be impersonated: the preview binds this
+             user's identity parameters, but per-user-credential sources
+             (e.g. Power BI) still run as YOU — their rows may differ. -->
+        <div
+          v-if="credentialScoped"
+          class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]"
+        >
+          <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
+          <span>Identity parameters only — sources that authenticate per user still run with your credentials, so this user's actual rows may differ.</span>
+        </div>
+      </div>
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
@@ -619,9 +689,299 @@ async function exportPptx() {
   }
 }
 
+// Viewer identity for ARTIFACT_DATA.current_user (per-render, never stored on
+// the artifact). null until fetched — and stays null on any failure so the
+// dashboard renders anonymously instead of blocking.
+const viewerContext = ref<any>(null);
+async function fetchViewerContext() {
+  try {
+    const { data } = await useMyFetch('/api/users/me/viewer_context');
+    viewerContext.value = data.value || null;
+  } catch {
+    viewerContext.value = null;
+  }
+}
+
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
+
+// ── Query parameters ─────────────────────────────────────────────────────────
+// Declarations per query (qid → ParamSpec[]) and the current applied values.
+// Identity-source params never carry a client value — the server binds them
+// per viewer; the artifact only shows "scoped to you".
+const queryParamSpecs = ref<Record<string, any[]>>({});
+const paramValues = ref<Record<string, any>>({});
+// Host-resolved stable choices per param name: static declared options and
+// options-source query rows (the filter-space pattern — e.g. a 'Genres' query
+// feeding the genre control of 'Albums by Genre'). Controls read these via
+// useParamOptions(), never the filtered data itself.
+const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
+const paramRunLoading = ref(false);
+// Snapshot embedded in the iframe's srcdoc; frozen per data load so live
+// param/view-as updates (postMessage) never trigger an iframe reload.
+const srcdocSeed = ref<any>(null);
+
+function paramsPayload() {
+  // Aggregate declarations by name: same-named params across queries render
+  // as ONE control that drives all of them.
+  const byName: Record<string, any> = {};
+  for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+    for (const spec of specs || []) {
+      if (!byName[spec.name]) byName[spec.name] = { ...spec, query_ids: [] };
+      byName[spec.name].query_ids.push(qid);
+    }
+  }
+  return {
+    declarations: Object.values(byName),
+    values: { ...paramValues.value },
+    options: { ...paramOptions.value },
+  };
+}
+
+function normalizeStaticOptions(opts: any[]): Array<{ value: any; label: string }> {
+  return (opts || []).map((v: any) =>
+    (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) });
+}
+
+// Resolve each param's stable choice list. Options-source rows win over a
+// static list; a source query outside the artifact is fetched from the
+// report-level list once. Dedupe by value; label falls back to the value.
+async function resolveParamOptions(loadedQueries: any[], fetchAll: () => Promise<any[]>) {
+  const byId = new Map(loadedQueries.map((q: any) => [String(q.id), q]));
+  const out: Record<string, Array<{ value: any; label: string }>> = {};
+  let fetchedAll = false;
+  for (const specs of Object.values(queryParamSpecs.value)) {
+    for (const spec of (specs as any[]) || []) {
+      if (!spec?.name) continue;
+      if (!out[spec.name] && Array.isArray(spec.options) && spec.options.length) {
+        out[spec.name] = normalizeStaticOptions(spec.options);
+      }
+      const src = spec.options_source;
+      if (!src?.query_id) continue;
+      // Match by id, falling back to title — refs persisted from agent runs
+      // before server-side canonicalization name the query loosely.
+      const findSrc = () => {
+        const ref = String(src.query_id);
+        if (byId.has(ref)) return byId.get(ref);
+        const lowered = ref.toLowerCase();
+        for (const q of byId.values()) {
+          if (String(q?.title || '').toLowerCase() === lowered) return q;
+        }
+        return null;
+      };
+      let srcQ: any = findSrc();
+      if (!srcQ && !fetchedAll) {
+        fetchedAll = true;
+        try {
+          for (const q of await fetchAll()) byId.set(String(q.id), q);
+        } catch { /* options degrade to static/none */ }
+        srcQ = findSrc();
+      }
+      const rows = srcQ?.default_step?.data?.rows || srcQ?.__step_rows || [];
+      const seen = new Set<string>();
+      const opts: Array<{ value: any; label: string }> = [];
+      for (const r of rows) {
+        const value = r?.[src.value_column];
+        if (value === undefined || value === null) continue;
+        const key = String(value);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const label = src.label_column ? (r?.[src.label_column] ?? value) : value;
+        opts.push({ value, label: String(label) });
+      }
+      if (opts.length) out[spec.name] = opts;
+    }
+  }
+  derivedFallbackOptions(out, (qid) => {
+    const step = byId.get(String(qid))?.default_step;
+    return step ? { data: step.data, applied_params: step.applied_params } : null;
+  });
+  paramOptions.value = out;
+}
+
+// Last-resort options tier: an input param with neither static options nor an
+// options-source query still deserves a populated control. Derive stable
+// choices ONCE per load from the initially loaded rows of its declaring
+// queries, matching a column by (singularized) param name — e.g. genre_id →
+// GenreId, genres → GenreName. Computed only here, never on param-driven data
+// pushes, so the list cannot narrow itself to the current selection.
+function derivedFallbackOptions(
+  out: Record<string, Array<{ value: any; label: string }>>,
+  dataOfQuery: (qid: string) => any,
+) {
+  const norm = (s: any) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
+    const entry = dataOfQuery(qid) || {};
+    const data = entry.data || entry;
+    const applied = entry.applied_params || {};
+    const rows = data.rows || [];
+    const cols: string[] = (data.columns || []).map((c: any) => c.field || c.headerName).filter(Boolean);
+    if (!rows.length || !cols.length) continue;
+    for (const spec of (specs as any[]) || []) {
+      if (!spec?.name || out[spec.name] || spec.source === 'identity') continue;
+      // A snapshot the param already filtered yields a degenerate one-value
+      // list — only derive when the snapshot ran with this param = All.
+      if (applied[spec.name] !== null && applied[spec.name] !== undefined) continue;
+      let n = norm(spec.name);
+      if (n.endsWith('s')) n = n.slice(0, -1);
+      const valueCol = cols.find(c => norm(c) === norm(spec.name))
+        || cols.find(c => norm(c) === n)
+        || cols.find(c => norm(c).startsWith(n))
+        || cols.find(c => norm(c).includes(n));
+      if (!valueCol) continue;
+      // Friendlier labels: for an id-ish column, use a name/title sibling
+      // sharing the stem (genre_id → genre_name) when one exists.
+      const stem = norm(valueCol).replace(/id$/, '');
+      const labelCol = stem
+        ? cols.find(c => [stem + 'name', stem + 'title', stem].includes(norm(c)) && c !== valueCol)
+        : null;
+      const seen = new Set<string>();
+      const opts: Array<{ value: any; label: string }> = [];
+      for (const r of rows) {
+        const value = r?.[valueCol];
+        if (value === undefined || value === null) continue;
+        const key = String(value);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        opts.push({ value, label: String(labelCol ? (r?.[labelCol] ?? value) : value) });
+        if (opts.length >= 200) break;
+      }
+      if (opts.length) out[spec.name] = opts;
+    }
+  }
+}
+
+function paramSubsetForQuery(qid: string) {
+  const out: Record<string, any> = {};
+  for (const spec of queryParamSpecs.value[qid] || []) {
+    if (spec.source === 'identity') continue; // server-resolved, client values rejected
+    if (Object.prototype.hasOwnProperty.call(paramValues.value, spec.name)) {
+      out[spec.name] = paramValues.value[spec.name];
+    }
+  }
+  return out;
+}
+
+function queriesWithIdentityParams(): string[] {
+  return Object.entries(queryParamSpecs.value)
+    .filter(([, specs]) => (specs || []).some((s: any) =>
+      s.source === 'identity' || s.source === 'input_identity_default'))
+    .map(([qid]) => qid);
+}
+
+function postParamsStatus(loading: boolean, error: string | null = null) {
+  paramRunLoading.value = loading;
+  try {
+    iframeRef.value?.contentWindow?.postMessage(
+      { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
+      window.location.origin,
+    );
+  } catch { /* iframe not ready */ }
+}
+
+// Execute the parameterized queries server-side (viewer mode: per-viewer
+// cached results, no new Step) and swap the fresh rows into the payload.
+async function runParamQueries(
+  changes: Record<string, any> | null,
+  targets: string[] | null = null,
+  opts: { force?: boolean; identityOnly?: boolean } = {},
+) {
+  const changedNames = Object.keys(changes || {});
+
+  // A name no query declares would silently no-op (nothing to run) — the
+  // classic generated-code bug of setParam('genre') vs a declared genre_id.
+  // Fail loudly into the params status channel instead.
+  const declaredNames = new Set(
+    Object.values(queryParamSpecs.value).flatMap((specs: any) =>
+      (specs || []).map((s: any) => s.name)));
+  const unknown = changedNames.filter(n => !declaredNames.has(n));
+  if (unknown.length) {
+    postParamsStatus(false,
+      `Unknown parameter(s): ${unknown.join(', ')} — declared: ${[...declaredNames].join(', ') || 'none'}. ` +
+      'Controls must call setParam with a declared param name.');
+    return;
+  }
+  for (const name of changedNames) paramValues.value[name] = (changes as any)[name];
+
+  let affected = Object.entries(queryParamSpecs.value)
+    .filter(([qid, specs]) => {
+      if (targets && !targets.includes(qid)) return false;
+      if (opts.identityOnly) {
+        return (specs || []).some((s: any) =>
+          s.source === 'identity' || s.source === 'input_identity_default');
+      }
+      if (!changedNames.length) return (specs || []).length > 0;
+      return (specs || []).some((s: any) => changedNames.includes(s.name));
+    })
+    .map(([qid]) => qid);
+  affected = [...new Set(affected)];
+  if (!affected.length) return;
+
+  postParamsStatus(true);
+  let firstError: string | null = null;
+  const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
+    ? viewAsMode.value : undefined;
+  await Promise.all(affected.map(async (qid) => {
+    try {
+      const { data: runRes, error } = await useMyFetch(`/api/queries/${qid}/run`, {
+        method: 'POST',
+        body: {
+          mode: 'viewer',
+          params: paramSubsetForQuery(qid),
+          force_refresh: !!opts.force,
+          ...(runAs ? { run_as_user_id: runAs } : {}),
+        },
+      });
+      const res: any = runRes.value;
+      if (error.value || !res || res.status !== 'success') {
+        const msg = (error.value as any)?.data?.detail || res?.error || 'Query run failed';
+        if (!firstError) firstError = String(msg);
+        return;
+      }
+      for (const viz of visualizationsData.value) {
+        if (viz.queryId === qid) {
+          viz.rows = res.data?.rows || [];
+          viz.columns = res.data?.columns || [];
+          viz.stepStatus = 'success';
+        }
+      }
+    } catch (e: any) {
+      if (!firstError) firstError = e?.message || 'Query run failed';
+    }
+  }));
+  // New array identity so watchers fire and the fresh rows reach the iframe.
+  visualizationsData.value = [...visualizationsData.value];
+  postParamsStatus(false, firstError);
+  syncParamsToUrl();
+}
+
+// Shareable state: param values mirror into the URL (?qp_<name>=...) and are
+// restored on load.
+const paramRoute = useRoute();
+const paramRouter = useRouter();
+function syncParamsToUrl() {
+  try {
+    const q: Record<string, any> = { ...paramRoute.query };
+    for (const k of Object.keys(q)) if (k.startsWith('qp_')) delete q[k];
+    for (const [name, value] of Object.entries(paramValues.value)) {
+      if (value === null || value === undefined || value === '') continue;
+      q[`qp_${name}`] = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    }
+    paramRouter.replace({ query: q });
+  } catch { /* non-fatal */ }
+}
+function readParamsFromUrl(): Record<string, any> {
+  const out: Record<string, any> = {};
+  for (const [k, v] of Object.entries(paramRoute.query || {})) {
+    if (!k.startsWith('qp_') || v == null) continue;
+    const name = k.slice(3);
+    const raw = Array.isArray(v) ? v[0] : v;
+    try { out[name] = JSON.parse(String(raw)); }
+    catch { out[name] = String(raw); }
+  }
+  return out;
+}
 const iframeReady = ref(false);
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
@@ -734,6 +1094,11 @@ const docEditorRef = ref<any>(null);
 // snapshot_withheld and empty data, and rendering the artifact against them
 // crashes generated code that assumes rows exist. Mirror of /r/[id].
 const snapshotWithheld = ref(false);
+// True when any of the dashboard's queries reads a delegated (per-user
+// credential) source: View-as swaps identity params only — source-level rows
+// still come back under the caller's own credentials, so the preview must
+// carry a note saying the impersonated user's actual rows may differ.
+const credentialScoped = ref(false);
 // True when any step already carries this user's own per-viewer result row —
 // auto-run only fires for a first-time viewer; a failed earlier run becomes an
 // explicit fallback state instead of a retry loop.
@@ -791,6 +1156,106 @@ async function runAsViewer() {
     isViewerRunning.value = false;
   }
 }
+
+// "View as" preview (page artifacts): render the dashboard as another viewer
+// would see it — anonymous, or any org member (picked by name/email search).
+// IDENTITY ONLY — current_user is swapped, but the data payload is untouched:
+// per-viewer data scoping happens server-side (viewer runs / RLS), so this
+// must never be presented as an access check.
+// NOTE: declared after selectedArtifact/isPendingArtifact/snapshotWithheld —
+// the immediate watch below evaluates canViewAs during setup, so the refs it
+// reads must already be initialized.
+const viewAsMode = ref<string>('you');  // 'you' | 'anonymous' | <member user_id>
+const previewViewer = ref<any>(null);   // fetched context of the picked member
+// True when the picked member's viewer_context fetch failed or came back
+// empty. The render still falls back to anonymous (never the wrong person),
+// but the banner must SAY so — a banner claiming "Viewing as X" over an
+// anonymous payload silently misrepresents what's on screen.
+const previewViewerFailed = ref(false);
+const membersList = ref<any[]>([]);
+const canViewAs = computed(() =>
+  selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
+
+const viewAsOptions = computed(() => [
+  { value: 'you', label: 'You', email: (viewerContext.value?.email as string) || '' },
+  { value: 'anonymous', label: 'Anonymous user', email: '' },
+  ...membersList.value
+    .filter((m: any) => m.user?.id && String(m.user.id) !== String(viewerContext.value?.id))
+    .map((m: any) => ({
+      value: String(m.user.id),
+      label: m.user.name || m.user.email || m.email || 'Member',
+      email: m.user.email || m.email || '',
+    })),
+]);
+
+const viewAsLabel = computed(() => {
+  if (viewAsMode.value === 'you') return 'View as';
+  if (viewAsMode.value === 'anonymous') return 'Anonymous user';
+  const opt = viewAsOptions.value.find(o => o.value === viewAsMode.value);
+  return opt?.label || 'Member';
+});
+
+const effectiveViewerContext = computed(() => {
+  if (viewAsMode.value === 'anonymous') return null;
+  if (viewAsMode.value === 'you') return viewerContext.value;
+  // A member is picked but their context hasn't resolved yet → render
+  // anonymously rather than as the wrong person.
+  return previewViewer.value;
+});
+
+// Members load lazily, once, when the picker becomes available.
+let membersFetched = false;
+async function fetchMembersList() {
+  if (membersFetched || !organization.value?.id) return;
+  membersFetched = true;
+  try {
+    const { data } = await useMyFetch(`/api/organizations/${organization.value.id}/members`);
+    membersList.value = Array.isArray(data.value) ? (data.value as any[]) : [];
+  } catch {
+    membersList.value = [];
+  }
+}
+watch(canViewAs, (v) => { if (v) fetchMembersList(); }, { immediate: true });
+
+async function fetchPreviewViewer(memberId: string) {
+  previewViewerFailed.value = false;
+  try {
+    const { data, error } = await useMyFetch(`/api/users/${memberId}/viewer_context`);
+    previewViewer.value = (!error.value && data.value) ? data.value : null;
+  } catch {
+    previewViewer.value = null;
+  }
+  if (!previewViewer.value) previewViewerFailed.value = true;
+}
+
+async function retryPreviewViewer() {
+  const mode = viewAsMode.value;
+  if (mode === 'you' || mode === 'anonymous') return;
+  await fetchPreviewViewer(mode);
+  if (iframeReady.value) sendDataToIframe();
+}
+
+watch(viewAsMode, async (mode) => {
+  previewViewer.value = null;
+  previewViewerFailed.value = false;
+  if (mode !== 'you' && mode !== 'anonymous') {
+    await fetchPreviewViewer(mode);
+  }
+  // Identity-scoped queries re-run as the previewed member (server-verified:
+  // owner/admin only; results are preview-only, cached under the CALLER).
+  // Back to 'you' re-scopes to the caller's own slice. Anonymous is
+  // identity-display only — the data path needs an authenticated identity.
+  try {
+    if (mode !== 'anonymous' && queriesWithIdentityParams().length) {
+      await runParamQueries(null, null, { identityOnly: true });
+    }
+  } catch (e) {
+    console.error('[ArtifactFrame] View-as param re-run failed:', e);
+  }
+  // Swapping identity re-sends data into an already-mounted iframe (srcdoc
+  // also recomputes, but postMessage covers the no-reload path).
+  if (iframeReady.value) sendDataToIframe();
+});
 
 // Docs open in edit mode by default for the report owner; everyone else gets
 // the read-only viewer. Keyed on the loaded artifact so mode + ownership are
@@ -943,8 +1408,9 @@ onMounted(async () => {
   window.addEventListener('artifact:select', handleArtifactSelect);
   window.addEventListener('artifact:created', handleArtifactCreated);
 
-  // First fetch artifact list to know which artifact is selected
-  await fetchArtifactsList();
+  // First fetch artifact list to know which artifact is selected (viewer
+  // identity in parallel — it gates nothing, a failure just renders anonymous)
+  await Promise.all([fetchArtifactsList(), fetchViewerContext()]);
 
   // Load the selected artifact exactly once after initial selection. The
   // report page already fetched the latest artifact; reuse that object when
@@ -972,6 +1438,16 @@ onMounted(async () => {
     autoRunTried.value = true;
     await runAsViewer();
   }
+
+  // Paint first, refresh second (refresh_on_view, default-on): the server
+  // enforces the flag, a staleness gate, and a cross-worker single-flight
+  // claim, so this is at most one owner-credential rerun per interval no
+  // matter how many people open the page. Mirrors the /r host.
+  try {
+    const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
+    const run: any = data.value;
+    if (run && !run.skipped && run.steps_succeeded) await refreshAll();
+  } catch { /* a failed background refresh must never break a rendered page */ }
 });
 
 // Fetch list of all artifacts for the report
@@ -1027,6 +1503,7 @@ watch(selectedArtifactId, async (newId, oldId) => {
   if (oldId === undefined) return;
   iframeError.value = null;
   iframeReady.value = false;
+  viewAsMode.value = 'you';
   if (isPolishMode.value) exitPolishMode();
   await fetchSelectedArtifact();
   // Only refetch data if this is a user-initiated change (not initial load)
@@ -1057,6 +1534,16 @@ function handleIframeMessage(event: MessageEvent) {
     polishPromptVisible.value = true;
     polishInstruction.value = '';
     nextTick(() => polishInputRef.value?.focus());
+  } else if (event.data?.type === 'ARTIFACT_SET_PARAMS') {
+    // A control in the artifact committed param changes: run the consuming
+    // queries server-side and push fresh rows back down.
+    if (event.source === iframeRef.value?.contentWindow) {
+      runParamQueries(event.data.changes || {}, event.data.targets || null, {});
+    }
+  } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {
+    if (event.source === iframeRef.value?.contentWindow) {
+      runParamQueries(null, event.data.targets || null, { force: true });
+    }
   }
 }
 
@@ -1067,7 +1554,9 @@ function sendDataToIframe() {
   const payload = JSON.parse(JSON.stringify({
     report: toRaw(reportData.value),
     visualizations: toRaw(visualizationsData.value),
-    files: toRaw(filesData.value)
+    files: toRaw(filesData.value),
+    current_user: toRaw(effectiveViewerContext.value),
+    params: paramsPayload()
   }));
 
   try {
@@ -1121,13 +1610,25 @@ async function fetchData(artifactId?: string) {
     const vizData: any[] = [];
     let anyWithheld = false;
     let anyOwnResult = false;
+    let anyCredentialScoped = false;
     let failedReason: string | null = null;
 
+    const nextParamSpecs: Record<string, any[]> = {};
     for (let qi = 0; qi < queries.length; qi++) {
       const query = queries[qi];
       // list_queries already embeds the viewer-safe default Step. Re-fetching
       // it once per query duplicated the dashboard waterfall and payload.
       const step = query.default_step;
+
+      // Declared query parameters (ParamSpec dicts) drive artifact controls.
+      if (Array.isArray(query.parameters) && query.parameters.length) {
+        nextParamSpecs[query.id] = query.parameters;
+      }
+
+      // Delegated (per-user credential) sources: View-as can only swap
+      // identity params, not the target's source credentials — the note on
+      // the View-as control keys off this.
+      if (query.credential_scoped) anyCredentialScoped = true;
 
       // Per-viewer step-data policy markers: withheld snapshots gate the
       // render; an existing per-viewer result row gates auto-run.
@@ -1152,8 +1653,35 @@ async function fetchData(artifactId?: string) {
           code: step?.code || '',
           description: viz.description || query.description || step?.description || '',
           dataSource: singleDataSourceName,
+          queryId: query.id,
         });
       }
+    }
+    queryParamSpecs.value = nextParamSpecs;
+
+    // Stable control choices (static options + options-source query rows).
+    await resolveParamOptions(queries, async () => {
+      const { data } = await useMyFetch(`/api/queries?report_id=${props.reportId}`);
+      return Array.isArray(data.value) ? (data.value as any[]) : [];
+    });
+
+    // Initialize applied values: declaration defaults, overridden by any
+    // qp_<name> URL state (shareable dashboards). Identity params carry no
+    // client value — the server binds them per viewer.
+    {
+      const urlValues = readParamsFromUrl();
+      const nextValues: Record<string, any> = {};
+      for (const specs of Object.values(nextParamSpecs)) {
+        for (const spec of specs as any[]) {
+          if (spec.source === 'identity') continue;
+          if (Object.prototype.hasOwnProperty.call(urlValues, spec.name)) {
+            nextValues[spec.name] = urlValues[spec.name];
+          } else if (spec.default !== undefined && spec.default !== null) {
+            nextValues[spec.name] = spec.default;
+          }
+        }
+      }
+      paramValues.value = nextValues;
     }
 
     // Reorder vizData to match artifact's visualization_ids order
@@ -1173,6 +1701,7 @@ async function fetchData(artifactId?: string) {
     }
     snapshotWithheld.value = anyWithheld;
     hasOwnResult.value = anyOwnResult;
+    credentialScoped.value = anyCredentialScoped;
     viewerRunFailedReason.value = failedReason;
     console.log('[ArtifactFrame] Fetched', visualizationsData.value.length, 'visualizations');
 
@@ -1186,6 +1715,33 @@ async function fetchData(artifactId?: string) {
       console.error('[ArtifactFrame] Failed to fetch embedded files:', e);
       filesData.value = [];
     }
+
+    // Identity-scoped queries apply the viewer's identity BEFORE first paint:
+    // the shared snapshot is the creator's slice, so run those queries as the
+    // viewer now (server binds identity; results are per-viewer cached, so a
+    // revisit is a cache hit). URL-restored input values apply here too.
+    try {
+      const urlValueNames = Object.keys(readParamsFromUrl());
+      if (urlValueNames.length) {
+        await runParamQueries(null, null, {});
+      } else if (queriesWithIdentityParams().length) {
+        await runParamQueries(null, null, { identityOnly: true });
+      }
+    } catch (e) {
+      console.error('[ArtifactFrame] Initial param run failed:', e);
+    }
+
+    // Freeze the srcdoc seed: the iframe's initial document embeds THIS
+    // snapshot. Later updates (param runs, view-as swaps) flow via
+    // postMessage into the live data store — never by recomputing srcdoc,
+    // which would reload the iframe and lose control state.
+    srcdocSeed.value = JSON.parse(JSON.stringify({
+      report: toRaw(reportData.value),
+      visualizations: toRaw(visualizationsData.value),
+      files: toRaw(filesData.value),
+      current_user: toRaw(effectiveViewerContext.value),
+      params: paramsPayload(),
+    }));
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
     dataReady.value = true;
@@ -1512,12 +2068,17 @@ const iframeSrcdoc = computed(() => {
     || selectedArtifact.value?.content?.code
     || sampleArtifactCode.value;
 
+  // Frozen seed (set once per data load) so live updates don't reload the
+  // iframe; falls back to live refs for the pre-data sample path.
+  const seed = srcdocSeed.value || {
+    report: reportData.value,
+    visualizations: visualizationsData.value,
+    files: filesData.value,
+    current_user: effectiveViewerContext.value,
+    params: paramsPayload(),
+  };
   return buildArtifactIframeHtml({
-    data: {
-      report: reportData.value,
-      visualizations: visualizationsData.value,
-      files: filesData.value,
-    },
+    data: seed,
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
     polishMode: true,

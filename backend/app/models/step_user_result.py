@@ -20,7 +20,10 @@ class StepUserResult(BaseSchema):
     """
     __tablename__ = 'step_user_results'
     __table_args__ = (
-        UniqueConstraint('step_id', 'user_id', name='uq_step_user_results_step_user'),
+        UniqueConstraint(
+            'step_id', 'user_id', 'params_fingerprint',
+            name='uq_step_user_results_step_user_params',
+        ),
     )
 
     step_id = Column(String(36), ForeignKey('steps.id', ondelete='CASCADE'), nullable=False, index=True)
@@ -38,6 +41,13 @@ class StepUserResult(BaseSchema):
 
     # Whose credentials executed the query: 'viewer' | 'creator'
     executed_as = Column(String(20), nullable=False, default='viewer')
+
+    # Stable hash of the resolved param values this result was produced with
+    # ('' = no params / defaults). Part of the unique key so one viewer can
+    # hold one cached result per parameter combination.
+    params_fingerprint = Column(String(64), nullable=False, default='', server_default='')
+    # The resolved values themselves, for display/debugging ({} when none).
+    applied_params = Column(JSON(none_as_null=True), nullable=True, default=None)
 
     last_run_at = Column(DateTime, nullable=True)
 

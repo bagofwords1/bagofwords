@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, ForeignKey
+from sqlalchemy import Column, String, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
@@ -9,6 +9,11 @@ class Query(BaseSchema):
     # Minimal v0: treat Query as a facade for Widget ownership within a Report
     title = Column(String, nullable=False, default="")
     description = Column(String, nullable=True, default=None)
+
+    # Declared parameters: list of ParamSpec dicts (app/schemas/param_schema.py).
+    # The Query is the stable identity, so declarations live here; each Step
+    # records the concrete values it ran with (Step.applied_params).
+    parameters = Column(JSON, nullable=True, default=list)
 
     # Owning report (optional). Allows global/public queries not tied to a report.
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)

@@ -766,6 +766,8 @@ class ReportPdfService:
             },
             "visualizations": visualizations,
             "files": files or [],
+            # PDF exports are shareable documents — render anonymously.
+            "current_user": None,
         }
         data_json = json.dumps(artifact_data, default=str)
 

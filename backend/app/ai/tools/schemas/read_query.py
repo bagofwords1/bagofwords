@@ -37,6 +37,12 @@ class ReadQueryResult(BaseModel):
     data_model: Optional[Dict[str, Any]] = Field(None, description="Data model (chart type, series, group_by)")
     view: Optional[Dict[str, Any]] = Field(None, description="Visualization view config")
     step_id: Optional[str] = Field(None, description="Step ID")
+    parameters: Optional[List[Dict[str, Any]]] = Field(
+        None, description="Declared ParamSpec dicts on the query (server-side parameters)"
+    )
+    applied_params: Optional[Dict[str, Any]] = Field(
+        None, description="Param values the step's snapshot was produced with"
+    )
     error: Optional[str] = Field(None, description="Error message if this lookup failed")
 
 

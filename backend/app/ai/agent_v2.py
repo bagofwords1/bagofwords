@@ -7423,6 +7423,18 @@ class AgentV2:
                             fresh_db, step_obj, widget_data
                         )
 
+                        # Persist declared parameters onto the Query (the stable
+                        # identity) and the run's resolved values onto the Step.
+                        try:
+                            _tool_params = tool_output.get("parameters")
+                            _tool_applied = tool_output.get("applied_params")
+                            if _tool_params:
+                                await self.project_manager.update_query_parameters(
+                                    fresh_db, step_obj, _tool_params, _tool_applied
+                                )
+                        except Exception:
+                            pass
+
                         # Update step status
                         await self.project_manager.update_step_status(
                             fresh_db, step_obj, "success"
