@@ -24,13 +24,29 @@ def upgrade() -> None:
         batch_op.alter_column(
             "refresh_on_view",
             existing_type=sa.Boolean(),
-            server_default="1",
+            server_default=sa.true(),
             existing_nullable=False,
         )
+    # Dialect-aware booleans: postgres rejects `boolean = integer`, so the
+    # update is built as a SQLAlchemy construct rather than raw SQL.
+    reports = sa.table(
+        "reports",
+        sa.column("refresh_on_view", sa.Boolean()),
+        sa.column("cron_schedule", sa.String()),
+    )
     op.execute(
-        "UPDATE reports SET refresh_on_view = 1 "
-        "WHERE refresh_on_view = 0 "
-        "AND (cron_schedule IS NULL OR cron_schedule = '' OR cron_schedule = 'None')"
+        reports.update()
+        .where(
+            sa.and_(
+                reports.c.refresh_on_view == sa.false(),
+                sa.or_(
+                    reports.c.cron_schedule.is_(None),
+                    reports.c.cron_schedule == "",
+                    reports.c.cron_schedule == "None",
+                ),
+            )
+        )
+        .values(refresh_on_view=sa.true())
     )
 
 
@@ -41,6 +57,6 @@ def downgrade() -> None:
         batch_op.alter_column(
             "refresh_on_view",
             existing_type=sa.Boolean(),
-            server_default="0",
+            server_default=sa.false(),
             existing_nullable=False,
         )
