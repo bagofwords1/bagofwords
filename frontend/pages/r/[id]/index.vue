@@ -634,6 +634,7 @@ async function loadVisualizationData(artifactId?: string) {
 
         const vizData = [];
         const rowsByQuery = new Map<string, any[]>();
+        const titleToId = new Map<string, string>();
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
         let anyOwnResult = false;
@@ -664,6 +665,7 @@ async function loadVisualizationData(artifactId?: string) {
                 queryParamSpecs.value[(query as any).id] = (query as any).parameters;
             }
             rowsByQuery.set(String((query as any).id), (step.value as any)?.data?.rows || []);
+            if ((query as any).title) titleToId.set(String((query as any).title).toLowerCase(), String((query as any).id));
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];
@@ -706,7 +708,7 @@ async function loadVisualizationData(artifactId?: string) {
         } else {
             visualizationsData.value = vizData;
         }
-        await resolveParamOptions(rowsByQuery);
+        await resolveParamOptions(rowsByQuery, titleToId);
         viewerLastRunAt.value = newestViewerRun;
         snapshotWithheld.value = anyWithheld;
         hasOwnResult.value = anyOwnResult;
@@ -747,9 +749,10 @@ function paramsPayload() {
 }
 
 // Resolve stable control choices. `rowsByQueryId` carries the step rows this
-// load already fetched; a source query outside the artifact is fetched from
-// the report-level public list (plus its step) once.
-async function resolveParamOptions(rowsByQueryId: Map<string, any[]>) {
+// load already fetched; `titleToId` maps query titles (lowercased) to ids so
+// loose agent-persisted refs still resolve; a source query outside the
+// artifact is fetched from the report-level public list (plus its step) once.
+async function resolveParamOptions(rowsByQueryId: Map<string, any[]>, titleToId: Map<string, string>) {
     const out: Record<string, Array<{ value: any; label: string }>> = {};
     let fetchedAll = false;
     for (const specs of Object.values(queryParamSpecs.value)) {
@@ -761,7 +764,12 @@ async function resolveParamOptions(rowsByQueryId: Map<string, any[]>) {
             }
             const src = spec.options_source;
             if (!src?.query_id) continue;
-            let rows = rowsByQueryId.get(String(src.query_id));
+            const lookup = () => {
+                const ref = String(src.query_id);
+                return rowsByQueryId.get(ref)
+                    ?? rowsByQueryId.get(titleToId.get(ref.toLowerCase()) || '');
+            };
+            let rows = lookup();
             if (!rows && !fetchedAll) {
                 fetchedAll = true;
                 try {
@@ -772,9 +780,10 @@ async function resolveParamOptions(rowsByQueryId: Map<string, any[]>) {
                         missing.map(q => useMyFetch(`/api/r/${report_id}/queries/${q.id}/step`)));
                     missing.forEach((q, i) => {
                         rowsByQueryId.set(String(q.id), (steps[i].data.value as any)?.data?.rows || []);
+                        if (q.title) titleToId.set(String(q.title).toLowerCase(), String(q.id));
                     });
                 } catch { /* options degrade to static/none */ }
-                rows = rowsByQueryId.get(String(src.query_id));
+                rows = lookup();
             }
             const seen = new Set<string>();
             const opts: Array<{ value: any; label: string }> = [];

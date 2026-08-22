@@ -90,7 +90,10 @@ class CreateDataInput(BaseModel):
             "those values exists in this report (the filter-space pattern) — "
             "options_source={query_id, value_column, label_column} pointing at "
             "it, so the dashboard control never derives choices from filtered "
-            "data. Do NOT speculatively parameterize every literal — "
+            "data. In options_source.query_id you may put the source query's "
+            "exact TITLE (e.g. the title you gave a create_data call earlier "
+            "this turn) or its id — the platform resolves it to the real query "
+            "within the report. Do NOT speculatively parameterize every literal — "
             "no params is the common case."
         ),
     )

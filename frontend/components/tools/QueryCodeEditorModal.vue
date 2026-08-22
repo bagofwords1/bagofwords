@@ -142,6 +142,10 @@
                   <div v-else class="space-y-1.5">
                     <select v-model="spec.options_source.query_id" class="w-full px-1.5 py-1 text-xs border rounded" :data-testid="`param-opts-query-${spec.name || idx}`">
                       <option value="" disabled>pick options query…</option>
+                      <!-- A saved ref no report query matches (deleted query,
+                           unresolved agent ref) must be visible, not blank. -->
+                      <option v-if="spec.options_source.query_id && !optionQueryChoices.some(q => String(q.id) === String(spec.options_source.query_id))"
+                        :value="spec.options_source.query_id">⚠ unknown query ({{ String(spec.options_source.query_id).slice(0, 8) }}…) — re-pick</option>
                       <option v-for="q in optionQueryChoices" :key="q.id" :value="q.id">{{ q.title }}</option>
                     </select>
                     <div class="flex items-center gap-1.5">
@@ -363,7 +367,9 @@ const appliedParams = ref<Record<string, any> | null>(null)
 const reportQueriesList = ref<any[]>([])
 
 async function fetchReportQueries() {
-  const reportId = (route.params as any)?.id
+  // The query's own report_id is authoritative — the modal can open from
+  // pages whose route param is not the report id (or none at all).
+  const reportId = (queryData.value as any)?.report_id || (route.params as any)?.id
   if (!reportId) return
   try {
     const { data } = await useMyFetch(`/api/queries?report_id=${reportId}`)

@@ -748,13 +748,24 @@ async function resolveParamOptions(loadedQueries: any[], fetchAll: () => Promise
       }
       const src = spec.options_source;
       if (!src?.query_id) continue;
-      let srcQ: any = byId.get(String(src.query_id));
+      // Match by id, falling back to title — refs persisted from agent runs
+      // before server-side canonicalization name the query loosely.
+      const findSrc = () => {
+        const ref = String(src.query_id);
+        if (byId.has(ref)) return byId.get(ref);
+        const lowered = ref.toLowerCase();
+        for (const q of byId.values()) {
+          if (String(q?.title || '').toLowerCase() === lowered) return q;
+        }
+        return null;
+      };
+      let srcQ: any = findSrc();
       if (!srcQ && !fetchedAll) {
         fetchedAll = true;
         try {
           for (const q of await fetchAll()) byId.set(String(q.id), q);
         } catch { /* options degrade to static/none */ }
-        srcQ = byId.get(String(src.query_id));
+        srcQ = findSrc();
       }
       const rows = srcQ?.default_step?.data?.rows || srcQ?.__step_rows || [];
       const seen = new Set<string>();

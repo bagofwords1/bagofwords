@@ -31,6 +31,54 @@ def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
     return step_schema
 
 
+async def resolve_options_source_refs(
+    db: AsyncSession, report_id: str, parameters: list, *, exclude_query_id: str | None = None
+) -> list:
+    """Canonicalize loose options_source query references to real query ids.
+
+    The agent declares a param's options_source before it can know the source
+    query's UUID, so the ref is usually the query's TITLE (sometimes an id it
+    read from context). Resolve within the report: exact id → exact title
+    (case-insensitive) → title contains. An unresolvable ref — or one pointing
+    at the consuming query itself — drops the options_source rather than
+    persisting a dead link the UI would render as an empty control.
+    """
+    out = []
+    for p in parameters or []:
+        src = p.get("options_source") if isinstance(p, dict) else None
+        if not isinstance(src, dict):
+            out.append(p)
+            continue
+        ref = str(src.get("query_id") or "").strip()
+        resolved: Optional[str] = None
+        if ref and report_id:
+            from sqlalchemy import func
+            row = (await db.execute(
+                select(Query.id).where(Query.report_id == str(report_id), Query.id == ref)
+            )).first()
+            if row is None:
+                row = (await db.execute(
+                    select(Query.id).where(
+                        Query.report_id == str(report_id),
+                        func.lower(Query.title) == ref.lower(),
+                    )
+                )).first()
+            if row is None:
+                row = (await db.execute(
+                    select(Query.id).where(
+                        Query.report_id == str(report_id),
+                        Query.title.ilike(f"%{ref}%"),
+                    ).limit(1)
+                )).first()
+            if row is not None:
+                resolved = str(row[0])
+        if resolved is None or (exclude_query_id and resolved == str(exclude_query_id)):
+            out.append({**p, "options_source": None})
+        else:
+            out.append({**p, "options_source": {**src, "query_id": resolved}})
+    return out
+
+
 class QueryService:
 
     def __init__(self) -> None:

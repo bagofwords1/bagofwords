@@ -103,6 +103,28 @@ async def test_unknown_column_rejected(db):
 
 
 @pytest.mark.asyncio
+async def test_resolve_refs_by_title_id_and_drop(db):
+    """Agent refs canonicalize: exact title and id resolve to the query id;
+    unresolvable and self-referencing refs drop the options_source."""
+    from app.services.query_service import resolve_options_source_refs
+    report, genres, albums = await _seed(db)
+
+    def param(ref):
+        return {"name": "genre", "type": "string", "source": "input",
+                "options_source": {"query_id": ref, "value_column": "Name", "label_column": None}}
+
+    out = await resolve_options_source_refs(
+        db, str(report.id),
+        [param("genres"), param(str(genres.id)), param("No Such Query"), param(str(albums.id))],
+        exclude_query_id=str(albums.id),
+    )
+    assert out[0]["options_source"]["query_id"] == str(genres.id)   # title (case-insensitive)
+    assert out[1]["options_source"]["query_id"] == str(genres.id)   # id passthrough
+    assert out[2]["options_source"] is None                          # unresolvable → dropped
+    assert out[3]["options_source"] is None                          # self-ref → dropped
+
+
+@pytest.mark.asyncio
 async def test_no_step_data_yet_is_lenient(db):
     """A source query that has never run has no columns to check against —
     the reference itself is enough (columns validate on the next save)."""
