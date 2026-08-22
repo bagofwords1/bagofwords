@@ -31,6 +31,28 @@ def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
     return step_schema
 
 
+def param_specs_diff(old: list | None, new: list | None) -> Optional[dict]:
+    """Structured diff between two declared ParamSpec lists, or None when
+    equivalent. Feeds the QUERY_PARAMS_CHANGED session event so the agent
+    learns about hand edits its context would otherwise never see."""
+    _FIELDS = ("type", "source", "label", "default", "required", "identity_binding", "options", "options_source")
+    old_by = {p.get("name"): p for p in (old or []) if isinstance(p, dict) and p.get("name")}
+    new_by = {p.get("name"): p for p in (new or []) if isinstance(p, dict) and p.get("name")}
+    added = [n for n in new_by if n not in old_by]
+    removed = [n for n in old_by if n not in new_by]
+    changed = []
+    for name in new_by:
+        if name not in old_by:
+            continue
+        for f in _FIELDS:
+            ov, nv = old_by[name].get(f), new_by[name].get(f)
+            if ov != nv:
+                changed.append({"name": name, "field": f, "from": ov, "to": nv})
+    if not (added or removed or changed):
+        return None
+    return {"added": added, "removed": removed, "changed": changed}
+
+
 async def resolve_options_source_refs(
     db: AsyncSession, report_id: str, parameters: list, *, exclude_query_id: str | None = None
 ) -> list:
@@ -388,11 +410,30 @@ class QueryService:
             if consistency:
                 raise ParamError("; ".join(consistency))
             await self._validate_options_sources(db, q, new_specs)
+            prev_params = list(getattr(q, "parameters", None) or [])
             q.parameters = [s.model_dump() for s in new_specs]
             db.add(q)
             await db.commit()
             await db.refresh(q)
             specs = new_specs
+            # Hand edits to declarations are invisible to the agent otherwise
+            # (its context still holds the tool output that declared the old
+            # set) — record a context-only session event. Agent-side saves
+            # don't pass through here (they persist via update_query_parameters).
+            diff = param_specs_diff(prev_params, q.parameters)
+            if diff and getattr(q, "report_id", None):
+                try:
+                    from types import SimpleNamespace as _NS
+                    from app.services.session_event_service import SessionEventService
+                    from app.ai.context.session_events import QUERY_PARAMS_CHANGED
+                    await SessionEventService.emit_safe(
+                        db, report=_NS(id=str(q.report_id)), kind=QUERY_PARAMS_CHANGED,
+                        user=run_user_for_params,
+                        meta={"query_id": str(q.id), "query_title": q.title, **diff},
+                        target_type="query", target_id=str(q.id),
+                    )
+                except Exception:
+                    pass
         else:
             specs = parse_param_specs(getattr(q, "parameters", None))
 
