@@ -956,6 +956,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                 "sample_row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},
+                # Declared query parameters (see create_artifact — same contract)
+                "parameters": list(getattr(viz.query, "parameters", None) or []) if viz.query else [],
             }
             visualizations.append(ventry)
 

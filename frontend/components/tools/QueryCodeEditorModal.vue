@@ -12,21 +12,31 @@
           <button
             v-if="canEditCode"
             class="py-2 text-xs transition-colors border-b-2 -mb-px"
-            :class="activeTab === 'code' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
+            :class="activeTab === 'code' || activeTab === 'params' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
             @click="activeTab = 'code'"
           >Query</button>
-          <button
-            v-if="canEditCode"
-            class="py-2 text-xs transition-colors border-b-2 -mb-px"
-            data-testid="params-tab"
-            :class="activeTab === 'params' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
-            @click="activeTab = 'params'"
-          >Params<span v-if="paramSpecs.length" class="ms-1 text-[10px] text-blue-500">({{ paramSpecs.length }})</span></button>
           <button
             class="py-2 text-xs transition-colors border-b-2 -mb-px"
             :class="activeTab === 'visuals' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
             @click="activeTab = 'visuals'"
           >Visuals</button>
+
+          <!-- Code/Params toggle for the Query tab: params ARE part of the
+               query (declarations + code must stay consistent), so they live
+               under one tab as a toggled view. -->
+          <div v-if="canEditCode && (activeTab === 'code' || activeTab === 'params')" class="ms-auto flex items-center rounded border border-gray-200 dark:border-gray-700 overflow-hidden my-1.5">
+            <button
+              class="px-2.5 py-1 text-[11px] transition-colors"
+              :class="activeTab === 'code' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'"
+              @click="activeTab = 'code'"
+            >Code</button>
+            <button
+              class="px-2.5 py-1 text-[11px] transition-colors"
+              data-testid="params-tab"
+              :class="activeTab === 'params' ? 'bg-blue-600 text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800'"
+              @click="activeTab = 'params'"
+            >Params<span v-if="paramSpecs.length" class="ms-1">({{ paramSpecs.length }})</span></button>
+          </div>
         </nav>
 
         <!-- Content -->
@@ -511,7 +521,12 @@ async function loadInitialStepOrDefault() {
       currentStepId.value = step.id
       if (step.query_id && !queryId.value) queryId.value = step.query_id
       if (step.data) preview.value = step.data
-      if (!editorCode.value && step.code) editorCode.value = step.code
+      // The modal edits the QUERY, so its CURRENT version wins: the default
+      // step's code (which matches the query's declared parameters) replaces
+      // the tool-execution snapshot the card passed in — that snapshot goes
+      // stale the moment the query advances (params tab save, another edit).
+      if (defaultStep?.code) editorCode.value = defaultStep.code
+      else if (!editorCode.value && step.code) editorCode.value = step.code
     }
   } catch (e) {
     // swallow

@@ -698,6 +698,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         profile: Dict[str, Any] = {
             "id": viz.get("id"),
             "title": viz.get("title"),
+            "query_id": viz.get("query_id"),
             "chart_type": viz.get("data_model_type") or "table",
             # True dataset size; sample_row_count is how many rows are shown
             # to generation/preview (capped). At runtime the dashboard
@@ -747,6 +748,21 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             palette = inner_view.get("palette") or {}
             if palette.get("colors"):
                 profile["colors"] = palette.get("colors")[:5]
+
+        # Declared server-side query parameters (useParams contract). Compact:
+        # the artifact needs name/type/source/label/default/options to build
+        # controls, nothing more.
+        params = viz.get("parameters") or []
+        if params:
+            profile["parameters"] = [
+                {
+                    k: p.get(k)
+                    for k in ("name", "type", "label", "source", "default", "required", "options")
+                    if p.get(k) is not None or k in ("name", "source")
+                }
+                for p in params
+                if isinstance(p, dict) and p.get("name")
+            ]
 
         # Include sample data if allowed
         if allow_llm_see_data:
@@ -976,6 +992,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 # "chart data contains no categories".
                 "sample_rows": rows,
                 "dataModel": data_model or {},
+                # Declared query parameters (ParamSpec dicts): the dashboard
+                # should render a control per input param via useParams() and
+                # a "scoped to you" badge for identity params.
+                "parameters": list(getattr(viz.query, "parameters", None) or []) if viz.query else [],
             }
 
             # Debug logging
@@ -2279,6 +2299,33 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
         """
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
 
+        # Server-side query parameters: when any viz declares them, the
+        # dashboard must wire controls through useParams() (not useFilters).
+        params_directive = ""
+        _param_profiles = [
+            (p.get("title") or p.get("id"), p.get("parameters"))
+            for p in viz_profiles if p.get("parameters")
+        ]
+        if _param_profiles:
+            _lines = "\n".join(
+                f"  - {title}: " + ", ".join(
+                    f"{d.get('name')} ({d.get('type', 'string')}, {d.get('source', 'input')})"
+                    for d in decls
+                )
+                for title, decls in _param_profiles
+            )
+            params_directive = (
+                "\n**Server-side query parameters (MANDATORY UI):** these visualizations' queries "
+                "declare parameters — the platform re-runs them at the data source when a value "
+                "changes (see useParams() in the runtime reference):\n" + _lines + "\n"
+                "Rules: render ONE control per unique param name (same name across queries = one "
+                "control driving all of them) wired to useParams().setParam(name, value); an "
+                "optional param gets an 'All' choice that sets null; identity-source params get NO "
+                "input — show a small 'scoped to you' badge; show a subtle loading state while "
+                "useParams().loading is true. Do NOT emulate these with useFilters/client-side "
+                "filtering — the fresh rows arrive through useArtifactData() automatically.\n"
+            )
+
         language_directive = build_language_directive(organization_settings)
 
         # Build attached images context
@@ -2312,6 +2359,7 @@ Design request (primary specification — takes precedence when it conflicts wit
 **User Request:** {user_prompt}
 {images_context}
 {files_context}
+{params_directive}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}

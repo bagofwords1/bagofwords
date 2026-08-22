@@ -180,6 +180,25 @@ class LoadablesResolver:
         )
         if not steps:
             return None
+        # Declared parameters per query, so the planner/coder see which steps
+        # are parameterized (and how) without a read_query round-trip.
+        params_by_query: Dict[str, str] = {}
+        query_ids = {str(step.query_id) for step in steps if getattr(step, "query_id", None)}
+        if query_ids:
+            from app.models.query import Query as _Query
+            rows = (await self.db.execute(
+                select(_Query.id, _Query.parameters).where(_Query.id.in_(query_ids))
+            )).all()
+            for qid, decls in rows:
+                if not decls:
+                    continue
+                try:
+                    params_by_query[str(qid)] = "; ".join(
+                        f"{p.get('name')} ({p.get('type', 'string')}, {p.get('source', 'input')})"
+                        for p in decls if isinstance(p, dict) and p.get("name")
+                    )
+                except Exception:
+                    continue
         items: List[StepItem] = []
         for step in steps:
             data = step.data if isinstance(step.data, dict) else {}
@@ -199,6 +218,7 @@ class LoadablesResolver:
                     slug=step.slug,
                     row_count=row_count,
                     columns=columns,
+                    params=params_by_query.get(str(step.query_id)) if getattr(step, "query_id", None) else None,
                 )
             )
         return StepsSection(items=items)
