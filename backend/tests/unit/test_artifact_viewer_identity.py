@@ -94,6 +94,34 @@ def test_titles_are_viewer_agnostic_by_contract():
     assert "never the person requesting it" in src
 
 
+def test_planner_briefs_forbid_resolved_personalization():
+    """The planner writes the design/edit briefs; both field descriptions must
+    forbid substituting the requester's name (the 'exactly: Yochay's Album
+    Catalog' plan) and must explain the anonymous preview so the planner never
+    'repairs' working personalization by hardcoding."""
+    from app.ai.tools.schemas.create_artifact import CreateArtifactInput
+    from app.ai.tools.schemas.edit_artifact import EditArtifactInput
+
+    create_desc = CreateArtifactInput.model_fields["prompt"].description or ""
+    edit_desc = EditArtifactInput.model_fields["edit_prompt"].description or ""
+    for desc in (create_desc, edit_desc):
+        assert "RUNTIME BINDING" in desc
+        assert "ANONYMOUS" in desc
+
+
+def test_anon_preview_note_attached_to_screenshots():
+    """The reflection screenshot renders anonymously on purpose; the note that
+    says so must exist and be wired into both tools' observations."""
+    import inspect
+    from app.ai.tools.implementations._sandbox_context import ANON_PREVIEW_NOTE
+    from app.ai.tools.implementations import create_artifact as ca
+    from app.ai.tools.implementations import edit_artifact as ea
+
+    assert "EXPECTED behavior" in ANON_PREVIEW_NOTE
+    assert "ANON_PREVIEW_NOTE" in inspect.getsource(ca)
+    assert "ANON_PREVIEW_NOTE" in inspect.getsource(ea)
+
+
 def test_render_repair_attempt_budget():
     """Edits must not give up after a couple of repair rounds."""
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool

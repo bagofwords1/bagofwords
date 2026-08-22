@@ -256,3 +256,17 @@ NO BAKED SPECIFICS — this applies to EVERY person-specific literal, wherever i
 Group checks are EXACT, case-sensitive string matches against the names above. When the user refers to a group loosely ("the leadership team", "managers"), find the closest name in the org groups list and use that EXACT string (e.g. `(u?.groups || []).includes('Leadership')`) — never the user's paraphrase. Only use a name outside the list if the user typed it verbatim and nothing in the list plausibly matches."""
     except Exception:
         return ""
+
+
+# Appended wherever a validation/preview screenshot is attached for planner
+# reflection. The preview deliberately renders as an ANONYMOUS viewer, and
+# without this label the planner reads the neutral fallbacks as a defect and
+# "repairs" working personalization by hardcoding the requester's name.
+ANON_PREVIEW_NOTE = (
+    " NOTE: this preview renders as an ANONYMOUS viewer (current_user = null), "
+    "so personalized content (greetings, viewer names, group-conditional "
+    "sections) correctly shows its neutral fallbacks here. A missing name in "
+    "this screenshot is EXPECTED behavior, not a bug — at view time each "
+    "signed-in viewer sees their own identity. NEVER 'fix' absent "
+    "personalization by hardcoding a specific person's name."
+)

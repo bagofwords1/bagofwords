@@ -27,7 +27,12 @@ class EditArtifactInput(BaseModel):
         "Chart type changes, KPI calculations, new data mappings. E.g., 'Change bar chart to horizontal bars', 'Show top 6 artists instead of 10'.\n\n"
         "Only include sections relevant to the edit. Also use this to fix visual issues (e.g., 'the bar chart is cut off', 'KPI cards are overlapping').\n\n"
         "CONTINUITY: Edits are ADDITIVE by default. Phrases like 'improve', 'make it amazing', 'add KPIs', 'redesign' never imply removing existing vizs or content. "
-        "Preserve the existing title unless the user asked to rename."
+        "Preserve the existing title unless the user asked to rename.\n\n"
+        "PERSONALIZATION: personalization is a RUNTIME BINDING, never resolved text. Ask for 'greet the viewing user by "
+        "name via current_user' — NEVER substitute the requester's actual name/email into this edit request, and NEVER "
+        "instruct 'explicitly/permanently' show a specific person's name. Previews/screenshots render as an ANONYMOUS "
+        "viewer (current_user=null), so a preview showing a neutral fallback instead of a name is CORRECT behavior — "
+        "do not issue an edit to 'fix' it, and never by hardcoding a name."
     ))
     visualization_ids: Optional[List[str]] = Field(default=None, description="List of NEW visualization IDs to include in the artifact. IMPORTANT: If you called create_data before this edit, you MUST pass the resulting visualization_id(s) here. Without them, the new visualizations will not appear in the dashboard. Existing visualization IDs from the original artifact are kept automatically — only pass new ones.")
     remove_visualization_ids: Optional[List[str]] = Field(default=None, description=(
