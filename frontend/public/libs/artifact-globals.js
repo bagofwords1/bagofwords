@@ -249,6 +249,7 @@
   window.__paramStore = (function() {
     var declarations = [];
     var values = {};
+    var options = {};   // name -> [{value, label}] — host-resolved stable choices
     var pending = {};
     var loading = false;
     var error = null;
@@ -282,6 +283,7 @@
         var p = (data && data.params) || {};
         declarations = p.declarations || [];
         values = p.values || {};
+        options = p.options || {};
         loading = false;
         error = null;
         notify();
@@ -293,6 +295,22 @@
       },
       getDeclarations: function() { return declarations; },
       getValues: function() { return values; },
+      // Stable [{value, label}] choices for one param: host-resolved rows
+      // (static options or an options-source query) — never the currently
+      // filtered data, so selecting a value can't collapse the list.
+      getOptions: function(name) {
+        if (options && options[name] && options[name].length) return options[name];
+        for (var i = 0; i < declarations.length; i++) {
+          var d = declarations[i];
+          if (d && d.name === name && d.options && d.options.length) {
+            return d.options.map(function(v) {
+              return (v && typeof v === 'object' && 'value' in v)
+                ? v : { value: v, label: String(v) };
+            });
+          }
+        }
+        return null;
+      },
       getPending: function() { return pending; },
       isLoading: function() { return loading; },
       getError: function() { return error; },
@@ -347,8 +365,23 @@
       setParam: store.setParam,
       setParams: store.setParams,
       apply: store.apply,
-      refresh: store.refresh
+      refresh: store.refresh,
+      getOptions: store.getOptions
     };
+  };
+
+  // Stable choice list for one declared param — [{value, label}] or null.
+  // Re-renders when the host pushes fresh params (e.g. the options query
+  // refreshed). See __paramStore.getOptions for resolution order.
+  window.useParamOptions = function(name) {
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      return window.__paramStore.sub(function() {
+        forceUpdate(function(c) { return c + 1; });
+      });
+    }, []);
+    return window.__paramStore.getOptions(name);
   };
 
   // Seed the store from the data embedded in the initial srcdoc.

@@ -88,7 +88,9 @@ references to any of them.
   - `apply()` commits all pending; `apply(['<query_id>'])` commits to specific queries only. `refresh()` / `refresh(['<query_id>'])` force re-runs with current values (wire to a per-widget refresh button when it aids trust).
   - Pass `null` as a value for an optional param to mean "All" (the query skips that predicate).
   - `source: 'identity'` params are LOCKED to the viewing user (server-resolved). NEVER render an input for them — show a small "scoped to you" badge instead. `source: 'input_identity_default'` params open on the viewer's value but ARE editable.
-  - Param controls: reuse `<FilterSelect>` (single/multi), `<FilterDateRange>`, or plain inputs, wired to `setParam` instead of `setFilter`. Use `declarations[i].options` for choices when present.
+  - Param controls: reuse `<FilterSelect>` (single/multi), `<FilterDateRange>`, or plain inputs, wired to `setParam` instead of `setFilter`. Populate choices with `useParamOptions(name)` (below) — NEVER derive a control's choices from the rows that control filters (selecting a value would collapse the list to the current selection).
+
+• **useParamOptions(name)** — Global React hook: the STABLE choice list for one declared param, or `null` when none is declared. Returns `[{ value, label }]` resolved by the host from the param's declaration (a static `options` list, or an options-source query — the filter-space pattern where e.g. a 'Genres' query feeds the genre control of 'Albums by Genre'). Always use it for select-style param controls; bind `value` into `setParam`, render `label`.
   - Chart drill-down that must RE-QUERY (change granularity/scope) = `setParams({...})` with the clicked value(s). Drill-down that only narrows rows already loaded = `useFilters().setFilter` (instant, no server trip). Choose per interaction.
 
 • **Pre-built UI components** — all global, prefer these for speed but build custom components when the design requires it:
@@ -144,6 +146,9 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "error, setParam, setParams, apply, refresh } — setParam re-runs the declaring queries at the "
     "data source and fresh rows arrive via useArtifactData; identity-source params are locked to "
     "the viewer, render a 'scoped to you' badge, never an input), "
+    "useParamOptions(name) hook (stable [{value,label}] choices for a declared param — resolved "
+    "host-side from static options or an options-source query; never derive choices from the "
+    "filtered rows), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } "
     "for cross-visualization filtering — no auto column detection, LLM chooses which columns to filter "
     "using dtype and unique_count from viz.columns (e.g. dtype 'object' + unique_count < 50 → FilterSelect, "

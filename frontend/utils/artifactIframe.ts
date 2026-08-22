@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '4';
+export const ARTIFACT_GLOBALS_VERSION = '5';
 
 export interface ArtifactIframeFile {
   id: string;
@@ -53,6 +53,8 @@ export interface ArtifactParamDeclaration {
   default?: unknown;
   required?: boolean;
   options?: unknown[] | null;
+  /** Choices fed by another query in the report (the filter-space pattern). */
+  options_source?: { query_id: string; value_column: string; label_column?: string | null } | null;
   /** Queries (by id) that declare this param — a control drives all of them. */
   query_ids?: string[];
 }
@@ -62,6 +64,9 @@ export interface ArtifactParamsPayload {
   /** Current applied values by param name (identity params carry no value —
    *  the server binds them per viewer). */
   values: Record<string, unknown>;
+  /** Host-resolved stable choices per param name (static options and
+   *  options-source query rows, normalized) — useParamOptions() reads this. */
+  options?: Record<string, Array<{ value: unknown; label: string }>>;
 }
 
 export interface ArtifactIframeData {

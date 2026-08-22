@@ -701,6 +701,11 @@ const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering befor
 // per viewer; the artifact only shows "scoped to you".
 const queryParamSpecs = ref<Record<string, any[]>>({});
 const paramValues = ref<Record<string, any>>({});
+// Host-resolved stable choices per param name: static declared options and
+// options-source query rows (the filter-space pattern — e.g. a 'Genres' query
+// feeding the genre control of 'Albums by Genre'). Controls read these via
+// useParamOptions(), never the filtered data itself.
+const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
 const paramRunLoading = ref(false);
 // Snapshot embedded in the iframe's srcdoc; frozen per data load so live
 // param/view-as updates (postMessage) never trigger an iframe reload.
@@ -719,7 +724,54 @@ function paramsPayload() {
   return {
     declarations: Object.values(byName),
     values: { ...paramValues.value },
+    options: { ...paramOptions.value },
   };
+}
+
+function normalizeStaticOptions(opts: any[]): Array<{ value: any; label: string }> {
+  return (opts || []).map((v: any) =>
+    (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) });
+}
+
+// Resolve each param's stable choice list. Options-source rows win over a
+// static list; a source query outside the artifact is fetched from the
+// report-level list once. Dedupe by value; label falls back to the value.
+async function resolveParamOptions(loadedQueries: any[], fetchAll: () => Promise<any[]>) {
+  const byId = new Map(loadedQueries.map((q: any) => [String(q.id), q]));
+  const out: Record<string, Array<{ value: any; label: string }>> = {};
+  let fetchedAll = false;
+  for (const specs of Object.values(queryParamSpecs.value)) {
+    for (const spec of (specs as any[]) || []) {
+      if (!spec?.name) continue;
+      if (!out[spec.name] && Array.isArray(spec.options) && spec.options.length) {
+        out[spec.name] = normalizeStaticOptions(spec.options);
+      }
+      const src = spec.options_source;
+      if (!src?.query_id) continue;
+      let srcQ: any = byId.get(String(src.query_id));
+      if (!srcQ && !fetchedAll) {
+        fetchedAll = true;
+        try {
+          for (const q of await fetchAll()) byId.set(String(q.id), q);
+        } catch { /* options degrade to static/none */ }
+        srcQ = byId.get(String(src.query_id));
+      }
+      const rows = srcQ?.default_step?.data?.rows || srcQ?.__step_rows || [];
+      const seen = new Set<string>();
+      const opts: Array<{ value: any; label: string }> = [];
+      for (const r of rows) {
+        const value = r?.[src.value_column];
+        if (value === undefined || value === null) continue;
+        const key = String(value);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        const label = src.label_column ? (r?.[src.label_column] ?? value) : value;
+        opts.push({ value, label: String(label) });
+      }
+      if (opts.length) out[spec.name] = opts;
+    }
+  }
+  paramOptions.value = out;
 }
 
 function paramSubsetForQuery(qid: string) {
@@ -1485,6 +1537,12 @@ async function fetchData(artifactId?: string) {
       }
     }
     queryParamSpecs.value = nextParamSpecs;
+
+    // Stable control choices (static options + options-source query rows).
+    await resolveParamOptions(queries, async () => {
+      const { data } = await useMyFetch(`/api/queries?report_id=${props.reportId}`);
+      return Array.isArray(data.value) ? (data.value as any[]) : [];
+    });
 
     // Initialize applied values: declaration defaults, overridden by any
     // qp_<name> URL state (shareable dashboards). Identity params carry no

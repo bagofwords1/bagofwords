@@ -2323,7 +2323,11 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
                 "optional param gets an 'All' choice that sets null; identity-source params get NO "
                 "input — show a small 'scoped to you' badge; show a subtle loading state while "
                 "useParams().loading is true. Do NOT emulate these with useFilters/client-side "
-                "filtering — the fresh rows arrive through useArtifactData() automatically.\n"
+                "filtering — the fresh rows arrive through useArtifactData() automatically. "
+                "A control's choice list must be STABLE: populate it from useParamOptions(name) "
+                "(declared options / options-source query, host-resolved) — NEVER derive choices "
+                "from the rows that control filters, or selecting a value collapses the list to "
+                "the current selection.\n"
             )
 
         language_directive = build_language_directive(organization_settings)

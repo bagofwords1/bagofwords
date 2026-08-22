@@ -335,6 +335,7 @@ class QueryService:
             consistency = check_declarations_vs_code(request.code or "", new_specs)
             if consistency:
                 raise ParamError("; ".join(consistency))
+            await self._validate_options_sources(db, q, new_specs)
             q.parameters = [s.model_dump() for s in new_specs]
             db.add(q)
             await db.commit()
@@ -801,6 +802,52 @@ class QueryService:
         schema = _enrich_step_schema(step, StepSchema.from_orm(step))
         schema = await self._overlay_viewer_result(db, q, step, schema, viewer_user_id)
         return schema
+
+    async def _validate_options_sources(self, db: AsyncSession, q: Query, specs) -> None:
+        """Validate options_source references on save.
+
+        The source must be another query in the SAME report (the filter-space
+        pattern: 'Genres' feeds the genre control of 'Albums by Genre'), and
+        the named columns must exist in its default-step result when one has
+        run. A broken reference saved silently would render an empty control
+        that looks like a data bug.
+        """
+        for spec in specs:
+            src = getattr(spec, "options_source", None)
+            if src is None:
+                continue
+            if str(src.query_id) == str(q.id):
+                raise ParamError(
+                    f"param '{spec.name}': options_source must reference a different "
+                    "query — a control cannot take its choices from the query it filters"
+                )
+            row = (await db.execute(
+                select(Query).options(
+                    lazyload("*"),
+                    selectinload(Query.default_step).options(lazyload("*")),
+                ).where(
+                    Query.id == str(src.query_id),
+                    Query.report_id == str(q.report_id),
+                )
+            )).scalar_one_or_none()
+            if row is None:
+                raise ParamError(
+                    f"param '{spec.name}': options_source query {src.query_id} "
+                    "not found in this report"
+                )
+            step = getattr(row, "default_step", None)
+            data = (getattr(step, "data", None) or {}) if step is not None else {}
+            cols = {
+                str(c.get("field") or c.get("headerName") or "")
+                for c in (data.get("columns") or []) if isinstance(c, dict)
+            }
+            if cols:
+                for col in filter(None, (src.value_column, src.label_column)):
+                    if col not in cols:
+                        raise ParamError(
+                            f"param '{spec.name}': column '{col}' not found in "
+                            f"options query '{row.title}' (has: {', '.join(sorted(cols))})"
+                        )
 
     async def annotate_credential_scope(
         self,

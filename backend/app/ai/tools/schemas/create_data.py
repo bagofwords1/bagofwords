@@ -84,7 +84,13 @@ class CreateDataInput(BaseModel):
             "'viewer.profile_attributes.department', or 'viewer.groups'); "
             "source='input_identity_default' for an input that merely defaults to "
             "the viewer's identity value. The generated code will receive these as "
-            "a `params` dict. Do NOT speculatively parameterize every literal — "
+            "a `params` dict. For an enum-like param over a small dimension "
+            "(genres, statuses, regions), give the control real choices: set "
+            "options=[...] with the known values, or — when a query listing "
+            "those values exists in this report (the filter-space pattern) — "
+            "options_source={query_id, value_column, label_column} pointing at "
+            "it, so the dashboard control never derives choices from filtered "
+            "data. Do NOT speculatively parameterize every literal — "
             "no params is the common case."
         ),
     )

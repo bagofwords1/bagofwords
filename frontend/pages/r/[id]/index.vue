@@ -633,6 +633,7 @@ async function loadVisualizationData(artifactId?: string) {
         );
 
         const vizData = [];
+        const rowsByQuery = new Map<string, any[]>();
         let newestViewerRun: Date | null = null;
         let anyWithheld = false;
         let anyOwnResult = false;
@@ -662,6 +663,7 @@ async function loadVisualizationData(artifactId?: string) {
             if (Array.isArray((query as any).parameters) && (query as any).parameters.length) {
                 queryParamSpecs.value[(query as any).id] = (query as any).parameters;
             }
+            rowsByQuery.set(String((query as any).id), (step.value as any)?.data?.rows || []);
 
             // Process each visualization in the query (matches ArtifactFrame.vue structure)
             const visualizations = (query as any).visualizations || [];
@@ -704,6 +706,7 @@ async function loadVisualizationData(artifactId?: string) {
         } else {
             visualizationsData.value = vizData;
         }
+        await resolveParamOptions(rowsByQuery);
         viewerLastRunAt.value = newestViewerRun;
         snapshotWithheld.value = anyWithheld;
         hasOwnResult.value = anyOwnResult;
@@ -722,6 +725,9 @@ async function loadVisualizationData(artifactId?: string) {
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
 const queryParamSpecs = ref<Record<string, any[]>>({});
 const paramValues = ref<Record<string, any>>({});
+// Host-resolved stable choices per param (static options + options-source
+// query rows) — mirrors ArtifactFrame; useParamOptions() reads these.
+const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
 // Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
 const srcdocSeed = ref<any>(null);
 
@@ -733,7 +739,58 @@ function paramsPayload() {
             byName[spec.name].query_ids.push(qid);
         }
     }
-    return { declarations: Object.values(byName), values: { ...paramValues.value } };
+    return {
+        declarations: Object.values(byName),
+        values: { ...paramValues.value },
+        options: { ...paramOptions.value },
+    };
+}
+
+// Resolve stable control choices. `rowsByQueryId` carries the step rows this
+// load already fetched; a source query outside the artifact is fetched from
+// the report-level public list (plus its step) once.
+async function resolveParamOptions(rowsByQueryId: Map<string, any[]>) {
+    const out: Record<string, Array<{ value: any; label: string }>> = {};
+    let fetchedAll = false;
+    for (const specs of Object.values(queryParamSpecs.value)) {
+        for (const spec of (specs as any[]) || []) {
+            if (!spec?.name) continue;
+            if (!out[spec.name] && Array.isArray(spec.options) && spec.options.length) {
+                out[spec.name] = spec.options.map((v: any) =>
+                    (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) });
+            }
+            const src = spec.options_source;
+            if (!src?.query_id) continue;
+            let rows = rowsByQueryId.get(String(src.query_id));
+            if (!rows && !fetchedAll) {
+                fetchedAll = true;
+                try {
+                    const { data } = await useMyFetch(`/api/r/${report_id}/queries`);
+                    const all = Array.isArray(data.value) ? (data.value as any[]) : [];
+                    const missing = all.filter(q => !rowsByQueryId.has(String(q.id)));
+                    const steps = await Promise.all(
+                        missing.map(q => useMyFetch(`/api/r/${report_id}/queries/${q.id}/step`)));
+                    missing.forEach((q, i) => {
+                        rowsByQueryId.set(String(q.id), (steps[i].data.value as any)?.data?.rows || []);
+                    });
+                } catch { /* options degrade to static/none */ }
+                rows = rowsByQueryId.get(String(src.query_id));
+            }
+            const seen = new Set<string>();
+            const opts: Array<{ value: any; label: string }> = [];
+            for (const r of rows || []) {
+                const value = r?.[src.value_column];
+                if (value === undefined || value === null) continue;
+                const key = String(value);
+                if (seen.has(key)) continue;
+                seen.add(key);
+                const label = src.label_column ? (r?.[src.label_column] ?? value) : value;
+                opts.push({ value, label: String(label) });
+            }
+            if (opts.length) out[spec.name] = opts;
+        }
+    }
+    paramOptions.value = out;
 }
 
 function initParamValues() {
