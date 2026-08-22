@@ -81,6 +81,19 @@ def test_prompt_documents_rules_of_hooks():
     assert "BEFORE any early return" in SANDBOX_RUNTIME_PROMPT
 
 
+def test_titles_are_viewer_agnostic_by_contract():
+    """Report and artifact titles must never carry the requester's name —
+    the possessive report title was how names leaked back into artifacts."""
+    import inspect
+    from app.ai.tools.schemas.create_artifact import CreateArtifactInput
+    from app.ai.agents.reporter.reporter import Reporter
+
+    desc = CreateArtifactInput.model_fields["title"].description or ""
+    assert "viewer-agnostic" in desc
+    src = inspect.getsource(Reporter.generate_report_title)
+    assert "never the person requesting it" in src
+
+
 def test_render_repair_attempt_budget():
     """Edits must not give up after a couple of repair rounds."""
     from app.ai.tools.implementations.create_artifact import CreateArtifactTool
