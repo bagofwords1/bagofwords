@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '5';
+export const ARTIFACT_GLOBALS_VERSION = '6';
 
 export interface ArtifactIframeFile {
   id: string;
@@ -67,6 +67,11 @@ export interface ArtifactParamsPayload {
   /** Host-resolved stable choices per param name (static options and
    *  options-source query rows, normalized) — useParamOptions() reads this. */
   options?: Record<string, Array<{ value: unknown; label: string }>>;
+  /** Highest ARTIFACT_SET_PARAMS seq the host has processed. The runtime
+   *  store keeps a user's committed-but-unacked values authoritative until a
+   *  push carries ack >= their commit seq, so typing never resets mid
+   *  round-trip and a stale echo can't clobber newer input. */
+  ack?: number;
 }
 
 export interface ArtifactIframeData {

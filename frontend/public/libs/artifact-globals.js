@@ -251,6 +251,13 @@
     var values = {};
     var options = {};   // name -> [{value, label}] — host-resolved stable choices
     var pending = {};
+    // Committed-but-unconfirmed changes. The user's latest input stays
+    // authoritative through the host round trip: getValues() overlays
+    // values with inflight and pending, so a controlled input can never
+    // snap back to a stale applied value while a run is in the air.
+    var inflight = {};
+    var inflightSeq = {};   // name -> commit seq that last wrote it
+    var commitSeq = 0;
     var loading = false;
     var error = null;
     var listeners = [];
@@ -269,13 +276,19 @@
     function commit(targets) {
       var changes = {};
       var any = false;
-      for (var k in pending) { changes[k] = pending[k]; any = true; }
+      commitSeq += 1;
+      for (var k in pending) {
+        changes[k] = pending[k];
+        inflight[k] = pending[k];
+        inflightSeq[k] = commitSeq;
+        any = true;
+      }
       if (!any) return;
       pending = {};
       loading = true;
       error = null;
       notify();
-      post({ type: 'ARTIFACT_SET_PARAMS', changes: changes, targets: targets || null });
+      post({ type: 'ARTIFACT_SET_PARAMS', changes: changes, targets: targets || null, seq: commitSeq });
     }
 
     return {
@@ -284,6 +297,19 @@
         declarations = p.declarations || [];
         values = p.values || {};
         options = p.options || {};
+        // Confirm inflight keys the host has caught up on. ack is the highest
+        // ARTIFACT_SET_PARAMS seq the host has seen; a key committed at or
+        // below it is reflected in this echo (possibly server-normalized), so
+        // the echoed value becomes truth. A key committed later keeps its
+        // local value — this push predates it. Without ack (older host),
+        // fall back to value equality.
+        var ack = (typeof p.ack === 'number') ? p.ack : null;
+        for (var k in inflight) {
+          var confirmed = (ack !== null)
+            ? (inflightSeq[k] <= ack)
+            : (JSON.stringify(values[k]) === JSON.stringify(inflight[k]));
+          if (confirmed) { delete inflight[k]; delete inflightSeq[k]; }
+        }
         loading = false;
         error = null;
         notify();
@@ -294,7 +320,17 @@
         notify();
       },
       getDeclarations: function() { return declarations; },
-      getValues: function() { return values; },
+      // Applied values overlaid with everything newer the user did locally
+      // (committed-in-flight, then still-debouncing pending) — what a
+      // controlled input should bind so typing never resets mid round-trip.
+      getValues: function() {
+        var out = {};
+        var k;
+        for (k in values) out[k] = values[k];
+        for (k in inflight) out[k] = inflight[k];
+        for (k in pending) out[k] = pending[k];
+        return out;
+      },
       // Stable [{value, label}] choices for one param: host-resolved rows
       // (static options or an options-source query) — never the currently
       // filtered data, so selecting a value can't collapse the list.

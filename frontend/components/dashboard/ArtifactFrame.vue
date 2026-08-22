@@ -718,6 +718,14 @@ const paramValues = ref<Record<string, any>>({});
 // useParamOptions(), never the filtered data itself.
 const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
 const paramRunLoading = ref(false);
+// Highest ARTIFACT_SET_PARAMS seq received from the iframe; echoed back in
+// paramsPayload().ack so the runtime store can tell which of its in-flight
+// commits this data push reflects (older pushes must not clobber newer typing).
+let paramAckSeq = 0;
+// Latest run id per query — a slower, superseded run must not overwrite the
+// rows a newer run already delivered (the 'Si' echo landing after 'Sir').
+let paramRunCounter = 0;
+const latestParamRunForQid: Record<string, number> = {};
 // Snapshot embedded in the iframe's srcdoc; frozen per data load so live
 // param/view-as updates (postMessage) never trigger an iframe reload.
 const srcdocSeed = ref<any>(null);
@@ -736,6 +744,7 @@ function paramsPayload() {
     declarations: Object.values(byName),
     values: { ...paramValues.value },
     options: { ...paramOptions.value },
+    ack: paramAckSeq,
   };
 }
 
@@ -918,6 +927,9 @@ async function runParamQueries(
   affected = [...new Set(affected)];
   if (!affected.length) return;
 
+  const myRun = ++paramRunCounter;
+  for (const qid of affected) latestParamRunForQid[qid] = myRun;
+
   postParamsStatus(true);
   let firstError: string | null = null;
   const runAs = (viewAsMode.value !== 'you' && viewAsMode.value !== 'anonymous')
@@ -939,6 +951,7 @@ async function runParamQueries(
         if (!firstError) firstError = String(msg);
         return;
       }
+      if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
       for (const viz of visualizationsData.value) {
         if (viz.queryId === qid) {
           viz.rows = res.data?.rows || [];
@@ -952,8 +965,12 @@ async function runParamQueries(
   }));
   // New array identity so watchers fire and the fresh rows reach the iframe.
   visualizationsData.value = [...visualizationsData.value];
-  postParamsStatus(false, firstError);
-  syncParamsToUrl();
+  // A fully superseded run stays quiet: the newer run owns the status line
+  // and will push its own (fresher) data.
+  if (myRun === paramRunCounter) {
+    postParamsStatus(false, firstError);
+    syncParamsToUrl();
+  }
 }
 
 // Shareable state: param values mirror into the URL (?qp_<name>=...) and are
@@ -1548,6 +1565,7 @@ function handleIframeMessage(event: MessageEvent) {
     // A control in the artifact committed param changes: run the consuming
     // queries server-side and push fresh rows back down.
     if (event.source === iframeRef.value?.contentWindow) {
+      paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
       runParamQueries(event.data.changes || {}, event.data.targets || null, {});
     }
   } else if (event.data?.type === 'ARTIFACT_REFRESH_PARAMS') {

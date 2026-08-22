@@ -732,6 +732,13 @@ const paramValues = ref<Record<string, any>>({});
 // Host-resolved stable choices per param (static options + options-source
 // query rows) — mirrors ArtifactFrame; useParamOptions() reads these.
 const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({});
+// Highest ARTIFACT_SET_PARAMS seq seen; echoed as paramsPayload().ack so the
+// runtime store knows which in-flight commits a data push reflects.
+let paramAckSeq = 0;
+// Latest run id per query — a slower, superseded run must not overwrite rows
+// a newer run already delivered.
+let paramRunCounter = 0;
+const latestParamRunForQid: Record<string, number> = {};
 // Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
 const srcdocSeed = ref<any>(null);
 
@@ -747,6 +754,7 @@ function paramsPayload() {
         declarations: Object.values(byName),
         values: { ...paramValues.value },
         options: { ...paramOptions.value },
+        ack: paramAckSeq,
     };
 }
 
@@ -929,6 +937,9 @@ async function runParamQueries(
     affected = [...new Set(affected)];
     if (!affected.length) return;
 
+    const myRun = ++paramRunCounter;
+    for (const qid of affected) latestParamRunForQid[qid] = myRun;
+
     postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: true } });
     let firstError: string | null = null;
     await Promise.all(affected.map(async (qid) => {
@@ -947,6 +958,7 @@ async function runParamQueries(
                 if (!firstError) firstError = String(msg);
                 return;
             }
+            if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
             for (const viz of visualizationsData.value as any[]) {
                 if (viz.queryId === qid) {
                     viz.rows = res.data?.rows || [];
@@ -958,13 +970,18 @@ async function runParamQueries(
         }
     }));
     visualizationsData.value = [...visualizationsData.value];
-    postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: false, error: firstError } });
-    pushArtifactData();
+    // A fully superseded run stays quiet: the newer run owns the status line
+    // and pushes its own (fresher) data.
+    if (myRun === paramRunCounter) {
+        postToArtifactIframe({ type: 'ARTIFACT_PARAMS_STATUS', payload: { loading: false, error: firstError } });
+        pushArtifactData();
+    }
 }
 
 function handleArtifactParamsMessage(event: MessageEvent) {
     if (event.source !== artifactIframeRef.value?.contentWindow || !event.data) return;
     if (event.data.type === 'ARTIFACT_SET_PARAMS') {
+        paramAckSeq = Math.max(paramAckSeq, Number(event.data.seq) || 0);
         runParamQueries(event.data.changes || {}, event.data.targets || null, {});
     } else if (event.data.type === 'ARTIFACT_REFRESH_PARAMS') {
         runParamQueries(null, event.data.targets || null, { force: true });
