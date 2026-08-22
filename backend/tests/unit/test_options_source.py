@@ -133,3 +133,32 @@ async def test_no_step_data_yet_is_lenient(db):
     db.add(genres)
     await db.flush()
     await QueryService()._validate_options_sources(db, albums, [_spec(genres.id, "Anything")])
+
+
+def test_param_specs_diff_and_event_rendering():
+    """Hand-edit diffs feed a context-only session event."""
+    from app.services.query_service import param_specs_diff
+    from app.ai.context.session_events import (
+        QUERY_PARAMS_CHANGED, default_event_content,
+        is_event_kind_ui_visible, is_event_kind_llm_visible,
+    )
+
+    old = [{"name": "genre", "type": "string", "source": "input", "options_source": None}]
+    new = [
+        {"name": "genre", "type": "string", "source": "input",
+         "options_source": {"query_id": "q1", "value_column": "Name", "label_column": None}},
+        {"name": "year", "type": "number", "source": "input"},
+    ]
+    diff = param_specs_diff(old, new)
+    assert diff["added"] == ["year"]
+    assert diff["removed"] == []
+    assert diff["changed"][0]["name"] == "genre" and diff["changed"][0]["field"] == "options_source"
+
+    assert param_specs_diff(new, [dict(p) for p in new]) is None
+
+    text = default_event_content(QUERY_PARAMS_CHANGED, {"query_title": "Albums", **diff})
+    assert "Albums" in text and "year" in text and "genre.options_source" in text
+
+    # Context-only by request: the agent sees it, the timeline does not.
+    assert is_event_kind_llm_visible(QUERY_PARAMS_CHANGED) is True
+    assert is_event_kind_ui_visible(QUERY_PARAMS_CHANGED) is False
