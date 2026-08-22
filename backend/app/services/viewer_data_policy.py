@@ -362,6 +362,35 @@ async def snapshot_withheld_for_viewers(
     return await _any_user_scoped_connection(db, ds_ids)
 
 
+async def sources_credential_scoped(
+    db: AsyncSession, report_id: str, *,
+    fallback_org_id: str | None = None, code: str | None = None,
+    memo: dict | None = None,
+) -> bool:
+    """True when the report's sources include a user-scoped (delegated)
+    connection — runs authenticate per user, so a View-as preview cannot
+    reproduce another user's source-level rows (it swaps identity params only;
+    credentials stay the caller's). Deliberately excludes bow-RLS relations:
+    those filter from the resolved identity server-side, so View-as is
+    accurate for them.
+
+    `memo` (caller-owned dict) collapses repeat lookups when annotating a
+    whole query list: DS-associated reports resolve once per report; DS-less
+    reports resolve once per (report, code) since the org fallback is filtered
+    by the data-source names the code addresses.
+    """
+    ds_ids = await _report_data_source_ids(db, str(report_id))
+    key = (str(report_id), None if ds_ids else (code or ""))
+    if memo is not None and key in memo:
+        return memo[key]
+    if not ds_ids and fallback_org_id:
+        ds_ids = await _org_fallback_ds_ids(db, fallback_org_id, code)
+    result = await _any_user_scoped_connection(db, ds_ids)
+    if memo is not None:
+        memo[key] = result
+    return result
+
+
 async def report_snapshot_withheld(
     db: AsyncSession, report_id: str, *, code: str | None = None
 ) -> bool:

@@ -20,7 +20,10 @@ from app.models.user import User
 from app.models.report import Report
 from app.models.data_source import DataSource
 from app.models.connection import Connection
-from app.services.viewer_data_policy import snapshot_withheld_for_viewers
+from app.services.viewer_data_policy import (
+    snapshot_withheld_for_viewers,
+    sources_credential_scoped,
+)
 
 
 @pytest_asyncio.fixture
@@ -96,3 +99,19 @@ async def test_dsless_report_no_code_withholds_conservatively(db):
 async def test_no_fallback_org_keeps_legacy_behavior(db):
     org, report, delegated, plain = await _seed(db)
     assert await snapshot_withheld_for_viewers(db, str(report.id), "viewer") is False
+
+
+@pytest.mark.asyncio
+async def test_credential_scoped_follows_code_named_source(db):
+    org, report, delegated, plain = await _seed(db)
+    memo = {}
+    assert await sources_credential_scoped(
+        db, str(report.id), fallback_org_id=str(org.id),
+        code="ds_clients['PowerBI RLS:powerbi-1']", memo=memo,
+    ) is True
+    assert await sources_credential_scoped(
+        db, str(report.id), fallback_org_id=str(org.id),
+        code="ds_clients['Membership DB:sqlite-1']", memo=memo,
+    ) is False
+    # memo keyed per (report, code) — both answers cached
+    assert len([k for k in memo if isinstance(k, tuple)]) == 2

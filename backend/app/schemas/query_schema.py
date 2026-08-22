@@ -28,6 +28,10 @@ class QuerySchema(BaseModel):
     default_step: Optional[StepSchema] = None
     # Declared ParamSpec dicts (see app/schemas/param_schema.py)
     parameters: Optional[list] = None
+    # True when this query's report reads a user-scoped (delegated) connection:
+    # runs authenticate per user, so a View-as preview swaps identity params
+    # only — source-level rows still come back under the caller's credentials.
+    credential_scoped: Optional[bool] = None
 
     class Config:
         from_attributes = True

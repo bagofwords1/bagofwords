@@ -802,6 +802,36 @@ class QueryService:
         schema = await self._overlay_viewer_result(db, q, step, schema, viewer_user_id)
         return schema
 
+    async def annotate_credential_scope(
+        self,
+        db: AsyncSession,
+        q: Query,
+        schema,
+        memo: Optional[dict] = None,
+    ):
+        """Set schema.credential_scoped: does this query's report read a
+        user-scoped (delegated) connection? The View-as UI keys its "identity
+        params only — source rows still run with your credentials" note off
+        this. Pass one `memo` dict across a whole list to collapse repeat
+        report/org lookups."""
+        report_id = getattr(q, "report_id", None)
+        if not report_id:
+            return schema
+        memo = memo if memo is not None else {}
+        org_key = f"org:{report_id}"
+        if org_key not in memo:
+            row = (await db.execute(
+                select(Report.organization_id).where(Report.id == str(report_id))
+            )).first()
+            memo[org_key] = str(row[0]) if row and row[0] else None
+        step = getattr(q, "default_step", None)
+        code = getattr(step, "code", None) if step is not None else None
+        from app.services.viewer_data_policy import sources_credential_scoped
+        schema.credential_scoped = await sources_credential_scoped(
+            db, str(report_id), fallback_org_id=memo[org_key], code=code, memo=memo,
+        )
+        return schema
+
     async def overlay_viewer_on_query_schema(
         self,
         db: AsyncSession,

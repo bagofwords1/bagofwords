@@ -162,6 +162,14 @@
             </div>
           </template>
         </USelectMenu>
+        <!-- Delegated-source caveat, visible before a target is even picked -->
+        <UTooltip
+          v-if="canViewAs && credentialScoped"
+          text="View-as previews identity parameters only. Sources that authenticate per user (e.g. Power BI) still run with your credentials."
+          :popper="{ placement: 'bottom' }"
+        >
+          <Icon name="heroicons:information-circle" class="w-3.5 h-3.5 text-amber-500" />
+        </UTooltip>
 
         <!-- Share Dashboard -->
         <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
@@ -174,11 +182,23 @@
            about its scope (identity only — data is not re-scoped). -->
       <div
         v-if="viewAsMode !== 'you' && canViewAs"
-        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs"
+        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-1 max-w-[90%]"
       >
-        <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
-        <span>Viewing as {{ viewAsLabel }}</span>
-        <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
+        <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-600 text-white shadow-lg text-xs">
+          <Icon name="heroicons:eye" class="w-3.5 h-3.5" />
+          <span>Viewing as {{ viewAsLabel }}</span>
+          <button @click="viewAsMode = 'you'" class="font-semibold underline underline-offset-2 hover:text-indigo-200">Exit</button>
+        </div>
+        <!-- Delegated sources can't be impersonated: the preview binds this
+             user's identity parameters, but per-user-credential sources
+             (e.g. Power BI) still run as YOU — their rows may differ. -->
+        <div
+          v-if="credentialScoped"
+          class="flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]"
+        >
+          <Icon name="heroicons:exclamation-triangle" class="w-3.5 h-3.5 shrink-0" />
+          <span>Identity parameters only — sources that authenticate per user still run with your credentials, so this user's actual rows may differ.</span>
+        </div>
       </div>
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
@@ -930,6 +950,11 @@ const docEditorRef = ref<any>(null);
 // snapshot_withheld and empty data, and rendering the artifact against them
 // crashes generated code that assumes rows exist. Mirror of /r/[id].
 const snapshotWithheld = ref(false);
+// True when any of the dashboard's queries reads a delegated (per-user
+// credential) source: View-as swaps identity params only — source-level rows
+// still come back under the caller's own credentials, so the preview must
+// carry a note saying the impersonated user's actual rows may differ.
+const credentialScoped = ref(false);
 // True when any step already carries this user's own per-viewer result row —
 // auto-run only fires for a first-time viewer; a failed earlier run becomes an
 // explicit fallback state instead of a retry loop.
@@ -1412,6 +1437,7 @@ async function fetchData(artifactId?: string) {
     const vizData: any[] = [];
     let anyWithheld = false;
     let anyOwnResult = false;
+    let anyCredentialScoped = false;
     let failedReason: string | null = null;
 
     const nextParamSpecs: Record<string, any[]> = {};
@@ -1425,6 +1451,11 @@ async function fetchData(artifactId?: string) {
       if (Array.isArray(query.parameters) && query.parameters.length) {
         nextParamSpecs[query.id] = query.parameters;
       }
+
+      // Delegated (per-user credential) sources: View-as can only swap
+      // identity params, not the target's source credentials — the note on
+      // the View-as control keys off this.
+      if (query.credential_scoped) anyCredentialScoped = true;
 
       // Per-viewer step-data policy markers: withheld snapshots gate the
       // render; an existing per-viewer result row gates auto-run.
@@ -1491,6 +1522,7 @@ async function fetchData(artifactId?: string) {
     }
     snapshotWithheld.value = anyWithheld;
     hasOwnResult.value = anyOwnResult;
+    credentialScoped.value = anyCredentialScoped;
     viewerRunFailedReason.value = failedReason;
     console.log('[ArtifactFrame] Fetched', visualizationsData.value.length, 'visualizations');
 
