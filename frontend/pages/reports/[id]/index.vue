@@ -2797,7 +2797,12 @@ function resolveToolEventBlock(sysMessage: any, payload: any) {
 	return blocks[blocks.length - 1]
 }
 
-async function handleStreamingEvent(eventType: string | null, payload: any, sysMessageIndex: number) {
+async function handleStreamingEvent(eventType: string | null, payload: any, sysMessageIndex: number, opts: { ownStream?: boolean } = {}) {
+	// ownStream: this event came from the prompt THIS viewer just sent (default),
+	// vs. the watcher attaching to a run started elsewhere (another tab, another
+	// user, a scheduled run). Artifact creations only take over the pane for
+	// the viewer's own runs.
+	const ownStream = opts.ownStream !== false
 	if (!eventType || sysMessageIndex === -1) return
 
 	if (!messages.value[sysMessageIndex]) return
@@ -3271,7 +3276,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 									detail: {
 										report_id: report_id,
 										artifact_id: p.artifact_id,
-										status: 'pending'
+										status: 'pending',
+										select: ownStream
 									}
 								}))
 							} catch {}
@@ -3451,7 +3457,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							window.dispatchEvent(new CustomEvent('artifact:created', {
 								detail: {
 									report_id: report_id,
-									artifact_id: payload.result_json?.artifact_id
+									artifact_id: payload.result_json?.artifact_id,
+									select: ownStream
 								}
 							}))
 						} catch {}
@@ -3463,7 +3470,8 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							window.dispatchEvent(new CustomEvent('artifact:created', {
 								detail: {
 									report_id: report_id,
-									artifact_id: payload.result_json?.artifact_id
+									artifact_id: payload.result_json?.artifact_id,
+									select: ownStream
 								}
 							}))
 						} catch {}
@@ -5057,7 +5065,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 					const idx = findWatchMessageIndex(completionId, sysId)
 					if (idx !== -1) {
 						gotEvents = true
-						await handleStreamingEvent(currentEvent, payload, idx)
+						await handleStreamingEvent(currentEvent, payload, idx, { ownStream: false })
 						if (!pendingScroll.value) {
 							pendingScroll.value = true
 							window.requestAnimationFrame(() => {

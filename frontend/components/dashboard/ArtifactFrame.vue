@@ -53,6 +53,16 @@
           </USelectMenu>
           <span v-else class="text-xs text-gray-400 italic">No artifacts yet</span>
 
+          <!-- A run elsewhere created a new artifact: offer it, never hijack -->
+          <button
+            v-if="offeredArtifactId"
+            @click="acceptOfferedArtifact"
+            class="text-xs px-2 py-1 bg-emerald-50 dark:bg-emerald-950 text-emerald-600 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors flex items-center gap-1"
+          >
+            <Icon name="heroicons:sparkles" class="w-3 h-3" />
+            New artifact — view
+          </button>
+
           <!-- Use this version button (shown when non-latest is selected) -->
           <button
             v-if="!isLatestSelected && artifactsList.length > 1"
@@ -1430,19 +1440,47 @@ async function handleArtifactSelect(event: Event) {
   }
 }
 
-// Handle artifact:created event (refresh list and select new artifact)
-async function handleArtifactCreated(event: Event) {
-  const artifactId = (event as CustomEvent).detail?.artifact_id;
+// A creation from a run this viewer didn't start (another tab, another user,
+// a scheduled run) — offered via a pill instead of taking over the pane.
+const offeredArtifactId = ref<string | null>(null);
+
+async function acceptOfferedArtifact() {
+  const id = offeredArtifactId.value;
+  offeredArtifactId.value = null;
+  if (!id) return;
+  await switchToArtifact(id);
+}
+
+async function switchToArtifact(artifactId: string) {
   // Reset dataReady BEFORE selecting the new artifact so iframeSrcdoc doesn't
   // render new code (with viz[N] refs) against stale visualization data.
   dataReady.value = false;
   await fetchArtifactsList(true);
+  selectedArtifactId.value = artifactId;
+  // Force refetch in case same artifact transitioned from pending to completed
+  await fetchSelectedArtifact();
+  // Fetch visualization data for the new artifact before rendering
+  await fetchData(artifactId);
+}
+
+// Handle artifact:created event (refresh list; select the new artifact only
+// when the creation belongs to this viewer's own run — select !== false —
+// or updates the artifact already on screen)
+async function handleArtifactCreated(event: Event) {
+  const detail = (event as CustomEvent).detail || {};
+  const artifactId = detail.artifact_id;
+  const takeover = detail.select !== false;
+  if (!takeover && artifactId && selectedArtifactId.value &&
+      artifactId !== selectedArtifactId.value) {
+    await fetchArtifactsList(true);
+    offeredArtifactId.value = artifactId;
+    return;
+  }
   if (artifactId) {
-    selectedArtifactId.value = artifactId;
-    // Force refetch in case same artifact transitioned from pending to completed
-    await fetchSelectedArtifact();
-    // Fetch visualization data for the new artifact before rendering
-    await fetchData(artifactId);
+    await switchToArtifact(artifactId);
+  } else {
+    dataReady.value = false;
+    await fetchArtifactsList(true);
   }
 }
 
@@ -1512,15 +1550,23 @@ async function fetchArtifactsList(force = false) {
     if (artifacts) {
       artifactsList.value = [...artifacts];
 
-      // Auto-select the most recent artifact
+      // Auto-select the most recent artifact — but never move a deliberate
+      // selection: only when nothing is selected yet or the selected id no
+      // longer exists (refreshes used to snap the pane to the newest).
       if (artifactsList.value.length > 0) {
-        selectedArtifactId.value = artifactsList.value[0].id;
+        const stillExists = !!selectedArtifactId.value &&
+          artifactsList.value.some(a => a.id === selectedArtifactId.value);
+        if (!stillExists) selectedArtifactId.value = artifactsList.value[0].id;
       }
     }
   } catch (e) {
     console.log('[ArtifactFrame] No artifacts found');
   }
 }
+
+watch(selectedArtifactId, (id) => {
+  if (id && id === offeredArtifactId.value) offeredArtifactId.value = null;
+});
 
 // Fetch the full artifact content when selection changes
 async function fetchSelectedArtifact() {
