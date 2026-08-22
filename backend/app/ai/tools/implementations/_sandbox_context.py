@@ -56,6 +56,7 @@ references to any of them.
   - `files`: array of `{ id, content_type, filename }` — embedded images/PDFs; render each with `<BowFile id={...} />`
   - `current_user`: the VIEWING user, or `null` — `{ id, name, email, image_url, role, profile_attributes, groups }`. Injected fresh per viewer at render time (never baked into the artifact), so the same dashboard can greet each viewer personally.
   - Always handle the `null` (loading) state before accessing data
+  - **RULES OF HOOKS**: call EVERY hook (`useState`, `useMemo`, `useCurrentUser`, `useFilters`, ...) unconditionally at the TOP of the component, BEFORE any early return like `if (!data) return <LoadingSpinner/>`. A hook placed after that return crashes with "Rendered more hooks than during the previous render" in runtimes where data arrives after the first render. Compute derived values with safe defaults instead: `const rows = data?.visualizations?.[0]?.rows || []` above the early return.
 
 • **useCurrentUser()** — Global React hook for the viewing user
   - Shortcut for `useArtifactData()?.current_user`. Returns `{ id, name, email, image_url, role, profile_attributes, groups }` or `null`.
