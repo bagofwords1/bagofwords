@@ -273,6 +273,17 @@ const report = ref<any>({
 });
 
 const artifact = ref<any>(null);
+// Viewer identity for ARTIFACT_DATA.current_user. Stays null for anonymous
+// viewers (401) or any fetch failure — the artifact renders anonymously.
+const viewerContext = ref<any>(null);
+async function fetchViewerContext() {
+    try {
+        const { data } = await useMyFetch('/api/users/me/viewer_context');
+        viewerContext.value = data.value || null;
+    } catch {
+        viewerContext.value = null;
+    }
+}
 const visualizationsData = ref<any[]>([]);
 const filesData = ref<any[]>([]);
 const hasArtifacts = ref(false);
@@ -714,7 +725,8 @@ const iframeSrcdoc = computed(() => {
                 theme: report.value.theme_name || report.value.report_theme_name
             },
             visualizations: visualizationsData.value,
-            files: filesData.value
+            files: filesData.value,
+            current_user: viewerContext.value
         },
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
@@ -782,10 +794,12 @@ async function refreshOnView() {
 }
 
 onMounted(async () => {
-    // Load report and artifact in parallel first
+    // Load report and artifact in parallel first (viewer identity alongside —
+    // it gates nothing; anonymous viewers just get current_user=null)
     await Promise.all([
         loadReport(),
-        loadArtifact()
+        loadArtifact(),
+        fetchViewerContext()
     ]);
 
     // Load visualization data with artifact filter (if artifact exists)

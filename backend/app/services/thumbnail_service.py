@@ -328,6 +328,9 @@ class ThumbnailService:
                 "theme": report_theme,
             },
             "visualizations": visualizations,
+            # Thumbnails are shared assets — always render anonymously so no
+            # viewer's identity gets baked into an image other users see.
+            "current_user": None,
         }
         data_json = json.dumps(artifact_data, default=str)
 

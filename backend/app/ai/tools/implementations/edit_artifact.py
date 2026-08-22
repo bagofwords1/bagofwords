@@ -35,7 +35,7 @@ from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
-from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT, build_identity_context
 from app.ai.prompt_language import build_language_directive
 
 logger = logging.getLogger(__name__)
@@ -359,6 +359,7 @@ class EditArtifactTool(Tool):
         files: Optional[List[Dict[str, Any]]] = None,
         removed_vizs: Optional[List[Dict[str, str]]] = None,
         prev_render_errors: Optional[List[str]] = None,
+        identity_context: str = "",
     ) -> str:
         """Build the dynamic user prompt for editing existing artifact code.
 
@@ -430,6 +431,7 @@ EDIT REQUEST (primary specification — follow exactly)
 {images_context}
 {files_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
+{identity_context}
 {language_directive}
 {removed_section}{render_errors_section}
 EXISTING DASHBOARD CODE:
@@ -1017,12 +1019,20 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         # edit sees the exact failure instead of a planner paraphrase.
         prev_render_errors = list(getattr(artifact, "render_errors", None) or [])
 
+        # Identity vocabulary (page mode): same section create_artifact injects.
+        identity_context = ""
+        if artifact.mode == "page":
+            identity_context = await build_identity_context(
+                db, runtime_ctx.get("user"), runtime_ctx.get("organization")
+            )
+
         prompt = self._build_edit_prompt(
             existing_code=existing_code,
             edit_prompt=data.edit_prompt,
             mode=artifact.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
+            identity_context=identity_context,
             messages_context=messages_context,
             report_title=getattr(report, 'title', None) if report else None,
             image_count=len(completion_images),
@@ -1230,6 +1240,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     "theme": getattr(report, "theme", None) if report else None,
                 },
                 "visualizations": visualizations,
+                # Anonymous on purpose — see create_artifact: validation must
+                # exercise the current_user=null path.
+                "current_user": None,
             }
             if merged_files:
                 try:

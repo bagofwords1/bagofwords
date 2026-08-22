@@ -35,7 +35,7 @@ from app.services.thumbnail_service import ThumbnailService
 from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
-from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT, build_identity_context
 from app.ai.tools.implementations._artifact_images import load_image_bytes
 from app.ai.prompt_language import build_language_directive
 
@@ -1092,12 +1092,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # Build the prompt for generating React code
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_prompt"})
 
+        # Identity vocabulary for page mode: the requester's current_user as an
+        # example + org group names, so identity intent ("show to Finance",
+        # "greet by department") resolves against real names instead of guesses.
+        identity_context = ""
+        if data.mode == "page":
+            identity_context = await build_identity_context(db, user, organization)
+
         prompt = self._build_prompt(
             user_prompt=data.prompt,
             title=data.title,
             mode=data.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
+            identity_context=identity_context,
             report_title=getattr(report, 'title', None) if report else None,
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
@@ -1263,6 +1271,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "theme": getattr(report, "theme", None) if report else None,
                 },
                 "visualizations": visualizations,
+                # Headless validation renders anonymously on purpose: identity
+                # is per-viewer, injected by the host at render time, and this
+                # exercises the null-guard path in every artifact before it is
+                # persisted.
+                "current_user": None,
             }
             # Inline embedded files as data URIs so the headless render
             # (which has no auth context) can show images/PDFs via <BowFile>.
@@ -2266,6 +2279,7 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
         image_count: int = 0,
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        identity_context: str = "",
     ) -> str:
         """Build the dynamic user prompt for page/dashboard generation.
 
@@ -2308,7 +2322,7 @@ Design request (primary specification — takes precedence when it conflicts wit
 {images_context}
 {files_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-
+{identity_context}
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 {language_directive}
 
@@ -2345,6 +2359,7 @@ Now create the dashboard:"""
         image_count: int = 0,
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        identity_context: str = "",
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -2371,6 +2386,7 @@ Now create the dashboard:"""
             image_count=image_count,
             organization_settings=organization_settings,
             files=files,
+            identity_context=identity_context,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

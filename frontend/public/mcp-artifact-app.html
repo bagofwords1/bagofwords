@@ -325,10 +325,13 @@
             return;
           }
 
-          // Set visualization data (same shape as ARTIFACT_DATA)
+          // Set visualization data (same shape as ARTIFACT_DATA).
+          // current_user is the authenticated MCP user (or null) — same
+          // viewer-identity contract as the in-app iframe.
           setArtifactData({
             report: data.report,
-            visualizations: data.visualizations
+            visualizations: data.visualizations,
+            current_user: data.current_user || null
           });
 
           // Inject the LLM-generated artifact code
