@@ -77,12 +77,14 @@ async def resolve_step_data(
     viewer_result = None
     if requesting_user is not None:
         from app.models.step_user_result import StepUserResult
+        # A viewer can hold one cached result per parameter combination —
+        # serve their most recent successful slice for the initial render.
         row = (await db.execute(
             select(StepUserResult).options(lazyload("*")).where(
                 StepUserResult.step_id == str(step.id),
                 StepUserResult.user_id == str(requesting_user.id),
-            )
-        )).scalar_one_or_none()
+            ).order_by(StepUserResult.last_run_at.desc())
+        )).scalars().first()
         if row is not None:
             viewer_result = {
                 "status": row.status,
@@ -92,6 +94,13 @@ async def resolve_step_data(
             }
             if row.status == 'success' and row.data:
                 return StepDataResolution(data=row.data, viewer_result=viewer_result)
+
+    # Identity-scoped queries: the shared snapshot is ONE identity's row
+    # slice (whoever produced it — usually the creator). It must never be
+    # served to a different viewer; they get their own per-viewer run (the
+    # host triggers it on load for signed-in viewers) or nothing.
+    if await _step_query_has_identity_params(db, step):
+        return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
 
     # No successful result of their own. Withhold the credential-differentiated
     # snapshot when the policy applies; otherwise serve it (system-only /
@@ -115,6 +124,26 @@ async def resolve_step_data(
     if withheld:
         return StepDataResolution(data={}, withheld=True, viewer_result=viewer_result)
     return StepDataResolution(data=shared, viewer_result=viewer_result)
+
+
+async def _step_query_has_identity_params(db: AsyncSession, step) -> bool:
+    """Does the step's query declare any identity-source parameter?"""
+    query_id = getattr(step, "query_id", None)
+    if not query_id:
+        return False
+    from app.models.query import Query
+    row = (await db.execute(
+        select(Query.parameters).where(Query.id == str(query_id))
+    )).first()
+    if not row or not row[0]:
+        return False
+    try:
+        return any(
+            isinstance(p, dict) and p.get("source") == "identity"
+            for p in row[0]
+        )
+    except Exception:
+        return False
 
 
 async def _report_data_source_ids(db: AsyncSession, report_id: str) -> list[str]:

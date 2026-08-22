@@ -639,6 +639,12 @@ async function previewRun() {
         params: collectedTestValues(),
       }
     })
+    if (resp?.error?.value) {
+      const err: any = resp.error.value
+      errorMsg.value = err?.data?.detail || err?.message || 'Failed to run'
+      preview.value = null
+      return
+    }
     const payload = resp?.data?.value
     if (payload?.error) {
       errorMsg.value = payload.error
@@ -672,6 +678,12 @@ async function runNewStep() {
         params: collectedTestValues(),
       }
     })
+    if (resp?.error?.value) {
+      const err: any = resp.error.value
+      errorMsg.value = err?.data?.detail || err?.message || 'Failed to run'
+      preview.value = null
+      return
+    }
     const payload = resp?.data?.value
     // Show backend error message if execution failed
     if (payload?.error) {

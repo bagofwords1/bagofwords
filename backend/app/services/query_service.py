@@ -605,15 +605,42 @@ class QueryService:
         if report is None:
             raise ValueError("Report not found for step's widget")
 
+        # Whose CREDENTIALS execute: mirror the viewer-rerun policy.
+        # 'creator' share mode runs under the report owner's credentials (the
+        # personalization tier: identity params still bind the CALLER); RLS
+        # relations force viewer credentials; owners always run as themselves.
+        credential_user = caller
+        identity_mode = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        if identity_mode == 'creator' and str(caller.id) != str(report.user_id):
+            from app.services.viewer_data_policy import has_rls_relations
+            if await has_rls_relations(db, str(report.id)):
+                identity_mode = 'viewer'
+        if identity_mode == 'creator' and str(caller.id) != str(report.user_id):
+            from app.models.membership import Membership
+            member = (await db.execute(
+                select(Membership).where(
+                    Membership.user_id == str(caller.id),
+                    Membership.organization_id == str(report.organization_id),
+                )
+            )).scalar_one_or_none()
+            if member is not None:
+                owner = await db.get(User, str(report.user_id))
+                if owner is not None:
+                    credential_user = owner
+
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         ds_clients = {}
+        ds_errors = []
         for ds in await self._report_data_sources(db, report, organization_id):
             try:
-                ds_conns = await ds_service.construct_clients(db, ds, current_user=caller)
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=credential_user)
                 ds_clients.update(ds_conns)
-            except Exception:
+            except Exception as e:
+                ds_errors.append(str(getattr(e, "detail", None) or e))
                 continue
+        if not ds_clients and ds_errors:
+            raise ParamError("; ".join(ds_errors[:2]))
 
         from app.ai.code_execution.loadables import resolve_loadables_for_code, load_step_settings
         from app.models.organization import Organization
