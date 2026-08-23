@@ -486,6 +486,91 @@ async def export_artifact_pptx(
     )
 
 
+@router.get("/{artifact_id}/export/html")
+@requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
+async def export_artifact_html(
+    artifact_id: str,
+    request: Request,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Export a page-mode dashboard as one standalone, fully offline HTML file.
+
+    Everything the dashboard needs — runtime, styles, chart library, data and
+    embedded media — is inlined, so the downloaded file renders with no server,
+    no network and no session. See services/html_export_service.py.
+    """
+    from urllib.parse import quote
+    from fastapi.responses import Response
+    from app.ee.audit.service import audit_service
+    from app.services.html_export_service import (
+        ExportUnavailable,
+        ascii_fallback_filename,
+        build_standalone_html,
+        suggested_filename,
+    )
+
+    artifact = await service.get(db, artifact_id)
+    if not artifact:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
+
+    if (artifact.mode or "page") != "page":
+        raise HTTPException(
+            status_code=400,
+            detail="Only dashboards can be exported as HTML",
+        )
+
+    # The export bakes in the shared Step snapshot, exactly as the PPTX and
+    # slide-preview renders do, so it is gated by the same viewer policy.
+    await _guard_rendered_artifact_for_viewer(db, artifact, current_user)
+
+    if artifact.status == "failed":
+        raise HTTPException(
+            status_code=400,
+            detail="This dashboard failed to generate. Regenerate it before exporting.",
+        )
+
+    try:
+        html = await build_standalone_html(db, artifact)
+    except ExportUnavailable as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    filename = suggested_filename(artifact)
+    # Titles are routinely non-Latin (the product ships RTL locales), and a raw
+    # non-ASCII byte in a header is invalid. Send a transliterated ASCII
+    # fallback plus the RFC 5987 form, which carries the real name wherever it
+    # is supported.
+    disposition = (
+        f'attachment; filename="{ascii_fallback_filename(filename)}"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="artifact.exported",
+            user_id=current_user.id,
+            resource_type="artifact",
+            resource_id=artifact_id,
+            details={"format": "html", "title": artifact.title},
+            request=request,
+        )
+    except Exception:
+        pass
+
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": disposition,
+            # A dashboard snapshot must never be reused for another viewer.
+            "Cache-Control": "no-store",
+        },
+    )
+
+
 @router.get("/{artifact_id}/previews")
 @requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
 async def list_slide_previews(

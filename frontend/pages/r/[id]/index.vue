@@ -113,6 +113,22 @@
                         :class="['w-3.5 h-3.5', isExportingPdf ? 'animate-spin' : '']" />
                     <span class="hidden sm:inline">{{ isExportingPdf ? 'Exporting...' : 'Export PDF' }}</span>
                 </button>
+                <!-- Export HTML: one standalone file with the runtime, styles
+                     and this snapshot inlined, so it opens offline. Dashboards
+                     only (docs and decks have no React runtime to stand up),
+                     and hidden when the snapshot is withheld — the file would
+                     carry that data past every gate we have. -->
+                <button
+                    v-if="canExportHtml"
+                    @click="handleExportHtml"
+                    :disabled="isExportingHtml"
+                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+                    title="Download this dashboard as a standalone HTML file that works offline"
+                >
+                    <Icon :name="isExportingHtml ? 'heroicons:arrow-path' : 'heroicons:arrow-down-tray'"
+                        :class="['w-3.5 h-3.5', isExportingHtml ? 'animate-spin' : '']" />
+                    <span class="hidden sm:inline">{{ isExportingHtml ? 'Exporting...' : 'Export HTML' }}</span>
+                </button>
                 <!-- Fork button -->
                 <button
                     v-if="forkEligibility?.can_fork"
@@ -447,6 +463,57 @@ async function handleExportPdf() {
         runError.value = exportPdfError.value;
     } finally {
         isExportingPdf.value = false;
+    }
+}
+
+const isExportingHtml = ref(false);
+// Only page-mode artifacts: a doc renders in Vue and a deck is python-pptx
+// source, so neither has a React runtime the standalone file could stand up.
+const canExportHtml = computed(() =>
+    reportLoaded.value && hasArtifacts.value && !!artifact.value &&
+    artifact.value.mode === 'page' && !snapshotWithheld.value);
+
+async function handleExportHtml() {
+    if (isExportingHtml.value) return;
+    isExportingHtml.value = true;
+    try {
+        // Pin the export to the artifact actually on screen rather than
+        // letting the server pick "latest" — they can differ.
+        const query = artifact.value?.id ? `?artifact_id=${encodeURIComponent(artifact.value.id)}` : '';
+        const { data, error: fetchError } = await useMyFetch(
+            `/api/r/${report_id}/export_html${query}`,
+            {
+                responseType: 'blob' as any,
+                // Same reasoning as the PDF export: a silent ofetch retry on
+                // 409/504 would repeat server-side work and double the spin.
+                retry: 0,
+                timeout: 360_000,
+            } as any,
+        );
+        if (fetchError.value || !data.value) throw fetchError.value || new Error('HTML export failed');
+
+        const url = URL.createObjectURL(data.value as Blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Strip filesystem-reserved characters only, so non-Latin titles
+        // (e.g. Hebrew) survive as the download name.
+        const base = String(pageTitle.value || 'dashboard').replace(/[\\/:*?"<>|]+/g, ' ').trim();
+        a.download = `${base || 'dashboard'}.html`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e: any) {
+        console.error('HTML export failed:', e);
+        // With responseType 'blob' the error body arrives as a Blob, so the
+        // server's JSON {detail} has to be read out of it.
+        let detail = e?.data?.detail;
+        if (!detail && e?.data instanceof Blob) {
+            try { detail = JSON.parse(await e.data.text())?.detail; } catch { /* not JSON */ }
+        }
+        runError.value = detail || e?.message || 'HTML export failed';
+    } finally {
+        isExportingHtml.value = false;
     }
 }
 

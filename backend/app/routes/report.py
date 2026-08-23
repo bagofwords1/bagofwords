@@ -682,6 +682,85 @@ async def export_public_report_pdf(
     )
 
 
+@router.get("/r/{report_id}/export_html")
+async def export_public_report_html(
+    report_id: str,
+    artifact_id: str | None = None,
+    db: AsyncSession = Depends(get_async_db),
+    user: User | None = Depends(current_user_optional),
+):
+    """Download the shared dashboard as one standalone, fully offline HTML file.
+
+    Same bundler as the in-app export (services/html_export_service.py), and
+    the same gates as the other /r endpoints: get_public_artifacts enforces the
+    report's artifact_visibility, and the shared snapshot is refused in
+    viewer-identity mode on user-scoped connections exactly as export_pdf
+    refuses it — the file bakes that snapshot in and then leaves our control
+    entirely, so this is the last point at which the policy can be applied.
+    """
+    from urllib.parse import quote
+
+    from fastapi.responses import Response
+
+    from app.models.artifact import Artifact as ArtifactModel
+    from app.services.html_export_service import (
+        ExportUnavailable,
+        ascii_fallback_filename,
+        build_standalone_html,
+        suggested_filename,
+    )
+    from app.services.viewer_data_policy import report_snapshot_withheld
+
+    # Raises 401/403/404 exactly like the page's other public endpoints, and
+    # applies the artifact_visibility gate rather than only the report one.
+    listed = await report_service.get_public_artifacts(db, report_id, user=user)
+
+    dashboards = [a for a in listed if (getattr(a, "mode", None) or "page") == "page"]
+    if artifact_id is not None:
+        # Only ids this viewer was just shown; never a raw id off the request.
+        if not any(str(a.id) == str(artifact_id) for a in dashboards):
+            raise HTTPException(status_code=404, detail="Not found")
+        chosen_id = artifact_id
+    else:
+        if not dashboards:
+            raise HTTPException(
+                status_code=409,
+                detail="HTML export is not available for this report",
+            )
+        # get_public_artifacts returns newest first.
+        chosen_id = str(dashboards[0].id)
+
+    if await report_snapshot_withheld(db, str(report_id)):
+        raise HTTPException(
+            status_code=409,
+            detail="This dashboard runs with each viewer's own credentials, so it cannot be exported.",
+        )
+
+    artifact = await db.get(ArtifactModel, chosen_id)
+    if artifact is None or artifact.deleted_at is not None:
+        raise HTTPException(status_code=404, detail="Not found")
+
+    try:
+        html = await build_standalone_html(db, artifact)
+    except ExportUnavailable as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+    filename = suggested_filename(artifact)
+    disposition = (
+        f'attachment; filename="{ascii_fallback_filename(filename)}"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": disposition,
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+
 @router.post("/r/{report_id}/rerun", response_model=ReportRerunResultSchema)
 async def refresh_public_report_on_view(
     report_id: str,

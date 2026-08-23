@@ -3207,7 +3207,12 @@
     "refreshPartial": "Dashboard partially refreshed",
     "refreshFailed": "Dashboard refresh failed",
     "refreshNothing": "Nothing to refresh",
-    "refreshSummary": "{succeeded} of {total} queries refreshed"
+    "refreshSummary": "{succeeded} of {total} queries refreshed",
+    "exportHtml": "Download as standalone HTML",
+    "exportComplete": "Export complete",
+    "exportHtmlDone": "Standalone HTML downloaded — it works offline.",
+    "exportFailed": "Export failed",
+    "exportHtmlFailed": "Could not export this dashboard as HTML."
   },
   "filter": {
     "addFilters": "Add Filters",

@@ -130,6 +130,19 @@
           </button>
         </UTooltip>
 
+        <!-- Export standalone HTML (dashboards only) -->
+        <UTooltip v-if="selectedArtifact?.mode === 'page'" :text="t('artifactFrame.exportHtml')">
+          <button
+            @click="exportHtml"
+            :disabled="isExporting"
+            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded disabled:opacity-50"
+          >
+            <Icon v-if="isExporting" name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" />
+            <Icon v-else name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-emerald-600" />
+            <span class="text-xs text-emerald-600 font-medium">HTML</span>
+          </button>
+        </UTooltip>
+
         <!-- Fullscreen -->
         <UTooltip text="Full screen">
           <button @click="openFullscreen" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
@@ -705,6 +718,94 @@ async function exportPptx() {
   } catch (error: any) {
     console.error('Failed to export PPTX:', error);
     toast.add({ title: 'Export failed', description: error.message || 'Failed to export PowerPoint file.', color: 'red' });
+  } finally {
+    isExporting.value = false;
+  }
+}
+
+/**
+ * Filename the server chose, honouring the RFC 5987 form first — dashboard
+ * titles are routinely non-Latin and only that form carries them intact.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      /* fall through to the ASCII form */
+    }
+  }
+  const plain = /filename="([^"]+)"/i.exec(header);
+  return plain ? plain[1] : null;
+}
+
+// Export the dashboard as one standalone HTML file that works fully offline.
+async function exportHtml() {
+  if (!selectedArtifactId.value || isExporting.value) return;
+
+  isExporting.value = true;
+  try {
+    const headers: Record<string, string> = {
+      Authorization: `${token.value}`,
+    };
+    if (organization.value?.id) {
+      headers['X-Organization-Id'] = organization.value.id;
+    }
+
+    const response = await fetch(
+      `${config.public.baseURL}/artifacts/${selectedArtifactId.value}/export/html`,
+      { method: 'GET', headers },
+    );
+
+    if (!response.ok) {
+      // The route reports real, actionable reasons (missing vendored libs, a
+      // withheld snapshot) — surface them instead of a bare status code.
+      let detail = `HTTP error! status: ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body?.detail) detail = String(body.detail);
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(detail);
+    }
+
+    // Same detachment as the PPTX path: buffer the bytes and wrap them in a
+    // fresh local Blob so the download URL is never the remote response. That
+    // matters more here — the payload IS html, and handing the browser a
+    // remote text/html URL to open would run it in our origin.
+    const arrayBuffer = await response.arrayBuffer();
+    const localBlob = new Blob([arrayBuffer], { type: 'text/html' });
+
+    const rawTitle = selectedArtifact.value?.title || 'dashboard';
+    const fallbackName =
+      `${String(rawTitle).replace(/[^\w\s.-]/g, '').trim().slice(0, 120) || 'dashboard'}.html`;
+    const filename =
+      filenameFromDisposition(response.headers.get('Content-Disposition')) || fallbackName;
+
+    const url = window.URL.createObjectURL(localBlob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    toast.add({
+      title: t('artifactFrame.exportComplete'),
+      description: t('artifactFrame.exportHtmlDone'),
+    });
+  } catch (error: any) {
+    console.error('Failed to export HTML:', error);
+    toast.add({
+      title: t('artifactFrame.exportFailed'),
+      description: error.message || t('artifactFrame.exportHtmlFailed'),
+      color: 'red',
+    });
   } finally {
     isExporting.value = false;
   }

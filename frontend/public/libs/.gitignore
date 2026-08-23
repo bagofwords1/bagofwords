@@ -3,3 +3,4 @@
 # Do not commit the actual JS files to the repository.
 *.js
 !artifact-globals.js
+!artifact-offline-host.js

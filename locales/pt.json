@@ -2701,7 +2701,12 @@
     "refreshPartial": "Painel parcialmente atualizado",
     "refreshFailed": "Falha ao atualizar o painel",
     "refreshNothing": "Nada para atualizar",
-    "refreshSummary": "{succeeded} de {total} consultas atualizadas"
+    "refreshSummary": "{succeeded} de {total} consultas atualizadas",
+    "exportHtml": "Baixar como HTML independente",
+    "exportComplete": "Exportação concluída",
+    "exportHtmlDone": "Arquivo HTML independente baixado — funciona offline.",
+    "exportFailed": "Falha na exportação",
+    "exportHtmlFailed": "Não foi possível exportar este painel como HTML."
   },
   "filter": {
     "addFilters": "Adicionar filtros",
