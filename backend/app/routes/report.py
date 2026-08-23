@@ -685,6 +685,7 @@ async def export_public_report_pdf(
 @router.get("/r/{report_id}/export_pptx")
 async def export_public_report_pptx(
     report_id: str,
+    request: Request,
     artifact_id: str | None = None,
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
@@ -703,6 +704,7 @@ async def export_public_report_pptx(
     from fastapi.responses import FileResponse
 
     from app.core.path_safety import UnsafePathError, safe_join
+    from app.ee.audit.service import audit_service
     from app.models.artifact import Artifact as ArtifactModel
     from app.services.report_pdf_service import ReportPdfService
     from app.services.viewer_data_policy import report_snapshot_withheld
@@ -739,6 +741,34 @@ async def export_public_report_pptx(
     if artifact is None or artifact.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Not found")
 
+    # Same gate as the in-app twin: a failed artifact would export stale or
+    # broken content.code as a successful download, with nothing telling the
+    # viewer the file is built from a render that never completed.
+    if artifact.status == "failed":
+        raise HTTPException(
+            status_code=409,
+            detail="This deck failed to generate. Regenerate it before exporting.",
+        )
+
+    # The in-app route audits every export; without this, a member who
+    # downloads the full snapshot through the share link instead of the in-app
+    # button leaves no trail, and a "who exported this dashboard" review misses
+    # them entirely. user_id is None for an anonymous share-link viewer, which
+    # the column allows — the entry still records that the export happened.
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=artifact.organization_id,
+            action="artifact.exported",
+            user_id=str(user.id) if user else None,
+            resource_type="artifact",
+            resource_id=str(artifact.id),
+            details={"format": "pptx", "title": artifact.title, "via": "share_link"},
+            request=request,
+        )
+    except Exception:
+        pass
+
     # Serve only a file under the generated-decks root, rebuilt from that fixed
     # root plus the bare filename, so no stored path component can point out of
     # the export tree.
@@ -766,6 +796,7 @@ async def export_public_report_pptx(
 @router.get("/r/{report_id}/export_html")
 async def export_public_report_html(
     report_id: str,
+    request: Request,
     artifact_id: str | None = None,
     db: AsyncSession = Depends(get_async_db),
     user: User | None = Depends(current_user_optional),
@@ -783,6 +814,7 @@ async def export_public_report_html(
 
     from fastapi.responses import Response
 
+    from app.ee.audit.service import audit_service
     from app.models.artifact import Artifact as ArtifactModel
     from app.services.html_export_service import (
         ExportUnavailable,
@@ -820,6 +852,34 @@ async def export_public_report_html(
     artifact = await db.get(ArtifactModel, chosen_id)
     if artifact is None or artifact.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Not found")
+
+    # Same gate as the in-app twin: a failed artifact would export stale or
+    # broken content.code as a successful download, with nothing telling the
+    # viewer the file is built from a render that never completed.
+    if artifact.status == "failed":
+        raise HTTPException(
+            status_code=409,
+            detail="This dashboard failed to generate. Regenerate it before exporting.",
+        )
+
+    # The in-app route audits every export; without this, a member who
+    # downloads the full snapshot through the share link instead of the in-app
+    # button leaves no trail, and a "who exported this dashboard" review misses
+    # them entirely. user_id is None for an anonymous share-link viewer, which
+    # the column allows — the entry still records that the export happened.
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=artifact.organization_id,
+            action="artifact.exported",
+            user_id=str(user.id) if user else None,
+            resource_type="artifact",
+            resource_id=str(artifact.id),
+            details={"format": "html", "title": artifact.title, "via": "share_link"},
+            request=request,
+        )
+    except Exception:
+        pass
 
     try:
         html = await build_standalone_html(db, artifact)
