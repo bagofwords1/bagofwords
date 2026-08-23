@@ -201,13 +201,17 @@ async def collect_params(db, artifact) -> dict[str, Any]:
     from app.models.visualization import Visualization
     from app.schemas.param_schema import parse_param_specs
 
+    # No SELECT DISTINCT here: Query.parameters (and the joined-loaded
+    # organization_settings.config) are Postgres `json`, which has no equality
+    # operator, so a whole-row DISTINCT raises UndefinedFunctionError on
+    # Postgres (SQLite silently allows it). The join fans out one row per
+    # visualization, so dedupe the Query identities in Python instead.
     result = await db.execute(
         select(Query)
         .join(Visualization, Visualization.query_id == Query.id)
         .where(Visualization.report_id == artifact.report_id)
-        .distinct()
     )
-    queries = list(result.scalars().all())
+    queries = list(result.scalars().unique().all())
 
     by_name: dict[str, dict[str, Any]] = {}
     options: dict[str, list[dict[str, Any]]] = {}
