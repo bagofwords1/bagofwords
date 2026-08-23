@@ -461,6 +461,49 @@ def test_execute_query_accepts_base_columns_in_selection(monkeypatch):
     assert items_call["variables"]["cols"] == ["color_1"]  # only the board column is fetched
 
 
+def test_execute_query_relation_columns_use_display_value(monkeypatch):
+    """Mirror / connect-boards / dependency / subitems column values return an
+    EMPTY `text` — their display string is on the type-specific
+    `display_value` field. The items query must request the fragments and the
+    cell parser must backfill text from display_value."""
+    board = {
+        **BOARD_LINKED,
+        "id": "777",
+        "name": "Linked Board",
+        "columns": [
+            {"id": "name", "title": "Name", "type": "name", "settings_str": "{}"},
+            {"id": "rel_1", "title": "Account", "type": "board_relation", "settings_str": "{}"},
+            {"id": "mirror_1", "title": "Account Status", "type": "mirror", "settings_str": "{}"},
+        ],
+    }
+    page = {"cursor": None, "items": [item(1, "Deal", [
+        {"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
+         "display_value": "Acme Corp, Globex"},
+        {"id": "mirror_1", "text": "", "value": None, "type": "mirror",
+         "display_value": "Active"},
+    ])]}
+
+    calls = []
+
+    def responder(query, variables):
+        calls.append(query)
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
+        if "boards (limit: $limit, page: $page" in query:
+            return FakeResponse({"data": {"boards": [board] if variables.get("page", 1) == 1 else []}})
+        if "items_page" in query:
+            return FakeResponse({"data": {"boards": [{"items_page": page}]}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    df = MondayClient(api_token="t").execute_query(json.dumps({"board": "Linked Board", "limit": 5}))
+    assert df.iloc[0]["Account"] == "Acme Corp, Globex"
+    assert df.iloc[0]["Account Status"] == "Active"
+    items_query = next(q for q in calls if "items_page" in q)
+    for fragment in ["MirrorValue", "BoardRelationValue", "DependencyValue", "SubtasksValue"]:
+        assert f"... on {fragment} {{ display_value }}" in items_query
+
+
 def test_execute_query_bad_specs(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
     client = MondayClient(api_token="t")

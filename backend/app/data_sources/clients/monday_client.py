@@ -655,10 +655,23 @@ class MondayClient(DataSourceClient):
                 translated.append(value)
         return translated
 
+    # Relation-family column values (mirror, connect-boards, dependency,
+    # subitems) return an EMPTY `text` — their display string lives on the
+    # type-specific `display_value` field (verified live; monday's own SDK and
+    # Airbyte's connector request the same fragments). Without these, every
+    # such column reads as None in query results.
+    _COLUMN_VALUE_FRAGMENTS = (
+        " ... on MirrorValue { display_value }"
+        " ... on BoardRelationValue { display_value }"
+        " ... on DependencyValue { display_value }"
+        " ... on SubtasksValue { display_value }"
+    )
+
     def _fetch_items(self, board_id, column_ids: List[str], query_params: Optional[dict], limit: int) -> List[dict]:
         items: List[dict] = []
         item_fields = (
-            "id name group { title } column_values (ids: $cols) { id text value type }"
+            "id name group { title } column_values (ids: $cols) { id text value type"
+            + self._COLUMN_VALUE_FRAGMENTS + " }"
             if column_ids else "id name group { title }"
         )
         first_page = min(PAGE_SIZE, limit)
@@ -736,9 +749,13 @@ class MondayClient(DataSourceClient):
     @staticmethod
     def _cell_value(value: dict):
         """One typed scalar per cell. `text` is monday's display string; typed
-        columns parse it (or the raw JSON `value`) into a real dtype."""
+        columns parse it (or the raw JSON `value`) into a real dtype.
+        Relation-family columns carry their display string in `display_value`
+        instead of `text` (which comes back empty) — backfill it."""
         kind = value.get("type")
         text = value.get("text")
+        if text in (None, "") and value.get("display_value"):
+            text = value["display_value"]
         if kind == "numbers":
             if text in (None, ""):
                 return None
@@ -797,6 +814,8 @@ class MondayClient(DataSourceClient):
         timeline, dropdown, …) → display TEXT strings; empty cells → None.
         Status columns hold label text ("Done"), date columns "YYYY-MM-DD"
         strings (parse with pd.to_datetime), timeline "YYYY-MM-DD - YYYY-MM-DD".
+        Connect-boards / mirror / dependency / subitems columns hold the
+        comma-separated display names of the linked items.
 
         Date/number comparisons in `rules` are unreliable in the monday API —
         fetch the rows (set `limit` high enough) and filter/aggregate in pandas
