@@ -110,6 +110,28 @@ from app.schemas.instruction_schema import InstructionCreate
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 
+
+def normalize_overlay_fks(fks) -> list:
+    """Serialize a table's foreign keys into JSON-storable dicts.
+
+    fks may arrive as pydantic ForeignKey objects (from a Table prompt
+    formatter) whose nested TableColumn values are NOT JSON serializable.
+    Persisting them into DataSourceTable.fks (a JSON column) raised "Object of
+    type ForeignKey is not JSON serializable" and aborted the entire per-user
+    overlay upsert for any dataset with relationships — so a delegated Power BI
+    / Fabric model with FKs could never build an overlay. Dicts pass through.
+    """
+    out = []
+    for fk in (fks or []):
+        if isinstance(fk, dict):
+            out.append(fk)
+        elif hasattr(fk, "model_dump"):
+            out.append(fk.model_dump(mode="json"))
+        elif hasattr(fk, "dict"):
+            out.append(fk.dict())
+    return out
+
+
 class DataSourceService:
 
     def __init__(self):
@@ -3908,7 +3930,7 @@ class DataSourceService:
                 normalized[name] = {
                     "columns": normalize_columns(t.get("columns", [])),
                     "pks": normalize_columns(t.get("pks", [])),
-                    "fks": t.get("fks", []) or [],
+                    "fks": normalize_overlay_fks(t.get("fks", [])),
                     "metadata_json": t.get("metadata_json"),
                 }
             else:
@@ -3918,7 +3940,7 @@ class DataSourceService:
                 normalized[name] = {
                     "columns": normalize_columns(getattr(t, "columns", [])),
                     "pks": normalize_columns(getattr(t, "pks", [])),
-                    "fks": getattr(t, "fks", []) or [],
+                    "fks": normalize_overlay_fks(getattr(t, "fks", [])),
                     "metadata_json": getattr(t, "metadata_json", None),
                 }
 
