@@ -569,11 +569,19 @@ def test_download_filenames_survive_non_latin_titles(title, expected_name, expec
 # snapshot to someone who could not open the dashboard in the first place.
 
 async def _export_public(report_id: str, artifact_id=None, user=None):
+    from starlette.requests import Request
+
     from app.routes.report import export_public_report_html
 
+    # The route takes the raw Request only to enrich best-effort audit logging;
+    # a minimal ASGI scope stands in for it here.
+    request = Request({
+        "type": "http", "method": "GET", "path": "/", "headers": [],
+        "query_string": b"", "client": ("127.0.0.1", 0),
+    })
     async with async_session_maker() as db:
         return await export_public_report_html(
-            report_id=report_id, artifact_id=artifact_id, db=db, user=user,
+            report_id=report_id, request=request, artifact_id=artifact_id, db=db, user=user,
         )
 
 
