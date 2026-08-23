@@ -2728,7 +2728,12 @@
     "refreshPartial": "Дашборд обновлён частично",
     "refreshFailed": "Не удалось обновить дашборд",
     "refreshNothing": "Нечего обновлять",
-    "refreshSummary": "Обновлено запросов: {succeeded} из {total}"
+    "refreshSummary": "Обновлено запросов: {succeeded} из {total}",
+    "exportHtml": "Скачать как автономный HTML",
+    "exportComplete": "Экспорт завершён",
+    "exportHtmlDone": "Автономный HTML-файл загружен — он работает офлайн.",
+    "exportFailed": "Ошибка экспорта",
+    "exportHtmlFailed": "Не удалось экспортировать этот дашборд в HTML."
   },
   "filter": {
     "addFilters": "Добавить фильтры",

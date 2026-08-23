@@ -654,86 +654,15 @@ class ReportPdfService:
 
         Returns the absolute filesystem path to the PDF, or None on failure.
         """
-        from app.ai.tools.implementations._artifact_images import build_file_datauris
-        from app.models.report import Report
-        from app.models.visualization import Visualization
-        from app.models.query import Query
-        from app.models.step import Step
-        from sqlalchemy import select
-        from sqlalchemy.orm import selectinload
+        from app.services.artifact_payload import collect_artifact_payload
 
-        report = await db.get(Report, artifact.report_id)
-        if not report:
+        payload = await collect_artifact_payload(db, artifact)
+        if payload is None:
             return None
 
-        # Get visualization data for the artifact's report
-        viz_stmt = (
-            select(Visualization)
-            .options(selectinload(Visualization.query))
-            .where(Visualization.report_id == artifact.report_id)
-        )
-        viz_result = await db.execute(viz_stmt)
-        visualizations = viz_result.scalars().all()
-
-        # Dashboard code addresses visualizations BY INDEX (viz[0], viz[1], ...),
-        # and that index is defined by the artifact's ORDERED
-        # content["visualization_ids"]. Mirror the live client
-        # (frontend/components/dashboard/ArtifactFrame.vue): scope to this
-        # artifact's visualizations and order them by that list, appending any
-        # stragglers last. Without this, window.ARTIFACT_DATA would be a
-        # report-wide, unordered superset and every index-based lookup in the
-        # dashboard would bind to the wrong visualization — producing missing
-        # numbers and empty chart series in the exported/emailed PDF.
-        viz_ids = (artifact.content or {}).get("visualization_ids") or []
-        if viz_ids:
-            viz_by_id = {str(v.id): v for v in visualizations}
-            ordered = [viz_by_id[vid] for vid in viz_ids if vid in viz_by_id]
-            ordered_id_set = set(viz_ids)
-            ordered.extend(v for v in visualizations if str(v.id) not in ordered_id_set)
-            visualizations = ordered
-
-        viz_data = []
-        for viz in visualizations:
-            if not viz.query_id:
-                continue
-            query = await db.get(Query, viz.query_id)
-            if not query:
-                continue
-
-            step = None
-            if query.default_step_id:
-                step = await db.get(Step, query.default_step_id)
-            if not step:
-                step_result = await db.execute(
-                    select(Step).where(Step.query_id == query.id).order_by(Step.created_at.desc()).limit(1)
-                )
-                step = step_result.scalar_one_or_none()
-
-            viz_data.append({
-                "id": str(viz.id),
-                "title": viz.title or query.title or "Untitled",
-                "view": viz.view or {},
-                "rows": step.data.get("rows", []) if step and step.data else [],
-                "columns": step.data.get("columns", []) if step and step.data else [],
-                "dataModel": step.data_model or {} if step else {},
-            })
-
-        # Embedded images/PDFs are fetched by the live viewer over an
-        # authenticated /files/{id}/content route the headless browser cannot
-        # use; without inlining them here every <BowFile> in the artifact
-        # renders as a placeholder in the export.
-        files_data = await build_file_datauris(
-            db, (artifact.content or {}).get("files") or []
-        )
-
-        artifact_code = artifact.content.get("code", "")
         html_content = self._build_pdf_html(
-            report_id=str(report.id),
-            report_title=report.title,
-            report_theme=report.theme_name,
-            artifact_code=artifact_code,
-            visualizations=viz_data,
-            files=files_data,
+            artifact_data=payload,
+            artifact_code=artifact.content.get("code", ""),
             mode=artifact.mode or "page",
         )
 
@@ -749,26 +678,17 @@ class ReportPdfService:
 
     def _build_pdf_html(
         self,
-        report_id: str,
-        report_title: Optional[str],
-        report_theme: Optional[str],
+        artifact_data: dict,
         artifact_code: str,
-        visualizations: list,
-        files: Optional[list] = None,
         mode: str = "page",
     ) -> str:
-        """Build the standalone HTML the headless browser renders for print."""
-        artifact_data = {
-            "report": {
-                "id": report_id,
-                "title": report_title,
-                "theme": report_theme,
-            },
-            "visualizations": visualizations,
-            "files": files or [],
-            # PDF exports are shareable documents — render anonymously.
-            "current_user": None,
-        }
+        """Build the standalone HTML the headless browser renders for print.
+
+        artifact_data comes from services.artifact_payload.collect_artifact_payload
+        — shared with the standalone HTML export so both stay in step. PDF
+        exports are shareable documents, so it renders anonymously
+        (current_user is None).
+        """
         data_json = json.dumps(artifact_data, default=str)
 
         page_scripts = get_inline_scripts(mode="page")

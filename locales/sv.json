@@ -2728,7 +2728,12 @@
     "refreshPartial": "Instrumentpanelen delvis uppdaterad",
     "refreshFailed": "Det gick inte att uppdatera instrumentpanelen",
     "refreshNothing": "Inget att uppdatera",
-    "refreshSummary": "{succeeded} av {total} frågor uppdaterade"
+    "refreshSummary": "{succeeded} av {total} frågor uppdaterade",
+    "exportHtml": "Ladda ner som fristående HTML",
+    "exportComplete": "Exporten är klar",
+    "exportHtmlDone": "Fristående HTML-fil nedladdad – den fungerar offline.",
+    "exportFailed": "Exporten misslyckades",
+    "exportHtmlFailed": "Det gick inte att exportera den här instrumentpanelen som HTML."
   },
   "filter": {
     "addFilters": "Lägg till filter",

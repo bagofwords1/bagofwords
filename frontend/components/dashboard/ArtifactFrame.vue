@@ -117,18 +117,14 @@
           </UTooltip>
         </template>
 
-        <!-- Export PPTX (slides mode only) -->
-        <UTooltip v-if="selectedArtifact?.mode === 'slides'" text="Export as PowerPoint">
-          <button
-            @click="exportPptx"
-            :disabled="isExporting"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded disabled:opacity-50"
-          >
-            <Icon v-if="isExporting" name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400 animate-spin" />
-            <Icon v-else name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-purple-600" />
-            <span class="text-xs text-purple-600 font-medium">PPTX</span>
-          </button>
-        </UTooltip>
+        <!-- Every export behind one button; the list comes from
+             useArtifactExports so this toolbar and the public share page
+             agree on what a given artifact can produce. -->
+        <ExportMenu
+          :options="availableExports"
+          :busy="isExporting"
+          @select="handleExport"
+        />
 
         <!-- Fullscreen -->
         <UTooltip text="Full screen">
@@ -470,6 +466,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
@@ -659,6 +656,80 @@ function closeFullscreen() {
 }
 
 // Export artifact as PPTX
+function handleExport(format: ExportFormat) {
+  if (format === 'pdf') return exportPdf();
+  if (format === 'pptx') return exportPptx();
+  return exportHtml();
+}
+
+// Download the dashboard or deck as a PDF. Same headless-Chromium render the
+// emailed share already uses; the request can run for minutes, so this uses
+// native fetch (no ofetch retry to silently re-run the render) exactly like
+// the PPTX and HTML paths below.
+async function exportPdf() {
+  if (!selectedArtifactId.value || isExporting.value) return;
+
+  isExporting.value = true;
+  try {
+    const headers: Record<string, string> = {
+      Authorization: `${token.value}`,
+    };
+    if (organization.value?.id) {
+      headers['X-Organization-Id'] = organization.value.id;
+    }
+
+    const response = await fetch(
+      `${config.public.baseURL}/artifacts/${selectedArtifactId.value}/export/pdf`,
+      { method: 'GET', headers },
+    );
+
+    if (!response.ok) {
+      // The route reports actionable reasons (timed out, snapshot withheld,
+      // artifact never rendered) — surface them, not a bare status code.
+      let detail = `HTTP error! status: ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body?.detail) detail = String(body.detail);
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(detail);
+    }
+
+    // Same detachment as the other two paths: buffer the bytes and wrap them
+    // in a fresh local Blob so the download URL is never the remote response.
+    const arrayBuffer = await response.arrayBuffer();
+    const localBlob = new Blob([arrayBuffer], { type: 'application/pdf' });
+
+    const rawTitle = selectedArtifact.value?.title || 'artifact';
+    const fallbackName =
+      `${String(rawTitle).replace(/[^\w\s.-]/g, '').trim().slice(0, 120) || 'artifact'}.pdf`;
+    const filename =
+      filenameFromDisposition(response.headers.get('Content-Disposition')) || fallbackName;
+
+    const url = window.URL.createObjectURL(localBlob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    toast.add({ title: t('exports.complete'), description: t('exports.pdfDone') });
+  } catch (error: any) {
+    console.error('Failed to export PDF:', error);
+    toast.add({
+      title: t('exports.failed'),
+      description: error.message || t('exports.failed'),
+      color: 'red',
+    });
+  } finally {
+    isExporting.value = false;
+  }
+}
+
 async function exportPptx() {
   if (!selectedArtifactId.value || isExporting.value) return;
 
@@ -705,6 +776,94 @@ async function exportPptx() {
   } catch (error: any) {
     console.error('Failed to export PPTX:', error);
     toast.add({ title: 'Export failed', description: error.message || 'Failed to export PowerPoint file.', color: 'red' });
+  } finally {
+    isExporting.value = false;
+  }
+}
+
+/**
+ * Filename the server chose, honouring the RFC 5987 form first — dashboard
+ * titles are routinely non-Latin and only that form carries them intact.
+ */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (encoded) {
+    try {
+      return decodeURIComponent(encoded[1].trim());
+    } catch {
+      /* fall through to the ASCII form */
+    }
+  }
+  const plain = /filename="([^"]+)"/i.exec(header);
+  return plain ? plain[1] : null;
+}
+
+// Export the dashboard as one standalone HTML file that works fully offline.
+async function exportHtml() {
+  if (!selectedArtifactId.value || isExporting.value) return;
+
+  isExporting.value = true;
+  try {
+    const headers: Record<string, string> = {
+      Authorization: `${token.value}`,
+    };
+    if (organization.value?.id) {
+      headers['X-Organization-Id'] = organization.value.id;
+    }
+
+    const response = await fetch(
+      `${config.public.baseURL}/artifacts/${selectedArtifactId.value}/export/html`,
+      { method: 'GET', headers },
+    );
+
+    if (!response.ok) {
+      // The route reports real, actionable reasons (missing vendored libs, a
+      // withheld snapshot) — surface them instead of a bare status code.
+      let detail = `HTTP error! status: ${response.status}`;
+      try {
+        const body = await response.json();
+        if (body?.detail) detail = String(body.detail);
+      } catch {
+        /* non-JSON error body */
+      }
+      throw new Error(detail);
+    }
+
+    // Same detachment as the PPTX path: buffer the bytes and wrap them in a
+    // fresh local Blob so the download URL is never the remote response. That
+    // matters more here — the payload IS html, and handing the browser a
+    // remote text/html URL to open would run it in our origin.
+    const arrayBuffer = await response.arrayBuffer();
+    const localBlob = new Blob([arrayBuffer], { type: 'text/html' });
+
+    const rawTitle = selectedArtifact.value?.title || 'dashboard';
+    const fallbackName =
+      `${String(rawTitle).replace(/[^\w\s.-]/g, '').trim().slice(0, 120) || 'dashboard'}.html`;
+    const filename =
+      filenameFromDisposition(response.headers.get('Content-Disposition')) || fallbackName;
+
+    const url = window.URL.createObjectURL(localBlob);
+    const link = document.createElement('a');
+    link.setAttribute('href', url);
+    link.setAttribute('download', filename);
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    window.URL.revokeObjectURL(url);
+
+    toast.add({
+      title: t('artifactFrame.exportComplete'),
+      description: t('artifactFrame.exportHtmlDone'),
+    });
+  } catch (error: any) {
+    console.error('Failed to export HTML:', error);
+    toast.add({
+      title: t('artifactFrame.exportFailed'),
+      description: error.message || t('artifactFrame.exportHtmlFailed'),
+      color: 'red',
+    });
   } finally {
     isExporting.value = false;
   }
@@ -1050,6 +1209,10 @@ async function fetchArtifactFiles(): Promise<any[]> {
 const artifactsList = ref<ArtifactItem[]>([]);
 const selectedArtifactId = ref<string | undefined>(undefined);
 const selectedArtifact = ref<any>(null);
+
+// Availability of PDF / PPTX / HTML for whatever is on screen; the public
+// share page derives its list from the same composable.
+const { availableExports } = useArtifactExports(selectedArtifact)
 
 // Computed options for dropdown
 const artifactOptions = computed(() => {

@@ -2948,7 +2948,12 @@
     "refreshPartial": "Panel parcialmente actualizado",
     "refreshFailed": "Error al actualizar el panel",
     "refreshNothing": "Nada que actualizar",
-    "refreshSummary": "{succeeded} de {total} consultas actualizadas"
+    "refreshSummary": "{succeeded} de {total} consultas actualizadas",
+    "exportHtml": "Descargar como HTML independiente",
+    "exportComplete": "Exportación completada",
+    "exportHtmlDone": "Archivo HTML independiente descargado: funciona sin conexión.",
+    "exportFailed": "Error al exportar",
+    "exportHtmlFailed": "No se pudo exportar este panel como HTML."
   },
   "filter": {
     "addFilters": "Añadir filtros",

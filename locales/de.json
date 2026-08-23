@@ -2728,7 +2728,12 @@
     "refreshPartial": "Dashboard teilweise aktualisiert",
     "refreshFailed": "Dashboard-Aktualisierung fehlgeschlagen",
     "refreshNothing": "Nichts zu aktualisieren",
-    "refreshSummary": "{succeeded} von {total} Abfragen aktualisiert"
+    "refreshSummary": "{succeeded} von {total} Abfragen aktualisiert",
+    "exportHtml": "Als eigenständiges HTML herunterladen",
+    "exportComplete": "Export abgeschlossen",
+    "exportHtmlDone": "Eigenständige HTML-Datei heruntergeladen — sie funktioniert offline.",
+    "exportFailed": "Export fehlgeschlagen",
+    "exportHtmlFailed": "Dieses Dashboard konnte nicht als HTML exportiert werden."
   },
   "filter": {
     "addFilters": "Filter hinzufügen",

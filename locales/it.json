@@ -2728,7 +2728,12 @@
     "refreshPartial": "Dashboard parzialmente aggiornata",
     "refreshFailed": "Aggiornamento della dashboard non riuscito",
     "refreshNothing": "Niente da aggiornare",
-    "refreshSummary": "{succeeded} query su {total} aggiornate"
+    "refreshSummary": "{succeeded} query su {total} aggiornate",
+    "exportHtml": "Scarica come HTML autonomo",
+    "exportComplete": "Esportazione completata",
+    "exportHtmlDone": "File HTML autonomo scaricato: funziona offline.",
+    "exportFailed": "Esportazione non riuscita",
+    "exportHtmlFailed": "Impossibile esportare questa dashboard come HTML."
   },
   "filter": {
     "addFilters": "Aggiungi filtri",

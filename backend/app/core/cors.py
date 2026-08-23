@@ -29,4 +29,10 @@ def init_cors(app):
         allow_credentials=bool(origins),
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Organization-Id"],
+        # Content-Disposition is not CORS-safelisted, so a split-origin
+        # frontend cannot read it unless it is exposed. Every file download
+        # (HTML / PDF / PPTX export) parses the RFC 5987 filename out of
+        # this header; without it they silently fall back to a stripped
+        # ASCII name and a Hebrew-titled dashboard loses its real name.
+        expose_headers=["Content-Disposition"],
     )
