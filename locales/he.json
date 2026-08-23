@@ -106,10 +106,10 @@
     "connect": "התחבר",
     "manageConnections": "נהל חיבורים",
     "loadingFiles": "טוען קבצים מהמקור…",
-    "countTables": "{n} טבלאות",
-    "countTools": "{n} כלים",
-    "countFiles": "{n} קבצים",
-    "countInstructions": "{n} הנחיות",
+    "countTables": "טבלה אחת | {n} טבלאות",
+    "countTools": "כלי אחד | {n} כלים",
+    "countFiles": "קובץ אחד | {n} קבצים",
+    "countInstructions": "הנחיה אחת | {n} הנחיות",
     "untitled": "ללא כותרת",
     "primaryPlaceholder": "כתוב את ההנחיה הראשית של הסוכן ב-Markdown… (הקלד {'@'} כדי להזכיר טבלה או הנחיה)",
     "change": "שנה",
@@ -287,7 +287,8 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "הרצת חבילה זו",
-    "runSuiteFailed": "הרצת החבילה נכשלה"
+    "runSuiteFailed": "הרצת החבילה נכשלה",
+    "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)"
   },
   "smoke": {
     "hello": "שלום",
@@ -720,7 +721,8 @@
     "type": {
       "chat": "צ׳אט",
       "dashboard": "לוח מחוונים",
-      "slides": "שקופיות"
+      "slides": "שקופיות",
+      "training": "אימון"
     },
     "rowActions": "פעולות דוח",
     "status": {
@@ -728,7 +730,10 @@
       "running": "פועל",
       "newActivity": "פעילות חדשה",
       "errorNew": "הסתיים בשגיאה"
-    }
+    },
+    "inProject": "בפרויקט {name}",
+    "sharedEmpty": "אין דוחות משותפים",
+    "sharedEmptyHint": "דוחות שאחרים ישתפו איתך יופיעו כאן."
   },
   "projects": {
     "title": "פרויקטים",
@@ -809,7 +814,30 @@
       "noAutomations": "אין עדיין אוטומציות בפרויקט הזה.",
       "fromProject": "מתוך {name}"
     },
-    "rowActions": "פעולות פרויקט"
+    "rowActions": "פעולות פרויקט",
+    "myProjects": "הפרויקטים שלי",
+    "sharedWithMe": "משותפים איתי",
+    "searchPlaceholder": "חיפוש פרויקטים…",
+    "filtersButton": "סינון",
+    "emptyTitle": "אין עדיין פרויקטים",
+    "noResults": "לא נמצאו פרויקטים",
+    "noResultsHint": "נסו חיפוש אחר או נקו את הסינון.",
+    "sharedEmpty": "עדיין לא שיתפו איתך",
+    "sharedEmptyHint": "פרויקטים שחברי הצוות ישתפו איתך יופיעו כאן.",
+    "filters": {
+      "accessLabel": "גישה",
+      "allAccess": "כל סוגי הגישה",
+      "private": "פרטי",
+      "orgShared": "משותף לארגון",
+      "reportsLabel": "דוחות",
+      "allReports": "כל הפרויקטים",
+      "withReports": "עם דוחות",
+      "emptyReports": "ריקים",
+      "clear": "נקה הכל"
+    },
+    "pagination": {
+      "rowsPerPage": "שורות לעמוד"
+    }
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -897,7 +925,8 @@
     "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
     "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
     "instructionUnavailableTitle": "ההנחיה אינה זמינה",
-    "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה."
+    "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה.",
+    "loopRetryNotice": "אירעה שגיאה פנימית — מנסה שוב מההקשר העדכני (ניסיון {attempt} מתוך {max})"
   },
   "tools": {
     "common": {
@@ -1414,7 +1443,9 @@
     "routeModel": {
       "routedTo": "נותב אל",
       "choosing": "בוחר מודל…",
-      "routing": "ניתוב מודל"
+      "routing": "ניתוב מודל",
+      "fallbackReason": "{from} לא היה זמין",
+      "fellBackTo": "עבר לגיבוי"
     },
     "grepFiles": {
       "grepping": "מחפש בקבצים אחר {pattern}…",
@@ -1453,6 +1484,22 @@
       "failed": "שליחת האימייל נכשלה",
       "subject": "נושא",
       "to": "אל"
+    },
+    "browser": {
+      "acted": "בוצעה פעולה",
+      "acting": "מבצע פעולה",
+      "capturing": "מצלם מסך",
+      "done": "הגלישה הושלמה",
+      "extracted": "הטקסט נקרא",
+      "extracting": "קורא טקסט",
+      "failed": "פעולת הדפדפן נכשלה",
+      "navigated": "הדף נפתח",
+      "navigating": "פותח דף",
+      "screenshot": "צילום מסך",
+      "snapshot": "מבנה הדף",
+      "snapshotted": "הדף נקרא",
+      "snapshotting": "קורא את הדף",
+      "working": "גולש"
     }
   },
   "entityCreate": {
@@ -1471,7 +1518,9 @@
     "saveEntity": "שמור ישות",
     "suggestEntity": "הצע ישות",
     "saveFailed": "שמירת הישות נכשלה",
-    "stepRequired": "נדרש שלב כדי לשמור"
+    "stepRequired": "נדרש שלב כדי לשמור",
+    "publishedToast": "השאילתה פורסמה לקטלוג",
+    "suggestedToast": "ההצעה נשלחה לבדיקה"
   },
   "mentionInput": {
     "placeholder": "הקלד {'@'} כדי לאזכר...",
@@ -1563,10 +1612,10 @@
     "addAgent": "+ הוסף סוכן...",
     "advancedPermissions": "הרשאות מתקדמות",
     "tiers": {
-        "query": "יכול לשאול",
-        "queryHint": "לשאול את הסוכן הזה שאלות",
-        "manage": "יכול לנהל",
-        "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
+      "query": "יכול לשאול",
+      "queryHint": "לשאול את הסוכן הזה שאלות",
+      "manage": "יכול לנהל",
+      "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
     },
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",
@@ -1771,7 +1820,59 @@
       "unknown": "לא ידוע",
       "lastSyncDetail": "— {gCreated} נוצרו, {gUpdated} עודכנו, {gRemoved} הוסרו · {mAdded} חברים נוספו, {mRemoved} הוסרו",
       "errorCount": "{n} שגיאות: {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraAdd": "הוספה",
+      "entraAddPlaceholder": "הוספת מאפיין…",
+      "entraContextTitle": "מהפרופיל שלך בספרייה",
+      "entraEnable": "סנכרון פרטי פרופיל מ-Entra ID",
+      "entraEnableHint": "בכל התחברות, המערכת קוראת את פרופיל ה-Microsoft Graph של המשתמש ושומרת אותו כהקשר ל-AI. משתמשת בהרשאת User.Read שניתנת כברירת מחדל — ללא צורך באישור מנהל.",
+      "entraFieldsLabel": "מאפיינים שייכללו בהקשר",
+      "entraNoFields": "לא נבחרו מאפיינים",
+      "entraNoLogin": "התחבר עם Entra ID כדי לראות תצוגה מקדימה של הערכים מהפרופיל שלך.",
+      "entraNotSet": "לא הוגדר",
+      "entraPreviewError": "לא ניתן היה לטעון ערכים חיים מ-Microsoft Graph.",
+      "entraReauth": "החיבור שלך ל-Entra ID פג — התחבר שוב עם Entra ID כדי לטעון ערכים חיים.",
+      "entraRemove": "הסרה",
+      "entraSaveFailed": "השמירה נכשלה",
+      "entraSaved": "נשמר",
+      "entraSaving": "שומר...",
+      "entraSubtitle": "סנכרון תפקיד, מחלקה ופרטי פרופיל נוספים מ-Microsoft Entra ID בעת ההתחברות",
+      "entraTitle": "סנכרון פרופיל מ-Entra ID",
+      "field_city": "עיר",
+      "field_companyName": "חברה",
+      "field_country": "מדינה",
+      "field_department": "מחלקה",
+      "field_displayName": "שם",
+      "field_employeeHireDate": "תאריך תחילת עבודה",
+      "field_employeeId": "מספר עובד",
+      "field_employeeOrgData": "חטיבה ומרכז עלות",
+      "field_employeeType": "סוג העסקה",
+      "field_hostedDomain": "דומיין סביבת העבודה",
+      "field_jobTitle": "תפקיד",
+      "field_locale": "אזור ושפה",
+      "field_location": "מיקום",
+      "field_mobilePhone": "טלפון נייד",
+      "field_officeLocation": "מיקום המשרד",
+      "field_organization": "ארגון",
+      "field_preferredLanguage": "שפה מועדפת",
+      "field_state": "מחוז",
+      "field_usageLocation": "מדינת שימוש",
+      "googleAdd": "הוספה",
+      "googleAddPlaceholder": "הוספת מאפיין…",
+      "googleEnable": "סנכרון פרטי פרופיל מ-Google",
+      "googleEnableHint": "בכל התחברות, המערכת קוראת את פרופיל ה-Google של המשתמש (userinfo ו-People API) ושומרת אותו כהקשר ל-AI. משתמשת רק בהרשאות openid/profile/email שכבר ניתנו בהתחברות.",
+      "googleFieldsLabel": "מאפיינים שייכללו בהקשר",
+      "googleNoFields": "לא נבחרו מאפיינים",
+      "googleNoLogin": "התחבר עם Google כדי לראות תצוגה מקדימה של הערכים מהפרופיל שלך.",
+      "googleNotSet": "לא הוגדר",
+      "googlePreviewError": "לא ניתן היה לטעון ערכים חיים מ-Google.",
+      "googleReauth": "החיבור שלך ל-Google פג — התחבר שוב עם Google כדי לטעון ערכים חיים.",
+      "googleRemove": "הסרה",
+      "googleSaveFailed": "השמירה נכשלה",
+      "googleSaved": "נשמר",
+      "googleSaving": "שומר...",
+      "googleSubtitle": "סנכרון שם, תפקיד, מחלקה ופרטי פרופיל נוספים מ-Google בעת ההתחברות",
+      "googleTitle": "סנכרון פרופיל מ-Google"
     },
     "auditLogs": "יומני ביקורת",
     "integrations": {
@@ -1835,7 +1936,21 @@
           "failedConnect": "החיבור ל-Slack נכשל",
           "disconnectedToast": "Slack נותק",
           "disconnectedToastDesc": "אינטגרציית Slack נותקה",
-          "failedDisconnect": "ניתוק Slack נכשל"
+          "failedDisconnect": "ניתוק Slack נכשל",
+          "appToken": "טוקן ברמת האפליקציה",
+          "connectionModeLabel": "מצב חיבור",
+          "modeEventsApi": "Events API (webhook)",
+          "modeEventsApiHint": "Slack שולח אירועים ב-POST לכתובת ה-webhook הציבורית שלך — נדרשים signing secret וכתובת Request URL נגישה.",
+          "modeSocket": "Socket Mode",
+          "modeSocketHint": "השרת יוזם חיבור WebSocket אל Slack — אין צורך בכתובת ציבורית או ב-signing secret, וזה גם מפעיל את חוויית ה-Agent.",
+          "modeSocketRecommended": "Socket Mode (מומלץ)",
+          "socketSetupIntro": "באפליקציית ה-Slack שלך (api.slack.com/apps):",
+          "socketStep1": "Socket Mode ← הפעל אותו, וצור טוקן ברמת האפליקציה עם ההרשאה connections:write ‏(xapp-…)",
+          "socketStep2": "OAuth & Permissions ← הרשאות בוט: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions ← הפעל אירועים (ללא צורך ב-Request URL) והירשם ל: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents ← הפעל את \"Agent experience\" עבור חלונית העוזר המובנית, מתן שמות לשרשורים והצעות פרומפטים",
+          "socketStep5": "App Home ← הפעל את לשונית ההודעות ואפשר למשתמשים לשלוח הודעות",
+          "socketStep6": "Install App ← התקן בסביבת העבודה והעתק את ה-Bot User OAuth Token ‏(xoxb-…)"
         },
         "teams": {
           "title": "אינטגרציית Teams",
@@ -2073,6 +2188,37 @@
           "tenantWide": "פריסה כלל-ארגונית (tenant-wide)",
           "tenantWideDesc": "לפריסה כלל-ארגונית, מנהל ה-Microsoft 365 שלך יכול להעלות manifest זה דרך Admin Center → Settings → Integrated apps.",
           "failedLoadManifest": "טעינת ה-manifest נכשלה"
+        },
+        "googleChat": {
+          "autoLinkDescConnected": "כשהאפשרות פעילה, משתמשי Google Chat מקושרים אוטומטית לחשבונות BOW שכתובת האימייל שלהם תואמת לפרופיל ה-Google Workspace שלהם (ללא צורך בקישור אימות). מכיוון שהאימייל מגיע מהספרייה של סביבת העבודה שלך, זה בטוח בדרך כלל — אבל הפעל זאת רק עבור דומיינים שאתה סומך עליהם לחלוטין.",
+          "autoLinkDescSetup": "משתמשים שכותבים לבוט מקושרים לחשבונות BOW שכתובת האימייל שלהם תואמת לפרופיל ה-Google Workspace שלהם — ללא צורך בקישור אימות. מומלץ.",
+          "autoLinkTitle": "קישור אוטומטי של משתמשים לפי אימייל ב-Workspace",
+          "connectedNotice": "Google Chat מחובר כרגע.",
+          "connectedToast": "Google Chat חובר",
+          "connectedToastDesc": "האינטגרציה עם Google Chat הצליחה",
+          "disconnectedToast": "Google Chat נותק",
+          "disconnectedToastDesc": "האינטגרציה עם Google Chat נותקה",
+          "failedConnect": "חיבור Google Chat נכשל",
+          "failedDisconnect": "ניתוק Google Chat נכשל",
+          "noteChannels": "במרחבים משותפים נשאלים רק מקורות נתונים ציבוריים",
+          "noteChats": "בהודעות ישירות נשאלים מקורות נתונים ציבוריים ופרטיים (שלמשתמש יש אליהם גישה)",
+          "noteNoInbound": "האירועים מגיעים דרך Pub/Sub — אין צורך בכתובת ציבורית או בפתיחת גישה נכנסת בחומת האש",
+          "noteRegistered": "רק משתמשים רשומים יכולים לכתוב לבוט או לתייג אותו ב-{'@'}",
+          "serviceAccount": "חשבון שירות:",
+          "serviceAccountJsonLabel": "מפתח חשבון שירות (JSON)",
+          "serviceAccountJsonPlaceholder": "הדבק את מפתח ה-JSON המלא של חשבון השירות",
+          "sessionStalenessDesc": "כמה זמן הודעה ישירה ממשיכה באותו דוח שיחה. הודעות אחרי החלון הזה פותחות דוח חדש (שליחת \"new\" פותחת אחד מיד). ברירת מחדל: 120 שעות (5 ימים).",
+          "setupIntro": "בפרויקט Google Cloud ייעודי (חשוב — שימוש חוזר בפרויקט ישן עלול להשאיר את אפליקציית ה-Chat במצב לא שמיש):",
+          "setupStep1": "הפעל את Google Chat API ואת Cloud Pub/Sub API",
+          "setupStep2": "צור חשבון שירות (ללא צורך בתפקידים) והורד את מפתח ה-JSON שלו",
+          "setupStep3": "צור נושא (topic) ב-Pub/Sub; הענק ל-chat-api-push{'@'}system.gserviceaccount.com את תפקיד Pub/Sub Publisher עליו",
+          "setupStep4": "צור מנוי משיכה (pull subscription) על הנושא; הענק לחשבון השירות שלך את תפקיד Pub/Sub Subscriber עליו",
+          "setupStep5": "בעמוד Chat API Configuration: השאר את \"Build this Chat app as a Workspace add-on\" ללא סימון, הגדר שם ואווטאר לאפליקציה, אפשר קבלת הודעות 1:1, בחר Cloud Pub/Sub עם הנושא שלך, הפעל \"Log errors to Logging\" ושמור",
+          "subscription": "מנוי:",
+          "subscriptionLabel": "מנוי Pub/Sub",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "subtitle": "הגדרה וניהול של האינטגרציה עם Google Chat עבור הארגון שלך",
+          "title": "אינטגרציה עם Google Chat"
         }
       },
       "emptyTitle": "גרום ל-Bag of Words לעבוד עם הכלים שלך",
@@ -2281,7 +2427,43 @@
       "routingHintSeedSmall": "שאלות בסיסיות, מדדים בודדים וחיפושים מהירים.",
       "routingHintSeedDefault": "לוחות מחוונים, ארטיפקטים, ניתוח קבצים וניתוח מתקדם רב-שלבי.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "ניתוב המודלים האוטומטי הוא תכונת ארגון. שדרג את הרישיון כדי להפעיל אותו."
+      "autoRouterEnterpriseTooltip": "ניתוב המודלים האוטומטי הוא תכונת ארגון. שדרג את הרישיון כדי להפעיל אותו.",
+      "addModel": "הוספת מודל",
+      "addModelCustomPlaceholder": "מזהה מודל (לדוגמה gpt-5.6-luna)",
+      "addModelSubmit": "הוספה",
+      "addModelTitle": "הוספת מודל",
+      "addProvider": "הוספת ספק",
+      "cancel": "ביטול",
+      "colFallback": "גיבוי",
+      "colImageGen": "יצירת תמונות",
+      "dangerZone": "אזור מסוכן",
+      "deleteModel": "מחיקה",
+      "deleteModelBlockedDefault": "לא ניתן למחוק מודלי ברירת מחדל. הפוך מודל אחר לברירת המחדל תחילה.",
+      "deleteModelConfirm": "למחוק את “{name}”? לא ניתן לבטל את הפעולה.",
+      "deleteModelTitle": "מחיקת מודל",
+      "enabledLabel": "מופעל",
+      "fallback": "מודל גיבוי",
+      "fallbackColTooltip": "העדיפות בשרשרת הגיבוי — הניסיונות מתבצעים בסדר עולה כשהמודל הפעיל נכשל.",
+      "fallbackEmpty": "אין מודלי גיבוי — הגדר עדיפויות בעמודת הגיבוי",
+      "fallbackEnterpriseTooltip": "מודל גיבוי הוא יכולת Enterprise. שדרג את הרישיון כדי להפעיל אותה.",
+      "fallbackHow1": "כשהמודל הפעיל נכשל בגלל מגבלת קצב, עומס אצל הספק או שגיאת רשת, הבקשה נשלחת שוב למודל הבא בסדר שלמטה.",
+      "fallbackHow2": "המודלים מנוסים מלמעלה למטה; מודל שהספק שלו אינו זמין מדולג עד שהוא חוזר לפעול.",
+      "fallbackHow3": "המעבר תמיד מוצג בשיחה, והתשובה מסומנת במודל שבאמת ענה עליה.",
+      "fallbackHowTitle": "איך מודל גיבוי עובד",
+      "fallbackInactive": "לא פעיל",
+      "fallbackOff": "מודל גיבוי כבוי",
+      "fallbackOn": "מודל גיבוי פעיל",
+      "fallbackPrimary": "ראשי",
+      "imageGenDefaultBlocked": "מודלי ברירת מחדל לא יכולים להיות מודלים ליצירת תמונות. הפוך מודל אחר לברירת המחדל תחילה.",
+      "imageGenTooltip": "האם המודל הזה יוצר תמונות (לדוגמה gpt-image-1). מפעיל אותו עבור הכלי generate_image ולהטמעת תמונות שנוצרו בתוצרים. מודלי תמונה אינם מופיעים בבורר המודלים בצ׳אט ואינם יכולים לשמש כברירת מחדל.",
+      "modelAdded": "המודל נוסף",
+      "modelCardHint": "לחץ על שורת מודל כדי לפתוח את ההגדרות שלו",
+      "modelDeleted": "המודל נמחק",
+      "modelSettings": "הגדרות מודל",
+      "modelsCount": "{count} מודלים",
+      "providerLabel": "ספק",
+      "providerSettingsTooltip": "הגדרות ספק",
+      "save": "שמירה"
     },
     "licensePage": {
       "title": "רישיון",
@@ -2308,7 +2490,30 @@
       "inDays": "נותרו {days} ימים",
       "expiredNotice": "רישיון ה-enterprise שלך פג. תכונות ה-enterprise מושבתות עד לחידוש.",
       "enterpriseTitle": "מהדורת enterprise",
-      "renewInfo": "חדש את הרישיון כדי לשחזר תכונות enterprise כמו יומני ביקורת, בקרת גישה מתקדמת ומדיניות שמירת נתונים."
+      "renewInfo": "חדש את הרישיון כדי לשחזר תכונות enterprise כמו יומני ביקורת, בקרת גישה מתקדמת ומדיניות שמירת נתונים.",
+      "activate": "הפעלה",
+      "activateDesc": "הדבק את מפתח הרישיון שקיבלת מ-BOW.",
+      "activateTitle": "מפתח רישיון",
+      "activating": "מפעיל…",
+      "activeKey": "מפתח פעיל",
+      "cancel": "ביטול",
+      "envActive": "המערכת משתמשת ב-{envvar} מהסביבה שלה. שמירת מפתח כאן תעקוף אותו.",
+      "keyLabel": "מפתח רישיון",
+      "keyPlaceholder": "bow_lic_…",
+      "lastUpdated": "עודכן",
+      "noKey": "לא הוגדר מפתח רישיון. הדבק מפתח למטה כדי להפעיל את יכולות ה-Enterprise.",
+      "overridesEnv": "המפתח הזה עוקף את {envvar} שהוגדר לפריסה הזו. הסר אותו כדי לחזור למפתח ההוא.",
+      "remove": "הסרה",
+      "removeConfirm": "להסיר את מפתח הרישיון השמור? המערכת תחזור להשתמש במפתח מהסביבה, אם הוגדר כזה.",
+      "removedToast": "מפתח הרישיון הוסר",
+      "removing": "מסיר…",
+      "saveFailed": "לא ניתן היה להפעיל את הרישיון",
+      "savedToast": "הרישיון הופעל",
+      "sourceConfig": "מהסביבה",
+      "sourceDatabase": "הוגדר כאן",
+      "sourceLabel": "מקור",
+      "sourceNone": "לא הוגדר",
+      "update": "עדכון מפתח"
     },
     "mcpModal": {
       "editTitle": "עריכת חיבור MCP",
@@ -2360,7 +2565,49 @@
       "description": "משמש לפירוש משימות מתוזמנות (למשל זמני אינדוקס מחדש) ולהצגת חותמות זמן. הנתונים תמיד נשמרים ב-UTC.",
       "systemDefault": "השתמש בברירת המחדל של המערכת (UTC)",
       "saveError": "לא ניתן לעדכן את אזור הזמן"
-    }
+    },
+    "pii": {
+      "action": "פעולה",
+      "actionBlock": "חסימה",
+      "actionReplace": "החלפה",
+      "addPattern": "הוספת תבנית",
+      "addRule": "הוספת כלל",
+      "blocksRequest": "חוסם את הבקשה",
+      "builtinDesc": "גלאים מובנים למידע אישי נפוץ. אפשר להפעיל כל אחד ולהתאים את הטוקן שיחליף אותו.",
+      "builtinTitle": "כללים מובנים",
+      "customDesc": "הגדר גלאים משלך. כלל יכול להכיל כמה תבניות (ביטויים רגולריים) — התאמה לאחת מהן מפעילה את הכלל.",
+      "customTitle": "כללים מותאמים אישית",
+      "enterpriseBody": "הגנת מידע אישי זמינה בתוכנית Enterprise. פנה למנהל המערכת כדי להפעיל אותה.",
+      "enterpriseTitle": "יכולת Enterprise",
+      "masterDesc": "כשהאפשרות פעילה, טקסט תואם מוסתר מכל פרומפט שנשלח למודל בסביבת העבודה הזו.",
+      "masterLabel": "הפעלת הגנת מידע אישי",
+      "modeBlock": "חסימת הבקשה",
+      "modeBlockDesc": "אל תשלח את הפרומפט אם נמצא מידע אישי. ניתן לעקוף זאת בכל כלל למטה.",
+      "modeLabel": "פעולת ברירת מחדל כשמזוהה מידע אישי",
+      "modeReplace": "החלפה בטוקן",
+      "modeReplaceDesc": "החלף כל התאמה בטוקן שהוגדר לה והמשך. ניתן לעקוף זאת בכל כלל למטה.",
+      "noCustomRules": "אין עדיין כללים מותאמים אישית.",
+      "patternPlaceholder": "לדוגמה \\bEMP-\\d+\\b",
+      "patternRequired": "כל כלל חייב לכלול לפחות תבנית אחת.",
+      "patterns": "תבניות (regex)",
+      "removeRule": "הסרה",
+      "replacement": "טקסט מחליף",
+      "ruleName": "שם הכלל",
+      "ruleNamePlaceholder": "לדוגמה: מספר עובד",
+      "saveError": "שמירת הגדרות המידע האישי נכשלה",
+      "saved": "הגדרות המידע האישי נשמרו",
+      "subtitle": "הסתרת מידע אישי מפרומפטים לפני שהם נשלחים לספק מודל כלשהו. הכללים רצים על הפרומפט המלא — הודעת המשתמש, דוגמאות סכימה, תצוגות מקדימות של נתונים וטקסט מקבצים שהועלו.",
+      "testBlocked": "הפרומפט הזה היה נחסם (זוהה מידע אישי).",
+      "testButton": "תצוגה מקדימה של ההסתרה",
+      "testDesc": "הדבק טקסט לדוגמה כדי לראות כיצד הוא יוסתר עם הכללים הנוכחיים.",
+      "testMatches": "התאמות: {rules}",
+      "testNoMatches": "לא זוהה מידע אישי בטקסט הדוגמה.",
+      "testPlaceholder": "הדבק טקסט שמכיל מידע אישי לדוגמה…",
+      "testResult": "תוצאה",
+      "testTitle": "בדיקת הכללים שלך",
+      "title": "הגנת מידע אישי"
+    },
+    "piiTab": "הגנת מידע אישי"
   },
   "data": {
     "title": "חיבורים",
@@ -2655,7 +2902,17 @@
     "mcpModeAiTip": "ה-AI רשאי לקבוע; השרת ממלא אם ריק",
     "mcpModeLockedTip": "ערך המנהל תמיד גובר; מוסתר מה-AI",
     "mcpAddMetaField": "+ הוספת שדה מטא-נתונים",
-    "verify": "אימות"
+    "verify": "אימות",
+    "browserForm": {
+      "allowDownloads": "אפשר הורדות",
+      "cancel": "ביטול",
+      "name": "שם",
+      "namePlaceholder": "לדוגמה: פורטל ספקים",
+      "save": "יצירה",
+      "test": "בדיקת כתובות",
+      "urls": "כתובות מותרות",
+      "urlsHelp": "תבנית אחת בכל שורה, לדוגמה https://portal.vendor.com/**. הסוכן יוכל לגשת רק לכתובות שתואמות."
+    }
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
@@ -2739,7 +2996,10 @@
     "integration.not_found": "האינטגרציה לא נמצאה",
     "resource.conflict": "המשאב כבר קיים או סותר את המצב הקיים",
     "resource.duplicate": "משאב כפול",
-    "setting.update_failed": "עדכון ההגדרה נכשל"
+    "setting.update_failed": "עדכון ההגדרה נכשל",
+    "query": {
+      "failed_silently": "שאילתה נכשלה אך הקוד שנוצר החזיר תוצאה ריקה במקום לדווח על כך"
+    }
   },
   "email": {
     "dashboardShare": {
@@ -3849,7 +4109,9 @@
       "defaultModelSubtitle": "המודל שבו ייעשה שימוש כברירת מחדל בפתיחת צ'אט חדש. מוצגים רק מודלים שיש לך גישה אליהם.",
       "orgDefault": "ברירת המחדל של הארגון",
       "defaultModelSaved": "מודל ברירת המחדל עודכן",
-      "defaultModelFailed": "עדכון מודל ברירת המחדל נכשל"
+      "defaultModelFailed": "עדכון מודל ברירת המחדל נכשל",
+      "directorySubtitle": "פרטי התפקיד מסונכרנים מספק הזהויות של הארגון. גלויים ל-AI כהקשר.",
+      "directoryTitle": "פרופיל מהספרייה הארגונית"
     },
     "instructions": {
       "title": "הוראות מותאמות אישית",
@@ -4261,5 +4523,14 @@
     "continueOnboarding": "המשך בתהליך ההקמה",
     "configureLlm": "הגדר את ה-LLM שלך",
     "connectFirstDataSource": "חבר את מקור הנתונים הראשון שלך"
+  },
+  "exports": {
+    "complete": "הייצוא הושלם",
+    "failed": "הייצוא נכשל",
+    "html": "HTML",
+    "label": "ייצוא",
+    "pdf": "PDF",
+    "pdfDone": "קובץ ה-PDF הורד.",
+    "pptx": "PowerPoint"
   }
 }

@@ -106,10 +106,10 @@
     "connect": "Conectar",
     "manageConnections": "Gestionar conexiones",
     "loadingFiles": "Cargando archivos desde el origen…",
-    "countTables": "{n} tablas",
-    "countTools": "{n} herramientas",
-    "countFiles": "{n} archivos",
-    "countInstructions": "{n} instrucciones",
+    "countTables": "{n} tabla | {n} tablas",
+    "countTools": "{n} herramienta | {n} herramientas",
+    "countFiles": "{n} archivo | {n} archivos",
+    "countInstructions": "{n} instrucción | {n} instrucciones",
     "untitled": "Sin título",
     "primaryPlaceholder": "Escribe la instrucción principal del agente en markdown… (escribe {'@'} para mencionar una tabla o instrucción)",
     "change": "Cambiar",
@@ -287,7 +287,8 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Ejecutar esta suite",
-    "runSuiteFailed": "No se pudo ejecutar la suite"
+    "runSuiteFailed": "No se pudo ejecutar la suite",
+    "exportInstructions": "Exportar paquete del agente: instrucciones, configuración y evaluaciones (.zip)"
   },
   "smoke": {
     "hello": "Hola",
@@ -720,7 +721,8 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Panel",
-      "slides": "Diapositivas"
+      "slides": "Diapositivas",
+      "training": "Entrenamiento"
     },
     "rowActions": "Acciones del informe",
     "status": {
@@ -728,7 +730,10 @@
       "running": "En ejecución",
       "newActivity": "Actividad nueva",
       "errorNew": "Terminó con un error"
-    }
+    },
+    "inProject": "En {name}",
+    "sharedEmpty": "No hay informes compartidos",
+    "sharedEmptyHint": "Los informes que otras personas compartan contigo aparecerán aquí."
   },
   "projects": {
     "title": "Proyectos",
@@ -809,7 +814,30 @@
       "noAutomations": "Aún no hay automatizaciones en este proyecto.",
       "fromProject": "De {name}"
     },
-    "rowActions": "Acciones del proyecto"
+    "rowActions": "Acciones del proyecto",
+    "myProjects": "Mis proyectos",
+    "sharedWithMe": "Compartidos conmigo",
+    "searchPlaceholder": "Buscar proyectos…",
+    "filtersButton": "Filtros",
+    "emptyTitle": "Aún no hay proyectos",
+    "noResults": "No se encontraron proyectos",
+    "noResultsHint": "Prueba otra búsqueda o borra los filtros.",
+    "sharedEmpty": "Todavía no te han compartido nada",
+    "sharedEmptyHint": "Los proyectos que tus compañeros compartan contigo aparecerán aquí.",
+    "filters": {
+      "accessLabel": "Acceso",
+      "allAccess": "Todos los accesos",
+      "private": "Privado",
+      "orgShared": "Compartido con la organización",
+      "reportsLabel": "Informes",
+      "allReports": "Todos los proyectos",
+      "withReports": "Con informes",
+      "emptyReports": "Vacíos",
+      "clear": "Borrar todo"
+    },
+    "pagination": {
+      "rowsPerPage": "Filas por página"
+    }
   },
   "traceModal": {
     "title": "Ejecución del agente",
@@ -897,7 +925,8 @@
     "steerQueuedFallback": "La ejecución acaba de terminar: tu mensaje se puso en cola",
     "steerFailed": "No se pudo dirigir la respuesta en curso",
     "instructionUnavailableTitle": "Instrucción no disponible",
-    "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella."
+    "instructionUnavailableBody": "Es posible que se haya eliminado o que no tengas acceso a ella.",
+    "loopRetryNotice": "Se produjo un error interno: reintentando desde el contexto más reciente (intento {attempt}/{max})"
   },
   "tools": {
     "common": {
@@ -1414,7 +1443,9 @@
     "routeModel": {
       "routedTo": "Enrutado a",
       "choosing": "Eligiendo modelo…",
-      "routing": "Enrutamiento de modelo"
+      "routing": "Enrutamiento de modelo",
+      "fallbackReason": "{from} no estaba disponible",
+      "fellBackTo": "Cambió a"
     },
     "grepFiles": {
       "grepping": "Buscando en archivos {pattern}…",
@@ -1453,6 +1484,22 @@
       "failed": "Error al enviar el correo",
       "subject": "Asunto",
       "to": "Para"
+    },
+    "browser": {
+      "acted": "Interactuado",
+      "acting": "Interactuando",
+      "capturing": "Haciendo una captura",
+      "done": "Navegación completada",
+      "extracted": "Texto leído",
+      "extracting": "Leyendo el texto",
+      "failed": "Error en la acción del navegador",
+      "navigated": "Página abierta",
+      "navigating": "Abriendo la página",
+      "screenshot": "Captura de pantalla",
+      "snapshot": "Estructura de la página",
+      "snapshotted": "Página leída",
+      "snapshotting": "Leyendo la página",
+      "working": "Navegando"
     }
   },
   "entityCreate": {
@@ -1471,7 +1518,9 @@
     "saveEntity": "Guardar entidad",
     "suggestEntity": "Sugerir entidad",
     "saveFailed": "No se pudo guardar la entidad",
-    "stepRequired": "Se requiere un paso para guardar"
+    "stepRequired": "Se requiere un paso para guardar",
+    "publishedToast": "Consulta publicada en el catálogo",
+    "suggestedToast": "Sugerencia enviada para revisión"
   },
   "mentionInput": {
     "placeholder": "Escribe {'@'} para mencionar...",
@@ -1563,10 +1612,10 @@
     "addAgent": "+ Añadir agente...",
     "advancedPermissions": "Permisos avanzados",
     "tiers": {
-        "query": "Puede consultar",
-        "queryHint": "Hacer preguntas a este agente",
-        "manage": "Puede gestionar",
-        "manageHint": "Editar instrucciones, entidades, evaluaciones, ajustes y miembros"
+      "query": "Puede consultar",
+      "queryHint": "Hacer preguntas a este agente",
+      "manage": "Puede gestionar",
+      "manageHint": "Editar instrucciones, entidades, evaluaciones, ajustes y miembros"
     },
     "modelAccess": "Acceso a modelos",
     "modelAccessHint": "Modelos restringidos",
@@ -1771,7 +1820,59 @@
       "unknown": "Desconocido",
       "lastSyncDetail": "— {gCreated} creados, {gUpdated} actualizados, {gRemoved} eliminados · {mAdded} miembros añadidos, {mRemoved} eliminados",
       "errorCount": "{n} error(es): {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraAdd": "Añadir",
+      "entraAddPlaceholder": "Añadir atributo…",
+      "entraContextTitle": "De tu perfil del directorio",
+      "entraEnable": "Sincronizar datos del perfil desde Entra ID",
+      "entraEnableHint": "Al iniciar sesión, lee el perfil de Microsoft Graph del usuario y lo guarda como contexto para la IA. Usa el permiso User.Read concedido por defecto: no requiere consentimiento del administrador.",
+      "entraFieldsLabel": "Atributos a incluir en el contexto",
+      "entraNoFields": "Ningún atributo seleccionado",
+      "entraNoLogin": "Inicia sesión con Entra ID para previsualizar los valores reales de tu perfil.",
+      "entraNotSet": "sin definir",
+      "entraPreviewError": "No se pudieron cargar los valores desde Microsoft Graph.",
+      "entraReauth": "Tu sesión de Entra ID ha caducado: vuelve a iniciar sesión con Entra ID para cargar los valores.",
+      "entraRemove": "Quitar",
+      "entraSaveFailed": "Error al guardar",
+      "entraSaved": "Guardado",
+      "entraSaving": "Guardando...",
+      "entraSubtitle": "Sincroniza el puesto, el departamento y otros datos del perfil desde Microsoft Entra ID al iniciar sesión",
+      "entraTitle": "Sincronización de perfil de Entra ID",
+      "field_city": "Ciudad",
+      "field_companyName": "Empresa",
+      "field_country": "País",
+      "field_department": "Departamento",
+      "field_displayName": "Nombre",
+      "field_employeeHireDate": "Fecha de contratación",
+      "field_employeeId": "ID de empleado",
+      "field_employeeOrgData": "División y centro de coste",
+      "field_employeeType": "Tipo de empleado",
+      "field_hostedDomain": "Dominio del espacio de trabajo",
+      "field_jobTitle": "Puesto",
+      "field_locale": "Configuración regional",
+      "field_location": "Ubicación",
+      "field_mobilePhone": "Teléfono móvil",
+      "field_officeLocation": "Ubicación de la oficina",
+      "field_organization": "Organización",
+      "field_preferredLanguage": "Idioma preferido",
+      "field_state": "Provincia",
+      "field_usageLocation": "País de uso",
+      "googleAdd": "Añadir",
+      "googleAddPlaceholder": "Añadir atributo…",
+      "googleEnable": "Sincronizar datos del perfil desde Google",
+      "googleEnableHint": "Al iniciar sesión, lee el perfil de Google del usuario (userinfo + People API) y lo guarda como contexto para la IA. Usa solo los permisos openid/profile/email ya concedidos al iniciar sesión.",
+      "googleFieldsLabel": "Atributos a incluir en el contexto",
+      "googleNoFields": "Ningún atributo seleccionado",
+      "googleNoLogin": "Inicia sesión con Google para previsualizar los valores reales de tu perfil.",
+      "googleNotSet": "sin definir",
+      "googlePreviewError": "No se pudieron cargar los valores desde Google.",
+      "googleReauth": "Tu sesión de Google ha caducado: vuelve a iniciar sesión con Google para cargar los valores.",
+      "googleRemove": "Quitar",
+      "googleSaveFailed": "Error al guardar",
+      "googleSaved": "Guardado",
+      "googleSaving": "Guardando...",
+      "googleSubtitle": "Sincroniza el nombre, el puesto, el departamento y otros datos del perfil desde Google al iniciar sesión",
+      "googleTitle": "Sincronización de perfil de Google"
     },
     "auditLogs": "Registros de auditoría",
     "integrations": {
@@ -1835,7 +1936,21 @@
           "failedConnect": "No se pudo conectar Slack",
           "disconnectedToast": "Slack desconectado",
           "disconnectedToastDesc": "Integración con Slack desconectada",
-          "failedDisconnect": "No se pudo desconectar Slack"
+          "failedDisconnect": "No se pudo desconectar Slack",
+          "appToken": "Token de nivel de aplicación",
+          "connectionModeLabel": "Modo de conexión",
+          "modeEventsApi": "Events API (webhook)",
+          "modeEventsApiHint": "Slack envía los eventos por POST a tu URL de webhook pública: requiere el signing secret y una Request URL accesible.",
+          "modeSocket": "Socket Mode",
+          "modeSocketHint": "El backend se conecta a Slack por WebSocket: no hace falta URL pública ni signing secret, y habilita la experiencia de Agente.",
+          "modeSocketRecommended": "Socket Mode (recomendado)",
+          "socketSetupIntro": "En tu app de Slack (api.slack.com/apps):",
+          "socketStep1": "Socket Mode → actívalo y crea un token de nivel de aplicación con el scope connections:write (xapp-…)",
+          "socketStep2": "OAuth & Permissions → scopes del bot: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions → activa los eventos (sin Request URL) y suscríbete a: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents → activa \"Agent experience\" para el panel nativo de asistente, el nombrado de hilos y las sugerencias de prompts",
+          "socketStep5": "App Home → activa la pestaña Messages y permite que los usuarios envíen mensajes",
+          "socketStep6": "Install App → instálala en tu espacio de trabajo y copia el Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Integración con Teams",
@@ -2073,6 +2188,37 @@
           "tenantWide": "Implementación para todo el inquilino",
           "tenantWideDesc": "Para una implementación en toda la organización, el administrador de Microsoft 365 puede cargar este manifiesto mediante Admin Center → Configuración → Aplicaciones integradas.",
           "failedLoadManifest": "No se pudo cargar el manifiesto"
+        },
+        "googleChat": {
+          "autoLinkDescConnected": "Cuando está activado, los usuarios de Google Chat se vinculan automáticamente a las cuentas de BOW cuyo correo coincide con su perfil de Google Workspace (sin enlace de verificación). Como el correo procede del directorio de tu Workspace, esto suele ser seguro, pero actívalo solo para dominios en los que confíes plenamente.",
+          "autoLinkDescSetup": "Los usuarios que escriben al bot se vinculan a las cuentas de BOW cuyo correo coincide con su perfil de Google Workspace, sin enlace de verificación. Recomendado.",
+          "autoLinkTitle": "Vincular usuarios automáticamente por correo de Workspace",
+          "connectedNotice": "Google Chat está conectado actualmente.",
+          "connectedToast": "Google Chat conectado",
+          "connectedToastDesc": "Integración con Google Chat realizada correctamente",
+          "disconnectedToast": "Google Chat desconectado",
+          "disconnectedToastDesc": "Integración con Google Chat desconectada",
+          "failedConnect": "No se pudo conectar Google Chat",
+          "failedDisconnect": "No se pudo desconectar Google Chat",
+          "noteChannels": "En los espacios solo se consultan fuentes de datos públicas",
+          "noteChats": "En los mensajes directos se consultan fuentes de datos públicas y privadas (a las que el usuario tenga acceso)",
+          "noteNoInbound": "Los eventos llegan por Pub/Sub: no hace falta URL pública ni acceso entrante en el firewall",
+          "noteRegistered": "Solo los usuarios registrados pueden escribir al bot o mencionarlo con {'@'}",
+          "serviceAccount": "Cuenta de servicio:",
+          "serviceAccountJsonLabel": "Clave de cuenta de servicio (JSON)",
+          "serviceAccountJsonPlaceholder": "Pega la clave JSON completa de la cuenta de servicio",
+          "sessionStalenessDesc": "Cuánto tiempo un mensaje directo sigue en el mismo informe de conversación. Los mensajes posteriores a esta ventana inician un informe nuevo (enviar \"new\" inicia uno de inmediato). Por defecto: 120 horas (5 días).",
+          "setupIntro": "En un proyecto de Google Cloud dedicado (importante: reutilizar un proyecto antiguo puede dejar la app de Chat en un estado inutilizable):",
+          "setupStep1": "Activa la API de Google Chat y la API de Cloud Pub/Sub",
+          "setupStep2": "Crea una cuenta de servicio (sin roles) y descarga su clave JSON",
+          "setupStep3": "Crea un tema de Pub/Sub y concede a chat-api-push{'@'}system.gserviceaccount.com el rol Pub/Sub Publisher sobre él",
+          "setupStep4": "Crea una suscripción de tipo pull en el tema y concede a tu cuenta de servicio el rol Pub/Sub Subscriber sobre ella",
+          "setupStep5": "En la página Chat API Configuration: deja SIN marcar \"Build this Chat app as a Workspace add-on\", define el nombre y el avatar de la app, activa la recepción de mensajes 1:1, selecciona Cloud Pub/Sub con tu tema, activa \"Log errors to Logging\" y guarda",
+          "subscription": "Suscripción:",
+          "subscriptionLabel": "Suscripción de Pub/Sub",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "subtitle": "Configura y gestiona la integración con Google Chat para tu organización",
+          "title": "Integración con Google Chat"
         }
       },
       "emptyTitle": "Haz que Bag of Words funcione con tus herramientas",
@@ -2281,7 +2427,43 @@
       "routingHintSeedSmall": "Preguntas básicas, métricas simples y búsquedas rápidas.",
       "routingHintSeedDefault": "Paneles, artefactos, análisis de archivos y análisis avanzado de varios pasos.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "El enrutador automático de modelos es una función empresarial. Actualiza tu licencia para habilitarlo."
+      "autoRouterEnterpriseTooltip": "El enrutador automático de modelos es una función empresarial. Actualiza tu licencia para habilitarlo.",
+      "addModel": "Añadir modelo",
+      "addModelCustomPlaceholder": "ID del modelo (p. ej. gpt-5.6-luna)",
+      "addModelSubmit": "Añadir",
+      "addModelTitle": "Añadir modelo",
+      "addProvider": "Añadir proveedor",
+      "cancel": "Cancelar",
+      "colFallback": "Respaldo",
+      "colImageGen": "Generación de imágenes",
+      "dangerZone": "Zona de peligro",
+      "deleteModel": "Eliminar",
+      "deleteModelBlockedDefault": "Los modelos predeterminados no se pueden eliminar. Define antes otro modelo como predeterminado.",
+      "deleteModelConfirm": "¿Eliminar “{name}”? Esta acción no se puede deshacer.",
+      "deleteModelTitle": "Eliminar modelo",
+      "enabledLabel": "Activado",
+      "fallback": "Respaldo de LLM",
+      "fallbackColTooltip": "Prioridad en la cadena de respaldo: se prueban en orden ascendente cuando falla el modelo activo.",
+      "fallbackEmpty": "sin modelos de respaldo: define prioridades en la columna Respaldo",
+      "fallbackEnterpriseTooltip": "El respaldo de LLM es una función enterprise. Actualiza tu licencia para habilitarla.",
+      "fallbackHow1": "Cuando el modelo activo falla por límite de peticiones, sobrecarga del proveedor o error de red, la petición se reintenta con el siguiente modelo del orden de abajo.",
+      "fallbackHow2": "Los modelos se prueban de arriba abajo; un modelo cuyo proveedor no esté disponible se omite hasta que se recupere.",
+      "fallbackHow3": "El cambio siempre se indica en el chat y la respuesta se marca con el modelo que realmente la generó.",
+      "fallbackHowTitle": "Cómo funciona el respaldo de LLM",
+      "fallbackInactive": "inactivo",
+      "fallbackOff": "Respaldo de LLM desactivado",
+      "fallbackOn": "Respaldo de LLM activado",
+      "fallbackPrimary": "principal",
+      "imageGenDefaultBlocked": "Los modelos predeterminados no pueden generar imágenes. Define antes otro modelo como predeterminado.",
+      "imageGenTooltip": "Si este modelo genera imágenes (p. ej. gpt-image-1). Lo habilita para la herramienta generate_image y para incrustar imágenes generadas en los artefactos. Los modelos de imagen se excluyen del selector de modelos del chat y no pueden ser predeterminados.",
+      "modelAdded": "Modelo añadido",
+      "modelCardHint": "Haz clic en la fila de un modelo para abrir sus ajustes",
+      "modelDeleted": "Modelo eliminado",
+      "modelSettings": "Ajustes del modelo",
+      "modelsCount": "{count} modelos",
+      "providerLabel": "Proveedor",
+      "providerSettingsTooltip": "Ajustes del proveedor",
+      "save": "Guardar"
     },
     "licensePage": {
       "title": "Licencia",
@@ -2308,7 +2490,30 @@
       "inDays": "{days} días restantes",
       "expiredNotice": "Tu licencia enterprise ha caducado. Las funciones enterprise están desactivadas hasta que la renueves.",
       "enterpriseTitle": "Edición enterprise",
-      "renewInfo": "Renueva tu licencia para restaurar funciones enterprise como registros de auditoría, control de acceso avanzado y políticas de retención de datos."
+      "renewInfo": "Renueva tu licencia para restaurar funciones enterprise como registros de auditoría, control de acceso avanzado y políticas de retención de datos.",
+      "activate": "Activar",
+      "activateDesc": "Pega la clave de licencia que recibiste de BOW.",
+      "activateTitle": "Clave de licencia",
+      "activating": "Activando…",
+      "activeKey": "Clave activa",
+      "cancel": "Cancelar",
+      "envActive": "Esta instancia está usando {envvar} de su entorno. Guardar una clave aquí lo sobrescribe.",
+      "keyLabel": "Clave de licencia",
+      "keyPlaceholder": "bow_lic_…",
+      "lastUpdated": "Actualizado",
+      "noKey": "No hay ninguna clave de licencia configurada. Pega una abajo para habilitar las funciones enterprise.",
+      "overridesEnv": "Esta clave sobrescribe {envvar} configurado para este despliegue. Quítala para volver a esa clave.",
+      "remove": "Quitar",
+      "removeConfirm": "¿Quitar la clave de licencia guardada? Esta instancia volverá a usar la clave de su entorno, si hay alguna configurada.",
+      "removedToast": "Clave de licencia eliminada",
+      "removing": "Quitando…",
+      "saveFailed": "No se pudo activar la licencia",
+      "savedToast": "Licencia activada",
+      "sourceConfig": "Del entorno",
+      "sourceDatabase": "Definida aquí",
+      "sourceLabel": "Origen",
+      "sourceNone": "Sin definir",
+      "update": "Actualizar clave"
     },
     "mcpModal": {
       "editTitle": "Editar conexión MCP",
@@ -2360,7 +2565,49 @@
       "description": "Se usa para interpretar las tareas programadas (p. ej. horarios de reindexación) y para mostrar las marcas de tiempo. Los datos siempre se almacenan en UTC.",
       "systemDefault": "Usar valor predeterminado del sistema (UTC)",
       "saveError": "No se pudo actualizar la zona horaria"
-    }
+    },
+    "pii": {
+      "action": "Acción",
+      "actionBlock": "Bloquear",
+      "actionReplace": "Reemplazar",
+      "addPattern": "Añadir patrón",
+      "addRule": "Añadir regla",
+      "blocksRequest": "Bloquea la petición",
+      "builtinDesc": "Detectores predefinidos para datos personales habituales. Actívalos y personaliza su token de reemplazo.",
+      "builtinTitle": "Reglas integradas",
+      "customDesc": "Define tus propios detectores. Una regla puede contener varios patrones (expresiones regulares): basta con que coincida uno para activarla.",
+      "customTitle": "Reglas personalizadas",
+      "enterpriseBody": "La protección de datos personales está disponible en el plan Enterprise. Contacta con tu administrador para habilitarla.",
+      "enterpriseTitle": "Función enterprise",
+      "masterDesc": "Cuando está activada, el texto coincidente se oculta en todos los prompts enviados a un LLM desde este espacio de trabajo.",
+      "masterLabel": "Activar protección de datos personales",
+      "modeBlock": "Bloquear la petición",
+      "modeBlockDesc": "No enviar el prompt si se detectan datos personales. Se puede anular por regla más abajo.",
+      "modeLabel": "Acción predeterminada al detectar datos personales",
+      "modeReplace": "Reemplazar por un token",
+      "modeReplaceDesc": "Sustituir cada coincidencia por su token de reemplazo y continuar. Se puede anular por regla más abajo.",
+      "noCustomRules": "Todavía no hay reglas personalizadas.",
+      "patternPlaceholder": "p. ej. \\bEMP-\\d+\\b",
+      "patternRequired": "Cada regla necesita al menos un patrón.",
+      "patterns": "Patrones (regex)",
+      "removeRule": "Quitar",
+      "replacement": "Reemplazo",
+      "ruleName": "Nombre de la regla",
+      "ruleNamePlaceholder": "p. ej. ID de empleado",
+      "saveError": "Error al guardar los ajustes de datos personales",
+      "saved": "Ajustes de datos personales guardados",
+      "subtitle": "Oculta los datos personales de los prompts antes de enviarlos a cualquier proveedor de LLM. Las reglas se aplican al prompt completo: el mensaje del usuario, las muestras de esquema, las vistas previas de datos y el texto de los archivos subidos.",
+      "testBlocked": "Este prompt sería BLOQUEADO (se detectaron datos personales).",
+      "testButton": "Previsualizar la ocultación",
+      "testDesc": "Pega un texto de ejemplo para ver cómo se ocultará con las reglas actuales.",
+      "testMatches": "Coincidencias: {rules}",
+      "testNoMatches": "No se detectaron datos personales en el ejemplo.",
+      "testPlaceholder": "Pega un texto con datos personales de ejemplo…",
+      "testResult": "Resultado",
+      "testTitle": "Prueba tus reglas",
+      "title": "Protección de datos personales"
+    },
+    "piiTab": "Protección de datos"
   },
   "data": {
     "title": "Conexiones",
@@ -2655,7 +2902,17 @@
     "mcpModeAiTip": "La IA puede establecerlo; el servidor lo completa si está vacío",
     "mcpModeLockedTip": "El valor del administrador siempre prevalece; oculto para la IA",
     "mcpAddMetaField": "+ Añadir campo de metadatos",
-    "verify": "Verificar"
+    "verify": "Verificar",
+    "browserForm": {
+      "allowDownloads": "Permitir descargas",
+      "cancel": "Cancelar",
+      "name": "Nombre",
+      "namePlaceholder": "p. ej. Portal de proveedores",
+      "save": "Crear",
+      "test": "Validar URL",
+      "urls": "URL permitidas",
+      "urlsHelp": "Un patrón por línea, p. ej. https://portal.vendor.com/**. El agente solo podrá visitar las URL que coincidan."
+    }
   },
   "share": {
     "shareDashboard": "Compartir panel",
@@ -2739,7 +2996,10 @@
     "integration.not_found": "Integración no encontrada",
     "resource.conflict": "El recurso ya existe o entra en conflicto con el estado actual",
     "resource.duplicate": "Recurso duplicado",
-    "setting.update_failed": "No se pudo actualizar la configuración"
+    "setting.update_failed": "No se pudo actualizar la configuración",
+    "query": {
+      "failed_silently": "Una consulta falló, pero el código generado devolvió un resultado vacío en lugar de informarlo"
+    }
   },
   "email": {
     "dashboardShare": {
@@ -3849,7 +4109,9 @@
       "defaultModelSubtitle": "El modelo que se usa de forma predeterminada al iniciar un nuevo chat. Solo se muestran los modelos a los que tienes acceso.",
       "orgDefault": "Predeterminado de la organización",
       "defaultModelSaved": "Modelo predeterminado actualizado",
-      "defaultModelFailed": "No se pudo actualizar el modelo predeterminado"
+      "defaultModelFailed": "No se pudo actualizar el modelo predeterminado",
+      "directorySubtitle": "Datos laborales sincronizados desde el proveedor de identidad de tu organización. Visibles para la IA como contexto.",
+      "directoryTitle": "Perfil del directorio"
     },
     "instructions": {
       "title": "Instrucciones personalizadas",
@@ -4261,5 +4523,14 @@
     "continueOnboarding": "Continuar la configuración",
     "configureLlm": "Configura tu LLM",
     "connectFirstDataSource": "Conecta tu primera fuente de datos"
+  },
+  "exports": {
+    "complete": "Exportación completada",
+    "failed": "Error al exportar",
+    "html": "HTML",
+    "label": "Exportar",
+    "pdfDone": "PDF descargado.",
+    "pdf": "PDF",
+    "pptx": "PowerPoint"
   }
 }

@@ -94,10 +94,10 @@
     "connect": "Connecter",
     "manageConnections": "Gérer les connexions",
     "loadingFiles": "Chargement des fichiers depuis la source…",
-    "countTables": "{n} tables",
-    "countTools": "{n} outils",
-    "countFiles": "{n} fichiers",
-    "countInstructions": "{n} instructions",
+    "countTables": "{n} table | {n} tables",
+    "countTools": "{n} outil | {n} outils",
+    "countFiles": "{n} fichier | {n} fichiers",
+    "countInstructions": "{n} instruction | {n} instructions",
     "untitled": "Sans titre",
     "primaryPlaceholder": "Rédigez l’instruction principale de l’agent en markdown… (tapez {'@'} pour mentionner une table ou une instruction)",
     "change": "Modifier",
@@ -274,7 +274,9 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Exécuter cette suite",
-    "runSuiteFailed": "Échec de l'exécution de la suite"
+    "runSuiteFailed": "Échec de l'exécution de la suite",
+    "exportInstructions": "Exporter le pack de l'agent — instructions, configuration et évaluations (.zip)",
+    "sharedManagedElsewhere": "Partagé avec des agents que vous ne gérez pas — modifiable uniquement par quelqu'un ayant autorité sur tous."
   },
   "smoke": {
     "hello": "Bonjour",
@@ -344,7 +346,10 @@
     "starOnGithub": "Star our GitHub",
     "admin": "Administration",
     "notifications": "Notifications",
-    "automations": "Automatisations"
+    "automations": "Automatisations",
+    "agent": "Agent",
+    "agents": "Agents",
+    "viewAllAgents": "Voir tous les agents →"
   },
   "notifications": {
     "title": "Notifications",
@@ -596,7 +601,14 @@
       "schedule": "Planification",
       "type": "Type",
       "dataSource": "Source de données",
-      "artifacts": "Artefacts"
+      "artifacts": "Artefacts",
+      "artifactsLabel": "Tableau de bord",
+      "clear": "Tout effacer",
+      "dataSourceLabel": "Agent",
+      "scheduleLabel": "Planification",
+      "statusLabel": "Statut",
+      "title": "Type",
+      "typeLabel": "Type"
     },
     "visibility": {
       "public": "Toute personne disposant du lien",
@@ -628,10 +640,14 @@
       "chat": "Conversation",
       "createdViaMcp": "Créé via MCP",
       "createdViaExcel": "Créé via Excel",
-      "runningOnSchedule": "Exécution planifiée"
+      "runningOnSchedule": "Exécution planifiée",
+      "createdBySchedule": "Créé par une tâche planifiée",
+      "createdByTrigger": "Créé par un déclencheur"
     },
     "pagination": {
-      "showing": "Affichage de {from} à {to} sur {total} rapports"
+      "showing": "Affichage de {from} à {to} sur {total} rapports",
+      "page": "Page {page}",
+      "rowsPerPage": "Lignes par page"
     },
     "toasts": {
       "starFailed": "Échec de la mise à jour du favori",
@@ -678,7 +694,34 @@
       "running": "En cours",
       "newActivity": "Nouvelle activité",
       "errorNew": "Terminé avec une erreur"
-    }
+    },
+    "type": {
+      "training": "Entraînement",
+      "chat": "Chat",
+      "dashboard": "Tableau de bord",
+      "slides": "Diapositives"
+    },
+    "inProject": "Dans {name}",
+    "filtersButton": "Filtres",
+    "sharedEmpty": "Aucun rapport partagé",
+    "sharedEmptyHint": "Les rapports que d'autres personnes partagent avec vous apparaîtront ici.",
+    "trainingEmptyBody": "Posez des questions et examinez les réponses de l'IA. Approuvez ou modifiez les réponses pour apprendre à l'analyste IA comment traiter des demandes similaires à l'avenir.",
+    "trainingEmptyTipLabel": "Comment ça marche :",
+    "trainingEmptyTitle": "Session d'entraînement démarrée.",
+    "trainingStarters": [
+      {
+        "title": "Trouver les conflits entre instructions",
+        "prompt": "Identifie les contradictions ou les lacunes entre les instructions d'entraînement existantes qui pourraient rendre les réponses de l'IA incohérentes."
+      },
+      {
+        "title": "Afficher les réponses peu fiables",
+        "prompt": "Liste les réponses récentes de l'IA où le modèle a exprimé de l'incertitude ou produit des réponses de faible qualité à revoir."
+      },
+      {
+        "title": "Afficher les réponses mal notées",
+        "prompt": "Examine les réponses ayant reçu des retours négatifs des utilisateurs afin d'identifier des tendances et des axes d'amélioration."
+      }
+    ]
   },
   "projects": {
     "title": "Projets",
@@ -759,7 +802,30 @@
       "noAutomations": "Aucune automatisation dans ce projet pour le moment.",
       "fromProject": "De {name}"
     },
-    "rowActions": "Actions du projet"
+    "rowActions": "Actions du projet",
+    "myProjects": "Mes projets",
+    "sharedWithMe": "Partagés avec moi",
+    "searchPlaceholder": "Rechercher des projets…",
+    "filtersButton": "Filtres",
+    "emptyTitle": "Aucun projet pour le moment",
+    "noResults": "Aucun projet trouvé",
+    "noResultsHint": "Essayez une autre recherche ou effacez les filtres.",
+    "sharedEmpty": "Rien ne vous a encore été partagé",
+    "sharedEmptyHint": "Les projets que vos collègues partagent avec vous apparaîtront ici.",
+    "filters": {
+      "accessLabel": "Accès",
+      "allAccess": "Tous les accès",
+      "private": "Privé",
+      "orgShared": "Partagé avec l'organisation",
+      "reportsLabel": "Rapports",
+      "allReports": "Tous les projets",
+      "withReports": "Avec rapports",
+      "emptyReports": "Vides",
+      "clear": "Tout effacer"
+    },
+    "pagination": {
+      "rowsPerPage": "Lignes par page"
+    }
   },
   "traceModal": {
     "title": "Exécution de l'agent",
@@ -847,7 +913,8 @@
     "steerQueuedFallback": "L'exécution vient de se terminer — votre message a été mis en file d'attente à la place",
     "steerFailed": "Échec de l'orientation de l'exécution en cours",
     "instructionUnavailableTitle": "Instruction indisponible",
-    "instructionUnavailableBody": "Elle a peut-être été supprimée, ou vous n'y avez pas accès."
+    "instructionUnavailableBody": "Elle a peut-être été supprimée, ou vous n'y avez pas accès.",
+    "loopRetryNotice": "Erreur interne rencontrée — nouvelle tentative à partir du contexte le plus récent (tentative {attempt}/{max})"
   },
   "tools": {
     "common": {
@@ -1027,7 +1094,9 @@
       "toastFailedPublish": "Échec de la publication de l'instruction",
       "toastDeletedDesc": "Instruction supprimée",
       "toastFailedDelete": "Échec de la suppression de l'instruction",
-      "toastSaved": "Instruction enregistrée"
+      "toastSaved": "Instruction enregistrée",
+      "editCount": "{n} modifications",
+      "editLabel": "Modifier l'instruction"
     },
     "inspectData": {
       "inspecting": "Inspection",
@@ -1362,7 +1431,9 @@
     "routeModel": {
       "routedTo": "Acheminé vers",
       "choosing": "Choix du modèle…",
-      "routing": "Routage du modèle"
+      "routing": "Routage du modèle",
+      "fallbackReason": "{from} était indisponible",
+      "fellBackTo": "Repli sur"
     },
     "grepFiles": {
       "grepping": "Recherche dans les fichiers de {pattern}…",
@@ -1375,6 +1446,48 @@
       "moreShown": "+{count} de plus affichés à l'agent",
       "filesSkippedSingular": "{count} fichier ignoré ({reasons})",
       "filesSkippedPlural": "{count} fichiers ignorés ({reasons})"
+    },
+    "listAgentExecutions": {
+      "empty": "Aucune exécution trouvée",
+      "failed": "Échec du chargement des exécutions de l'agent",
+      "found": "{count} exécution(s) · {total} au total",
+      "loading": "Chargement des exécutions de l'agent…",
+      "noMatch": "Aucune exécution ne correspond à ce filtre",
+      "tabAll": "Toutes",
+      "tabFailed": "En échec",
+      "tabLowConfidence": "Faible confiance",
+      "tabLowCoverage": "Faible couverture",
+      "tabNegative": "Retours négatifs",
+      "title": "Lister les exécutions de l'agent"
+    },
+    "sendEmail": {
+      "failed": "Échec de l'envoi de l'e-mail",
+      "sending": "Envoi de l'e-mail...",
+      "sentPrefix": "Envoyé : {subject}",
+      "subject": "Objet",
+      "to": "À"
+    },
+    "webFetch": {
+      "errorOccurred": "Une erreur est survenue",
+      "failed": "Échec de la récupération",
+      "fetched": "Récupéré",
+      "fetching": "Récupération"
+    },
+    "browser": {
+      "acted": "Interaction effectuée",
+      "acting": "Interaction",
+      "capturing": "Capture d'écran en cours",
+      "done": "Navigation terminée",
+      "extracted": "Texte lu",
+      "extracting": "Lecture du texte",
+      "failed": "Échec de l'action du navigateur",
+      "navigated": "Page ouverte",
+      "navigating": "Ouverture de la page",
+      "screenshot": "Capture d'écran",
+      "snapshot": "Structure de la page",
+      "snapshotted": "Page lue",
+      "snapshotting": "Lecture de la page",
+      "working": "Navigation"
     }
   },
   "entityCreate": {
@@ -1393,7 +1506,9 @@
     "saveEntity": "Enregistrer l'entité",
     "suggestEntity": "Suggérer une entité",
     "saveFailed": "Échec de l'enregistrement de l'entité",
-    "stepRequired": "Une étape est requise pour enregistrer"
+    "stepRequired": "Une étape est requise pour enregistrer",
+    "publishedToast": "Requête publiée dans le catalogue",
+    "suggestedToast": "Suggestion soumise pour révision"
   },
   "mentionInput": {
     "placeholder": "Tapez {'@'} pour mentionner...",
@@ -1415,7 +1530,8 @@
       "tables": "Tables",
       "prompts": "Prompts",
       "instructions": "Instructions",
-      "skills": "Compétences"
+      "skills": "Compétences",
+      "tools": "Outils"
     },
     "time": {
       "justNow": "à l'instant",
@@ -1475,19 +1591,24 @@
       "view": "Voir",
       "view_schema": "Voir le schéma",
       "create_entities": "Créer des entités",
-      "manage": "Gérer les paramètres"
+      "manage": "Gérer les paramètres",
+      "create_data_sources": "Créer des agents",
+      "manage_connection": "Gérer la connexion",
+      "manage_data_sources": "Gérer les agents",
+      "manage_service_accounts": "Gérer les comptes de service"
     },
     "addAgent": "+ Ajouter un agent...",
     "advancedPermissions": "Permissions avancées",
     "tiers": {
-        "query": "Peut interroger",
-        "queryHint": "Poser des questions à cet agent",
-        "manage": "Peut gérer",
-        "manageHint": "Modifier les instructions, entités, évaluations, paramètres et membres"
+      "query": "Peut interroger",
+      "queryHint": "Poser des questions à cet agent",
+      "manage": "Peut gérer",
+      "manageHint": "Modifier les instructions, entités, évaluations, paramètres et membres"
     },
     "modelAccess": "Accès aux modèles",
     "modelAccessHint": "Modèles restreints",
-    "noRestrictedModels": "Aucun modèle restreint"
+    "noRestrictedModels": "Aucun modèle restreint",
+    "connection": "Connexion"
   },
   "groupsManager": {
     "searchPlaceholder": "Rechercher des groupes...",
@@ -1619,7 +1740,59 @@
       "unknown": "Inconnu",
       "lastSyncDetail": "— {gCreated} créés, {gUpdated} mis à jour, {gRemoved} supprimés · {mAdded} membres ajoutés, {mRemoved} retirés",
       "errorCount": "{n} erreur(s) : {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraAdd": "Ajouter",
+      "entraAddPlaceholder": "Ajouter un attribut…",
+      "entraContextTitle": "Depuis votre profil d'annuaire",
+      "entraEnable": "Synchroniser les informations de profil depuis Entra ID",
+      "entraEnableHint": "À la connexion, lit le profil Microsoft Graph de l'utilisateur connecté et le stocke comme contexte pour l'IA. Utilise la portée User.Read accordée par défaut — aucun consentement administrateur requis.",
+      "entraFieldsLabel": "Attributs à inclure dans le contexte",
+      "entraNoFields": "Aucun attribut sélectionné",
+      "entraNoLogin": "Connectez-vous avec Entra ID pour prévisualiser les valeurs réelles de votre profil.",
+      "entraNotSet": "non défini",
+      "entraPreviewError": "Impossible de charger les valeurs depuis Microsoft Graph.",
+      "entraReauth": "Votre session Entra ID a expiré — reconnectez-vous avec Entra ID pour charger les valeurs.",
+      "entraRemove": "Supprimer",
+      "entraSaveFailed": "Échec de l'enregistrement",
+      "entraSaved": "Enregistré",
+      "entraSaving": "Enregistrement...",
+      "entraSubtitle": "Synchronise le poste, le service et d'autres informations de profil depuis Microsoft Entra ID à la connexion",
+      "entraTitle": "Synchronisation du profil Entra ID",
+      "field_city": "Ville",
+      "field_companyName": "Entreprise",
+      "field_country": "Pays",
+      "field_department": "Service",
+      "field_displayName": "Nom",
+      "field_employeeHireDate": "Date d'embauche",
+      "field_employeeId": "Matricule",
+      "field_employeeOrgData": "Division et centre de coûts",
+      "field_employeeType": "Type de contrat",
+      "field_hostedDomain": "Domaine de l'espace de travail",
+      "field_jobTitle": "Intitulé du poste",
+      "field_locale": "Paramètres régionaux",
+      "field_location": "Localisation",
+      "field_mobilePhone": "Téléphone mobile",
+      "field_officeLocation": "Bureau",
+      "field_organization": "Organisation",
+      "field_preferredLanguage": "Langue préférée",
+      "field_state": "Région",
+      "field_usageLocation": "Pays d'utilisation",
+      "googleAdd": "Ajouter",
+      "googleAddPlaceholder": "Ajouter un attribut…",
+      "googleEnable": "Synchroniser les informations de profil depuis Google",
+      "googleEnableHint": "À la connexion, lit le profil Google de l'utilisateur connecté (userinfo + People API) et le stocke comme contexte pour l'IA. N'utilise que les portées openid/profile/email déjà accordées à la connexion.",
+      "googleFieldsLabel": "Attributs à inclure dans le contexte",
+      "googleNoFields": "Aucun attribut sélectionné",
+      "googleNoLogin": "Connectez-vous avec Google pour prévisualiser les valeurs réelles de votre profil.",
+      "googleNotSet": "non défini",
+      "googlePreviewError": "Impossible de charger les valeurs depuis Google.",
+      "googleReauth": "Votre session Google a expiré — reconnectez-vous avec Google pour charger les valeurs.",
+      "googleRemove": "Supprimer",
+      "googleSaveFailed": "Échec de l'enregistrement",
+      "googleSaved": "Enregistré",
+      "googleSaving": "Enregistrement...",
+      "googleSubtitle": "Synchronise le nom, le poste, le service et d'autres informations de profil depuis Google à la connexion",
+      "googleTitle": "Synchronisation du profil Google"
     },
     "auditLogs": "Journaux d'audit",
     "integrations": {
@@ -1683,7 +1856,21 @@
           "failedConnect": "Échec de la connexion à Slack",
           "disconnectedToast": "Slack déconnecté",
           "disconnectedToastDesc": "Intégration Slack déconnectée",
-          "failedDisconnect": "Échec de la déconnexion de Slack"
+          "failedDisconnect": "Échec de la déconnexion de Slack",
+          "appToken": "Jeton de niveau application",
+          "connectionModeLabel": "Mode de connexion",
+          "modeEventsApi": "Events API (webhook)",
+          "modeEventsApiHint": "Slack envoie les événements en POST vers votre URL de webhook publique — nécessite le signing secret et une Request URL accessible.",
+          "modeSocket": "Socket Mode",
+          "modeSocketHint": "Le backend se connecte à Slack via un WebSocket — aucune URL publique ni signing secret nécessaire, et cela active l'expérience Agent.",
+          "modeSocketRecommended": "Socket Mode (recommandé)",
+          "socketSetupIntro": "Dans votre app Slack (api.slack.com/apps) :",
+          "socketStep1": "Socket Mode → activez-le et créez un jeton de niveau application avec la portée connections:write (xapp-…)",
+          "socketStep2": "OAuth & Permissions → portées du bot : chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions → activez les événements (aucune Request URL nécessaire) et abonnez-vous à : message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents → activez « Agent experience » pour le volet d'assistant natif, le nommage des fils et les prompts suggérés",
+          "socketStep5": "App Home → activez l'onglet Messages et autorisez les utilisateurs à envoyer des messages",
+          "socketStep6": "Install App → installez l'app dans votre espace de travail et copiez le Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Intégration Teams",
@@ -1921,6 +2108,37 @@
           "tenantWide": "Déploiement à l'échelle du locataire",
           "tenantWideDesc": "Pour un déploiement à l'échelle de l'organisation, votre administrateur Microsoft 365 peut charger ce manifeste via Admin Center → Paramètres → Applications intégrées.",
           "failedLoadManifest": "Échec du chargement du manifeste"
+        },
+        "googleChat": {
+          "autoLinkDescConnected": "Lorsque cette option est activée, les utilisateurs Google Chat sont automatiquement associés aux comptes BOW dont l'e-mail correspond à leur profil Google Workspace (aucun lien de vérification requis). Comme l'e-mail provient de l'annuaire de votre Workspace, c'est généralement sûr — mais ne l'activez que pour des domaines auxquels vous faites entièrement confiance.",
+          "autoLinkDescSetup": "Les utilisateurs qui écrivent au bot sont associés aux comptes BOW dont l'e-mail correspond à leur profil Google Workspace — aucun lien de vérification requis. Recommandé.",
+          "autoLinkTitle": "Associer automatiquement les utilisateurs par e-mail Workspace",
+          "connectedNotice": "Google Chat est actuellement connecté.",
+          "connectedToast": "Google Chat connecté",
+          "connectedToastDesc": "Intégration Google Chat réussie",
+          "disconnectedToast": "Google Chat déconnecté",
+          "disconnectedToastDesc": "Intégration Google Chat déconnectée",
+          "failedConnect": "Échec de la connexion à Google Chat",
+          "failedDisconnect": "Échec de la déconnexion de Google Chat",
+          "noteChannels": "Dans les espaces, seules les sources de données publiques sont interrogées",
+          "noteChats": "Dans les messages privés, les sources de données publiques et privées (auxquelles l'utilisateur a accès) sont interrogées",
+          "noteNoInbound": "Les événements arrivent via Pub/Sub — aucune URL publique ni accès entrant au pare-feu n'est nécessaire",
+          "noteRegistered": "Seuls les utilisateurs enregistrés peuvent écrire au bot ou le mentionner avec {'@'}",
+          "serviceAccount": "Compte de service :",
+          "serviceAccountJsonLabel": "Clé du compte de service (JSON)",
+          "serviceAccountJsonPlaceholder": "Collez la clé JSON complète du compte de service",
+          "sessionStalenessDesc": "Durée pendant laquelle un message privé reste rattaché au même rapport de conversation. Les messages envoyés après cette fenêtre démarrent un nouveau rapport (envoyer « new » en démarre un immédiatement). Par défaut : 120 heures (5 jours).",
+          "setupIntro": "Dans un projet Google Cloud dédié (important — réutiliser un ancien projet peut laisser l'app Chat dans un état inutilisable) :",
+          "setupStep1": "Activez l'API Google Chat et l'API Cloud Pub/Sub",
+          "setupStep2": "Créez un compte de service (aucun rôle requis) et téléchargez sa clé JSON",
+          "setupStep3": "Créez un sujet Pub/Sub ; accordez à chat-api-push{'@'}system.gserviceaccount.com le rôle Pub/Sub Publisher sur ce sujet",
+          "setupStep4": "Créez un abonnement pull sur le sujet ; accordez à votre compte de service le rôle Pub/Sub Subscriber sur cet abonnement",
+          "setupStep5": "Sur la page Chat API Configuration : laissez « Build this Chat app as a Workspace add-on » DÉCOCHÉ, définissez le nom et l'avatar de l'app, activez la réception des messages 1:1, sélectionnez Cloud Pub/Sub avec votre sujet, activez « Log errors to Logging », puis enregistrez",
+          "subscription": "Abonnement :",
+          "subscriptionLabel": "Abonnement Pub/Sub",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "subtitle": "Configurez et gérez l'intégration Google Chat pour votre organisation",
+          "title": "Intégration Google Chat"
         }
       },
       "emptyTitle": "Faites fonctionner Bag of Words avec vos outils",
@@ -1989,7 +2207,8 @@
       "copyLink": "Copier le lien",
       "linkCopied": "Lien d'invitation copié",
       "failedToCopyLink": "Impossible de copier le lien",
-      "linkRegenerated": "Lien d'invitation actualisé et copié"
+      "linkRegenerated": "Lien d'invitation actualisé et copié",
+      "moreGroups": "groupes"
     },
     "organizationName": "Nom de l'organisation",
     "organizationIcon": "Icône de l'organisation",
@@ -2021,7 +2240,9 @@
       "members": "Membres",
       "roles": "Rôles",
       "groups": "Groupes",
-      "signup": "Inscription"
+      "signup": "Inscription",
+      "quotas": "Quotas",
+      "serviceAccounts": "Comptes de service"
     },
     "audit": {
       "title": "Journaux d'audit",
@@ -2126,7 +2347,43 @@
       "routingHintSeedSmall": "Questions de base, métriques simples et recherches rapides.",
       "routingHintSeedDefault": "Tableaux de bord, artéfacts, analyse de fichiers et analyse avancée en plusieurs étapes.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "Le routeur de modèles automatique est une fonctionnalité entreprise. Mettez à niveau votre licence pour l'activer."
+      "autoRouterEnterpriseTooltip": "Le routeur de modèles automatique est une fonctionnalité entreprise. Mettez à niveau votre licence pour l'activer.",
+      "addModel": "Ajouter un modèle",
+      "addModelCustomPlaceholder": "ID du modèle (p. ex. gpt-5.6-luna)",
+      "addModelSubmit": "Ajouter",
+      "addModelTitle": "Ajouter un modèle",
+      "addProvider": "Ajouter un fournisseur",
+      "cancel": "Annuler",
+      "colFallback": "Repli",
+      "colImageGen": "Génération d'images",
+      "dangerZone": "Zone dangereuse",
+      "deleteModel": "Supprimer",
+      "deleteModelBlockedDefault": "Les modèles par défaut ne peuvent pas être supprimés. Définissez d'abord un autre modèle par défaut.",
+      "deleteModelConfirm": "Supprimer « {name} » ? Cette action est irréversible.",
+      "deleteModelTitle": "Supprimer le modèle",
+      "enabledLabel": "Activé",
+      "fallback": "Repli LLM",
+      "fallbackColTooltip": "Priorité dans la chaîne de repli — essayés par ordre croissant lorsque le modèle actif échoue.",
+      "fallbackEmpty": "aucun modèle de repli — définissez les priorités dans la colonne Repli",
+      "fallbackEnterpriseTooltip": "Le repli LLM est une fonctionnalité entreprise. Mettez à niveau votre licence pour l'activer.",
+      "fallbackHow1": "Lorsque le modèle actif échoue pour cause de limite de débit, de surcharge du fournisseur ou d'erreur réseau, la requête est réessayée sur le modèle suivant dans l'ordre ci-dessous.",
+      "fallbackHow2": "Les modèles sont essayés de haut en bas ; un modèle dont le fournisseur est injoignable est ignoré jusqu'à son rétablissement.",
+      "fallbackHow3": "Le basculement est toujours indiqué dans la conversation, et la réponse porte le badge du modèle qui l'a réellement produite.",
+      "fallbackHowTitle": "Fonctionnement du repli LLM",
+      "fallbackInactive": "inactif",
+      "fallbackOff": "Repli LLM désactivé",
+      "fallbackOn": "Repli LLM activé",
+      "fallbackPrimary": "principal",
+      "imageGenDefaultBlocked": "Les modèles par défaut ne peuvent pas être des modèles de génération d'images. Définissez d'abord un autre modèle par défaut.",
+      "imageGenTooltip": "Indique si ce modèle génère des images (p. ex. gpt-image-1). Il devient disponible pour l'outil generate_image et pour intégrer des images générées dans les artefacts. Les modèles d'image sont exclus du sélecteur de modèle du chat et ne peuvent pas être par défaut.",
+      "modelAdded": "Modèle ajouté",
+      "modelCardHint": "Cliquez sur la ligne d'un modèle pour ouvrir ses paramètres",
+      "modelDeleted": "Modèle supprimé",
+      "modelSettings": "Paramètres du modèle",
+      "modelsCount": "{count} modèles",
+      "providerLabel": "Fournisseur",
+      "providerSettingsTooltip": "Paramètres du fournisseur",
+      "save": "Enregistrer"
     },
     "licensePage": {
       "title": "Licence",
@@ -2153,7 +2410,30 @@
       "inDays": "{days} jours restants",
       "expiredNotice": "Votre licence enterprise a expiré. Les fonctionnalités enterprise sont désactivées jusqu'au renouvellement.",
       "enterpriseTitle": "Édition enterprise",
-      "renewInfo": "Renouvelez votre licence pour restaurer les fonctionnalités enterprise comme les journaux d'audit, le contrôle d'accès avancé et les politiques de rétention des données."
+      "renewInfo": "Renouvelez votre licence pour restaurer les fonctionnalités enterprise comme les journaux d'audit, le contrôle d'accès avancé et les politiques de rétention des données.",
+      "activate": "Activer",
+      "activateDesc": "Collez la clé de licence que vous avez reçue de BOW.",
+      "activateTitle": "Clé de licence",
+      "activating": "Activation…",
+      "activeKey": "Clé active",
+      "cancel": "Annuler",
+      "envActive": "Cette instance utilise la variable {envvar} de son environnement. Enregistrer une clé ici la remplace.",
+      "keyLabel": "Clé de licence",
+      "keyPlaceholder": "bow_lic_…",
+      "lastUpdated": "Mise à jour",
+      "noKey": "Aucune clé de licence configurée. Collez-en une ci-dessous pour activer les fonctionnalités entreprise.",
+      "overridesEnv": "Cette clé remplace la variable {envvar} configurée pour ce déploiement. Supprimez-la pour revenir à cette clé.",
+      "remove": "Supprimer",
+      "removeConfirm": "Supprimer la clé de licence enregistrée ? Cette instance reviendra à la clé de son environnement, s'il en existe une.",
+      "removedToast": "Clé de licence supprimée",
+      "removing": "Suppression…",
+      "saveFailed": "Impossible d'activer la licence",
+      "savedToast": "Licence activée",
+      "sourceConfig": "Depuis l'environnement",
+      "sourceDatabase": "Définie ici",
+      "sourceLabel": "Source",
+      "sourceNone": "Non définie",
+      "update": "Mettre à jour la clé"
     },
     "mcpModal": {
       "editTitle": "Modifier la connexion MCP",
@@ -2183,7 +2463,10 @@
       "updated": "Connexion mise à jour",
       "connected": "Serveur MCP connecté",
       "failedUpdate": "Échec de la mise à jour",
-      "failedConnect": "Échec de la connexion"
+      "failedConnect": "Échec de la connexion",
+      "orCreateNew": "— ou en créer une nouvelle —",
+      "selectExistingPlaceholder": "Sélectionner une existante…",
+      "useExistingLabel": "Utiliser une connexion existante"
     },
     "weekStart": {
       "label": "Début de la semaine de travail",
@@ -2195,7 +2478,56 @@
         "monday": "Lundi",
         "saturday": "Samedi"
       }
-    }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "description": "Utilisé pour interpréter les tâches planifiées (p. ex. les heures de réindexation) et pour afficher les horodatages. Les données sont toujours stockées en UTC.",
+      "label": "Fuseau horaire de l'organisation",
+      "saveError": "Impossible de mettre à jour le fuseau horaire",
+      "systemDefault": "Utiliser la valeur par défaut du système (UTC)"
+    },
+    "pii": {
+      "action": "Action",
+      "actionBlock": "Bloquer",
+      "actionReplace": "Remplacer",
+      "addPattern": "Ajouter un motif",
+      "addRule": "Ajouter une règle",
+      "blocksRequest": "Bloque la requête",
+      "builtinDesc": "Détecteurs prédéfinis pour les données personnelles courantes. Activez-les et personnalisez leur jeton de remplacement.",
+      "builtinTitle": "Règles intégrées",
+      "customDesc": "Définissez vos propres détecteurs. Une règle peut contenir plusieurs motifs (expressions régulières) — une seule correspondance suffit à la déclencher.",
+      "customTitle": "Règles personnalisées",
+      "enterpriseBody": "La protection des données personnelles est disponible dans l'offre Enterprise. Contactez votre administrateur pour l'activer.",
+      "enterpriseTitle": "Fonctionnalité entreprise",
+      "masterDesc": "Lorsque cette option est activée, le texte correspondant est masqué dans tous les prompts envoyés à un LLM depuis cet espace de travail.",
+      "masterLabel": "Activer la protection des données personnelles",
+      "modeBlock": "Bloquer la requête",
+      "modeBlockDesc": "Refuser d'envoyer le prompt si des données personnelles sont détectées. Peut être surchargé par règle ci-dessous.",
+      "modeLabel": "Action par défaut en cas de détection de données personnelles",
+      "modeReplace": "Remplacer par un jeton",
+      "modeReplaceDesc": "Remplacer chaque correspondance par son jeton et continuer. Peut être surchargé par règle ci-dessous.",
+      "noCustomRules": "Aucune règle personnalisée pour le moment.",
+      "patternPlaceholder": "p. ex. \\bEMP-\\d+\\b",
+      "patternRequired": "Chaque règle nécessite au moins un motif.",
+      "patterns": "Motifs (regex)",
+      "removeRule": "Supprimer",
+      "replacement": "Remplacement",
+      "ruleName": "Nom de la règle",
+      "ruleNamePlaceholder": "p. ex. Matricule",
+      "saveError": "Échec de l'enregistrement des paramètres de données personnelles",
+      "saved": "Paramètres de données personnelles enregistrés",
+      "subtitle": "Masque les données personnelles des prompts avant leur envoi à un fournisseur de LLM. Les règles s'appliquent au prompt complet — message de l'utilisateur, échantillons de schéma, aperçus de données et texte des fichiers téléversés.",
+      "testBlocked": "Ce prompt serait BLOQUÉ (données personnelles détectées).",
+      "testButton": "Prévisualiser le masquage",
+      "testDesc": "Collez un texte d'exemple pour voir comment il sera masqué avec les règles actuelles.",
+      "testMatches": "Correspondances : {rules}",
+      "testNoMatches": "Aucune donnée personnelle détectée dans l'exemple.",
+      "testPlaceholder": "Collez un texte contenant des données personnelles d'exemple…",
+      "testResult": "Résultat",
+      "testTitle": "Testez vos règles",
+      "title": "Protection des données personnelles"
+    },
+    "piiTab": "Données personnelles"
   },
   "data": {
     "title": "Connexions",
@@ -2433,7 +2765,76 @@
     "mcpModeAiTip": "L'IA peut le définir ; le serveur le remplit si vide",
     "mcpModeLockedTip": "La valeur admin prévaut toujours ; masquée pour l'IA",
     "mcpAddMetaField": "+ Ajouter un champ de métadonnées",
-    "verify": "Vérifier"
+    "verify": "Vérifier",
+    "autoReindex": "Réindexation automatique du schéma",
+    "autoReindexAt": "Réindexer chaque jour à",
+    "autoReindexEnterprise": "La réindexation planifiée est une fonctionnalité entreprise.",
+    "autoReindexEvery": "Réindexer toutes les",
+    "autoReindexHint": "Réindexe périodiquement cette connexion pour garder les tables à jour.",
+    "autoReindexLastError": "Dernière erreur",
+    "autoReindexMinInterval": "L'intervalle minimum est de {n} minutes.",
+    "autoReindexModeInterval": "Intervalle",
+    "autoReindexModeTime": "À heure fixe",
+    "autoReindexSaveFailed": "Échec de l'enregistrement des paramètres de réindexation",
+    "autoReindexSchedule": "Planification",
+    "autoReindexTimeHint": "Chaque jour, dans le fuseau horaire de l'organisation.",
+    "browserForm": {
+      "allowDownloads": "Autoriser les téléchargements",
+      "cancel": "Annuler",
+      "name": "Nom",
+      "namePlaceholder": "p. ex. Portail fournisseurs",
+      "save": "Créer",
+      "test": "Valider les URL",
+      "urls": "URL autorisées",
+      "urlsHelp": "Un motif par ligne, p. ex. https://portal.vendor.com/**. L'agent ne pourra visiter que les URL correspondantes."
+    },
+    "catAll": "Tout",
+    "catBi": "BI et analytique",
+    "catDatabases": "Bases de données et entrepôts",
+    "catFiles": "Fichiers et stockage objet",
+    "catInfra": "Infrastructure",
+    "catServices": "Services",
+    "collectionsAccessible": "{n} collections accessibles",
+    "collectionsLabel": "Collections",
+    "connectToQueryAsYou": "Connectez votre compte pour interroger en votre nom.",
+    "connectorDcrNote": "Aucune configuration admin requise — ce connecteur s'enregistre automatiquement (DCR). Vous l'ajoutez pour votre organisation ; chaque utilisateur se connecte avec son propre compte à la première utilisation.",
+    "connectorsSection": "Connecteurs",
+    "customSection": "Connecteurs personnalisés",
+    "customSectionHint": "Connectez n'importe quel serveur MCP ou API REST",
+    "dataSourcesSection": "Sources de données",
+    "disconnect": "Déconnecter",
+    "disconnecting": "Déconnexion…",
+    "everyNHours": "Toutes les {n} heures",
+    "filesAccessible": "{n} fichiers accessibles",
+    "filesLabel": "Fichiers",
+    "impactAgentsMany": "Cela affectera {count} agents",
+    "impactAgentsOne": "Cela affectera {count} agent",
+    "lastRefreshed": "Dernière actualisation",
+    "mcpBadge": "MCP",
+    "me": "Moi",
+    "rateLimit": "Limite de débit des requêtes",
+    "rateLimitEnterprise": "La limitation de débit par connexion est une fonctionnalité entreprise.",
+    "rateLimitHint": "Limitez le nombre de requêtes acceptées par cette connexion sur une période. Partagé entre tous les utilisateurs ; les requêtes au-delà de la limite sont bloquées.",
+    "rateLimitNoLimit": "Aucune limite",
+    "rateLimitPerDay": "Par jour",
+    "rateLimitPerHour": "Par heure",
+    "rateLimitPerMinute": "Par minute",
+    "rateLimitReqDay": "req/jour",
+    "rateLimitReqHour": "req/heure",
+    "rateLimitReqMin": "req/min",
+    "rateLimitSaveFailed": "Échec de l'enregistrement des paramètres de limite de débit",
+    "refreshing": "Actualisation…",
+    "reloadMyTables": "Recharger mes tables",
+    "runQueriesAs": "Exécuter les requêtes en tant que",
+    "sampleSection": "Bases de données d'exemple",
+    "serviceAccountNote": "Les requêtes s'exécutent avec le compte de service de la connexion.",
+    "stopIndexingFailed": "Échec de l'arrêt de l'indexation",
+    "switchIdentityFailed": "Échec du changement d'identité de requête",
+    "tablesAccessible": "{n} tables accessibles",
+    "toolsAccessible": "{n} outils accessibles",
+    "toolsLabel": "Outils",
+    "unitHours": "heures",
+    "unitMinutes": "minutes"
   },
   "share": {
     "shareDashboard": "Partager le tableau de bord",
@@ -2517,7 +2918,10 @@
     "integration.not_found": "Intégration introuvable",
     "resource.conflict": "La ressource existe déjà ou entre en conflit avec l'état actuel",
     "resource.duplicate": "Ressource en double",
-    "setting.update_failed": "Échec de la mise à jour du paramètre"
+    "setting.update_failed": "Échec de la mise à jour du paramètre",
+    "query": {
+      "failed_silently": "Une requête a échoué mais le code généré a renvoyé un résultat vide au lieu de le signaler"
+    }
   },
   "email": {
     "dashboardShare": {
@@ -2784,7 +3188,8 @@
     "global": "Global",
     "tablesLoadFailed": "Échec du chargement des tables",
     "instructionsLoadFailed": "Échec du chargement des instructions",
-    "queriesLoadFailed": "Échec du chargement des requêtes"
+    "queriesLoadFailed": "Échec du chargement des requêtes",
+    "connectToPreview": "Connectez-vous pour prévisualiser les tables, les instructions et poser des questions."
   },
   "allInstructions": {
     "title": "Toutes les instructions",
@@ -2975,7 +3380,8 @@
       "toastDeleted": "Cas de test supprimé",
       "toastCreated": "Cas de test créé",
       "toastDeleteFailed": "Échec de la suppression du cas de test",
-      "saveFailed": "Impossible d'enregistrer le cas de test"
+      "saveFailed": "Impossible d'enregistrer le cas de test",
+      "emptyDescription": "Les tests évaluent la façon dont vos agents répondent aux prompts et aux règles."
     },
     "filter": {
       "allSuites": "Toutes les suites",
@@ -3070,6 +3476,18 @@
       "listContains": "la liste contient la valeur",
       "listContainsAny": "la liste contient au moins une",
       "listContainsAll": "la liste contient toutes"
+    },
+    "strip": {
+      "default": "par défaut",
+      "emptyShelf": "Aucune évaluation classée ici pour l'instant",
+      "fromChat": "dans cette conversation",
+      "noneResolved": "Aucune évaluation résolue pour cet agent",
+      "orgWide": "Toute l'organisation",
+      "pinned": "épinglée à ce changement",
+      "runAll": "Tout exécuter",
+      "runSuite": "Exécuter {name}",
+      "runningCount": "Exécution {done}/{total}",
+      "title": "Évaluations pour ce changement"
     }
   },
   "monitoring": {
@@ -3110,7 +3528,15 @@
       "next": "Suivant",
       "periodAllTime": "Tout le temps",
       "filterUsersAll": "Tous les utilisateurs",
-      "searchPlaceholder": "Rechercher des prompts…"
+      "searchPlaceholder": "Rechercher des prompts…",
+      "activityChartEmpty": "Aucune activité sur la période sélectionnée.",
+      "activityChartError": "Erreur",
+      "activityChartLoading": "Chargement de l'activité…",
+      "activityChartSubtitle": "Exécutions quotidiennes des agents par statut",
+      "activityChartSuccess": "Succès",
+      "activityChartTitle": "Activité d'exécution des agents",
+      "activityChartTotal": "Total",
+      "dayFilterLabel": "Affichage du {date}"
     },
     "title": "Supervision",
     "tabExplore": "Explorer",
@@ -3149,7 +3575,9 @@
       "loading": "Chargement des données de coût...",
       "lockedTitle": "Le coût est une fonctionnalité entreprise",
       "lockedBody": "Passez à une licence entreprise pour suivre la consommation de tokens et le coût des LLM par utilisateur, agent et groupe dans le temps.",
-      "fanoutNote": "La dépense des rapports multi-sources est comptée pour chacune de leurs sources de données, de sorte que les totaux par ligne peuvent dépasser le total global."
+      "fanoutNote": "La dépense des rapports multi-sources est comptée pour chacune de leurs sources de données, de sorte que les totaux par ligne peuvent dépasser le total global.",
+      "kpiSaved": "Économisé par le routage automatique",
+      "kpiSavedSub": "appels routés"
     },
     "cards": {
       "messages": "Messages",
@@ -3241,7 +3669,10 @@
     "tabEvals": "Évaluations",
     "loadFailInstructions": "Échec du chargement des instructions",
     "loadFailQueries": "Échec du chargement des requêtes",
-    "loadFailEvals": "Échec du chargement des évaluations"
+    "loadFailEvals": "Échec du chargement des évaluations",
+    "noInstruction": "Aucune instruction principale",
+    "noStarters": "Aucune amorce de conversation",
+    "primaryInstruction": "Instruction principale"
   },
   "instructionModal": {
     "newTitle": "Nouvelle instruction",
@@ -3377,7 +3808,33 @@
       "createFailed": "Échec de la création de l'instruction",
       "updateFailed": "Échec de la mise à jour de l'instruction",
       "deleteFailed": "Échec de la suppression de l'instruction",
-      "enhanceFailed": "Échec de l'amélioration de l'instruction"
+      "enhanceFailed": "Échec de l'amélioration de l'instruction",
+      "revertFailed": "Échec de la restauration de l'instruction",
+      "revertSuccess": "Restaurée à la v{n}"
+    },
+    "sidebar": {
+      "approvedBy": "Approuvée par",
+      "category": "Catégorie",
+      "createdBy": "Créée par",
+      "dataSources": "Sources de données",
+      "details": "Détails",
+      "labels": "Étiquettes",
+      "loading": "Chargement du contexte IA",
+      "references": "Références",
+      "scope": "Portée",
+      "status": "Statut",
+      "visibility": "Visibilité"
+    },
+    "versions": {
+      "compareLabel": "Comparé à la version actuelle",
+      "confirmRevert": "Restaurer cette instruction à la v{n} ? Une nouvelle version sera créée.",
+      "current": "actuelle",
+      "fieldChanges": "Modifications des champs",
+      "label": "Version",
+      "loadFailed": "Échec du chargement des versions",
+      "noChanges": "Aucune différence de contenu avec la version actuelle",
+      "revert": "Restaurer cette version",
+      "reverting": "Restauration..."
     }
   },
   "mcpServerModal": {
@@ -3559,7 +4016,9 @@
       "defaultModelSubtitle": "Le modèle utilisé par défaut lorsque vous démarrez une nouvelle conversation. Seuls les modèles auxquels vous avez accès sont affichés.",
       "orgDefault": "Valeur par défaut de l'organisation",
       "defaultModelSaved": "Modèle par défaut mis à jour",
-      "defaultModelFailed": "Échec de la mise à jour du modèle par défaut"
+      "defaultModelFailed": "Échec de la mise à jour du modèle par défaut",
+      "directorySubtitle": "Informations professionnelles synchronisées depuis le fournisseur d'identité de votre organisation. Visibles par l'IA comme contexte.",
+      "directoryTitle": "Profil de l'annuaire"
     },
     "instructions": {
       "title": "Instructions personnalisées",
@@ -3616,7 +4075,21 @@
     }
   },
   "commandPalette": {
-    "prompts": "Prompts"
+    "prompts": "Prompts",
+    "actions": "Actions",
+    "agents": "Agents",
+    "emptyLabel": "Commencez à taper pour rechercher",
+    "emptyQueryLabel": "Aucun résultat",
+    "instructions": "Instructions",
+    "newInstruction": "Nouvelle instruction",
+    "newInstructionWithQuery": "Nouvelle instruction « {query} »",
+    "newReport": "Nouveau rapport",
+    "newReportWithQuery": "Nouveau rapport « {query} »",
+    "placeholder": "Rechercher des rapports, agents, instructions…",
+    "reports": "Rapports récents",
+    "suggestInstruction": "Suggérer une instruction",
+    "suggestInstructionWithQuery": "Suggérer l'instruction « {query} »",
+    "suggestionHint": "envoyé pour révision"
   },
   "promptParams": {
     "title": "Renseignez les paramètres — {title}",
@@ -3715,7 +4188,12 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…",
-    "modelDefaultAuto": "Auto · route selon la difficulté"
+    "modelDefaultAuto": "Auto · route selon la difficulté",
+    "deliverEmail": "E-mail",
+    "deliverEmailHint": "Un lien vers le rapport est envoyé par e-mail à chaque membre.",
+    "deliverLabel": "Livrer aussi les résultats à",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "Envoyé dans la conversation Teams de chaque membre (les membres sans Teams sont ignorés)."
   },
   "automations": {
     "title": "Automatisations",
@@ -3882,5 +4360,179 @@
     "continueOnboarding": "Poursuivre la configuration",
     "configureLlm": "Configurez votre LLM",
     "connectFirstDataSource": "Connectez votre première source de données"
+  },
+  "agentPage": {
+    "tables": {
+      "addFiles": "Téléverser un fichier",
+      "fileRemoveFailed": "Échec de la suppression du fichier",
+      "fileUploadFailed": "Échec du téléversement du fichier",
+      "filesUploading": "Téléversement…",
+      "manageConnections": "Gérer les connexions",
+      "manageFiles": "Téléverser un fichier",
+      "removeFile": "Supprimer le fichier",
+      "save": "Enregistrer",
+      "schemaRefreshing": "Le schéma est en cours d'actualisation — les tables apparaîtront sous peu.",
+      "selectTables": "Sélectionner les tables",
+      "selectTablesSubtitle": "Choisissez les tables à activer"
+    }
+  },
+  "changelog": {
+    "changeCount": "{count} changement | {count} changements",
+    "emptyTitle": "Aucune note de version pour le moment",
+    "errorBody": "Une erreur est survenue lors de la récupération des notes de version.",
+    "errorTitle": "Impossible de charger le journal des modifications",
+    "latest": "Dernière",
+    "menuItem": "Journal des modifications",
+    "retry": "Réessayer",
+    "subtitle": "Dernières nouveautés et améliorations",
+    "title": "Nouveautés",
+    "viewOnGithub": "Voir toutes les versions"
+  },
+  "exports": {
+    "complete": "Export terminé",
+    "failed": "Échec de l'export",
+    "html": "HTML",
+    "label": "Exporter",
+    "pdf": "PDF",
+    "pdfDone": "PDF téléchargé.",
+    "pptx": "PowerPoint"
+  },
+  "quotaPolicies": {
+    "add": "Ajouter",
+    "assignmentCounts": {
+      "group": "{n} groupes",
+      "role": "{n} rôles",
+      "user": "{n} utilisateurs"
+    },
+    "assignments": "Attributions",
+    "cancel": "Annuler",
+    "cancelEdit": "Annuler la modification",
+    "colActions": "Actions",
+    "colAssignments": "Attributions",
+    "colLimits": "Limites",
+    "colOverrides": "Exceptions par connexion",
+    "colPolicy": "Politique",
+    "colQuota": "Quota",
+    "colStatus": "Statut",
+    "confirmDelete": "Supprimer le quota « {name} » ?",
+    "connection": "Connexion",
+    "connectionOverrides": "Exceptions par connexion",
+    "create": "Créer",
+    "createQuota": "Créer un quota",
+    "dataMb": "Données Mo",
+    "dataShort": "Données",
+    "descriptionLabel": "Description",
+    "descriptionPlaceholder": "Facultatif",
+    "disabled": "Désactivé",
+    "editQuota": "Modifier le quota",
+    "enabled": "Activé",
+    "failedToDelete": "Échec de la suppression du quota",
+    "failedToLoad": "Échec du chargement des quotas",
+    "failedToSave": "Échec de l'enregistrement du quota",
+    "groups": "Groupes",
+    "inherited": "Hérité",
+    "loading": "Chargement...",
+    "monthlyDataLimitMb": "Limite mensuelle de données (Mo)",
+    "monthlyQueryLimit": "Limite mensuelle de requêtes",
+    "monthlySpendLimitUsd": "Limite mensuelle de dépenses (USD)",
+    "monthlyTokenLimit": "Limite mensuelle de tokens",
+    "nameLabel": "Nom",
+    "namePlaceholder": "p. ex. Quota analyste",
+    "newQuota": "Nouveau quota",
+    "noDirectQuota": "Par défaut",
+    "noPoliciesFound": "Aucune politique de quota trouvée",
+    "noPoliciesHint": "Créez un quota pour limiter l'usage mensuel de l'IA et des données.",
+    "none": "Aucun",
+    "principalTypes": {
+      "group": "Groupe",
+      "role": "Rôle",
+      "user": "Utilisateur"
+    },
+    "queries": "Requêtes",
+    "queriesShort": "Requêtes",
+    "roles": "Rôles",
+    "save": "Enregistrer",
+    "searchPlaceholder": "Rechercher des quotas...",
+    "selectConnection": "Sélectionner une connexion...",
+    "selectPrincipal": "Sélectionner un principal...",
+    "spendShort": "Dépenses",
+    "toastAssignmentUpdated": "Attribution de quota mise à jour",
+    "toastCreated": "Quota créé",
+    "toastDeleted": "Quota supprimé",
+    "toastUpdated": "Quota mis à jour",
+    "tokensShort": "Tokens",
+    "unlimited": "Illimité",
+    "update": "Mettre à jour",
+    "users": "Utilisateurs"
+  },
+  "serviceAccounts": {
+    "active": "Actif",
+    "apiKeys": "Clés API",
+    "colKeys": "Clés",
+    "colName": "Nom",
+    "colRole": "Rôle",
+    "colStatus": "Statut",
+    "copied": "Copié dans le presse-papiers",
+    "copy": "Copier",
+    "copyManual": "Sélectionnez la clé et copiez-la manuellement",
+    "create": "Créer",
+    "createFailed": "Impossible de créer le compte de service",
+    "created": "Compte de service créé",
+    "delete": "Supprimer",
+    "deleted": "Compte de service supprimé",
+    "description": "Description",
+    "disable": "Désactiver",
+    "disabled": "Désactivé",
+    "empty": "Aucun compte de service pour le moment.",
+    "enable": "Activer",
+    "keyFailed": "Impossible de créer la clé",
+    "keyLastUsed": "Dernière utilisation",
+    "keyName": "Nom",
+    "keyOnce": "Copiez cette clé maintenant — elle ne sera plus affichée.",
+    "keyPrefix": "Préfixe",
+    "manageKeys": "Gérer les clés",
+    "never": "Jamais",
+    "newAccount": "Nouveau compte de service",
+    "newKey": "Créer une clé",
+    "noKeys": "Aucune clé pour le moment.",
+    "noRole": "Aucun rôle",
+    "roleHint": "Vous ne pouvez accorder qu'un rôle dont vous détenez déjà les permissions.",
+    "selectRole": "Sélectionner un rôle",
+    "subtitle": "Identités API non humaines pour l'automatisation et les intégrations. Chacune a son propre rôle et ses clés API, et n'est liée à aucune personne.",
+    "title": "Comptes de service"
+  },
+  "sessionEvents": {
+    "artifact_schedule_changed": "La planification d'actualisation de « {title} » a été modifiée",
+    "artifact_schedule_removed": "La planification d'actualisation de « {title} » a été supprimée",
+    "artifact_schedule_set": "Une actualisation a été planifiée pour « {title} »",
+    "artifact_shared": "« {title} » a été partagé avec {who}",
+    "artifact_shared_generic": "« {title} » a été partagé",
+    "artifact_unshared": "« {title} » est repassé en privé",
+    "artifact_version_reverted": "« {title} » a été restauré à la version {v}",
+    "artifact_version_reverted_generic": "« {title} » a été restauré à une version antérieure",
+    "conversation_share_off": "Le partage de la conversation a été désactivé",
+    "eval_run_started": "{actor} a lancé une série d'évaluations · {n} cas",
+    "eval_run_started_by": "{actor} a lancé une série d'évaluations",
+    "eval_run_started_generic": "Une série d'évaluations a été lancée",
+    "eval_run_started_generic_n": "Une série d'évaluations a été lancée · {n} cas",
+    "file_removed": "{name} a été supprimé",
+    "file_uploaded": "{name} a été téléversé",
+    "instruction_accepted": "La modification suggérée pour « {title} » a été acceptée",
+    "instruction_accepted_generic": "Une modification d'instruction suggérée a été acceptée",
+    "instruction_accepted_versioned": "La modification suggérée pour « {title} » (v{v}) a été acceptée",
+    "instruction_rejected": "La modification suggérée pour « {title} » a été refusée",
+    "instruction_rejected_generic": "Une modification d'instruction suggérée a été refusée",
+    "instruction_rejected_versioned": "La modification suggérée pour « {title} » (v{v}) a été refusée",
+    "llm_changed": "Le modèle a été remplacé par {to}",
+    "llm_reset": "Le modèle a été réinitialisé sur celui par défaut",
+    "report_published": "Ce rapport a été publié",
+    "report_shared": "Cette conversation a été partagée avec {who}",
+    "report_shared_generic": "Cette conversation a été partagée",
+    "report_unpublished": "La publication de ce rapport a été annulée",
+    "run_stopped": "L'exécution a été arrêtée",
+    "scope_added": "Portée de l'agent modifiée — ajout de {added}",
+    "scope_changed": "Portée de l'agent modifiée — ajout de {added} ; suppression de {removed}",
+    "scope_generic": "Portée de l'agent modifiée",
+    "scope_removed": "Portée de l'agent modifiée — suppression de {removed}"
   }
 }
