@@ -720,7 +720,8 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Panel",
-      "slides": "Diapositivas"
+      "slides": "Diapositivas",
+      "training": "Entrenamiento"
     },
     "rowActions": "Acciones del informe",
     "status": {
@@ -728,7 +729,8 @@
       "running": "En ejecución",
       "newActivity": "Actividad nueva",
       "errorNew": "Terminó con un error"
-    }
+    },
+    "inProject": "En {name}"
   },
   "projects": {
     "title": "Proyectos",
@@ -809,7 +811,30 @@
       "noAutomations": "Aún no hay automatizaciones en este proyecto.",
       "fromProject": "De {name}"
     },
-    "rowActions": "Acciones del proyecto"
+    "rowActions": "Acciones del proyecto",
+    "myProjects": "Mis proyectos",
+    "sharedWithMe": "Compartidos conmigo",
+    "searchPlaceholder": "Buscar proyectos…",
+    "filtersButton": "Filtros",
+    "emptyTitle": "Aún no hay proyectos",
+    "noResults": "No se encontraron proyectos",
+    "noResultsHint": "Prueba otra búsqueda o borra los filtros.",
+    "sharedEmpty": "Todavía no te han compartido nada",
+    "sharedEmptyHint": "Los proyectos que tus compañeros compartan contigo aparecerán aquí.",
+    "filters": {
+      "accessLabel": "Acceso",
+      "allAccess": "Todos los accesos",
+      "private": "Privado",
+      "orgShared": "Compartido con la organización",
+      "reportsLabel": "Informes",
+      "allReports": "Todos los proyectos",
+      "withReports": "Con informes",
+      "emptyReports": "Vacíos",
+      "clear": "Borrar todo"
+    },
+    "pagination": {
+      "rowsPerPage": "Filas por página"
+    }
   },
   "traceModal": {
     "title": "Ejecución del agente",
@@ -1563,10 +1588,10 @@
     "addAgent": "+ Añadir agente...",
     "advancedPermissions": "Permisos avanzados",
     "tiers": {
-        "query": "Puede consultar",
-        "queryHint": "Hacer preguntas a este agente",
-        "manage": "Puede gestionar",
-        "manageHint": "Editar instrucciones, entidades, evaluaciones, ajustes y miembros"
+      "query": "Puede consultar",
+      "queryHint": "Hacer preguntas a este agente",
+      "manage": "Puede gestionar",
+      "manageHint": "Editar instrucciones, entidades, evaluaciones, ajustes y miembros"
     },
     "modelAccess": "Acceso a modelos",
     "modelAccessHint": "Modelos restringidos",

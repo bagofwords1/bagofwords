@@ -31,7 +31,7 @@
                         type="button"
                         class="whitespace-nowrap border-b-2 py-2 px-1 text-sm transition-colors"
                         :class="activeFilter === 'my'
-                            ? 'border-blue-600 text-blue-600'
+                            ? 'border-blue-500 text-blue-500'
                             : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'"
                         @click="setActiveFilter('my')"
                     >
@@ -41,7 +41,7 @@
                         type="button"
                         class="whitespace-nowrap border-b-2 py-2 px-1 text-sm transition-colors"
                         :class="activeFilter === 'shared'
-                            ? 'border-blue-600 text-blue-600'
+                            ? 'border-blue-500 text-blue-500'
                             : 'border-transparent text-gray-500 dark:text-gray-400 hover:border-gray-300 dark:hover:border-gray-600 hover:text-gray-700 dark:hover:text-gray-300'"
                         @click="setActiveFilter('shared')"
                     >
@@ -326,10 +326,33 @@
                             </div>
                             <!-- Type sub-label + data sources + metrics -->
                             <div class="mt-0.5 flex items-center gap-1.5 text-xs text-gray-400 dark:text-gray-500 flex-wrap">
-                                <span class="inline-flex items-center gap-1">
+                                <span
+                                    class="inline-flex items-center gap-1"
+                                    :class="isTrainingReport(report) ? 'text-sky-600 dark:text-sky-400' : ''"
+                                >
                                     <UIcon :name="reportTypeIcon(report)" class="h-3.5 w-3.5" />
                                     {{ reportTypeLabel(report) }}
                                 </span>
+                                <!-- Which project (folder) this report lives in.
+                                     Folder icon carries the project accent, same
+                                     as the sidebar and the prompt box chip. -->
+                                <template v-if="visibleProject(report)">
+                                    <span class="text-gray-300 dark:text-gray-600">·</span>
+                                    <NuxtLink
+                                        :to="`/projects/${report.project.id}`"
+                                        @click.stop
+                                        class="inline-flex items-center gap-1 max-w-[160px] hover:text-gray-600 dark:hover:text-gray-300"
+                                        :title="$t('reports.inProject', { name: report.project.name })"
+                                        data-testid="report-project-chip"
+                                    >
+                                        <UIcon
+                                            name="i-heroicons-folder"
+                                            class="h-3.5 w-3.5 shrink-0"
+                                            :style="report.project.color ? { color: report.project.color } : undefined"
+                                        />
+                                        <span class="truncate">{{ report.project.name }}</span>
+                                    </NuxtLink>
+                                </template>
                                 <template v-if="report.data_sources.length">
                                     <span class="text-gray-300 dark:text-gray-600">·</span>
                                     <span class="inline-flex items-center gap-1.5">
@@ -527,13 +550,21 @@ const visibilityLabel = (v: string) => {
     }
 }
 
+// Training sessions teach an agent rather than produce a report, so the mode
+// wins over any artifact the session happens to carry: without this the list
+// labelled them "Chat" and the Type filter's Training option had no visible
+// counterpart on the rows. Icon matches the prompt box's mode picker.
+const isTrainingReport = (report: any) => report.mode === 'training'
+
 const reportTypeIcon = (report: any) => {
+    if (isTrainingReport(report)) return 'i-heroicons-academic-cap'
     if (report.artifact_modes?.includes('page')) return 'i-heroicons-chart-bar-square'
     if (report.artifact_modes?.includes('slides')) return 'i-heroicons-presentation-chart-bar'
     return 'i-heroicons-chat-bubble-left-right'
 }
 
 const reportTypeLabel = (report: any) => {
+    if (isTrainingReport(report)) return t('reports.type.training')
     if (report.artifact_modes?.includes('page')) return t('reports.type.dashboard')
     if (report.artifact_modes?.includes('slides')) return t('reports.type.slides')
     return t('reports.type.chat')
@@ -556,6 +587,17 @@ const reportLink = (report: any): string | null => {
 const goToReport = (report: any) => {
     const link = reportLink(report)
     if (link) router.push(link)
+}
+
+// The folder chip on a row. A report can be shared directly out of a project
+// the viewer has no access to ("Shared with me"), and a chip for that project
+// would name a folder they cannot open and link into a 403 — so the chip only
+// renders for projects that came back in the caller's own /projects list.
+const { projects: visibleProjects, fetchProjects } = useProjects()
+const visibleProject = (report: any) => {
+    const project = report.project
+    if (!project) return null
+    return visibleProjects.value.find((p: any) => String(p.id) === String(project.id)) ? project : null
 }
 
 const _df = useFormatDate()
@@ -967,6 +1009,7 @@ onMounted(async () => {
     const [_, dsResponse] = await Promise.all([
         fetchReports(1, 'my', ''),
         useMyFetch('/data_sources', { method: 'GET' }),
+        fetchProjects(),
     ])
     if (dsResponse?.data?.value) {
         dataSources.value = (dsResponse.data.value as any[]) || []

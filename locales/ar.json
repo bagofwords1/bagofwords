@@ -676,7 +676,11 @@
       "running": "قيد التشغيل",
       "newActivity": "نشاط جديد",
       "errorNew": "انتهى بخطأ"
-    }
+    },
+    "type": {
+      "training": "تدريب"
+    },
+    "inProject": "في {name}"
   },
   "projects": {
     "title": "المشاريع",
@@ -757,7 +761,30 @@
       "noAutomations": "لا توجد أتمتة في هذا المشروع بعد.",
       "fromProject": "من {name}"
     },
-    "rowActions": "إجراءات المشروع"
+    "rowActions": "إجراءات المشروع",
+    "myProjects": "مشاريعي",
+    "sharedWithMe": "مشارَكة معي",
+    "searchPlaceholder": "البحث في المشاريع…",
+    "filtersButton": "عوامل التصفية",
+    "emptyTitle": "لا توجد مشاريع بعد",
+    "noResults": "لم يتم العثور على مشاريع",
+    "noResultsHint": "جرّب بحثًا آخر أو امسح عوامل التصفية.",
+    "sharedEmpty": "لم تتم مشاركة أي شيء معك بعد",
+    "sharedEmptyHint": "ستظهر هنا المشاريع التي يشاركها زملاؤك معك.",
+    "filters": {
+      "accessLabel": "الوصول",
+      "allAccess": "كل أنواع الوصول",
+      "private": "خاص",
+      "orgShared": "مشارَك مع المؤسسة",
+      "reportsLabel": "التقارير",
+      "allReports": "كل المشاريع",
+      "withReports": "تحتوي تقارير",
+      "emptyReports": "فارغة",
+      "clear": "مسح الكل"
+    },
+    "pagination": {
+      "rowsPerPage": "صفوف لكل صفحة"
+    }
   },
   "traceModal": {
     "title": "تنفيذ الوكيل",
@@ -1478,10 +1505,10 @@
     "addAgent": "+ إضافة وكيل...",
     "advancedPermissions": "أذونات متقدمة",
     "tiers": {
-        "query": "يمكنه الاستعلام",
-        "queryHint": "طرح أسئلة على هذا الوكيل",
-        "manage": "يمكنه الإدارة",
-        "manageHint": "تحرير التعليمات والكيانات والتقييمات والإعدادات والأعضاء"
+      "query": "يمكنه الاستعلام",
+      "queryHint": "طرح أسئلة على هذا الوكيل",
+      "manage": "يمكنه الإدارة",
+      "manageHint": "تحرير التعليمات والكيانات والتقييمات والإعدادات والأعضاء"
     },
     "modelAccess": "الوصول إلى النماذج",
     "modelAccessHint": "النماذج المقيدة",

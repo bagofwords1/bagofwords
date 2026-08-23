@@ -678,7 +678,11 @@
       "running": "Körs",
       "newActivity": "Ny aktivitet",
       "errorNew": "Avslutades med ett fel"
-    }
+    },
+    "type": {
+      "training": "Träning"
+    },
+    "inProject": "I {name}"
   },
   "projects": {
     "title": "Projekt",
@@ -759,7 +763,30 @@
       "noAutomations": "Inga automatiseringar i projektet ännu.",
       "fromProject": "Från {name}"
     },
-    "rowActions": "Projektåtgärder"
+    "rowActions": "Projektåtgärder",
+    "myProjects": "Mina projekt",
+    "sharedWithMe": "Delade med mig",
+    "searchPlaceholder": "Sök projekt…",
+    "filtersButton": "Filter",
+    "emptyTitle": "Inga projekt ännu",
+    "noResults": "Inga projekt hittades",
+    "noResultsHint": "Prova en annan sökning eller rensa filtren.",
+    "sharedEmpty": "Inget har delats med dig ännu",
+    "sharedEmptyHint": "Projekt som kollegor delar med dig visas här.",
+    "filters": {
+      "accessLabel": "Åtkomst",
+      "allAccess": "All åtkomst",
+      "private": "Privat",
+      "orgShared": "Delat med organisationen",
+      "reportsLabel": "Rapporter",
+      "allReports": "Alla projekt",
+      "withReports": "Med rapporter",
+      "emptyReports": "Tomma",
+      "clear": "Rensa allt"
+    },
+    "pagination": {
+      "rowsPerPage": "Rader per sida"
+    }
   },
   "traceModal": {
     "title": "Agentkörning",
@@ -1480,10 +1507,10 @@
     "addAgent": "+ Lägg till agent...",
     "advancedPermissions": "Avancerade behörigheter",
     "tiers": {
-        "query": "Kan fråga",
-        "queryHint": "Ställ frågor till denna agent",
-        "manage": "Kan hantera",
-        "manageHint": "Redigera instruktioner, entiteter, utvärderingar, inställningar och medlemmar"
+      "query": "Kan fråga",
+      "queryHint": "Ställ frågor till denna agent",
+      "manage": "Kan hantera",
+      "manageHint": "Redigera instruktioner, entiteter, utvärderingar, inställningar och medlemmar"
     },
     "modelAccess": "Modellåtkomst",
     "modelAccessHint": "Begränsade modeller",

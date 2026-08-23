@@ -678,7 +678,11 @@
       "running": "Em execução",
       "newActivity": "Nova atividade",
       "errorNew": "Terminou com um erro"
-    }
+    },
+    "type": {
+      "training": "Treinamento"
+    },
+    "inProject": "Em {name}"
   },
   "projects": {
     "title": "Projetos",
@@ -759,7 +763,30 @@
       "noAutomations": "Ainda não há automações neste projeto.",
       "fromProject": "De {name}"
     },
-    "rowActions": "Ações do projeto"
+    "rowActions": "Ações do projeto",
+    "myProjects": "Meus projetos",
+    "sharedWithMe": "Compartilhados comigo",
+    "searchPlaceholder": "Buscar projetos…",
+    "filtersButton": "Filtros",
+    "emptyTitle": "Ainda não há projetos",
+    "noResults": "Nenhum projeto encontrado",
+    "noResultsHint": "Tente outra busca ou limpe os filtros.",
+    "sharedEmpty": "Nada compartilhado com você ainda",
+    "sharedEmptyHint": "Projetos que colegas compartilharem com você aparecerão aqui.",
+    "filters": {
+      "accessLabel": "Acesso",
+      "allAccess": "Todos os acessos",
+      "private": "Privado",
+      "orgShared": "Compartilhado com a organização",
+      "reportsLabel": "Relatórios",
+      "allReports": "Todos os projetos",
+      "withReports": "Com relatórios",
+      "emptyReports": "Vazios",
+      "clear": "Limpar tudo"
+    },
+    "pagination": {
+      "rowsPerPage": "Linhas por página"
+    }
   },
   "traceModal": {
     "title": "Execução do agente",
@@ -1480,10 +1507,10 @@
     "addAgent": "+ Adicionar agente...",
     "advancedPermissions": "Permissões avançadas",
     "tiers": {
-        "query": "Pode consultar",
-        "queryHint": "Fazer perguntas a este agente",
-        "manage": "Pode gerenciar",
-        "manageHint": "Editar instruções, entidades, avaliações, configurações e membros"
+      "query": "Pode consultar",
+      "queryHint": "Fazer perguntas a este agente",
+      "manage": "Pode gerenciar",
+      "manageHint": "Editar instruções, entidades, avaliações, configurações e membros"
     },
     "modelAccess": "Acesso a modelos",
     "modelAccessHint": "Modelos restritos",

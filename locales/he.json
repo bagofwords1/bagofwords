@@ -720,7 +720,8 @@
     "type": {
       "chat": "צ׳אט",
       "dashboard": "לוח מחוונים",
-      "slides": "שקופיות"
+      "slides": "שקופיות",
+      "training": "אימון"
     },
     "rowActions": "פעולות דוח",
     "status": {
@@ -728,7 +729,8 @@
       "running": "פועל",
       "newActivity": "פעילות חדשה",
       "errorNew": "הסתיים בשגיאה"
-    }
+    },
+    "inProject": "בפרויקט {name}"
   },
   "projects": {
     "title": "פרויקטים",
@@ -809,7 +811,30 @@
       "noAutomations": "אין עדיין אוטומציות בפרויקט הזה.",
       "fromProject": "מתוך {name}"
     },
-    "rowActions": "פעולות פרויקט"
+    "rowActions": "פעולות פרויקט",
+    "myProjects": "הפרויקטים שלי",
+    "sharedWithMe": "משותפים איתי",
+    "searchPlaceholder": "חיפוש פרויקטים…",
+    "filtersButton": "סינון",
+    "emptyTitle": "אין עדיין פרויקטים",
+    "noResults": "לא נמצאו פרויקטים",
+    "noResultsHint": "נסו חיפוש אחר או נקו את הסינון.",
+    "sharedEmpty": "עדיין לא שיתפו איתך",
+    "sharedEmptyHint": "פרויקטים שחברי הצוות ישתפו איתך יופיעו כאן.",
+    "filters": {
+      "accessLabel": "גישה",
+      "allAccess": "כל סוגי הגישה",
+      "private": "פרטי",
+      "orgShared": "משותף לארגון",
+      "reportsLabel": "דוחות",
+      "allReports": "כל הפרויקטים",
+      "withReports": "עם דוחות",
+      "emptyReports": "ריקים",
+      "clear": "נקה הכל"
+    },
+    "pagination": {
+      "rowsPerPage": "שורות לעמוד"
+    }
   },
   "traceModal": {
     "title": "הפעלת סוכן",
@@ -1563,10 +1588,10 @@
     "addAgent": "+ הוסף סוכן...",
     "advancedPermissions": "הרשאות מתקדמות",
     "tiers": {
-        "query": "יכול לשאול",
-        "queryHint": "לשאול את הסוכן הזה שאלות",
-        "manage": "יכול לנהל",
-        "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
+      "query": "יכול לשאול",
+      "queryHint": "לשאול את הסוכן הזה שאלות",
+      "manage": "יכול לנהל",
+      "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
     },
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",

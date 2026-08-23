@@ -678,7 +678,11 @@
       "running": "In esecuzione",
       "newActivity": "Nuova attività",
       "errorNew": "Terminato con un errore"
-    }
+    },
+    "type": {
+      "training": "Addestramento"
+    },
+    "inProject": "In {name}"
   },
   "projects": {
     "title": "Progetti",
@@ -759,7 +763,30 @@
       "noAutomations": "Ancora nessuna automazione in questo progetto.",
       "fromProject": "Da {name}"
     },
-    "rowActions": "Azioni del progetto"
+    "rowActions": "Azioni del progetto",
+    "myProjects": "I miei progetti",
+    "sharedWithMe": "Condivisi con me",
+    "searchPlaceholder": "Cerca progetti…",
+    "filtersButton": "Filtri",
+    "emptyTitle": "Ancora nessun progetto",
+    "noResults": "Nessun progetto trovato",
+    "noResultsHint": "Prova un’altra ricerca o cancella i filtri.",
+    "sharedEmpty": "Non è stato ancora condiviso nulla con te",
+    "sharedEmptyHint": "I progetti che i colleghi condividono con te compariranno qui.",
+    "filters": {
+      "accessLabel": "Accesso",
+      "allAccess": "Tutti gli accessi",
+      "private": "Privato",
+      "orgShared": "Condiviso con l’organizzazione",
+      "reportsLabel": "Report",
+      "allReports": "Tutti i progetti",
+      "withReports": "Con report",
+      "emptyReports": "Vuoti",
+      "clear": "Cancella tutto"
+    },
+    "pagination": {
+      "rowsPerPage": "Righe per pagina"
+    }
   },
   "traceModal": {
     "title": "Esecuzione dell'agente",
@@ -1480,10 +1507,10 @@
     "addAgent": "+ Aggiungi agente...",
     "advancedPermissions": "Autorizzazioni avanzate",
     "tiers": {
-        "query": "Può interrogare",
-        "queryHint": "Fare domande a questo agente",
-        "manage": "Può gestire",
-        "manageHint": "Modificare istruzioni, entità, valutazioni, impostazioni e membri"
+      "query": "Può interrogare",
+      "queryHint": "Fare domande a questo agente",
+      "manage": "Può gestire",
+      "manageHint": "Modificare istruzioni, entità, valutazioni, impostazioni e membri"
     },
     "modelAccess": "Accesso ai modelli",
     "modelAccessHint": "Modelli con restrizioni",
