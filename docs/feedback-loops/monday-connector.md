@@ -128,3 +128,60 @@ This proves every active board visible to the API-token identity is discovered
 regardless of classic versus multi-level storage. It does not change the
 existing workspace/board configuration filters, token permission boundaries,
 or the connector's top-level-item query semantics.
+
+## Regression loop — boards missing from a fresh sync (customer: 200 boards, 190 synced)
+
+### Root causes (validated live against api.monday.com, EU trial seeded to 211 boards)
+
+Four defects in `_fetch_boards`, any of which silently loses boards:
+
+1. **Break-on-short-page pagination.** Discovery stopped as soon as one page
+   returned fewer than `BOARDS_PAGE` boards. monday does not guarantee
+   non-final pages are full, so a short page mid-crawl truncated every board
+   created after it. Fixed: paginate until an EMPTY page.
+2. **Global listing omissions.** The account-wide `boards (limit, page)` query
+   is known to omit boards that workspace-scoped or by-id queries return
+   (observed in the wild with shareable boards and cross-product workspaces;
+   monday's own MCP server never global-crawls — it enumerates per workspace).
+   Fixed: after the global crawl, a cheap per-workspace id sweep
+   (`boards (workspace_ids: [...])` over `workspaces (membership_kind: all)`)
+   recovers anything missing via `boards (ids: [...])`, with a warning log.
+3. **Name-prefix subitem filter.** Real boards named "Subitems of …" (monday's
+   "expand subitems into a new board" creates these) were dropped, and
+   renamed/localized shadow boards leaked in. Fixed: filter on the API `type`
+   field (`sub_items_board`); the name prefix remains only as a fallback when
+   `type` is absent.
+4. **Main-workspace scoping.** Boards in monday's legacy Main workspace return
+   `workspace: null` (documented), so any `workspaces` config filter silently
+   excluded them. Fixed: the aliases "Main workspace" / "main" select them.
+
+Also: the `MAX_BOARDS` cap now counts real (non-subitem) boards and logs a
+warning when it truncates instead of stopping silently, and discovery logs a
+per-run summary (`monday discovery: N board(s) … global crawl pages […]`) so a
+customer's missing-board report can be diagnosed from backend logs alone.
+
+### Loop (reproduced)
+
+- Unit: `uv run --extra dev python -m pytest tests/unit/test_monday_client.py`
+  — 19 pass, including new regressions for short pages, global-listing
+  omissions (recovered via workspace sweep), type-based subitem filtering,
+  Main-workspace scoping, and workspace-listing permission failure.
+- Live: against the seeded trial account (211 boards, 2 workspaces, private +
+  "Subitems of …"-named real boards, shadow subitem boards), `get_schemas()`
+  returns all 211; shadow boards excluded by type; scoping by workspace name
+  still exact.
+- Sandbox e2e: backend + frontend booted per `sandbox-feedback-loop`;
+  monday data source created via API with the trial token; `test_connection`
+  OK end-to-end; `refresh_schema` persisted 211 `datasource_tables` rows;
+  Tables UI showed "0/211 active", Select all + Save → "211/211 active"
+  (verified in sqlite). The LLM chat leg was blocked by the sandbox Anthropic
+  key's credit balance (billing 400 from api.anthropic.com — unrelated to this
+  change; the request pipeline itself was exercised).
+
+### Known remaining sharp edge (out of scope here)
+
+`save_or_update_tables` / `refresh_schema` key tables by NAME. When a board is
+renamed — or a second board takes the same name, which renames both tables to
+"name [id]" — the old row is deactivated and the replacements arrive inactive,
+so an in-use board drops out of the agent's selection. The client already
+persists `metadata_json.board_id`; sync should be keyed on it for monday.
