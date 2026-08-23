@@ -3522,9 +3522,11 @@ class AgentV2:
         """Whether an action outcome carries a terminal policy decision.
 
         A skipped outcome means the requested tool did not execute.  It does
-        not mean the outcome itself is disposable: execution policies such as
-        the artifact-call budget deliberately refuse the action *and* return a
-        final answer that must end the planner loop.
+        not mean the outcome itself is disposable: a policy may refuse the
+        action *and* end the planner loop by setting analysis_complete.
+        (The artifact-call budget used to do this; it now returns a plain
+        refusal observation instead, so the planner sees it via the batch
+        aggregate / <last_observation> and closes the turn in its own words.)
         """
         if not isinstance(outcome, dict):
             return False
@@ -4070,14 +4072,19 @@ class AgentV2:
             successful_tool_actions = []
             max_repeated_successes = 10 if self.mode == "training" else 2
 
-            # Circuit breaker for consecutive calls to the same artifact tool (regardless of arguments)
-            consecutive_artifact_tool_count = 0
-            last_artifact_tool_name = None
-            max_consecutive_artifact_calls = 1
-
-            # Circuit breaker for total artifact calls across the entire execution
+            # Cost cap on artifact generations per turn (each create/edit is a
+            # full LLM code generation + validation renders). This is the ONLY
+            # artifact-specific guard: the old consecutive-same-tool breaker
+            # force-ended the turn after two edits with a canned success
+            # message, but two different edits in one turn is a normal,
+            # convergent plan (apply the change, then fix what validation
+            # surfaced) — and identical-args loop detection can't apply here
+            # because edit prompts are free text that never repeats verbatim.
+            # Over-budget calls are refused like any failed tool (see the
+            # pre-execution check) so the planner wraps up in its own words —
+            # never a forced analysis_complete with a fabricated summary.
             total_artifact_calls = 0
-            max_total_artifact_calls = 2
+            max_total_artifact_calls = 4
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
@@ -5269,9 +5276,15 @@ class AgentV2:
                                         },
                                     }
 
-                                # Artifact budget is enforced BEFORE execution: the old
-                                # post-hoc check let an over-budget call run to completion
-                                # (a full artifact LLM generation) before ending the turn.
+                                # Artifact budget is enforced BEFORE execution: an
+                                # over-budget call must not run (each one is a full
+                                # artifact LLM generation). The refusal is a plain
+                                # failed-tool observation — NOT a forced
+                                # analysis_complete/final_answer — so the planner
+                                # sees it in <last_observation>, stops requesting
+                                # artifact tools, and closes the turn in its own
+                                # words, summarizing what the executed calls
+                                # actually did instead of a canned sign-off.
                                 if tool_name in ("create_artifact", "edit_artifact") and total_artifact_calls >= max_total_artifact_calls:
                                     return {
                                         "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
@@ -5279,14 +5292,12 @@ class AgentV2:
                                         "observation": {
                                             "summary": (
                                                 f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
-                                                f"'{tool_name}' was not executed. The latest artifact version is preserved."
+                                                f"'{tool_name}' was not executed and further create/edit_artifact calls "
+                                                "will also be refused this turn. The latest artifact version is preserved. "
+                                                "Do NOT request artifact tools again — summarize what the executed "
+                                                "changes accomplished and finish; the user can ask to continue in a new turn."
                                             ),
                                             "error": {"code": "artifact_budget_exhausted", "message": "artifact call budget reached"},
-                                            "analysis_complete": True,
-                                            "final_answer": (
-                                                "I've reached the artifact-update limit for this turn. "
-                                                "The latest dashboard version is preserved — ask me to continue if further changes are needed."
-                                            ),
                                         },
                                     }
 
@@ -5864,36 +5875,19 @@ class AgentV2:
                                             "final_answer": repeated_call_final_answer(_tn, max_repeated_successes)
                                         })
 
-                                    # Circuit breaker: consecutive calls to the same artifact tool (even with different args)
+                                    # Count executed artifact generations toward the
+                                    # per-turn cost cap (enforced pre-execution above).
+                                    # The old consecutive-same-tool breaker that lived
+                                    # here force-ended the turn after two edits with a
+                                    # canned "created and rendered successfully" — but
+                                    # two different edits in one turn is a normal,
+                                    # convergent plan, and free-text edit prompts never
+                                    # repeat verbatim, so "same tool twice" was noise,
+                                    # not a loop signal. Loops are covered by the
+                                    # identical-args repeat guard above, the failure
+                                    # breaker, the step limit, and the budget cap.
                                     if _tn in ("create_artifact", "edit_artifact"):
                                         total_artifact_calls += 1
-                                        if _tn == last_artifact_tool_name:
-                                            consecutive_artifact_tool_count += 1
-                                        else:
-                                            consecutive_artifact_tool_count = 1
-                                            last_artifact_tool_name = _tn
-                                        if consecutive_artifact_tool_count > max_consecutive_artifact_calls or total_artifact_calls > max_total_artifact_calls:
-                                            analysis_done = True
-                                            # The forced final answer must reflect what actually
-                                            # happened — claiming success over a version that
-                                            # reported render errors misleads the user.
-                                            _render_errs = (_obs or {}).get("render_errors") or []
-                                            if _render_errs:
-                                                _forced_answer = (
-                                                    f"The dashboard was updated, but the latest version reported "
-                                                    f"{len(_render_errs)} render error(s) that were not fully resolved "
-                                                    f"(first: {str(_render_errs[0])[:200]}). "
-                                                    "Ask me to fix it to continue."
-                                                )
-                                            else:
-                                                _forced_answer = "The dashboard has been created and rendered successfully."
-                                            _obs.update({
-                                                "analysis_complete": True,
-                                                "final_answer": _forced_answer
-                                            })
-                                    else:
-                                        consecutive_artifact_tool_count = 0
-                                        last_artifact_tool_name = None
 
                                 if _obs and _obs.get("analysis_complete"):
                                     analysis_done = True
