@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from app.ai.context.sections.tables_schema_section import TablesSchemaContext, MCPToolItem
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable, TableColumn as PromptTableColumn, ForeignKey as PromptForeignKey
@@ -294,10 +294,58 @@ class SchemaContextBuilder:
                 for c in cols:
                     cols_by_table.setdefault(str(c.user_data_source_table_id), []).append(c)
 
+                # Canonical enrichment lookup for the overlay tables, WITHOUT the
+                # active filter. For a user_required source the canonical catalog
+                # is built by the service principal, which by design has no access
+                # to a delegated dataset — so its canonical row is typically
+                # inactive or absent (see canonical_by_name, filtered to
+                # is_active==True). The overlay's is_accessible flag is the real
+                # per-user access authority here; the canonical row is used only
+                # to enrich column/relationship descriptors, so load it directly
+                # by name regardless of is_active rather than dropping the table.
+                overlay_names = [n for n in visible_table_names if n]
+                canonical_all_by_name: Dict[str, DataSourceTable] = dict(canonical_by_name)
+                missing_names = [n for n in overlay_names if n not in canonical_all_by_name]
+                if missing_names:
+                    enrich_query = (
+                        select(DataSourceTable)
+                        .options(
+                            selectinload(DataSourceTable.connection_table)
+                            .selectinload(ConnectionTable.connection)
+                        )
+                        .where(
+                            DataSourceTable.datasource_id == str(ds.id),
+                            DataSourceTable.name.in_(missing_names),
+                        )
+                    )
+                    # Honor the connection_ids contract the main query applies:
+                    # enrich only from rows on a target connection or unlinked
+                    # rows (a delegated dataset's canonical row is typically
+                    # unlinked). Never pull a row owned by another named
+                    # connection — that would mis-attribute the overlay table.
+                    if connection_ids:
+                        conn_id_set = set(str(x) for x in connection_ids)
+                        enrich_query = (
+                            enrich_query
+                            .outerjoin(
+                                ConnectionTable,
+                                DataSourceTable.connection_table_id == ConnectionTable.id,
+                            )
+                            .where(or_(
+                                ConnectionTable.connection_id.in_(conn_id_set),
+                                DataSourceTable.connection_table_id.is_(None),
+                            ))
+                        )
+                    enrich_q = await self.db.execute(enrich_query)
+                    # DataSourceTable.name is non-null; key directly (avoid an
+                    # empty-string bucket collapsing distinct rows).
+                    for t in enrich_q.scalars().all():
+                        canonical_all_by_name.setdefault(t.name, t)
+
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
-                    base = canonical_by_name.get(name)
+                    base = canonical_all_by_name.get(name)
                     # The overlay decides WHICH columns this user may see; the
                     # canonical row describes WHAT they are. Column descriptors
                     # (measure role, hidden flag, return type) are model-level
@@ -343,11 +391,15 @@ class SchemaContextBuilder:
                             "description": None,
                             "metadata": safe_meta,
                         })
-                    # Respect canonical table's is_active status (default False if not found)
-                    canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
-                    # Skip inactive tables when active_only is True
-                    if active_only and not canonical_is_active:
-                        continue
+                    # The overlay is the per-user access authority: this table
+                    # came from the is_accessible==True overlay query above, so
+                    # the user can provably query it right now. The canonical
+                    # is_active flag is unreliable for a user_required source
+                    # (service principal has no access → canonical stays
+                    # inactive), so do NOT gate the user's own accessible table
+                    # on it — that dropped every delegated-source table and left
+                    # the agent with an empty schema. Emit as active.
+                    canonical_is_active = True
                     pks = getattr(base, 'pks', []) if base is not None else []
                     fks = [
                         fk for fk in (getattr(base, 'fks', None) or [])

@@ -110,6 +110,28 @@ from app.schemas.instruction_schema import InstructionCreate
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 
+
+def normalize_overlay_fks(fks) -> list:
+    """Serialize a table's foreign keys into JSON-storable dicts.
+
+    fks may arrive as pydantic ForeignKey objects (from a Table prompt
+    formatter) whose nested TableColumn values are NOT JSON serializable.
+    Persisting them into DataSourceTable.fks (a JSON column) raised "Object of
+    type ForeignKey is not JSON serializable" and aborted the entire per-user
+    overlay upsert for any dataset with relationships — so a delegated Power BI
+    / Fabric model with FKs could never build an overlay. Dicts pass through.
+    """
+    out = []
+    for fk in (fks or []):
+        if isinstance(fk, dict):
+            out.append(fk)
+        elif hasattr(fk, "model_dump"):
+            out.append(fk.model_dump(mode="json"))
+        elif hasattr(fk, "dict"):
+            out.append(fk.dict())
+    return out
+
+
 class DataSourceService:
 
     def __init__(self):
@@ -2557,7 +2579,7 @@ class DataSourceService:
 
             client = ClientClass(**allowed)
             self._attach_client_quota_metadata(client, data_source, conn, key)
-            await self._attach_stored_table_metadata(db, client, data_source, conn)
+            await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
             clients[key] = client
 
             # Accelerated (FAST) relations for this connection, exposed as a
@@ -2629,7 +2651,7 @@ class DataSourceService:
             list(rows), connection_name=connection.name, identity=identity
         )
 
-    async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
+    async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection, current_user=None) -> None:
         """Inject the persisted (indexed) table metadata into clients that
         resolve query targets from it.
 
@@ -2659,20 +2681,48 @@ class DataSourceService:
             # Attaching an unlinked row to a sibling connection's client is
             # harmless — resolution is by name, and a name it does not own simply
             # will not match (this is what the old no-rows fallback already did).
+            # NB: no is_active filter. This map only resolves a query target
+            # (table name → dataset GUID); it grants no access — the delegated
+            # token still gates executeQueries. On a user_required source the
+            # canonical row for a delegated dataset is inactive (the service
+            # principal that indexed the catalog has no access to it), so an
+            # is_active filter left the map empty and every viewer run failed
+            # with "Could not resolve Power BI dataset". The GUID is present on
+            # the inactive row, so keep it.
             rows = (await db.execute(
                 select(DataSourceTable.name, DataSourceTable.metadata_json)
                 .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
                     DataSourceTable.datasource_id == str(data_source.id),
-                    DataSourceTable.is_active == True,
                     or_(
                         ConnectionTable.connection_id == str(connection.id),
                         DataSourceTable.connection_table_id.is_(None),
                     ),
                 )
             )).all()
+            attach = {name: metadata_json for name, metadata_json in rows}
+
+            # Merge the executing user's overlay metadata. A delegated dataset
+            # can enter the catalog ONLY through a user's own discovery, so for
+            # a viewer whose overlay carries the GUID but whose canonical row is
+            # missing entirely, the overlay is the sole source of the mapping.
+            # Overlay values win — they were discovered under this user's creds.
+            if current_user is not None:
+                from app.models.user_data_source_overlay import UserDataSourceTable
+                ov = (await db.execute(
+                    select(UserDataSourceTable.table_name, UserDataSourceTable.metadata_json)
+                    .where(
+                        UserDataSourceTable.data_source_id == str(data_source.id),
+                        UserDataSourceTable.user_id == str(current_user.id),
+                        UserDataSourceTable.is_accessible == True,
+                    )
+                )).all()
+                for name, metadata_json in ov:
+                    if metadata_json:
+                        attach[name] = metadata_json
+
             client.attach_table_metadata(
-                [{"name": name, "metadata_json": metadata_json} for name, metadata_json in rows]
+                [{"name": name, "metadata_json": metadata_json} for name, metadata_json in attach.items()]
             )
         except Exception:
             # Non-fatal: the client falls back to live discovery.
@@ -3880,7 +3930,7 @@ class DataSourceService:
                 normalized[name] = {
                     "columns": normalize_columns(t.get("columns", [])),
                     "pks": normalize_columns(t.get("pks", [])),
-                    "fks": t.get("fks", []) or [],
+                    "fks": normalize_overlay_fks(t.get("fks", [])),
                     "metadata_json": t.get("metadata_json"),
                 }
             else:
@@ -3890,7 +3940,7 @@ class DataSourceService:
                 normalized[name] = {
                     "columns": normalize_columns(getattr(t, "columns", [])),
                     "pks": normalize_columns(getattr(t, "pks", [])),
-                    "fks": getattr(t, "fks", []) or [],
+                    "fks": normalize_overlay_fks(getattr(t, "fks", [])),
                     "metadata_json": getattr(t, "metadata_json", None),
                 }
 
