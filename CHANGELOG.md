@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.546 (August 23, 2026)
+- Added HTML export to artifacts — download a dashboard as one standalone, fully offline HTML file (no login, no network)
+
 ## Version 0.0.545 (August 22, 2026)
 - Introduced parameterized queries and personalized artifacts — dashboards take typed viewer inputs and identity-scoped parameters, with per-viewer results and refresh on open
 
