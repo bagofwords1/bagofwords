@@ -27,29 +27,39 @@ def test_no_consecutive_artifact_breaker():
     assert "The dashboard has been created and rendered successfully." not in src
 
 
-def test_artifact_budget_is_raised_and_non_terminal():
+def test_artifact_budget_raised_to_four():
+    assert re.search(r"max_total_artifact_calls\s*=\s*4", _main_loop_source())
+
+
+def test_budget_refusal_escalates_nudge_then_stop():
+    """First refusal must be non-terminal (planner writes its own close);
+    a second refusal must end the turn. A purely non-terminal refusal made a
+    small model re-request edit_artifact ~24x to the step limit and then
+    narrate the refused edit as completed (observed in the sandbox)."""
     src = _main_loop_source()
-    assert re.search(r"max_total_artifact_calls\s*=\s*4", src)
-    # The budget refusal block must not force termination: extract the
-    # refusal observation dict and check it carries no terminal keys.
-    m = re.search(
-        r'artifact_budget_exhausted.*?\}\s*,\s*\n\s*\}\s*,?\s*\n\s*\}', src, re.S
-    )
-    assert m, "budget refusal block not found"
-    block_start = src.rfind("if tool_name in (\"create_artifact\", \"edit_artifact\")", 0, m.start())
-    refusal_block = src[block_start:m.end()]
-    assert '"analysis_complete"' not in refusal_block
-    assert '"final_answer"' not in refusal_block
+    assert 'artifact_refusals = {"n": 0}' in src
+    assert 'artifact_refusals["n"] += 1' in src
+    # Terminal keys are set ONLY under the >1 escalation branch
+    m = re.search(r'if artifact_refusals\["n"\] > 1:(.*?)return \{', src, re.S)
+    assert m, "escalation branch not found"
+    branch = m.group(1)
+    assert '"analysis_complete"' in branch
+    assert '"final_answer"' in branch
+    # The forced answer must not fabricate success for refused work
+    assert "were NOT applied" in branch
 
 
-def test_outcome_ends_run_treats_budget_refusal_as_non_terminal():
-    refusal_outcome = {
+def test_outcome_ends_run_first_refusal_non_terminal():
+    first_refusal = {
         "skipped": True,
         "observation": {
             "summary": "Artifact call budget reached",
             "error": {"code": "artifact_budget_exhausted", "message": "artifact call budget reached"},
         },
     }
-    assert AgentV2._outcome_ends_run(refusal_outcome) is False
-    # Sanity: a genuinely terminal observation still ends the run
-    assert AgentV2._outcome_ends_run({"observation": {"analysis_complete": True}}) is True
+    assert AgentV2._outcome_ends_run(first_refusal) is False
+    escalated = {
+        "skipped": True,
+        "observation": {**first_refusal["observation"], "analysis_complete": True},
+    }
+    assert AgentV2._outcome_ends_run(escalated) is True

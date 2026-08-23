@@ -4080,11 +4080,18 @@ class AgentV2:
             # convergent plan (apply the change, then fix what validation
             # surfaced) — and identical-args loop detection can't apply here
             # because edit prompts are free text that never repeats verbatim.
-            # Over-budget calls are refused like any failed tool (see the
-            # pre-execution check) so the planner wraps up in its own words —
-            # never a forced analysis_complete with a fabricated summary.
+            # Over-budget calls are refused (see the pre-execution check) with
+            # a nudge→stop escalation modelled on repeated_call_action: the
+            # FIRST refusal is a plain observation so the planner can close the
+            # turn in its own words, but a planner that keeps re-requesting the
+            # refused tool is ended on the next refusal. Sandbox testing showed
+            # a purely non-terminal refusal makes a small model re-issue
+            # edit_artifact ~24 times until the step limit and then narrate the
+            # refused edit as if it had succeeded — so the escalation is what
+            # keeps the turn both honest and bounded.
             total_artifact_calls = 0
             max_total_artifact_calls = 4
+            artifact_refusals = {"n": 0}
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
@@ -5278,27 +5285,45 @@ class AgentV2:
 
                                 # Artifact budget is enforced BEFORE execution: an
                                 # over-budget call must not run (each one is a full
-                                # artifact LLM generation). The refusal is a plain
-                                # failed-tool observation — NOT a forced
-                                # analysis_complete/final_answer — so the planner
-                                # sees it in <last_observation>, stops requesting
-                                # artifact tools, and closes the turn in its own
-                                # words, summarizing what the executed calls
-                                # actually did instead of a canned sign-off.
+                                # artifact LLM generation). Refusals escalate like
+                                # repeated_call_action: the FIRST is a plain
+                                # observation so the planner can close the turn in
+                                # its own words; if it re-requests an artifact tool
+                                # anyway, the next refusal ends the turn with an
+                                # honest, non-fabricated answer. Without the
+                                # escalation a small model loops on the refusal to
+                                # the step limit and then claims the refused edit
+                                # succeeded.
                                 if tool_name in ("create_artifact", "edit_artifact") and total_artifact_calls >= max_total_artifact_calls:
+                                    artifact_refusals["n"] += 1
+                                    _refusal_obs: Dict[str, Any] = {
+                                        "summary": (
+                                            f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
+                                            f"'{tool_name}' was NOT executed and every further create/edit_artifact "
+                                            "call this turn will also be refused. The latest artifact version is "
+                                            "preserved, but the change you just requested was NOT applied. Do NOT "
+                                            "request artifact tools again. Write your final answer now: state which "
+                                            "changes were actually applied and which were not, and tell the user to "
+                                            "ask again to continue. Never describe a refused edit as completed."
+                                        ),
+                                        "error": {"code": "artifact_budget_exhausted", "message": "artifact call budget reached"},
+                                    }
+                                    if artifact_refusals["n"] > 1:
+                                        # The planner ignored the first refusal — end the
+                                        # turn rather than let it loop to the step limit
+                                        # (and then narrate the refused edit as done).
+                                        _refusal_obs["analysis_complete"] = True
+                                        _refusal_obs["final_answer"] = (
+                                            f"I applied {total_artifact_calls} change(s) to the dashboard and then hit "
+                                            f"this turn's limit of {max_total_artifact_calls} artifact updates, so the "
+                                            "remaining requested changes were NOT applied. The latest saved version "
+                                            "keeps everything that did go through — ask me to continue and I'll pick "
+                                            "up the rest."
+                                        )
                                     return {
                                         "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
                                         "action": action, "skipped": True, "inv": _inv,
-                                        "observation": {
-                                            "summary": (
-                                                f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
-                                                f"'{tool_name}' was not executed and further create/edit_artifact calls "
-                                                "will also be refused this turn. The latest artifact version is preserved. "
-                                                "Do NOT request artifact tools again — summarize what the executed "
-                                                "changes accomplished and finish; the user can ask to continue in a new turn."
-                                            ),
-                                            "error": {"code": "artifact_budget_exhausted", "message": "artifact call budget reached"},
-                                        },
+                                        "observation": _refusal_obs,
                                     }
 
                                 async with self._tool_db_lock:
