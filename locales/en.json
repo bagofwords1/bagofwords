@@ -691,6 +691,8 @@
     },
     "empty": "No reports found",
     "emptyHint": "Try adjusting your filters or search term",
+    "sharedEmpty": "No shared reports",
+    "sharedEmptyHint": "Reports other people share with you will appear here.",
     "allDashboards": "All dashboards",
     "allModes": "All modes",
     "allSchedules": "All schedules",
