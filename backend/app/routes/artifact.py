@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+from collections import defaultdict as _defaultdict
 from typing import List, Dict, Any, Optional
 from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -483,6 +484,204 @@ async def export_artifact_pptx(
         pptx_buffer,
         media_type="application/vnd.openxmlformats-officedocument.presentationml.presentation",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'}
+    )
+
+
+@router.get("/{artifact_id}/export/html")
+@requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
+async def export_artifact_html(
+    artifact_id: str,
+    request: Request,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Export a page-mode dashboard as one standalone, fully offline HTML file.
+
+    Everything the dashboard needs — runtime, styles, chart library, data and
+    embedded media — is inlined, so the downloaded file renders with no server,
+    no network and no session. See services/html_export_service.py.
+    """
+    from urllib.parse import quote
+    from fastapi.responses import Response
+    from app.ee.audit.service import audit_service
+    from app.services.html_export_service import (
+        ExportUnavailable,
+        ascii_fallback_filename,
+        build_standalone_html,
+        suggested_filename,
+    )
+
+    artifact = await service.get(db, artifact_id)
+    if not artifact:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
+
+    if (artifact.mode or "page") != "page":
+        raise HTTPException(
+            status_code=400,
+            detail="Only dashboards can be exported as HTML",
+        )
+
+    # The export bakes in the shared Step snapshot, exactly as the PPTX and
+    # slide-preview renders do, so it is gated by the same viewer policy.
+    await _guard_rendered_artifact_for_viewer(db, artifact, current_user)
+
+    if artifact.status == "failed":
+        raise HTTPException(
+            status_code=400,
+            detail="This dashboard failed to generate. Regenerate it before exporting.",
+        )
+
+    try:
+        html = await build_standalone_html(db, artifact)
+    except ExportUnavailable as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    filename = suggested_filename(artifact)
+    # Titles are routinely non-Latin (the product ships RTL locales), and a raw
+    # non-ASCII byte in a header is invalid. Send a transliterated ASCII
+    # fallback plus the RFC 5987 form, which carries the real name wherever it
+    # is supported.
+    disposition = (
+        f'attachment; filename="{ascii_fallback_filename(filename)}"; '
+        f"filename*=UTF-8''{quote(filename)}"
+    )
+
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="artifact.exported",
+            user_id=current_user.id,
+            resource_type="artifact",
+            resource_id=artifact_id,
+            details={"format": "html", "title": artifact.title},
+            request=request,
+        )
+    except Exception:
+        pass
+
+    return Response(
+        content=html,
+        media_type="text/html; charset=utf-8",
+        headers={
+            "Content-Disposition": disposition,
+            # A dashboard snapshot must never be reused for another viewer.
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+# One render per artifact at a time: each export launches a headless Chromium,
+# so concurrent clicks would stack browser instances and race on the same
+# uploads/pdfs/{artifact_id}.pdf. Mirrors the report-level lock in routes/report.py.
+_artifact_pdf_export_locks: dict[str, asyncio.Lock] = _defaultdict(asyncio.Lock)
+
+# Waiting for the lock (at most one render already in flight) plus our own
+# render. Without an outer bound a request queued behind a wedged render would
+# wait forever and the client would sit at "Exporting..." with no way to learn
+# it failed.
+_ARTIFACT_PDF_EXPORT_TIMEOUT_SECONDS = 330
+
+
+@router.get("/{artifact_id}/export/pdf")
+@requires_permission('view_reports', model=ArtifactModel, owner_only=True, allow_public=True)
+async def export_artifact_pdf(
+    artifact_id: str,
+    request: Request,
+    current_user: User = Depends(current_user_dep),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Export a dashboard or deck as PDF.
+
+    Same renderer the emailed dashboard share already uses
+    (ReportPdfService.generate_for_artifact -> headless Chromium over the
+    shared snapshot); this only exposes it to the owner in-app, alongside the
+    PPTX and HTML exports above. Docs are excluded: they render in Vue, and
+    the browser's own print dialog is their export path.
+    """
+    import os
+    from fastapi.responses import FileResponse
+    from app.ee.audit.service import audit_service
+    from app.core.path_safety import UnsafePathError, safe_join
+    from app.services.report_pdf_service import ReportPdfService
+
+    artifact = await service.get(db, artifact_id)
+    if not artifact:
+        raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
+
+    if (artifact.mode or "page") == "doc":
+        raise HTTPException(
+            status_code=400,
+            detail="Documents cannot be exported as PDF",
+        )
+
+    # The render bakes in the shared Step snapshot, exactly as the PPTX and
+    # HTML exports do, so it is gated by the same viewer policy.
+    await _guard_rendered_artifact_for_viewer(db, artifact, current_user)
+
+    if artifact.status == "failed":
+        raise HTTPException(
+            status_code=400,
+            detail="This artifact failed to generate. Regenerate it before exporting.",
+        )
+
+    async def _generate_locked() -> Optional[str]:
+        async with _artifact_pdf_export_locks[str(artifact_id)]:
+            return await ReportPdfService().generate_for_artifact(str(artifact_id))
+
+    try:
+        pdf_path = await asyncio.wait_for(
+            _generate_locked(), timeout=_ARTIFACT_PDF_EXPORT_TIMEOUT_SECONDS
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="PDF export timed out. Please try again.",
+        )
+
+    if not pdf_path or not os.path.isfile(pdf_path):
+        raise HTTPException(
+            status_code=409,
+            detail="PDF export is not available for this artifact",
+        )
+
+    # Defense-in-depth: generate_for_artifact builds this path from the DB
+    # artifact id under UPLOADS_DIR, never from request input. Still, rebuild
+    # the served path from that fixed root plus only the bare filename, so no
+    # directory component of the computed path can point outside the tree.
+    try:
+        safe_pdf = safe_join(ReportPdfService.UPLOADS_DIR, os.path.basename(pdf_path))
+    except UnsafePathError:
+        safe_pdf = None
+    if safe_pdf is None or not safe_pdf.is_file():
+        raise HTTPException(
+            status_code=409,
+            detail="PDF export is not available for this artifact",
+        )
+
+    try:
+        await audit_service.log(
+            db=db,
+            organization_id=organization.id,
+            action="artifact.exported",
+            user_id=current_user.id,
+            resource_type="artifact",
+            resource_id=artifact_id,
+            details={"format": "pdf", "title": artifact.title},
+            request=request,
+        )
+    except Exception:
+        pass
+
+    safe_title = (artifact.title or "artifact").encode("ascii", "ignore").decode("ascii")
+    safe_title = re.sub(r'[^\w\s-]', '', safe_title).strip() or "artifact"
+    return FileResponse(
+        str(safe_pdf),
+        media_type="application/pdf",
+        filename=f"{safe_title}.pdf",
+        content_disposition_type="attachment",
     )
 
 

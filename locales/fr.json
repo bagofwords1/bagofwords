@@ -2701,7 +2701,12 @@
     "refreshPartial": "Tableau de bord partiellement actualisé",
     "refreshFailed": "Échec de l'actualisation du tableau de bord",
     "refreshNothing": "Rien à actualiser",
-    "refreshSummary": "{succeeded} requêtes sur {total} actualisées"
+    "refreshSummary": "{succeeded} requêtes sur {total} actualisées",
+    "exportHtml": "Télécharger en HTML autonome",
+    "exportComplete": "Export terminé",
+    "exportHtmlDone": "Fichier HTML autonome téléchargé — il fonctionne hors ligne.",
+    "exportFailed": "Échec de l'export",
+    "exportHtmlFailed": "Impossible d'exporter ce tableau de bord en HTML."
   },
   "filter": {
     "addFilters": "Ajouter des filtres",

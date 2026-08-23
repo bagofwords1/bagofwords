@@ -2699,7 +2699,12 @@
     "refreshPartial": "تم تحديث لوحة التحكم جزئيًا",
     "refreshFailed": "فشل تحديث لوحة التحكم",
     "refreshNothing": "لا يوجد ما يتم تحديثه",
-    "refreshSummary": "تم تحديث {succeeded} من {total} استعلامات"
+    "refreshSummary": "تم تحديث {succeeded} من {total} استعلامات",
+    "exportHtml": "تنزيل كملف HTML مستقل",
+    "exportComplete": "اكتمل التصدير",
+    "exportHtmlDone": "تم تنزيل ملف HTML مستقل — يعمل دون اتصال بالإنترنت.",
+    "exportFailed": "فشل التصدير",
+    "exportHtmlFailed": "تعذّر تصدير لوحة التحكم هذه كملف HTML."
   },
   "filter": {
     "addFilters": "إضافة عوامل تصفية",

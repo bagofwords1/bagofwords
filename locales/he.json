@@ -2923,7 +2923,12 @@
     "refreshPartial": "הדשבורד עודכן חלקית",
     "refreshFailed": "עדכון הדשבורד נכשל",
     "refreshNothing": "אין מה לעדכן",
-    "refreshSummary": "{succeeded} מתוך {total} שאילתות עודכנו"
+    "refreshSummary": "{succeeded} מתוך {total} שאילתות עודכנו",
+    "exportHtml": "הורדה כקובץ HTML עצמאי",
+    "exportComplete": "הייצוא הושלם",
+    "exportHtmlDone": "קובץ HTML עצמאי הורד — הוא עובד גם ללא חיבור לאינטרנט.",
+    "exportFailed": "הייצוא נכשל",
+    "exportHtmlFailed": "לא ניתן לייצא את הדשבורד כקובץ HTML."
   },
   "filter": {
     "addFilters": "הוסף מסננים",
