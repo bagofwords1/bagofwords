@@ -102,34 +102,16 @@
                      same ReportPdfService pipeline as the emailed dashboard
                      share. Hidden for doc artifacts (no server renderer) and
                      when the snapshot is withheld (backend refuses anyway). -->
-                <button
-                    v-if="canExportPdf"
-                    @click="handleExportPdf"
-                    :disabled="isExportingPdf"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-                    title="Download this dashboard as a PDF"
-                >
-                    <Icon :name="isExportingPdf ? 'heroicons:arrow-path' : 'heroicons:arrow-down-tray'"
-                        :class="['w-3.5 h-3.5', isExportingPdf ? 'animate-spin' : '']" />
-                    <span class="hidden sm:inline">{{ isExportingPdf ? 'Exporting...' : 'Export PDF' }}</span>
-                </button>
-                <!-- Export HTML: one standalone file with the runtime, styles
-                     and this snapshot inlined, so it opens offline. Dashboards
-                     only (docs and decks have no React runtime to stand up),
-                     and hidden when the snapshot is withheld — the file would
-                     carry that data past every gate we have. -->
-                <button
-                    v-if="canExportHtml"
-                    @click="handleExportHtml"
-                    :disabled="isExportingHtml"
-                    class="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
-                    title="Download this dashboard as a standalone HTML file that works offline"
-                >
-                    <Icon :name="isExportingHtml ? 'heroicons:arrow-path' : 'heroicons:arrow-down-tray'"
-                        :class="['w-3.5 h-3.5', isExportingHtml ? 'animate-spin' : '']" />
-                    <span class="hidden sm:inline">{{ isExportingHtml ? 'Exporting...' : 'Export HTML' }}</span>
-                </button>
-                <!-- Fork button -->
+<!-- One button for both exports, from the same availability list the
+                     in-app viewer uses. Hidden when the snapshot is withheld: the
+                     file would carry that data past every gate we have. -->
+                <ExportMenu
+                    :options="availableExports"
+                    :busy="isExportingPdf || isExportingHtml || isExportingPptx"
+                    variant="subtle"
+                    @select="handleExport"
+                />
+                                <!-- Fork button -->
                 <button
                     v-if="forkEligibility?.can_fork"
                     @click="handleFork"
@@ -271,6 +253,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ExportFormat } from '~/composables/useArtifactExports'
 import DashboardComponent from '~/components/DashboardComponent.vue';
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
@@ -413,9 +396,64 @@ async function handleRun() {
 // the button only shows for page/slides artifacts with a visible snapshot.
 const isExportingPdf = ref(false);
 const exportPdfError = ref<string | null>(null);
-const canExportPdf = computed(() =>
-    reportLoaded.value && hasArtifacts.value && !!artifact.value &&
-    artifact.value.mode !== 'doc' && !snapshotWithheld.value);
+const { availableExports } = useArtifactExports(artifact, {
+    snapshotWithheld,
+    enabled: computed(() => reportLoaded.value && hasArtifacts.value),
+});
+
+function handleExport(format: ExportFormat) {
+    if (format === 'pdf') return handleExportPdf();
+    if (format === 'pptx') return handleExportPptx();
+    return handleExportHtml();
+}
+
+const isExportingPptx = ref(false);
+
+// The in-app PPTX export lives on the artifact router, which requires a
+// signed-in user, so a share-link viewer goes through the report-scoped twin.
+async function handleExportPptx() {
+    if (isExportingPptx.value) return;
+    isExportingPptx.value = true;
+    try {
+        // Pin the export to the artifact actually on screen rather than
+        // letting the server pick "latest" — they can differ.
+        const query = artifact.value?.id ? `?artifact_id=${encodeURIComponent(artifact.value.id)}` : '';
+        const { data, error: fetchError } = await useMyFetch(
+            `/api/r/${report_id}/export_pptx${query}`,
+            {
+                responseType: 'blob' as any,
+                // Same reasoning as the other two: a silent ofetch retry on
+                // 409/504 would repeat server-side work and double the spin.
+                retry: 0,
+                timeout: 360_000,
+            } as any,
+        );
+        if (fetchError.value || !data.value) throw fetchError.value || new Error('PowerPoint export failed');
+
+        const url = URL.createObjectURL(data.value as Blob);
+        const a = document.createElement('a');
+        a.href = url;
+        // Strip filesystem-reserved characters only, so non-Latin titles
+        // (e.g. Hebrew) survive as the download name.
+        const base = String(pageTitle.value || 'presentation').replace(/[\\/:*?"<>|]+/g, ' ').trim();
+        a.download = `${base || 'presentation'}.pptx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    } catch (e: any) {
+        console.error('PowerPoint export failed:', e);
+        // With responseType 'blob' the error body arrives as a Blob, so the
+        // server's JSON {detail} has to be read out of it.
+        let detail = e?.data?.detail;
+        if (!detail && e?.data instanceof Blob) {
+            try { detail = JSON.parse(await e.data.text())?.detail; } catch { /* not JSON */ }
+        }
+        runError.value = detail || e?.message || 'PowerPoint export failed';
+    } finally {
+        isExportingPptx.value = false;
+    }
+}
 
 async function handleExportPdf() {
     if (isExportingPdf.value) return;
@@ -467,12 +505,6 @@ async function handleExportPdf() {
 }
 
 const isExportingHtml = ref(false);
-// Only page-mode artifacts: a doc renders in Vue and a deck is python-pptx
-// source, so neither has a React runtime the standalone file could stand up.
-const canExportHtml = computed(() =>
-    reportLoaded.value && hasArtifacts.value && !!artifact.value &&
-    artifact.value.mode === 'page' && !snapshotWithheld.value);
-
 async function handleExportHtml() {
     if (isExportingHtml.value) return;
     isExportingHtml.value = true;

@@ -596,6 +596,15 @@
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found"
   },
+  "exports": {
+    "label": "Export",
+    "pdf": "PDF",
+    "pdfDone": "PDF downloaded.",
+    "pptx": "PowerPoint",
+    "html": "HTML",
+    "complete": "Export complete",
+    "failed": "Export failed"
+  },
   "reports": {
     "title": "Reports",
     "subtitle": "Browse and manage your reports",
