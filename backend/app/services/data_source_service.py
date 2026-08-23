@@ -2557,7 +2557,7 @@ class DataSourceService:
 
             client = ClientClass(**allowed)
             self._attach_client_quota_metadata(client, data_source, conn, key)
-            await self._attach_stored_table_metadata(db, client, data_source, conn)
+            await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
             clients[key] = client
 
             # Accelerated (FAST) relations for this connection, exposed as a
@@ -2629,7 +2629,7 @@ class DataSourceService:
             list(rows), connection_name=connection.name, identity=identity
         )
 
-    async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection) -> None:
+    async def _attach_stored_table_metadata(self, db: AsyncSession, client, data_source: DataSource, connection, current_user=None) -> None:
         """Inject the persisted (indexed) table metadata into clients that
         resolve query targets from it.
 
@@ -2659,20 +2659,48 @@ class DataSourceService:
             # Attaching an unlinked row to a sibling connection's client is
             # harmless — resolution is by name, and a name it does not own simply
             # will not match (this is what the old no-rows fallback already did).
+            # NB: no is_active filter. This map only resolves a query target
+            # (table name → dataset GUID); it grants no access — the delegated
+            # token still gates executeQueries. On a user_required source the
+            # canonical row for a delegated dataset is inactive (the service
+            # principal that indexed the catalog has no access to it), so an
+            # is_active filter left the map empty and every viewer run failed
+            # with "Could not resolve Power BI dataset". The GUID is present on
+            # the inactive row, so keep it.
             rows = (await db.execute(
                 select(DataSourceTable.name, DataSourceTable.metadata_json)
                 .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
                     DataSourceTable.datasource_id == str(data_source.id),
-                    DataSourceTable.is_active == True,
                     or_(
                         ConnectionTable.connection_id == str(connection.id),
                         DataSourceTable.connection_table_id.is_(None),
                     ),
                 )
             )).all()
+            attach = {name: metadata_json for name, metadata_json in rows}
+
+            # Merge the executing user's overlay metadata. A delegated dataset
+            # can enter the catalog ONLY through a user's own discovery, so for
+            # a viewer whose overlay carries the GUID but whose canonical row is
+            # missing entirely, the overlay is the sole source of the mapping.
+            # Overlay values win — they were discovered under this user's creds.
+            if current_user is not None:
+                from app.models.user_data_source_overlay import UserDataSourceTable
+                ov = (await db.execute(
+                    select(UserDataSourceTable.table_name, UserDataSourceTable.metadata_json)
+                    .where(
+                        UserDataSourceTable.data_source_id == str(data_source.id),
+                        UserDataSourceTable.user_id == str(current_user.id),
+                        UserDataSourceTable.is_accessible == True,
+                    )
+                )).all()
+                for name, metadata_json in ov:
+                    if metadata_json:
+                        attach[name] = metadata_json
+
             client.attach_table_metadata(
-                [{"name": name, "metadata_json": metadata_json} for name, metadata_json in rows]
+                [{"name": name, "metadata_json": metadata_json} for name, metadata_json in attach.items()]
             )
         except Exception:
             # Non-fatal: the client falls back to live discovery.
