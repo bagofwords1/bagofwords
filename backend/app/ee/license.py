@@ -36,6 +36,7 @@ TIER_FEATURES = {
         "llm_fallback",
         "pii_protection",
         "rls",
+        "data_encryption",
     ],
 }
 

@@ -235,10 +235,51 @@ class Database(BaseModel):
     def uses_iam_auth(self) -> bool:
         return self.auth.provider != "password"
 
+# Whether the Fernet key in use was invented at startup rather than supplied by
+# the operator. An ephemeral key changes on every restart, so anything written
+# with it is unreadable afterwards. Credentials could always be re-entered after
+# that; encrypted analytical payloads cannot be re-derived, so
+# app.ee.encryption refuses to encrypt while this is set.
+_encryption_key_is_ephemeral = False
+
+
+def mark_encryption_key_ephemeral() -> None:
+    global _encryption_key_is_ephemeral
+    _encryption_key_is_ephemeral = True
+
+
+def encryption_key_is_ephemeral() -> bool:
+    return _encryption_key_is_ephemeral
+
+
 def generate_fernet_key():
     # Generate a valid Fernet-compatible key (32 url-safe base64-encoded bytes)
     key = secrets.token_bytes(32)
     return base64.urlsafe_b64encode(key).decode()
+
+class DataEncryptionConfig(BaseModel):
+    """Encryption at rest for row-heavy analytical payloads (enterprise).
+
+    Covers query results and the bounded context summaries derived from them:
+    ``Step.data``, ``StepUserResult.data``, ``Entity.data``,
+    ``EntityUserResult.data`` and ``ToolExecution.result_json``. Credentials
+    have always been encrypted separately; this extends the same protection to
+    the data those credentials fetched, reusing the same ``encryption_key``.
+
+    Defaults to on: on a licensed instance the safe posture is encrypted. It is
+    inert without the enterprise ``data_encryption`` feature, and switching it
+    off only stops *new* writes from being encrypted — already-stored
+    ciphertext is always still decrypted on read.
+    """
+    enabled: bool = True
+
+    @validator("enabled", pre=True)
+    def _default_when_unset(cls, v):
+        # An operator may wire this to an env var; an unresolved placeholder
+        # arrives as None. Treat "not specified" as the default rather than
+        # failing config validation and taking the whole instance down.
+        return True if v is None else v
+
 
 class BowConfig(BaseModel):
     deployment: DeploymentConfig = DeploymentConfig()
@@ -256,6 +297,7 @@ class BowConfig(BaseModel):
         description="Encryption key for sensitive data",
         env="BOW_ENCRYPTION_KEY"
     )
+    data_encryption: DataEncryptionConfig = DataEncryptionConfig()
     stripe: Stripe = Stripe()
     database: Database = Database()
     intercom: Intercom = Intercom()
@@ -282,5 +324,6 @@ class BowConfig(BaseModel):
                 "currently-encrypted credentials undecryptable. Set a stable "
                 "BOW_ENCRYPTION_KEY for any non-throwaway deployment."
             )
+            mark_encryption_key_ephemeral()
             return generate_fernet_key()
         return v

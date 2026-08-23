@@ -19,6 +19,7 @@ from app.models.mention import Mention, MentionType
 from app.models.file import File
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
+from app.ee.encryption import envelope_marker_sql
 from app.models.tool_execution import ToolExecution
 from app.ai.context.session_events import (
     EVENT_ROLE,
@@ -1052,6 +1053,24 @@ class MessageContextBuilder:
             if execution_id in loaded
         }
 
+    async def _load_decrypted_results(
+        self, tool_execution_ids: List[str]
+    ) -> List[tuple]:
+        """Hydrate result_json for rows SQL could not project (encrypted ones).
+
+        Returns (id, result_json) pairs. Reading through the ORM column type is
+        what decrypts; the caller then projects in Python. Only ever called for
+        rows whose envelope marker was detected, so the common all-plaintext
+        path never issues this query.
+        """
+        if not tool_execution_ids:
+            return []
+        rows = await self.db.execute(
+            select(ToolExecution.id, ToolExecution.result_json)
+            .where(ToolExecution.id.in_(tool_execution_ids))
+        )
+        return [(str(row.id), _json_value(row.result_json)) for row in rows]
+
     async def _load_create_data_result_projection(self, tool_execution_id: str) -> Dict[str, Any]:
         projections = await self._load_create_data_result_projections([str(tool_execution_id)])
         return projections.get(str(tool_execution_id), {})
@@ -1086,16 +1105,26 @@ class MessageContextBuilder:
                 json_extract(result_json, '$.data.rows[0]') AS data_first_row,
                 json_array_length(result_json, '$.data.rows') AS data_row_count
             """
+        # Encrypted results are opaque to the JSON operators above. Flag them per
+        # row and hydrate just those through the ORM, which decrypts.
+        encrypted_sql = envelope_marker_sql(
+            "result_json", postgres=_is_postgres_session(self.db)
+        )
         stmt = text(
             f"""
-            SELECT id, {projected_columns}, {data_shape_columns}
+            SELECT id, {projected_columns}, {data_shape_columns},
+                   {encrypted_sql} AS encrypted_marker
             FROM tool_executions
             WHERE id IN :tool_execution_ids
             """
         ).bindparams(bindparam("tool_execution_ids", expanding=True))
         rows = await self.db.execute(stmt, {"tool_execution_ids": tool_execution_ids})
         projections: Dict[str, Dict[str, Any]] = {}
+        encrypted_ids: List[str] = []
         for row in rows:
+            if row.encrypted_marker is not None:
+                encrypted_ids.append(str(row.id))
+                continue
             projection = {
                 field: _json_value(getattr(row, field))
                 for field in fields
@@ -1122,14 +1151,19 @@ class MessageContextBuilder:
             if preview:
                 projection["data_preview"] = preview
             projections[str(row.id)] = projection
+        for execution_id, result in await self._load_decrypted_results(encrypted_ids):
+            projections[execution_id] = _project_create_data_result(result)
         return projections
 
     async def _load_read_query_result_projections(
         self, tool_execution_ids: List[str]
     ) -> Dict[str, Dict[str, Any]]:
         """Project nested read_query metadata without selecting results[*].data."""
+        encrypted_sql = envelope_marker_sql(
+            "te.result_json", postgres=_is_postgres_session(self.db)
+        )
         if _is_postgres_session(self.db):
-            statement = """
+            statement = f"""
                 SELECT
                     te.id,
                     te.result_json->'success' AS success,
@@ -1138,7 +1172,8 @@ class MessageContextBuilder:
                     COALESCE(expanded.item->>'title', te.result_json->>'title') AS title,
                     COALESCE(expanded.item->'data_preview', te.result_json->'data_preview') AS data_preview,
                     COALESCE(expanded.item->>'error', te.result_json->>'error') AS error,
-                    te.result_json->'errors' AS errors
+                    te.result_json->'errors' AS errors,
+                    {encrypted_sql} AS encrypted_marker
                 FROM tool_executions AS te
                 LEFT JOIN LATERAL json_array_elements(
                     CASE
@@ -1151,7 +1186,7 @@ class MessageContextBuilder:
                 ORDER BY te.id, expanded.item_index
             """
         else:
-            statement = """
+            statement = f"""
                 SELECT
                     te.id,
                     json_extract(te.result_json, '$.success') AS success,
@@ -1160,7 +1195,8 @@ class MessageContextBuilder:
                     COALESCE(json_extract(item.value, '$.title'), json_extract(te.result_json, '$.title')) AS title,
                     COALESCE(json_extract(item.value, '$.data_preview'), json_extract(te.result_json, '$.data_preview')) AS data_preview,
                     COALESCE(json_extract(item.value, '$.error'), json_extract(te.result_json, '$.error')) AS error,
-                    json_extract(te.result_json, '$.errors') AS errors
+                    json_extract(te.result_json, '$.errors') AS errors,
+                    {encrypted_sql} AS encrypted_marker
                 FROM tool_executions AS te
                 LEFT JOIN json_each(te.result_json, '$.results') AS item ON 1 = 1
                 WHERE te.id IN :tool_execution_ids
@@ -1169,8 +1205,13 @@ class MessageContextBuilder:
         stmt = text(statement).bindparams(bindparam("tool_execution_ids", expanding=True))
         rows = await self.db.execute(stmt, {"tool_execution_ids": tool_execution_ids})
         projected: Dict[str, Dict[str, Any]] = {}
+        encrypted_ids: List[str] = []
         for row in rows:
             execution_id = str(row.id)
+            if row.encrypted_marker is not None:
+                if execution_id not in encrypted_ids:
+                    encrypted_ids.append(execution_id)
+                continue
             result = projected.setdefault(
                 execution_id,
                 {
@@ -1188,6 +1229,8 @@ class MessageContextBuilder:
             }
             if any(value is not None for value in item.values()):
                 result["results"].append(item)
+        for execution_id, result_json in await self._load_decrypted_results(encrypted_ids):
+            projected[execution_id] = _project_read_query_result(result_json)
         return projected
     
     async def build_context(
@@ -2487,3 +2530,68 @@ class MessageContextBuilder:
                 parts.append(f"  {i+1}. [{timestamp}] {msg.role}: {content_preview}...")
         
         return "\n".join(parts)
+
+
+# --- Python equivalents of the in-SQL result projections -------------------
+# Encrypted result_json is opaque to SQL, so the few enveloped rows are
+# hydrated through the ORM and projected here instead. These must produce the
+# same shape as the SQL above: conversation history has to read identically
+# whether or not payload encryption is switched on.
+
+_CREATE_DATA_PROJECTED_FIELDS = (
+    "success", "data_preview", "stats", "data_model", "view",
+    "created_visualization_ids", "query_id", "query_timings",
+    "codegen_ms", "execution_ms", "errors",
+)
+
+
+def _project_create_data_result(result_json: Any) -> Dict[str, Any]:
+    """Bound a create_data result to its history digest (mirrors the SQL)."""
+    source = result_json if isinstance(result_json, dict) else {}
+    projection = {
+        field: source[field]
+        for field in _CREATE_DATA_PROJECTED_FIELDS
+        if source.get(field) is not None
+    }
+
+    data = source.get("data")
+    data = data if isinstance(data, dict) else {}
+    rows = data.get("rows")
+    rows = rows if isinstance(rows, list) else None
+    columns = data.get("columns")
+
+    preview = projection.get("data_preview")
+    preview = dict(preview) if isinstance(preview, dict) else {}
+    if not preview.get("columns") and isinstance(columns, list):
+        preview["columns"] = columns
+    if not preview.get("rows") and rows:
+        # Historical digest contract: show only the first result row.
+        preview["rows"] = [rows[0]]
+    if preview.get("row_count") is None and rows is not None:
+        preview["row_count"] = len(rows)
+    if preview:
+        projection["data_preview"] = preview
+    return projection
+
+
+def _project_read_query_result(result_json: Any) -> Dict[str, Any]:
+    """Bound a read_query result to its history digest (mirrors the SQL)."""
+    source = result_json if isinstance(result_json, dict) else {}
+    results = source.get("results")
+    items = results if isinstance(results, list) else [None]
+
+    projected_items: List[Dict[str, Any]] = []
+    for entry in items:
+        entry = entry if isinstance(entry, dict) else {}
+        item = {
+            key: entry[key] if entry.get(key) is not None else source.get(key)
+            for key in ("query_id", "visualization_id", "title", "data_preview", "error")
+        }
+        if any(value is not None for value in item.values()):
+            projected_items.append(item)
+
+    return {
+        "success": source.get("success"),
+        "results": projected_items,
+        "errors": source.get("errors"),
+    }
