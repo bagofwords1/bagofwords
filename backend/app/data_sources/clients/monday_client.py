@@ -90,6 +90,13 @@ _TYPE_MAP = {
 # Column types whose settings carry an index→label map that rules filter by.
 _LABELED_TYPES = {"status", "dropdown"}
 
+# Column types that link to items and expose `linked_item_ids` — each gets a
+# companion "<Column> (item_ids)" DataFrame column for precise id-based joins
+# (display names are ambiguous: duplicates exist and multi-link cells are
+# comma-joined).
+_LINKED_ID_TYPES = {"board_relation", "dependency"}
+_ITEM_IDS_SUFFIX = " (item_ids)"
+
 
 class MondayClient(DataSourceClient):
 
@@ -472,6 +479,18 @@ class MondayClient(DataSourceClient):
             table_column = TableColumn(name=col_name, dtype=dtype, description="; ".join(parts))
             columns.append(table_column)
 
+            if column.get("type") in _LINKED_ID_TYPES:
+                # Companion ids column: the joinable counterpart of the
+                # display-name column (query results carry both).
+                ids_column = TableColumn(
+                    name=f"{col_name}{_ITEM_IDS_SUFFIX}",
+                    dtype="list[int]",
+                    description=f"item ids of the items linked in {col_name!r}; "
+                                "explode and merge on the linked board's item_id",
+                )
+                seen.add(ids_column.name)
+                columns.append(ids_column)
+
             if column.get("type") == "board_relation":
                 try:
                     settings = json.loads(column.get("settings_str") or "{}")
@@ -479,7 +498,7 @@ class MondayClient(DataSourceClient):
                         linked_name = board_names_by_id.get(str(linked_id))
                         if linked_name:
                             fks.append(ForeignKey(
-                                column=table_column,
+                                column=ids_column,
                                 references_name=linked_name,
                                 references_column=TableColumn(name="item_id", dtype="int"),
                             ))
@@ -596,6 +615,12 @@ class MondayClient(DataSourceClient):
             if str(ref).lower() in self._BASE_COLUMNS:
                 continue
             column = by_key.get(str(ref)) or by_key.get(str(ref).lower())
+            if column is None and str(ref).lower().endswith(_ITEM_IDS_SUFFIX):
+                # The schema publishes "<Column> (item_ids)" companions for
+                # linked columns — selecting one selects its parent column
+                # (the companion is emitted alongside it).
+                base = str(ref)[:-len(_ITEM_IDS_SUFFIX)]
+                column = by_key.get(base) or by_key.get(base.lower())
             if column is None:
                 missing.append(str(ref))
             elif column not in selected:
@@ -662,8 +687,8 @@ class MondayClient(DataSourceClient):
     # such column reads as None in query results.
     _COLUMN_VALUE_FRAGMENTS = (
         " ... on MirrorValue { display_value }"
-        " ... on BoardRelationValue { display_value }"
-        " ... on DependencyValue { display_value }"
+        " ... on BoardRelationValue { display_value linked_item_ids }"
+        " ... on DependencyValue { display_value linked_item_ids }"
         " ... on SubtasksValue { display_value }"
     )
 
@@ -714,14 +739,22 @@ class MondayClient(DataSourceClient):
         return items[:limit]
 
     def _items_to_df(self, items: List[dict], selected: List[dict]) -> pd.DataFrame:
-        # DataFrame column name per board column: title, disambiguated like the schema.
+        # DataFrame column name per board column: title, disambiguated like the
+        # schema. Linked columns (connect-boards, dependency) additionally get
+        # a "<Column> (item_ids)" companion carrying the linked item ids, so
+        # joins run on ids instead of ambiguous display names.
         names: Dict[str, str] = {}
+        id_companions: Dict[str, str] = {}
         seen = {"item_id", "name", "group"}
         for column in selected:
             title = column.get("title") or column["id"]
             name = title if title not in seen else f"{title} ({column['id']})"
             seen.add(name)
             names[column["id"]] = name
+            if column.get("type") in _LINKED_ID_TYPES:
+                companion = f"{name}{_ITEM_IDS_SUFFIX}"
+                seen.add(companion)
+                id_companions[column["id"]] = companion
 
         rows = []
         for item in items:
@@ -735,12 +768,20 @@ class MondayClient(DataSourceClient):
                 if target is None:
                     continue
                 row[target] = self._cell_value(value)
+                companion = id_companions.get(value.get("id"))
+                if companion is not None:
+                    row[companion] = [int(i) for i in value.get("linked_item_ids") or []]
             rows.append(row)
 
         # Deterministic shape regardless of returned values: base columns +
-        # every selected column, in board order (a column that is empty on all
-        # returned items would otherwise vanish from the frame).
-        expected = ["item_id", "name", "group"] + list(names.values())
+        # every selected column (each linked column followed by its ids
+        # companion), in board order (a column that is empty on all returned
+        # items would otherwise vanish from the frame).
+        expected = ["item_id", "name", "group"]
+        for column_id, name in names.items():
+            expected.append(name)
+            if column_id in id_companions:
+                expected.append(id_companions[column_id])
         frame = pd.DataFrame(rows)
         if frame.empty:
             return pd.DataFrame(columns=expected)
@@ -815,18 +856,30 @@ class MondayClient(DataSourceClient):
         Status columns hold label text ("Done"), date columns "YYYY-MM-DD"
         strings (parse with pd.to_datetime), timeline "YYYY-MM-DD - YYYY-MM-DD".
         Connect-boards / mirror / dependency / subitems columns hold the
-        comma-separated display names of the linked items.
+        comma-separated display names of the linked items. Connect-boards and
+        dependency columns ALSO come with a companion column
+        "<Column> (item_ids)" holding the linked monday item ids as a list —
+        always join on it, never on display names (names duplicate).
 
         Date/number comparisons in `rules` are unreliable in the monday API —
         fetch the rows (set `limit` high enough) and filter/aggregate in pandas
         instead. Do NOT try to join boards in the API; fetch each board and
-        merge in pandas on item name or a connect-boards column.
+        merge in pandas: explode the "<Column> (item_ids)" companion and merge
+        it against the linked board's `item_id` (the schema's foreign keys show
+        which board each connect-boards column links to). Mirror columns are
+        display text only and cannot be joined on.
 
         Examples:
         ```python
         df = client.execute_query('{"board": "Engineering Bug Tracker", "columns": ["Status", "Priority", "Due Date"], "rules": [{"column_id": "Status", "compare_value": ["Done"], "operator": "not_any_of"}], "limit": 1000}')
         df = client.execute_query('{"board": "Sales Pipeline Q3", "limit": 2000}')
         df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")  # numbers columns are already float; only needed for text columns
+        # cross-board join via a connect-boards column:
+        deals = client.execute_query('{"board": "Sales Pipeline Q3", "limit": 2000}')
+        accounts = client.execute_query('{"board": "Accounts", "limit": 2000}')
+        joined = (deals.explode("Account (item_ids)")
+                       .merge(accounts, left_on="Account (item_ids)", right_on="item_id",
+                              how="left", suffixes=("", " (Account)")))
         ```
         """
         return text

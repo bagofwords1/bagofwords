@@ -235,10 +235,12 @@ def test_get_schemas_shape(monkeypatch):
     assert main.metadata_json["board_id"] == "111"
     assert main.metadata_json["hierarchy_type"] == "classic"
 
-    # board_relation -> FK to the linked board's table name
+    # board_relation -> companion ids column + FK from it to the linked table
+    assert columns["Account (item_ids)"].dtype == "list[int]"
     assert len(main.fks) == 1
     assert main.fks[0].references_name == "Accounts"
-    assert main.fks[0].column.name == "Account"
+    assert main.fks[0].column.name == "Account (item_ids)"
+    assert main.fks[0].references_column.name == "item_id"
 
 
 def test_get_schemas_scoping(monkeypatch):
@@ -405,7 +407,8 @@ def test_execute_query_flattening_and_pagination(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
     df = MondayClient(api_token="t").execute_query(json.dumps({"board": "Sales Pipeline", "limit": 10}))
     assert list(df.columns) == [
-        "item_id", "name", "group", "Status", "Amount", "Due Date", "Approved", "Priority", "Account",
+        "item_id", "name", "group", "Status", "Amount", "Due Date", "Approved", "Priority",
+        "Account", "Account (item_ids)",
     ]
     # both pages fetched through the cursor
     assert len(df) == 3
@@ -478,7 +481,7 @@ def test_execute_query_relation_columns_use_display_value(monkeypatch):
     }
     page = {"cursor": None, "items": [item(1, "Deal", [
         {"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
-         "display_value": "Acme Corp, Globex"},
+         "display_value": "Acme Corp, Globex", "linked_item_ids": ["901", "902"]},
         {"id": "mirror_1", "text": "", "value": None, "type": "mirror",
          "display_value": "Active"},
     ])]}
@@ -498,10 +501,56 @@ def test_execute_query_relation_columns_use_display_value(monkeypatch):
     fake_post(monkeypatch, responder)
     df = MondayClient(api_token="t").execute_query(json.dumps({"board": "Linked Board", "limit": 5}))
     assert df.iloc[0]["Account"] == "Acme Corp, Globex"
+    assert df.iloc[0]["Account (item_ids)"] == [901, 902]
     assert df.iloc[0]["Account Status"] == "Active"
     items_query = next(q for q in calls if "items_page" in q)
-    for fragment in ["MirrorValue", "BoardRelationValue", "DependencyValue", "SubtasksValue"]:
-        assert f"... on {fragment} {{ display_value }}" in items_query
+    assert "... on MirrorValue { display_value }" in items_query
+    assert "... on SubtasksValue { display_value }" in items_query
+    for fragment in ["BoardRelationValue", "DependencyValue"]:
+        assert f"... on {fragment} {{ display_value linked_item_ids }}" in items_query
+
+
+def test_execute_query_item_ids_companion_selectable_and_joinable(monkeypatch):
+    """Selecting the '<Column> (item_ids)' companion published in the schema
+    must select the parent column, and the companion must support the
+    documented explode-and-merge join on the linked board's item_id."""
+    board = {
+        **BOARD_LINKED,
+        "id": "777",
+        "name": "Linked Board",
+        "columns": [
+            {"id": "name", "title": "Name", "type": "name", "settings_str": "{}"},
+            {"id": "rel_1", "title": "Account", "type": "board_relation",
+             "settings_str": json.dumps({"boardIds": [222]})},
+        ],
+    }
+    page = {"cursor": None, "items": [
+        item(1, "Deal A", [{"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
+                            "display_value": "Acme", "linked_item_ids": ["10"]}]),
+        item(2, "Deal B", [{"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
+                            "display_value": "Acme, Globex", "linked_item_ids": ["10", "11"]}]),
+    ]}
+
+    def responder(query, variables):
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
+        if "boards (limit: $limit, page: $page" in query:
+            return FakeResponse({"data": {"boards": [board] if variables.get("page", 1) == 1 else []}})
+        if "items_page" in query:
+            return FakeResponse({"data": {"boards": [{"items_page": page}]}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    df = MondayClient(api_token="t").execute_query(json.dumps(
+        {"board": "Linked Board", "columns": ["Account (item_ids)"], "limit": 5}))
+    assert list(df.columns) == ["item_id", "name", "group", "Account", "Account (item_ids)"]
+
+    accounts = pd.DataFrame({"item_id": [10, 11], "name": ["Acme", "Globex"]})
+    joined = (df.explode("Account (item_ids)")
+                .merge(accounts, left_on="Account (item_ids)", right_on="item_id",
+                       how="left", suffixes=("", " (Account)")))
+    assert len(joined) == 3  # Deal A -> Acme; Deal B -> Acme + Globex
+    assert sorted(joined["name (Account)"]) == ["Acme", "Acme", "Globex"]
 
 
 def test_execute_query_bad_specs(monkeypatch):
