@@ -23,7 +23,12 @@ from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-TERMINAL_TOOL_EXECUTION_STATUSES = frozenset({"success", "error", "failed", "completed", "cancelled", "canceled"})
+TERMINAL_TOOL_EXECUTION_STATUSES = frozenset(
+    {
+        "success", "error", "failed", "completed", "cancelled", "canceled",
+        "denied", "interrupted", "outcome_unknown",
+    }
+)
 _WRITE_TIMEOUT_SECONDS = 1.0
 
 

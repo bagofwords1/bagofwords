@@ -5,7 +5,7 @@ import json
 from types import SimpleNamespace
 from typing import Optional, List, Dict, Any
 
-from sqlalchemy import and_, bindparam, func, select, text
+from sqlalchemy import and_, bindparam, func, null, or_, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import lazyload
 
@@ -20,6 +20,7 @@ from app.models.file import File
 from app.models.data_source import DataSource
 from app.models.datasource_table import DataSourceTable
 from app.models.tool_execution import ToolExecution
+from app.models.agent_execution import AgentExecution
 from app.ai.context.session_events import (
     EVENT_ROLE,
     is_event_kind_llm_visible,
@@ -765,6 +766,20 @@ class MessageContextBuilder:
         # refreshes. This matters for old read_query rows whose full JSON can
         # take PostgreSQL seconds to parse even when SQL returns only a digest.
         self._terminal_tool_context_cache: Dict[str, Any] = {}
+        # Populated from the same batched block/tool query used to render the
+        # conversation. AgentV2 adopts it once at run start, so durable replay
+        # adds no query to the critical path.
+        from app.ai.context.transcript import Transcript
+        self._durable_transcript = Transcript()
+        self._durable_tool_execution_ids: set[str] = set()
+        # AgentV2 opts in before its initial warm-context build. Other callers
+        # keep the long-standing rendered Tool: lines and pay no transcript
+        # assembly cost.
+        self.use_durable_transcript = False
+
+    def get_durable_transcript(self):
+        """Return the native tool turns from the latest live-window build."""
+        return self._durable_transcript
 
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
@@ -917,7 +932,9 @@ class MessageContextBuilder:
         return loaded.get(str(tool_execution_id))
 
     async def _load_tool_executions_for_context(
-        self, tool_execution_ids: List[str]
+        self,
+        tool_execution_ids: List[str],
+        completion_ids: Optional[List[str]] = None,
     ) -> Dict[str, Any]:
         """Batch-load history metadata while projecting row-heavy results.
 
@@ -928,7 +945,10 @@ class MessageContextBuilder:
         multi-megabyte payloads on every planner refresh.
         """
         ids = list(dict.fromkeys(str(value) for value in tool_execution_ids if value))
-        if not ids:
+        completion_ids = list(
+            dict.fromkeys(str(value) for value in (completion_ids or []) if value)
+        )
+        if not ids and not completion_ids:
             return {}
 
         loaded: Dict[str, Any] = {
@@ -936,31 +956,84 @@ class MessageContextBuilder:
             for execution_id in ids
             if execution_id in self._terminal_tool_context_cache
         }
+        if completion_ids:
+            loaded.update(
+                {
+                    execution_id: execution
+                    for execution_id, execution in self._terminal_tool_context_cache.items()
+                    if str(getattr(execution, "completion_id", "") or "")
+                    in completion_ids
+                }
+            )
         missing_ids = [execution_id for execution_id in ids if execution_id not in loaded]
-        if not missing_ids:
+        if not missing_ids and not completion_ids:
             return loaded
 
-        rows = await self.db.execute(
-            select(
-                ToolExecution.id,
-                ToolExecution.tool_name,
-                ToolExecution.tool_action,
-                ToolExecution.arguments_json,
-                ToolExecution.status,
-                ToolExecution.result_summary,
-                ToolExecution.context_summary_json,
-                ToolExecution.created_widget_id,
-                ToolExecution.created_step_id,
-                ToolExecution.error_message,
-                ToolExecution.updated_at,
-            ).where(ToolExecution.id.in_(missing_ids))
+        predicates = []
+        # The native replay path asks for every execution belonging to the
+        # visible completions so it can recover an intent even when SIGKILL
+        # happened before a CompletionBlock was written. That predicate is a
+        # superset of the block ids; adding ``id IN (...) OR completion IN``
+        # made SQLite/PostgreSQL choose a worse plan for no extra coverage.
+        if missing_ids and not completion_ids:
+            predicates.append(ToolExecution.id.in_(missing_ids))
+        if completion_ids:
+            completion_predicate = AgentExecution.completion_id.in_(completion_ids)
+            if loaded:
+                completion_predicate = and_(
+                    completion_predicate,
+                    ToolExecution.id.not_in(list(loaded)),
+                )
+            predicates.append(completion_predicate)
+        if not predicates:
+            return loaded
+
+        tool_query = select(
+            ToolExecution.id,
+            ToolExecution.tool_name,
+            ToolExecution.tool_action,
+            ToolExecution.arguments_json,
+            ToolExecution.agent_execution_id,
+            ToolExecution.plan_decision_id,
+            ToolExecution.provider_call_id,
+            ToolExecution.provider_name,
+            ToolExecution.provider_signature,
+            ToolExecution.action_index,
+            ToolExecution.status,
+            ToolExecution.result_summary,
+            ToolExecution.context_summary_json,
+            ToolExecution.created_widget_id,
+            ToolExecution.created_step_id,
+            ToolExecution.error_message,
+            ToolExecution.updated_at,
         )
+        if completion_ids:
+            tool_query = tool_query.add_columns(
+                AgentExecution.completion_id,
+            ).join(
+                AgentExecution,
+                AgentExecution.id == ToolExecution.agent_execution_id,
+            )
+        else:
+            # Preserve the legacy lookup's original no-join query plan.
+            tool_query = tool_query.add_columns(
+                null().label("completion_id"),
+            )
+        rows = await self.db.execute(tool_query.where(or_(*predicates)))
+        newly_loaded_ids: list[str] = []
         for row in rows:
+            newly_loaded_ids.append(str(row.id))
             loaded[str(row.id)] = SimpleNamespace(
                 id=row.id,
                 tool_name=row.tool_name,
                 tool_action=row.tool_action,
                 arguments_json=_json_value(row.arguments_json) or {},
+                agent_execution_id=row.agent_execution_id,
+                plan_decision_id=row.plan_decision_id,
+                provider_call_id=row.provider_call_id,
+                provider_name=row.provider_name,
+                provider_signature=row.provider_signature,
+                action_index=row.action_index,
                 status=row.status,
                 result_summary=row.result_summary,
                 context_summary_json=_json_value(row.context_summary_json),
@@ -968,15 +1041,13 @@ class MessageContextBuilder:
                 created_step_id=row.created_step_id,
                 error_message=row.error_message,
                 updated_at=row.updated_at,
+                completion_id=row.completion_id,
                 # New executions carry the exact bounded history projection in
                 # a separate small column. Historical rows use the behavior-
                 # preserving JSON projection once, then write it through.
                 result_json=_json_value(row.context_summary_json),
             )
 
-        newly_loaded_ids = [
-            execution_id for execution_id in missing_ids if execution_id in loaded
-        ]
         read_query_ids = [
             execution_id for execution_id in newly_loaded_ids
             if (
@@ -1038,7 +1109,7 @@ class MessageContextBuilder:
             ],
         )
 
-        for execution_id in missing_ids:
+        for execution_id in newly_loaded_ids:
             execution = loaded.get(execution_id)
             if (
                 execution is not None
@@ -1046,11 +1117,17 @@ class MessageContextBuilder:
             ):
                 self._terminal_tool_context_cache[execution_id] = execution
 
-        return {
-            execution_id: loaded[execution_id]
-            for execution_id in ids
-            if execution_id in loaded
-        }
+        if completion_ids:
+            return {
+                execution_id: execution
+                for execution_id, execution in loaded.items()
+                if (
+                    execution_id in ids
+                    or str(getattr(execution, "completion_id", "") or "")
+                    in completion_ids
+                )
+            }
+        return {execution_id: loaded[execution_id] for execution_id in ids if execution_id in loaded}
 
     async def _load_create_data_result_projection(self, tool_execution_id: str) -> Dict[str, Any]:
         projections = await self._load_create_data_result_projections([str(tool_execution_id)])
@@ -1961,11 +2038,41 @@ class MessageContextBuilder:
                 for b in blks
                 if getattr(b, 'tool_execution_id', None)
             ]
-            if tool_exec_ids:
+            if tool_exec_ids or system_completion_ids:
                 try:
-                    tool_exec_by_id = await self._load_tool_executions_for_context(tool_exec_ids)
+                    tool_exec_by_id = await self._load_tool_executions_for_context(
+                        tool_exec_ids,
+                        completion_ids=(
+                            system_completion_ids
+                            if completion_ids is None and self.use_durable_transcript
+                            else None
+                        ),
+                    )
                 except Exception:
                     tool_exec_by_id = {}
+
+        # Reuse the exact same bounded projections already fetched for message
+        # history to build provider-native tool turns. On the live path those
+        # represented tool lines are omitted from the XML conversation below,
+        # preventing prompt duplication. Compaction builds keep their original
+        # full text because they do not feed AgentV2's transcript.
+        if completion_ids is None and self.use_durable_transcript:
+            try:
+                from app.ai.context.durable_transcript import build_durable_transcript
+
+                (
+                    self._durable_transcript,
+                    self._durable_tool_execution_ids,
+                ) = build_durable_transcript(
+                    completions=completions_to_process,
+                    blocks_by_completion=blocks_by_completion,
+                    tool_exec_by_id=tool_exec_by_id,
+                )
+            except Exception:
+                from app.ai.context.transcript import Transcript
+
+                self._durable_transcript = Transcript()
+                self._durable_tool_execution_ids = set()
 
         for completion in completions_to_process:
             ts = completion.created_at.strftime("%H:%M") if getattr(completion, 'created_at', None) else None
@@ -2078,7 +2185,15 @@ class MessageContextBuilder:
                         system_parts.append(f"Thinking: {block.reasoning.strip()}")
                     if block.content and block.content.strip():
                         system_parts.append(f"Response: {block.content.strip()}")
-                    if block.tool_execution_id:
+                    if (
+                        block.tool_execution_id
+                        and not (
+                            completion_ids is None
+                            and self.use_durable_transcript
+                            and str(block.tool_execution_id)
+                            in self._durable_tool_execution_ids
+                        )
+                    ):
                         tool_execution = tool_exec_by_id.get(str(block.tool_execution_id))
                         if tool_execution:
                             tool_info = f"Tool: {tool_execution.tool_name}"
