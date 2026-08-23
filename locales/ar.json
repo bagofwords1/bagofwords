@@ -94,10 +94,10 @@
     "connect": "اتصال",
     "manageConnections": "إدارة الاتصالات",
     "loadingFiles": "جارٍ تحميل الملفات من المصدر…",
-    "countTables": "{n} جداول",
-    "countTools": "{n} أدوات",
-    "countFiles": "{n} ملفات",
-    "countInstructions": "{n} تعليمات",
+    "countTables": "{n} جدول | {n} جداول",
+    "countTools": "{n} أداة | {n} أدوات",
+    "countFiles": "{n} ملف | {n} ملفات",
+    "countInstructions": "{n} تعليمة | {n} تعليمات",
     "untitled": "بدون عنوان",
     "primaryPlaceholder": "اكتب التعليمة الأساسية للوكيل بصيغة Markdown… (اكتب {'@'} للإشارة إلى جدول أو تعليمة)",
     "change": "تغيير",
@@ -272,7 +272,11 @@
     "suiteDeleteConfirm": "Delete “{name}” and the test cases in it you manage? Tests belonging to agents you don’t manage are moved to Drafts, not deleted.",
     "suiteDeleteReparented": "{count} test case(s) moved to Drafts instead of being deleted.",
     "toastSuiteDeleted": "Suite deleted",
-    "tipDeleteSuite": "Delete suite"
+    "tipDeleteSuite": "Delete suite",
+    "exportInstructions": "تصدير حزمة الوكيل — التعليمات والإعدادات والتقييمات (‎.zip)",
+    "runSuiteFailed": "تعذّر تشغيل المجموعة",
+    "sharedManagedElsewhere": "مشتركة مع وكلاء لا تديرهم — لا يمكن تعديلها إلا لمن يملك صلاحية عليهم جميعًا.",
+    "tipRunSuite": "تشغيل هذه المجموعة"
   },
   "smoke": {
     "hello": "مرحبًا",
@@ -342,7 +346,10 @@
     "starOnGithub": "Star our GitHub",
     "admin": "الإدارة",
     "notifications": "الإشعارات",
-    "automations": "الأتمتة"
+    "automations": "الأتمتة",
+    "agent": "وكيل",
+    "agents": "الوكلاء",
+    "viewAllAgents": "عرض كل الوكلاء ←"
   },
   "notifications": {
     "title": "الإشعارات",
@@ -594,7 +601,14 @@
       "schedule": "الجدولة",
       "type": "النوع",
       "dataSource": "مصدر البيانات",
-      "artifacts": "العناصر"
+      "artifacts": "العناصر",
+      "artifactsLabel": "لوحة المعلومات",
+      "clear": "مسح الكل",
+      "dataSourceLabel": "الوكيل",
+      "scheduleLabel": "الجدولة",
+      "statusLabel": "الحالة",
+      "title": "النوع",
+      "typeLabel": "النوع"
     },
     "visibility": {
       "public": "أي شخص لديه الرابط",
@@ -626,10 +640,14 @@
       "chat": "محادثة",
       "createdViaMcp": "تم الإنشاء عبر MCP",
       "createdViaExcel": "تم الإنشاء عبر Excel",
-      "runningOnSchedule": "يعمل وفق جدولة"
+      "runningOnSchedule": "يعمل وفق جدولة",
+      "createdBySchedule": "أُنشئ بواسطة مهمة مجدولة",
+      "createdByTrigger": "أُنشئ بواسطة مُشغِّل"
     },
     "pagination": {
-      "showing": "عرض {from} إلى {to} من إجمالي {total} تقرير"
+      "showing": "عرض {from} إلى {to} من إجمالي {total} تقرير",
+      "page": "صفحة {page}",
+      "rowsPerPage": "صفوف لكل صفحة"
     },
     "toasts": {
       "starFailed": "فشل تحديث التمييز",
@@ -678,9 +696,32 @@
       "errorNew": "انتهى بخطأ"
     },
     "type": {
-      "training": "تدريب"
+      "training": "تدريب",
+      "chat": "محادثة",
+      "dashboard": "لوحة معلومات",
+      "slides": "شرائح"
     },
-    "inProject": "في {name}"
+    "inProject": "في {name}",
+    "filtersButton": "عوامل التصفية",
+    "sharedEmpty": "لا توجد تقارير مشتركة",
+    "sharedEmptyHint": "ستظهر هنا التقارير التي يشاركها الآخرون معك.",
+    "trainingEmptyBody": "اطرح الأسئلة وراجع إجابات الذكاء الاصطناعي. اعتمد الإجابات أو عدّلها لتعليم المحلل الذكي كيفية التعامل مع الطلبات المشابهة مستقبلًا.",
+    "trainingEmptyTipLabel": "كيف يعمل:",
+    "trainingEmptyTitle": "بدأت جلسة التدريب.",
+    "trainingStarters": [
+      {
+        "title": "البحث عن تعارضات في التعليمات",
+        "prompt": "حدّد التناقضات أو الثغرات بين تعليمات التدريب الحالية التي قد تجعل إجابات الذكاء الاصطناعي غير متسقة."
+      },
+      {
+        "title": "عرض الإجابات منخفضة الثقة",
+        "prompt": "اعرض إجابات الذكاء الاصطناعي الأخيرة التي أبدى فيها النموذج عدم يقين أو قدّم إجابات منخفضة الجودة تحتاج إلى مراجعة."
+      },
+      {
+        "title": "عرض الإجابات ذات التقييم السلبي",
+        "prompt": "راجع الإجابات التي تلقّت ملاحظات سلبية من المستخدمين لتحديد الأنماط ومجالات التحسين."
+      }
+    ]
   },
   "projects": {
     "title": "المشاريع",
@@ -872,7 +913,8 @@
     "steerQueuedFallback": "انتهى التشغيل للتو — تمت إضافة رسالتك إلى قائمة الانتظار بدلاً من ذلك",
     "steerFailed": "تعذّر توجيه الإكمال الجاري",
     "instructionUnavailableTitle": "التعليمة غير متاحة",
-    "instructionUnavailableBody": "ربما تم حذفها، أو ليس لديك صلاحية الوصول إليها."
+    "instructionUnavailableBody": "ربما تم حذفها، أو ليس لديك صلاحية الوصول إليها.",
+    "loopRetryNotice": "حدث خطأ داخلي — تُعاد المحاولة من أحدث سياق (المحاولة {attempt}/{max})"
   },
   "tools": {
     "common": {
@@ -1052,7 +1094,9 @@
       "toastFailedPublish": "تعذّر نشر التعليمة",
       "toastDeletedDesc": "تم حذف التعليمة",
       "toastFailedDelete": "تعذّر حذف التعليمة",
-      "toastSaved": "تم حفظ التعليمة"
+      "toastSaved": "تم حفظ التعليمة",
+      "editCount": "{n} تعديلات",
+      "editLabel": "تعديل التعليمة"
     },
     "inspectData": {
       "inspecting": "جارٍ الفحص",
@@ -1387,7 +1431,9 @@
     "routeModel": {
       "routedTo": "تم التوجيه إلى",
       "choosing": "اختيار النموذج…",
-      "routing": "توجيه النموذج"
+      "routing": "توجيه النموذج",
+      "fallbackReason": "{from} لم يكن متاحًا",
+      "fellBackTo": "تم التحويل إلى"
     },
     "grepFiles": {
       "grepping": "البحث في الملفات عن {pattern}…",
@@ -1400,6 +1446,48 @@
       "moreShown": "+{count} إضافية مُعروضة للوكيل",
       "filesSkippedSingular": "تم تخطّي {count} ملف ({reasons})",
       "filesSkippedPlural": "تم تخطّي {count} ملفات ({reasons})"
+    },
+    "listAgentExecutions": {
+      "empty": "لم يتم العثور على عمليات تشغيل",
+      "failed": "تعذّر تحميل عمليات تشغيل الوكيل",
+      "found": "{count} عملية تشغيل · {total} إجمالًا",
+      "loading": "جارٍ تحميل عمليات تشغيل الوكيل…",
+      "noMatch": "لا توجد عمليات تشغيل مطابقة لهذا الفلتر",
+      "tabAll": "الكل",
+      "tabFailed": "فاشلة",
+      "tabLowConfidence": "ثقة منخفضة",
+      "tabLowCoverage": "تغطية منخفضة",
+      "tabNegative": "ملاحظات سلبية",
+      "title": "عرض عمليات تشغيل الوكيل"
+    },
+    "sendEmail": {
+      "failed": "تعذّر إرسال البريد الإلكتروني",
+      "sending": "جارٍ إرسال البريد الإلكتروني...",
+      "sentPrefix": "أُرسل: {subject}",
+      "subject": "الموضوع",
+      "to": "إلى"
+    },
+    "webFetch": {
+      "errorOccurred": "حدث خطأ",
+      "failed": "تعذّر الجلب",
+      "fetched": "تم الجلب",
+      "fetching": "جارٍ الجلب"
+    },
+    "browser": {
+      "acted": "تم التفاعل",
+      "acting": "جارٍ التفاعل",
+      "capturing": "جارٍ التقاط لقطة شاشة",
+      "done": "انتهى التصفح",
+      "extracted": "تمت قراءة النص",
+      "extracting": "جارٍ قراءة النص",
+      "failed": "فشل إجراء المتصفح",
+      "navigated": "تم فتح الصفحة",
+      "navigating": "جارٍ فتح الصفحة",
+      "screenshot": "لقطة شاشة",
+      "snapshot": "بنية الصفحة",
+      "snapshotted": "تمت قراءة الصفحة",
+      "snapshotting": "جارٍ قراءة الصفحة",
+      "working": "جارٍ التصفح"
     }
   },
   "entityCreate": {
@@ -1418,7 +1506,9 @@
     "saveEntity": "حفظ الكيان",
     "suggestEntity": "اقتراح كيان",
     "saveFailed": "تعذّر حفظ الكيان",
-    "stepRequired": "الخطوة مطلوبة للحفظ"
+    "stepRequired": "الخطوة مطلوبة للحفظ",
+    "publishedToast": "تم نشر الاستعلام في الكتالوج",
+    "suggestedToast": "تم إرسال الاقتراح للمراجعة"
   },
   "mentionInput": {
     "placeholder": "اكتب {'@'} للإشارة...",
@@ -1440,7 +1530,8 @@
       "tables": "الجداول",
       "prompts": "المطالبات",
       "instructions": "التعليمات",
-      "skills": "المهارات"
+      "skills": "المهارات",
+      "tools": "الأدوات"
     },
     "time": {
       "justNow": "الآن",
@@ -1500,7 +1591,11 @@
       "view": "عرض",
       "view_schema": "عرض المخطط",
       "create_entities": "إنشاء كيانات",
-      "manage": "إدارة الإعدادات"
+      "manage": "إدارة الإعدادات",
+      "create_data_sources": "إنشاء وكلاء",
+      "manage_connection": "إدارة الاتصال",
+      "manage_data_sources": "إدارة الوكلاء",
+      "manage_service_accounts": "إدارة حسابات الخدمة"
     },
     "addAgent": "+ إضافة وكيل...",
     "advancedPermissions": "أذونات متقدمة",
@@ -1512,7 +1607,8 @@
     },
     "modelAccess": "الوصول إلى النماذج",
     "modelAccessHint": "النماذج المقيدة",
-    "noRestrictedModels": "لا توجد نماذج مقيدة"
+    "noRestrictedModels": "لا توجد نماذج مقيدة",
+    "connection": "الاتصال"
   },
   "groupsManager": {
     "searchPlaceholder": "ابحث في المجموعات...",
@@ -1644,7 +1740,59 @@
       "unknown": "غير معروف",
       "lastSyncDetail": "— تم إنشاء {gCreated}، تحديث {gUpdated}، إزالة {gRemoved} · إضافة {mAdded} عضو، إزالة {mRemoved}",
       "errorCount": "{n} خطأ: {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraAdd": "إضافة",
+      "entraAddPlaceholder": "إضافة سمة…",
+      "entraContextTitle": "من ملفك في الدليل التنظيمي",
+      "entraEnable": "مزامنة بيانات الملف الشخصي من Entra ID",
+      "entraEnableHint": "عند تسجيل الدخول، يُقرأ ملف Microsoft Graph للمستخدم ويُحفظ كسياق للذكاء الاصطناعي. يستخدم نطاق User.Read الممنوح افتراضيًا — دون الحاجة إلى موافقة المشرف.",
+      "entraFieldsLabel": "السمات التي ستُدرَج في السياق",
+      "entraNoFields": "لم يتم اختيار أي سمة",
+      "entraNoLogin": "سجّل الدخول عبر Entra ID لمعاينة القيم الفعلية من ملفك.",
+      "entraNotSet": "غير محدد",
+      "entraPreviewError": "تعذّر تحميل القيم من Microsoft Graph.",
+      "entraReauth": "انتهت جلسة Entra ID — سجّل الدخول عبر Entra ID مجددًا لتحميل القيم.",
+      "entraRemove": "إزالة",
+      "entraSaveFailed": "فشل الحفظ",
+      "entraSaved": "تم الحفظ",
+      "entraSaving": "جارٍ الحفظ...",
+      "entraSubtitle": "يزامن المسمى الوظيفي والقسم وبيانات أخرى من Microsoft Entra ID عند تسجيل الدخول",
+      "entraTitle": "مزامنة الملف الشخصي من Entra ID",
+      "field_city": "المدينة",
+      "field_companyName": "الشركة",
+      "field_country": "الدولة",
+      "field_department": "القسم",
+      "field_displayName": "الاسم",
+      "field_employeeHireDate": "تاريخ التعيين",
+      "field_employeeId": "رقم الموظف",
+      "field_employeeOrgData": "الشعبة ومركز التكلفة",
+      "field_employeeType": "نوع التوظيف",
+      "field_hostedDomain": "نطاق مساحة العمل",
+      "field_jobTitle": "المسمى الوظيفي",
+      "field_locale": "الإعدادات المحلية",
+      "field_location": "الموقع",
+      "field_mobilePhone": "الهاتف المحمول",
+      "field_officeLocation": "موقع المكتب",
+      "field_organization": "المؤسسة",
+      "field_preferredLanguage": "اللغة المفضلة",
+      "field_state": "المنطقة",
+      "field_usageLocation": "بلد الاستخدام",
+      "googleAdd": "إضافة",
+      "googleAddPlaceholder": "إضافة سمة…",
+      "googleEnable": "مزامنة بيانات الملف الشخصي من Google",
+      "googleEnableHint": "عند تسجيل الدخول، يُقرأ ملف Google للمستخدم (userinfo وPeople API) ويُحفظ كسياق للذكاء الاصطناعي. يستخدم فقط نطاقات openid/profile/email الممنوحة أصلًا عند تسجيل الدخول.",
+      "googleFieldsLabel": "السمات التي ستُدرَج في السياق",
+      "googleNoFields": "لم يتم اختيار أي سمة",
+      "googleNoLogin": "سجّل الدخول عبر Google لمعاينة القيم الفعلية من ملفك.",
+      "googleNotSet": "غير محدد",
+      "googlePreviewError": "تعذّر تحميل القيم من Google.",
+      "googleReauth": "انتهت جلسة Google — سجّل الدخول عبر Google مجددًا لتحميل القيم.",
+      "googleRemove": "إزالة",
+      "googleSaveFailed": "فشل الحفظ",
+      "googleSaved": "تم الحفظ",
+      "googleSaving": "جارٍ الحفظ...",
+      "googleSubtitle": "يزامن الاسم والمسمى الوظيفي والقسم وبيانات أخرى من Google عند تسجيل الدخول",
+      "googleTitle": "مزامنة الملف الشخصي من Google"
     },
     "auditLogs": "سجلات التدقيق",
     "integrations": {
@@ -1708,7 +1856,21 @@
           "failedConnect": "فشل الاتصال بـSlack",
           "disconnectedToast": "تم قطع الاتصال بـSlack",
           "disconnectedToastDesc": "تم قطع تكامل Slack",
-          "failedDisconnect": "فشل قطع الاتصال بـSlack"
+          "failedDisconnect": "فشل قطع الاتصال بـSlack",
+          "appToken": "رمز على مستوى التطبيق",
+          "connectionModeLabel": "وضع الاتصال",
+          "modeEventsApi": "Events API (webhook)",
+          "modeEventsApiHint": "يرسل Slack الأحداث عبر POST إلى رابط webhook العام لديك — ويتطلب signing secret ورابط Request URL يمكن الوصول إليه.",
+          "modeSocket": "Socket Mode",
+          "modeSocketHint": "يتصل الخادم بـ Slack عبر WebSocket — دون حاجة إلى رابط عام أو signing secret، كما يفعّل تجربة الوكيل.",
+          "modeSocketRecommended": "Socket Mode (موصى به)",
+          "socketSetupIntro": "في تطبيق Slack لديك (api.slack.com/apps):",
+          "socketStep1": "Socket Mode ← فعّله، وأنشئ رمزًا على مستوى التطبيق بنطاق connections:write ‏(xapp-…)",
+          "socketStep2": "OAuth & Permissions ← نطاقات البوت: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions ← فعّل الأحداث (دون حاجة إلى Request URL) واشترك في: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents ← فعّل \"Agent experience\" للحصول على لوحة المساعد الأصلية وتسمية المحادثات والاقتراحات",
+          "socketStep5": "App Home ← فعّل تبويب Messages واسمح للمستخدمين بإرسال الرسائل",
+          "socketStep6": "Install App ← ثبّت التطبيق في مساحة عملك وانسخ Bot User OAuth Token ‏(xoxb-…)"
         },
         "teams": {
           "title": "تكامل Teams",
@@ -1946,6 +2108,37 @@
           "tenantWide": "نشر على مستوى المستأجر",
           "tenantWideDesc": "للنشر على مستوى المؤسسة، يمكن لمسؤول Microsoft 365 لديك تحميل هذا الـmanifest عبر Admin Center ← الإعدادات ← التطبيقات المدمجة.",
           "failedLoadManifest": "فشل تحميل manifest"
+        },
+        "googleChat": {
+          "autoLinkDescConnected": "عند التفعيل، يُربط مستخدمو Google Chat تلقائيًا بحسابات BOW التي يطابق بريدها ملفهم في Google Workspace (دون رابط تحقق). وبما أن البريد يأتي من دليل مساحة عملك، فهذا آمن عمومًا — لكن فعّله فقط للنطاقات التي تثق بها تمامًا.",
+          "autoLinkDescSetup": "يُربط المستخدمون الذين يراسلون البوت بحسابات BOW التي يطابق بريدها ملفهم في Google Workspace — دون رابط تحقق. موصى به.",
+          "autoLinkTitle": "ربط المستخدمين تلقائيًا ببريد Workspace",
+          "connectedNotice": "Google Chat متصل حاليًا.",
+          "connectedToast": "تم توصيل Google Chat",
+          "connectedToastDesc": "نجح التكامل مع Google Chat",
+          "disconnectedToast": "تم فصل Google Chat",
+          "disconnectedToastDesc": "تم فصل التكامل مع Google Chat",
+          "failedConnect": "تعذّر توصيل Google Chat",
+          "failedDisconnect": "تعذّر فصل Google Chat",
+          "noteChannels": "في المساحات، يتم الاستعلام من مصادر البيانات العامة فقط",
+          "noteChats": "في الرسائل المباشرة، يتم الاستعلام من مصادر البيانات العامة والخاصة (التي يملك المستخدم صلاحية عليها)",
+          "noteNoInbound": "تصل الأحداث عبر Pub/Sub — لا حاجة إلى رابط عام أو فتح منافذ واردة في الجدار الناري",
+          "noteRegistered": "لا يمكن مراسلة البوت أو الإشارة إليه بـ {'@'} إلا للمستخدمين المسجّلين",
+          "serviceAccount": "حساب الخدمة:",
+          "serviceAccountJsonLabel": "مفتاح حساب الخدمة (JSON)",
+          "serviceAccountJsonPlaceholder": "الصق مفتاح JSON الكامل لحساب الخدمة",
+          "sessionStalenessDesc": "المدة التي تظل فيها الرسالة المباشرة ضمن تقرير المحادثة نفسه. الرسائل بعد هذه المدة تبدأ تقريرًا جديدًا (وإرسال \"new\" يبدأ واحدًا فورًا). الافتراضي: 120 ساعة (5 أيام).",
+          "setupIntro": "في مشروع Google Cloud مخصص (مهم — إعادة استخدام مشروع قديم قد تُبقي تطبيق Chat في حالة غير قابلة للاستخدام):",
+          "setupStep1": "فعّل Google Chat API وCloud Pub/Sub API",
+          "setupStep2": "أنشئ حساب خدمة (لا حاجة لأي أدوار) ونزّل مفتاح JSON الخاص به",
+          "setupStep3": "أنشئ موضوع Pub/Sub؛ وامنح chat-api-push{'@'}system.gserviceaccount.com دور Pub/Sub Publisher عليه",
+          "setupStep4": "أنشئ اشتراك pull على الموضوع؛ وامنح حساب الخدمة لديك دور Pub/Sub Subscriber عليه",
+          "setupStep5": "في صفحة Chat API Configuration: اترك \"Build this Chat app as a Workspace add-on\" غير محدد، وحدّد اسم التطبيق وصورته، وفعّل استقبال الرسائل الفردية، واختر Cloud Pub/Sub مع موضوعك، وفعّل \"Log errors to Logging\"، ثم احفظ",
+          "subscription": "الاشتراك:",
+          "subscriptionLabel": "اشتراك Pub/Sub",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "subtitle": "إعداد وإدارة التكامل مع Google Chat لمؤسستك",
+          "title": "التكامل مع Google Chat"
         }
       },
       "emptyTitle": "اجعل Bag of Words يعمل مع أدواتك",
@@ -2014,7 +2207,8 @@
       "copyLink": "نسخ الرابط",
       "linkCopied": "تم نسخ رابط الدعوة",
       "failedToCopyLink": "تعذّر نسخ الرابط",
-      "linkRegenerated": "تم تحديث رابط الدعوة ونسخه"
+      "linkRegenerated": "تم تحديث رابط الدعوة ونسخه",
+      "moreGroups": "مجموعات"
     },
     "organizationName": "اسم المؤسسة",
     "organizationIcon": "أيقونة المؤسسة",
@@ -2046,7 +2240,9 @@
       "members": "الأعضاء",
       "roles": "الأدوار",
       "groups": "المجموعات",
-      "signup": "التسجيل"
+      "signup": "التسجيل",
+      "quotas": "الحصص",
+      "serviceAccounts": "حسابات الخدمة"
     },
     "audit": {
       "title": "سجلات التدقيق",
@@ -2151,7 +2347,43 @@
       "routingHintSeedSmall": "أسئلة أساسية ومقاييس مفردة وعمليات بحث سريعة.",
       "routingHintSeedDefault": "لوحات المعلومات والعناصر وتحليل الملفات والتحليل المتقدم متعدد الخطوات.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "موجِّه النماذج التلقائي ميزة خاصة بالمؤسسات. قم بترقية ترخيصك لتفعيله."
+      "autoRouterEnterpriseTooltip": "موجِّه النماذج التلقائي ميزة خاصة بالمؤسسات. قم بترقية ترخيصك لتفعيله.",
+      "addModel": "إضافة نموذج",
+      "addModelCustomPlaceholder": "معرّف النموذج (مثال gpt-5.6-luna)",
+      "addModelSubmit": "إضافة",
+      "addModelTitle": "إضافة نموذج",
+      "addProvider": "إضافة مزوّد",
+      "cancel": "إلغاء",
+      "colFallback": "النموذج البديل",
+      "colImageGen": "توليد الصور",
+      "dangerZone": "منطقة الخطر",
+      "deleteModel": "حذف",
+      "deleteModelBlockedDefault": "لا يمكن حذف النماذج الافتراضية. اجعل نموذجًا آخر افتراضيًا أولًا.",
+      "deleteModelConfirm": "حذف «{name}»؟ لا يمكن التراجع عن ذلك.",
+      "deleteModelTitle": "حذف النموذج",
+      "enabledLabel": "مفعّل",
+      "fallback": "النماذج البديلة",
+      "fallbackColTooltip": "الأولوية في سلسلة البدائل — تُجرَّب تصاعديًا عند فشل النموذج النشط.",
+      "fallbackEmpty": "لا توجد نماذج بديلة — حدّد الأولويات في عمود البدائل",
+      "fallbackEnterpriseTooltip": "النماذج البديلة ميزة enterprise. رقِّ ترخيصك لتفعيلها.",
+      "fallbackHow1": "عند فشل النموذج النشط بسبب حد المعدّل أو ضغط المزوّد أو خطأ في الشبكة، تُعاد المحاولة على النموذج التالي بالترتيب أدناه.",
+      "fallbackHow2": "تُجرَّب النماذج من الأعلى إلى الأسفل؛ ويُتخطى أي نموذج مزوّده غير متاح حتى يعود للعمل.",
+      "fallbackHow3": "يُعلن عن التبديل دائمًا في المحادثة، وتُوسم الإجابة بالنموذج الذي أنتجها فعليًا.",
+      "fallbackHowTitle": "كيف تعمل النماذج البديلة",
+      "fallbackInactive": "غير نشط",
+      "fallbackOff": "النماذج البديلة معطّلة",
+      "fallbackOn": "النماذج البديلة مفعّلة",
+      "fallbackPrimary": "أساسي",
+      "imageGenDefaultBlocked": "لا يمكن أن تكون النماذج الافتراضية نماذج توليد صور. اجعل نموذجًا آخر افتراضيًا أولًا.",
+      "imageGenTooltip": "ما إذا كان هذا النموذج يولّد صورًا (مثل gpt-image-1). يفعّله لأداة generate_image ولتضمين الصور المولّدة في المخرجات. تُستبعد نماذج الصور من قائمة اختيار النموذج في المحادثة ولا يمكن أن تكون افتراضية.",
+      "modelAdded": "تمت إضافة النموذج",
+      "modelCardHint": "انقر على صف النموذج لفتح إعداداته",
+      "modelDeleted": "تم حذف النموذج",
+      "modelSettings": "إعدادات النموذج",
+      "modelsCount": "{count} نماذج",
+      "providerLabel": "المزوّد",
+      "providerSettingsTooltip": "إعدادات المزوّد",
+      "save": "حفظ"
     },
     "licensePage": {
       "title": "الترخيص",
@@ -2178,7 +2410,30 @@
       "inDays": "باقٍ {days} يوم",
       "expiredNotice": "انتهت صلاحية ترخيص enterprise الخاص بك. ميزات enterprise معطّلة حتى التجديد.",
       "enterpriseTitle": "إصدار enterprise",
-      "renewInfo": "جدّد ترخيصك لاستعادة ميزات enterprise مثل سجلات التدقيق والتحكم المتقدم في الوصول وسياسات الاحتفاظ بالبيانات."
+      "renewInfo": "جدّد ترخيصك لاستعادة ميزات enterprise مثل سجلات التدقيق والتحكم المتقدم في الوصول وسياسات الاحتفاظ بالبيانات.",
+      "activate": "تفعيل",
+      "activateDesc": "الصق مفتاح الترخيص الذي استلمته من BOW.",
+      "activateTitle": "مفتاح الترخيص",
+      "activating": "جارٍ التفعيل…",
+      "activeKey": "المفتاح النشط",
+      "cancel": "إلغاء",
+      "envActive": "يستخدم هذا النظام {envvar} من بيئته. حفظ مفتاح هنا سيتجاوزه.",
+      "keyLabel": "مفتاح الترخيص",
+      "keyPlaceholder": "bow_lic_…",
+      "lastUpdated": "آخر تحديث",
+      "noKey": "لم يتم ضبط أي مفتاح ترخيص. الصق مفتاحًا أدناه لتفعيل ميزات enterprise.",
+      "overridesEnv": "يتجاوز هذا المفتاح {envvar} المضبوط لهذا النشر. أزِله للعودة إلى ذلك المفتاح.",
+      "remove": "إزالة",
+      "removeConfirm": "هل تريد إزالة مفتاح الترخيص المحفوظ؟ سيعود النظام إلى المفتاح الموجود في بيئته إن وُجد.",
+      "removedToast": "تمت إزالة مفتاح الترخيص",
+      "removing": "جارٍ الإزالة…",
+      "saveFailed": "تعذّر تفعيل الترخيص",
+      "savedToast": "تم تفعيل الترخيص",
+      "sourceConfig": "من البيئة",
+      "sourceDatabase": "مضبوط هنا",
+      "sourceLabel": "المصدر",
+      "sourceNone": "غير مضبوط",
+      "update": "تحديث المفتاح"
     },
     "mcpModal": {
       "editTitle": "تعديل اتصال MCP",
@@ -2208,7 +2463,10 @@
       "updated": "تم تحديث الاتصال",
       "connected": "تم ربط خادم MCP",
       "failedUpdate": "تعذّر التحديث",
-      "failedConnect": "تعذّر الربط"
+      "failedConnect": "تعذّر الربط",
+      "orCreateNew": "— أو أنشئ اتصالًا جديدًا —",
+      "selectExistingPlaceholder": "اختر اتصالًا موجودًا…",
+      "useExistingLabel": "استخدام اتصال موجود"
     },
     "weekStart": {
       "label": "بداية أسبوع العمل",
@@ -2220,7 +2478,56 @@
         "monday": "الاثنين",
         "saturday": "السبت"
       }
-    }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "description": "يُستخدم لتفسير المهام المجدولة (مثل أوقات إعادة الفهرسة) ولعرض الطوابع الزمنية. تُخزَّن البيانات دائمًا بتوقيت UTC.",
+      "label": "المنطقة الزمنية للمؤسسة",
+      "saveError": "تعذّر تحديث المنطقة الزمنية",
+      "systemDefault": "استخدام إعداد النظام الافتراضي (UTC)"
+    },
+    "pii": {
+      "action": "الإجراء",
+      "actionBlock": "حجب",
+      "actionReplace": "استبدال",
+      "addPattern": "إضافة نمط",
+      "addRule": "إضافة قاعدة",
+      "blocksRequest": "يحجب الطلب",
+      "builtinDesc": "كواشف جاهزة للبيانات الشخصية الشائعة. فعّل كلًا منها وخصّص رمز الاستبدال.",
+      "builtinTitle": "القواعد المدمجة",
+      "customDesc": "عرّف كواشف خاصة بك. يمكن أن تحتوي القاعدة على عدة أنماط (تعابير نمطية) — ومطابقة أي منها تُفعّل القاعدة.",
+      "customTitle": "قواعد مخصصة",
+      "enterpriseBody": "حماية البيانات الشخصية متاحة في خطة Enterprise. تواصل مع المشرف لتفعيلها.",
+      "enterpriseTitle": "ميزة enterprise",
+      "masterDesc": "عند التفعيل، يُخفى النص المطابق من كل طلب صادر إلى نماذج الذكاء الاصطناعي في مساحة العمل هذه.",
+      "masterLabel": "تفعيل حماية البيانات الشخصية",
+      "modeBlock": "حجب الطلب",
+      "modeBlockDesc": "لا تُرسل الطلب إذا عُثر على بيانات شخصية. يمكن تجاوز ذلك لكل قاعدة أدناه.",
+      "modeLabel": "الإجراء الافتراضي عند اكتشاف بيانات شخصية",
+      "modeReplace": "الاستبدال برمز",
+      "modeReplaceDesc": "استبدل كل تطابق برمزه ثم تابع. يمكن تجاوز ذلك لكل قاعدة أدناه.",
+      "noCustomRules": "لا توجد قواعد مخصصة بعد.",
+      "patternPlaceholder": "مثال \\bEMP-\\d+\\b",
+      "patternRequired": "تحتاج كل قاعدة إلى نمط واحد على الأقل.",
+      "patterns": "الأنماط (regex)",
+      "removeRule": "إزالة",
+      "replacement": "الاستبدال",
+      "ruleName": "اسم القاعدة",
+      "ruleNamePlaceholder": "مثال: رقم الموظف",
+      "saveError": "تعذّر حفظ إعدادات البيانات الشخصية",
+      "saved": "تم حفظ إعدادات البيانات الشخصية",
+      "subtitle": "إخفاء البيانات الشخصية من الطلبات قبل إرسالها إلى أي مزوّد نماذج. تُطبَّق القواعد على الطلب المُجمَّع بالكامل — رسالة المستخدم وعينات المخطط ومعاينات البيانات ونصوص الملفات المرفوعة.",
+      "testBlocked": "كان سيتم حجب هذا الطلب (اكتُشفت بيانات شخصية).",
+      "testButton": "معاينة الإخفاء",
+      "testDesc": "الصق نصًا تجريبيًا لمعاينة كيف سيُخفى بالقواعد الحالية.",
+      "testMatches": "التطابقات: {rules}",
+      "testNoMatches": "لم تُكتشف بيانات شخصية في النص التجريبي.",
+      "testPlaceholder": "الصق نصًا يحتوي على بيانات شخصية تجريبية…",
+      "testResult": "النتيجة",
+      "testTitle": "اختبر قواعدك",
+      "title": "حماية البيانات الشخصية"
+    },
+    "piiTab": "البيانات الشخصية"
   },
   "data": {
     "title": "الاتصالات",
@@ -2458,7 +2765,76 @@
     "mcpModeAiTip": "يمكن للذكاء الاصطناعي تعيينه؛ ويملؤه الخادم إذا كان فارغًا",
     "mcpModeLockedTip": "قيمة المسؤول لها الأولوية دائمًا؛ مخفية عن الذكاء الاصطناعي",
     "mcpAddMetaField": "+ إضافة حقل بيانات وصفية",
-    "verify": "تحقق"
+    "verify": "تحقق",
+    "autoReindex": "إعادة فهرسة المخطط تلقائيًا",
+    "autoReindexAt": "إعادة الفهرسة يوميًا عند",
+    "autoReindexEnterprise": "إعادة الفهرسة المجدولة ميزة enterprise.",
+    "autoReindexEvery": "إعادة الفهرسة كل",
+    "autoReindexHint": "أعِد فهرسة هذا الاتصال دوريًا لتبقى الجداول محدَّثة.",
+    "autoReindexLastError": "آخر خطأ",
+    "autoReindexMinInterval": "أقل فاصل زمني هو {n} دقيقة.",
+    "autoReindexModeInterval": "فاصل زمني",
+    "autoReindexModeTime": "في وقت محدد",
+    "autoReindexSaveFailed": "تعذّر حفظ إعدادات إعادة الفهرسة التلقائية",
+    "autoReindexSchedule": "الجدولة",
+    "autoReindexTimeHint": "يوميًا، بتوقيت المؤسسة.",
+    "browserForm": {
+      "allowDownloads": "السماح بالتنزيلات",
+      "cancel": "إلغاء",
+      "name": "الاسم",
+      "namePlaceholder": "مثال: بوابة الموردين",
+      "save": "إنشاء",
+      "test": "التحقق من الروابط",
+      "urls": "الروابط المسموح بها",
+      "urlsHelp": "نمط واحد في كل سطر، مثل https://portal.vendor.com/**. لن يزور الوكيل سوى الروابط المطابقة."
+    },
+    "catAll": "الكل",
+    "catBi": "ذكاء الأعمال والتحليلات",
+    "catDatabases": "قواعد البيانات والمستودعات",
+    "catFiles": "الملفات وتخزين الكائنات",
+    "catInfra": "البنية التحتية",
+    "catServices": "الخدمات",
+    "collectionsAccessible": "{n} مجموعات متاحة",
+    "collectionsLabel": "المجموعات",
+    "connectToQueryAsYou": "اربط حسابك لتنفيذ الاستعلامات باسمك.",
+    "connectorDcrNote": "لا يحتاج إلى إعداد من المشرف — يسجّل هذا الموصل نفسه تلقائيًا (DCR). أنت تضيفه لمؤسستك؛ وكل مستخدم يسجّل الدخول بحسابه عند أول استخدام.",
+    "connectorsSection": "الموصلات",
+    "customSection": "موصلات مخصصة",
+    "customSectionHint": "اربط أي خادم MCP أو واجهة REST API",
+    "dataSourcesSection": "مصادر البيانات",
+    "disconnect": "قطع الاتصال",
+    "disconnecting": "جارٍ قطع الاتصال…",
+    "everyNHours": "كل {n} ساعات",
+    "filesAccessible": "{n} ملفات متاحة",
+    "filesLabel": "الملفات",
+    "impactAgentsMany": "سيؤثر ذلك على {count} وكلاء",
+    "impactAgentsOne": "سيؤثر ذلك على {count} وكيل",
+    "lastRefreshed": "آخر تحديث",
+    "mcpBadge": "MCP",
+    "me": "أنا",
+    "rateLimit": "حد معدّل الطلبات",
+    "rateLimitEnterprise": "تحديد المعدّل لكل اتصال ميزة enterprise.",
+    "rateLimitHint": "حدّد عدد الطلبات التي يقبلها هذا الاتصال في كل نافذة زمنية. الحد مشترك بين كل المستخدمين؛ وتُحجب الاستعلامات التي تتجاوزه.",
+    "rateLimitNoLimit": "بلا حد",
+    "rateLimitPerDay": "في اليوم",
+    "rateLimitPerHour": "في الساعة",
+    "rateLimitPerMinute": "في الدقيقة",
+    "rateLimitReqDay": "طلب/يوم",
+    "rateLimitReqHour": "طلب/ساعة",
+    "rateLimitReqMin": "طلب/دقيقة",
+    "rateLimitSaveFailed": "تعذّر حفظ إعدادات حد المعدّل",
+    "refreshing": "جارٍ التحديث…",
+    "reloadMyTables": "إعادة تحميل جداولي",
+    "runQueriesAs": "تنفيذ الاستعلامات باسم",
+    "sampleSection": "قواعد بيانات تجريبية",
+    "serviceAccountNote": "تُنفَّذ الاستعلامات بحساب الخدمة الخاص بالاتصال.",
+    "stopIndexingFailed": "تعذّر إيقاف الفهرسة",
+    "switchIdentityFailed": "تعذّر تبديل هوية تنفيذ الاستعلامات",
+    "tablesAccessible": "{n} جداول متاحة",
+    "toolsAccessible": "{n} أدوات متاحة",
+    "toolsLabel": "الأدوات",
+    "unitHours": "ساعات",
+    "unitMinutes": "دقائق"
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -2542,7 +2918,10 @@
     "integration.not_found": "التكامل غير موجود",
     "resource.conflict": "المورد موجود بالفعل أو يتعارض مع الحالة الحالية",
     "resource.duplicate": "مورد مكرر",
-    "setting.update_failed": "تعذّر تحديث الإعداد"
+    "setting.update_failed": "تعذّر تحديث الإعداد",
+    "query": {
+      "failed_silently": "فشل استعلام لكن الكود المُولَّد أعاد نتيجة فارغة بدل الإبلاغ عن ذلك"
+    }
   },
   "email": {
     "dashboardShare": {
@@ -2809,7 +3188,8 @@
     "global": "عام",
     "tablesLoadFailed": "تعذّر تحميل الجداول",
     "instructionsLoadFailed": "تعذّر تحميل التعليمات",
-    "queriesLoadFailed": "تعذّر تحميل الاستعلامات"
+    "queriesLoadFailed": "تعذّر تحميل الاستعلامات",
+    "connectToPreview": "سجّل الدخول لمعاينة الجداول والتعليمات وطرح الأسئلة."
   },
   "allInstructions": {
     "title": "جميع التعليمات",
@@ -3000,7 +3380,8 @@
       "toastDeleted": "تم حذف حالة الاختبار",
       "toastCreated": "تم إنشاء حالة الاختبار",
       "toastDeleteFailed": "تعذّر حذف حالة الاختبار",
-      "saveFailed": "تعذّر حفظ حالة الاختبار"
+      "saveFailed": "تعذّر حفظ حالة الاختبار",
+      "emptyDescription": "تقيس الاختبارات كيفية استجابة وكلائك للطلبات والقواعد."
     },
     "filter": {
       "allSuites": "كل المجموعات",
@@ -3095,6 +3476,18 @@
       "listContains": "القائمة تحتوي على القيمة",
       "listContainsAny": "القائمة تحتوي على أي",
       "listContainsAll": "القائمة تحتوي على الجميع"
+    },
+    "strip": {
+      "default": "افتراضية",
+      "emptyShelf": "لا توجد تقييمات هنا بعد",
+      "fromChat": "في هذه المحادثة",
+      "noneResolved": "لا توجد تقييمات محلولة لهذا الوكيل بعد",
+      "orgWide": "على مستوى المؤسسة",
+      "pinned": "مثبَّت على هذا التغيير",
+      "runAll": "تشغيل الكل",
+      "runSuite": "تشغيل {name}",
+      "runningCount": "قيد التشغيل {done}/{total}",
+      "title": "تقييمات هذا التغيير"
     }
   },
   "monitoring": {
@@ -3135,7 +3528,15 @@
       "next": "التالي",
       "periodAllTime": "كل الوقت",
       "filterUsersAll": "جميع المستخدمين",
-      "searchPlaceholder": "البحث في الموجهات…"
+      "searchPlaceholder": "البحث في الموجهات…",
+      "activityChartEmpty": "لا يوجد نشاط في الفترة المحددة.",
+      "activityChartError": "خطأ",
+      "activityChartLoading": "جارٍ تحميل النشاط…",
+      "activityChartSubtitle": "عمليات تشغيل الوكلاء اليومية حسب الحالة",
+      "activityChartSuccess": "ناجحة",
+      "activityChartTitle": "نشاط تشغيل الوكلاء",
+      "activityChartTotal": "الإجمالي",
+      "dayFilterLabel": "عرض {date}"
     },
     "title": "المراقبة",
     "tabExplore": "استكشاف",
@@ -3174,7 +3575,9 @@
       "loading": "جارٍ تحميل بيانات التكلفة...",
       "lockedTitle": "التكلفة ميزة خاصة بالمؤسسات",
       "lockedBody": "قم بالترقية إلى ترخيص مؤسسي لتتبع استهلاك الرموز وتكلفة نماذج اللغة حسب المستخدم والوكيل والمجموعة عبر الزمن.",
-      "fanoutNote": "يُحتسب إنفاق التقارير متعددة المصادر لكل مصدر من مصادر بياناتها، لذا قد تتجاوز إجماليات الصفوف الإجمالي العام."
+      "fanoutNote": "يُحتسب إنفاق التقارير متعددة المصادر لكل مصدر من مصادر بياناتها، لذا قد تتجاوز إجماليات الصفوف الإجمالي العام.",
+      "kpiSaved": "وُفِّر عبر التوجيه التلقائي",
+      "kpiSavedSub": "استدعاءات موجَّهة"
     },
     "cards": {
       "messages": "الرسائل",
@@ -3266,7 +3669,10 @@
     "tabEvals": "التقييمات",
     "loadFailInstructions": "تعذّر تحميل التعليمات",
     "loadFailQueries": "تعذّر تحميل الاستعلامات",
-    "loadFailEvals": "تعذّر تحميل التقييمات"
+    "loadFailEvals": "تعذّر تحميل التقييمات",
+    "noInstruction": "لا توجد تعليمة أساسية",
+    "noStarters": "لا توجد بدايات محادثة",
+    "primaryInstruction": "التعليمة الأساسية"
   },
   "instructionModal": {
     "newTitle": "تعليمة جديدة",
@@ -3402,7 +3808,33 @@
       "createFailed": "تعذّر إنشاء التعليمة",
       "updateFailed": "تعذّر تحديث التعليمة",
       "deleteFailed": "تعذّر حذف التعليمة",
-      "enhanceFailed": "تعذّر تحسين التعليمة"
+      "enhanceFailed": "تعذّر تحسين التعليمة",
+      "revertFailed": "تعذّر التراجع عن التعليمة",
+      "revertSuccess": "تمت العودة إلى الإصدار v{n}"
+    },
+    "sidebar": {
+      "approvedBy": "اعتمدها",
+      "category": "الفئة",
+      "createdBy": "أنشأها",
+      "dataSources": "مصادر البيانات",
+      "details": "التفاصيل",
+      "labels": "التسميات",
+      "loading": "جارٍ تحميل سياق الذكاء الاصطناعي",
+      "references": "المراجع",
+      "scope": "النطاق",
+      "status": "الحالة",
+      "visibility": "الظهور"
+    },
+    "versions": {
+      "compareLabel": "مقارنةً بالإصدار الحالي",
+      "confirmRevert": "هل تريد إعادة هذه التعليمة إلى الإصدار v{n}؟ سيتم إنشاء نسخة جديدة.",
+      "current": "الحالي",
+      "fieldChanges": "تغييرات الحقول",
+      "label": "الإصدار",
+      "loadFailed": "تعذّر تحميل الإصدارات",
+      "noChanges": "لا توجد فروق في المحتوى مقارنةً بالإصدار الحالي",
+      "revert": "العودة إلى هذا الإصدار",
+      "reverting": "جارٍ التراجع..."
     }
   },
   "mcpServerModal": {
@@ -3584,7 +4016,9 @@
       "defaultModelSubtitle": "النموذج المستخدم افتراضيًا عند بدء محادثة جديدة. تُعرض فقط النماذج التي يمكنك الوصول إليها.",
       "orgDefault": "الإعداد الافتراضي للمؤسسة",
       "defaultModelSaved": "تم تحديث النموذج الافتراضي",
-      "defaultModelFailed": "فشل تحديث النموذج الافتراضي"
+      "defaultModelFailed": "فشل تحديث النموذج الافتراضي",
+      "directorySubtitle": "بيانات وظيفية مُزامَنة من موفّر الهوية في مؤسستك. مرئية للذكاء الاصطناعي كسياق.",
+      "directoryTitle": "ملف الدليل التنظيمي"
     },
     "instructions": {
       "title": "تعليمات مخصصة",
@@ -3641,7 +4075,21 @@
     }
   },
   "commandPalette": {
-    "prompts": "المطالبات"
+    "prompts": "المطالبات",
+    "actions": "الإجراءات",
+    "agents": "الوكلاء",
+    "emptyLabel": "ابدأ الكتابة للبحث",
+    "emptyQueryLabel": "لا توجد نتائج",
+    "instructions": "التعليمات",
+    "newInstruction": "تعليمة جديدة",
+    "newInstructionWithQuery": "تعليمة جديدة «{query}»",
+    "newReport": "تقرير جديد",
+    "newReportWithQuery": "تقرير جديد «{query}»",
+    "placeholder": "ابحث في التقارير والوكلاء والتعليمات…",
+    "reports": "التقارير الأخيرة",
+    "suggestInstruction": "اقتراح تعليمة",
+    "suggestInstructionWithQuery": "اقتراح التعليمة «{query}»",
+    "suggestionHint": "أُرسل للمراجعة"
   },
   "promptParams": {
     "title": "املأ المعلمات — {title}",
@@ -3740,7 +4188,12 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…",
-    "modelDefaultAuto": "تلقائي · يوجّه حسب الصعوبة"
+    "modelDefaultAuto": "تلقائي · يوجّه حسب الصعوبة",
+    "deliverEmail": "البريد الإلكتروني",
+    "deliverEmailHint": "يُرسَل رابط التقرير بالبريد إلى كل عضو.",
+    "deliverLabel": "إرسال النتائج أيضًا إلى",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "تُرسَل إلى محادثة Teams لكل عضو (يتم تخطي الأعضاء بلا Teams)."
   },
   "automations": {
     "title": "الأتمتة",
@@ -3907,5 +4360,179 @@
     "continueOnboarding": "متابعة الإعداد",
     "configureLlm": "قم بإعداد نموذج اللغة الخاص بك",
     "connectFirstDataSource": "قم بتوصيل مصدر البيانات الأول"
+  },
+  "agentPage": {
+    "tables": {
+      "addFiles": "رفع ملف",
+      "fileRemoveFailed": "تعذّرت إزالة الملف",
+      "fileUploadFailed": "تعذّر رفع الملف",
+      "filesUploading": "جارٍ الرفع…",
+      "manageConnections": "إدارة الاتصالات",
+      "manageFiles": "رفع ملف",
+      "removeFile": "إزالة الملف",
+      "save": "حفظ",
+      "schemaRefreshing": "يجري تحديث المخطط — ستظهر الجداول بعد قليل.",
+      "selectTables": "اختيار الجداول",
+      "selectTablesSubtitle": "اختر الجداول التي تريد تفعيلها"
+    }
+  },
+  "changelog": {
+    "changeCount": "{count} تغيير | {count} تغييرات",
+    "emptyTitle": "لا توجد ملاحظات إصدار بعد",
+    "errorBody": "حدث خطأ أثناء جلب ملاحظات الإصدار.",
+    "errorTitle": "تعذّر تحميل سجل التغييرات",
+    "latest": "الأحدث",
+    "menuItem": "سجل التغييرات",
+    "retry": "إعادة المحاولة",
+    "subtitle": "آخر التحديثات والتحسينات",
+    "title": "ما الجديد",
+    "viewOnGithub": "عرض كل الإصدارات"
+  },
+  "exports": {
+    "complete": "اكتمل التصدير",
+    "failed": "فشل التصدير",
+    "html": "HTML",
+    "label": "تصدير",
+    "pdf": "PDF",
+    "pdfDone": "تم تنزيل ملف PDF.",
+    "pptx": "PowerPoint"
+  },
+  "quotaPolicies": {
+    "add": "إضافة",
+    "assignmentCounts": {
+      "group": "{n} مجموعات",
+      "role": "{n} أدوار",
+      "user": "{n} مستخدمين"
+    },
+    "assignments": "التعيينات",
+    "cancel": "إلغاء",
+    "cancelEdit": "إلغاء التعديل",
+    "colActions": "الإجراءات",
+    "colAssignments": "التعيينات",
+    "colLimits": "الحدود",
+    "colOverrides": "استثناءات الاتصالات",
+    "colPolicy": "السياسة",
+    "colQuota": "الحصة",
+    "colStatus": "الحالة",
+    "confirmDelete": "حذف الحصة «{name}»؟",
+    "connection": "الاتصال",
+    "connectionOverrides": "استثناءات الاتصالات",
+    "create": "إنشاء",
+    "createQuota": "إنشاء حصة",
+    "dataMb": "البيانات بالميغابايت",
+    "dataShort": "البيانات",
+    "descriptionLabel": "الوصف",
+    "descriptionPlaceholder": "اختياري",
+    "disabled": "معطّلة",
+    "editQuota": "تعديل الحصة",
+    "enabled": "مفعّلة",
+    "failedToDelete": "تعذّر حذف الحصة",
+    "failedToLoad": "تعذّر تحميل الحصص",
+    "failedToSave": "تعذّر حفظ الحصة",
+    "groups": "المجموعات",
+    "inherited": "موروثة",
+    "loading": "جارٍ التحميل...",
+    "monthlyDataLimitMb": "الحد الشهري للبيانات (ميغابايت)",
+    "monthlyQueryLimit": "الحد الشهري للاستعلامات",
+    "monthlySpendLimitUsd": "الحد الشهري للإنفاق (دولار)",
+    "monthlyTokenLimit": "الحد الشهري للتوكنات",
+    "nameLabel": "الاسم",
+    "namePlaceholder": "مثال: حصة المحللين",
+    "newQuota": "حصة جديدة",
+    "noDirectQuota": "افتراضية",
+    "noPoliciesFound": "لم يتم العثور على سياسات حصص",
+    "noPoliciesHint": "أنشئ حصة لتحديد الاستخدام الشهري للذكاء الاصطناعي والبيانات.",
+    "none": "لا شيء",
+    "principalTypes": {
+      "group": "مجموعة",
+      "role": "دور",
+      "user": "مستخدم"
+    },
+    "queries": "الاستعلامات",
+    "queriesShort": "الاستعلامات",
+    "roles": "الأدوار",
+    "save": "حفظ",
+    "searchPlaceholder": "البحث في الحصص...",
+    "selectConnection": "اختر اتصالًا...",
+    "selectPrincipal": "اختر كيانًا...",
+    "spendShort": "الإنفاق",
+    "toastAssignmentUpdated": "تم تحديث تعيين الحصة",
+    "toastCreated": "تم إنشاء الحصة",
+    "toastDeleted": "تم حذف الحصة",
+    "toastUpdated": "تم تحديث الحصة",
+    "tokensShort": "التوكنات",
+    "unlimited": "بلا حدود",
+    "update": "تحديث",
+    "users": "المستخدمون"
+  },
+  "serviceAccounts": {
+    "active": "نشط",
+    "apiKeys": "مفاتيح API",
+    "colKeys": "المفاتيح",
+    "colName": "الاسم",
+    "colRole": "الدور",
+    "colStatus": "الحالة",
+    "copied": "تم النسخ إلى الحافظة",
+    "copy": "نسخ",
+    "copyManual": "حدّد المفتاح وانسخه يدويًا",
+    "create": "إنشاء",
+    "createFailed": "تعذّر إنشاء حساب الخدمة",
+    "created": "تم إنشاء حساب الخدمة",
+    "delete": "حذف",
+    "deleted": "تم حذف حساب الخدمة",
+    "description": "الوصف",
+    "disable": "تعطيل",
+    "disabled": "معطّل",
+    "empty": "لا توجد حسابات خدمة بعد.",
+    "enable": "تفعيل",
+    "keyFailed": "تعذّر إنشاء المفتاح",
+    "keyLastUsed": "آخر استخدام",
+    "keyName": "الاسم",
+    "keyOnce": "انسخ هذا المفتاح الآن — لن يُعرض مرة أخرى.",
+    "keyPrefix": "البادئة",
+    "manageKeys": "إدارة المفاتيح",
+    "never": "أبدًا",
+    "newAccount": "حساب خدمة جديد",
+    "newKey": "إنشاء مفتاح",
+    "noKeys": "لا توجد مفاتيح بعد.",
+    "noRole": "بلا دور",
+    "roleHint": "لا يمكنك منح سوى دور تملك صلاحياته بالفعل.",
+    "selectRole": "اختر دورًا",
+    "subtitle": "هويات API غير بشرية للأتمتة والتكاملات. لكل منها دورها ومفاتيحها الخاصة، وليست مرتبطة بشخص.",
+    "title": "حسابات الخدمة"
+  },
+  "sessionEvents": {
+    "artifact_schedule_changed": "تم تغيير جدول تحديث «{title}»",
+    "artifact_schedule_removed": "تمت إزالة جدول تحديث «{title}»",
+    "artifact_schedule_set": "تمت جدولة تحديث لـ «{title}»",
+    "artifact_shared": "تمت مشاركة «{title}» مع {who}",
+    "artifact_shared_generic": "تمت مشاركة «{title}»",
+    "artifact_unshared": "أصبح «{title}» خاصًا",
+    "artifact_version_reverted": "تمت إعادة «{title}» إلى الإصدار {v}",
+    "artifact_version_reverted_generic": "تمت إعادة «{title}» إلى إصدار سابق",
+    "conversation_share_off": "تم إيقاف مشاركة المحادثة",
+    "eval_run_started": "بدأ {actor} جولة تقييم · {n} حالات",
+    "eval_run_started_by": "بدأ {actor} جولة تقييم",
+    "eval_run_started_generic": "بدأت جولة تقييم",
+    "eval_run_started_generic_n": "بدأت جولة تقييم · {n} حالات",
+    "file_removed": "تمت إزالة {name}",
+    "file_uploaded": "تم رفع {name}",
+    "instruction_accepted": "تم قبول التعديل المقترح على «{title}»",
+    "instruction_accepted_generic": "تم قبول تعديل مقترح على تعليمة",
+    "instruction_accepted_versioned": "تم قبول التعديل المقترح على «{title}» (v{v})",
+    "instruction_rejected": "تم رفض التعديل المقترح على «{title}»",
+    "instruction_rejected_generic": "تم رفض تعديل مقترح على تعليمة",
+    "instruction_rejected_versioned": "تم رفض التعديل المقترح على «{title}» (v{v})",
+    "llm_changed": "تم تبديل النموذج إلى {to}",
+    "llm_reset": "تمت إعادة النموذج إلى الافتراضي",
+    "report_published": "تم نشر هذا التقرير",
+    "report_shared": "تمت مشاركة هذه المحادثة مع {who}",
+    "report_shared_generic": "تمت مشاركة هذه المحادثة",
+    "report_unpublished": "تم إلغاء نشر هذا التقرير",
+    "run_stopped": "تم إيقاف التشغيل",
+    "scope_added": "تغيّر نطاق الوكيل — أُضيف {added}",
+    "scope_changed": "تغيّر نطاق الوكيل — أُضيف {added}؛ وأُزيل {removed}",
+    "scope_generic": "تغيّر نطاق الوكيل",
+    "scope_removed": "تغيّر نطاق الوكيل — أُزيل {removed}"
   }
 }
