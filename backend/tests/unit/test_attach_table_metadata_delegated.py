@@ -94,11 +94,13 @@ async def test_overlay_only_table_is_attached(db):
     """A delegated dataset with no canonical row at all — only the user's
     overlay carries the GUID — must still resolve."""
     org, user, ds, conn = await _seed(db, canonical_active=False)
-    # Remove the canonical row entirely; overlay is the sole source.
+    # Precondition: a canonical row exists; then remove it so the overlay is
+    # the sole source of the GUID.
     canon = (await db.execute(
         DataSourceTable.__table__.select().where(
             DataSourceTable.datasource_id == str(ds.id))
     )).first()
+    assert canon is not None
     await db.execute(DataSourceTable.__table__.delete().where(
         DataSourceTable.datasource_id == str(ds.id)))
     await db.flush()

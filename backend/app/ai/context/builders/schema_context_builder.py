@@ -5,7 +5,7 @@ from typing import List, Optional, Dict, Any
 import re
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from app.ai.context.sections.tables_schema_section import TablesSchemaContext, MCPToolItem
 from app.schemas.data_source_schema import DataSourceSummarySchema
 from app.ai.prompt_formatters import Table as PromptTable, TableColumn as PromptTableColumn, ForeignKey as PromptForeignKey
@@ -307,7 +307,7 @@ class SchemaContextBuilder:
                 canonical_all_by_name: Dict[str, DataSourceTable] = dict(canonical_by_name)
                 missing_names = [n for n in overlay_names if n not in canonical_all_by_name]
                 if missing_names:
-                    enrich_q = await self.db.execute(
+                    enrich_query = (
                         select(DataSourceTable)
                         .options(
                             selectinload(DataSourceTable.connection_table)
@@ -318,8 +318,29 @@ class SchemaContextBuilder:
                             DataSourceTable.name.in_(missing_names),
                         )
                     )
+                    # Honor the connection_ids contract the main query applies:
+                    # enrich only from rows on a target connection or unlinked
+                    # rows (a delegated dataset's canonical row is typically
+                    # unlinked). Never pull a row owned by another named
+                    # connection — that would mis-attribute the overlay table.
+                    if connection_ids:
+                        conn_id_set = set(str(x) for x in connection_ids)
+                        enrich_query = (
+                            enrich_query
+                            .outerjoin(
+                                ConnectionTable,
+                                DataSourceTable.connection_table_id == ConnectionTable.id,
+                            )
+                            .where(or_(
+                                ConnectionTable.connection_id.in_(conn_id_set),
+                                DataSourceTable.connection_table_id.is_(None),
+                            ))
+                        )
+                    enrich_q = await self.db.execute(enrich_query)
+                    # DataSourceTable.name is non-null; key directly (avoid an
+                    # empty-string bucket collapsing distinct rows).
                     for t in enrich_q.scalars().all():
-                        canonical_all_by_name.setdefault(getattr(t, 'name', ''), t)
+                        canonical_all_by_name.setdefault(t.name, t)
 
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
