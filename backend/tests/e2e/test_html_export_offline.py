@@ -108,6 +108,37 @@ requires_browser = pytest.mark.skipif(
            "(scripts/download-vendor-libs.sh)",
 )
 
+
+def _export_libs_available() -> bool:
+    """Whether build_standalone_html can read every lib it might reach for.
+
+    `_find_libs_dir` only proves that a candidate directory exists and is
+    non-empty, which a fresh checkout always satisfies: .gitignore, .gitkeep
+    and the two committed helper scripts live there while the downloaded libs
+    do not. babel-standalone is in the list even though _EXPORT_LIBS omits it,
+    because the export falls back to inlining babel whenever server-side
+    transpilation does not apply — which is the path these tests hit.
+    """
+    from app.services.artifact_libs import (
+        _EXPORT_LIBS,
+        _GLOBALS_FILENAME,
+        _find_libs_dir,
+    )
+
+    libs_dir = _find_libs_dir()
+    if libs_dir is None:
+        return False
+    needed = (*_EXPORT_LIBS, _GLOBALS_FILENAME, "babel-standalone.min.js")
+    return all((libs_dir / name).is_file() for name in needed)
+
+
+EXPORT_LIBS_AVAILABLE = _export_libs_available()
+
+requires_export_libs = pytest.mark.skipif(
+    not EXPORT_LIBS_AVAILABLE,
+    reason="needs the vendored JS libs (scripts/download-vendor-libs.sh)",
+)
+
 REGIONS = ["US", "US", "FR", "FR", "FR"]
 
 # Exercises the three things an export has to carry: the data runtime
@@ -409,6 +440,7 @@ async def test_param_baked_into_the_snapshot_is_reported_inert(tmp_path):
             await browser.close()
 
 
+@requires_export_libs
 @pytest.mark.asyncio
 async def test_no_external_subresource_tags_are_emitted():
     """Nothing is *linked*; everything is inlined.
@@ -417,10 +449,6 @@ async def test_no_external_subresource_tags_are_emitted():
     reintroduces `<script src="/libs/...">` fails even in a CI job that skips
     the rendering tests.
     """
-    from app.services.artifact_libs import _find_libs_dir
-
-    if _find_libs_dir() is None:
-        pytest.skip("vendored JS libs not present")
 
     _, artifact_id = await _seed()
     try:
@@ -465,6 +493,7 @@ def test_pdf_worker_is_pinned_to_an_inlined_blob():
     assert "get: function()" in script
 
 
+@requires_export_libs
 @pytest.mark.asyncio
 async def test_remote_references_in_generated_code_are_stripped():
     """Generated markup occasionally carries a webfont or a remote image.
@@ -472,10 +501,6 @@ async def test_remote_references_in_generated_code_are_stripped():
     Those are the one thing that can smuggle a network request past every other
     guard, because they live in LLM output rather than in our own templates.
     """
-    from app.services.artifact_libs import _find_libs_dir
-
-    if _find_libs_dir() is None:
-        pytest.skip("vendored JS libs not present")
 
     leaky = """<link href="https://fonts.googleapis.com/css2?family=Inter" rel="stylesheet">
 <script type="text/babel">
@@ -552,12 +577,9 @@ async def _export_public(report_id: str, artifact_id=None, user=None):
         )
 
 
+@requires_export_libs
 @pytest.mark.asyncio
 async def test_public_export_serves_a_publicly_visible_dashboard():
-    from app.services.artifact_libs import _find_libs_dir
-
-    if _find_libs_dir() is None:
-        pytest.skip("vendored JS libs not present")
 
     report_id, artifact_id = await _seed(artifact_visibility="public")
     response = await _export_public(report_id)
