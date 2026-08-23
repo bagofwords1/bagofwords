@@ -62,8 +62,17 @@ class ToolExecution(BaseSchema):
 
 
 def before_write_tool_context_summary(mapper, connection, target):
-    """Snapshot row-heavy tool context when its canonical result is written."""
+    """Snapshot row-heavy tool context when its canonical result is written.
+
+    Only fills a summary that nobody set. The agent loop projects the richer
+    one from the live observation when it finishes a tool
+    (``_configure_finished_tool_execution``); this hook sees only result_json,
+    so rebuilding here would replace that with a strictly poorer value -- and
+    for observation-only tools, with nothing at all.
+    """
     try:
+        if target.context_summary_json is not None:
+            return
         state = inspect(target)
         if state.attrs.result_json.history.has_changes():
             from app.ai.persisted_summary import build_tool_context_summary

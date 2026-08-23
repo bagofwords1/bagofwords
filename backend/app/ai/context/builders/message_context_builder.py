@@ -29,6 +29,7 @@ from app.ai.context.summary_write_through import (
     TERMINAL_TOOL_EXECUTION_STATUSES,
     persist_tool_context_projections,
 )
+from app.ai.persisted_summary import SUMMARIZED_TOOL_NAMES
 
 
 def _json_value(value: Any) -> Any:
@@ -765,6 +766,10 @@ class MessageContextBuilder:
         # refreshes. This matters for old read_query rows whose full JSON can
         # take PostgreSQL seconds to parse even when SQL returns only a digest.
         self._terminal_tool_context_cache: Dict[str, Any] = {}
+        # Completions whose tool results are replayed as real tool_result turns
+        # by transcript hydration. Their digests are suppressed here so one
+        # result never appears twice in two different shapes.
+        self.suppressed_tool_completion_ids: set = set()
 
     async def _protected_head_completions(self):
         """The report's opening exchange (never folded into the compaction
@@ -968,10 +973,17 @@ class MessageContextBuilder:
                 created_step_id=row.created_step_id,
                 error_message=row.error_message,
                 updated_at=row.updated_at,
-                # New executions carry the exact bounded history projection in
+                # Row-heavy tools carry the exact bounded history projection in
                 # a separate small column. Historical rows use the behavior-
                 # preserving JSON projection once, then write it through.
-                result_json=_json_value(row.context_summary_json),
+                # Every OTHER tool now also has a context_summary_json (it holds
+                # the observation, for cross-turn replay), but its digest
+                # functions read the real result_json shape -- so only the
+                # row-heavy set substitutes the projection here.
+                result_json=(
+                    _json_value(row.context_summary_json)
+                    if row.tool_name in SUMMARIZED_TOOL_NAMES else None
+                ),
             )
 
         newly_loaded_ids = [
@@ -995,6 +1007,7 @@ class MessageContextBuilder:
             execution_id
             for execution_id in newly_loaded_ids
             if isinstance(loaded[execution_id].context_summary_json, dict)
+            and loaded[execution_id].tool_name in SUMMARIZED_TOOL_NAMES
         }
         projected_ids = set(read_query_ids) | set(create_data_ids) | summarized_ids
         regular_ids = [
@@ -1334,8 +1347,9 @@ class MessageContextBuilder:
                     if block.content and block.content.strip():
                         system_parts.append(f"Response: {block.content.strip()}")
                     
-                    # Add tool execution details if available
-                    if block.tool_execution_id:
+                    # Add tool execution details if available. Skipped when the
+                    # transcript already replays this completion's results.
+                    if block.tool_execution_id and str(completion.id) not in self.suppressed_tool_completion_ids:
                         tool_execution = await self._load_tool_execution_for_context(block.tool_execution_id)
                         
                         if tool_execution:
@@ -1957,7 +1971,8 @@ class MessageContextBuilder:
 
             tool_exec_ids = [
                 str(b.tool_execution_id)
-                for blks in blocks_by_completion.values()
+                for cid, blks in blocks_by_completion.items()
+                if cid not in self.suppressed_tool_completion_ids
                 for b in blks
                 if getattr(b, 'tool_execution_id', None)
             ]
@@ -2078,7 +2093,12 @@ class MessageContextBuilder:
                         system_parts.append(f"Thinking: {block.reasoning.strip()}")
                     if block.content and block.content.strip():
                         system_parts.append(f"Response: {block.content.strip()}")
-                    if block.tool_execution_id:
+                    # Skipped when the transcript already replays this
+                    # completion's tool results as real tool_result turns.
+                    if (
+                        block.tool_execution_id
+                        and str(completion.id) not in self.suppressed_tool_completion_ids
+                    ):
                         tool_execution = tool_exec_by_id.get(str(block.tool_execution_id))
                         if tool_execution:
                             tool_info = f"Tool: {tool_execution.tool_name}"

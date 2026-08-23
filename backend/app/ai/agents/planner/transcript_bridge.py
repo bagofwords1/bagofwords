@@ -163,6 +163,12 @@ def build_transcript(planner_input: Any, static_context: str, ask: str) -> Trans
     t = Transcript()
     if static_context:
         t.add_user_text(static_context)
+    # Earlier completions' tool results, before the ask: the run's own steps
+    # continue after it, so the whole thing reads in chronological order and
+    # turn 0 stays the byte-stable cache prefix.
+    hydrated = getattr(planner_input, "hydrated_turns", None)
+    if hydrated:
+        t.turns.extend(hydrated)
     if ask:
         t.add_user_text(ask)
 

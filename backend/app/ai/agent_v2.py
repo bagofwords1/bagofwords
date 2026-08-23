@@ -608,6 +608,10 @@ class AgentV2:
         # and signatures, which a reconstruction cannot do. Only consumed when
         # the transcript path is enabled; otherwise it is inert bookkeeping.
         self.transcript = Transcript()
+        # Tool results replayed from earlier completions, and the completions
+        # they cover (the conversation renderer must not digest those again).
+        self._hydrated_turns: list = []
+        self._hydrated_completion_ids: set = set()
         # Parts recorded since the last flush — one planner step's worth.
         self._pending_transcript: list = []
         # Narration from the decision being executed, attached to the assistant
@@ -2040,6 +2044,7 @@ class AgentV2:
                             summary=observation.get("summary", "") if observation else "",
                             error_message=_observation_error_message(observation),
                             success=bool(observation and not _observation_failed(observation) and not _is_stopped),
+                            observation=observation,
                         )
                     except Exception as _fin_err:
                         logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
@@ -3911,6 +3916,30 @@ class AgentV2:
             except Exception:
                 logger.exception("initial instruction scope failed; leaving full scope")
 
+            # Replay recent tool results so this run starts knowing what the last
+            # few turns actually found, instead of a one-line digest of it. Runs
+            # BEFORE the context refresh: the conversation renderer must already
+            # know which completions the transcript owns, or their results would
+            # render twice -- once as a replayed tool_result, once as a digest.
+            try:
+                from app.ai.context.transcript_hydration import hydrate_transcript
+                _exclude = {str(self.system_completion.id)} if self.system_completion else set()
+                _hy = await hydrate_transcript(
+                    self.db,
+                    report_id=str(self.report.id),
+                    exclude_completion_ids=_exclude,
+                )
+                self._hydrated_turns = _hy.get("turns") or []
+                self._hydrated_completion_ids = _hy.get("completion_ids") or set()
+                if getattr(self.context_hub, "message_builder", None) is not None:
+                    self.context_hub.message_builder.suppressed_tool_completion_ids = (
+                        self._hydrated_completion_ids
+                    )
+            except Exception:
+                logger.warning("[hydration] skipped", exc_info=True)
+                self._hydrated_turns = []
+                self._hydrated_completion_ids = set()
+
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
             with tracer.start_as_current_span("agent.context_initial_load") as span:
@@ -4292,6 +4321,7 @@ class AgentV2:
                             last_observation=observation,
                             past_observations=self.context_hub.observation_builder.tool_observations,
                             transcript=self.transcript,
+                            hydrated_turns=self._hydrated_turns,
                             provider_name=getattr(getattr(self.model, "provider", None), "provider_type", None),
                             context_window_tokens=getattr(self.model, "context_window_tokens", None),
                             external_platform=self.platform,
@@ -5569,6 +5599,7 @@ class AgentV2:
                                             error_message=_error_msg,
                                             success=_success_flag,
                                             sub_timings_json=tool_sub_timings,
+                                            observation=observation,
                                         )
                                     except AttributeError:
                                         # Fallback if helper isn't wired yet — keep behavior
@@ -5584,6 +5615,7 @@ class AgentV2:
                                             context_snapshot_id=None,
                                             success=_success_flag,
                                             sub_timings_json=tool_sub_timings,
+                                            observation=observation,
                                         )
 
                                     # Save post-tool context snapshot in background (not user-facing, not needed for next loop).

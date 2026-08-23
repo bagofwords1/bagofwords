@@ -218,6 +218,10 @@ class PlannerInput(BaseModel):
     # provider's OWN tool_use ids and signatures, which a reconstruction from
     # observations cannot. Preferred over the bridge when present.
     transcript: Optional[Any] = None
+    # Replayed tool results from earlier completions (see
+    # context/transcript_hydration.py). Spliced between the static context and
+    # the ask so history stays chronological.
+    hydrated_turns: Optional[Any] = None
     # Provider serving this iteration — gates replay of provider-opaque state
     # (tool-call / thinking signatures), which must never cross a mid-run
     # fallback to a different provider.

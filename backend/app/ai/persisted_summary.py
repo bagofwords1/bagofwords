@@ -9,6 +9,7 @@ of megabytes merely to recover a one-line digest.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from app.ai.data_preview import (
@@ -37,6 +38,80 @@ SUMMARIZED_TOOL_NAMES = frozenset(
         "read_note",
     }
 )
+
+# Cross-turn observation retention.
+#
+# The observation is what the model actually SAW when the tool ran. Only the
+# row-heavy tools above get a purpose-built projection; every other tool used to
+# project nothing, so a later turn could only re-derive an approximation from
+# ``result_json`` -- which holds the tool's ``output``, a different payload. That
+# re-derivation drifts (an inspect_data observation carries ``summary``; its
+# output does not), so the model lost detail it had already paid for.
+#
+# Persisting the observation keeps the real result replayable across turns and
+# across an interrupted run. Bounds below keep one pathological result (e.g. a
+# large inlined MCP payload) from dominating a rehydrated transcript.
+OBSERVATION_FIELD_MAX_CHARS = 4_000
+OBSERVATION_TOTAL_MAX_CHARS = 12_000
+# Vision payloads are re-sent as image blocks within their own run and must not
+# be replayed from history; the marker keeps the fact of the image legible.
+OBSERVATION_DROPPED_KEYS = ("images", "images_provided_as_vision")
+
+
+def _clamp_text(value: str, limit: int) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + f"\u2026 [truncated, {len(value)} chars total]"
+
+
+def bounded_observation(observation: Any) -> dict[str, Any] | None:
+    """Bound one observation for durable storage.
+
+    Copies rather than mutates: the live observation is shared by reference with
+    ObservationContextBuilder, which compacts entries in place as the run
+    proceeds. Building a new dict here snapshots the value at full fidelity
+    before that happens.
+    """
+    if not isinstance(observation, dict) or not observation:
+        return None
+
+    bounded: dict[str, Any] = {}
+    for key, value in observation.items():
+        if key in OBSERVATION_DROPPED_KEYS:
+            continue
+        if isinstance(value, str):
+            bounded[key] = _clamp_text(value, OBSERVATION_FIELD_MAX_CHARS)
+        else:
+            bounded[key] = value
+
+    if any(observation.get(key) for key in OBSERVATION_DROPPED_KEYS):
+        bounded["images_elided"] = (
+            "image(s) were produced and shown when this call ran - "
+            "re-view with read_file if needed"
+        )
+
+    # Whole-observation ceiling. Serializing is the only honest measure of what
+    # a nested structure costs; drop the largest remaining fields until it fits
+    # rather than truncating mid-JSON.
+    try:
+        while len(json.dumps(bounded, default=str)) > OBSERVATION_TOTAL_MAX_CHARS:
+            droppable = [
+                k for k in bounded
+                if k not in ("summary", "success", "error", "images_elided")
+            ]
+            if not droppable:
+                break
+            widest = max(
+                droppable,
+                key=lambda k: len(json.dumps(bounded[k], default=str)),
+            )
+            size = len(json.dumps(bounded[widest], default=str))
+            del bounded[widest]
+            bounded[f"{widest}_elided"] = f"{size} chars elided from history"
+    except Exception:
+        pass
+
+    return bounded or None
 
 
 def _column_projection(columns: Any) -> list[dict[str, Any]]:
@@ -220,17 +295,27 @@ def _tool_ui_preview(item: dict[str, Any]) -> dict[str, Any]:
 def build_tool_context_summary(
     tool_name: Any,
     result_json: Any,
+    observation: Any = None,
 ) -> dict[str, Any] | None:
-    """Return the immutable prompt projection for row-heavy tool results.
+    """Return the immutable prompt projection for a tool result.
 
     The returned dictionaries intentionally match the lightweight result shapes
     MessageContextBuilder already renders, so switching storage does not change
     the generated context text.
-    """
-    if not isinstance(result_json, dict):
-        return None
 
+    Row-heavy tools keep their purpose-built projections (report cards read
+    them, and their previews are already bounded). Every other tool projects its
+    ``observation`` instead, so later turns replay what the model actually saw.
+    """
     name = str(tool_name or "")
+
+    if not isinstance(result_json, dict):
+        # An observation-only tool stores no result_json at all. Its observation
+        # is still the whole story, so project that rather than nothing.
+        bounded = bounded_observation(observation)
+        if bounded is None:
+            return None
+        return {"version": CONTEXT_SUMMARY_VERSION, "observation": bounded}
     if name == "create_data":
         preview = _preview_shape(result_json, include_first_row=True)
         stats = result_json.get("stats") if isinstance(result_json.get("stats"), dict) else {}
@@ -349,4 +434,11 @@ def build_tool_context_summary(
                 projection[field] = value[:UI_FILE_PREVIEW_CHARS]
         return projection
 
-    return None
+    # Every remaining tool: keep the observation itself. This is the path that
+    # gives cross-turn memory to inspect_data, execute_mcp, the artifact tools
+    # and the rest -- previously they projected nothing and history had to
+    # re-derive a digest from a payload that was never the observation.
+    bounded = bounded_observation(observation)
+    if bounded is None:
+        return None
+    return {"version": CONTEXT_SUMMARY_VERSION, "observation": bounded}

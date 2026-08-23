@@ -1070,6 +1070,7 @@ class ProjectManager:
         sub_timings_json: dict | None = None,
         context_snapshot_id: str | None = None,
         token_usage_json: dict | None = None,
+        observation: dict | None = None,
     ):
         """Mutate an in-memory ToolExecution to its finished state (no DB I/O).
 
@@ -1118,6 +1119,21 @@ class ProjectManager:
             pass
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
+        # Snapshot the observation NOW. It is shared by reference with
+        # ObservationContextBuilder, which compacts older entries in place as the
+        # run proceeds -- and the DB flush happens later, so serializing at flush
+        # time would persist an already-stripped value. The mapper-level
+        # before_write hook cannot do this: it only sees result_json, which holds
+        # the tool's output, not the observation.
+        try:
+            from app.ai.persisted_summary import build_tool_context_summary
+            summary_json = build_tool_context_summary(
+                tool_execution.tool_name, result_json, observation
+            )
+            if summary_json is not None:
+                tool_execution.context_summary_json = summary_json
+        except Exception:
+            logger.warning("tool context summary projection failed", exc_info=True)
         tool_execution.context_snapshot_id = context_snapshot_id
         tool_execution.sub_timings_json = sub_timings_json
         return tool_execution
@@ -1254,6 +1270,18 @@ class ProjectManager:
         tool_execution.token_usage_json = token_usage_json
         tool_execution.context_snapshot_id = context_snapshot_id
         tool_execution.sub_timings_json = sub_timings_json
+        # Same projection as the main loop: this path (knowledge harness and the
+        # legacy fallback) must not be the one place a tool's observation is
+        # dropped, or those tools alone lose their cross-turn memory.
+        try:
+            from app.ai.persisted_summary import build_tool_context_summary
+            summary_json = build_tool_context_summary(
+                tool_execution.tool_name, result_json, observation
+            )
+            if summary_json is not None:
+                tool_execution.context_summary_json = summary_json
+        except Exception:
+            logger.warning("tool context summary projection failed", exc_info=True)
         db.add(tool_execution)
         await self._commit_with_timeout(db, "finish_tool_execution")
         await self._refresh_with_timeout(db, tool_execution, "finish_tool_execution")
@@ -1333,7 +1361,8 @@ class ProjectManager:
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
                                                success: bool = True,
-                                               sub_timings_json: dict | None = None):
+                                               sub_timings_json: dict | None = None,
+                                               observation: dict | None = None):
         # Handle result_model appropriately
         if result_model and hasattr(result_model, 'model_dump'):
             # Pydantic model - convert to dict
