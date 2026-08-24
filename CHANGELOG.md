@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.547 (August 24, 2026)
+- Fixed agent follow-ups losing tool results across completions, compaction, and process interruptions (#1016)
+
 ## Version 0.0.546 (August 23, 2026)
 - Added HTML export to artifacts — download a dashboard as one standalone, fully offline HTML file (no login, no network)
 
