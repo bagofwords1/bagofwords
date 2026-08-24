@@ -4,8 +4,8 @@
 			<template #header>
 				<div class="flex items-start justify-between">
 					<div>
-						<h3 class="text-base font-semibold text-gray-900 dark:text-white">Webhooks</h3>
-						<p class="text-sm text-gray-400 mt-0.5">Send external events into this report.</p>
+						<h3 class="text-base font-semibold text-gray-900 dark:text-white">{{ $t('reportWebhooks.title') }}</h3>
+						<p class="text-sm text-gray-400 mt-0.5">{{ $t('reportWebhooks.subtitle') }}</p>
 					</div>
 					<UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="isOpen = false" />
 				</div>
@@ -13,7 +13,7 @@
 
 			<!-- Existing webhooks -->
 			<section v-if="webhooks.length" class="mb-6">
-				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">Active</h4>
+				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('reportWebhooks.active') }}</h4>
 				<div class="space-y-1.5">
 					<div
 						v-for="w in webhooks"
@@ -25,10 +25,10 @@
 							<div class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ w.name }}</div>
 							<div class="text-[11px] text-gray-400">{{ w.source }} · {{ authLabel(w.auth_mode) }}<span v-if="w.classify_enabled"> · AI</span></div>
 						</div>
-						<UTooltip text="Rotate signing key">
+						<UTooltip :text="$t('reportWebhooks.rotate')">
 							<button class="text-gray-300 dark:text-gray-600 hover:text-gray-600 p-1" @click="rotate(w)"><Icon name="heroicons-arrow-path" class="w-4 h-4" /></button>
 						</UTooltip>
-						<UTooltip text="Delete">
+						<UTooltip :text="$t('reportWebhooks.delete')">
 							<button class="text-gray-300 dark:text-gray-600 hover:text-red-500 p-1" @click="remove(w)"><Icon name="heroicons-trash" class="w-4 h-4" /></button>
 						</UTooltip>
 					</div>
@@ -37,7 +37,7 @@
 
 			<!-- Secret reveal (shown once after create / rotate) -->
 			<section v-if="reveal" class="mb-6">
-				<h4 class="text-xs font-medium text-green-600 uppercase tracking-wide mb-2">Copy now — shown only once</h4>
+				<h4 class="text-xs font-medium text-green-600 uppercase tracking-wide mb-2">{{ $t('reportWebhooks.copyOnce') }}</h4>
 				<div class="space-y-2">
 					<div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
 						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">URL</span>
@@ -45,7 +45,7 @@
 						<button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.delivery_url)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
 					</div>
 					<div class="flex items-center gap-2 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 px-3 py-2">
-						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">Key</span>
+						<span class="text-[10px] font-medium uppercase tracking-wide text-gray-400 w-10">{{ $t('reportWebhooks.secretKey') }}</span>
 						<code class="flex-1 text-xs text-gray-700 dark:text-gray-300 truncate">{{ reveal.secret }}</code>
 						<button class="text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="copy(reveal.secret)"><Icon name="heroicons-clipboard-document" class="w-4 h-4" /></button>
 					</div>
@@ -54,42 +54,42 @@
 
 			<!-- New webhook -->
 			<section>
-				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">New webhook</h4>
+				<h4 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-3">{{ $t('reportWebhooks.newWebhook') }}</h4>
 
 				<div class="space-y-4">
 					<div>
-						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Name</label>
-						<input v-model="form.name" type="text" placeholder="PR triage"
+						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('reportWebhooks.name') }}</label>
+						<input v-model="form.name" type="text" :placeholder="$t('reportWebhooks.namePlaceholder')"
 							class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300" />
 					</div>
 
 					<div class="grid grid-cols-2 gap-3">
 						<div>
-							<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Source</label>
+							<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('reportWebhooks.source') }}</label>
 							<select v-model="form.source"
 								class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
 								<option v-for="s in sources" :key="s.source" :value="s.source">{{ s.label }}</option>
 							</select>
 						</div>
 						<div>
-							<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Auth</label>
+							<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('reportWebhooks.auth') }}</label>
 							<select v-model="form.auth_mode"
 								class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 bg-white dark:bg-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300">
-								<option value="token">Token header</option>
-								<option value="hmac">HMAC (signed)</option>
-								<option value="url_token">URL token</option>
+								<option value="token">{{ $t('reportWebhooks.authToken') }}</option>
+								<option value="hmac">{{ $t('reportWebhooks.authHmac') }}</option>
+								<option value="url_token">{{ $t('reportWebhooks.authUrlToken') }}</option>
 							</select>
 						</div>
 					</div>
 
 					<label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300 cursor-pointer">
 						<input v-model="form.classify_enabled" type="checkbox" class="rounded border-gray-300 dark:border-gray-600 text-blue-600 focus:ring-blue-200" />
-						Let AI decide whether to respond
+						{{ $t('reportWebhooks.letAiDecide') }}
 					</label>
 
 					<div v-if="form.classify_enabled">
-						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">Guidance (optional)</label>
-						<textarea v-model="form.classifier_prompt" rows="2" placeholder="Only respond to PRs touching billing; ignore dependabot."
+						<label class="block text-xs text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('reportWebhooks.guidance') }}</label>
+						<textarea v-model="form.classifier_prompt" rows="2" :placeholder="$t('reportWebhooks.guidancePlaceholder')"
 							class="w-full rounded-lg border border-gray-200 dark:border-gray-700 px-3 py-2 text-sm text-gray-800 dark:text-gray-200 focus:outline-none focus:ring-2 focus:ring-blue-100 focus:border-blue-300"></textarea>
 					</div>
 
@@ -100,7 +100,7 @@
 							@click="create"
 						>
 							<Spinner v-if="creating" class="w-4 h-4" />
-							Create webhook
+							{{ $t('reportWebhooks.createButton') }}
 						</button>
 					</div>
 				</div>
@@ -112,6 +112,8 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+
+const { t } = useI18n()
 
 const props = defineProps<{ modelValue: boolean; reportId: string }>()
 const emit = defineEmits(['update:modelValue', 'changed'])
@@ -125,13 +127,13 @@ const webhooks = ref<any[]>([])
 const sources = ref<any[]>([
 	{ source: 'github', label: 'GitHub' },
 	{ source: 'jira', label: 'Jira' },
-	{ source: 'generic', label: 'Generic' },
+	{ source: 'generic', label: t('reportWebhooks.sourceGeneric') },
 ])
 const creating = ref(false)
 const reveal = ref<any>(null)
 
 // Token header is the default auth mode (simplest for most senders).
-const defaultForm = () => ({ name: 'Webhook', source: 'github', auth_mode: 'token', classify_enabled: true, classifier_prompt: '' })
+const defaultForm = () => ({ name: t('reportWebhooks.defaultName'), source: 'github', auth_mode: 'token', classify_enabled: true, classifier_prompt: '' })
 const form = ref(defaultForm())
 
 function sourceIcon(s: string): string {
@@ -142,7 +144,7 @@ function sourceIcon(s: string): string {
 	}
 }
 function authLabel(a: string): string {
-	return a === 'token' ? 'token' : a === 'url_token' ? 'url token' : 'hmac'
+	return a === 'token' ? t('reportWebhooks.authTokenShort') : a === 'url_token' ? t('reportWebhooks.authUrlTokenShort') : t('reportWebhooks.authHmacShort')
 }
 
 async function loadSources() {

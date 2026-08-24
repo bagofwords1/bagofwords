@@ -245,6 +245,14 @@ class TestSuiteService:
 
         Matches provider by name or provider_type, and model by model_id or
         name. Errors if the slug is set but unresolvable.
+
+        model_id wins over name, in two passes. Custom models carry an
+        admin-editable display name, so someone can rename model A to a string
+        that is model B's model_id; a single pass would then resolve the slug to
+        whichever row the query happened to return first. The provider's own id
+        for a model is the stable identifier, so it is always tried first.
+        _reverse_model_slug likewise exports model_id, never the display name,
+        so an exported suite keeps resolving after a rename.
         """
         if not model_slug:
             return None
@@ -259,10 +267,16 @@ class TestSuiteService:
             .join(LLMModel.provider)
             .where(LLMModel.organization_id == str(organization_id))
         )
-        for model, provider in res.all():
-            if provider_part not in (provider.name, provider.provider_type):
-                continue
-            if model_part in (model.model_id, model.name):
+        rows = [
+            (model, provider)
+            for model, provider in res.all()
+            if provider_part in (provider.name, provider.provider_type)
+        ]
+        for model, _provider in rows:
+            if model_part == model.model_id:
+                return model.model_id
+        for model, _provider in rows:
+            if model_part == model.name:
                 return model.model_id
         raise HTTPException(
             status_code=400,

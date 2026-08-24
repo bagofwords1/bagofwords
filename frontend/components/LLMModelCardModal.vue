@@ -23,6 +23,23 @@
             </div>
 
             <div class="mt-4 divide-y divide-gray-100 dark:divide-gray-800 border-y border-gray-100 dark:border-gray-800">
+                <!-- Display name. Custom models only — a preset's name is owned by
+                     the model catalog and is re-applied on every models-list load,
+                     so the backend rejects renaming one. Empty = fall back to the
+                     model_id (what custom models were always named before). -->
+                <div v-if="model.is_custom" class="flex items-center justify-between py-2.5 gap-4">
+                    <UTooltip :text="$t('settings.llms.displayNameTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.displayNameLabel') }}</span>
+                    </UTooltip>
+                    <input
+                        v-model="nameDraft"
+                        type="text"
+                        maxlength="120"
+                        :placeholder="model.model_id"
+                        data-testid="card-name-input"
+                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-48 text-sm text-end focus:outline-none focus:border-blue-500"
+                    />
+                </div>
                 <!-- Enabled -->
                 <div class="flex items-center justify-between py-2.5">
                     <span class="text-sm text-gray-700 dark:text-gray-300">{{ $t('settings.llms.enabledLabel') }}</span>
@@ -103,7 +120,7 @@
                             type="number" min="1" step="1000"
                             :placeholder="$t('settings.llms.contextPlaceholder')"
                             data-testid="card-context-input"
-                            class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-28 text-sm text-end focus:outline-none focus:border-blue-500"
+                            class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-36 text-sm text-end focus:outline-none focus:border-blue-500"
                         />
                     </div>
                 </div>
@@ -126,7 +143,7 @@
                             type="number" min="0" max="2" step="0.1"
                             :placeholder="$t('settings.llms.temperaturePlaceholder')"
                             data-testid="card-temperature-input"
-                            class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-28 text-sm text-end focus:outline-none focus:border-blue-500"
+                            class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-36 text-sm text-end focus:outline-none focus:border-blue-500"
                         />
                     </div>
                 </div>
@@ -207,6 +224,8 @@ const open = computed({
     set: (value: boolean) => emit('update:modelValue', value),
 });
 
+// Custom models only; blank means "use the model_id" (see effectiveName).
+const nameDraft = ref<string>('');
 const enabledDraft = ref(false);
 const visionDraft = ref(false);
 const imageGenDraft = ref(false);
@@ -222,7 +241,14 @@ const saving = ref(false);
 
 const deleteBlocked = computed(() => !!props.model && (props.model.is_default || props.model.is_small_default));
 
+// A blank input resolves to the model_id, so clearing the field is the "reset
+// to default" gesture and never produces a phantom dirty state.
+const effectiveName = computed(() =>
+    nameDraft.value.trim() || props.model?.model_id || ''
+);
+
 const syncDrafts = () => {
+    nameDraft.value = props.model?.name ?? '';
     enabledDraft.value = !!props.model?.is_enabled;
     visionDraft.value = !!props.model?.supports_vision;
     imageGenDraft.value = !!props.model?.supports_image_generation;
@@ -242,7 +268,8 @@ watch(() => [props.modelValue, props.model?.id], () => {
 const isDirty = computed(() => {
     if (!props.model) return false;
     const norm = (v: any) => (v == null || v === '' ? null : Number(v));
-    return enabledDraft.value !== !!props.model.is_enabled
+    return (props.model.is_custom && effectiveName.value !== props.model.name)
+        || enabledDraft.value !== !!props.model.is_enabled
         || visionDraft.value !== !!props.model.supports_vision
         || imageGenDraft.value !== !!props.model.supports_image_generation
         || norm(contextDraft.value) !== norm(props.model.context_window_tokens)
@@ -314,8 +341,16 @@ const save = async () => {
         return;
     }
 
+    const nameChanged = !!model.is_custom && effectiveName.value !== model.name;
+
     saving.value = true;
     try {
+        if (nameChanged) {
+            const response = await useMyFetch(`/llm/models/${model.id}`, {
+                method: 'PATCH', body: { name: effectiveName.value },
+            });
+            if (response.status.value !== 'success') { fail(t('settings.llms.displayNameError')); return; }
+        }
         if (enabledDraft.value !== !!model.is_enabled) {
             const response = await useMyFetch(`/llm/models/${model.id}/toggle`, { method: 'POST', query: { enabled: enabledDraft.value } });
             if (response.status.value !== 'success') { fail('Could not update model status'); return; }

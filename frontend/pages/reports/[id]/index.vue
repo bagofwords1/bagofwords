@@ -71,6 +71,7 @@
 						:report="report"
 						:artifacts="reportArtifacts"
 						:latest-artifact="latestArtifact"
+						:requested-artifact-id="requestedArtifactId"
 						@close="mobileView = 'chat'"
 						class="h-full"
 					/>
@@ -988,6 +989,7 @@
 				:report="report"
 				:artifacts="reportArtifacts"
 				:latest-artifact="latestArtifact"
+				:requested-artifact-id="requestedArtifactId"
 				@close="toggleSplitScreen"
 				class="h-full"
 			/>
@@ -1551,6 +1553,13 @@ provide('artifactVizIds', activeArtifactVizIds)
 // ArtifactFrame as a mount-time seed so it does not refetch the artifact it
 // is about to select. Version switches keep their own fetch path.
 const latestArtifact = ref<any | null>(null)
+// The artifact the user last asked to open. ArtifactFrame reads it as a
+// mount-time seed: the pane shares a v-if chain with ChatSummary, so a click in
+// the summary unmounts the summary and mounts a FRESH frame, and the
+// `artifact:select` window event fires before that frame can subscribe. Holding
+// the request in page state instead of a transient event makes it survive the
+// remount, so the pane opens what was clicked rather than the newest artifact.
+const requestedArtifactId = ref<string | null>(null)
 // Keep the shared ids in sync when ArtifactFrame changes selection.
 function handleArtifactVizIdsBroadcast(ev: Event) {
 	const ids = (ev as CustomEvent).detail?.visualization_ids
@@ -4399,7 +4408,10 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
 }
 
 // Handle opening an artifact from CreateArtifactTool
-function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
+async function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean }) {
+	// Record BEFORE flipping the view: switching panes may remount ArtifactFrame,
+	// and the seed has to be readable by the time its onMounted runs.
+	if (payload.artifactId) requestedArtifactId.value = payload.artifactId
 	if (isMobile.value) {
 		// On mobile there is no split layout — surface the dashboard as a
 		// full-screen tab. Set the view directly (not via toggleSplitScreen,
@@ -4416,7 +4428,17 @@ function handleOpenArtifact(payload: { artifactId?: string; loading?: boolean })
 	// If artifactId provided, dispatch event to ArtifactFrame to select this artifact
 	// If loading is true, just open the pane - ArtifactFrame will show loading state
 	// and artifact:created event will trigger selection when ready
+	//
+	// Wait for the pane to actually render first. ArtifactFrame and ChatSummary
+	// sit in the SAME v-if chain on the right panel, so opening the summary
+	// unmounts the frame — and every click from the summary therefore lands
+	// while no `artifact:select` listener exists. Dispatching synchronously here
+	// dropped the event, the frame then mounted with no selection and fell back
+	// to artifactsList[0] (the newest artifact), so picking any row always
+	// opened whichever artifact was regenerated last. nextTick resolves after
+	// the mount flush, by which point onMounted has registered the listener.
 	if (payload.artifactId) {
+		await nextTick()
 		try {
 			window.dispatchEvent(new CustomEvent('artifact:select', {
 				detail: { artifact_id: payload.artifactId }

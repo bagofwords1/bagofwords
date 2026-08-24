@@ -31,31 +31,46 @@
         <h3 class="text-xs font-medium text-gray-400 uppercase tracking-wide mb-2">{{ $t('chatSummary.artifacts') }}</h3>
         <ul class="space-y-1.5">
           <li
-            v-for="art in visibleArtifacts"
-            :key="art.id"
-            class="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow cursor-pointer transition-all"
-            @click="emit('openArtifact', { artifactId: art.id })"
+            v-for="group in visibleArtifactGroups"
+            :key="group.latest.id"
+            class="px-3 py-2.5 rounded-lg bg-white dark:bg-gray-900 border border-gray-100 dark:border-gray-800 shadow-sm hover:shadow transition-all"
           >
-            <Icon
-              :name="art.mode === 'doc' ? 'heroicons:document-text' : 'heroicons:squares-plus'"
-              class="w-4 h-4 flex-shrink-0"
-              :class="art.mode === 'doc' ? 'text-emerald-500' : 'text-blue-500'"
-            />
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ art.title || $t('prompt.untitled') }}</span>
-                <span v-if="art.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded">{{ $t('chatSummary.default') }}</span>
+            <div class="flex items-center gap-2.5 cursor-pointer" @click="emit('openArtifact', { artifactId: group.latest.id })">
+              <Icon
+                :name="artifactIcon(group.latest.mode)"
+                class="w-4 h-4 flex-shrink-0"
+                :class="artifactIconClass(group.latest.mode)"
+              />
+              <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
+                  <span v-if="group.latest.version" class="text-[10px] font-medium text-gray-400 flex-shrink-0">v{{ group.latest.version }}</span>
+                  <span v-if="group.latest.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
+                </div>
+                <div v-if="group.latest.mode" class="text-[11px] text-gray-400 mt-0.5">{{ group.latest.mode === 'doc' ? $t('chatSummary.document') : group.latest.mode }}</div>
               </div>
-              <div v-if="art.mode" class="text-[11px] text-gray-400 mt-0.5">{{ art.mode === 'doc' ? $t('chatSummary.document') : art.mode }}</div>
+            </div>
+            <!-- Older versions of this same artifact, as number-only chips: the
+                 kind keeps one row, but no version becomes unreachable. Digits
+                 need no translation, so this adds no untranslated UI text. -->
+            <div v-if="group.older.length" class="flex flex-wrap items-center gap-1 mt-1.5 ps-6">
+              <button
+                v-for="old in group.older"
+                :key="old.id"
+                class="text-[10px] font-medium text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 bg-gray-50 dark:bg-gray-800 hover:bg-gray-100 dark:hover:bg-gray-700 px-1.5 py-0.5 rounded transition-colors"
+                @click.stop="emit('openArtifact', { artifactId: old.id })"
+              >
+                v{{ old.version }}
+              </button>
             </div>
           </li>
         </ul>
         <button
-          v-if="artifactList.length > 3 && !showAllArtifacts"
+          v-if="artifactGroups.length > 3 && !showAllArtifacts"
           class="mt-2 text-xs text-gray-400 hover:text-gray-600 transition-colors"
           @click="showAllArtifacts = true"
         >
-          {{ $t('chatSummary.showMore', { count: artifactList.length - 3 }) }}
+          {{ $t('chatSummary.showMore', { count: artifactGroups.length - 3 }) }}
         </button>
       </section>
 
@@ -254,9 +269,45 @@ watch(() => [props.queryExecutions.length, props.artifactList.length], loadNotes
 defineExpose({ reloadNotes: loadNotes })
 
 const showAllArtifacts = ref(false)
-const visibleArtifacts = computed(() =>
-  showAllArtifacts.value ? props.artifactList : props.artifactList.slice(0, 3)
+
+// One row per artifact KIND, not per version. The list arrives newest-first and
+// every regeneration adds its own row, so a repeatedly-rebuilt slide deck used
+// to push the other artifacts past the 3-row cut-off: a report with slides v1-v3
+// plus a doc buried its `page` dashboard at position 5, invisible until the user
+// expanded — and even then indistinguishable, since it shared the deck's title.
+// Grouping by mode keeps every kind on screen no matter how often one is rebuilt.
+const artifactGroups = computed(() => {
+  const byMode = new Map<string, any[]>()
+  for (const art of props.artifactList || []) {
+    const mode = String(art?.mode || 'unknown')
+    if (!byMode.has(mode)) byMode.set(mode, [])
+    byMode.get(mode)!.push(art)
+  }
+  // props.artifactList is already created_at DESC, so each bucket's first entry
+  // is that kind's newest version, and Map insertion order leaves the
+  // most-recently-touched kind first.
+  return Array.from(byMode.values()).map((versions) => ({
+    latest: versions[0],
+    older: versions.slice(1),
+  }))
+})
+
+const visibleArtifactGroups = computed(() =>
+  showAllArtifacts.value ? artifactGroups.value : artifactGroups.value.slice(0, 3)
 )
+
+// A distinct glyph and colour per kind. Only `doc` used to get its own icon, so
+// a dashboard and a slide deck rendered identically — same glyph, same colour,
+// and (the agent tends to name them alike) the same title. Mirrors the mapping
+// ArtifactFrame already uses in its artifact picker.
+const artifactIcon = (mode: string): string =>
+  mode === 'doc' ? 'heroicons:document-text'
+    : mode === 'slides' ? 'heroicons:presentation-chart-bar'
+      : 'heroicons:squares-2x2'
+const artifactIconClass = (mode: string): string =>
+  mode === 'doc' ? 'text-emerald-500'
+    : mode === 'slides' ? 'text-amber-500'
+      : 'text-blue-500'
 
 const emit = defineEmits([
   'editScheduledPrompt',

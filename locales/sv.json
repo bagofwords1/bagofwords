@@ -2298,7 +2298,157 @@
       "toastConfirmRequiredTitle": "Bekräftelse krävs",
       "toastConfirmRequiredBody": "Skriv ”JAG ÄR SÄKER” för att bekräfta den här ändringen.",
       "fetchErrorGeneric": "Ett fel uppstod när inställningarna hämtades",
-      "updateErrorGeneric": "Ett fel uppstod när inställningarna uppdaterades"
+      "updateErrorGeneric": "Ett fel uppstod när inställningarna uppdaterades",
+      "features": {
+        "allow_llm_see_data": {
+          "name": "Låt LLM:en se data",
+          "description": "Låter LLM:en se data som en del av analysen och användarnas frågor"
+        },
+        "enable_training_mode": {
+          "name": "Träningsläge",
+          "description": "Aktiverar träningsläget där administratörer arbetar med agenten för att bygga dokumentation, instruktioner, semantik och riktlinjer"
+        },
+        "enable_file_upload": {
+          "name": "Tillåt filuppladdning",
+          "description": "Låter användare ladda upp kalkylblad och dokument (xls/pdf) och skicka innehållet vidare till LLM:en"
+        },
+        "enable_code_editing": {
+          "name": "Låt användare redigera och köra koden som LLM:en genererar",
+          "description": "Låter användare redigera och köra den kod som LLM:en genererar"
+        },
+        "enable_llm_judgement": {
+          "name": "Aktivera LLM-bedömning",
+          "description": "Låter LLM:en bedöma kvaliteten på analysen och användarnas frågor"
+        },
+        "suggest_instructions": {
+          "name": "Generera instruktioner automatiskt",
+          "description": "Genererar automatiskt instruktioner utifrån de förtydliganden användaren har gett"
+        },
+        "enable_follow_ups": {
+          "name": "Följdförslag",
+          "description": "Föreslår efter varje svar i webbappen några följdfrågor som användaren kan ställa härnäst. Genereras på den lilla modellen eller standardmodellen."
+        },
+        "auto_suggest_evals": {
+          "name": "Föreslå utvärderingar automatiskt",
+          "description": "När en användare med behörighet att hantera utvärderingar gillar ett svar som producerade data, skriver kunskapssystemet ett utkast till utvärderingsfall (bedömare + verktygsanrop) i organisationens utkastsamling för granskning."
+        },
+        "limit_row_count": {
+          "name": "Begränsa antalet rader",
+          "description": "Begränsar hur många rader som kan visas i tabeller och förhandsgranskningar av data. Ange 0 för ingen gräns."
+        },
+        "ai_tool_concurrency": {
+          "name": "Parallella verktygsanrop",
+          "description": "Hur många verktygsanrop från ett och samma planeringssteg som får köras samtidigt (till exempel create_data / inspect_data över olika agenter). Ange 1 för att köra dem efter varandra; upp till 8. Anrop mot samma agent körs alltid ett i taget."
+        },
+        "agent_max_steps": {
+          "name": "Maximalt antal agentsteg",
+          "description": "Största antal planeringssteg (beslut eller verktygsanrop) som agenten får ta i en enskild förfrågan innan den stannar. Gäller både normalläge och träningsläge. Begränsat till 1-500."
+        },
+        "agent_loop_retries": {
+          "name": "Omförsök i agentens loop",
+          "description": "Hur många gånger agenten får återhämta sig från ett oväntat fel under en körning och försöka igen från sin senaste kontext, i stället för att låta hela körningen misslyckas. När försöken är slut och LLM-reserven är aktiv växlar körningen till nästa modell i reservordningen innan den ger upp. Begränsat till 0-10."
+        },
+        "limit_code_retries": {
+          "name": "Begränsa omförsök för kod",
+          "description": "Hur många försök LLM:en får på sig att generera fungerande kod för en dataförfrågan (första försöket plus omförsök vid fel). Begränsat till 1-10."
+        },
+        "query_timeout_seconds": {
+          "name": "Tidsgräns för fråga (sekunder)",
+          "description": "Standardtidsgräns per fråga när agenten kör SQL via create_data / inspect_data. En anslutnings konfiguration kan åsidosätta detta med ett eget värde för 'query_timeout_seconds'."
+        },
+        "max_concurrent_queries_per_connection": {
+          "name": "Samtidiga frågor per anslutning",
+          "description": "Hur många av agentens frågor som får köras mot en och samma anslutning samtidigt, per replik. Det som överstiger gränsen väntar på en plats i stället för att misslyckas. Sänk värdet för känsliga lokala källor (Oracle, SQL Server) som inte klarar parallella genomsökningar. En anslutnings konfiguration kan åsidosätta detta med ett eget värde för 'max_concurrent_queries'."
+        },
+        "top_k_schema": {
+          "name": "Topp K scheman",
+          "description": "Antalet scheman som agenten tar som stickprov från datakällan"
+        },
+        "top_k_metadata_resources": {
+          "name": "Topp K metadataresurser",
+          "description": "Antalet metadataresurser som agenten tar som stickprov från datakällan"
+        },
+        "agent_roster_top_k": {
+          "name": "Topp K i agentlistan",
+          "description": "När en rapport har många agenter: hur många som visas som fullständiga rader i AI-kontexten (rangordnade efter frågeställarens senaste användning; övriga listas endast med namn i en more_agents-svans). Begränsat till 1-100."
+        },
+        "allow_forks": {
+          "name": "Tillåt forkar",
+          "description": "Låter användare forka publicerade rapporter till sin egen arbetsyta"
+        },
+        "mcp_enabled": {
+          "name": "MCP",
+          "description": "Aktiverar slutpunkten för Model Context Protocol (MCP) för integration med AI-assistenter som Cursor, Claude och andra"
+        },
+        "enable_mcp_tools": {
+          "name": "MCP- och egna API-verktyg",
+          "description": "Gör det möjligt att koppla externa MCP-servrar och egna API-slutpunkter till datakällor som verktygsleverantörer"
+        },
+        "enable_mcp_native_tools": {
+          "name": "Inbyggd registrering av MCP-verktyg",
+          "description": "Registrerar varje externt MCP- eller eget API-verktyg som ett eget, direkt anropbart agentverktyg i stället för att dirigera varje anrop genom det generiska verktyget execute_mcp. Träder i kraft först när en rapports verktygskatalog når tröskelvärdet nedan."
+        },
+        "mcp_native_tools_threshold": {
+          "name": "Tröskel för inbyggda MCP-verktyg",
+          "description": "Hur många aktiverade MCP- eller egna API-verktyg en rapport behöver innan inbyggd registrering används. Under den gränsen mäter inbyggd registrering likvärdigt med den generiska vägen, så den generiska vägen behålls. Ange 0 för att alltid registrera inbyggt."
+        },
+        "mcp_native_tools_max": {
+          "name": "Maximalt antal inbyggda MCP-verktyg",
+          "description": "Övre gräns för hur många verktyg som registreras inbyggt för en rapport. Verktyg utöver taket ligger kvar på den generiska execute_mcp-vägen, så att en mycket stor katalog inte fyller varje förfrågan med permanenta verktygsdefinitioner."
+        },
+        "mcp_result_inline_chars": {
+          "name": "Inbäddad storlek på MCP-resultat",
+          "description": "Hur mycket av ett resultat från ett MCP- eller eget API-verktyg som agenten ser direkt i sin kontext, i tecken. Hela svaret sparas alltid till en fil oavsett detta värde; inställningen avgör bara hur mycket modellen kan läsa utan att öppna den filen. Höj värdet så att agenten kan svara utifrån en hel resultatmängd i stället för ett stickprov; sänk det för att förbruka färre tokens per anrop. Ange 0 för ett stickprov på 3 poster. Begränsat till 0-500000."
+        },
+        "enable_web_fetch": {
+          "name": "Webbhämtning",
+          "description": "Låter agenten hämta innehållet på publika HTTP- och HTTPS-adresser. Endast textliknande svar returneras och stora innehåll trunkeras."
+        },
+        "enable_load_step": {
+          "name": "Återanvänd tidigare steg (load_step)",
+          "description": "Låter genererad kod återanvända resultatet från ett tidigare steg i den här rapporten via load_step i stället för att fråga på nytt. När det är avstängt erbjuds load_step varken till agenten eller är tillgängligt vid körning."
+        },
+        "enable_custom_queries": {
+          "name": "Egna frågor (beta)",
+          "description": "Låter anslutningsadministratörer definiera SQL som BOW materialiserar till en krypterad lokal kopia enligt ett schema, så att agenter svarar utifrån det cachade resultatet i stället för att fråga källan vid varje tur. Beta: avstängt som standard."
+        },
+        "enable_agent_notes": {
+          "name": "Agentanteckningar",
+          "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."
+        },
+        "max_instructions_in_context": {
+          "name": "Maximalt antal instruktioner i kontexten",
+          "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”intelligenta” instruktioner de återstående platserna."
+        },
+        "allow_report_webhooks": {
+          "name": "Rapport-webhooks",
+          "description": "Låter externa system (GitHub, Jira, generiska tjänster) skicka händelser till rapporter via inkommande webhooks. Huvudströmbrytare för hela funktionen."
+        },
+        "max_webhooks": {
+          "name": "Maximalt antal webhooks",
+          "description": "Största antal aktiva inkommande webhooks per organisation."
+        },
+        "webhook_rate_limit_per_min": {
+          "name": "Hastighetsgräns för webhooks (per minut)",
+          "description": "Största antal inkommande webhook-leveranser som accepteras per minut och organisation. Överskjutande leveranser avvisas med 429."
+        },
+        "step_retention_days": {
+          "name": "Antal dagar som widgetdata sparas",
+          "description": "Antal dagar som widgetarnas data behålls innan de rensas."
+        },
+        "enable_excel_addin": {
+          "name": "Excel-tillägg",
+          "description": "Aktiverar det inbyggda Excel-tillägget så att användare kan läsa in manifestet direkt från den här instansen"
+        },
+        "model_routing": {
+          "name": "Automatisk modellväljare",
+          "description": "Enterprise. När användaren inte väljer en särskild modell startar varje förfrågan på den lilla modellen, och agenten går upp till en starkare modell endast när uppgiften kräver det. Du kan lägga till routningsvägledning per modell på LLM-sidan för att styra valet. Avstängt som standard; aktivering kräver en enterprise-licens."
+        },
+        "llm_fallback": {
+          "name": "LLM-reserv",
+          "description": "Enterprise. När den aktiva modellen misslyckas på grund av en hastighetsgräns, överbelastning hos leverantören eller ett nätverksfel görs förfrågan automatiskt om på nästa modell i reservordningen (konfigurerad på LLM-sidan) under resten av körningen. Bytet redovisas alltid i chatten. Avstängt som standard; aktivering kräver en enterprise-licens."
+        }
+      }
     },
     "llms": {
       "searchPlaceholder": "Sök LLM:er...",
@@ -2324,9 +2474,15 @@
       "contextResetTooltip": "Återställ till katalogens standardvärde",
       "colTemperature": "Temperatur",
       "temperatureTooltip": "Explicit samplingstemperatur (0–2) som skickas med varje begäran till denna modell. Lämna tomt för att använda leverantörens standard — rekommenderas, eftersom vissa modeller avvisar alla temperaturer utom standardvärdet.",
-      "temperaturePlaceholder": "Leverantörens standard",
+      "temperaturePlaceholder": "Standard",
       "temperatureResetTooltip": "Återställ till leverantörens standard (ingen temperatur skickas)",
       "modelIdLabel": "Modell-ID",
+      "displayNameLabel": "Visningsnamn",
+      "displayNamePlaceholder": "Samma som modell-ID",
+      "displayNameShort": "Namn",
+      "displayNameTooltip": "Etiketten som visas i modellväljaren. Endast anpassade modeller — namn på förinställda modeller kommer från modellkatalogen. Lämna tomt för att använda modell-ID:t.",
+      "displayNameHint": "Valfri etikett som visas i modellväljaren. Lämna tomt för att använda modell-ID:t.",
+      "displayNameError": "Det gick inte att uppdatera visningsnamnet",
       "colCost": "Kostnad ($/M)",
       "colRouting": "Routning",
       "autoRouter": "Automatisk routning",
@@ -3110,7 +3266,27 @@
     "exportComplete": "Exporten är klar",
     "exportHtmlDone": "Fristående HTML-fil nedladdad – den fungerar offline.",
     "exportFailed": "Exporten misslyckades",
-    "exportHtmlFailed": "Det gick inte att exportera den här instrumentpanelen som HTML."
+    "exportHtmlFailed": "Det gick inte att exportera den här instrumentpanelen som HTML.",
+    "backToChat": "Tillbaka till chatten",
+    "selectArtifact": "Välj artefakt...",
+    "useThisVersion": "Använd den här versionen",
+    "refreshData": "Uppdatera data",
+    "fullScreen": "Helskärm",
+    "openInNewTab": "Öppna i ny flik",
+    "searchMembers": "Sök medlemmar på namn eller e-post...",
+    "viewAsTooltip": "”Visa som” förhandsgranskar endast identitetsparametrar. Källor som autentiserar per användare (till exempel Power BI) körs fortfarande med dina inloggningsuppgifter.",
+    "apply": "Tillämpa",
+    "copied": "Kopierat",
+    "artifactIdCopied": "Artefakt-ID kopierat till urklipp",
+    "copyFailed": "Kopieringen misslyckades",
+    "error": "Fel",
+    "refreshDashboardFailed": "Det gick inte att uppdatera instrumentpanelen. {error}",
+    "exportPptxDone": "PowerPoint-filen har laddats ner.",
+    "exportPptxFailed": "Det gick inte att exportera PowerPoint-filen.",
+    "viewAs": "Visa som",
+    "anonymousUser": "Anonym användare",
+    "versionSetDefault": "Versionen angavs som standard",
+    "versionSetDefaultFailed": "Det gick inte att ange versionen som standard."
   },
   "filter": {
     "addFilters": "Lägg till filter",
@@ -4534,5 +4710,31 @@
     "scope_changed": "Agentens omfattning ändrades — lade till {added}; tog bort {removed}",
     "scope_generic": "Agentens omfattning ändrades",
     "scope_removed": "Agentens omfattning ändrades — tog bort {removed}"
+  },
+  "reportWebhooks": {
+    "title": "Webhooks",
+    "subtitle": "Skicka externa händelser till den här rapporten.",
+    "active": "Aktiva",
+    "rotate": "Rotera signeringsnyckeln",
+    "delete": "Ta bort",
+    "copyOnce": "Kopiera nu — visas bara en gång",
+    "secretKey": "Nyckel",
+    "newWebhook": "Ny webhook",
+    "name": "Namn",
+    "namePlaceholder": "PR-triage",
+    "source": "Källa",
+    "auth": "Autentisering",
+    "authToken": "Token-header",
+    "authHmac": "HMAC (signerad)",
+    "authUrlToken": "URL-token",
+    "authTokenShort": "token",
+    "authHmacShort": "hmac",
+    "authUrlTokenShort": "url token",
+    "letAiDecide": "Låt AI:n avgöra om den ska svara",
+    "guidance": "Vägledning (valfritt)",
+    "guidancePlaceholder": "Svara bara på PR:er som rör fakturering; ignorera dependabot.",
+    "createButton": "Skapa webhook",
+    "defaultName": "Webhook",
+    "sourceGeneric": "Allmän"
   }
 }

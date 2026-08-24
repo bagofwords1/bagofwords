@@ -2298,7 +2298,157 @@
       "toastConfirmRequiredTitle": "Confirmação necessária",
       "toastConfirmRequiredBody": "Digite \"TENHO CERTEZA\" para confirmar esta alteração.",
       "fetchErrorGeneric": "Ocorreu um erro ao carregar as configurações",
-      "updateErrorGeneric": "Ocorreu um erro ao atualizar as configurações"
+      "updateErrorGeneric": "Ocorreu um erro ao atualizar as configurações",
+      "features": {
+        "allow_llm_see_data": {
+          "name": "Permitir que o LLM veja os dados",
+          "description": "Permite que o LLM veja os dados como parte da análise e das consultas dos usuários"
+        },
+        "enable_training_mode": {
+          "name": "Modo de treinamento",
+          "description": "Ativa o modo de treinamento para que os administradores trabalhem com o agente na construção de documentação, instruções, semântica e diretrizes"
+        },
+        "enable_file_upload": {
+          "name": "Permitir envio de arquivos",
+          "description": "Permite que os usuários enviem planilhas e documentos (xls/pdf) e encaminhem o conteúdo para o LLM"
+        },
+        "enable_code_editing": {
+          "name": "Permitir que os usuários editem e executem o código gerado pelo LLM",
+          "description": "Permite que os usuários editem e executem o código gerado pelo LLM"
+        },
+        "enable_llm_judgement": {
+          "name": "Ativar o juiz LLM",
+          "description": "Permite que o LLM avalie a qualidade da análise e das consultas dos usuários"
+        },
+        "suggest_instructions": {
+          "name": "Gerar instruções automaticamente",
+          "description": "Gera instruções automaticamente a partir dos esclarecimentos fornecidos pelo usuário"
+        },
+        "enable_follow_ups": {
+          "name": "Sugestões de acompanhamento",
+          "description": "Após cada resposta no aplicativo web, sugere algumas perguntas de acompanhamento que o usuário pode fazer em seguida. Geradas no modelo pequeno ou padrão."
+        },
+        "auto_suggest_evals": {
+          "name": "Sugerir avaliações automaticamente",
+          "description": "Quando um usuário com permissão para gerenciar avaliações aprova uma resposta que produziu dados, o sistema de conhecimento redige um caso de teste de avaliação (juiz + chamadas de ferramentas) no conjunto de rascunhos da organização, para revisão."
+        },
+        "limit_row_count": {
+          "name": "Limitar o número de linhas",
+          "description": "Limita quantas linhas podem ser exibidas em tabelas e pré-visualizações de dados. Defina 0 para não aplicar limite."
+        },
+        "ai_tool_concurrency": {
+          "name": "Chamadas de ferramentas em paralelo",
+          "description": "Quantas chamadas de ferramentas de uma mesma etapa de planejamento podem ser executadas ao mesmo tempo (por exemplo, create_data / inspect_data em agentes diferentes). Defina 1 para executá-las uma após a outra; até 8. Chamadas contra o mesmo agente sempre são executadas uma de cada vez."
+        },
+        "agent_max_steps": {
+          "name": "Máximo de etapas do agente",
+          "description": "Número máximo de etapas de planejamento (decisões ou chamadas de ferramentas) que o agente pode executar em uma única solicitação antes de parar. Vale tanto para o modo normal quanto para o de treinamento. Limitado a 1-500."
+        },
+        "agent_loop_retries": {
+          "name": "Novas tentativas do laço do agente",
+          "description": "Quantas vezes o agente pode se recuperar de um erro inesperado durante uma execução e tentar novamente a partir do seu contexto mais recente, em vez de falhar a execução inteira. Esgotadas as tentativas e com o fallback de LLM ativo, a execução passa para o próximo modelo na ordem de fallback antes de desistir. Limitado a 0-10."
+        },
+        "limit_code_retries": {
+          "name": "Limitar as tentativas de código",
+          "description": "Quantas tentativas o LLM tem para gerar código funcional para uma solicitação de dados (tentativa inicial mais as repetições em caso de falha). Limitado a 1-10."
+        },
+        "query_timeout_seconds": {
+          "name": "Tempo limite da consulta (segundos)",
+          "description": "Tempo limite padrão por consulta quando o agente executa SQL via create_data / inspect_data. A configuração de uma conexão pode substituí-lo com seu próprio valor de 'query_timeout_seconds'."
+        },
+        "max_concurrent_queries_per_connection": {
+          "name": "Consultas simultâneas por conexão",
+          "description": "Quantas consultas do agente podem ser executadas ao mesmo tempo contra uma mesma conexão, por réplica. O que exceder aguarda uma vaga em vez de falhar. Reduza para fontes on-premise sensíveis (Oracle, SQL Server) que não suportam varreduras paralelas. A configuração de uma conexão pode substituí-lo com seu próprio valor de 'max_concurrent_queries'."
+        },
+        "top_k_schema": {
+          "name": "Top K de esquemas",
+          "description": "Número de esquemas que o agente amostra da fonte de dados"
+        },
+        "top_k_metadata_resources": {
+          "name": "Top K de recursos de metadados",
+          "description": "Número de recursos de metadados que o agente amostra da fonte de dados"
+        },
+        "agent_roster_top_k": {
+          "name": "Top K da lista de agentes",
+          "description": "Quando um relatório tem muitos agentes, quantos aparecem como linhas completas no contexto da IA (ordenados pelo uso recente de quem pergunta; os demais são listados apenas pelo nome em uma cauda more_agents). Limitado a 1-100."
+        },
+        "allow_forks": {
+          "name": "Permitir bifurcações",
+          "description": "Permite que os usuários bifurquem relatórios publicados para o próprio espaço de trabalho"
+        },
+        "mcp_enabled": {
+          "name": "MCP",
+          "description": "Ativa o endpoint do Model Context Protocol (MCP) para integração com assistentes de IA como Cursor, Claude e outros"
+        },
+        "enable_mcp_tools": {
+          "name": "Ferramentas MCP e de API personalizada",
+          "description": "Permite conectar servidores MCP externos e endpoints de API personalizados às fontes de dados como provedores de ferramentas"
+        },
+        "enable_mcp_native_tools": {
+          "name": "Registro nativo de ferramentas MCP",
+          "description": "Registra cada ferramenta MCP ou de API personalizada como uma ferramenta de agente própria, chamável diretamente, em vez de encaminhar cada chamada pela ferramenta genérica execute_mcp. Só entra em vigor quando o catálogo de ferramentas de um relatório atinge o limiar abaixo."
+        },
+        "mcp_native_tools_threshold": {
+          "name": "Limiar de ferramentas MCP nativas",
+          "description": "Quantas ferramentas MCP ou de API personalizada ativas um relatório precisa ter antes de usar o registro nativo. Abaixo disso, o registro nativo se equivale ao caminho genérico na medição, então o caminho genérico é mantido. Defina 0 para sempre registrar nativamente."
+        },
+        "mcp_native_tools_max": {
+          "name": "Máximo de ferramentas MCP nativas",
+          "description": "Limite superior de quantas ferramentas são registradas nativamente para um relatório. As ferramentas acima do teto permanecem no caminho genérico execute_mcp, para que um catálogo muito grande não preencha cada solicitação com definições de ferramentas permanentes."
+        },
+        "mcp_result_inline_chars": {
+          "name": "Tamanho embutido do resultado MCP",
+          "description": "Quanto do resultado de uma ferramenta MCP ou de API personalizada o agente vê diretamente em seu contexto, em caracteres. A resposta completa é sempre salva em um arquivo, qualquer que seja este valor; esta configuração decide apenas quanto o modelo pode ler sem abrir esse arquivo. Aumente para que o agente responda a partir de um conjunto de resultados inteiro em vez de uma amostra; diminua para gastar menos tokens por chamada. Defina 0 para uma amostra de 3 registros. Limitado a 0-500000."
+        },
+        "enable_web_fetch": {
+          "name": "Busca na web",
+          "description": "Permite que o agente busque o conteúdo de URLs públicas HTTP e HTTPS. Somente respostas de texto são retornadas e conteúdos grandes são truncados."
+        },
+        "enable_load_step": {
+          "name": "Reutilizar etapas anteriores (load_step)",
+          "description": "Permite que o código gerado reutilize os resultados de uma etapa anterior deste relatório via load_step em vez de consultar novamente. Quando desativado, load_step não é oferecido ao agente nem fica disponível em tempo de execução."
+        },
+        "enable_custom_queries": {
+          "name": "Consultas personalizadas (beta)",
+          "description": "Permite que administradores de conexão definam SQL que o BOW materializa em uma cópia local criptografada conforme uma programação, de modo que os agentes respondam a partir do resultado armazenado em vez de consultar a fonte a cada turno. Beta: desativado por padrão."
+        },
+        "enable_agent_notes": {
+          "name": "Notas do agente",
+          "description": "Permite que o agente mantenha notas de trabalho por relatório (um rascunho) que ele escreve e lê enquanto responde: planos, achados e tarefas. As notas aparecem no relatório, mas não são conhecimento compartilhado. Quando desativado, as ferramentas de notas ficam ocultas e as notas não são inseridas no contexto."
+        },
+        "max_instructions_in_context": {
+          "name": "Máximo de instruções no contexto",
+          "description": "Número máximo de instruções a incluir no contexto da IA. As instruções do tipo 'sempre' são carregadas primeiro e depois as 'inteligentes' preenchem as vagas restantes."
+        },
+        "allow_report_webhooks": {
+          "name": "Webhooks de relatório",
+          "description": "Permite que sistemas externos (GitHub, Jira, serviços genéricos) enviem eventos para relatórios por meio de webhooks de entrada. Chave mestra de todo o recurso."
+        },
+        "max_webhooks": {
+          "name": "Máximo de webhooks",
+          "description": "Número máximo de webhooks de entrada ativos por organização."
+        },
+        "webhook_rate_limit_per_min": {
+          "name": "Limite de taxa de webhooks (por minuto)",
+          "description": "Número máximo de entregas de webhook de entrada aceitas por minuto por organização. As entregas excedentes são rejeitadas com 429."
+        },
+        "step_retention_days": {
+          "name": "Dias de retenção dos dados de widgets",
+          "description": "Número de dias durante os quais os dados dos widgets são mantidos antes da limpeza."
+        },
+        "enable_excel_addin": {
+          "name": "Suplemento do Excel",
+          "description": "Ativa o suplemento do Excel integrado para que os usuários possam carregar o manifesto diretamente desta instância"
+        },
+        "model_routing": {
+          "name": "Roteador automático de modelos",
+          "description": "Enterprise. Quando o usuário não escolhe um modelo específico, cada solicitação começa no modelo pequeno e o agente só escala para um mais forte quando a tarefa exige. É possível adicionar orientações de roteamento por modelo na página LLM para direcionar a escolha. Desativado por padrão; a ativação exige uma licença enterprise."
+        },
+        "llm_fallback": {
+          "name": "Fallback de LLM",
+          "description": "Enterprise. Quando o modelo ativo falha por limite de taxa, sobrecarga do provedor ou erro de rede, a solicitação é automaticamente repetida no próximo modelo da ordem de fallback (configurada na página LLM) pelo restante da execução. A substituição é sempre informada no chat. Desativado por padrão; a ativação exige uma licença enterprise."
+        }
+      }
     },
     "llms": {
       "searchPlaceholder": "Buscar LLMs...",
@@ -2324,9 +2474,15 @@
       "contextResetTooltip": "Redefinir para o padrão do catálogo",
       "colTemperature": "Temperatura",
       "temperatureTooltip": "Temperatura de amostragem explícita (0–2) enviada com cada solicitação a este modelo. Deixe vazio para usar o padrão do provedor — recomendado, pois alguns modelos rejeitam qualquer temperatura não padrão.",
-      "temperaturePlaceholder": "Padrão do provedor",
+      "temperaturePlaceholder": "Padrão",
       "temperatureResetTooltip": "Redefinir para o padrão do provedor (nenhuma temperatura é enviada)",
       "modelIdLabel": "ID do modelo",
+      "displayNameLabel": "Nome de exibição",
+      "displayNamePlaceholder": "Igual ao ID do modelo",
+      "displayNameShort": "Nome",
+      "displayNameTooltip": "O rótulo exibido no seletor de modelos. Apenas modelos personalizados — os nomes dos modelos predefinidos vêm do catálogo de modelos. Deixe vazio para usar o ID do modelo.",
+      "displayNameHint": "Rótulo opcional exibido no seletor de modelos. Deixe vazio para usar o ID do modelo.",
+      "displayNameError": "Não foi possível atualizar o nome de exibição",
       "colCost": "Custo ($/M)",
       "colRouting": "Roteamento",
       "autoRouter": "Roteador automático",
@@ -3110,7 +3266,27 @@
     "exportComplete": "Exportação concluída",
     "exportHtmlDone": "Arquivo HTML independente baixado — funciona offline.",
     "exportFailed": "Falha na exportação",
-    "exportHtmlFailed": "Não foi possível exportar este painel como HTML."
+    "exportHtmlFailed": "Não foi possível exportar este painel como HTML.",
+    "backToChat": "Voltar ao chat",
+    "selectArtifact": "Selecionar artefato...",
+    "useThisVersion": "Usar esta versão",
+    "refreshData": "Atualizar dados",
+    "fullScreen": "Tela cheia",
+    "openInNewTab": "Abrir em nova aba",
+    "searchMembers": "Buscar membros por nome ou e-mail...",
+    "viewAsTooltip": "«Visualizar como» só pré-visualiza os parâmetros de identidade. Fontes que autenticam por usuário (por exemplo, Power BI) continuam sendo executadas com as suas credenciais.",
+    "apply": "Aplicar",
+    "copied": "Copiado",
+    "artifactIdCopied": "ID do artefato copiado para a área de transferência",
+    "copyFailed": "Falha ao copiar",
+    "error": "Erro",
+    "refreshDashboardFailed": "Falha ao atualizar o painel. {error}",
+    "exportPptxDone": "Arquivo do PowerPoint baixado com sucesso.",
+    "exportPptxFailed": "Falha ao exportar o arquivo do PowerPoint.",
+    "viewAs": "Visualizar como",
+    "anonymousUser": "Usuário anônimo",
+    "versionSetDefault": "Versão definida como padrão",
+    "versionSetDefaultFailed": "Não foi possível definir a versão como padrão."
   },
   "filter": {
     "addFilters": "Adicionar filtros",
@@ -4534,5 +4710,31 @@
     "scope_changed": "Escopo do agente alterado — adicionado {added}; removido {removed}",
     "scope_generic": "Escopo do agente alterado",
     "scope_removed": "Escopo do agente alterado — removido {removed}"
+  },
+  "reportWebhooks": {
+    "title": "Webhooks",
+    "subtitle": "Envie eventos externos para este relatório.",
+    "active": "Ativos",
+    "rotate": "Rodar a chave de assinatura",
+    "delete": "Excluir",
+    "copyOnce": "Copie agora — exibido apenas uma vez",
+    "secretKey": "Chave",
+    "newWebhook": "Novo webhook",
+    "name": "Nome",
+    "namePlaceholder": "Triagem de PRs",
+    "source": "Origem",
+    "auth": "Autenticação",
+    "authToken": "Cabeçalho de token",
+    "authHmac": "HMAC (assinado)",
+    "authUrlToken": "Token na URL",
+    "authTokenShort": "token",
+    "authHmacShort": "hmac",
+    "authUrlTokenShort": "url token",
+    "letAiDecide": "Deixar a IA decidir se deve responder",
+    "guidance": "Orientação (opcional)",
+    "guidancePlaceholder": "Responda apenas a PRs que afetem faturamento; ignore o dependabot.",
+    "createButton": "Criar webhook",
+    "defaultName": "Webhook",
+    "sourceGeneric": "Genérico"
   }
 }
