@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.548 (August 24, 2026)
+- Custom LLM models (Azure deployments, Bedrock, OpenAI-compatible endpoints, fine-tuned ids) can now be given an editable display name, distinct from the model id (#1018)
+- Localized the reports UI and AI settings across all supported languages, with right-to-left layout fixes (#1018)
+
 ## Version 0.0.547 (August 24, 2026)
 - Fixed agent follow-ups losing tool results across completions, compaction, and process interruptions (#1016)
 
