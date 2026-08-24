@@ -163,14 +163,25 @@ def build_transcript(planner_input: Any, static_context: str, ask: str) -> Trans
     t = Transcript()
     if static_context:
         t.add_user_text(static_context)
-    if ask:
-        t.add_user_text(ask)
 
     live = getattr(planner_input, "transcript", None)
     if live is not None and getattr(live, "turns", None):
-        t.turns.extend(live.turns)
+        history_count = max(
+            0,
+            min(
+                int(getattr(live, "history_turn_count", 0) or 0),
+                len(live.turns),
+            ),
+        )
+        t.turns.extend(live.turns[:history_count])
+        if ask:
+            t.add_user_text(ask)
+        t.turns.extend(live.turns[history_count:])
         t.repair()
         return t
+
+    if ask:
+        t.add_user_text(ask)
 
     observations = list(getattr(planner_input, "past_observations", None) or [])
 
