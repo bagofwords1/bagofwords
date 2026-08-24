@@ -195,7 +195,16 @@ envelope.
 - `tests/unit/test_encrypted_json_perf.py` (5) — size ratio, encrypt/decrypt
   vs. plain serialization, Fernet reuse, zero cost when disabled.
 
-Regression: the related existing suites pass
+Full sweep: `pytest tests/unit -n 4` → **3706 passed, 14 failed**. All 14
+fail **identically on the parent commit** (verified by checking out `HEAD~1`,
+removing the encryption package, and re-running them) — email/notification
+dispatch, eval draft helpers, the MCP tool registry, the Sybase source and the
+WhatsApp webhook route, none of which touch these columns. They also fail
+serially, so they are not xdist artifacts. Plus the two deselected above, that
+is 16 pre-existing failures on this tree and **zero regressions from this
+change**.
+
+Regression detail: the related existing suites pass
 (`test_message_context_tool_result_projection`, `test_query_context_step_summary`,
 `test_artifact_viewer_identity`, `test_entity_params`,
 `test_history_summary_reaches_prompt`, …).
