@@ -3816,6 +3816,57 @@ class AgentV2:
             if inv.current_widget is not None:
                 self.current_widget = inv.current_widget
 
+    async def _recover_poisoned_session(self) -> bool:
+        """Heal ``self.db`` when a prior statement left its transaction poisoned.
+
+        A swallowed flush failure — a broad ``except`` that kept going without a
+        rollback — leaves the shared session ``is_active is False``. The next
+        query on it then fails during autoflush with ``PendingRollbackError``,
+        typically surfacing far from the real cause as::
+
+            UPDATE agent_executions SET latest_seq=... WHERE id=...
+            -> transaction has been rolled back due to a previous exception
+               during flush
+
+        (the pending ``latest_seq`` bump comes from ``next_seq``, which mutates
+        the row in memory only). Roll back only when actually poisoned:
+        ``rollback()`` expires every instance in the session, so an unnecessary
+        one would turn later plain attribute access into an async lazy-load
+        (``MissingGreenlet``). After a genuine rollback, eagerly reload the
+        objects (and relationships) later code reads by attribute access.
+
+        Returns ``True`` when a rollback+reload was performed. Never raises.
+        """
+        from app.core.session_hygiene import rollback_if_poisoned
+        try:
+            if not await rollback_if_poisoned(self.db):
+                return False
+            for _obj in (
+                self.report, self.organization, self.head_completion,
+                self.system_completion, self.current_execution,
+                self.model, self.widget, self.step,
+            ):
+                if _obj is None:
+                    continue
+                try:
+                    await self.db.refresh(_obj)
+                except Exception:
+                    pass
+            for _obj, _rels in (
+                (self.model, ["provider"]),
+                (self.head_completion, ["user"]),
+                (self.report, ["data_sources", "files"]),
+            ):
+                if _obj is None:
+                    continue
+                try:
+                    await self.db.refresh(_obj, _rels)
+                except Exception:
+                    pass
+            return True
+        except Exception:
+            return False
+
     async def main_execution(self):
         # Single-writer mode: route all migrated writers through self.db
         # (the agent's existing main session) via self._writes_session().
@@ -6153,40 +6204,10 @@ class AgentV2:
                         exc_info=True,
                     )
                     # Session hygiene FIRST (everything below writes through it).
-                    # Roll back only when the transaction is actually poisoned:
-                    # rollback() expires every instance in the session, and an
-                    # async lazy-load on an expired object raises MissingGreenlet
-                    # — so an unnecessary rollback would sabotage the retry it
-                    # is meant to enable. After a genuine rollback, eagerly
-                    # re-load the objects (and relationships) the loop reads via
-                    # plain attribute access.
-                    try:
-                        if not self.db.is_active:
-                            await self.db.rollback()
-                            for _obj in (
-                                self.report, self.organization, self.head_completion,
-                                self.system_completion, self.current_execution,
-                                self.model, self.widget, self.step,
-                            ):
-                                if _obj is None:
-                                    continue
-                                try:
-                                    await self.db.refresh(_obj)
-                                except Exception:
-                                    pass
-                            for _obj, _rels in (
-                                (self.model, ["provider"]),
-                                (self.head_completion, ["user"]),
-                                (self.report, ["data_sources", "files"]),
-                            ):
-                                if _obj is None:
-                                    continue
-                                try:
-                                    await self.db.refresh(_obj, _rels)
-                                except Exception:
-                                    pass
-                    except Exception:
-                        pass
+                    # Roll back only when the transaction is actually poisoned
+                    # and eagerly reload the instances the loop reads by plain
+                    # attribute access — see _recover_poisoned_session.
+                    await self._recover_poisoned_session()
                     # Close the crashed iteration's skeleton block so the UI doesn't
                     # keep an empty in-progress planning card (NameError-safe: the
                     # closure only exists once an iteration reached its planner turn).
@@ -6305,6 +6326,15 @@ class AgentV2:
                         )
                 except Exception as _harness_exc:
                     logger.warning(f"[agent] knowledge harness dispatch failed: {_harness_exc!r}")
+                finally:
+                    # The harness (and _should_suggest_instructions) run many
+                    # DB statements on the shared session; a swallowed flush
+                    # failure inside them would leave the transaction poisoned.
+                    # The post-analysis writes below (final snapshot, title
+                    # generation) run on self.db and would otherwise crash on
+                    # their first autoflush with the pending latest_seq bump.
+                    # Heal the session before continuing.
+                    await self._recover_poisoned_session()
 
             # Save final context snapshot (recompute metadata so counts/tokens are up to date)
             view = await self._refresh_warm_traced("final_snapshot")
