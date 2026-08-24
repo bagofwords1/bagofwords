@@ -33,11 +33,15 @@ for _stmt in re.findall(r"^from app\.models\S* import \([^)]*\)|^from app\.model
     exec(_stmt)  # noqa: S102 — test-only, mirrors env.py verbatim
 
 from app.models.base import Base
+from app.models.agent_execution import AgentExecution
 from app.models.completion import Completion
+from app.models.completion_block import CompletionBlock
 from app.models.organization import Organization
 from app.models.report import Report
 from app.models.report_context_state import ReportContextState
+from app.models.tool_execution import ToolExecution
 from app.models.user import User
+from app.ai.persisted_summary import build_tool_context_summary
 
 from app.services.context_compaction_service import (
     COMPACTION_MESSAGE_TYPE,
@@ -301,6 +305,120 @@ async def test_builder_renders_summary_head_and_window(db):
 
 
 @pytest.mark.asyncio
+async def test_auto_compaction_receives_exact_model_visible_tool_observation(db):
+    """The rolling summarizer must see the same bounded result as the planner.
+
+    A canonical tool output can use a different shape from its observation.
+    Once this completion moves behind the watermark, the rolling summary is
+    the only model-visible representation, so folding the output shape (or a
+    summary-only digest) loses the exact facts the model previously saw.
+    """
+    org, report, user = await _seed_report(db)
+    turns = await _add_turns(db, report, user, 30)
+    folded_completion = turns[7]
+    exact_fact = "status values: paid, refunded, cancelled"
+
+    execution = AgentExecution(
+        completion_id=str(folded_completion.id),
+        organization_id=str(org.id),
+        user_id=str(user.id),
+        report_id=str(report.id),
+        status="success",
+    )
+    db.add(execution)
+    await db.flush()
+    canonical_output = {
+        "success": True,
+        "execution_log": "canonical output uses a different field name",
+    }
+    tool_execution = ToolExecution(
+        agent_execution_id=str(execution.id),
+        tool_name="inspect_data",
+        tool_action="research",
+        arguments_json={"question": "Which order statuses exist?"},
+        status="success",
+        success=True,
+        result_summary="Inspection finished",
+        result_json=canonical_output,
+        context_summary_json=build_tool_context_summary(
+            "inspect_data",
+            canonical_output,
+            observation={
+                "summary": "Inspection finished",
+                "details": exact_fact,
+                "success": True,
+            },
+        ),
+    )
+    db.add(tool_execution)
+    await db.flush()
+    instruction_text = (
+        "When calculating net revenue, exclude refunded invoices consistently."
+    )
+    instruction_output = {
+        "success": True,
+        "message": "canonical instruction output omits the stored text",
+    }
+    instruction_execution = ToolExecution(
+        agent_execution_id=str(execution.id),
+        tool_name="create_instruction",
+        tool_action="knowledge",
+        arguments_json={"title": "Net revenue", "text": instruction_text},
+        status="success",
+        success=True,
+        result_summary="Created instruction: Net revenue",
+        result_json=instruction_output,
+        context_summary_json=build_tool_context_summary(
+            "create_instruction",
+            instruction_output,
+            observation={
+                "summary": "Created instruction: Net revenue",
+                "new_text": instruction_text,
+                "success": True,
+            },
+        ),
+    )
+    db.add(instruction_execution)
+    await db.flush()
+    db.add_all([CompletionBlock(
+        completion_id=str(folded_completion.id),
+        agent_execution_id=str(execution.id),
+        source_type="tool",
+        tool_execution_id=str(tool_execution.id),
+        block_index=0,
+        title="Inspected order statuses",
+        status="completed",
+    ), CompletionBlock(
+        completion_id=str(folded_completion.id),
+        agent_execution_id=str(execution.id),
+        source_type="tool",
+        tool_execution_id=str(instruction_execution.id),
+        block_index=1,
+        title="Created net-revenue instruction",
+        status="completed",
+    )])
+    await db.commit()
+
+    compacted_summary = dict(SUMMARY)
+    compacted_summary["critical_context"] = [exact_fact, instruction_text]
+    llm_patch, instance = _mock_llm(compacted_summary)
+    with llm_patch:
+        result = await _svc().compact(db, report, org, _model(), force=False)
+
+    assert result["status"] == "compacted"
+    summarizer_prompt = instance.inference.call_args[0][0]
+    assert exact_fact in summarizer_prompt, summarizer_prompt
+    assert instruction_text in summarizer_prompt
+    assert "Preserve exact non-personal facts needed for follow-ups" in summarizer_prompt
+    assert "canonical output uses a different field name" not in summarizer_prompt
+    assert "canonical instruction output omits the stored text" not in summarizer_prompt
+
+    state = await ContextCompactionService.get_state(db, str(report.id))
+    assert exact_fact in render_summary_for_prompt(state.summary_json)
+    assert instruction_text in render_summary_for_prompt(state.summary_json)
+
+
+@pytest.mark.asyncio
 async def test_message_builder_does_not_hydrate_report_step_data(db):
     """Building bounded conversation history must not load the report graph.
 
@@ -523,10 +641,12 @@ async def test_background_compaction_emits_sse_event(db):
 
     agent = object.__new__(agent_v2_mod.AgentV2)
     agent.report = report
+    agent.report_id = str(report.id)
     agent.organization = org
     agent.model = _model()
     agent.small_model = _model()
     agent.system_completion = MagicMock(id="sys-1")
+    agent.system_completion_id = "sys-1"
     agent.event_queue = MagicMock()
     agent.event_queue.put = AsyncMock()
 

@@ -596,6 +596,15 @@
     "loadingDataSources": "Loading data sources…",
     "noDataSources": "No data sources found"
   },
+  "exports": {
+    "label": "Export",
+    "pdf": "PDF",
+    "pdfDone": "PDF downloaded.",
+    "pptx": "PowerPoint",
+    "html": "HTML",
+    "complete": "Export complete",
+    "failed": "Export failed"
+  },
   "reports": {
     "title": "Reports",
     "subtitle": "Browse and manage your reports",
@@ -691,6 +700,8 @@
     },
     "empty": "No reports found",
     "emptyHint": "Try adjusting your filters or search term",
+    "sharedEmpty": "No shared reports",
+    "sharedEmptyHint": "Reports other people share with you will appear here.",
     "allDashboards": "All dashboards",
     "allModes": "All modes",
     "allSchedules": "All schedules",
@@ -725,7 +736,8 @@
     "type": {
       "chat": "Chat",
       "dashboard": "Dashboard",
-      "slides": "Slides"
+      "slides": "Slides",
+      "training": "Training"
     },
     "untitled": "Untitled",
     "menu": {
@@ -746,7 +758,8 @@
       "running": "Running",
       "newActivity": "New activity",
       "errorNew": "Finished with an error"
-    }
+    },
+    "inProject": "In {name}"
   },
   "projects": {
     "title": "Projects",
@@ -827,7 +840,30 @@
       "noAutomations": "No automations in this project yet.",
       "fromProject": "From {name}"
     },
-    "rowActions": "Project actions"
+    "rowActions": "Project actions",
+    "myProjects": "My projects",
+    "sharedWithMe": "Shared with me",
+    "searchPlaceholder": "Search projects…",
+    "filtersButton": "Filters",
+    "emptyTitle": "No projects yet",
+    "noResults": "No projects found",
+    "noResultsHint": "Try a different search or clear the filters.",
+    "sharedEmpty": "Nothing shared with you yet",
+    "sharedEmptyHint": "Projects teammates share with you will show up here.",
+    "filters": {
+      "accessLabel": "Access",
+      "allAccess": "All Access",
+      "private": "Private",
+      "orgShared": "Shared with org",
+      "reportsLabel": "Reports",
+      "allReports": "All Projects",
+      "withReports": "With reports",
+      "emptyReports": "Empty",
+      "clear": "Clear all"
+    },
+    "pagination": {
+      "rowsPerPage": "Rows per page"
+    }
   },
   "traceModal": {
     "title": "Agent Execution",
@@ -1603,10 +1639,10 @@
     "addAgent": "+ Add agent or connection...",
     "advancedPermissions": "Advanced permissions",
     "tiers": {
-        "query": "Can query",
-        "queryHint": "Ask this agent questions",
-        "manage": "Can manage",
-        "manageHint": "Edit instructions, entities, evals, settings and members"
+      "query": "Can query",
+      "queryHint": "Ask this agent questions",
+      "manage": "Can manage",
+      "manageHint": "Edit instructions, entities, evals, settings and members"
     },
     "modelAccess": "Model access",
     "modelAccessHint": "Restricted models",
@@ -3207,7 +3243,12 @@
     "refreshPartial": "Dashboard partially refreshed",
     "refreshFailed": "Dashboard refresh failed",
     "refreshNothing": "Nothing to refresh",
-    "refreshSummary": "{succeeded} of {total} queries refreshed"
+    "refreshSummary": "{succeeded} of {total} queries refreshed",
+    "exportHtml": "Download as standalone HTML",
+    "exportComplete": "Export complete",
+    "exportHtmlDone": "Standalone HTML downloaded — it works offline.",
+    "exportFailed": "Export failed",
+    "exportHtmlFailed": "Could not export this dashboard as HTML."
   },
   "filter": {
     "addFilters": "Add Filters",

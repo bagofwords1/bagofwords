@@ -35,7 +35,11 @@ from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
-from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.tools.implementations._sandbox_context import (
+    SANDBOX_RUNTIME_PROMPT,
+    ANON_PREVIEW_NOTE,
+    build_identity_context,
+)
 from app.ai.prompt_language import build_language_directive
 
 logger = logging.getLogger(__name__)
@@ -359,6 +363,7 @@ class EditArtifactTool(Tool):
         files: Optional[List[Dict[str, Any]]] = None,
         removed_vizs: Optional[List[Dict[str, str]]] = None,
         prev_render_errors: Optional[List[str]] = None,
+        identity_context: str = "",
     ) -> str:
         """Build the dynamic user prompt for editing existing artifact code.
 
@@ -430,6 +435,7 @@ EDIT REQUEST (primary specification — follow exactly)
 {images_context}
 {files_context}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
+{identity_context}
 {language_directive}
 {removed_section}{render_errors_section}
 EXISTING DASHBOARD CODE:
@@ -956,6 +962,8 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                 "sample_row_count": len(rows),
                 "rows": rows,
                 "dataModel": data_model or {},
+                # Declared query parameters (see create_artifact — same contract)
+                "parameters": list(getattr(viz.query, "parameters", None) or []) if viz.query else [],
             }
             visualizations.append(ventry)
 
@@ -1017,12 +1025,20 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         # edit sees the exact failure instead of a planner paraphrase.
         prev_render_errors = list(getattr(artifact, "render_errors", None) or [])
 
+        # Identity vocabulary (page mode): same section create_artifact injects.
+        identity_context = ""
+        if artifact.mode == "page":
+            identity_context = await build_identity_context(
+                db, runtime_ctx.get("user"), runtime_ctx.get("organization")
+            )
+
         prompt = self._build_edit_prompt(
             existing_code=existing_code,
             edit_prompt=data.edit_prompt,
             mode=artifact.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
+            identity_context=identity_context,
             messages_context=messages_context,
             report_title=getattr(report, 'title', None) if report else None,
             image_count=len(completion_images),
@@ -1220,6 +1236,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         screenshot_base64: Optional[str] = None
         render_errors: list[str] = []
         render_repair_attempts = 0
+        params_wiring_errors: list[str] = []
         page_artifact_data: Optional[Dict[str, Any]] = None
 
         if artifact.mode == "page":
@@ -1230,6 +1247,9 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     "theme": getattr(report, "theme", None) if report else None,
                 },
                 "visualizations": visualizations,
+                # Anonymous on purpose — see create_artifact: validation must
+                # exercise the current_user=null path.
+                "current_user": None,
             }
             if merged_files:
                 try:
@@ -1252,6 +1272,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     screenshot_base64 = _validate_result["screenshot"]
                     render_errors = list(_validate_result["errors"] or [])
                     render_repair_attempts = int(_validate_result["repair_attempts"] or 0)
+                    params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
                 else:
                     _fatal = self._create_tool.fatal_render_errors(_validate_result["errors"] or [])
                     _first_error = _fatal[0] if _fatal else "unknown render error"
@@ -1512,6 +1533,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         )
         if _attach_screenshot:
             summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
+            summary_msg += ANON_PREVIEW_NOTE
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
@@ -1529,6 +1551,16 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             observation["render_errors"] = render_errors
         if render_repair_attempts:
             observation["repair_attempts"] = render_repair_attempts
+        # Wiring contract unmet after the repair budget — annotate loudly so
+        # the planner can follow up rather than shipping a dead control.
+        if params_wiring_errors:
+            observation["params_wired"] = False
+            observation["params_wiring_errors"] = params_wiring_errors
+            observation["summary"] = (
+                observation.get("summary", "")
+                + " WARNING: declared query parameters are NOT wired to controls — "
+                "selecting a value will not re-run the data. " + params_wiring_errors[0]
+            )
         if _pptx_repair_attempts:
             observation["repair_attempts"] = _pptx_repair_attempts
 

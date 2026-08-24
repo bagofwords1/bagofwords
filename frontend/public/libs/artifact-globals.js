@@ -17,9 +17,45 @@
   window.useMemo = React.useMemo;
   window.useCallback = React.useCallback;
 
+  // ── Live data store ─────────────────────────────────────────────────────────
+  // The host can push fresh ARTIFACT_DATA at any time (param changes, view-as
+  // swaps) via postMessage without reloading the iframe. Components subscribe
+  // through useArtifactData()/useParams() and re-render on push.
+  window.__artifactDataListeners = [];
+  function notifyArtifactData() {
+    for (var i = 0; i < window.__artifactDataListeners.length; i++) {
+      try { window.__artifactDataListeners[i](); } catch (e) {}
+    }
+  }
+  window.__setArtifactData = function(data) {
+    window.ARTIFACT_DATA = data;
+    if (window.__paramStore) window.__paramStore._ingest(data);
+    notifyArtifactData();
+  };
+
   // ── useArtifactData() ───────────────────────────────────────────────────────
   window.useArtifactData = function() {
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      var fn = function() { forceUpdate(function(c) { return c + 1; }); };
+      window.__artifactDataListeners.push(fn);
+      return function() {
+        var idx = window.__artifactDataListeners.indexOf(fn);
+        if (idx >= 0) window.__artifactDataListeners.splice(idx, 1);
+      };
+    }, []);
     return window.ARTIFACT_DATA;
+  };
+
+  // ── useCurrentUser() ────────────────────────────────────────────────────────
+  // The viewing user, injected by the host as ARTIFACT_DATA.current_user:
+  // { id, name, email, image_url, role, profile_attributes } — every field
+  // nullable. Returns null for anonymous viewers and headless renders, so
+  // callers must guard: useCurrentUser()?.name.
+  window.useCurrentUser = function() {
+    var data = window.ARTIFACT_DATA || {};
+    return data.current_user || null;
   };
 
   // ── LoadingSpinner ──────────────────────────────────────────────────────────
@@ -196,6 +232,207 @@
       filterRows: filterRows
     };
   };
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  // Params store + useParams — server-side query parameters.
+  //
+  // Unlike useFilters (client-side, filters rows already in the browser),
+  // params RE-RUN the underlying queries at the source: the iframe posts the
+  // intent to the authenticated host page, the host calls the backend, and
+  // fresh rows arrive via a new ARTIFACT_DATA push. Declarations come from
+  // ARTIFACT_DATA.params: { declarations: [{name, type, label, source,
+  // default, required, options, query_ids}], values: {name: value} }.
+  // Identity-source params are locked server-side — they carry no client
+  // value and render as "scoped to you", never as an input.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  window.__paramStore = (function() {
+    var declarations = [];
+    var values = {};
+    var options = {};   // name -> [{value, label}] — host-resolved stable choices
+    var pending = {};
+    // Committed-but-unconfirmed changes. The user's latest input stays
+    // authoritative through the host round trip: getValues() overlays
+    // values with inflight and pending, so a controlled input can never
+    // snap back to a stale applied value while a run is in the air.
+    var inflight = {};
+    var inflightSeq = {};   // name -> commit seq that last wrote it
+    var commitSeq = 0;
+    var loading = false;
+    var error = null;
+    var listeners = [];
+    var timer = null;
+
+    function notify() {
+      for (var i = 0; i < listeners.length; i++) {
+        try { listeners[i](); } catch (e) {}
+      }
+    }
+
+    function post(msg) {
+      try { window.parent.postMessage(msg, '*'); } catch (e) {}
+    }
+
+    function commit(targets) {
+      var changes = {};
+      var any = false;
+      commitSeq += 1;
+      for (var k in pending) {
+        changes[k] = pending[k];
+        inflight[k] = pending[k];
+        inflightSeq[k] = commitSeq;
+        any = true;
+      }
+      if (!any) return;
+      pending = {};
+      loading = true;
+      error = null;
+      notify();
+      post({ type: 'ARTIFACT_SET_PARAMS', changes: changes, targets: targets || null, seq: commitSeq });
+    }
+
+    return {
+      _ingest: function(data) {
+        var p = (data && data.params) || {};
+        declarations = p.declarations || [];
+        values = p.values || {};
+        options = p.options || {};
+        // Confirm inflight keys the host has caught up on. ack is the highest
+        // ARTIFACT_SET_PARAMS seq the host has seen; a key committed at or
+        // below it is reflected in this echo (possibly server-normalized), so
+        // the echoed value becomes truth. A key committed later keeps its
+        // local value — this push predates it. Without ack (older host),
+        // fall back to value equality.
+        var ack = (typeof p.ack === 'number') ? p.ack : null;
+        for (var k in inflight) {
+          var confirmed = (ack !== null)
+            ? (inflightSeq[k] <= ack)
+            : (JSON.stringify(values[k]) === JSON.stringify(inflight[k]));
+          if (confirmed) { delete inflight[k]; delete inflightSeq[k]; }
+        }
+        loading = false;
+        error = null;
+        notify();
+      },
+      _status: function(payload) {
+        loading = !!(payload && payload.loading);
+        error = (payload && payload.error) || null;
+        notify();
+      },
+      getDeclarations: function() { return declarations; },
+      // Applied values overlaid with everything newer the user did locally
+      // (committed-in-flight, then still-debouncing pending) — what a
+      // controlled input should bind so typing never resets mid round-trip.
+      getValues: function() {
+        var out = {};
+        var k;
+        for (k in values) out[k] = values[k];
+        for (k in inflight) out[k] = inflight[k];
+        for (k in pending) out[k] = pending[k];
+        return out;
+      },
+      // Stable [{value, label}] choices for one param: host-resolved rows
+      // (static options or an options-source query) — never the currently
+      // filtered data, so selecting a value can't collapse the list.
+      getOptions: function(name) {
+        if (options && options[name] && options[name].length) return options[name];
+        for (var i = 0; i < declarations.length; i++) {
+          var d = declarations[i];
+          if (d && d.name === name && d.options && d.options.length) {
+            return d.options.map(function(v) {
+              return (v && typeof v === 'object' && 'value' in v)
+                ? v : { value: v, label: String(v) };
+            });
+          }
+        }
+        return null;
+      },
+      getPending: function() { return pending; },
+      isLoading: function() { return loading; },
+      getError: function() { return error; },
+      setParam: function(name, value, opts) {
+        pending[name] = value;
+        notify();
+        if (opts && opts.apply === false) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+      },
+      setParams: function(changes, opts) {
+        for (var k in (changes || {})) pending[k] = changes[k];
+        notify();
+        if (opts && opts.apply === false) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(function() { timer = null; commit(null); }, 250);
+      },
+      apply: function(targets) {
+        if (timer) { clearTimeout(timer); timer = null; }
+        commit(targets || null);
+      },
+      refresh: function(targets) {
+        loading = true;
+        notify();
+        post({ type: 'ARTIFACT_REFRESH_PARAMS', targets: targets || null });
+      },
+      sub: function(fn) {
+        listeners.push(fn);
+        return function() {
+          var idx = listeners.indexOf(fn);
+          if (idx >= 0) listeners.splice(idx, 1);
+        };
+      }
+    };
+  })();
+
+  window.useParams = function() {
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      return window.__paramStore.sub(function() {
+        forceUpdate(function(c) { return c + 1; });
+      });
+    }, []);
+    var store = window.__paramStore;
+    return {
+      declarations: store.getDeclarations(),
+      values: store.getValues(),
+      pending: store.getPending(),
+      loading: store.isLoading(),
+      error: store.getError(),
+      setParam: store.setParam,
+      setParams: store.setParams,
+      apply: store.apply,
+      refresh: store.refresh,
+      getOptions: store.getOptions
+    };
+  };
+
+  // Stable choice list for one declared param — [{value, label}] or null.
+  // Re-renders when the host pushes fresh params (e.g. the options query
+  // refreshed). See __paramStore.getOptions for resolution order.
+  window.useParamOptions = function(name) {
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      return window.__paramStore.sub(function() {
+        forceUpdate(function(c) { return c + 1; });
+      });
+    }, []);
+    return window.__paramStore.getOptions(name);
+  };
+
+  // Seed the store from the data embedded in the initial srcdoc.
+  try { window.__paramStore._ingest(window.ARTIFACT_DATA || {}); } catch (e) {}
+
+  // Host → iframe bridge: fresh data pushes and param-run status. Only the
+  // parent frame is trusted.
+  window.addEventListener('message', function(e) {
+    if (e.source !== window.parent || !e.data) return;
+    if (e.data.type === 'ARTIFACT_DATA' && e.data.payload) {
+      window.__setArtifactData(e.data.payload);
+    } else if (e.data.type === 'ARTIFACT_PARAMS_STATUS') {
+      window.__paramStore._status(e.data.payload || {});
+    }
+  });
 
   // ═══════════════════════════════════════════════════════════════════════════
   // InfoPopover — built-in provenance popup for prebuilt components.

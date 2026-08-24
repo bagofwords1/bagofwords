@@ -25,6 +25,140 @@ class EntityService:
         self.step_service = StepService()
         self.query_service = QueryService()
 
+    # ------------------------------------------------------------------
+    # Parameters (mirrors the step/query machinery)
+    # ------------------------------------------------------------------
+
+    async def _resolve_entity_params(
+        self, db: AsyncSession, entity, run_user, organization
+    ) -> dict:
+        """Resolve the entity's declared params: defaults + the run user's
+        identity bindings. {} when the entity declares none."""
+        from app.schemas.param_schema import parse_param_specs
+        from app.ai.code_execution.query_params import resolve_param_values
+        specs = parse_param_specs(getattr(entity, "parameters", None))
+        if not specs:
+            return {}
+        identity = None
+        if run_user is not None and organization is not None:
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(db, run_user, str(organization.id))
+        return resolve_param_values(specs, None, identity)
+
+    async def _upsert_entity_user_result(
+        self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
+    ) -> None:
+        """Cache a viewer's slice per (entity, user, values fingerprint)."""
+        from app.ai.code_execution.query_params import params_fingerprint
+        from app.models.entity_user_result import EntityUserResult
+        fingerprint = params_fingerprint(resolved_params)
+        row = (await db.execute(
+            select(EntityUserResult).where(
+                EntityUserResult.entity_id == str(entity.id),
+                EntityUserResult.user_id == str(user.id),
+                EntityUserResult.params_fingerprint == fingerprint,
+            )
+        )).scalars().first()
+        if row is None:
+            row = EntityUserResult(
+                entity_id=str(entity.id),
+                user_id=str(user.id),
+                organization_id=str(entity.organization_id),
+                params_fingerprint=fingerprint,
+            )
+        row.status = "success"
+        row.status_reason = None
+        row.data = df
+        row.applied_params = dict(resolved_params) if resolved_params else None
+        row.last_run_at = datetime.utcnow()
+        db.add(row)
+        await db.commit()
+
+    async def resolve_entity_data_for_user(
+        self,
+        db: AsyncSession,
+        entity,
+        organization,
+        user,
+    ) -> Optional[dict]:
+        """The entity rows a given reader may consume (load_entity, previews).
+
+        - Owner (or a non-identity, non-withheld entity): the shared snapshot.
+        - Identity-scoped entity + another signed-in user: their cached slice
+          (fresh = run after the shared snapshot's last refresh), else execute
+          with THEIR identity binding and cache it.
+        - Anonymous readers of identity-scoped entities: None (withheld).
+        """
+        from app.services.identity_taint import entity_identity_scope
+        has_identity, upstream_refresh = await entity_identity_scope(db, entity)
+        owner_id = str(getattr(entity, "owner_id", "") or "")
+        is_owner = user is not None and owner_id and str(user.id) == owner_id
+        if not has_identity or is_owner:
+            from app.services.viewer_data_policy import entity_data_withheld
+            if await entity_data_withheld(db, entity, user):
+                return None
+            return entity.data or {}
+        if user is None:
+            return None
+
+        from app.ai.code_execution.query_params import params_fingerprint
+        from app.models.entity_user_result import EntityUserResult
+        resolved = await self._resolve_entity_params(db, entity, user, organization)
+        fingerprint = params_fingerprint(resolved)
+        row = (await db.execute(
+            select(EntityUserResult).where(
+                EntityUserResult.entity_id == str(entity.id),
+                EntityUserResult.user_id == str(user.id),
+                EntityUserResult.params_fingerprint == fingerprint,
+            )
+        )).scalars().first()
+        # Stale once the entity OR any of its loadable upstreams refreshed
+        # past the cached slice.
+        refreshed_at = getattr(entity, "last_refreshed_at", None)
+        if upstream_refresh is not None and (
+            refreshed_at is None or upstream_refresh > refreshed_at
+        ):
+            refreshed_at = upstream_refresh
+        if row is not None and row.status == "success" and (
+            refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at
+        ):
+            return row.data or {}
+
+        # Execute with the viewer's identity binding and cache the slice.
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        ds_list = list(entity.data_sources or [])
+        if not ds_list:
+            # DS-less entities (promoted from chat-created reports whose data
+            # sources were agent-level, not report-associated): construct the
+            # org's data sources — generated code addresses clients by
+            # "<data source name>:<connection>" keys, so this resolves them.
+            ds_stmt = select(DataSource).where(
+                DataSource.organization_id == str(entity.organization_id),
+                DataSource.deleted_at.is_(None),
+            )
+            ds_list = list((await db.execute(ds_stmt)).scalars().unique().all())
+        ds_clients: dict = {}
+        ds_errors: list = []
+        for ds in ds_list:
+            try:
+                ds_conns = await ds_service.construct_clients(db, ds, current_user=user)
+                ds_clients.update(ds_conns)
+            except Exception as e:
+                ds_errors.append(str(getattr(e, "detail", None) or e))
+        if not ds_clients and ds_errors:
+            raise ValueError("; ".join(ds_errors[:2]))
+        org_settings = await organization.get_settings(db) if organization else None
+        executor = StreamingCodeExecutor(organization_settings=org_settings)
+        exec_df, _log, _ = await executor.execute_code_async(
+            code=entity.code or "", ds_clients=ds_clients, excel_files=[],
+            params=resolved,
+        )
+        df = executor.format_df_for_widget(exec_df)
+        await self._upsert_entity_user_result(db, entity, user, resolved, df)
+        return df
+
 
     async def step_report_data_source_ids(
         self, db: AsyncSession, step_id: str, organization: Organization,
@@ -148,6 +282,11 @@ class EntityService:
             view=(chosen_view or getattr(step, "view", None) or {"type": "table"}),
             last_refreshed_at=step.updated_at,
             source_step_id=str(step_id),  # Link back to source step
+            # Declarations travel with the promotion: the entity stays
+            # parameterized (identity-scoped entities resolve per viewer),
+            # and the promoted snapshot's values are recorded.
+            parameters=list(getattr(step.query, "parameters", None) or []) or None,
+            applied_params=getattr(step, "applied_params", None),
         )
 
         # Apply dual-status workflow based on the publish verdict
@@ -526,8 +665,18 @@ class EntityService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
+        ds_list = list(entity.data_sources or [])
+        if not ds_list:
+            # DS-less entities (promoted from chat-created reports): fall back
+            # to the org's data sources — generated code addresses clients by
+            # "<data source name>:<connection>" keys.
+            _ds_stmt = select(DataSource).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.deleted_at.is_(None),
+            )
+            ds_list = list((await db.execute(_ds_stmt)).scalars().unique().all())
         ds_clients = {}
-        for ds in (entity.data_sources or []):
+        for ds in ds_list:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
             ds_clients.update(ds_conns)
         excel_files = []
@@ -540,25 +689,41 @@ class EntityService:
         # Snapshot-identity guard: execution runs under the CALLER's
         # credentials, but Entity.data is a SHARED snapshot the policy treats
         # as the owner's identity. On a credential-differentiated source
-        # (user_required/RLS) a non-owner refresh must not overwrite the
-        # shared snapshot with their own row slice — they get their result in
-        # the response only. entity_data_withheld is exactly that predicate
-        # (False for the owner and for system-only sources).
+        # (user_required/RLS) — or an identity-parameterized entity — a
+        # non-owner refresh must not overwrite the shared snapshot with their
+        # own row slice. entity_data_withheld is exactly that predicate
+        # (False for the owner and for system-only, non-identity entities).
         from app.services.viewer_data_policy import entity_data_withheld
         persist_data = not await entity_data_withheld(db, entity, current_user)
 
+        # Declared parameters resolve like a step run: defaults + the RUN
+        # user's identity bindings. Legacy code (no `params` argument) is
+        # unaffected — the executor only injects when the signature asks.
+        resolved_params = await self._resolve_entity_params(
+            db, entity, current_user, organization
+        )
+
         try:
-            exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = executor.execute_code(
+                code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
+                params=resolved_params,
+            )
             df = executor.format_df_for_widget(exec_df)
             if not persist_data:
-                # Transient run: hand the caller their own rows without
-                # touching the shared snapshot or its metadata. Detach the
-                # instance first so the mutation can never be flushed.
+                # Transient run: the caller's own slice. Cache it per
+                # (entity, user, values) so load_entity and later reads reuse
+                # it, then detach the instance so the shared snapshot is
+                # never flushed.
+                if current_user is not None:
+                    await self._upsert_entity_user_result(
+                        db, entity, current_user, resolved_params, df
+                    )
                 db.expunge(entity)
                 entity.data = df
                 return entity
             # Persist execution results
             entity.data = df
+            entity.applied_params = dict(resolved_params) if resolved_params else None
             entity.last_refreshed_at = datetime.utcnow()
 
             # Apply optional payload updates
@@ -610,8 +775,18 @@ class EntityService:
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
+        ds_list = list(entity.data_sources or [])
+        if not ds_list:
+            # DS-less entities (promoted from chat-created reports): fall back
+            # to the org's data sources — generated code addresses clients by
+            # "<data source name>:<connection>" keys.
+            _ds_stmt = select(DataSource).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.deleted_at.is_(None),
+            )
+            ds_list = list((await db.execute(_ds_stmt)).scalars().unique().all())
         ds_clients = {}
-        for ds in (entity.data_sources or []):
+        for ds in ds_list:
             ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
             ds_clients.update(ds_conns)
         excel_files = []
@@ -620,10 +795,16 @@ class EntityService:
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
         executor = StreamingCodeExecutor(organization_settings=org_settings)
+        resolved_params = await self._resolve_entity_params(
+            db, entity, current_user, organization
+        )
         try:
-            exec_df, execution_log, _ = executor.execute_code(code=code_to_run, ds_clients=ds_clients, excel_files=excel_files)
+            exec_df, execution_log, _ = executor.execute_code(
+                code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
+                params=resolved_params,
+            )
             df = executor.format_df_for_widget(exec_df)
-            return {"data": df, "execution_log": execution_log}
+            return {"data": df, "execution_log": execution_log, "applied_params": resolved_params or None}
         except Exception as e:
             return {"data": None, "error": str(e)}
 

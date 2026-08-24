@@ -385,6 +385,18 @@ class ProjectManager:
             return v
         except Exception as e:
             self.logger.warning(f"set_visualization_status failed: {e}")
+            # A failed flush (e.g. sqlite 'database is locked') poisons the
+            # shared session: every later operation raises PendingRollbackError
+            # and takes the whole agent iteration down with it. Swallowing the
+            # error is only safe if the session is usable again — roll back
+            # when the transaction is actually dead (mirrors the guard in
+            # agent_v2's crash handler; an unnecessary rollback would expire
+            # live instances).
+            try:
+                if not db.is_active:
+                    await db.rollback()
+            except Exception:
+                pass
             return visualization
 
     async def set_query_default_step_if_empty(self, db, query, step_id: str):
@@ -458,6 +470,44 @@ class ProjectManager:
     async def update_step_with_code(self, db, step, code):
         step.code = code
         db.add(step)
+        await db.commit()
+        await db.refresh(step)
+        return step
+
+    async def update_query_parameters(self, db, step, parameters, applied_params=None):
+        """Persist declared ParamSpec dicts onto the step's Query and the
+        resolved default values onto the Step itself.
+
+        The Query is updated with a Core UPDATE, never by dirtying the ORM
+        object: Query.default_step_id and Step.query_id reference each other,
+        so a Query and a Step dirty in the same flush is a circular
+        dependency ("Circular dependency detected" at commit)."""
+        step.applied_params = applied_params or None
+        db.add(step)
+        if getattr(step, "query_id", None):
+            from sqlalchemy import update as _update, select as _select
+            from app.models.query import Query as _Query
+            specs = list(parameters or [])
+            # Agent-declared options_source refs name the source query loosely
+            # (its title, usually — the model rarely holds the UUID).
+            # Canonicalize to the real query id within the report; a ref
+            # nothing matches is dropped so the UI never renders a dead link.
+            try:
+                row = (await db.execute(
+                    _select(_Query.report_id).where(_Query.id == str(step.query_id))
+                )).first()
+                if row and row[0]:
+                    from app.services.query_service import resolve_options_source_refs
+                    specs = await resolve_options_source_refs(
+                        db, str(row[0]), specs, exclude_query_id=str(step.query_id)
+                    )
+            except Exception:
+                pass
+            await db.execute(
+                _update(_Query)
+                .where(_Query.id == str(step.query_id))
+                .values(parameters=specs or None)
+            )
         await db.commit()
         await db.refresh(step)
         return step
@@ -936,8 +986,15 @@ class ProjectManager:
     async def save_plan_decision(self, db, agent_execution, seq, loop_index, plan_type=None,
                                analysis_complete=False, reasoning=None, assistant=None,
                                final_answer=None, action_name=None, action_args_json=None,
-                               metrics_json=None, context_snapshot_id=None, phase=None):
-        """Upsert a planner decision frame by (agent_execution_id, seq)."""
+                               metrics_json=None, context_snapshot_id=None, phase=None,
+                               tool_intents=None):
+        """Upsert a decision and optionally stage its tool intents atomically.
+
+        The normal agent path already commits each final decision before tool
+        dispatch. Inserting the intent rows in that same transaction makes a
+        later hard process death recoverable without adding a commit or any
+        latency to the planner/tool boundary.
+        """
         stmt = select(PlanDecision).where(
             PlanDecision.agent_execution_id == agent_execution.id,
             PlanDecision.seq == seq,
@@ -957,11 +1014,21 @@ class ProjectManager:
             existing.context_snapshot_id = context_snapshot_id
             existing.phase = phase
             db.add(existing)
+            staged_tools = await self._stage_tool_intents(
+                db, agent_execution, existing, tool_intents or []
+            )
             await self._commit_with_timeout(db, "save_plan_decision.update")
             await self._refresh_with_timeout(db, existing, "save_plan_decision.update")
+            for tool_execution in staged_tools:
+                try:
+                    db.expunge(tool_execution)
+                except Exception:
+                    pass
+            existing.durable_tool_executions = staged_tools
             return existing
 
         decision = PlanDecision(
+            id=str(uuid.uuid4()),
             agent_execution_id=agent_execution.id,
             seq=seq,
             loop_index=loop_index,
@@ -977,25 +1044,92 @@ class ProjectManager:
             phase=phase,
         )
         db.add(decision)
+        staged_tools = await self._stage_tool_intents(
+            db, agent_execution, decision, tool_intents or [], assume_new=True
+        )
         await self._commit_with_timeout(db, "save_plan_decision.insert")
         await self._refresh_with_timeout(db, decision, "save_plan_decision.insert")
+        for tool_execution in staged_tools:
+            try:
+                db.expunge(tool_execution)
+            except Exception:
+                pass
+        decision.durable_tool_executions = staged_tools
         return decision
 
-    async def start_tool_execution(self, db, agent_execution, plan_decision_id, tool_name,
-                                  tool_action, arguments_json, attempt_number=1, max_retries=0):
-        """Create an in-memory ToolExecution stub.
+    async def _stage_tool_intents(
+        self, db, agent_execution, plan_decision, tool_intents, *, assume_new=False
+    ):
+        """Add missing intent rows to the decision's current transaction.
 
-        Write-on-complete: nothing is persisted to DB here.
-        Call finish_tool_execution() when the tool completes — that does a single INSERT
-        with the full record (start time, end time, result, status all at once).
+        ``tool_intents`` is ordered exactly as the provider emitted the calls.
+        The unique (decision, action_index) key makes a decision-save retry
+        idempotent while preserving parallel-call order.
+        """
+        if not tool_intents:
+            return []
+
+        existing_by_index = {}
+        if not assume_new:
+            rows = await db.execute(
+                select(ToolExecution).where(
+                    ToolExecution.plan_decision_id == str(plan_decision.id),
+                    ToolExecution.action_index.is_not(None),
+                )
+            )
+            existing_by_index = {
+                int(row.action_index): row for row in rows.scalars().all()
+            }
+
+        staged = []
+        for index, intent in enumerate(tool_intents):
+            existing = existing_by_index.get(index)
+            if existing is not None:
+                staged.append(existing)
+                continue
+            arguments = intent.get("arguments") if isinstance(intent, dict) else {}
+            tool_execution = ToolExecution(
+                id=str(uuid.uuid4()),
+                agent_execution_id=str(agent_execution.id),
+                plan_decision_id=str(plan_decision.id),
+                provider_call_id=(intent.get("id") if isinstance(intent, dict) else None),
+                provider_name=(intent.get("provider") if isinstance(intent, dict) else None),
+                provider_signature=(intent.get("signature") if isinstance(intent, dict) else None),
+                action_index=index,
+                tool_name=(intent.get("name") if isinstance(intent, dict) else "unknown_tool"),
+                tool_action=(intent.get("type") if isinstance(intent, dict) else "tool_call"),
+                arguments_json=arguments if isinstance(arguments, dict) else {},
+                status="in_progress",
+                started_at=datetime.datetime.utcnow(),
+            )
+            db.add(tool_execution)
+            staged.append(tool_execution)
+        return staged
+
+    async def start_tool_execution(self, db, agent_execution, plan_decision_id, tool_name,
+                                  tool_action, arguments_json, attempt_number=1, max_retries=0,
+                                  provider_call_id=None, provider_name=None,
+                                  provider_signature=None, action_index=None,
+                                  persist_before_dispatch=True):
+        """Persist a tool intent before its side effect is dispatched.
+
+        The high-frequency planner path stages intents in the decision commit
+        via :meth:`save_plan_decision`; this standalone path is for service
+        calls that have no enclosing decision transaction.
+
+        ``persist_before_dispatch=False`` is reserved for retrospective events
+        (for example, a native provider search result that is only observable
+        after the provider has already executed it). Those callers immediately
+        finish the transient row, preserving the historical single-commit path.
         """
         tool_exec = ToolExecution(
-            # Generate the id eagerly so synchronous callers (e.g. the tool.finished
-            # SSE emit, which fires before the bg INSERT) can reference it. The
-            # background INSERT will commit this same id.
             id=str(uuid.uuid4()),
             agent_execution_id=agent_execution.id,
             plan_decision_id=plan_decision_id,
+            provider_call_id=provider_call_id,
+            provider_name=provider_name,
+            provider_signature=provider_signature,
+            action_index=action_index,
             tool_name=tool_name,
             tool_action=tool_action,
             arguments_json=arguments_json,
@@ -1004,8 +1138,42 @@ class ProjectManager:
             attempt_number=attempt_number,
             max_retries=max_retries,
         )
-        # Not added to db — finish_tool_execution will do the single INSERT.
+        if persist_before_dispatch:
+            db.add(tool_exec)
+            await self._commit_with_timeout(db, "start_tool_execution")
+            await self._refresh_with_timeout(db, tool_exec, "start_tool_execution")
+            # The result may be committed by a short-lived background session.
+            # Detaching avoids ever binding this instance to two AsyncSessions.
+            try:
+                db.expunge(tool_exec)
+            except Exception:
+                pass
         return tool_exec
+
+    @staticmethod
+    def _snapshot_tool_context(
+        tool_execution,
+        result_json,
+        observation: dict | None = None,
+    ) -> None:
+        """Capture the bounded model-visible result without database I/O."""
+        try:
+            from app.ai.persisted_summary import build_tool_context_summary
+
+            summary = build_tool_context_summary(
+                tool_execution.tool_name,
+                result_json,
+                observation=observation,
+            )
+            if summary is not None:
+                tool_execution.context_summary_json = summary
+        except Exception:
+            # The canonical result remains authoritative; context projection is
+            # best-effort and must never fail a tool completion.
+            logging.getLogger(__name__).warning(
+                "tool context summary projection failed",
+                exc_info=True,
+            )
 
     @staticmethod
     def _configure_finished_tool_execution(
@@ -1020,6 +1188,7 @@ class ProjectManager:
         sub_timings_json: dict | None = None,
         context_snapshot_id: str | None = None,
         token_usage_json: dict | None = None,
+        observation: dict | None = None,
     ):
         """Mutate an in-memory ToolExecution to its finished state (no DB I/O).
 
@@ -1068,24 +1237,33 @@ class ProjectManager:
             pass
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
+        ProjectManager._snapshot_tool_context(
+            tool_execution,
+            result_json,
+            observation=observation,
+        )
         tool_execution.context_snapshot_id = context_snapshot_id
         tool_execution.sub_timings_json = sub_timings_json
         return tool_execution
 
     async def commit_finished_tool_execution(self, db, tool_execution):
-        """Commit a pre-configured (in-memory) ToolExecution to the DB.
+        """Commit a pre-configured ToolExecution by INSERT-or-UPDATE.
 
         Pairs with :meth:`_configure_finished_tool_execution` to support
         the agent loop's split sync-mutate / async-commit pattern. The
         ToolExecution is added to the supplied (background) session and
         committed there.
         """
-        db.add(tool_execution)
+        # Staged intents are explicitly detached after their decision commit,
+        # so attaching them here emits one UPDATE without merge's read-before-
+        # write SELECT. Retrospective provider events are transient and emit
+        # one INSERT through the same path.
+        persisted_tool = self._attach_tool_execution(db, tool_execution)
         await self._commit_with_timeout(db, "commit_finished_tool_execution")
-        return tool_execution
+        return persisted_tool
 
     async def commit_tool_and_attach_block(self, db, completion, agent_execution, tool_execution, block_id: str | None = None):
-        """Atomically INSERT a finished ToolExecution and UPDATE the matching
+        """Atomically UPDATE a finished ToolExecution and attach its block.
         CompletionBlock (FK + status + title + duration) in a single transaction.
 
         Replaces the older two-commit pattern (commit_finished_tool_execution
@@ -1099,33 +1277,37 @@ class ProjectManager:
         the multi-tool dispatch path emits N blocks per plan_decision; pass
         the per-action block id to disambiguate.
         """
-        # Pre-assign id so we can set the block FK before flush.
+        # Pre-assign id so legacy callers that did not stage an intent remain
+        # compatible. New planner calls always find the pre-dispatch row here.
         if not getattr(tool_execution, "id", None):
             tool_execution.id = str(uuid.uuid4())
-        db.add(tool_execution)
+        # See commit_finished_tool_execution: a detached staged intent updates
+        # in place and a legacy transient record inserts, both without a
+        # read-before-write SELECT.
+        persisted_tool = self._attach_tool_execution(db, tool_execution)
 
         block = None
         if block_id:
             stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
             existing = (await db.execute(stmt)).scalar_one_or_none()
-        elif tool_execution.plan_decision_id:
+        elif persisted_tool.plan_decision_id:
             stmt = select(CompletionBlock).where(
                 CompletionBlock.agent_execution_id == agent_execution.id,
-                CompletionBlock.plan_decision_id == tool_execution.plan_decision_id,
+                CompletionBlock.plan_decision_id == persisted_tool.plan_decision_id,
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
         else:
             existing = None
         if existing is not None:
-            existing.tool_execution_id = str(tool_execution.id)
-            existing.title = f"{existing.title.split(' →')[0]} → {tool_execution.tool_name}"
-            if tool_execution.status == 'success':
+            existing.tool_execution_id = str(persisted_tool.id)
+            existing.title = f"{existing.title.split(' →')[0]} → {persisted_tool.tool_name}"
+            if persisted_tool.status == 'success':
                 existing.status = 'completed'
-            elif tool_execution.status == 'error':
+            elif persisted_tool.status == 'error':
                 existing.status = 'error'
             else:
                 existing.status = 'in_progress'
-            existing.completed_at = tool_execution.completed_at
+            existing.completed_at = persisted_tool.completed_at
             if existing.started_at and existing.completed_at:
                 existing.duration_ms = (existing.completed_at - existing.started_at).total_seconds() * 1000.0
             db.add(existing)
@@ -1135,6 +1317,37 @@ class ProjectManager:
         if block is not None:
             await self._refresh_with_timeout(db, block, "commit_tool_and_attach_block.block")
         return block
+
+    @staticmethod
+    def _attach_tool_execution(db, tool_execution):
+        """Attach an intent without a read-before-write database round trip.
+
+        The normal path receives a detached staged row. A long-lived session
+        may already have loaded the same identity for UI/audit work, though;
+        update that in-map instance instead of issuing ``merge()`` (which
+        SELECTs) or trying to attach a duplicate identity.
+        """
+        identity_key = db.sync_session.identity_key(
+            ToolExecution,
+            (str(tool_execution.id),),
+        )
+        persisted = db.sync_session.identity_map.get(identity_key)
+        if persisted is None or persisted is tool_execution:
+            db.add(tool_execution)
+            return tool_execution
+
+        for field in (
+            "tool_name", "tool_action", "arguments_json", "status", "success",
+            "started_at", "completed_at", "duration_ms", "attempt_number",
+            "max_retries", "token_usage_json", "sub_timings_json",
+            "result_summary", "result_json", "context_summary_json",
+            "artifact_refs_json",
+            "created_widget_id", "created_step_id", "context_snapshot_id",
+            "error_message", "provider_call_id", "provider_name",
+            "provider_signature", "action_index",
+        ):
+            setattr(persisted, field, getattr(tool_execution, field, None))
+        return persisted
 
     async def insert_standalone_tool_block(self, db, completion, agent_execution, tool_execution,
                                            loop_index: int, title: str, icon: str = "🔧",
@@ -1173,7 +1386,7 @@ class ProjectManager:
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,
                                    error_message=None, token_usage_json=None, context_snapshot_id=None,
-                                   sub_timings_json=None):
+                                   sub_timings_json=None, observation: dict | None = None):
         """Finish tracking a tool execution."""
         tool_execution.status = status
         tool_execution.success = success
@@ -1202,19 +1415,31 @@ class ProjectManager:
             pass
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
+        self._snapshot_tool_context(
+            tool_execution,
+            result_json,
+            observation=observation,
+        )
         tool_execution.context_snapshot_id = context_snapshot_id
         tool_execution.sub_timings_json = sub_timings_json
-        db.add(tool_execution)
+        persisted_tool = self._attach_tool_execution(db, tool_execution)
         await self._commit_with_timeout(db, "finish_tool_execution")
-        await self._refresh_with_timeout(db, tool_execution, "finish_tool_execution")
-        return tool_execution
+        await self._refresh_with_timeout(db, persisted_tool, "finish_tool_execution")
+        return persisted_tool
 
     # Pydantic-friendly helpers
     async def save_plan_decision_from_model(self, db, agent_execution, seq: int, loop_index: int,
                                            planner_decision_model, context_snapshot_id: str | None = None,
-                                           phase: str | None = None):
+                                           phase: str | None = None,
+                                           persist_tool_intents: bool = False,
+                                           max_tool_intents: int | None = None):
         to_dict = planner_decision_model.model_dump() if hasattr(planner_decision_model, 'model_dump') else dict(planner_decision_model)
         action = to_dict.get('action') or {}
+        actions = list(to_dict.get('actions') or [])
+        if not actions and action:
+            actions = [action]
+        if max_tool_intents is not None:
+            actions = actions[:max(max_tool_intents, 0)]
         metrics = to_dict.get('metrics') or None
         return await self.save_plan_decision(
             db,
@@ -1231,6 +1456,7 @@ class ProjectManager:
             metrics_json=(metrics.model_dump() if hasattr(metrics, 'model_dump') else metrics),
             context_snapshot_id=context_snapshot_id,
             phase=phase,
+            tool_intents=(actions if persist_tool_intents else None),
         )
 
     async def save_plan_decision_with_retry(
@@ -1261,7 +1487,11 @@ class ProjectManager:
 
     async def start_tool_execution_from_models(self, db, agent_execution, plan_decision_id: str | None,
                                               tool_name: str, tool_action: str | None, tool_input_model,
-                                              attempt_number: int = 1, max_retries: int = 0):
+                                              attempt_number: int = 1, max_retries: int = 0,
+                                              provider_call_id: str | None = None,
+                                              provider_name: str | None = None,
+                                              provider_signature: str | None = None,
+                                              action_index: int | None = None):
         args = tool_input_model.model_dump() if hasattr(tool_input_model, 'model_dump') else dict(tool_input_model)
         return await self.start_tool_execution(
             db,
@@ -1272,6 +1502,10 @@ class ProjectManager:
             arguments_json=args,
             attempt_number=attempt_number,
             max_retries=max_retries,
+            provider_call_id=provider_call_id,
+            provider_name=provider_name,
+            provider_signature=provider_signature,
+            action_index=action_index,
         )
 
     async def finish_tool_execution_from_models(self, db, tool_execution,
@@ -1283,7 +1517,8 @@ class ProjectManager:
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
                                                success: bool = True,
-                                               sub_timings_json: dict | None = None):
+                                               sub_timings_json: dict | None = None,
+                                               observation: dict | None = None):
         # Handle result_model appropriately
         if result_model and hasattr(result_model, 'model_dump'):
             # Pydantic model - convert to dict
@@ -1319,6 +1554,7 @@ class ProjectManager:
             error_message=error_message,
             context_snapshot_id=context_snapshot_id,
             sub_timings_json=sub_timings_json,
+            observation=observation,
         )
 
     async def save_context_snapshot(self, db, agent_execution, kind, context_view_json, 

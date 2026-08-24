@@ -140,8 +140,22 @@ def fake_post(monkeypatch, responder):
     return calls
 
 
-def boards_responder(boards):
+def boards_responder(boards, workspaces=None):
+    """Stub the discovery surface: global crawl, workspace listing, per-
+    workspace id sweep, by-id recovery. With no workspaces the sweep is a
+    no-op and discovery equals the global crawl."""
     def responder(query, variables):
+        if "workspaces (limit: $limit, page: $page" in query:
+            page = variables.get("page", 1)
+            return FakeResponse({"data": {"workspaces": (workspaces or []) if page == 1 else []}})
+        if "workspace_ids: $ws" in query:
+            page = variables.get("page", 1)
+            ws = (variables.get("ws") or [None])[0]
+            in_ws = [b for b in boards if str((b.get("workspace") or {}).get("id")) == str(ws)]
+            return FakeResponse({"data": {"boards": [{"id": b["id"]} for b in in_ws] if page == 1 else []}})
+        if "boards (ids: $ids" in query:
+            wanted = set(variables.get("ids") or [])
+            return FakeResponse({"data": {"boards": [b for b in boards if str(b["id"]) in wanted]}})
         if "boards (limit: $limit, page: $page" in query:
             page = variables.get("page", 1)
             return FakeResponse({"data": {"boards": boards if page == 1 else []}})
@@ -221,10 +235,12 @@ def test_get_schemas_shape(monkeypatch):
     assert main.metadata_json["board_id"] == "111"
     assert main.metadata_json["hierarchy_type"] == "classic"
 
-    # board_relation -> FK to the linked board's table name
+    # board_relation -> companion ids column + FK from it to the linked table
+    assert columns["Account (item_ids)"].dtype == "list[int]"
     assert len(main.fks) == 1
     assert main.fks[0].references_name == "Accounts"
-    assert main.fks[0].column.name == "Account"
+    assert main.fks[0].column.name == "Account (item_ids)"
+    assert main.fks[0].references_column.name == "item_id"
 
 
 def test_get_schemas_scoping(monkeypatch):
@@ -243,6 +259,8 @@ def test_get_schemas_discovers_classic_and_multi_level_boards(monkeypatch):
     def post(url, json=None, headers=None, timeout=None):
         query = json["query"]
         variables = json.get("variables") or {}
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
         if "boards (" not in query or "page" not in variables:
             raise AssertionError(f"unexpected query: {query}")
 
@@ -262,13 +280,135 @@ def test_get_schemas_discovers_classic_and_multi_level_boards(monkeypatch):
     assert multi_level.metadata_json["hierarchy_type"] == "multi_level"
 
 
+def test_get_schemas_survives_short_non_final_pages(monkeypatch):
+    """monday does not guarantee non-final pages contain `limit` boards. A
+    short page mid-crawl must not truncate discovery — pagination stops only
+    on an EMPTY page."""
+    pages = {1: [BOARD_MAIN], 2: [BOARD_LINKED], 3: [BOARD_DUPE_A], 4: []}
+
+    def responder(query, variables):
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
+        if "boards (limit: $limit, page: $page" in query:
+            return FakeResponse({"data": {"boards": pages[variables["page"]]}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    tables = MondayClient(api_token="t").get_schemas()
+    assert {t.name for t in tables} == {"Sales Pipeline", "Accounts", "Tasks"}
+
+
+def test_get_schemas_recovers_boards_hidden_from_global_listing(monkeypatch):
+    """The global boards listing can omit boards that workspace-scoped queries
+    return (observed live with shareable boards / cross-product workspaces).
+    The per-workspace sweep recovers them via boards(ids:)."""
+    def responder(query, variables):
+        if "workspaces (limit" in query:
+            page = variables.get("page", 1)
+            ws = [{"id": "9", "name": "Sales", "kind": "open"},
+                  {"id": "10", "name": "Ops", "kind": "open"}]
+            return FakeResponse({"data": {"workspaces": ws if page == 1 else []}})
+        if "workspace_ids: $ws" in query:
+            page = variables.get("page", 1)
+            ws = (variables.get("ws") or [None])[0]
+            by_ws = {"9": [{"id": "111"}], "10": [{"id": "555"}]}
+            return FakeResponse({"data": {"boards": by_ws.get(str(ws), []) if page == 1 else []}})
+        if "boards (ids: $ids" in query:
+            assert variables["ids"] == ["555"]
+            return FakeResponse({"data": {"boards": [BOARD_DUPE_B]}})
+        if "boards (limit: $limit, page: $page" in query:
+            # the global crawl never returns board 555
+            page = variables.get("page", 1)
+            return FakeResponse({"data": {"boards": [BOARD_MAIN] if page == 1 else []}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    tables = MondayClient(api_token="t").get_schemas()
+    assert {t.name for t in tables} == {"Sales Pipeline", "Tasks"}
+
+
+def test_get_schemas_filters_subitem_boards_by_type_not_name(monkeypatch):
+    """A REAL board that happens to be named 'Subitems of …' (monday's
+    'expand subitems into a board' creates these) must be kept; the shadow
+    board is excluded by its API type. Boards without a type field fall back
+    to the name heuristic."""
+    real_named_like_subitems = {**BOARD_LINKED, "id": "777",
+                                "name": "Subitems of Important Board", "type": "board"}
+    shadow_renamed = {**BOARD_LINKED, "id": "888", "name": "Roadmap children",
+                      "type": "sub_items_board"}
+    legacy_no_type = BOARD_SUBITEMS  # no "type" key, "Subitems of " name
+
+    fake_post(monkeypatch, boards_responder(
+        [BOARD_MAIN, real_named_like_subitems, shadow_renamed, legacy_no_type]))
+    tables = MondayClient(api_token="t").get_schemas()
+    assert {t.name for t in tables} == {"Sales Pipeline", "Subitems of Important Board"}
+
+
+def test_get_schemas_workspace_scoping_matches_main_workspace(monkeypatch):
+    """Boards in monday's legacy Main workspace return workspace: null — the
+    'Main workspace' alias must select them; any other filter set must not
+    silently include them."""
+    main_ws_board = {**BOARD_LINKED, "id": "999", "name": "Legacy Board", "workspace": None}
+    fake_post(monkeypatch, boards_responder([BOARD_MAIN, main_ws_board]))
+    tables = MondayClient(api_token="t", workspaces="Main workspace").get_schemas()
+    assert [t.name for t in tables] == ["Legacy Board"]
+
+    fake_post(monkeypatch, boards_responder([BOARD_MAIN, main_ws_board]))
+    tables = MondayClient(api_token="t", workspaces="Sales").get_schemas()
+    assert [t.name for t in tables] == ["Sales Pipeline"]
+
+
+def test_resolve_board_escalates_to_deep_discovery(monkeypatch):
+    """Query-time board resolution starts shallow (no workspace sweep). A
+    board the global listing omits must still resolve — via one escalation
+    to deep discovery — instead of failing with 'not found'."""
+    def responder(query, variables):
+        if "workspaces (limit" in query:
+            page = variables.get("page", 1)
+            ws = [{"id": "10", "name": "Ops", "kind": "open"}]
+            return FakeResponse({"data": {"workspaces": ws if page == 1 else []}})
+        if "workspace_ids: $ws" in query:
+            page = variables.get("page", 1)
+            return FakeResponse({"data": {"boards": [{"id": "555"}] if page == 1 else []}})
+        if "boards (ids: $ids" in query:
+            return FakeResponse({"data": {"boards": [BOARD_DUPE_B]}})
+        if "boards (limit: $limit, page: $page" in query:
+            page = variables.get("page", 1)
+            return FakeResponse({"data": {"boards": [BOARD_MAIN] if page == 1 else []}})
+        if "items_page" in query:
+            return FakeResponse({"data": {"boards": [{"items_page": {"cursor": None, "items": []}}]}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    df = MondayClient(api_token="t").execute_query(json.dumps({"board": "Tasks", "limit": 5}))
+    assert df.empty  # resolved via escalation; empty board, not a lookup error
+
+
+def test_get_schemas_survives_workspace_listing_failure(monkeypatch):
+    """A token that cannot list workspaces (missing workspaces:read) must not
+    break discovery — the global crawl still produces the catalog."""
+    def responder(query, variables):
+        if "workspaces (limit" in query:
+            return FakeResponse({"errors": [{"message":
+                "Unauthorized to load field 'Query.workspaces', Reason: missing required scopes"}]})
+        if "boards (limit: $limit, page: $page" in query:
+            page = variables.get("page", 1)
+            return FakeResponse({"data": {"boards": [BOARD_MAIN] if page == 1 else []}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    tables = MondayClient(api_token="t").get_schemas()
+    assert [t.name for t in tables] == ["Sales Pipeline"]
+
+
 # ── execute_query ───────────────────────────────────────────────────────────
 
 def test_execute_query_flattening_and_pagination(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
     df = MondayClient(api_token="t").execute_query(json.dumps({"board": "Sales Pipeline", "limit": 10}))
     assert list(df.columns) == [
-        "item_id", "name", "group", "Status", "Amount", "Due Date", "Approved", "Priority", "Account",
+        "item_id", "name", "group", "Status", "Amount", "Due Date", "Approved", "Priority",
+        "Account", "Account (item_ids)",
     ]
     # both pages fetched through the cursor
     assert len(df) == 3
@@ -324,6 +464,95 @@ def test_execute_query_accepts_base_columns_in_selection(monkeypatch):
     assert items_call["variables"]["cols"] == ["color_1"]  # only the board column is fetched
 
 
+def test_execute_query_relation_columns_use_display_value(monkeypatch):
+    """Mirror / connect-boards / dependency / subitems column values return an
+    EMPTY `text` — their display string is on the type-specific
+    `display_value` field. The items query must request the fragments and the
+    cell parser must backfill text from display_value."""
+    board = {
+        **BOARD_LINKED,
+        "id": "777",
+        "name": "Linked Board",
+        "columns": [
+            {"id": "name", "title": "Name", "type": "name", "settings_str": "{}"},
+            {"id": "rel_1", "title": "Account", "type": "board_relation", "settings_str": "{}"},
+            {"id": "mirror_1", "title": "Account Status", "type": "mirror", "settings_str": "{}"},
+        ],
+    }
+    page = {"cursor": None, "items": [item(1, "Deal", [
+        {"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
+         "display_value": "Acme Corp, Globex", "linked_item_ids": ["901", "902"]},
+        {"id": "mirror_1", "text": "", "value": None, "type": "mirror",
+         "display_value": "Active"},
+    ])]}
+
+    calls = []
+
+    def responder(query, variables):
+        calls.append(query)
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
+        if "boards (limit: $limit, page: $page" in query:
+            return FakeResponse({"data": {"boards": [board] if variables.get("page", 1) == 1 else []}})
+        if "items_page" in query:
+            return FakeResponse({"data": {"boards": [{"items_page": page}]}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    df = MondayClient(api_token="t").execute_query(json.dumps({"board": "Linked Board", "limit": 5}))
+    assert df.iloc[0]["Account"] == "Acme Corp, Globex"
+    assert df.iloc[0]["Account (item_ids)"] == [901, 902]
+    assert df.iloc[0]["Account Status"] == "Active"
+    items_query = next(q for q in calls if "items_page" in q)
+    assert "... on MirrorValue { display_value }" in items_query
+    assert "... on SubtasksValue { display_value }" in items_query
+    for fragment in ["BoardRelationValue", "DependencyValue"]:
+        assert f"... on {fragment} {{ display_value linked_item_ids }}" in items_query
+
+
+def test_execute_query_item_ids_companion_selectable_and_joinable(monkeypatch):
+    """Selecting the '<Column> (item_ids)' companion published in the schema
+    must select the parent column, and the companion must support the
+    documented explode-and-merge join on the linked board's item_id."""
+    board = {
+        **BOARD_LINKED,
+        "id": "777",
+        "name": "Linked Board",
+        "columns": [
+            {"id": "name", "title": "Name", "type": "name", "settings_str": "{}"},
+            {"id": "rel_1", "title": "Account", "type": "board_relation",
+             "settings_str": json.dumps({"boardIds": [222]})},
+        ],
+    }
+    page = {"cursor": None, "items": [
+        item(1, "Deal A", [{"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
+                            "display_value": "Acme", "linked_item_ids": ["10"]}]),
+        item(2, "Deal B", [{"id": "rel_1", "text": None, "value": "{}", "type": "board_relation",
+                            "display_value": "Acme, Globex", "linked_item_ids": ["10", "11"]}]),
+    ]}
+
+    def responder(query, variables):
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
+        if "boards (limit: $limit, page: $page" in query:
+            return FakeResponse({"data": {"boards": [board] if variables.get("page", 1) == 1 else []}})
+        if "items_page" in query:
+            return FakeResponse({"data": {"boards": [{"items_page": page}]}})
+        raise AssertionError(query)
+
+    fake_post(monkeypatch, responder)
+    df = MondayClient(api_token="t").execute_query(json.dumps(
+        {"board": "Linked Board", "columns": ["Account (item_ids)"], "limit": 5}))
+    assert list(df.columns) == ["item_id", "name", "group", "Account", "Account (item_ids)"]
+
+    accounts = pd.DataFrame({"item_id": [10, 11], "name": ["Acme", "Globex"]})
+    joined = (df.explode("Account (item_ids)")
+                .merge(accounts, left_on="Account (item_ids)", right_on="item_id",
+                       how="left", suffixes=("", " (Account)")))
+    assert len(joined) == 3  # Deal A -> Acme; Deal B -> Acme + Globex
+    assert sorted(joined["name (Account)"]) == ["Acme", "Acme", "Globex"]
+
+
 def test_execute_query_bad_specs(monkeypatch):
     fake_post(monkeypatch, boards_responder(ALL_BOARDS))
     client = MondayClient(api_token="t")
@@ -341,6 +570,8 @@ def test_execute_query_bad_specs(monkeypatch):
 
 def test_execute_query_empty_result_columns(monkeypatch):
     def responder(query, variables):
+        if "workspaces (limit" in query:
+            return FakeResponse({"data": {"workspaces": []}})
         if "boards (limit: $limit, page: $page" in query:
             page = variables.get("page", 1)
             return FakeResponse({"data": {"boards": [BOARD_MAIN] if page == 1 else []}})

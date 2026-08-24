@@ -35,7 +35,11 @@ from app.services.thumbnail_service import ThumbnailService
 from app.services.artifact_libs import get_inline_scripts
 from app.ai.code_execution.pptx_executor import PptxCodeExecutor, PptxPreviewService
 from sqlalchemy import desc
-from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_PROMPT
+from app.ai.tools.implementations._sandbox_context import (
+    SANDBOX_RUNTIME_PROMPT,
+    ANON_PREVIEW_NOTE,
+    build_identity_context,
+)
 from app.ai.tools.implementations._artifact_images import load_image_bytes
 from app.ai.prompt_language import build_language_directive
 
@@ -311,6 +315,32 @@ class CreateArtifactTool(Tool):
     window.__BOW_INFO = false;
   {SC}
 
+  <script>
+    // Params-runtime safety net for the headless validation render: the real
+    // useParams/useParamOptions live in artifact-globals.js and need no host
+    // to merely render, but if the loaded globals bundle predates them (stale
+    // build output) correct artifact code would phantom-fail with
+    // "useParams is not defined" and burn the repair loop. Stubs mirror the
+    // no-params shape; they are defined ONLY when the globals didn't.
+    if (typeof window.useParams !== 'function') {{
+      window.useParams = function() {{
+        return {{ declarations: [], values: {{}}, pending: {{}}, loading: false,
+                 error: null, setParam: function() {{}}, setParams: function() {{}},
+                 apply: function() {{}}, refresh: function() {{}},
+                 getOptions: function() {{ return null; }} }};
+      }};
+    }}
+    if (typeof window.useParamOptions !== 'function') {{
+      window.useParamOptions = function() {{ return null; }};
+    }}
+    if (typeof window.useCurrentUser !== 'function') {{
+      window.useCurrentUser = function() {{
+        var d = window.ARTIFACT_DATA || {{}};
+        return d.current_user || null;
+      }};
+    }}
+  {SC}
+
   {code}
 
   <script>
@@ -344,7 +374,7 @@ class CreateArtifactTool(Tool):
     # Maximum in-tool repair LLM calls per artifact operation. Bounded so a
     # stubborn defect can't consume the whole tool timeout — after this the
     # tool returns a structured failure and the planner decides.
-    MAX_RENDER_REPAIR_ATTEMPTS = 2
+    MAX_RENDER_REPAIR_ATTEMPTS = 5
 
     @staticmethod
     def fatal_render_errors(errors: List[str]) -> List[str]:
@@ -355,6 +385,47 @@ class CreateArtifactTool(Tool):
         never fail an otherwise working artifact.
         """
         return [e for e in (errors or []) if not e.startswith("[console.error]")]
+
+    @staticmethod
+    def params_wiring_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+        """Contract check: declared input params must be WIRED in the code.
+
+        A dashboard whose queries declare input parameters but whose code never
+        calls useParams()/setParam renders controls that only mutate local
+        state — selecting a value silently never re-runs the data. Returns
+        synthetic repair errors (empty when satisfied) that ride the same
+        repair loop as render errors. Identity params are exempt: they render
+        as a badge, not a control.
+        """
+        names: List[str] = []
+        seen: set = set()
+        for v in (artifact_data or {}).get("visualizations") or []:
+            for p in (v.get("parameters") or []) if isinstance(v, dict) else []:
+                name = p.get("name") if isinstance(p, dict) else None
+                if not name or name in seen or (p.get("source") or "input") == "identity":
+                    continue
+                seen.add(name)
+                names.append(name)
+        if not names:
+            return []
+        src = code or ""
+        if "useParams" not in src or "setParam" not in src:
+            return [
+                "[params contract] This dashboard's queries declare input parameter(s) "
+                f"{', '.join(names)}, but the code never calls useParams()/setParam — a "
+                "control that only sets local React state never re-runs the data. Wire "
+                "every param control to useParams().setParam('<name>', value) — bind "
+                "option.value (never the label), drive a loading state from "
+                "useParams().loading, and render useParams().error when set."
+            ]
+        missing = [n for n in names if n not in src]
+        if missing:
+            return [
+                "[params contract] Parameter(s) " + ", ".join(missing) + " are declared "
+                "by this dashboard's queries but never referenced in the code — each "
+                "needs a control wired to useParams().setParam('<name>', value)."
+            ]
+        return []
 
     async def _fix_code(
         self,
@@ -626,15 +697,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             return
         screenshot, errors = await self._take_preview_screenshot(html)
         fatal = self.fatal_render_errors(errors)
+        # Params-wiring contract rides the same repair loop: an unwired param
+        # renders fine but silently never re-runs the data — as much a defect
+        # as a thrown error, and fixable by the same in-tool repair.
+        wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
 
         original_code = code
         original_screenshot = screenshot
         original_errors = errors
+        original_wiring = list(wiring)
         candidate = code
         attempts = 0
 
         while (
-            fatal
+            (fatal or wiring)
             and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
@@ -642,9 +718,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             attempts += 1
             yield ToolProgressEvent(
                 type="tool.progress",
-                payload={"stage": "repairing_code", "attempt": attempts, "error_count": len(fatal)},
+                payload={"stage": "repairing_code", "attempt": attempts, "error_count": len(fatal) + len(wiring)},
             )
-            fixed = await self._fix_code(candidate, errors, mode, runtime_ctx)
+            fixed = await self._fix_code(candidate, list(errors) + wiring, mode, runtime_ctx)
             if not fixed or fixed == candidate:
                 break
 
@@ -656,14 +732,19 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             screenshot, errors = await self._take_preview_screenshot(html)
             candidate = fixed
             fatal = self.fatal_render_errors(errors)
+            wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
 
         if not fatal:
+            # Render fatality decides candidate vs original; unconverged wiring
+            # only ANNOTATES — a rendering dashboard with a dead control still
+            # beats no dashboard, but the caller must be able to say so.
             yield {
                 "code": candidate,
                 "clean": True,
                 "screenshot": screenshot,
                 "errors": errors,
                 "repair_attempts": attempts,
+                "params_wiring_errors": wiring,
             }
         else:
             # Repair didn't converge — return the original, verified-broken
@@ -674,6 +755,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "screenshot": original_screenshot,
                 "errors": original_errors,
                 "repair_attempts": attempts,
+                "params_wiring_errors": original_wiring,
             }
 
     def _build_viz_profile(self, viz: Dict[str, Any], allow_llm_see_data: bool) -> Dict[str, Any]:
@@ -698,6 +780,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         profile: Dict[str, Any] = {
             "id": viz.get("id"),
             "title": viz.get("title"),
+            "query_id": viz.get("query_id"),
             "chart_type": viz.get("data_model_type") or "table",
             # True dataset size; sample_row_count is how many rows are shown
             # to generation/preview (capped). At runtime the dashboard
@@ -747,6 +830,21 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             palette = inner_view.get("palette") or {}
             if palette.get("colors"):
                 profile["colors"] = palette.get("colors")[:5]
+
+        # Declared server-side query parameters (useParams contract). Compact:
+        # the artifact needs name/type/source/label/default/options to build
+        # controls, nothing more.
+        params = viz.get("parameters") or []
+        if params:
+            profile["parameters"] = [
+                {
+                    k: p.get(k)
+                    for k in ("name", "type", "label", "source", "default", "required", "options")
+                    if p.get(k) is not None or k in ("name", "source")
+                }
+                for p in params
+                if isinstance(p, dict) and p.get("name")
+            ]
 
         # Include sample data if allowed
         if allow_llm_see_data:
@@ -976,6 +1074,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 # "chart data contains no categories".
                 "sample_rows": rows,
                 "dataModel": data_model or {},
+                # Declared query parameters (ParamSpec dicts): the dashboard
+                # should render a control per input param via useParams() and
+                # a "scoped to you" badge for identity params.
+                "parameters": list(getattr(viz.query, "parameters", None) or []) if viz.query else [],
             }
 
             # Debug logging
@@ -1092,12 +1194,20 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # Build the prompt for generating React code
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "building_prompt"})
 
+        # Identity vocabulary for page mode: the requester's current_user as an
+        # example + org group names, so identity intent ("show to Finance",
+        # "greet by department") resolves against real names instead of guesses.
+        identity_context = ""
+        if data.mode == "page":
+            identity_context = await build_identity_context(db, user, organization)
+
         prompt = self._build_prompt(
             user_prompt=data.prompt,
             title=data.title,
             mode=data.mode,
             viz_profiles=viz_profiles,
             instructions_context=instructions_context,
+            identity_context=identity_context,
             report_title=getattr(report, 'title', None) if report else None,
             allow_llm_see_data=allow_llm_see_data,
             messages_context=messages_context,
@@ -1252,6 +1362,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         render_errors: list[str] = []
         render_clean = True
         repair_attempts = 0
+        params_wiring_errors: list[str] = []
         thumbnail_html: Optional[str] = None
         artifact_data: Optional[Dict[str, Any]] = None
 
@@ -1263,6 +1374,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "theme": getattr(report, "theme", None) if report else None,
                 },
                 "visualizations": visualizations,
+                # Headless validation renders anonymously on purpose: identity
+                # is per-viewer, injected by the host at render time, and this
+                # exercises the null-guard path in every artifact before it is
+                # persisted.
+                "current_user": None,
             }
             # Inline embedded files as data URIs so the headless render
             # (which has no auth context) can show images/PDFs via <BowFile>.
@@ -1283,6 +1399,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 screenshot_base64 = _validate_result["screenshot"]
                 render_errors = list(_validate_result["errors"] or [])
                 repair_attempts = int(_validate_result["repair_attempts"] or 0)
+                params_wiring_errors = list(_validate_result.get("params_wiring_errors") or [])
             try:
                 thumbnail_html = self._build_thumbnail_html(artifact_data, code, mode=data.mode)
             except Exception as e:
@@ -1509,6 +1626,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         )
         if _attach_screenshot:
             summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
+            summary_msg += ANON_PREVIEW_NOTE
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
@@ -1521,6 +1639,18 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             observation["render_errors"] = render_errors
         if repair_attempts:
             observation["repair_attempts"] = repair_attempts
+        # Wiring contract unmet after the repair budget: the dashboard renders
+        # but its param control(s) are dead — say so instead of shipping it
+        # silently, so the planner can follow up with edit_artifact.
+        if params_wiring_errors:
+            observation["params_wired"] = False
+            observation["params_wiring_errors"] = params_wiring_errors
+            observation["summary"] = (
+                summary_msg
+                + " WARNING: declared query parameters are NOT wired to controls — "
+                "selecting a value will not re-run the data. Fix with edit_artifact: "
+                + params_wiring_errors[0]
+            )
 
         # Add preview screenshot for planner reflection (page mode)
         if _attach_screenshot:
@@ -2266,6 +2396,7 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
         image_count: int = 0,
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        identity_context: str = "",
     ) -> str:
         """Build the dynamic user prompt for page/dashboard generation.
 
@@ -2273,6 +2404,41 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
         as the system prompt); this carries only per-call state.
         """
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Server-side query parameters: when any viz declares them, the
+        # dashboard must wire controls through useParams() (not useFilters).
+        params_directive = ""
+        _param_profiles = [
+            (p.get("title") or p.get("id"), p.get("parameters"))
+            for p in viz_profiles if p.get("parameters")
+        ]
+        if _param_profiles:
+            _lines = "\n".join(
+                f"  - {title}: " + ", ".join(
+                    f"{d.get('name')} ({d.get('type', 'string')}, {d.get('source', 'input')})"
+                    for d in decls
+                )
+                for title, decls in _param_profiles
+            )
+            params_directive = (
+                "\n**Server-side query parameters (MANDATORY UI):** these visualizations' queries "
+                "declare parameters — the platform re-runs them at the data source when a value "
+                "changes (see useParams() in the runtime reference):\n" + _lines + "\n"
+                "Rules: render ONE control per unique param name (same name across queries = one "
+                "control driving all of them) wired to useParams().setParam(name, value); an "
+                "optional param gets an 'All' choice that sets null; identity-source params get NO "
+                "input — show a small 'scoped to you' badge; show a subtle loading state while "
+                "useParams().loading is true, and ALWAYS render useParams().error when set (a "
+                "small banner/toast) — a failed re-run must never look like a stale table. "
+                "Do NOT emulate these with useFilters/client-side "
+                "filtering — the fresh rows arrive through useArtifactData() automatically. "
+                "A control's choice list must be STABLE: populate it from useParamOptions(name) "
+                "(declared options / options-source query, host-resolved) — NEVER derive choices "
+                "from the rows that control filters, or selecting a value collapses the list to "
+                "the current selection. Bind option.value into setParam — never the label. "
+                "A list-typed param renders as a MULTI-select (or checkable list) that submits "
+                "an ARRAY of option.value entries; empty selection = null (All).\n"
+            )
 
         language_directive = build_language_directive(organization_settings)
 
@@ -2307,8 +2473,9 @@ Design request (primary specification — takes precedence when it conflicts wit
 **User Request:** {user_prompt}
 {images_context}
 {files_context}
+{params_directive}
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
-
+{identity_context}
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
 {language_directive}
 
@@ -2345,6 +2512,7 @@ Now create the dashboard:"""
         image_count: int = 0,
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
+        identity_context: str = "",
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -2371,6 +2539,7 @@ Now create the dashboard:"""
             image_count=image_count,
             organization_settings=organization_settings,
             files=files,
+            identity_context=identity_context,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

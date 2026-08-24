@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.547 (August 24, 2026)
+- Fixed agent follow-ups losing tool results across completions, compaction, and process interruptions (#1016)
+
+## Version 0.0.546 (August 23, 2026)
+- Added HTML export to artifacts — download a dashboard as one standalone, fully offline HTML file (no login, no network)
+
+## Version 0.0.545 (August 22, 2026)
+- Introduced parameterized queries and personalized artifacts — dashboards take typed viewer inputs and identity-scoped parameters, with per-viewer results and refresh on open
+
 ## Version 0.0.544 (August 20, 2026)
 - Report owners can hide the Data tab from viewers of a shared report — an "Include Data Tab" checkbox in the share dialog controls whether /r/{id} shows the queries behind the report
 

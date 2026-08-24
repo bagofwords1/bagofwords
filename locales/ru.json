@@ -94,10 +94,10 @@
     "connect": "Подключить",
     "manageConnections": "Управление подключениями",
     "loadingFiles": "Загрузка файлов из источника…",
-    "countTables": "{n} таблиц",
-    "countTools": "{n} инструментов",
-    "countFiles": "{n} файлов",
-    "countInstructions": "{n} инструкций",
+    "countTables": "{n} таблица | {n} таблиц",
+    "countTools": "{n} инструмент | {n} инструментов",
+    "countFiles": "{n} файл | {n} файлов",
+    "countInstructions": "{n} инструкция | {n} инструкций",
     "untitled": "Без названия",
     "primaryPlaceholder": "Напишите основную инструкцию агента в markdown… (введите {'@'}, чтобы упомянуть таблицу или инструкцию)",
     "change": "Изменить",
@@ -274,7 +274,9 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Запустить этот набор",
-    "runSuiteFailed": "Не удалось запустить набор"
+    "runSuiteFailed": "Не удалось запустить набор",
+    "exportInstructions": "Экспортировать пакет агента — инструкции, настройки и тесты (.zip)",
+    "sharedManagedElsewhere": "Общая с агентами, которыми вы не управляете, — изменить может только тот, у кого есть права на всех них."
   },
   "smoke": {
     "hello": "Привет",
@@ -344,7 +346,10 @@
     "starOnGithub": "Star our GitHub",
     "admin": "Администрирование",
     "notifications": "Уведомления",
-    "automations": "Автоматизации"
+    "automations": "Автоматизации",
+    "agent": "Агент",
+    "agents": "Агенты",
+    "viewAllAgents": "Все агенты →"
   },
   "notifications": {
     "title": "Уведомления",
@@ -596,7 +601,14 @@
       "schedule": "Расписание",
       "type": "Тип",
       "dataSource": "Источник данных",
-      "artifacts": "Артефакты"
+      "artifacts": "Артефакты",
+      "artifactsLabel": "Дашборд",
+      "clear": "Очистить всё",
+      "dataSourceLabel": "Агент",
+      "scheduleLabel": "Расписание",
+      "statusLabel": "Статус",
+      "title": "Тип",
+      "typeLabel": "Тип"
     },
     "visibility": {
       "public": "Любой по ссылке",
@@ -628,10 +640,14 @@
       "chat": "Чат",
       "createdViaMcp": "Создан через MCP",
       "createdViaExcel": "Создан через Excel",
-      "runningOnSchedule": "Запускается по расписанию"
+      "runningOnSchedule": "Запускается по расписанию",
+      "createdBySchedule": "Создан задачей по расписанию",
+      "createdByTrigger": "Создан триггером"
     },
     "pagination": {
-      "showing": "Показано с {from} по {to} из {total} отчётов"
+      "showing": "Показано с {from} по {to} из {total} отчётов",
+      "page": "Страница {page}",
+      "rowsPerPage": "Строк на странице"
     },
     "toasts": {
       "starFailed": "Не удалось обновить отметку",
@@ -678,7 +694,34 @@
       "running": "Выполняется",
       "newActivity": "Новая активность",
       "errorNew": "Завершилось с ошибкой"
-    }
+    },
+    "type": {
+      "training": "Обучение",
+      "chat": "Чат",
+      "dashboard": "Дашборд",
+      "slides": "Слайды"
+    },
+    "inProject": "В проекте {name}",
+    "filtersButton": "Фильтры",
+    "sharedEmpty": "Нет общих отчётов",
+    "sharedEmptyHint": "Отчёты, которыми с вами поделятся, появятся здесь.",
+    "trainingEmptyBody": "Задавайте вопросы и проверяйте ответы ИИ. Подтверждайте или редактируйте ответы, чтобы научить ИИ-аналитика обрабатывать похожие запросы в будущем.",
+    "trainingEmptyTipLabel": "Как это работает:",
+    "trainingEmptyTitle": "Сессия обучения начата.",
+    "trainingStarters": [
+      {
+        "title": "Найти противоречия в инструкциях",
+        "prompt": "Найди противоречия и пробелы между существующими обучающими инструкциями, из-за которых ответы ИИ могут быть непоследовательными."
+      },
+      {
+        "title": "Показать ответы с низкой уверенностью",
+        "prompt": "Перечисли недавние ответы ИИ, в которых модель выразила неуверенность или дала ответы низкого качества, требующие проверки."
+      },
+      {
+        "title": "Показать ответы с негативной оценкой",
+        "prompt": "Разбери ответы, получившие негативные отзывы пользователей, чтобы выявить закономерности и области для улучшения."
+      }
+    ]
   },
   "projects": {
     "title": "Проекты",
@@ -759,7 +802,30 @@
       "noAutomations": "В проекте пока нет автоматизаций.",
       "fromProject": "Из {name}"
     },
-    "rowActions": "Действия с проектом"
+    "rowActions": "Действия с проектом",
+    "myProjects": "Мои проекты",
+    "sharedWithMe": "Доступные мне",
+    "searchPlaceholder": "Поиск проектов…",
+    "filtersButton": "Фильтры",
+    "emptyTitle": "Проектов пока нет",
+    "noResults": "Проекты не найдены",
+    "noResultsHint": "Измените запрос или сбросьте фильтры.",
+    "sharedEmpty": "С вами пока ничем не поделились",
+    "sharedEmptyHint": "Проекты, которыми поделятся коллеги, появятся здесь.",
+    "filters": {
+      "accessLabel": "Доступ",
+      "allAccess": "Любой доступ",
+      "private": "Личный",
+      "orgShared": "Доступен организации",
+      "reportsLabel": "Отчёты",
+      "allReports": "Все проекты",
+      "withReports": "С отчётами",
+      "emptyReports": "Пустые",
+      "clear": "Очистить всё"
+    },
+    "pagination": {
+      "rowsPerPage": "Строк на странице"
+    }
   },
   "traceModal": {
     "title": "Выполнение агента",
@@ -847,7 +913,8 @@
     "steerQueuedFallback": "Выполнение только что завершилось — ваше сообщение добавлено в очередь",
     "steerFailed": "Не удалось скорректировать текущее выполнение",
     "instructionUnavailableTitle": "Инструкция недоступна",
-    "instructionUnavailableBody": "Возможно, она была удалена, или у вас нет к ней доступа."
+    "instructionUnavailableBody": "Возможно, она была удалена, или у вас нет к ней доступа.",
+    "loopRetryNotice": "Произошла внутренняя ошибка — повтор из самого свежего контекста (попытка {attempt}/{max})"
   },
   "tools": {
     "common": {
@@ -1027,7 +1094,9 @@
       "toastFailedPublish": "Не удалось опубликовать инструкцию",
       "toastDeletedDesc": "Инструкция удалена",
       "toastFailedDelete": "Не удалось удалить инструкцию",
-      "toastSaved": "Инструкция сохранена"
+      "toastSaved": "Инструкция сохранена",
+      "editCount": "правок: {n}",
+      "editLabel": "Изменить инструкцию"
     },
     "inspectData": {
       "inspecting": "Исследование",
@@ -1362,7 +1431,9 @@
     "routeModel": {
       "routedTo": "Направлено на",
       "choosing": "Выбор модели…",
-      "routing": "Маршрутизация модели"
+      "routing": "Маршрутизация модели",
+      "fallbackReason": "{from} была недоступна",
+      "fellBackTo": "Переключено на"
     },
     "grepFiles": {
       "grepping": "Поиск в файлах по {pattern}…",
@@ -1375,6 +1446,48 @@
       "moreShown": "+{count} ещё показано агенту",
       "filesSkippedSingular": "{count} файл пропущен ({reasons})",
       "filesSkippedPlural": "{count} файлов пропущено ({reasons})"
+    },
+    "listAgentExecutions": {
+      "empty": "Запуски не найдены",
+      "failed": "Не удалось загрузить запуски агента",
+      "found": "запусков: {count} · всего {total}",
+      "loading": "Загрузка запусков агента…",
+      "noMatch": "Нет запусков, подходящих под этот фильтр",
+      "tabAll": "Все",
+      "tabFailed": "С ошибкой",
+      "tabLowConfidence": "Низкая уверенность",
+      "tabLowCoverage": "Низкое покрытие",
+      "tabNegative": "Негативные отзывы",
+      "title": "Список запусков агента"
+    },
+    "sendEmail": {
+      "failed": "Не удалось отправить письмо",
+      "sending": "Отправка письма...",
+      "sentPrefix": "Отправлено: {subject}",
+      "subject": "Тема",
+      "to": "Кому"
+    },
+    "webFetch": {
+      "errorOccurred": "Произошла ошибка",
+      "failed": "Не удалось получить данные",
+      "fetched": "Получено",
+      "fetching": "Получение"
+    },
+    "browser": {
+      "acted": "Выполнено действие",
+      "acting": "Выполняет действие",
+      "capturing": "Делает снимок экрана",
+      "done": "Просмотр завершён",
+      "extracted": "Текст прочитан",
+      "extracting": "Читает текст",
+      "failed": "Действие в браузере не удалось",
+      "navigated": "Страница открыта",
+      "navigating": "Открывает страницу",
+      "screenshot": "Снимок экрана",
+      "snapshot": "Структура страницы",
+      "snapshotted": "Страница прочитана",
+      "snapshotting": "Читает страницу",
+      "working": "Работает в браузере"
     }
   },
   "entityCreate": {
@@ -1393,7 +1506,9 @@
     "saveEntity": "Сохранить сущность",
     "suggestEntity": "Предложить сущность",
     "saveFailed": "Не удалось сохранить сущность",
-    "stepRequired": "Для сохранения требуется шаг"
+    "stepRequired": "Для сохранения требуется шаг",
+    "publishedToast": "Запрос опубликован в каталоге",
+    "suggestedToast": "Предложение отправлено на проверку"
   },
   "mentionInput": {
     "placeholder": "Введите {'@'} для упоминания...",
@@ -1415,7 +1530,8 @@
       "tables": "Таблицы",
       "prompts": "Промпты",
       "instructions": "Инструкции",
-      "skills": "Навыки"
+      "skills": "Навыки",
+      "tools": "Инструменты"
     },
     "time": {
       "justNow": "только что",
@@ -1475,19 +1591,24 @@
       "view": "Просмотр",
       "view_schema": "Просмотр схемы",
       "create_entities": "Создание сущностей",
-      "manage": "Управление настройками"
+      "manage": "Управление настройками",
+      "create_data_sources": "Создавать агентов",
+      "manage_connection": "Управлять подключением",
+      "manage_data_sources": "Управлять агентами",
+      "manage_service_accounts": "Управлять сервисными учётными записями"
     },
     "addAgent": "+ Добавить агента...",
     "advancedPermissions": "Расширенные разрешения",
     "tiers": {
-        "query": "Может запрашивать",
-        "queryHint": "Задавать вопросы этому агенту",
-        "manage": "Может управлять",
-        "manageHint": "Редактирование инструкций, сущностей, оценок, настроек и участников"
+      "query": "Может запрашивать",
+      "queryHint": "Задавать вопросы этому агенту",
+      "manage": "Может управлять",
+      "manageHint": "Редактирование инструкций, сущностей, оценок, настроек и участников"
     },
     "modelAccess": "Доступ к моделям",
     "modelAccessHint": "Ограниченные модели",
-    "noRestrictedModels": "Нет ограниченных моделей"
+    "noRestrictedModels": "Нет ограниченных моделей",
+    "connection": "Подключение"
   },
   "groupsManager": {
     "searchPlaceholder": "Поиск групп...",
@@ -1619,7 +1740,59 @@
       "unknown": "Неизвестно",
       "lastSyncDetail": "— создано {gCreated}, обновлено {gUpdated}, удалено {gRemoved} · добавлено участников {mAdded}, удалено {mRemoved}",
       "errorCount": "{n} ошибок: {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraAdd": "Добавить",
+      "entraAddPlaceholder": "Добавить атрибут…",
+      "entraContextTitle": "Из вашего профиля в каталоге",
+      "entraEnable": "Синхронизировать данные профиля из Entra ID",
+      "entraEnableHint": "При входе система читает профиль Microsoft Graph пользователя и сохраняет его как контекст для ИИ. Используется область User.Read, выдаваемая по умолчанию, — согласие администратора не требуется.",
+      "entraFieldsLabel": "Атрибуты, включаемые в контекст",
+      "entraNoFields": "Атрибуты не выбраны",
+      "entraNoLogin": "Войдите через Entra ID, чтобы увидеть реальные значения из вашего профиля.",
+      "entraNotSet": "не задано",
+      "entraPreviewError": "Не удалось загрузить значения из Microsoft Graph.",
+      "entraReauth": "Сессия Entra ID истекла — войдите через Entra ID снова, чтобы загрузить значения.",
+      "entraRemove": "Удалить",
+      "entraSaveFailed": "Не удалось сохранить",
+      "entraSaved": "Сохранено",
+      "entraSaving": "Сохранение...",
+      "entraSubtitle": "Синхронизирует должность, отдел и другие данные профиля из Microsoft Entra ID при входе",
+      "entraTitle": "Синхронизация профиля Entra ID",
+      "field_city": "Город",
+      "field_companyName": "Компания",
+      "field_country": "Страна",
+      "field_department": "Отдел",
+      "field_displayName": "Имя",
+      "field_employeeHireDate": "Дата приёма на работу",
+      "field_employeeId": "Табельный номер",
+      "field_employeeOrgData": "Подразделение и центр затрат",
+      "field_employeeType": "Тип занятости",
+      "field_hostedDomain": "Домен рабочего пространства",
+      "field_jobTitle": "Должность",
+      "field_locale": "Локаль",
+      "field_location": "Местоположение",
+      "field_mobilePhone": "Мобильный телефон",
+      "field_officeLocation": "Офис",
+      "field_organization": "Организация",
+      "field_preferredLanguage": "Предпочитаемый язык",
+      "field_state": "Регион",
+      "field_usageLocation": "Страна использования",
+      "googleAdd": "Добавить",
+      "googleAddPlaceholder": "Добавить атрибут…",
+      "googleEnable": "Синхронизировать данные профиля из Google",
+      "googleEnableHint": "При входе система читает профиль Google пользователя (userinfo + People API) и сохраняет его как контекст для ИИ. Используются только области openid/profile/email, уже выданные при входе.",
+      "googleFieldsLabel": "Атрибуты, включаемые в контекст",
+      "googleNoFields": "Атрибуты не выбраны",
+      "googleNoLogin": "Войдите через Google, чтобы увидеть реальные значения из вашего профиля.",
+      "googleNotSet": "не задано",
+      "googlePreviewError": "Не удалось загрузить значения из Google.",
+      "googleReauth": "Сессия Google истекла — войдите через Google снова, чтобы загрузить значения.",
+      "googleRemove": "Удалить",
+      "googleSaveFailed": "Не удалось сохранить",
+      "googleSaved": "Сохранено",
+      "googleSaving": "Сохранение...",
+      "googleSubtitle": "Синхронизирует имя, должность, отдел и другие данные профиля из Google при входе",
+      "googleTitle": "Синхронизация профиля Google"
     },
     "auditLogs": "Журналы аудита",
     "integrations": {
@@ -1683,7 +1856,21 @@
           "failedConnect": "Не удалось подключить Slack",
           "disconnectedToast": "Slack отключён",
           "disconnectedToastDesc": "Интеграция со Slack отключена",
-          "failedDisconnect": "Не удалось отключить Slack"
+          "failedDisconnect": "Не удалось отключить Slack",
+          "appToken": "Токен уровня приложения",
+          "connectionModeLabel": "Режим подключения",
+          "modeEventsApi": "Events API (webhook)",
+          "modeEventsApiHint": "Slack отправляет события POST-запросами на ваш публичный webhook-URL — нужны signing secret и доступный Request URL.",
+          "modeSocket": "Socket Mode",
+          "modeSocketHint": "Бэкенд сам подключается к Slack по WebSocket — публичный URL и signing secret не нужны, и это включает режим Agent.",
+          "modeSocketRecommended": "Socket Mode (рекомендуется)",
+          "socketSetupIntro": "В вашем приложении Slack (api.slack.com/apps):",
+          "socketStep1": "Socket Mode → включите его и создайте токен уровня приложения с областью connections:write (xapp-…)",
+          "socketStep2": "OAuth & Permissions → области бота: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions → включите события (Request URL не нужен) и подпишитесь на: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents → включите «Agent experience» для встроенной панели ассистента, названий тредов и подсказок",
+          "socketStep5": "App Home → включите вкладку Messages и разрешите пользователям отправлять сообщения",
+          "socketStep6": "Install App → установите приложение в рабочее пространство и скопируйте Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Интеграция с Teams",
@@ -1921,6 +2108,37 @@
           "tenantWide": "Развёртывание для всего тенанта",
           "tenantWideDesc": "Для развёртывания в масштабах всей организации администратор Microsoft 365 может загрузить этот манифест через Admin Center → Параметры → Интегрированные приложения.",
           "failedLoadManifest": "Не удалось загрузить манифест"
+        },
+        "googleChat": {
+          "autoLinkDescConnected": "Если включено, пользователи Google Chat автоматически связываются с аккаунтами BOW, у которых совпадает почта из профиля Google Workspace (ссылка подтверждения не нужна). Поскольку почта берётся из каталога вашего Workspace, это обычно безопасно — но включайте только для доменов, которым вы полностью доверяете.",
+          "autoLinkDescSetup": "Пользователи, пишущие боту, связываются с аккаунтами BOW, у которых совпадает почта из профиля Google Workspace, — ссылка подтверждения не нужна. Рекомендуется.",
+          "autoLinkTitle": "Автоматически связывать пользователей по почте Workspace",
+          "connectedNotice": "Google Chat сейчас подключён.",
+          "connectedToast": "Google Chat подключён",
+          "connectedToastDesc": "Интеграция с Google Chat выполнена",
+          "disconnectedToast": "Google Chat отключён",
+          "disconnectedToastDesc": "Интеграция с Google Chat отключена",
+          "failedConnect": "Не удалось подключить Google Chat",
+          "failedDisconnect": "Не удалось отключить Google Chat",
+          "noteChannels": "В пространствах используются только публичные источники данных",
+          "noteChats": "В личных сообщениях используются публичные и приватные источники данных (к которым у пользователя есть доступ)",
+          "noteNoInbound": "События приходят через Pub/Sub — публичный URL и входящий доступ через файрвол не нужны",
+          "noteRegistered": "Писать боту или упоминать его через {'@'} могут только зарегистрированные пользователи",
+          "serviceAccount": "Сервисная учётная запись:",
+          "serviceAccountJsonLabel": "Ключ сервисной учётной записи (JSON)",
+          "serviceAccountJsonPlaceholder": "Вставьте полный JSON-ключ сервисной учётной записи",
+          "sessionStalenessDesc": "Как долго личное сообщение продолжается в том же отчёте беседы. Сообщения после этого окна начинают новый отчёт (отправка «new» начинает его сразу). По умолчанию: 120 часов (5 дней).",
+          "setupIntro": "В отдельном проекте Google Cloud (важно — повторное использование старого проекта может оставить приложение Chat в нерабочем состоянии):",
+          "setupStep1": "Включите Google Chat API и Cloud Pub/Sub API",
+          "setupStep2": "Создайте сервисную учётную запись (роли не нужны) и скачайте её JSON-ключ",
+          "setupStep3": "Создайте тему Pub/Sub; выдайте chat-api-push{'@'}system.gserviceaccount.com роль Pub/Sub Publisher на неё",
+          "setupStep4": "Создайте pull-подписку на тему; выдайте своей сервисной учётной записи роль Pub/Sub Subscriber на неё",
+          "setupStep5": "На странице Chat API Configuration: оставьте «Build this Chat app as a Workspace add-on» ВЫКЛЮЧЕННЫМ, задайте имя и аватар приложения, включите приём личных сообщений, выберите Cloud Pub/Sub со своей темой, включите «Log errors to Logging» и сохраните",
+          "subscription": "Подписка:",
+          "subscriptionLabel": "Подписка Pub/Sub",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "subtitle": "Настройка и управление интеграцией с Google Chat для вашей организации",
+          "title": "Интеграция с Google Chat"
         }
       },
       "emptyTitle": "Настройте работу Bag of Words с вашими инструментами",
@@ -1989,7 +2207,8 @@
       "copyLink": "Копировать ссылку",
       "linkCopied": "Ссылка-приглашение скопирована",
       "failedToCopyLink": "Не удалось скопировать ссылку",
-      "linkRegenerated": "Ссылка-приглашение обновлена и скопирована"
+      "linkRegenerated": "Ссылка-приглашение обновлена и скопирована",
+      "moreGroups": "групп"
     },
     "organizationName": "Название организации",
     "organizationIcon": "Иконка организации",
@@ -2021,7 +2240,9 @@
       "members": "Участники",
       "roles": "Роли",
       "groups": "Группы",
-      "signup": "Регистрация"
+      "signup": "Регистрация",
+      "quotas": "Квоты",
+      "serviceAccounts": "Сервисные учётные записи"
     },
     "audit": {
       "title": "Журналы аудита",
@@ -2126,7 +2347,43 @@
       "routingHintSeedSmall": "Простые вопросы, отдельные метрики и быстрые запросы.",
       "routingHintSeedDefault": "Дашборды, артефакты, анализ файлов и продвинутый многошаговый анализ.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "Автоматический маршрутизатор моделей — корпоративная функция. Обновите лицензию, чтобы включить её."
+      "autoRouterEnterpriseTooltip": "Автоматический маршрутизатор моделей — корпоративная функция. Обновите лицензию, чтобы включить её.",
+      "addModel": "Добавить модель",
+      "addModelCustomPlaceholder": "ID модели (напр. gpt-5.6-luna)",
+      "addModelSubmit": "Добавить",
+      "addModelTitle": "Добавить модель",
+      "addProvider": "Добавить провайдера",
+      "cancel": "Отмена",
+      "colFallback": "Резерв",
+      "colImageGen": "Генерация изображений",
+      "dangerZone": "Опасная зона",
+      "deleteModel": "Удалить",
+      "deleteModelBlockedDefault": "Модели по умолчанию нельзя удалить. Сначала назначьте моделью по умолчанию другую.",
+      "deleteModelConfirm": "Удалить «{name}»? Это действие необратимо.",
+      "deleteModelTitle": "Удалить модель",
+      "enabledLabel": "Включена",
+      "fallback": "Резервные модели",
+      "fallbackColTooltip": "Приоритет в цепочке резерва — модели пробуются по возрастанию, когда активная не отвечает.",
+      "fallbackEmpty": "резервных моделей нет — задайте приоритеты в столбце «Резерв»",
+      "fallbackEnterpriseTooltip": "Резервные модели — функция enterprise. Обновите лицензию, чтобы включить её.",
+      "fallbackHow1": "Если активная модель отказала из-за лимита частоты, перегрузки провайдера или сетевой ошибки, запрос повторяется на следующей модели в порядке ниже.",
+      "fallbackHow2": "Модели пробуются сверху вниз; модель, чей провайдер недоступен, пропускается до восстановления.",
+      "fallbackHow3": "Переключение всегда отображается в чате, а ответ помечается моделью, которая его фактически дала.",
+      "fallbackHowTitle": "Как работают резервные модели",
+      "fallbackInactive": "неактивна",
+      "fallbackOff": "Резервные модели выключены",
+      "fallbackOn": "Резервные модели включены",
+      "fallbackPrimary": "основная",
+      "imageGenDefaultBlocked": "Модель по умолчанию не может быть моделью генерации изображений. Сначала назначьте моделью по умолчанию другую.",
+      "imageGenTooltip": "Генерирует ли эта модель изображения (напр. gpt-image-1). Включает её для инструмента generate_image и для вставки сгенерированных изображений в артефакты. Модели изображений не показываются в выборе модели в чате и не могут быть моделью по умолчанию.",
+      "modelAdded": "Модель добавлена",
+      "modelCardHint": "Нажмите на строку модели, чтобы открыть её настройки",
+      "modelDeleted": "Модель удалена",
+      "modelSettings": "Настройки модели",
+      "modelsCount": "моделей: {count}",
+      "providerLabel": "Провайдер",
+      "providerSettingsTooltip": "Настройки провайдера",
+      "save": "Сохранить"
     },
     "licensePage": {
       "title": "Лицензия",
@@ -2153,7 +2410,30 @@
       "inDays": "осталось {days} дн.",
       "expiredNotice": "Срок действия вашей корпоративной лицензии истёк. Корпоративные функции отключены до продления.",
       "enterpriseTitle": "Корпоративная редакция",
-      "renewInfo": "Продлите лицензию, чтобы восстановить корпоративные функции: журналы аудита, расширенный контроль доступа и политики хранения данных."
+      "renewInfo": "Продлите лицензию, чтобы восстановить корпоративные функции: журналы аудита, расширенный контроль доступа и политики хранения данных.",
+      "activate": "Активировать",
+      "activateDesc": "Вставьте лицензионный ключ, полученный от BOW.",
+      "activateTitle": "Лицензионный ключ",
+      "activating": "Активация…",
+      "activeKey": "Активный ключ",
+      "cancel": "Отмена",
+      "envActive": "Этот экземпляр использует {envvar} из своего окружения. Сохранённый здесь ключ переопределит его.",
+      "keyLabel": "Лицензионный ключ",
+      "keyPlaceholder": "bow_lic_…",
+      "lastUpdated": "Обновлён",
+      "noKey": "Лицензионный ключ не настроен. Вставьте его ниже, чтобы включить enterprise-функции.",
+      "overridesEnv": "Этот ключ переопределяет {envvar}, настроенный для этого развёртывания. Удалите его, чтобы вернуться к тому ключу.",
+      "remove": "Удалить",
+      "removeConfirm": "Удалить сохранённый лицензионный ключ? Экземпляр вернётся к ключу из окружения, если он задан.",
+      "removedToast": "Лицензионный ключ удалён",
+      "removing": "Удаление…",
+      "saveFailed": "Не удалось активировать лицензию",
+      "savedToast": "Лицензия активирована",
+      "sourceConfig": "Из окружения",
+      "sourceDatabase": "Задан здесь",
+      "sourceLabel": "Источник",
+      "sourceNone": "Не задан",
+      "update": "Обновить ключ"
     },
     "mcpModal": {
       "editTitle": "Редактировать подключение MCP",
@@ -2183,7 +2463,10 @@
       "updated": "Подключение обновлено",
       "connected": "Сервер MCP подключён",
       "failedUpdate": "Не удалось обновить",
-      "failedConnect": "Не удалось подключиться"
+      "failedConnect": "Не удалось подключиться",
+      "orCreateNew": "— или создать новое —",
+      "selectExistingPlaceholder": "Выберите существующее…",
+      "useExistingLabel": "Использовать существующее подключение"
     },
     "weekStart": {
       "label": "Начало рабочей недели",
@@ -2195,7 +2478,56 @@
         "monday": "Понедельник",
         "saturday": "Суббота"
       }
-    }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "description": "Используется для интерпретации задач по расписанию (напр. времени переиндексации) и для отображения времени. Данные всегда хранятся в UTC.",
+      "label": "Часовой пояс организации",
+      "saveError": "Не удалось обновить часовой пояс",
+      "systemDefault": "Использовать системный по умолчанию (UTC)"
+    },
+    "pii": {
+      "action": "Действие",
+      "actionBlock": "Блокировать",
+      "actionReplace": "Заменить",
+      "addPattern": "Добавить шаблон",
+      "addRule": "Добавить правило",
+      "blocksRequest": "Блокирует запрос",
+      "builtinDesc": "Готовые детекторы для распространённых персональных данных. Включайте их по отдельности и настраивайте токен замены.",
+      "builtinTitle": "Встроенные правила",
+      "customDesc": "Задайте собственные детекторы. Правило может содержать несколько шаблонов (регулярных выражений) — срабатывание любого запускает правило.",
+      "customTitle": "Пользовательские правила",
+      "enterpriseBody": "Защита персональных данных доступна в тарифе Enterprise. Обратитесь к администратору, чтобы включить её.",
+      "enterpriseTitle": "Функция enterprise",
+      "masterDesc": "Когда включено, совпадающий текст скрывается в каждом исходящем запросе к LLM в этом рабочем пространстве.",
+      "masterLabel": "Включить защиту персональных данных",
+      "modeBlock": "Блокировать запрос",
+      "modeBlockDesc": "Не отправлять запрос, если найдены персональные данные. Можно переопределить для каждого правила ниже.",
+      "modeLabel": "Действие по умолчанию при обнаружении персональных данных",
+      "modeReplace": "Заменить на токен",
+      "modeReplaceDesc": "Заменить каждое совпадение его токеном и продолжить. Можно переопределить для каждого правила ниже.",
+      "noCustomRules": "Пользовательских правил пока нет.",
+      "patternPlaceholder": "напр. \\bEMP-\\d+\\b",
+      "patternRequired": "Каждому правилу нужен хотя бы один шаблон.",
+      "patterns": "Шаблоны (regex)",
+      "removeRule": "Удалить",
+      "replacement": "Замена",
+      "ruleName": "Название правила",
+      "ruleNamePlaceholder": "напр. Табельный номер",
+      "saveError": "Не удалось сохранить настройки персональных данных",
+      "saved": "Настройки персональных данных сохранены",
+      "subtitle": "Скрывает персональные данные в запросах до их отправки любому провайдеру LLM. Правила применяются ко всему собранному запросу — сообщению пользователя, примерам схемы, предпросмотрам данных и тексту загруженных файлов.",
+      "testBlocked": "Этот запрос был бы ЗАБЛОКИРОВАН (обнаружены персональные данные).",
+      "testButton": "Предпросмотр скрытия",
+      "testDesc": "Вставьте пример текста, чтобы увидеть, как он будет скрыт текущими правилами.",
+      "testMatches": "Совпадения: {rules}",
+      "testNoMatches": "В примере персональные данные не обнаружены.",
+      "testPlaceholder": "Вставьте текст с примерами персональных данных…",
+      "testResult": "Результат",
+      "testTitle": "Проверьте свои правила",
+      "title": "Защита персональных данных"
+    },
+    "piiTab": "Персональные данные"
   },
   "data": {
     "title": "Подключения",
@@ -2433,7 +2765,76 @@
     "mcpModeAiTip": "ИИ может задать значение; сервер заполнит, если пусто",
     "mcpModeLockedTip": "Значение администратора всегда в приоритете; скрыто от ИИ",
     "mcpAddMetaField": "+ Добавить поле метаданных",
-    "verify": "Проверить"
+    "verify": "Проверить",
+    "autoReindex": "Автоматическая переиндексация схемы",
+    "autoReindexAt": "Переиндексировать ежедневно в",
+    "autoReindexEnterprise": "Переиндексация по расписанию — функция enterprise.",
+    "autoReindexEvery": "Переиндексировать каждые",
+    "autoReindexHint": "Периодически переиндексировать это подключение, чтобы таблицы оставались актуальными.",
+    "autoReindexLastError": "Последняя ошибка",
+    "autoReindexMinInterval": "Минимальный интервал — {n} минут.",
+    "autoReindexModeInterval": "Интервал",
+    "autoReindexModeTime": "В заданное время",
+    "autoReindexSaveFailed": "Не удалось сохранить настройки автопереиндексации",
+    "autoReindexSchedule": "Расписание",
+    "autoReindexTimeHint": "Ежедневно, в часовом поясе организации.",
+    "browserForm": {
+      "allowDownloads": "Разрешить загрузки",
+      "cancel": "Отмена",
+      "name": "Название",
+      "namePlaceholder": "напр. Портал поставщиков",
+      "save": "Создать",
+      "test": "Проверить URL",
+      "urls": "Разрешённые URL",
+      "urlsHelp": "По одному шаблону в строке, напр. https://portal.vendor.com/**. Агент сможет открывать только совпадающие URL."
+    },
+    "catAll": "Все",
+    "catBi": "BI и аналитика",
+    "catDatabases": "Базы данных и хранилища",
+    "catFiles": "Файлы и объектные хранилища",
+    "catInfra": "Инфраструктура",
+    "catServices": "Сервисы",
+    "collectionsAccessible": "Доступно коллекций: {n}",
+    "collectionsLabel": "Коллекции",
+    "connectToQueryAsYou": "Подключите свою учётную запись, чтобы выполнять запросы от своего имени.",
+    "connectorDcrNote": "Настройка администратором не нужна — этот коннектор регистрируется автоматически (DCR). Вы добавляете его для организации; каждый пользователь входит под своей учётной записью при первом использовании.",
+    "connectorsSection": "Коннекторы",
+    "customSection": "Пользовательские коннекторы",
+    "customSectionHint": "Подключите любой MCP-сервер или REST API",
+    "dataSourcesSection": "Источники данных",
+    "disconnect": "Отключить",
+    "disconnecting": "Отключение…",
+    "everyNHours": "Каждые {n} ч.",
+    "filesAccessible": "Доступно файлов: {n}",
+    "filesLabel": "Файлы",
+    "impactAgentsMany": "Это затронет агентов: {count}",
+    "impactAgentsOne": "Это затронет {count} агента",
+    "lastRefreshed": "Последнее обновление",
+    "mcpBadge": "MCP",
+    "me": "Я",
+    "rateLimit": "Ограничение частоты запросов",
+    "rateLimitEnterprise": "Ограничение частоты по подключению — функция enterprise.",
+    "rateLimitHint": "Ограничьте, сколько запросов принимает это подключение за период. Лимит общий для всех пользователей; запросы сверх лимита блокируются.",
+    "rateLimitNoLimit": "Без ограничения",
+    "rateLimitPerDay": "В день",
+    "rateLimitPerHour": "В час",
+    "rateLimitPerMinute": "В минуту",
+    "rateLimitReqDay": "запр./день",
+    "rateLimitReqHour": "запр./час",
+    "rateLimitReqMin": "запр./мин",
+    "rateLimitSaveFailed": "Не удалось сохранить настройки ограничения частоты",
+    "refreshing": "Обновление…",
+    "reloadMyTables": "Перезагрузить мои таблицы",
+    "runQueriesAs": "Выполнять запросы от имени",
+    "sampleSection": "Демонстрационные базы данных",
+    "serviceAccountNote": "Запросы выполняются под сервисной учётной записью подключения.",
+    "stopIndexingFailed": "Не удалось остановить индексацию",
+    "switchIdentityFailed": "Не удалось сменить учётную запись для запросов",
+    "tablesAccessible": "Доступно таблиц: {n}",
+    "toolsAccessible": "Доступно инструментов: {n}",
+    "toolsLabel": "Инструменты",
+    "unitHours": "часов",
+    "unitMinutes": "минут"
   },
   "share": {
     "shareDashboard": "Поделиться дашбордом",
@@ -2517,7 +2918,10 @@
     "integration.not_found": "Интеграция не найдена",
     "resource.conflict": "Ресурс уже существует или конфликтует с текущим состоянием",
     "resource.duplicate": "Дублирующийся ресурс",
-    "setting.update_failed": "Не удалось обновить настройку"
+    "setting.update_failed": "Не удалось обновить настройку",
+    "query": {
+      "failed_silently": "Запрос завершился ошибкой, но сгенерированный код вернул пустой результат вместо сообщения об этом"
+    }
   },
   "email": {
     "dashboardShare": {
@@ -2701,7 +3105,12 @@
     "refreshPartial": "Дашборд обновлён частично",
     "refreshFailed": "Не удалось обновить дашборд",
     "refreshNothing": "Нечего обновлять",
-    "refreshSummary": "Обновлено запросов: {succeeded} из {total}"
+    "refreshSummary": "Обновлено запросов: {succeeded} из {total}",
+    "exportHtml": "Скачать как автономный HTML",
+    "exportComplete": "Экспорт завершён",
+    "exportHtmlDone": "Автономный HTML-файл загружен — он работает офлайн.",
+    "exportFailed": "Ошибка экспорта",
+    "exportHtmlFailed": "Не удалось экспортировать этот дашборд в HTML."
   },
   "filter": {
     "addFilters": "Добавить фильтры",
@@ -2779,7 +3188,8 @@
     "global": "Глобальный",
     "tablesLoadFailed": "Не удалось загрузить таблицы",
     "instructionsLoadFailed": "Не удалось загрузить инструкции",
-    "queriesLoadFailed": "Не удалось загрузить запросы"
+    "queriesLoadFailed": "Не удалось загрузить запросы",
+    "connectToPreview": "Войдите, чтобы посмотреть таблицы и инструкции и задать вопросы."
   },
   "allInstructions": {
     "title": "Все инструкции",
@@ -2970,7 +3380,8 @@
       "toastDeleted": "Тестовый случай удалён",
       "toastCreated": "Тестовый случай создан",
       "toastDeleteFailed": "Не удалось удалить тестовый случай",
-      "saveFailed": "Не удалось сохранить тест-кейс"
+      "saveFailed": "Не удалось сохранить тест-кейс",
+      "emptyDescription": "Тесты оценивают, как ваши агенты отвечают на запросы и правила."
     },
     "filter": {
       "allSuites": "Все наборы",
@@ -3065,6 +3476,18 @@
       "listContains": "список содержит значение",
       "listContainsAny": "список содержит хотя бы одно",
       "listContainsAll": "список содержит все"
+    },
+    "strip": {
+      "default": "по умолчанию",
+      "emptyShelf": "Здесь пока нет тестов",
+      "fromChat": "в этом чате",
+      "noneResolved": "Для этого агента пока нет решённых тестов",
+      "orgWide": "По всей организации",
+      "pinned": "закреплён за этим изменением",
+      "runAll": "Запустить все",
+      "runSuite": "Запустить {name}",
+      "runningCount": "Выполнение {done}/{total}",
+      "title": "Тесты для этого изменения"
     }
   },
   "monitoring": {
@@ -3105,7 +3528,15 @@
       "next": "Следующая",
       "periodAllTime": "Всё время",
       "filterUsersAll": "Все пользователи",
-      "searchPlaceholder": "Поиск промптов…"
+      "searchPlaceholder": "Поиск промптов…",
+      "activityChartEmpty": "За выбранный период активности нет.",
+      "activityChartError": "Ошибка",
+      "activityChartLoading": "Загрузка активности…",
+      "activityChartSubtitle": "Ежедневные запуски агентов по статусам",
+      "activityChartSuccess": "Успешно",
+      "activityChartTitle": "Активность запусков агентов",
+      "activityChartTotal": "Всего",
+      "dayFilterLabel": "Показано за {date}"
     },
     "title": "Мониторинг",
     "tabExplore": "Исследовать",
@@ -3144,7 +3575,9 @@
       "loading": "Загрузка данных о стоимости...",
       "lockedTitle": "Стоимость — корпоративная функция",
       "lockedBody": "Перейдите на корпоративную лицензию, чтобы отслеживать расход токенов и стоимость LLM по пользователям, агентам и группам с течением времени.",
-      "fanoutNote": "Расходы по отчётам с несколькими источниками учитываются для каждого из их источников данных, поэтому итоги по строкам могут превышать общий итог."
+      "fanoutNote": "Расходы по отчётам с несколькими источниками учитываются для каждого из их источников данных, поэтому итоги по строкам могут превышать общий итог.",
+      "kpiSaved": "Сэкономлено автомаршрутизацией",
+      "kpiSavedSub": "перенаправленных вызовов"
     },
     "cards": {
       "messages": "Сообщения",
@@ -3236,7 +3669,10 @@
     "tabEvals": "Оценки",
     "loadFailInstructions": "Не удалось загрузить инструкции",
     "loadFailQueries": "Не удалось загрузить запросы",
-    "loadFailEvals": "Не удалось загрузить оценки"
+    "loadFailEvals": "Не удалось загрузить оценки",
+    "noInstruction": "Основной инструкции нет",
+    "noStarters": "Нет подсказок для начала разговора",
+    "primaryInstruction": "Основная инструкция"
   },
   "instructionModal": {
     "newTitle": "Новая инструкция",
@@ -3372,7 +3808,33 @@
       "createFailed": "Не удалось создать инструкцию",
       "updateFailed": "Не удалось обновить инструкцию",
       "deleteFailed": "Не удалось удалить инструкцию",
-      "enhanceFailed": "Не удалось улучшить инструкцию"
+      "enhanceFailed": "Не удалось улучшить инструкцию",
+      "revertFailed": "Не удалось откатить инструкцию",
+      "revertSuccess": "Откат к версии v{n} выполнен"
+    },
+    "sidebar": {
+      "approvedBy": "Утвердил",
+      "category": "Категория",
+      "createdBy": "Создал",
+      "dataSources": "Источники данных",
+      "details": "Детали",
+      "labels": "Метки",
+      "loading": "Загрузка контекста ИИ",
+      "references": "Ссылки",
+      "scope": "Область",
+      "status": "Статус",
+      "visibility": "Видимость"
+    },
+    "versions": {
+      "compareLabel": "По сравнению с текущей",
+      "confirmRevert": "Откатить эту инструкцию к версии v{n}? Будет создана новая сборка.",
+      "current": "текущая",
+      "fieldChanges": "Изменения полей",
+      "label": "Версия",
+      "loadFailed": "Не удалось загрузить версии",
+      "noChanges": "Отличий в содержимом от текущей версии нет",
+      "revert": "Откатить к этой версии",
+      "reverting": "Откат..."
     }
   },
   "mcpServerModal": {
@@ -3554,7 +4016,9 @@
       "defaultModelSubtitle": "Модель, используемая по умолчанию при создании нового чата. Показаны только модели, к которым у вас есть доступ.",
       "orgDefault": "По умолчанию для организации",
       "defaultModelSaved": "Модель по умолчанию обновлена",
-      "defaultModelFailed": "Не удалось обновить модель по умолчанию"
+      "defaultModelFailed": "Не удалось обновить модель по умолчанию",
+      "directorySubtitle": "Рабочие данные синхронизируются из поставщика удостоверений вашей организации. Видны ИИ как контекст.",
+      "directoryTitle": "Профиль из каталога"
     },
     "instructions": {
       "title": "Пользовательские инструкции",
@@ -3611,7 +4075,21 @@
     }
   },
   "commandPalette": {
-    "prompts": "Промпты"
+    "prompts": "Промпты",
+    "actions": "Действия",
+    "agents": "Агенты",
+    "emptyLabel": "Начните вводить для поиска",
+    "emptyQueryLabel": "Ничего не найдено",
+    "instructions": "Инструкции",
+    "newInstruction": "Новая инструкция",
+    "newInstructionWithQuery": "Новая инструкция «{query}»",
+    "newReport": "Новый отчёт",
+    "newReportWithQuery": "Новый отчёт «{query}»",
+    "placeholder": "Поиск отчётов, агентов, инструкций…",
+    "reports": "Недавние отчёты",
+    "suggestInstruction": "Предложить инструкцию",
+    "suggestInstructionWithQuery": "Предложить инструкцию «{query}»",
+    "suggestionHint": "отправлено на проверку"
   },
   "promptParams": {
     "title": "Заполните параметры — {title}",
@@ -3710,7 +4188,12 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…",
-    "modelDefaultAuto": "Авто · маршрутизация по сложности"
+    "modelDefaultAuto": "Авто · маршрутизация по сложности",
+    "deliverEmail": "Эл. почта",
+    "deliverEmailHint": "Каждому участнику по почте отправляется ссылка на отчёт.",
+    "deliverLabel": "Также отправлять результаты в",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "Отправляется в чат Teams каждого участника (участники без Teams пропускаются)."
   },
   "automations": {
     "title": "Автоматизации",
@@ -3877,5 +4360,179 @@
     "continueOnboarding": "Продолжить настройку",
     "configureLlm": "Настройте вашу LLM",
     "connectFirstDataSource": "Подключите первый источник данных"
+  },
+  "agentPage": {
+    "tables": {
+      "addFiles": "Загрузить файл",
+      "fileRemoveFailed": "Не удалось удалить файл",
+      "fileUploadFailed": "Не удалось загрузить файл",
+      "filesUploading": "Загрузка…",
+      "manageConnections": "Управление подключениями",
+      "manageFiles": "Загрузить файл",
+      "removeFile": "Удалить файл",
+      "save": "Сохранить",
+      "schemaRefreshing": "Схема обновляется — таблицы появятся совсем скоро.",
+      "selectTables": "Выбрать таблицы",
+      "selectTablesSubtitle": "Выберите, какие таблицы включить"
+    }
+  },
+  "changelog": {
+    "changeCount": "{count} изменение | {count} изменений",
+    "emptyTitle": "Заметок о выпусках пока нет",
+    "errorBody": "При загрузке заметок о выпусках что-то пошло не так.",
+    "errorTitle": "Не удалось загрузить список изменений",
+    "latest": "Последний",
+    "menuItem": "Список изменений",
+    "retry": "Повторить",
+    "subtitle": "Последние обновления и улучшения",
+    "title": "Что нового",
+    "viewOnGithub": "Показать все выпуски"
+  },
+  "exports": {
+    "complete": "Экспорт завершён",
+    "failed": "Не удалось выполнить экспорт",
+    "html": "HTML",
+    "label": "Экспорт",
+    "pdf": "PDF",
+    "pdfDone": "PDF загружен.",
+    "pptx": "PowerPoint"
+  },
+  "quotaPolicies": {
+    "add": "Добавить",
+    "assignmentCounts": {
+      "group": "Групп: {n}",
+      "role": "Ролей: {n}",
+      "user": "Пользователей: {n}"
+    },
+    "assignments": "Назначения",
+    "cancel": "Отмена",
+    "cancelEdit": "Отменить редактирование",
+    "colActions": "Действия",
+    "colAssignments": "Назначения",
+    "colLimits": "Лимиты",
+    "colOverrides": "Исключения по подключениям",
+    "colPolicy": "Политика",
+    "colQuota": "Квота",
+    "colStatus": "Статус",
+    "confirmDelete": "Удалить квоту «{name}»?",
+    "connection": "Подключение",
+    "connectionOverrides": "Исключения по подключениям",
+    "create": "Создать",
+    "createQuota": "Создать квоту",
+    "dataMb": "Данные, МБ",
+    "dataShort": "Данные",
+    "descriptionLabel": "Описание",
+    "descriptionPlaceholder": "Необязательно",
+    "disabled": "Отключена",
+    "editQuota": "Изменить квоту",
+    "enabled": "Включена",
+    "failedToDelete": "Не удалось удалить квоту",
+    "failedToLoad": "Не удалось загрузить квоты",
+    "failedToSave": "Не удалось сохранить квоту",
+    "groups": "Группы",
+    "inherited": "Унаследована",
+    "loading": "Загрузка...",
+    "monthlyDataLimitMb": "Месячный лимит данных (МБ)",
+    "monthlyQueryLimit": "Месячный лимит запросов",
+    "monthlySpendLimitUsd": "Месячный лимит расходов (USD)",
+    "monthlyTokenLimit": "Месячный лимит токенов",
+    "nameLabel": "Название",
+    "namePlaceholder": "напр. Квота аналитика",
+    "newQuota": "Новая квота",
+    "noDirectQuota": "По умолчанию",
+    "noPoliciesFound": "Политики квот не найдены",
+    "noPoliciesHint": "Создайте квоту, чтобы ограничить месячное использование ИИ и данных.",
+    "none": "Нет",
+    "principalTypes": {
+      "group": "Группа",
+      "role": "Роль",
+      "user": "Пользователь"
+    },
+    "queries": "Запросы",
+    "queriesShort": "Запросы",
+    "roles": "Роли",
+    "save": "Сохранить",
+    "searchPlaceholder": "Поиск квот...",
+    "selectConnection": "Выберите подключение...",
+    "selectPrincipal": "Выберите субъект...",
+    "spendShort": "Расходы",
+    "toastAssignmentUpdated": "Назначение квоты обновлено",
+    "toastCreated": "Квота создана",
+    "toastDeleted": "Квота удалена",
+    "toastUpdated": "Квота обновлена",
+    "tokensShort": "Токены",
+    "unlimited": "Без ограничений",
+    "update": "Обновить",
+    "users": "Пользователи"
+  },
+  "serviceAccounts": {
+    "active": "Активна",
+    "apiKeys": "API-ключи",
+    "colKeys": "Ключи",
+    "colName": "Название",
+    "colRole": "Роль",
+    "colStatus": "Статус",
+    "copied": "Скопировано в буфер обмена",
+    "copy": "Копировать",
+    "copyManual": "Выделите ключ и скопируйте его вручную",
+    "create": "Создать",
+    "createFailed": "Не удалось создать сервисную учётную запись",
+    "created": "Сервисная учётная запись создана",
+    "delete": "Удалить",
+    "deleted": "Сервисная учётная запись удалена",
+    "description": "Описание",
+    "disable": "Отключить",
+    "disabled": "Отключена",
+    "empty": "Сервисных учётных записей пока нет.",
+    "enable": "Включить",
+    "keyFailed": "Не удалось создать ключ",
+    "keyLastUsed": "Последнее использование",
+    "keyName": "Название",
+    "keyOnce": "Скопируйте ключ сейчас — он больше не будет показан.",
+    "keyPrefix": "Префикс",
+    "manageKeys": "Управление ключами",
+    "never": "Никогда",
+    "newAccount": "Новая сервисная учётная запись",
+    "newKey": "Создать ключ",
+    "noKeys": "Ключей пока нет.",
+    "noRole": "Без роли",
+    "roleHint": "Вы можете выдать только ту роль, права которой у вас уже есть.",
+    "selectRole": "Выберите роль",
+    "subtitle": "Нечеловеческие API-идентичности для автоматизации и интеграций. У каждой своя роль и свои API-ключи, и она не привязана к человеку.",
+    "title": "Сервисные учётные записи"
+  },
+  "sessionEvents": {
+    "artifact_schedule_changed": "Расписание обновления «{title}» изменено",
+    "artifact_schedule_removed": "Расписание обновления «{title}» удалено",
+    "artifact_schedule_set": "Для «{title}» настроено обновление по расписанию",
+    "artifact_shared": "«{title}» открыт для {who}",
+    "artifact_shared_generic": "«{title}» открыт для просмотра",
+    "artifact_unshared": "«{title}» снова стал приватным",
+    "artifact_version_reverted": "«{title}» откачен к версии {v}",
+    "artifact_version_reverted_generic": "«{title}» откачен к более ранней версии",
+    "conversation_share_off": "Общий доступ к беседе отключён",
+    "eval_run_started": "{actor} запустил прогон тестов · случаев: {n}",
+    "eval_run_started_by": "{actor} запустил прогон тестов",
+    "eval_run_started_generic": "Запущен прогон тестов",
+    "eval_run_started_generic_n": "Запущен прогон тестов · случаев: {n}",
+    "file_removed": "{name} удалён",
+    "file_uploaded": "{name} загружен",
+    "instruction_accepted": "Предложенная правка к «{title}» принята",
+    "instruction_accepted_generic": "Предложенная правка инструкции принята",
+    "instruction_accepted_versioned": "Предложенная правка к «{title}» (v{v}) принята",
+    "instruction_rejected": "Предложенная правка к «{title}» отклонена",
+    "instruction_rejected_generic": "Предложенная правка инструкции отклонена",
+    "instruction_rejected_versioned": "Предложенная правка к «{title}» (v{v}) отклонена",
+    "llm_changed": "Модель изменена на {to}",
+    "llm_reset": "Модель сброшена на модель по умолчанию",
+    "report_published": "Этот отчёт опубликован",
+    "report_shared": "Эта беседа открыта для {who}",
+    "report_shared_generic": "Эта беседа открыта для просмотра",
+    "report_unpublished": "Публикация этого отчёта отменена",
+    "run_stopped": "Выполнение остановлено",
+    "scope_added": "Область агента изменена — добавлено: {added}",
+    "scope_changed": "Область агента изменена — добавлено: {added}; удалено: {removed}",
+    "scope_generic": "Область агента изменена",
+    "scope_removed": "Область агента изменена — удалено: {removed}"
   }
 }

@@ -248,7 +248,8 @@ Return ONLY a JSON object with exactly these keys:
 
 Rules:
 - Merge the previous summary with the new turns; drop items that are clearly superseded.
-- NEVER include raw data rows, cell values, or personal data — describe results ("monthly revenue for 2024, 12 rows"), don't reproduce them.
+- NEVER dump raw data rows or personal data.
+- Preserve exact non-personal facts needed for follow-ups — aggregates, enum/domain values, date ranges, identifiers, errors, and user-confirmed rules. Never round, alter, or generalize those values away.
 - Keep the whole summary under ~{max_tokens} tokens.
 - Keep it dense and factual. No prose padding. Respond with the JSON object only."""
 

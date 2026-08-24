@@ -556,7 +556,7 @@ class MondayConfig(BaseModel):
     workspaces: Optional[str] = Field(
         None,
         title="Workspaces",
-        description="Optional comma-separated workspace names or ids to index. Leave blank for all workspaces the token can see.",
+        description="Optional comma-separated workspace names or ids to index. Leave blank for all workspaces the token can see. Use \"Main workspace\" to select boards in monday's legacy Main workspace.",
         json_schema_extra={"ui:type": "string"},
     )
     boards: Optional[str] = Field(

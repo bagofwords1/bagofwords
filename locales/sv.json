@@ -94,10 +94,10 @@
     "connect": "Anslut",
     "manageConnections": "Hantera anslutningar",
     "loadingFiles": "Läser in filer från källan…",
-    "countTables": "{n} tabeller",
-    "countTools": "{n} verktyg",
-    "countFiles": "{n} filer",
-    "countInstructions": "{n} instruktioner",
+    "countTables": "{n} tabell | {n} tabeller",
+    "countTools": "{n} verktyg | {n} verktyg",
+    "countFiles": "{n} fil | {n} filer",
+    "countInstructions": "{n} instruktion | {n} instruktioner",
     "untitled": "Namnlös",
     "primaryPlaceholder": "Skriv agentens primära instruktion i markdown… (skriv {'@'} för att nämna en tabell eller instruktion)",
     "change": "Ändra",
@@ -274,7 +274,9 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Kör den här sviten",
-    "runSuiteFailed": "Det gick inte att köra sviten"
+    "runSuiteFailed": "Det gick inte att köra sviten",
+    "exportInstructions": "Exportera agentpaket — instruktioner, konfiguration och utvärderingar (.zip)",
+    "sharedManagedElsewhere": "Delad med agenter du inte hanterar — kan bara redigeras av någon med behörighet över alla."
   },
   "smoke": {
     "hello": "Hej",
@@ -344,7 +346,10 @@
     "starOnGithub": "Star our GitHub",
     "admin": "Administration",
     "notifications": "Aviseringar",
-    "automations": "Automatiseringar"
+    "automations": "Automatiseringar",
+    "agent": "Agent",
+    "agents": "Agenter",
+    "viewAllAgents": "Visa alla agenter →"
   },
   "notifications": {
     "title": "Aviseringar",
@@ -596,7 +601,14 @@
       "schedule": "Schema",
       "type": "Typ",
       "dataSource": "Datakälla",
-      "artifacts": "Artefakter"
+      "artifacts": "Artefakter",
+      "artifactsLabel": "Dashboard",
+      "clear": "Rensa allt",
+      "dataSourceLabel": "Agent",
+      "scheduleLabel": "Schema",
+      "statusLabel": "Status",
+      "title": "Typ",
+      "typeLabel": "Typ"
     },
     "visibility": {
       "public": "Alla med länken",
@@ -628,10 +640,14 @@
       "chat": "Chatt",
       "createdViaMcp": "Skapad via MCP",
       "createdViaExcel": "Skapad via Excel",
-      "runningOnSchedule": "Körs enligt schema"
+      "runningOnSchedule": "Körs enligt schema",
+      "createdBySchedule": "Skapad av en schemalagd uppgift",
+      "createdByTrigger": "Skapad av en trigger"
     },
     "pagination": {
-      "showing": "Visar {from} till {to} av {total} rapporter"
+      "showing": "Visar {from} till {to} av {total} rapporter",
+      "page": "Sida {page}",
+      "rowsPerPage": "Rader per sida"
     },
     "toasts": {
       "starFailed": "Det gick inte att uppdatera stjärnmärkningen",
@@ -678,7 +694,34 @@
       "running": "Körs",
       "newActivity": "Ny aktivitet",
       "errorNew": "Avslutades med ett fel"
-    }
+    },
+    "type": {
+      "training": "Träning",
+      "chat": "Chatt",
+      "dashboard": "Dashboard",
+      "slides": "Bilder"
+    },
+    "inProject": "I {name}",
+    "filtersButton": "Filter",
+    "sharedEmpty": "Inga delade rapporter",
+    "sharedEmptyHint": "Rapporter som andra delar med dig visas här.",
+    "trainingEmptyBody": "Ställ frågor och granska AI:ns svar. Godkänn eller redigera svaren för att lära AI-analytikern hur liknande frågor ska hanteras i framtiden.",
+    "trainingEmptyTipLabel": "Så fungerar det:",
+    "trainingEmptyTitle": "Träningssession startad.",
+    "trainingStarters": [
+      {
+        "title": "Hitta konflikter mellan instruktioner",
+        "prompt": "Identifiera motsägelser eller luckor mellan befintliga träningsinstruktioner som kan göra AI:ns svar inkonsekventa."
+      },
+      {
+        "title": "Visa svar med låg säkerhet",
+        "prompt": "Lista de senaste AI-svaren där modellen uttryckte osäkerhet eller gav svar av låg kvalitet som behöver granskas."
+      },
+      {
+        "title": "Visa svar med negativ återkoppling",
+        "prompt": "Granska svar som fått negativ återkoppling från användare för att hitta mönster och förbättringsområden."
+      }
+    ]
   },
   "projects": {
     "title": "Projekt",
@@ -759,7 +802,30 @@
       "noAutomations": "Inga automatiseringar i projektet ännu.",
       "fromProject": "Från {name}"
     },
-    "rowActions": "Projektåtgärder"
+    "rowActions": "Projektåtgärder",
+    "myProjects": "Mina projekt",
+    "sharedWithMe": "Delade med mig",
+    "searchPlaceholder": "Sök projekt…",
+    "filtersButton": "Filter",
+    "emptyTitle": "Inga projekt ännu",
+    "noResults": "Inga projekt hittades",
+    "noResultsHint": "Prova en annan sökning eller rensa filtren.",
+    "sharedEmpty": "Inget har delats med dig ännu",
+    "sharedEmptyHint": "Projekt som kollegor delar med dig visas här.",
+    "filters": {
+      "accessLabel": "Åtkomst",
+      "allAccess": "All åtkomst",
+      "private": "Privat",
+      "orgShared": "Delat med organisationen",
+      "reportsLabel": "Rapporter",
+      "allReports": "Alla projekt",
+      "withReports": "Med rapporter",
+      "emptyReports": "Tomma",
+      "clear": "Rensa allt"
+    },
+    "pagination": {
+      "rowsPerPage": "Rader per sida"
+    }
   },
   "traceModal": {
     "title": "Agentkörning",
@@ -847,7 +913,8 @@
     "steerQueuedFallback": "Körningen avslutades precis — ditt meddelande lades i kö istället",
     "steerFailed": "Det gick inte att styra den pågående completion",
     "instructionUnavailableTitle": "Instruktionen är inte tillgänglig",
-    "instructionUnavailableBody": "Den kan ha tagits bort, eller så saknar du åtkomst till den."
+    "instructionUnavailableBody": "Den kan ha tagits bort, eller så saknar du åtkomst till den.",
+    "loopRetryNotice": "Ett internt fel uppstod — försöker igen från den senaste kontexten (försök {attempt}/{max})"
   },
   "tools": {
     "common": {
@@ -1027,7 +1094,9 @@
       "toastFailedPublish": "Det gick inte att publicera instruktionen",
       "toastDeletedDesc": "Instruktion raderad",
       "toastFailedDelete": "Det gick inte att radera instruktionen",
-      "toastSaved": "Instruktion sparad"
+      "toastSaved": "Instruktion sparad",
+      "editCount": "{n} ändringar",
+      "editLabel": "Redigera instruktion"
     },
     "inspectData": {
       "inspecting": "Inspekterar",
@@ -1362,7 +1431,9 @@
     "routeModel": {
       "routedTo": "Routad till",
       "choosing": "Väljer modell…",
-      "routing": "Modellroutning"
+      "routing": "Modellroutning",
+      "fallbackReason": "{from} var inte tillgänglig",
+      "fellBackTo": "Gick över till"
     },
     "grepFiles": {
       "grepping": "Söker i filer efter {pattern}…",
@@ -1375,6 +1446,48 @@
       "moreShown": "+{count} till visas för agenten",
       "filesSkippedSingular": "{count} fil hoppades över ({reasons})",
       "filesSkippedPlural": "{count} filer hoppades över ({reasons})"
+    },
+    "listAgentExecutions": {
+      "empty": "Inga körningar hittades",
+      "failed": "Det gick inte att läsa in agentens körningar",
+      "found": "{count} körning(ar) · {total} totalt",
+      "loading": "Läser in agentens körningar…",
+      "noMatch": "Inga körningar matchar det här filtret",
+      "tabAll": "Alla",
+      "tabFailed": "Misslyckade",
+      "tabLowConfidence": "Låg säkerhet",
+      "tabLowCoverage": "Låg täckning",
+      "tabNegative": "Negativ återkoppling",
+      "title": "Lista agentens körningar"
+    },
+    "sendEmail": {
+      "failed": "Det gick inte att skicka e-postmeddelandet",
+      "sending": "Skickar e-post...",
+      "sentPrefix": "Skickat: {subject}",
+      "subject": "Ämne",
+      "to": "Till"
+    },
+    "webFetch": {
+      "errorOccurred": "Ett fel uppstod",
+      "failed": "Hämtningen misslyckades",
+      "fetched": "Hämtad",
+      "fetching": "Hämtar"
+    },
+    "browser": {
+      "acted": "Interagerade",
+      "acting": "Interagerar",
+      "capturing": "Tar en skärmbild",
+      "done": "Surfning klar",
+      "extracted": "Läste texten",
+      "extracting": "Läser texten",
+      "failed": "Webbläsaråtgärden misslyckades",
+      "navigated": "Öppnade sidan",
+      "navigating": "Öppnar sidan",
+      "screenshot": "Skärmbild",
+      "snapshot": "Sidans struktur",
+      "snapshotted": "Läste sidan",
+      "snapshotting": "Läser sidan",
+      "working": "Surfar"
     }
   },
   "entityCreate": {
@@ -1393,7 +1506,9 @@
     "saveEntity": "Spara entitet",
     "suggestEntity": "Föreslå entitet",
     "saveFailed": "Det gick inte att spara entiteten",
-    "stepRequired": "Ett steg krävs för att spara"
+    "stepRequired": "Ett steg krävs för att spara",
+    "publishedToast": "Frågan publicerades i katalogen",
+    "suggestedToast": "Förslaget skickades för granskning"
   },
   "mentionInput": {
     "placeholder": "Skriv {'@'} för att nämna...",
@@ -1415,7 +1530,8 @@
       "tables": "Tabeller",
       "prompts": "Prompter",
       "instructions": "Instruktioner",
-      "skills": "Färdigheter"
+      "skills": "Färdigheter",
+      "tools": "Verktyg"
     },
     "time": {
       "justNow": "just nu",
@@ -1475,19 +1591,24 @@
       "view": "Visa",
       "view_schema": "Visa schema",
       "create_entities": "Skapa entiteter",
-      "manage": "Hantera inställningar"
+      "manage": "Hantera inställningar",
+      "create_data_sources": "Skapa agenter",
+      "manage_connection": "Hantera anslutning",
+      "manage_data_sources": "Hantera agenter",
+      "manage_service_accounts": "Hantera tjänstkonton"
     },
     "addAgent": "+ Lägg till agent...",
     "advancedPermissions": "Avancerade behörigheter",
     "tiers": {
-        "query": "Kan fråga",
-        "queryHint": "Ställ frågor till denna agent",
-        "manage": "Kan hantera",
-        "manageHint": "Redigera instruktioner, entiteter, utvärderingar, inställningar och medlemmar"
+      "query": "Kan fråga",
+      "queryHint": "Ställ frågor till denna agent",
+      "manage": "Kan hantera",
+      "manageHint": "Redigera instruktioner, entiteter, utvärderingar, inställningar och medlemmar"
     },
     "modelAccess": "Modellåtkomst",
     "modelAccessHint": "Begränsade modeller",
-    "noRestrictedModels": "Inga begränsade modeller"
+    "noRestrictedModels": "Inga begränsade modeller",
+    "connection": "Anslutning"
   },
   "groupsManager": {
     "searchPlaceholder": "Sök grupper...",
@@ -1619,7 +1740,59 @@
       "unknown": "Okänd",
       "lastSyncDetail": "— {gCreated} skapade, {gUpdated} uppdaterade, {gRemoved} borttagna · {mAdded} medlemmar tillagda, {mRemoved} borttagna",
       "errorCount": "{n} fel: {first}",
-      "ldapServerLine": "{server}{vendor}{users}{groups}"
+      "ldapServerLine": "{server}{vendor}{users}{groups}",
+      "entraAdd": "Lägg till",
+      "entraAddPlaceholder": "Lägg till attribut…",
+      "entraContextTitle": "Från din katalogprofil",
+      "entraEnable": "Synka profilinformation från Entra ID",
+      "entraEnableHint": "Vid inloggning läses den inloggade användarens Microsoft Graph-profil och sparas som kontext för AI:n. Använder scopet User.Read som ges som standard — inget administratörsmedgivande krävs.",
+      "entraFieldsLabel": "Attribut som ska ingå i kontexten",
+      "entraNoFields": "Inga attribut valda",
+      "entraNoLogin": "Logga in med Entra ID för att förhandsgranska värdena från din profil.",
+      "entraNotSet": "inte angivet",
+      "entraPreviewError": "Det gick inte att hämta värden från Microsoft Graph.",
+      "entraReauth": "Din Entra ID-session har gått ut — logga in med Entra ID igen för att hämta värdena.",
+      "entraRemove": "Ta bort",
+      "entraSaveFailed": "Det gick inte att spara",
+      "entraSaved": "Sparat",
+      "entraSaving": "Sparar...",
+      "entraSubtitle": "Synkar titel, avdelning och annan profilinformation från Microsoft Entra ID vid inloggning",
+      "entraTitle": "Profilsynk med Entra ID",
+      "field_city": "Stad",
+      "field_companyName": "Företag",
+      "field_country": "Land",
+      "field_department": "Avdelning",
+      "field_displayName": "Namn",
+      "field_employeeHireDate": "Anställningsdatum",
+      "field_employeeId": "Anställningsnummer",
+      "field_employeeOrgData": "Division och kostnadsställe",
+      "field_employeeType": "Anställningstyp",
+      "field_hostedDomain": "Arbetsytans domän",
+      "field_jobTitle": "Titel",
+      "field_locale": "Språkinställning",
+      "field_location": "Plats",
+      "field_mobilePhone": "Mobiltelefon",
+      "field_officeLocation": "Kontor",
+      "field_organization": "Organisation",
+      "field_preferredLanguage": "Föredraget språk",
+      "field_state": "Region",
+      "field_usageLocation": "Användningsland",
+      "googleAdd": "Lägg till",
+      "googleAddPlaceholder": "Lägg till attribut…",
+      "googleEnable": "Synka profilinformation från Google",
+      "googleEnableHint": "Vid inloggning läses den inloggade användarens Google-profil (userinfo + People API) och sparas som kontext för AI:n. Använder bara scopen openid/profile/email som redan getts vid inloggning.",
+      "googleFieldsLabel": "Attribut som ska ingå i kontexten",
+      "googleNoFields": "Inga attribut valda",
+      "googleNoLogin": "Logga in med Google för att förhandsgranska värdena från din profil.",
+      "googleNotSet": "inte angivet",
+      "googlePreviewError": "Det gick inte att hämta värden från Google.",
+      "googleReauth": "Din Google-session har gått ut — logga in med Google igen för att hämta värdena.",
+      "googleRemove": "Ta bort",
+      "googleSaveFailed": "Det gick inte att spara",
+      "googleSaved": "Sparat",
+      "googleSaving": "Sparar...",
+      "googleSubtitle": "Synkar namn, titel, avdelning och annan profilinformation från Google vid inloggning",
+      "googleTitle": "Profilsynk med Google"
     },
     "auditLogs": "Granskningsloggar",
     "integrations": {
@@ -1683,7 +1856,21 @@
           "failedConnect": "Det gick inte att ansluta Slack",
           "disconnectedToast": "Slack frånkopplad",
           "disconnectedToastDesc": "Slack-integrationen frånkopplad",
-          "failedDisconnect": "Det gick inte att koppla från Slack"
+          "failedDisconnect": "Det gick inte att koppla från Slack",
+          "appToken": "Token på appnivå",
+          "connectionModeLabel": "Anslutningsläge",
+          "modeEventsApi": "Events API (webhook)",
+          "modeEventsApiHint": "Slack skickar händelser med POST till din publika webhook-URL — kräver signing secret och en nåbar Request URL.",
+          "modeSocket": "Socket Mode",
+          "modeSocketHint": "Backend ansluter ut till Slack via WebSocket — ingen publik URL eller signing secret behövs, och det aktiverar Agent-upplevelsen.",
+          "modeSocketRecommended": "Socket Mode (rekommenderas)",
+          "socketSetupIntro": "I din Slack-app (api.slack.com/apps):",
+          "socketStep1": "Socket Mode → aktivera det och skapa en token på appnivå med scopet connections:write (xapp-…)",
+          "socketStep2": "OAuth & Permissions → bot-scope: chat:write, im:history, im:write, app_mentions:read, reactions:write, files:write, users:read, users:read.email, assistant:write",
+          "socketStep3": "Event Subscriptions → aktivera händelser (ingen Request URL behövs) och prenumerera på: message.im, app_mention, assistant_thread_started, assistant_thread_context_changed",
+          "socketStep4": "Agents → slå PÅ ”Agent experience” för den inbyggda assistentpanelen, trådnamn och föreslagna prompter",
+          "socketStep5": "App Home → aktivera fliken Messages och låt användare skicka meddelanden",
+          "socketStep6": "Install App → installera i din arbetsyta och kopiera Bot User OAuth Token (xoxb-…)"
         },
         "teams": {
           "title": "Teams-integration",
@@ -1921,6 +2108,37 @@
           "tenantWide": "Distribution för hela tenanten",
           "tenantWideDesc": "För organisationsövergripande utrullning kan din Microsoft 365-administratör ladda upp detta manifest via Admin Center → Inställningar → Integrerade appar.",
           "failedLoadManifest": "Det gick inte att läsa in manifestet"
+        },
+        "googleChat": {
+          "autoLinkDescConnected": "När detta är på kopplas Google Chat-användare automatiskt till BOW-konton vars e-post matchar deras Google Workspace-profil (ingen verifieringslänk behövs). Eftersom e-posten kommer från din Workspace-katalog är det oftast säkert — men aktivera bara för domäner du litar helt på.",
+          "autoLinkDescSetup": "Användare som skriver till boten kopplas till BOW-konton vars e-post matchar deras Google Workspace-profil — ingen verifieringslänk behövs. Rekommenderas.",
+          "autoLinkTitle": "Koppla användare automatiskt via Workspace-e-post",
+          "connectedNotice": "Google Chat är anslutet just nu.",
+          "connectedToast": "Google Chat anslutet",
+          "connectedToastDesc": "Integrationen med Google Chat lyckades",
+          "disconnectedToast": "Google Chat frånkopplat",
+          "disconnectedToastDesc": "Integrationen med Google Chat kopplades från",
+          "failedConnect": "Det gick inte att ansluta Google Chat",
+          "failedDisconnect": "Det gick inte att koppla från Google Chat",
+          "noteChannels": "I utrymmen används endast publika datakällor",
+          "noteChats": "I direktmeddelanden används både publika och privata datakällor (som användaren har åtkomst till)",
+          "noteNoInbound": "Händelser kommer via Pub/Sub — ingen publik URL eller inkommande brandväggsåtkomst krävs",
+          "noteRegistered": "Endast registrerade användare kan skriva till boten eller nämna den med {'@'}",
+          "serviceAccount": "Tjänstkonto:",
+          "serviceAccountJsonLabel": "Tjänstkontonyckel (JSON)",
+          "serviceAccountJsonPlaceholder": "Klistra in hela JSON-nyckeln för tjänstkontot",
+          "sessionStalenessDesc": "Hur länge ett direktmeddelande fortsätter i samma konversationsrapport. Meddelanden efter det här fönstret startar en ny rapport (skicka ”new” för att starta en direkt). Standard: 120 timmar (5 dagar).",
+          "setupIntro": "I ett dedikerat Google Cloud-projekt (viktigt — att återanvända ett gammalt projekt kan låsa Chat-appen i ett oanvändbart läge):",
+          "setupStep1": "Aktivera Google Chat API och Cloud Pub/Sub API",
+          "setupStep2": "Skapa ett tjänstkonto (inga roller behövs) och ladda ner dess JSON-nyckel",
+          "setupStep3": "Skapa ett Pub/Sub-ämne; ge chat-api-push{'@'}system.gserviceaccount.com rollen Pub/Sub Publisher på det",
+          "setupStep4": "Skapa en pull-prenumeration på ämnet; ge ditt tjänstkonto rollen Pub/Sub Subscriber på den",
+          "setupStep5": "På sidan Chat API Configuration: lämna ”Build this Chat app as a Workspace add-on” OMARKERAD, ange appens namn och avatar, aktivera mottagning av 1:1-meddelanden, välj Cloud Pub/Sub med ditt ämne, aktivera ”Log errors to Logging” och spara",
+          "subscription": "Prenumeration:",
+          "subscriptionLabel": "Pub/Sub-prenumeration",
+          "subscriptionPlaceholder": "projects/<project>/subscriptions/<name>",
+          "subtitle": "Konfigurera och hantera integrationen med Google Chat för din organisation",
+          "title": "Integration med Google Chat"
         }
       },
       "emptyTitle": "Få Bag of Words att fungera med dina verktyg",
@@ -1989,7 +2207,8 @@
       "copyLink": "Kopiera länk",
       "linkCopied": "Inbjudningslänk kopierad",
       "failedToCopyLink": "Det gick inte att kopiera länken",
-      "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad"
+      "linkRegenerated": "Inbjudningslänk uppdaterad och kopierad",
+      "moreGroups": "grupper"
     },
     "organizationName": "Organisationens namn",
     "organizationIcon": "Organisationens ikon",
@@ -2021,7 +2240,9 @@
       "members": "Medlemmar",
       "roles": "Roller",
       "groups": "Grupper",
-      "signup": "Registrering"
+      "signup": "Registrering",
+      "quotas": "Kvoter",
+      "serviceAccounts": "Tjänstkonton"
     },
     "audit": {
       "title": "Granskningsloggar",
@@ -2126,7 +2347,43 @@
       "routingHintSeedSmall": "Grundläggande frågor, enskilda mätvärden och snabba uppslag.",
       "routingHintSeedDefault": "Instrumentpaneler, artefakter, filanalys och avancerad analys i flera steg.",
       "autoRouterEnterprise": "Enterprise",
-      "autoRouterEnterpriseTooltip": "Den automatiska modellroutern är en företagsfunktion. Uppgradera din licens för att aktivera den."
+      "autoRouterEnterpriseTooltip": "Den automatiska modellroutern är en företagsfunktion. Uppgradera din licens för att aktivera den.",
+      "addModel": "Lägg till modell",
+      "addModelCustomPlaceholder": "Modell-ID (t.ex. gpt-5.6-luna)",
+      "addModelSubmit": "Lägg till",
+      "addModelTitle": "Lägg till modell",
+      "addProvider": "Lägg till leverantör",
+      "cancel": "Avbryt",
+      "colFallback": "Reserv",
+      "colImageGen": "Bildgenerering",
+      "dangerZone": "Riskzon",
+      "deleteModel": "Ta bort",
+      "deleteModelBlockedDefault": "Standardmodeller kan inte tas bort. Gör en annan modell till standard först.",
+      "deleteModelConfirm": "Ta bort ”{name}”? Det går inte att ångra.",
+      "deleteModelTitle": "Ta bort modell",
+      "enabledLabel": "Aktiverad",
+      "fallback": "LLM-reserv",
+      "fallbackColTooltip": "Prioritet i reservkedjan — testas i stigande ordning när den aktiva modellen misslyckas.",
+      "fallbackEmpty": "inga reservmodeller — ange prioriteter i kolumnen Reserv",
+      "fallbackEnterpriseTooltip": "LLM-reserv är en enterprise-funktion. Uppgradera din licens för att aktivera den.",
+      "fallbackHow1": "När den aktiva modellen misslyckas på grund av hastighetsgräns, överbelastning hos leverantören eller nätverksfel görs ett nytt försök med nästa modell i ordningen nedan.",
+      "fallbackHow2": "Modellerna testas uppifrån och ned; en modell vars leverantör inte går att nå hoppas över tills den fungerar igen.",
+      "fallbackHow3": "Bytet visas alltid i chatten, och svaret märks med den modell som faktiskt levererade det.",
+      "fallbackHowTitle": "Så fungerar LLM-reserv",
+      "fallbackInactive": "inaktiv",
+      "fallbackOff": "LLM-reserv av",
+      "fallbackOn": "LLM-reserv på",
+      "fallbackPrimary": "primär",
+      "imageGenDefaultBlocked": "Standardmodeller kan inte vara bildgenereringsmodeller. Gör en annan modell till standard först.",
+      "imageGenTooltip": "Om den här modellen genererar bilder (t.ex. gpt-image-1). Gör den tillgänglig för verktyget generate_image och för att bädda in genererade bilder i artefakter. Bildmodeller visas inte i modellväljaren i chatten och kan inte vara standard.",
+      "modelAdded": "Modellen lades till",
+      "modelCardHint": "Klicka på en modellrad för att öppna dess inställningar",
+      "modelDeleted": "Modellen togs bort",
+      "modelSettings": "Modellinställningar",
+      "modelsCount": "{count} modeller",
+      "providerLabel": "Leverantör",
+      "providerSettingsTooltip": "Leverantörsinställningar",
+      "save": "Spara"
     },
     "licensePage": {
       "title": "Licens",
@@ -2153,7 +2410,30 @@
       "inDays": "{days} dagar kvar",
       "expiredNotice": "Din enterprise-licens har gått ut. Enterprise-funktioner är inaktiverade tills du förnyar.",
       "enterpriseTitle": "Enterprise-utgåva",
-      "renewInfo": "Förnya din licens för att återställa enterprise-funktioner som granskningsloggar, avancerad åtkomstkontroll och datalagringspolicyer."
+      "renewInfo": "Förnya din licens för att återställa enterprise-funktioner som granskningsloggar, avancerad åtkomstkontroll och datalagringspolicyer.",
+      "activate": "Aktivera",
+      "activateDesc": "Klistra in licensnyckeln du fick från BOW.",
+      "activateTitle": "Licensnyckel",
+      "activating": "Aktiverar…",
+      "activeKey": "Aktiv nyckel",
+      "cancel": "Avbryt",
+      "envActive": "Den här instansen använder {envvar} från sin miljö. Om du sparar en nyckel här åsidosätts den.",
+      "keyLabel": "Licensnyckel",
+      "keyPlaceholder": "bow_lic_…",
+      "lastUpdated": "Uppdaterad",
+      "noKey": "Ingen licensnyckel är konfigurerad. Klistra in en nedan för att aktivera enterprise-funktioner.",
+      "overridesEnv": "Den här nyckeln åsidosätter {envvar} som är konfigurerad för den här driftsättningen. Ta bort den för att gå tillbaka till den nyckeln.",
+      "remove": "Ta bort",
+      "removeConfirm": "Ta bort den sparade licensnyckeln? Instansen går då tillbaka till nyckeln från sin miljö, om någon är angiven.",
+      "removedToast": "Licensnyckeln togs bort",
+      "removing": "Tar bort…",
+      "saveFailed": "Det gick inte att aktivera licensen",
+      "savedToast": "Licensen aktiverades",
+      "sourceConfig": "Från miljön",
+      "sourceDatabase": "Angiven här",
+      "sourceLabel": "Källa",
+      "sourceNone": "Inte angiven",
+      "update": "Uppdatera nyckel"
     },
     "mcpModal": {
       "editTitle": "Redigera MCP-anslutning",
@@ -2183,7 +2463,10 @@
       "updated": "Anslutningen uppdaterad",
       "connected": "MCP-server ansluten",
       "failedUpdate": "Det gick inte att uppdatera",
-      "failedConnect": "Det gick inte att ansluta"
+      "failedConnect": "Det gick inte att ansluta",
+      "orCreateNew": "— eller skapa ny —",
+      "selectExistingPlaceholder": "Välj befintlig…",
+      "useExistingLabel": "Använd befintlig anslutning"
     },
     "weekStart": {
       "label": "Arbetsveckans start",
@@ -2195,7 +2478,56 @@
         "monday": "Måndag",
         "saturday": "Lördag"
       }
-    }
+    },
+    "smtpTab": "SMTP",
+    "timezone": {
+      "description": "Används för att tolka schemalagda jobb (t.ex. tider för omindexering) och för att visa tidsstämplar. Data lagras alltid i UTC.",
+      "label": "Organisationens tidszon",
+      "saveError": "Det gick inte att uppdatera tidszonen",
+      "systemDefault": "Använd systemstandard (UTC)"
+    },
+    "pii": {
+      "action": "Åtgärd",
+      "actionBlock": "Blockera",
+      "actionReplace": "Ersätt",
+      "addPattern": "Lägg till mönster",
+      "addRule": "Lägg till regel",
+      "blocksRequest": "Blockerar förfrågan",
+      "builtinDesc": "Färdiga detektorer för vanliga personuppgifter. Slå på var och en och anpassa dess ersättningstoken.",
+      "builtinTitle": "Inbyggda regler",
+      "customDesc": "Definiera egna detektorer. En regel kan innehålla flera mönster (reguljära uttryck) — en träff på något av dem utlöser regeln.",
+      "customTitle": "Egna regler",
+      "enterpriseBody": "Skydd av personuppgifter ingår i Enterprise-planen. Kontakta din administratör för att aktivera det.",
+      "enterpriseTitle": "Enterprise-funktion",
+      "masterDesc": "När detta är på maskeras matchande text i varje utgående LLM-prompt från den här arbetsytan.",
+      "masterLabel": "Aktivera skydd av personuppgifter",
+      "modeBlock": "Blockera förfrågan",
+      "modeBlockDesc": "Skicka inte prompten om personuppgifter hittas. Kan åsidosättas per regel nedan.",
+      "modeLabel": "Standardåtgärd när personuppgifter upptäcks",
+      "modeReplace": "Ersätt med en token",
+      "modeReplaceDesc": "Byt varje träff mot dess ersättningstoken och fortsätt. Kan åsidosättas per regel nedan.",
+      "noCustomRules": "Inga egna regler ännu.",
+      "patternPlaceholder": "t.ex. \\bEMP-\\d+\\b",
+      "patternRequired": "Varje regel behöver minst ett mönster.",
+      "patterns": "Mönster (regex)",
+      "removeRule": "Ta bort",
+      "replacement": "Ersättning",
+      "ruleName": "Regelnamn",
+      "ruleNamePlaceholder": "t.ex. Anställningsnummer",
+      "saveError": "Det gick inte att spara inställningarna för personuppgifter",
+      "saved": "Inställningarna för personuppgifter sparades",
+      "subtitle": "Maskera personuppgifter i prompter innan de skickas till någon LLM-leverantör. Reglerna körs på hela den sammansatta prompten — användarens meddelande, schemaexempel, dataförhandsvisningar och text från uppladdade filer.",
+      "testBlocked": "Den här prompten skulle BLOCKERAS (personuppgifter upptäckta).",
+      "testButton": "Förhandsgranska maskeringen",
+      "testDesc": "Klistra in exempeltext för att se hur den maskeras med de nuvarande reglerna.",
+      "testMatches": "Träffar: {rules}",
+      "testNoMatches": "Inga personuppgifter upptäcktes i exemplet.",
+      "testPlaceholder": "Klistra in text som innehåller exempel på personuppgifter…",
+      "testResult": "Resultat",
+      "testTitle": "Testa dina regler",
+      "title": "Skydd av personuppgifter"
+    },
+    "piiTab": "Personuppgifter"
   },
   "data": {
     "title": "Anslutningar",
@@ -2433,7 +2765,76 @@
     "mcpModeAiTip": "AI:n kan sätta det; servern fyller i om tomt",
     "mcpModeLockedTip": "Adminvärdet gäller alltid; dolt för AI:n",
     "mcpAddMetaField": "+ Lägg till metadatafält",
-    "verify": "Verifiera"
+    "verify": "Verifiera",
+    "autoReindex": "Automatisk omindexering av schemat",
+    "autoReindexAt": "Omindexera dagligen kl.",
+    "autoReindexEnterprise": "Schemalagd omindexering är en enterprise-funktion.",
+    "autoReindexEvery": "Omindexera var",
+    "autoReindexHint": "Omindexera den här anslutningen regelbundet så att tabellerna hålls aktuella.",
+    "autoReindexLastError": "Senaste felet",
+    "autoReindexMinInterval": "Minsta intervall är {n} minuter.",
+    "autoReindexModeInterval": "Intervall",
+    "autoReindexModeTime": "Vid en tidpunkt",
+    "autoReindexSaveFailed": "Det gick inte att spara inställningarna för automatisk omindexering",
+    "autoReindexSchedule": "Schema",
+    "autoReindexTimeHint": "Dagligen, i organisationens tidszon.",
+    "browserForm": {
+      "allowDownloads": "Tillåt nedladdningar",
+      "cancel": "Avbryt",
+      "name": "Namn",
+      "namePlaceholder": "t.ex. Leverantörsportal",
+      "save": "Skapa",
+      "test": "Validera URL:er",
+      "urls": "Tillåtna URL:er",
+      "urlsHelp": "Ett mönster per rad, t.ex. https://portal.vendor.com/**. Agenten får bara besöka URL:er som matchar."
+    },
+    "catAll": "Alla",
+    "catBi": "BI och analys",
+    "catDatabases": "Databaser och datalager",
+    "catFiles": "Filer och objektlagring",
+    "catInfra": "Infrastruktur",
+    "catServices": "Tjänster",
+    "collectionsAccessible": "{n} samlingar tillgängliga",
+    "collectionsLabel": "Samlingar",
+    "connectToQueryAsYou": "Anslut ditt konto för att köra frågor som dig själv.",
+    "connectorDcrNote": "Ingen admin-konfiguration krävs — den här kopplingen registrerar sig automatiskt (DCR). Du lägger till den för din organisation; varje användare loggar in med sitt eget konto första gången.",
+    "connectorsSection": "Kopplingar",
+    "customSection": "Egna kopplingar",
+    "customSectionHint": "Anslut valfri MCP-server eller REST-API",
+    "dataSourcesSection": "Datakällor",
+    "disconnect": "Koppla från",
+    "disconnecting": "Kopplar från…",
+    "everyNHours": "Var {n}:e timme",
+    "filesAccessible": "{n} filer tillgängliga",
+    "filesLabel": "Filer",
+    "impactAgentsMany": "Detta påverkar {count} agenter",
+    "impactAgentsOne": "Detta påverkar {count} agent",
+    "lastRefreshed": "Senast uppdaterad",
+    "mcpBadge": "MCP",
+    "me": "Jag",
+    "rateLimit": "Gräns för antal förfrågningar",
+    "rateLimitEnterprise": "Hastighetsbegränsning per anslutning är en enterprise-funktion.",
+    "rateLimitHint": "Begränsa hur många förfrågningar den här anslutningen tar emot per tidsfönster. Delas av alla användare; frågor över gränsen blockeras.",
+    "rateLimitNoLimit": "Ingen gräns",
+    "rateLimitPerDay": "Per dag",
+    "rateLimitPerHour": "Per timme",
+    "rateLimitPerMinute": "Per minut",
+    "rateLimitReqDay": "förfr./dag",
+    "rateLimitReqHour": "förfr./tim",
+    "rateLimitReqMin": "förfr./min",
+    "rateLimitSaveFailed": "Det gick inte att spara inställningarna för hastighetsbegränsning",
+    "refreshing": "Uppdaterar…",
+    "reloadMyTables": "Läs in mina tabeller igen",
+    "runQueriesAs": "Kör frågor som",
+    "sampleSection": "Exempeldatabaser",
+    "serviceAccountNote": "Frågor körs med anslutningens tjänstkonto.",
+    "stopIndexingFailed": "Det gick inte att stoppa indexeringen",
+    "switchIdentityFailed": "Det gick inte att byta frågeidentitet",
+    "tablesAccessible": "{n} tabeller tillgängliga",
+    "toolsAccessible": "{n} verktyg tillgängliga",
+    "toolsLabel": "Verktyg",
+    "unitHours": "timmar",
+    "unitMinutes": "minuter"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -2517,7 +2918,10 @@
     "integration.not_found": "Integrationen hittades inte",
     "resource.conflict": "Resursen finns redan eller står i konflikt med befintligt tillstånd",
     "resource.duplicate": "Duplicerad resurs",
-    "setting.update_failed": "Det gick inte att uppdatera inställningen"
+    "setting.update_failed": "Det gick inte att uppdatera inställningen",
+    "query": {
+      "failed_silently": "En fråga misslyckades men den genererade koden returnerade ett tomt resultat i stället för att rapportera det"
+    }
   },
   "email": {
     "dashboardShare": {
@@ -2701,7 +3105,12 @@
     "refreshPartial": "Instrumentpanelen delvis uppdaterad",
     "refreshFailed": "Det gick inte att uppdatera instrumentpanelen",
     "refreshNothing": "Inget att uppdatera",
-    "refreshSummary": "{succeeded} av {total} frågor uppdaterade"
+    "refreshSummary": "{succeeded} av {total} frågor uppdaterade",
+    "exportHtml": "Ladda ner som fristående HTML",
+    "exportComplete": "Exporten är klar",
+    "exportHtmlDone": "Fristående HTML-fil nedladdad – den fungerar offline.",
+    "exportFailed": "Exporten misslyckades",
+    "exportHtmlFailed": "Det gick inte att exportera den här instrumentpanelen som HTML."
   },
   "filter": {
     "addFilters": "Lägg till filter",
@@ -2779,7 +3188,8 @@
     "global": "Global",
     "tablesLoadFailed": "Det gick inte att ladda tabellerna",
     "instructionsLoadFailed": "Det gick inte att ladda instruktionerna",
-    "queriesLoadFailed": "Det gick inte att ladda frågorna"
+    "queriesLoadFailed": "Det gick inte att ladda frågorna",
+    "connectToPreview": "Logga in för att förhandsgranska tabeller och instruktioner och ställa frågor."
   },
   "allInstructions": {
     "title": "Alla instruktioner",
@@ -2970,7 +3380,8 @@
       "toastDeleted": "Testfallet raderades",
       "toastCreated": "Testfallet skapades",
       "toastDeleteFailed": "Det gick inte att radera testfallet",
-      "saveFailed": "Det gick inte att spara testfallet"
+      "saveFailed": "Det gick inte att spara testfallet",
+      "emptyDescription": "Testerna utvärderar hur dina agenter svarar på prompter och regler."
     },
     "filter": {
       "allSuites": "Alla sviter",
@@ -3065,6 +3476,18 @@
       "listContains": "lista innehåller värde",
       "listContainsAny": "lista innehåller någon",
       "listContainsAll": "lista innehåller alla"
+    },
+    "strip": {
+      "default": "standard",
+      "emptyShelf": "Inga utvärderingar sparade här ännu",
+      "fromChat": "i den här chatten",
+      "noneResolved": "Inga utvärderingar lösta för den här agenten ännu",
+      "orgWide": "Hela organisationen",
+      "pinned": "fäst vid den här ändringen",
+      "runAll": "Kör alla",
+      "runSuite": "Kör {name}",
+      "runningCount": "Kör {done}/{total}",
+      "title": "Utvärderingar för den här ändringen"
     }
   },
   "monitoring": {
@@ -3105,7 +3528,15 @@
       "next": "Nästa",
       "periodAllTime": "All tid",
       "filterUsersAll": "Alla användare",
-      "searchPlaceholder": "Sök prompter…"
+      "searchPlaceholder": "Sök prompter…",
+      "activityChartEmpty": "Ingen aktivitet under den valda perioden.",
+      "activityChartError": "Fel",
+      "activityChartLoading": "Läser in aktivitet…",
+      "activityChartSubtitle": "Dagliga agentkörningar per status",
+      "activityChartSuccess": "Lyckades",
+      "activityChartTitle": "Aktivitet för agentkörningar",
+      "activityChartTotal": "Totalt",
+      "dayFilterLabel": "Visar {date}"
     },
     "title": "Övervakning",
     "tabExplore": "Utforska",
@@ -3144,7 +3575,9 @@
       "loading": "Laddar kostnadsdata...",
       "lockedTitle": "Kostnad är en enterprise-funktion",
       "lockedBody": "Uppgradera till en enterprise-licens för att spåra LLM-tokens och kostnad per användare, agent och grupp över tid.",
-      "fanoutNote": "Kostnad för rapporter med flera källor räknas för var och en av deras datakällor, så radvisa totaler kan överstiga den totala summan."
+      "fanoutNote": "Kostnad för rapporter med flera källor räknas för var och en av deras datakällor, så radvisa totaler kan överstiga den totala summan.",
+      "kpiSaved": "Sparat med automatisk routning",
+      "kpiSavedSub": "omdirigerade anrop"
     },
     "cards": {
       "messages": "Meddelanden",
@@ -3236,7 +3669,10 @@
     "tabEvals": "Utvärderingar",
     "loadFailInstructions": "Det gick inte att ladda instruktionerna",
     "loadFailQueries": "Det gick inte att ladda frågorna",
-    "loadFailEvals": "Det gick inte att ladda utvärderingarna"
+    "loadFailEvals": "Det gick inte att ladda utvärderingarna",
+    "noInstruction": "Ingen huvudinstruktion",
+    "noStarters": "Inga samtalsöppnare",
+    "primaryInstruction": "Huvudinstruktion"
   },
   "instructionModal": {
     "newTitle": "Ny instruktion",
@@ -3372,7 +3808,33 @@
       "createFailed": "Det gick inte att skapa instruktionen",
       "updateFailed": "Det gick inte att uppdatera instruktionen",
       "deleteFailed": "Det gick inte att radera instruktionen",
-      "enhanceFailed": "Det gick inte att förbättra instruktionen"
+      "enhanceFailed": "Det gick inte att förbättra instruktionen",
+      "revertFailed": "Det gick inte att återställa instruktionen",
+      "revertSuccess": "Återställd till v{n}"
+    },
+    "sidebar": {
+      "approvedBy": "Godkänd av",
+      "category": "Kategori",
+      "createdBy": "Skapad av",
+      "dataSources": "Datakällor",
+      "details": "Detaljer",
+      "labels": "Etiketter",
+      "loading": "Läser in AI-kontext",
+      "references": "Referenser",
+      "scope": "Omfattning",
+      "status": "Status",
+      "visibility": "Synlighet"
+    },
+    "versions": {
+      "compareLabel": "Jämfört med nuvarande",
+      "confirmRevert": "Återställa den här instruktionen till v{n}? En ny version skapas.",
+      "current": "nuvarande",
+      "fieldChanges": "Fältändringar",
+      "label": "Version",
+      "loadFailed": "Det gick inte att läsa in versionerna",
+      "noChanges": "Inga innehållsskillnader mot nuvarande version",
+      "revert": "Återställ till den här versionen",
+      "reverting": "Återställer..."
     }
   },
   "mcpServerModal": {
@@ -3554,7 +4016,9 @@
       "defaultModelSubtitle": "Modellen som används som standard när du startar en ny chatt. Endast modeller du har tillgång till visas.",
       "orgDefault": "Organisationens standard",
       "defaultModelSaved": "Standardmodellen har uppdaterats",
-      "defaultModelFailed": "Det gick inte att uppdatera standardmodellen"
+      "defaultModelFailed": "Det gick inte att uppdatera standardmodellen",
+      "directorySubtitle": "Jobbinformation synkad från organisationens identitetsleverantör. Synlig för AI:n som kontext.",
+      "directoryTitle": "Katalogprofil"
     },
     "instructions": {
       "title": "Anpassade instruktioner",
@@ -3611,7 +4075,21 @@
     }
   },
   "commandPalette": {
-    "prompts": "Prompter"
+    "prompts": "Prompter",
+    "actions": "Åtgärder",
+    "agents": "Agenter",
+    "emptyLabel": "Börja skriva för att söka",
+    "emptyQueryLabel": "Inga resultat hittades",
+    "instructions": "Instruktioner",
+    "newInstruction": "Ny instruktion",
+    "newInstructionWithQuery": "Ny instruktion ”{query}”",
+    "newReport": "Ny rapport",
+    "newReportWithQuery": "Ny rapport ”{query}”",
+    "placeholder": "Sök rapporter, agenter, instruktioner…",
+    "reports": "Senaste rapporterna",
+    "suggestInstruction": "Föreslå instruktion",
+    "suggestInstructionWithQuery": "Föreslå instruktionen ”{query}”",
+    "suggestionHint": "skickad för granskning"
   },
   "promptParams": {
     "title": "Fyll i parametrar — {title}",
@@ -3710,7 +4188,12 @@
     "allAgentsHint": "All agents",
     "nAgentsSelected": "{n} selected",
     "selectAgentsPlaceholder": "Select agents…",
-    "modelDefaultAuto": "Auto · routar efter svårighetsgrad"
+    "modelDefaultAuto": "Auto · routar efter svårighetsgrad",
+    "deliverEmail": "E-post",
+    "deliverEmailHint": "En länk till rapporten mejlas till varje medlem.",
+    "deliverLabel": "Leverera även resultaten till",
+    "deliverTeams": "Teams",
+    "deliverTeamsHint": "Skickas till varje medlems Teams-chatt (medlemmar utan Teams hoppas över)."
   },
   "automations": {
     "title": "Automatiseringar",
@@ -3877,5 +4360,179 @@
     "continueOnboarding": "Fortsätt introduktionen",
     "configureLlm": "Konfigurera din LLM",
     "connectFirstDataSource": "Anslut din första datakälla"
+  },
+  "agentPage": {
+    "tables": {
+      "addFiles": "Ladda upp fil",
+      "fileRemoveFailed": "Det gick inte att ta bort filen",
+      "fileUploadFailed": "Det gick inte att ladda upp filen",
+      "filesUploading": "Laddar upp…",
+      "manageConnections": "Hantera anslutningar",
+      "manageFiles": "Ladda upp fil",
+      "removeFile": "Ta bort fil",
+      "save": "Spara",
+      "schemaRefreshing": "Schemat uppdateras — tabellerna dyker upp inom kort.",
+      "selectTables": "Välj tabeller",
+      "selectTablesSubtitle": "Välj vilka tabeller som ska aktiveras"
+    }
+  },
+  "changelog": {
+    "changeCount": "{count} ändring | {count} ändringar",
+    "emptyTitle": "Inga versionsanteckningar ännu",
+    "errorBody": "Något gick fel när versionsanteckningarna hämtades.",
+    "errorTitle": "Det gick inte att läsa in ändringsloggen",
+    "latest": "Senaste",
+    "menuItem": "Ändringslogg",
+    "retry": "Försök igen",
+    "subtitle": "Senaste nyheterna och förbättringarna",
+    "title": "Nyheter",
+    "viewOnGithub": "Visa alla versioner"
+  },
+  "exports": {
+    "complete": "Exporten klar",
+    "failed": "Exporten misslyckades",
+    "html": "HTML",
+    "label": "Exportera",
+    "pdf": "PDF",
+    "pdfDone": "PDF nedladdad.",
+    "pptx": "PowerPoint"
+  },
+  "quotaPolicies": {
+    "add": "Lägg till",
+    "assignmentCounts": {
+      "group": "{n} grupper",
+      "role": "{n} roller",
+      "user": "{n} användare"
+    },
+    "assignments": "Tilldelningar",
+    "cancel": "Avbryt",
+    "cancelEdit": "Avbryt redigering",
+    "colActions": "Åtgärder",
+    "colAssignments": "Tilldelningar",
+    "colLimits": "Gränser",
+    "colOverrides": "Undantag per anslutning",
+    "colPolicy": "Policy",
+    "colQuota": "Kvot",
+    "colStatus": "Status",
+    "confirmDelete": "Ta bort kvoten ”{name}”?",
+    "connection": "Anslutning",
+    "connectionOverrides": "Undantag per anslutning",
+    "create": "Skapa",
+    "createQuota": "Skapa kvot",
+    "dataMb": "Data MB",
+    "dataShort": "Data",
+    "descriptionLabel": "Beskrivning",
+    "descriptionPlaceholder": "Valfritt",
+    "disabled": "Inaktiverad",
+    "editQuota": "Redigera kvot",
+    "enabled": "Aktiverad",
+    "failedToDelete": "Det gick inte att ta bort kvoten",
+    "failedToLoad": "Det gick inte att läsa in kvoterna",
+    "failedToSave": "Det gick inte att spara kvoten",
+    "groups": "Grupper",
+    "inherited": "Ärvd",
+    "loading": "Läser in...",
+    "monthlyDataLimitMb": "Månatlig datagräns (MB)",
+    "monthlyQueryLimit": "Månatlig frågegräns",
+    "monthlySpendLimitUsd": "Månatlig kostnadsgräns (USD)",
+    "monthlyTokenLimit": "Månatlig tokengräns",
+    "nameLabel": "Namn",
+    "namePlaceholder": "t.ex. Analytikerkvot",
+    "newQuota": "Ny kvot",
+    "noDirectQuota": "Standard",
+    "noPoliciesFound": "Inga kvotpolicyer hittades",
+    "noPoliciesHint": "Skapa en kvot för att begränsa månatlig AI- och dataanvändning.",
+    "none": "Ingen",
+    "principalTypes": {
+      "group": "Grupp",
+      "role": "Roll",
+      "user": "Användare"
+    },
+    "queries": "Frågor",
+    "queriesShort": "Frågor",
+    "roles": "Roller",
+    "save": "Spara",
+    "searchPlaceholder": "Sök kvoter...",
+    "selectConnection": "Välj en anslutning...",
+    "selectPrincipal": "Välj en principal...",
+    "spendShort": "Kostnad",
+    "toastAssignmentUpdated": "Kvottilldelningen uppdaterades",
+    "toastCreated": "Kvoten skapades",
+    "toastDeleted": "Kvoten togs bort",
+    "toastUpdated": "Kvoten uppdaterades",
+    "tokensShort": "Tokens",
+    "unlimited": "Obegränsad",
+    "update": "Uppdatera",
+    "users": "Användare"
+  },
+  "serviceAccounts": {
+    "active": "Aktivt",
+    "apiKeys": "API-nycklar",
+    "colKeys": "Nycklar",
+    "colName": "Namn",
+    "colRole": "Roll",
+    "colStatus": "Status",
+    "copied": "Kopierat till urklipp",
+    "copy": "Kopiera",
+    "copyManual": "Markera nyckeln och kopiera den manuellt",
+    "create": "Skapa",
+    "createFailed": "Det gick inte att skapa tjänstkontot",
+    "created": "Tjänstkontot skapades",
+    "delete": "Ta bort",
+    "deleted": "Tjänstkontot togs bort",
+    "description": "Beskrivning",
+    "disable": "Inaktivera",
+    "disabled": "Inaktiverat",
+    "empty": "Inga tjänstkonton ännu.",
+    "enable": "Aktivera",
+    "keyFailed": "Det gick inte att skapa nyckeln",
+    "keyLastUsed": "Senast använd",
+    "keyName": "Namn",
+    "keyOnce": "Kopiera nyckeln nu — den visas inte igen.",
+    "keyPrefix": "Prefix",
+    "manageKeys": "Hantera nycklar",
+    "never": "Aldrig",
+    "newAccount": "Nytt tjänstkonto",
+    "newKey": "Skapa nyckel",
+    "noKeys": "Inga nycklar ännu.",
+    "noRole": "Ingen roll",
+    "roleHint": "Du kan bara tilldela en roll vars behörigheter du redan har.",
+    "selectRole": "Välj en roll",
+    "subtitle": "Icke-mänskliga API-identiteter för automatisering och integrationer. Var och en har egen roll och egna API-nycklar och är inte kopplad till en person.",
+    "title": "Tjänstkonton"
+  },
+  "sessionEvents": {
+    "artifact_schedule_changed": "Uppdateringsschemat för ”{title}” ändrades",
+    "artifact_schedule_removed": "Uppdateringsschemat för ”{title}” togs bort",
+    "artifact_schedule_set": "En uppdatering schemalades för ”{title}”",
+    "artifact_shared": "”{title}” delades med {who}",
+    "artifact_shared_generic": "”{title}” delades",
+    "artifact_unshared": "”{title}” gjordes privat",
+    "artifact_version_reverted": "”{title}” återställdes till version {v}",
+    "artifact_version_reverted_generic": "”{title}” återställdes till en tidigare version",
+    "conversation_share_off": "Delningen av konversationen stängdes av",
+    "eval_run_started": "{actor} startade en utvärderingskörning · {n} fall",
+    "eval_run_started_by": "{actor} startade en utvärderingskörning",
+    "eval_run_started_generic": "En utvärderingskörning startades",
+    "eval_run_started_generic_n": "En utvärderingskörning startades · {n} fall",
+    "file_removed": "{name} togs bort",
+    "file_uploaded": "{name} laddades upp",
+    "instruction_accepted": "Den föreslagna ändringen av ”{title}” godkändes",
+    "instruction_accepted_generic": "En föreslagen instruktionsändring godkändes",
+    "instruction_accepted_versioned": "Den föreslagna ändringen av ”{title}” (v{v}) godkändes",
+    "instruction_rejected": "Den föreslagna ändringen av ”{title}” avvisades",
+    "instruction_rejected_generic": "En föreslagen instruktionsändring avvisades",
+    "instruction_rejected_versioned": "Den föreslagna ändringen av ”{title}” (v{v}) avvisades",
+    "llm_changed": "Modellen byttes till {to}",
+    "llm_reset": "Modellen återställdes till standardvalet",
+    "report_published": "Rapporten publicerades",
+    "report_shared": "Konversationen delades med {who}",
+    "report_shared_generic": "Konversationen delades",
+    "report_unpublished": "Rapportens publicering togs bort",
+    "run_stopped": "Körningen stoppades",
+    "scope_added": "Agentens omfattning ändrades — lade till {added}",
+    "scope_changed": "Agentens omfattning ändrades — lade till {added}; tog bort {removed}",
+    "scope_generic": "Agentens omfattning ändrades",
+    "scope_removed": "Agentens omfattning ändrades — tog bort {removed}"
   }
 }

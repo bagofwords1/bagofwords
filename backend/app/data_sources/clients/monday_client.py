@@ -16,6 +16,7 @@ label text in `compare_value` to indices using the board's column settings so
 generated queries can filter by the human-readable label.
 """
 import json
+import logging
 import re
 import time
 from typing import Any, Dict, List, Optional
@@ -25,6 +26,8 @@ import requests
 
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
+
+logger = logging.getLogger(__name__)
 
 API_URL = "https://api.monday.com/v2"
 # Multi-level boards first became queryable in 2025-10. Pin the oldest current
@@ -36,8 +39,20 @@ MAX_ROWS = 10_000        # hard cap per execute_query
 PAGE_SIZE = 500          # items_page maximum page size
 DEFAULT_LIMIT = 100      # when the query spec omits `limit`
 BOARDS_PAGE = 50         # boards per page during schema discovery
+WORKSPACES_PAGE = 50     # workspaces per page during the per-workspace sweep
 MAX_BOARDS = 1_000       # discovery cap — beyond this, scope with the config
+MAX_WORKSPACES = 1_000   # sanity cap for the workspace sweep
 RETRIES = 6              # per-request retries on 429/complexity/5xx
+
+# Board fields fetched during discovery. `type` distinguishes real boards from
+# auto-managed subitem shadow boards (sub_items_board) — filtering by name
+# prefix ("Subitems of ") wrongly drops real boards monday creates with that
+# name (e.g. "Expand subitems into a new board") and misses renamed/localized
+# shadow boards.
+_BOARD_FIELDS = (
+    "id name description board_kind hierarchy_type items_count type "
+    "workspace { id name } columns { id title type settings_str }"
+)
 
 # monday column type → pandas-ish dtype for prompt schemas.
 _TYPE_MAP = {
@@ -75,6 +90,13 @@ _TYPE_MAP = {
 # Column types whose settings carry an index→label map that rules filter by.
 _LABELED_TYPES = {"status", "dropdown"}
 
+# Column types that link to items and expose `linked_item_ids` — each gets a
+# companion "<Column> (item_ids)" DataFrame column for precise id-based joins
+# (display names are ambiguous: duplicates exist and multi-link cells are
+# comma-joined).
+_LINKED_ID_TYPES = {"board_relation", "dependency"}
+_ITEM_IDS_SUFFIX = " (item_ids)"
+
 
 class MondayClient(DataSourceClient):
 
@@ -91,8 +113,10 @@ class MondayClient(DataSourceClient):
         self.access_token = access_token
         self.workspaces = [w.strip() for w in workspaces.split(",") if w.strip()] if workspaces else None
         self.boards = [b.strip() for b in boards.split(",") if b.strip()] if boards else None
-        # board catalog cache: list of raw board dicts from the API
+        # board catalog cache: list of raw board dicts from the API, and
+        # whether it was built with the per-workspace sweep (deep discovery)
         self._boards_cache: Optional[List[dict]] = None
+        self._deep_done = False
 
     # ── transport ───────────────────────────────────────────────────────────
 
@@ -192,41 +216,162 @@ class MondayClient(DataSourceClient):
 
     # ── board catalog ───────────────────────────────────────────────────────
 
-    def _fetch_boards(self) -> List[dict]:
-        """All active boards visible to the token, with columns, paginated."""
-        if self._boards_cache is not None:
-            return self._boards_cache
-        boards: List[dict] = []
+    def _fetch_workspaces(self) -> List[dict]:
+        """All active workspaces visible to the token (member or not).
+
+        Best-effort: discovery must survive a token that cannot list
+        workspaces (e.g. an OAuth token minted before workspaces:read was
+        requested) — the global board crawl still runs without the sweep.
+        """
+        workspaces: List[dict] = []
         page = 1
-        while len(boards) < MAX_BOARDS:
+        try:
+            while len(workspaces) < MAX_WORKSPACES:
+                data = self._gql(
+                    """
+                    query ($limit: Int!, $page: Int!) {
+                      workspaces (limit: $limit, page: $page, state: active,
+                                  membership_kind: all) {
+                        id name kind
+                      }
+                    }
+                    """,
+                    {"limit": WORKSPACES_PAGE, "page": page},
+                )
+                batch = [w for w in (data.get("workspaces") or []) if w]
+                if not batch:
+                    break
+                workspaces.extend(batch)
+                page += 1
+        except RuntimeError as e:
+            logger.warning("monday discovery: workspace listing failed (%s) — "
+                           "continuing with the global board crawl only.", e)
+        return workspaces
+
+    def _fetch_boards(self, deep: bool = False) -> List[dict]:
+        """All active boards visible to the token, with columns.
+
+        Discovery deliberately combines two passes:
+
+        1. A global `boards (limit, page)` crawl. Pagination stops only on an
+           EMPTY page — monday does not guarantee non-final pages are full, and
+           breaking on a short page silently truncates every board after it.
+        2. With `deep=True`, a per-workspace id sweep
+           (`boards (workspace_ids: [...])`), the strategy monday's own MCP
+           server uses. The global listing is known to omit boards that
+           direct/workspace-scoped queries return (observed with shareable
+           boards and cross-product workspaces); any board the sweep finds
+           that the crawl missed is recovered via `boards (ids:)`.
+
+        Schema discovery always runs deep. Query-time board resolution starts
+        shallow (one crawl) and escalates to deep only when the board isn't
+        found, so per-query latency doesn't grow with the workspace count.
+        """
+        if self._boards_cache is not None and (self._deep_done or not deep):
+            return self._boards_cache
+
+        boards_by_id: Dict[str, dict] = {}
+        page_sizes: List[int] = []
+        truncated = False
+        page = 1
+        while True:
             data = self._gql(
-                """
-                query ($limit: Int!, $page: Int!) {
+                f"""
+                query ($limit: Int!, $page: Int!) {{
                   boards (limit: $limit, page: $page, state: active, order_by: created_at,
-                          hierarchy_types: [classic, multi_level]) {
-                    id name description board_kind hierarchy_type items_count
-                    workspace { id name }
-                    columns { id title type settings_str }
-                  }
-                }
+                          hierarchy_types: [classic, multi_level]) {{
+                    {_BOARD_FIELDS}
+                  }}
+                }}
                 """,
                 {"limit": BOARDS_PAGE, "page": page},
             )
-            batch = data.get("boards") or []
-            boards.extend(batch)
-            if len(batch) < BOARDS_PAGE:
+            batch = [b for b in (data.get("boards") or []) if b]
+            page_sizes.append(len(batch))
+            if not batch:
+                break
+            for board in batch:
+                boards_by_id.setdefault(str(board["id"]), board)
+            if len(boards_by_id) >= MAX_BOARDS:
+                truncated = True
                 break
             page += 1
+        # page_sizes ends [..., last_non_empty, 0] on a full crawl — a short
+        # LAST non-empty page is normal; short pages before it are not.
+        if any(0 < size < BOARDS_PAGE for size in page_sizes[:-2]):
+            logger.info("monday discovery: global crawl returned short non-final "
+                        "pages %s — continued to the empty page.", page_sizes)
 
-        # Subitem boards are auto-managed shadows of their parent board.
-        boards = [b for b in boards if not (b.get("name") or "").startswith("Subitems of ")]
+        # Per-workspace sweep: cheap id-only pages, then recover full payloads
+        # for boards the global crawl did not return.
+        missing_ids: List[str] = []
+        for workspace in (self._fetch_workspaces() if deep else []):
+            page = 1
+            while True:
+                data = self._gql(
+                    """
+                    query ($limit: Int!, $page: Int!, $ws: [ID]) {
+                      boards (limit: $limit, page: $page, state: active,
+                              hierarchy_types: [classic, multi_level], workspace_ids: $ws) {
+                        id
+                      }
+                    }
+                    """,
+                    {"limit": BOARDS_PAGE, "page": page, "ws": [workspace["id"]]},
+                )
+                batch = [b for b in (data.get("boards") or []) if b]
+                if not batch:
+                    break
+                for board in batch:
+                    board_id = str(board["id"])
+                    if board_id not in boards_by_id and board_id not in missing_ids:
+                        missing_ids.append(board_id)
+                page += 1
+        for start in range(0, len(missing_ids), BOARDS_PAGE):
+            chunk = missing_ids[start:start + BOARDS_PAGE]
+            data = self._gql(
+                f"query ($ids: [ID!]) {{ boards (ids: $ids, state: active) {{ {_BOARD_FIELDS} }} }}",
+                {"ids": chunk},
+            )
+            for board in (data.get("boards") or []):
+                if board:
+                    boards_by_id.setdefault(str(board["id"]), board)
+        if missing_ids:
+            logger.warning("monday discovery: %d board(s) were missing from the global "
+                           "listing and recovered via the workspace sweep: %s",
+                           len(missing_ids), missing_ids[:20])
+
+        boards = list(boards_by_id.values())
+
+        # Subitem boards are auto-managed shadows of their parent board. Filter
+        # by API type; fall back to the name prefix only when `type` is absent.
+        def _is_subitem_board(board: dict) -> bool:
+            board_type = board.get("type")
+            if board_type is not None:
+                return board_type == "sub_items_board"
+            return (board.get("name") or "").startswith("Subitems of ")
+
+        boards = [b for b in boards if not _is_subitem_board(b)]
+
+        if truncated or len(boards) > MAX_BOARDS:
+            boards = boards[:MAX_BOARDS]
+            logger.warning("monday discovery: board catalog truncated at the %d-board "
+                           "cap — scope the connection with the workspaces/boards "
+                           "config to index the rest.", MAX_BOARDS)
 
         if self.workspaces:
             wanted = {w.lower() for w in self.workspaces}
+            # Boards in the legacy Main workspace come back with workspace: null
+            # (documented) — no id or name can match them, so let the aliases
+            # "main workspace" / "main" select them explicitly.
+            main_wanted = bool(wanted & {"main workspace", "main"})
             boards = [
                 b for b in boards
-                if str((b.get("workspace") or {}).get("id")) in wanted
-                or ((b.get("workspace") or {}).get("name") or "").lower() in wanted
+                if (
+                    (b.get("workspace") is None and main_wanted)
+                    or str((b.get("workspace") or {}).get("id")) in wanted
+                    or ((b.get("workspace") or {}).get("name") or "").lower() in wanted
+                )
             ]
         if self.boards:
             wanted = {x.lower() for x in self.boards}
@@ -234,7 +379,12 @@ class MondayClient(DataSourceClient):
                 b for b in boards
                 if str(b.get("id")) in wanted or (b.get("name") or "").lower() in wanted
             ]
+        logger.info("monday discovery: %d board(s) in the catalog "
+                    "(global crawl pages %s, %d recovered via workspace sweep%s).",
+                    len(boards), page_sizes, len(missing_ids),
+                    "" if deep else "; sweep skipped (shallow)")
         self._boards_cache = boards
+        self._deep_done = deep
         return boards
 
     def _table_names(self, boards: List[dict]) -> Dict[str, dict]:
@@ -254,8 +404,20 @@ class MondayClient(DataSourceClient):
 
     def _resolve_board(self, ref) -> dict:
         """Accept a board id (int/str), exact board name, or disambiguated
-        'name [id]' and return the raw board dict."""
-        boards = self._fetch_boards()
+        'name [id]' and return the raw board dict.
+
+        Starts from the shallow catalog; a miss escalates once to deep
+        discovery (per-workspace sweep) before failing, so boards the global
+        listing omits are still queryable."""
+        try:
+            return self._resolve_board_in(self._fetch_boards(), ref)
+        except ValueError:
+            if self._deep_done:
+                raise
+            self._boards_cache = None
+            return self._resolve_board_in(self._fetch_boards(deep=True), ref)
+
+    def _resolve_board_in(self, boards: List[dict], ref) -> dict:
         text = str(ref).strip()
         for board in boards:
             if str(board["id"]) == text:
@@ -317,6 +479,18 @@ class MondayClient(DataSourceClient):
             table_column = TableColumn(name=col_name, dtype=dtype, description="; ".join(parts))
             columns.append(table_column)
 
+            if column.get("type") in _LINKED_ID_TYPES:
+                # Companion ids column: the joinable counterpart of the
+                # display-name column (query results carry both).
+                ids_column = TableColumn(
+                    name=f"{col_name}{_ITEM_IDS_SUFFIX}",
+                    dtype="list[int]",
+                    description=f"item ids of the items linked in {col_name!r}; "
+                                "explode and merge on the linked board's item_id",
+                )
+                seen.add(ids_column.name)
+                columns.append(ids_column)
+
             if column.get("type") == "board_relation":
                 try:
                     settings = json.loads(column.get("settings_str") or "{}")
@@ -324,7 +498,7 @@ class MondayClient(DataSourceClient):
                         linked_name = board_names_by_id.get(str(linked_id))
                         if linked_name:
                             fks.append(ForeignKey(
-                                column=table_column,
+                                column=ids_column,
                                 references_name=linked_name,
                                 references_column=TableColumn(name="item_id", dtype="int"),
                             ))
@@ -351,7 +525,7 @@ class MondayClient(DataSourceClient):
         )
 
     def get_schemas(self, progress_callback=None) -> List[Table]:
-        boards = self._fetch_boards()
+        boards = self._fetch_boards(deep=True)
         names = self._table_names(boards)
         board_names_by_id = {str(b["id"]): n for n, b in names.items()}
         tables: List[Table] = []
@@ -367,7 +541,7 @@ class MondayClient(DataSourceClient):
 
     def get_schema(self, table_name: str) -> Table:
         board = self._resolve_board(table_name)
-        boards = self._fetch_boards()
+        boards = self._fetch_boards()  # cached by the resolve above
         names = self._table_names(boards)
         board_names_by_id = {str(b["id"]): n for n, b in names.items()}
         name = board_names_by_id.get(str(board["id"]), board.get("name") or str(board["id"]))
@@ -441,6 +615,12 @@ class MondayClient(DataSourceClient):
             if str(ref).lower() in self._BASE_COLUMNS:
                 continue
             column = by_key.get(str(ref)) or by_key.get(str(ref).lower())
+            if column is None and str(ref).lower().endswith(_ITEM_IDS_SUFFIX):
+                # The schema publishes "<Column> (item_ids)" companions for
+                # linked columns — selecting one selects its parent column
+                # (the companion is emitted alongside it).
+                base = str(ref)[:-len(_ITEM_IDS_SUFFIX)]
+                column = by_key.get(base) or by_key.get(base.lower())
             if column is None:
                 missing.append(str(ref))
             elif column not in selected:
@@ -500,10 +680,23 @@ class MondayClient(DataSourceClient):
                 translated.append(value)
         return translated
 
+    # Relation-family column values (mirror, connect-boards, dependency,
+    # subitems) return an EMPTY `text` — their display string lives on the
+    # type-specific `display_value` field (verified live; monday's own SDK and
+    # Airbyte's connector request the same fragments). Without these, every
+    # such column reads as None in query results.
+    _COLUMN_VALUE_FRAGMENTS = (
+        " ... on MirrorValue { display_value }"
+        " ... on BoardRelationValue { display_value linked_item_ids }"
+        " ... on DependencyValue { display_value linked_item_ids }"
+        " ... on SubtasksValue { display_value }"
+    )
+
     def _fetch_items(self, board_id, column_ids: List[str], query_params: Optional[dict], limit: int) -> List[dict]:
         items: List[dict] = []
         item_fields = (
-            "id name group { title } column_values (ids: $cols) { id text value type }"
+            "id name group { title } column_values (ids: $cols) { id text value type"
+            + self._COLUMN_VALUE_FRAGMENTS + " }"
             if column_ids else "id name group { title }"
         )
         first_page = min(PAGE_SIZE, limit)
@@ -546,14 +739,22 @@ class MondayClient(DataSourceClient):
         return items[:limit]
 
     def _items_to_df(self, items: List[dict], selected: List[dict]) -> pd.DataFrame:
-        # DataFrame column name per board column: title, disambiguated like the schema.
+        # DataFrame column name per board column: title, disambiguated like the
+        # schema. Linked columns (connect-boards, dependency) additionally get
+        # a "<Column> (item_ids)" companion carrying the linked item ids, so
+        # joins run on ids instead of ambiguous display names.
         names: Dict[str, str] = {}
+        id_companions: Dict[str, str] = {}
         seen = {"item_id", "name", "group"}
         for column in selected:
             title = column.get("title") or column["id"]
             name = title if title not in seen else f"{title} ({column['id']})"
             seen.add(name)
             names[column["id"]] = name
+            if column.get("type") in _LINKED_ID_TYPES:
+                companion = f"{name}{_ITEM_IDS_SUFFIX}"
+                seen.add(companion)
+                id_companions[column["id"]] = companion
 
         rows = []
         for item in items:
@@ -567,12 +768,20 @@ class MondayClient(DataSourceClient):
                 if target is None:
                     continue
                 row[target] = self._cell_value(value)
+                companion = id_companions.get(value.get("id"))
+                if companion is not None:
+                    row[companion] = [int(i) for i in value.get("linked_item_ids") or []]
             rows.append(row)
 
         # Deterministic shape regardless of returned values: base columns +
-        # every selected column, in board order (a column that is empty on all
-        # returned items would otherwise vanish from the frame).
-        expected = ["item_id", "name", "group"] + list(names.values())
+        # every selected column (each linked column followed by its ids
+        # companion), in board order (a column that is empty on all returned
+        # items would otherwise vanish from the frame).
+        expected = ["item_id", "name", "group"]
+        for column_id, name in names.items():
+            expected.append(name)
+            if column_id in id_companions:
+                expected.append(id_companions[column_id])
         frame = pd.DataFrame(rows)
         if frame.empty:
             return pd.DataFrame(columns=expected)
@@ -581,9 +790,13 @@ class MondayClient(DataSourceClient):
     @staticmethod
     def _cell_value(value: dict):
         """One typed scalar per cell. `text` is monday's display string; typed
-        columns parse it (or the raw JSON `value`) into a real dtype."""
+        columns parse it (or the raw JSON `value`) into a real dtype.
+        Relation-family columns carry their display string in `display_value`
+        instead of `text` (which comes back empty) — backfill it."""
         kind = value.get("type")
         text = value.get("text")
+        if text in (None, "") and value.get("display_value"):
+            text = value["display_value"]
         if kind == "numbers":
             if text in (None, ""):
                 return None
@@ -642,17 +855,31 @@ class MondayClient(DataSourceClient):
         timeline, dropdown, …) → display TEXT strings; empty cells → None.
         Status columns hold label text ("Done"), date columns "YYYY-MM-DD"
         strings (parse with pd.to_datetime), timeline "YYYY-MM-DD - YYYY-MM-DD".
+        Connect-boards / mirror / dependency / subitems columns hold the
+        comma-separated display names of the linked items. Connect-boards and
+        dependency columns ALSO come with a companion column
+        "<Column> (item_ids)" holding the linked monday item ids as a list —
+        always join on it, never on display names (names duplicate).
 
         Date/number comparisons in `rules` are unreliable in the monday API —
         fetch the rows (set `limit` high enough) and filter/aggregate in pandas
         instead. Do NOT try to join boards in the API; fetch each board and
-        merge in pandas on item name or a connect-boards column.
+        merge in pandas: explode the "<Column> (item_ids)" companion and merge
+        it against the linked board's `item_id` (the schema's foreign keys show
+        which board each connect-boards column links to). Mirror columns are
+        display text only and cannot be joined on.
 
         Examples:
         ```python
         df = client.execute_query('{"board": "Engineering Bug Tracker", "columns": ["Status", "Priority", "Due Date"], "rules": [{"column_id": "Status", "compare_value": ["Done"], "operator": "not_any_of"}], "limit": 1000}')
         df = client.execute_query('{"board": "Sales Pipeline Q3", "limit": 2000}')
         df["Amount"] = pd.to_numeric(df["Amount"], errors="coerce")  # numbers columns are already float; only needed for text columns
+        # cross-board join via a connect-boards column:
+        deals = client.execute_query('{"board": "Sales Pipeline Q3", "limit": 2000}')
+        accounts = client.execute_query('{"board": "Accounts", "limit": 2000}')
+        joined = (deals.explode("Account (item_ids)")
+                       .merge(accounts, left_on="Account (item_ids)", right_on="item_id",
+                              how="left", suffixes=("", " (Account)")))
         ```
         """
         return text
