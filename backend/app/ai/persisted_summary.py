@@ -31,6 +31,9 @@ UI_FILE_PREVIEW_CHARS = 4_000
 GENERIC_TOOL_CONTEXT_BUDGET_BYTES = 16_384
 GENERIC_TOOL_CONTEXT_MAX_STRING_CHARS = 2_000
 GENERIC_TOOL_CONTEXT_MAX_LIST_ITEMS = 20
+TOOL_CONTEXT_KIND_FIELD = "_context_kind"
+TOOL_CONTEXT_OBSERVATION_KIND = "model_observation_v1"
+_TOOL_CONTEXT_ENVELOPE_OVERHEAD_BYTES = 256
 SUMMARIZED_TOOL_NAMES = frozenset(
     {
         "create_data",
@@ -74,11 +77,17 @@ _GENERIC_MEDIA_KEYS = frozenset(
         "binary",
         "pdf_bytes",
         "audio_data",
+        "images_provided_as_vision",
     }
 )
 
 
-def _generic_tool_projection(value: dict[str, Any]) -> dict[str, Any]:
+def _generic_tool_projection(
+    value: dict[str, Any],
+    *,
+    include_version: bool = True,
+    budget_bytes: int = GENERIC_TOOL_CONTEXT_BUDGET_BYTES,
+) -> dict[str, Any]:
     """Bound an ordinary tool result without an LLM call or raw-media copy.
 
     Small results survive almost unchanged. Large/nested results keep the
@@ -87,7 +96,7 @@ def _generic_tool_projection(value: dict[str, Any]) -> dict[str, Any]:
     write-time cost even when ``result_json`` contains a very large row list.
     """
 
-    remaining = [GENERIC_TOOL_CONTEXT_BUDGET_BYTES - 512]
+    remaining = [budget_bytes - 512]
     truncated = [False]
 
     def _consume(size: int) -> bool:
@@ -104,13 +113,15 @@ def _generic_tool_projection(value: dict[str, Any]) -> dict[str, Any]:
         if depth > 6:
             truncated[0] = True
             return "[nested value elided]"
+        if key.lower() in _GENERIC_MEDIA_KEYS and item is not None:
+            truncated[0] = True
+            marker = "[media elided]"
+            _consume(len(marker))
+            return marker
         if item is None or isinstance(item, (bool, int, float)):
             _consume(len(str(item)))
             return item
         if isinstance(item, str):
-            if key.lower() in _GENERIC_MEDIA_KEYS:
-                truncated[0] = True
-                return "[media elided]"
             allowed = min(GENERIC_TOOL_CONTEXT_MAX_STRING_CHARS, max(remaining[0], 0))
             if len(item) > allowed:
                 truncated[0] = True
@@ -152,31 +163,48 @@ def _generic_tool_projection(value: dict[str, Any]) -> dict[str, Any]:
     projected = _project(value)
     if not isinstance(projected, dict):
         projected = {"value": projected}
-    projected["version"] = CONTEXT_SUMMARY_VERSION
+    if include_version:
+        projected["version"] = CONTEXT_SUMMARY_VERSION
     if truncated[0]:
         projected["_context_truncated"] = True
 
     # The running budget is deliberately conservative, but multibyte strings
     # can still make encoded JSON larger than their character count. Trim only
     # non-priority tail keys as a final deterministic guard.
-    while len(json.dumps(projected, default=str).encode("utf-8")) > GENERIC_TOOL_CONTEXT_BUDGET_BYTES:
+    while len(json.dumps(projected, default=str).encode("utf-8")) > budget_bytes:
         removable = [
             key for key in projected
             if key not in _GENERIC_PRIORITY_KEYS
-            and key not in {"version", "_context_truncated"}
+            and key not in (
+                {"version", "_context_truncated"}
+                if include_version
+                else {"_context_truncated"}
+            )
         ]
         if not removable:
             # Priority content alone is oversized. Keep an explicit marker;
             # individual strings were already clamped above.
             projected = {
-                "version": CONTEXT_SUMMARY_VERSION,
                 "summary": str(value.get("summary") or "")[:GENERIC_TOOL_CONTEXT_MAX_STRING_CHARS],
                 "_context_truncated": True,
             }
+            if include_version:
+                projected["version"] = CONTEXT_SUMMARY_VERSION
             break
         projected.pop(removable[-1], None)
         projected["_context_truncated"] = True
     return projected
+
+
+def tool_context_for_replay(summary: Any) -> Any:
+    """Return the model-visible body from a persisted context projection."""
+    if (
+        isinstance(summary, dict)
+        and summary.get(TOOL_CONTEXT_KIND_FIELD) == TOOL_CONTEXT_OBSERVATION_KIND
+        and isinstance(summary.get("observation"), dict)
+    ):
+        return summary["observation"]
+    return summary
 
 
 def _column_projection(columns: Any) -> list[dict[str, Any]]:
@@ -360,17 +388,17 @@ def _tool_ui_preview(item: dict[str, Any]) -> dict[str, Any]:
 def build_tool_context_summary(
     tool_name: Any,
     result_json: Any,
+    observation: Any = None,
 ) -> dict[str, Any] | None:
     """Return the immutable, bounded prompt projection for a tool result.
 
-    Row-heavy tools retain their purpose-built shapes. Every other tool gets a
-    generic bounded projection so a future completion never has to hydrate raw
-    ``result_json`` merely to remember what happened.
+    Row-heavy tools retain their purpose-built shapes. Every other tool keeps
+    the bounded observation shown to the model, falling back to a generic
+    result projection for historical and non-agent callers that lack one.
     """
-    if not isinstance(result_json, dict):
-        return None
-
     name = str(tool_name or "")
+    if name in SUMMARIZED_TOOL_NAMES and not isinstance(result_json, dict):
+        return None
     if name == "create_data":
         preview = _preview_shape(result_json, include_first_row=True)
         stats = result_json.get("stats") if isinstance(result_json.get("stats"), dict) else {}
@@ -489,4 +517,24 @@ def build_tool_context_summary(
                 projection[field] = value[:UI_FILE_PREVIEW_CHARS]
         return projection
 
+    # Ordinary tools replay what the model actually saw. Keep it in a tagged
+    # envelope so an observation's own fields (including "version") cannot
+    # collide with projection metadata. The canonical result remains in
+    # result_json for UI/audit consumers.
+    if isinstance(observation, dict) and observation:
+        return {
+            "version": CONTEXT_SUMMARY_VERSION,
+            TOOL_CONTEXT_KIND_FIELD: TOOL_CONTEXT_OBSERVATION_KIND,
+            "observation": _generic_tool_projection(
+                observation,
+                include_version=False,
+                budget_bytes=(
+                    GENERIC_TOOL_CONTEXT_BUDGET_BYTES
+                    - _TOOL_CONTEXT_ENVELOPE_OVERHEAD_BYTES
+                ),
+            ),
+        }
+
+    if not isinstance(result_json, dict):
+        return None
     return _generic_tool_projection(result_json)

@@ -15,6 +15,7 @@ from app.ai.context.parts import Outcome, ToolCallPart, ToolResultPart
 from app.ai.persisted_summary import (
     GENERIC_TOOL_CONTEXT_BUDGET_BYTES,
     build_tool_context_summary,
+    tool_context_for_replay,
 )
 from app.dependencies import async_session_maker
 from app.models.agent_execution import AgentExecution
@@ -141,6 +142,63 @@ async def test_retrospective_provider_event_finishes_as_one_canonical_row():
 
 
 @pytest.mark.asyncio
+async def test_completed_ordinary_tool_replays_the_model_visible_observation():
+    """Later completions receive what the model saw, not a different output shape."""
+    manager = ProjectManager()
+    async with async_session_maker() as db:
+        execution = await _seed_execution(db)
+        tool_execution = await manager.start_tool_execution(
+            db,
+            agent_execution=execution,
+            plan_decision_id=None,
+            tool_name="inspect_data",
+            tool_action="research",
+            arguments_json={"question": "Which order statuses exist?"},
+        )
+        observation = {
+            "summary": "Inspection finished",
+            "details": "status values: paid, refunded, cancelled",
+            "success": True,
+        }
+        finished = await manager.finish_tool_execution_from_models(
+            db,
+            tool_execution=tool_execution,
+            result_model={
+                "success": True,
+                "execution_log": "canonical output uses a different field name",
+            },
+            summary=observation["summary"],
+            success=True,
+            observation=observation,
+        )
+
+        transcript, _ = build_durable_transcript(
+            completions=[SimpleNamespace(id="completion", role="system")],
+            blocks_by_completion={
+                "completion": [
+                    SimpleNamespace(
+                        tool_execution_id=str(finished.id),
+                        plan_decision_id=None,
+                        agent_execution_id=str(execution.id),
+                        block_index=1,
+                    )
+                ]
+            },
+            tool_exec_by_id={str(finished.id): finished},
+        )
+
+    replayed = next(
+        part
+        for turn in transcript.turns
+        for part in turn.parts
+        if isinstance(part, ToolResultPart)
+    )
+    assert "paid, refunded, cancelled" in replayed.content
+    assert "different field name" not in replayed.content
+    assert finished.result_json["execution_log"] == "canonical output uses a different field name"
+
+
+@pytest.mark.asyncio
 async def test_parallel_intents_share_the_existing_decision_commit_and_finish_in_place():
     """Provider order/identity are durable and completion does not duplicate rows."""
     manager = ProjectManager()
@@ -256,6 +314,68 @@ def test_generic_context_summary_is_bounded_and_keeps_referenceable_results():
     assert summary["observation"]["important_value"] == 41
     assert summary["_context_truncated"] is True
     assert "A" * 100 not in encoded.decode("utf-8")
+
+
+def test_observation_projection_is_bounded_media_free_and_unambiguous():
+    observation = {
+        "summary": "model-visible result",
+        "details": "d" * 50_000,
+        "version": "domain-version",
+        "images": [{"base64": "A" * 1_000_000}],
+    }
+    summary = build_tool_context_summary(
+        "inspect_data",
+        {"execution_log": "canonical output"},
+        observation=observation,
+    )
+    replayed = tool_context_for_replay(summary)
+
+    assert len(json.dumps(summary).encode("utf-8")) <= GENERIC_TOOL_CONTEXT_BUDGET_BYTES
+    assert replayed["summary"] == "model-visible result"
+    assert replayed["version"] == "domain-version"
+    assert replayed["images"] == "[media elided]"
+    assert "canonical output" not in json.dumps(replayed)
+    assert "A" * 100 not in json.dumps(summary)
+
+
+def test_observation_only_tool_projects_without_a_canonical_result():
+    summary = build_tool_context_summary(
+        "search_mcps",
+        None,
+        observation={"summary": "three tools found", "tool_count": 3},
+    )
+
+    assert tool_context_for_replay(summary)["tool_count"] == 3
+
+
+def test_legacy_result_with_observation_key_is_not_mistaken_for_snapshot_envelope():
+    legacy = {
+        "version": 2,
+        "summary": "legacy wrapper",
+        "observation": {"value": 41},
+    }
+
+    assert tool_context_for_replay(legacy) is legacy
+
+
+def test_row_heavy_tool_keeps_its_specialized_projection_when_observation_exists():
+    result = {
+        "success": True,
+        "data_preview": {
+            "columns": [{"field": "status"}],
+            "rows": [{"status": "paid"}],
+            "row_count": 12,
+        },
+        "stats": {"total_rows": 12},
+    }
+    summary = build_tool_context_summary(
+        "create_data",
+        result,
+        observation={"summary": "do not replace the row projection"},
+    )
+
+    assert summary["data_preview"]["row_count"] == 12
+    assert "observation" not in summary
 
 
 def test_rehydration_preserves_parallel_order_provider_identity_and_unknown_outcome():

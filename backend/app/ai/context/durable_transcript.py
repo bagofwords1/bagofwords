@@ -21,7 +21,10 @@ from app.ai.context.parts import (
     estimate_tokens,
 )
 from app.ai.context.transcript import Transcript
-from app.ai.persisted_summary import build_tool_context_summary
+from app.ai.persisted_summary import (
+    build_tool_context_summary,
+    tool_context_for_replay,
+)
 
 
 def _outcome(status: Any) -> Outcome:
@@ -51,6 +54,7 @@ def _result_content(tool_execution: Any, outcome: Outcome) -> tuple[str, str | N
         }
     else:
         body = getattr(tool_execution, "context_summary_json", None)
+        body = tool_context_for_replay(body)
         if not isinstance(body, dict):
             raw_projection = getattr(tool_execution, "result_json", None)
             body = build_tool_context_summary(

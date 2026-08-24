@@ -1946,6 +1946,7 @@ class AgentV2:
                                 result_summary=observation["summary"],
                                 result_json=observation,
                                 error_message=observation["error"]["message"],
+                                observation=observation,
                             )
                         step_observations.append({"tool": tool_name, **observation})
                         continue
@@ -2066,6 +2067,7 @@ class AgentV2:
                             summary=observation.get("summary", "") if observation else "",
                             error_message=_observation_error_message(observation),
                             success=bool(observation and not _observation_failed(observation) and not _is_stopped),
+                            observation=observation,
                         )
                     except Exception as _fin_err:
                         logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
@@ -5349,6 +5351,7 @@ class AgentV2:
                                                     else None
                                                 ),
                                                 success=False,
+                                                observation=_observation,
                                             )
                                             await self.project_manager.commit_tool_and_attach_block(
                                                 self.db,
@@ -5669,6 +5672,7 @@ class AgentV2:
                                             error_message=_error_msg,
                                             success=_success_flag,
                                             sub_timings_json=tool_sub_timings,
+                                            observation=observation,
                                         )
                                     except AttributeError:
                                         # Fallback if helper isn't wired yet — keep behavior
@@ -5684,6 +5688,7 @@ class AgentV2:
                                             context_snapshot_id=None,
                                             success=_success_flag,
                                             sub_timings_json=tool_sub_timings,
+                                            observation=observation,
                                         )
 
                                     # Save post-tool context snapshot in background (not user-facing, not needed for next loop).

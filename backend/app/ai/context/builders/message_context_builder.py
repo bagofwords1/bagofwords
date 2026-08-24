@@ -30,6 +30,7 @@ from app.ai.context.summary_write_through import (
     TERMINAL_TOOL_EXECUTION_STATUSES,
     persist_tool_context_projections,
 )
+from app.ai.persisted_summary import tool_context_for_replay
 
 
 def _json_value(value: Any) -> Any:
@@ -1023,6 +1024,7 @@ class MessageContextBuilder:
         newly_loaded_ids: list[str] = []
         for row in rows:
             newly_loaded_ids.append(str(row.id))
+            context_summary = _json_value(row.context_summary_json)
             loaded[str(row.id)] = SimpleNamespace(
                 id=row.id,
                 tool_name=row.tool_name,
@@ -1036,7 +1038,7 @@ class MessageContextBuilder:
                 action_index=row.action_index,
                 status=row.status,
                 result_summary=row.result_summary,
-                context_summary_json=_json_value(row.context_summary_json),
+                context_summary_json=context_summary,
                 created_widget_id=row.created_widget_id,
                 created_step_id=row.created_step_id,
                 error_message=row.error_message,
@@ -1045,7 +1047,7 @@ class MessageContextBuilder:
                 # New executions carry the exact bounded history projection in
                 # a separate small column. Historical rows use the behavior-
                 # preserving JSON projection once, then write it through.
-                result_json=_json_value(row.context_summary_json),
+                result_json=tool_context_for_replay(context_summary),
             )
 
         read_query_ids = [

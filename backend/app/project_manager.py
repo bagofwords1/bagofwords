@@ -1151,6 +1151,31 @@ class ProjectManager:
         return tool_exec
 
     @staticmethod
+    def _snapshot_tool_context(
+        tool_execution,
+        result_json,
+        observation: dict | None = None,
+    ) -> None:
+        """Capture the bounded model-visible result without database I/O."""
+        try:
+            from app.ai.persisted_summary import build_tool_context_summary
+
+            summary = build_tool_context_summary(
+                tool_execution.tool_name,
+                result_json,
+                observation=observation,
+            )
+            if summary is not None:
+                tool_execution.context_summary_json = summary
+        except Exception:
+            # The canonical result remains authoritative; context projection is
+            # best-effort and must never fail a tool completion.
+            logging.getLogger(__name__).warning(
+                "tool context summary projection failed",
+                exc_info=True,
+            )
+
+    @staticmethod
     def _configure_finished_tool_execution(
         tool_execution,
         result_model=None,
@@ -1163,6 +1188,7 @@ class ProjectManager:
         sub_timings_json: dict | None = None,
         context_snapshot_id: str | None = None,
         token_usage_json: dict | None = None,
+        observation: dict | None = None,
     ):
         """Mutate an in-memory ToolExecution to its finished state (no DB I/O).
 
@@ -1211,6 +1237,11 @@ class ProjectManager:
             pass
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
+        ProjectManager._snapshot_tool_context(
+            tool_execution,
+            result_json,
+            observation=observation,
+        )
         tool_execution.context_snapshot_id = context_snapshot_id
         tool_execution.sub_timings_json = sub_timings_json
         return tool_execution
@@ -1309,7 +1340,8 @@ class ProjectManager:
             "tool_name", "tool_action", "arguments_json", "status", "success",
             "started_at", "completed_at", "duration_ms", "attempt_number",
             "max_retries", "token_usage_json", "sub_timings_json",
-            "result_summary", "result_json", "artifact_refs_json",
+            "result_summary", "result_json", "context_summary_json",
+            "artifact_refs_json",
             "created_widget_id", "created_step_id", "context_snapshot_id",
             "error_message", "provider_call_id", "provider_name",
             "provider_signature", "action_index",
@@ -1354,7 +1386,7 @@ class ProjectManager:
     async def finish_tool_execution(self, db, tool_execution, status, success, result_summary=None,
                                    result_json=None, created_widget_id=None, created_step_id=None, created_visualization_ids: list[str] | None = None,
                                    error_message=None, token_usage_json=None, context_snapshot_id=None,
-                                   sub_timings_json=None):
+                                   sub_timings_json=None, observation: dict | None = None):
         """Finish tracking a tool execution."""
         tool_execution.status = status
         tool_execution.success = success
@@ -1383,6 +1415,11 @@ class ProjectManager:
             pass
         tool_execution.error_message = error_message
         tool_execution.token_usage_json = token_usage_json
+        self._snapshot_tool_context(
+            tool_execution,
+            result_json,
+            observation=observation,
+        )
         tool_execution.context_snapshot_id = context_snapshot_id
         tool_execution.sub_timings_json = sub_timings_json
         persisted_tool = self._attach_tool_execution(db, tool_execution)
@@ -1480,7 +1517,8 @@ class ProjectManager:
                                                error_message: str | None = None,
                                                context_snapshot_id: str | None = None,
                                                success: bool = True,
-                                               sub_timings_json: dict | None = None):
+                                               sub_timings_json: dict | None = None,
+                                               observation: dict | None = None):
         # Handle result_model appropriately
         if result_model and hasattr(result_model, 'model_dump'):
             # Pydantic model - convert to dict
@@ -1516,6 +1554,7 @@ class ProjectManager:
             error_message=error_message,
             context_snapshot_id=context_snapshot_id,
             sub_timings_json=sub_timings_json,
+            observation=observation,
         )
 
     async def save_context_snapshot(self, db, agent_execution, kind, context_view_json, 
