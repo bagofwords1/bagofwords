@@ -217,12 +217,28 @@
                                 <!-- Custom Models for existing provider -->
                                 <div v-for="(customModel, index) in existingProviderCustomModels" :key="`existing-custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950">
                                     <UCheckbox v-model="customModel.is_enabled" />
-                                    <div class="flex-1">
+                                    <div class="flex-1 flex items-center gap-2 min-w-0">
                                         <input
                                             v-model="customModel.model_id"
                                             type="text"
                                             placeholder="Model ID"
-                                            class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+                                        />
+                                        <!-- Optional display label; blank falls back to the
+                                             model_id on save, as it always did. Short static
+                                             placeholder because this row already carries six
+                                             controls in a max-w-xl modal — anything longer
+                                             (or echoing the typed model_id) gets clipped.
+                                             The full hint is on the title attribute, which
+                                             also avoids a UTooltip wrapper interfering with
+                                             the input's flex sizing. -->
+                                        <input
+                                            v-model="customModel.name"
+                                            type="text"
+                                            maxlength="120"
+                                            :title="$t('settings.llms.displayNameHint')"
+                                            :placeholder="$t('settings.llms.displayNameShort')"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
                                     <UTooltip :text="$t('settings.llms.visionTooltip')">
@@ -448,12 +464,28 @@
                                 <!-- Custom Models -->
                                 <div v-for="(customModel, index) in customModels" :key="`custom-${index}`" class="flex items-center gap-2 p-2 border border-blue-200 rounded-lg bg-blue-50 dark:bg-blue-950">
                                     <UCheckbox v-model="customModel.is_enabled" />
-                                    <div class="flex-1">
+                                    <div class="flex-1 flex items-center gap-2 min-w-0">
                                         <input
                                             v-model="customModel.model_id"
                                             type="text"
                                             placeholder="Model ID"
-                                            class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 w-full focus:outline-none focus:border-blue-500"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
+                                        />
+                                        <!-- Optional display label; blank falls back to the
+                                             model_id on save, as it always did. Short static
+                                             placeholder because this row already carries six
+                                             controls in a max-w-xl modal — anything longer
+                                             (or echoing the typed model_id) gets clipped.
+                                             The full hint is on the title attribute, which
+                                             also avoids a UTooltip wrapper interfering with
+                                             the input's flex sizing. -->
+                                        <input
+                                            v-model="customModel.name"
+                                            type="text"
+                                            maxlength="120"
+                                            :title="$t('settings.llms.displayNameHint')"
+                                            :placeholder="$t('settings.llms.displayNameShort')"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500"
                                         />
                                     </div>
                                     <UTooltip :text="$t('settings.llms.visionTooltip')">
@@ -591,7 +623,7 @@ onMounted(async () => {
 
 const selectedProvider = ref<any | null>(null);
 const selectedModel = ref<any | null>(null);
-type CustomModelDraft = { model_id: string; is_enabled: boolean; supports_vision: boolean; context_window_tokens: number | null };
+type CustomModelDraft = { model_id: string; name: string; is_enabled: boolean; supports_vision: boolean; context_window_tokens: number | null };
 const customModels = ref<CustomModelDraft[]>([]);
 const existingProviderCustomModels = ref<CustomModelDraft[]>([]);
 
@@ -929,7 +961,8 @@ async function createProvider() {
         .filter(model => model.is_enabled)
         .map(model => ({
             model_id: model.model_id,
-            name: model.model_id, // Use model_id as the name for custom models
+            // Admin-supplied display label; blank falls back to the model_id.
+            name: model.name?.trim() || model.model_id,
             is_custom: true,
             is_enabled: true,
             is_preset: false,
@@ -974,7 +1007,7 @@ async function updateProvider() {
         .map((model: CustomModelDraft) => ({
             // No id field - this signals to backend to create new model
             model_id: model.model_id,
-            name: model.model_id,
+            name: model.name?.trim() || model.model_id,
             is_custom: true,
             is_enabled: true,
             is_preset: false,
@@ -1145,6 +1178,7 @@ async function deleteProvider(providerId: string) {
 function addCustomModel() {
     customModels.value.push({
         model_id: '',
+        name: '',
         is_enabled: true,
         supports_vision: false,
         context_window_tokens: null
@@ -1158,6 +1192,7 @@ function removeCustomModel(index: number) {
 function addExistingProviderCustomModel() {
     existingProviderCustomModels.value.push({
         model_id: '',
+        name: '',
         is_enabled: true,
         supports_vision: false,
         context_window_tokens: null

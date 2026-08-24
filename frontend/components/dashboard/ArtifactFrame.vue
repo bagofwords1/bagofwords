@@ -3,7 +3,7 @@
     <!-- Header / Toolbar -->
     <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
       <div class="flex items-center gap-3">
-        <UTooltip text="Back to chat">
+        <UTooltip :text="$t('artifactFrame.backToChat')">
           <button @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
             <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
           </button>
@@ -19,7 +19,7 @@
             option-attribute="label"
             size="xs"
             class="min-w-[280px]"
-            placeholder="Select artifact..."
+            :placeholder="$t('artifactFrame.selectArtifact')"
             :ui="{ option: { base: 'py-2' } }"
           >
             <template #label>
@@ -72,7 +72,7 @@
           >
             <Spinner v-if="isDuplicating" class="w-3 h-3" />
             <Icon v-else name="heroicons:arrow-uturn-up" class="w-3 h-3" />
-            Use this version
+            {{ $t('artifactFrame.useThisVersion') }}
           </button>
         </div>
       </div>
@@ -81,7 +81,7 @@
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
         <!-- Refresh Dashboard (rerun + refresh) -->
-        <UTooltip text="Refresh Data">
+        <UTooltip :text="$t('artifactFrame.refreshData')">
           <button
             @click="refreshDashboard"
             :disabled="isRefreshing"
@@ -127,14 +127,14 @@
         />
 
         <!-- Fullscreen -->
-        <UTooltip text="Full screen">
+        <UTooltip :text="$t('artifactFrame.fullScreen')">
           <button @click="openFullscreen" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
             <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           </button>
         </UTooltip>
 
         <!-- Open in new tab (if published) -->
-        <UTooltip text="Open in new tab" v-if="report?.status === 'published'">
+        <UTooltip :text="$t('artifactFrame.openInNewTab')" v-if="report?.status === 'published'">
           <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
             <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           </a>
@@ -151,7 +151,7 @@
           option-attribute="label"
           searchable
           :search-attributes="['label', 'email']"
-          searchable-placeholder="Search members by name or email..."
+          :searchable-placeholder="$t('artifactFrame.searchMembers')"
           size="xs"
           class="min-w-[130px]"
         >
@@ -171,7 +171,7 @@
         <!-- Delegated-source caveat, visible before a target is even picked -->
         <UTooltip
           v-if="canViewAs && credentialScoped"
-          text="View-as previews identity parameters only. Sources that authenticate per user (e.g. Power BI) still run with your credentials."
+          :text="$t('artifactFrame.viewAsTooltip')"
           :popper="{ placement: 'bottom' }"
         >
           <Icon name="heroicons:information-circle" class="w-3.5 h-3.5 text-amber-500" />
@@ -412,7 +412,7 @@
             :disabled="!polishInstruction.trim()"
             class="px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
-            Apply
+            {{ $t('artifactFrame.apply') }}
           </button>
         </form>
       </div>
@@ -490,9 +490,9 @@ const { relativeTime: formatRelativeTime } = useRelativeTime()
 async function copyArtifactId(id: string) {
   try {
     await navigator.clipboard.writeText(id);
-    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' });
+    toast.add({ title: t('artifactFrame.copied'), description: t('artifactFrame.artifactIdCopied'), color: 'green' });
   } catch {
-    toast.add({ title: 'Failed to copy', color: 'red' });
+    toast.add({ title: t('artifactFrame.copyFailed'), color: 'red' });
   }
 }
 
@@ -514,6 +514,12 @@ const props = defineProps<{
    *  version switches and refreshes always refetch. */
   latestArtifact?: any;
   artifactCode?: string;
+  /** Artifact the opener wants shown. Read as a mount-time seed, because the
+   *  `artifact:select` window event cannot reach a frame that has not mounted
+   *  yet — and this frame shares a v-if chain with ChatSummary, so opening the
+   *  summary unmounts it and every click from there arrives too early. A prop
+   *  is already reactive state on the page, so it survives the remount. */
+  requestedArtifactId?: string | null;
 }>();
 
 defineEmits<{
@@ -636,7 +642,7 @@ async function refreshDashboard() {
     }
   } catch (error: any) {
     console.error('Failed to refresh dashboard:', error);
-    toast.add({ title: 'Error', description: `Failed to refresh dashboard. ${error.message || ''}`, color: 'red' });
+    toast.add({ title: t('artifactFrame.error'), description: t('artifactFrame.refreshDashboardFailed', { error: error.message || '' }), color: 'red' });
     // fetchData never ran, so clear the loading overlay it would have reset —
     // otherwise the dashboard stays hidden behind the spinner forever.
     isLoading.value = false;
@@ -772,10 +778,10 @@ async function exportPptx() {
     document.body.removeChild(link);
     window.URL.revokeObjectURL(url);
 
-    toast.add({ title: 'Export complete', description: 'PowerPoint file downloaded successfully.' });
+    toast.add({ title: t('artifactFrame.exportComplete'), description: t('artifactFrame.exportPptxDone') });
   } catch (error: any) {
     console.error('Failed to export PPTX:', error);
-    toast.add({ title: 'Export failed', description: error.message || 'Failed to export PowerPoint file.', color: 'red' });
+    toast.add({ title: t('artifactFrame.exportFailed'), description: error.message || t('artifactFrame.exportPptxFailed'), color: 'red' });
   } finally {
     isExporting.value = false;
   }
@@ -1228,7 +1234,7 @@ const selectedArtifactLabel = computed(() => {
   if (selected) {
     return `${selected.title || 'Untitled'} (v${selected.version})`;
   }
-  return 'Select artifact...';
+  return t('artifactFrame.selectArtifact');
 });
 
 // Check if selected artifact is the latest (first in list, sorted by created_at desc)
@@ -1394,8 +1400,8 @@ const viewAsOptions = computed(() => [
 ]);
 
 const viewAsLabel = computed(() => {
-  if (viewAsMode.value === 'you') return 'View as';
-  if (viewAsMode.value === 'anonymous') return 'Anonymous user';
+  if (viewAsMode.value === 'you') return t('artifactFrame.viewAs');
+  if (viewAsMode.value === 'anonymous') return t('artifactFrame.anonymousUser');
   const opt = viewAsOptions.value.find(o => o.value === viewAsMode.value);
   return opt?.label || 'Member';
 });
@@ -1573,7 +1579,7 @@ async function useThisVersion() {
       selectedArtifactId.value = (data.value as any).id;
     }
 
-    toast.add({ title: 'Version set as default', color: 'green' });
+    toast.add({ title: t('artifactFrame.versionSetDefault'), color: 'green' });
 
     // The revert emits a silent artifact_version_reverted session event
     // server-side — reload the timeline so its strip appears (no websocket).
@@ -1582,7 +1588,7 @@ async function useThisVersion() {
     }));
   } catch (error: any) {
     console.error('Failed to set version as default:', error);
-    toast.add({ title: 'Error', description: 'Failed to set version as default.', color: 'red' });
+    toast.add({ title: t('artifactFrame.error'), description: t('artifactFrame.versionSetDefaultFailed'), color: 'red' });
   } finally {
     isDuplicating.value = false;
   }
@@ -1652,6 +1658,14 @@ onMounted(async () => {
   window.addEventListener('message', handleIframeMessage);
   window.addEventListener('artifact:select', handleArtifactSelect);
   window.addEventListener('artifact:created', handleArtifactCreated);
+
+  // Honour an explicit open request before anything auto-selects. Seeding here
+  // (not via the event) makes the choice independent of mount timing:
+  // fetchArtifactsList only auto-picks artifactsList[0] when nothing is
+  // selected, so with this set it leaves the requested artifact alone.
+  if (props.requestedArtifactId) {
+    selectedArtifactId.value = props.requestedArtifactId;
+  }
 
   // First fetch artifact list to know which artifact is selected (viewer
   // identity in parallel — it gates nothing, a failure just renders anonymous)

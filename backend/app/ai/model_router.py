@@ -174,6 +174,13 @@ class RoutingController:
         return bool(self.candidates)
 
     def _match(self, ref: str) -> Optional[LLMModel]:
+        """Resolve a routing target by model_id, db id, then display name.
+
+        Order matters: a custom model's display name is admin-editable and not
+        unique, so it is only a last-resort alias. The tool schema offers
+        model_ids (see build_route_model_schema), so the planner never has to
+        rely on the name; renaming a model can't break routing.
+        """
         if not ref:
             return None
         return (

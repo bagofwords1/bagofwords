@@ -140,7 +140,11 @@ async def create_model(
         pass
     return created
 
-@router.patch("/llm/models/{model_id}")
+# response_model matters here: without it FastAPI serializes the raw ORM row,
+# and LLMModel.provider -> LLMProvider.models -> LLMModel cycles until it hits
+# RecursionError. Nothing called this endpoint until the rename UI landed, so
+# the crash sat undiscovered — POST above always had the schema.
+@router.patch("/llm/models/{model_id}", response_model=LLMModelSchema)
 @requires_permission('manage_llm')
 async def update_model(
     model_id: str,

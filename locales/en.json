@@ -2458,7 +2458,157 @@
       "toastConfirmRequiredTitle": "Confirmation Required",
       "toastConfirmRequiredBody": "Please type \"I AM SURE\" to confirm this change.",
       "fetchErrorGeneric": "An error occurred while fetching settings",
-      "updateErrorGeneric": "An error occurred while updating settings"
+      "updateErrorGeneric": "An error occurred while updating settings",
+      "features": {
+        "allow_llm_see_data": {
+          "name": "Allow LLM to see data",
+          "description": "Enable LLM to see data as part of the analysis and user queries"
+        },
+        "enable_training_mode": {
+          "name": "Training Mode",
+          "description": "Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines"
+        },
+        "enable_file_upload": {
+          "name": "Allow file upload",
+          "description": "Allow users to upload spreadsheets and documents (xls/pdf) and push their content to the LLM"
+        },
+        "enable_code_editing": {
+          "name": "Allow users to edit and execute the LLM generated code",
+          "description": "Allow users to edit and execute the LLM generated code"
+        },
+        "enable_llm_judgement": {
+          "name": "Enable LLM Judge",
+          "description": "Enable LLM to judge the quality of the analysis and user queries"
+        },
+        "suggest_instructions": {
+          "name": "Autogenerate instructions",
+          "description": "Automatically generate instructions following clarifications provided by the user"
+        },
+        "enable_follow_ups": {
+          "name": "Follow-up suggestions",
+          "description": "After each answer in the web app, suggest a few follow-up questions the user can ask next. Generated on the small/default model."
+        },
+        "auto_suggest_evals": {
+          "name": "Auto-suggest evals",
+          "description": "When a manage-evals user upvotes a response that produced data, the knowledge harness drafts an eval test case (judge + tool calls) into the org's drafts suite for review."
+        },
+        "limit_row_count": {
+          "name": "Limit row count",
+          "description": "Limit the number of rows that can be displayed in tables and data previews. Set to 0 for no limit."
+        },
+        "ai_tool_concurrency": {
+          "name": "Parallel tool calls",
+          "description": "How many tool calls from one AI plan step may run at the same time (e.g. create_data / inspect_data across different agents). Set to 1 to run them one after another; up to 8. Calls against the same agent always run one at a time."
+        },
+        "agent_max_steps": {
+          "name": "Max agent steps",
+          "description": "Maximum number of planner steps (decisions/tool calls) the agent may take in a single request before it stops. Applies to both regular and training mode. Clamped to 1-500."
+        },
+        "agent_loop_retries": {
+          "name": "Agent loop retries",
+          "description": "How many times the agent may recover from an unexpected error during a run and retry from its latest context, instead of failing the whole run. When retries are exhausted and LLM fallback is enabled, the run switches to the next model in the fallback order before giving up. Clamped to 0-10."
+        },
+        "limit_code_retries": {
+          "name": "Limit code retries",
+          "description": "How many attempts the LLM gets to generate working code for a data request (initial attempt plus retries on failure). Clamped to 1-10."
+        },
+        "query_timeout_seconds": {
+          "name": "Query timeout (seconds)",
+          "description": "Default per-query wall-clock timeout when the agent runs SQL via create_data / inspect_data. A connection's config can override this with its own 'query_timeout_seconds' value."
+        },
+        "max_concurrent_queries_per_connection": {
+          "name": "Concurrent queries per connection",
+          "description": "How many agent queries may run against one connection at the same time, per replica. A burst above this waits for a slot rather than failing. Lower it for fragile on-prem sources (Oracle, SQL Server) that cannot take parallel scans. A connection's config can override this with its own 'max_concurrent_queries' value."
+        },
+        "top_k_schema": {
+          "name": "Top K schema",
+          "description": "The number of schema to sample from the data source in the Agent"
+        },
+        "top_k_metadata_resources": {
+          "name": "Top K metadata resources",
+          "description": "The number of metadata resources to sample from the data source in the Agent"
+        },
+        "agent_roster_top_k": {
+          "name": "Agent roster top K",
+          "description": "When a report has many agents, how many appear as full roster lines in the AI context (ranked by the asker's recent usage; the rest are listed by name only in a more_agents tail). Clamped to 1-100."
+        },
+        "allow_forks": {
+          "name": "Allow Forks",
+          "description": "Allow users to fork published reports into their own workspace"
+        },
+        "mcp_enabled": {
+          "name": "MCP",
+          "description": "Enable Model Context Protocol (MCP) endpoint for integration with AI assistants like Cursor, Claude, or others"
+        },
+        "enable_mcp_tools": {
+          "name": "MCP & Custom API Tools",
+          "description": "Allow connecting external MCP servers and custom API endpoints to data sources as tool providers"
+        },
+        "enable_mcp_native_tools": {
+          "name": "Native MCP tool registration",
+          "description": "Register each external MCP / custom API tool as its own directly callable agent tool, instead of routing every call through the generic execute_mcp tool. Only takes effect once a report's tool catalog reaches the threshold below."
+        },
+        "mcp_native_tools_threshold": {
+          "name": "Native MCP tools threshold",
+          "description": "How many enabled MCP / custom API tools a report needs before native registration is used. Below this, native registration measures as a wash against the generic path, so the generic path is kept. Set to 0 to always register natively."
+        },
+        "mcp_native_tools_max": {
+          "name": "Max native MCP tools",
+          "description": "Upper bound on how many tools are registered natively for one report. Tools past the cap stay on the generic execute_mcp path, so a very large catalog cannot fill every request with permanent tool definitions."
+        },
+        "mcp_result_inline_chars": {
+          "name": "MCP result inline size",
+          "description": "How much of an MCP / custom API tool result the agent sees directly in its context, in characters. The complete response is always saved to a file whatever this is set to; this only decides how much the model can read without opening that file. Raise it so the agent can answer from a whole result set instead of a sample; lower it to spend fewer tokens per call. Set to 0 for a 3-record sample. Clamped to 0-500000."
+        },
+        "enable_web_fetch": {
+          "name": "Web Fetch",
+          "description": "Allow the agent to fetch the contents of public HTTP and HTTPS URLs. Only text-like responses are returned and large bodies are truncated."
+        },
+        "enable_load_step": {
+          "name": "Reuse prior steps (load_step)",
+          "description": "Let generated code reuse a prior step's results in this report via load_step instead of re-querying. When off, load_step is neither advertised to the agent nor available at runtime."
+        },
+        "enable_custom_queries": {
+          "name": "Custom queries (beta)",
+          "description": "Let connection admins define SQL that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
+        },
+        "enable_agent_notes": {
+          "name": "Agent Notes",
+          "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
+        },
+        "max_instructions_in_context": {
+          "name": "Max instructions in context",
+          "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'intelligent' instructions fill remaining slots."
+        },
+        "allow_report_webhooks": {
+          "name": "Report Webhooks",
+          "description": "Allow external systems (GitHub, Jira, generic services) to send events to reports via inbound webhooks. Master switch for the whole feature."
+        },
+        "max_webhooks": {
+          "name": "Max webhooks",
+          "description": "Maximum number of active inbound webhooks per organization."
+        },
+        "webhook_rate_limit_per_min": {
+          "name": "Webhook rate limit (per minute)",
+          "description": "Maximum inbound webhook deliveries accepted per minute per organization. Excess deliveries are rejected with 429."
+        },
+        "step_retention_days": {
+          "name": "Widget Data Retention Days",
+          "description": "Number of days to retain widgets data before purging."
+        },
+        "enable_excel_addin": {
+          "name": "Excel Add-in",
+          "description": "Enable the built-in Excel Add-in so users can sideload the manifest directly from this instance"
+        },
+        "model_routing": {
+          "name": "Auto model router",
+          "description": "Enterprise. When a user doesn't pick a specific model, start each request on the small model and let the agent escalate to a stronger one only when the task needs it. Add per-model routing guidance on the LLM page to steer the choice. Off by default; requires an enterprise license to enable."
+        },
+        "llm_fallback": {
+          "name": "LLM fallback",
+          "description": "Enterprise. When the active model fails with a rate limit, provider overload, or network error, automatically retry the request on the next model in the fallback order (configured on the LLM page) for the rest of the run. The substitution is always disclosed in the chat. Off by default; requires an enterprise license to enable."
+        }
+      }
     },
     "llms": {
       "searchPlaceholder": "Search LLMs...",
@@ -2489,6 +2639,12 @@
       "temperaturePlaceholder": "Provider default",
       "temperatureResetTooltip": "Reset to provider default (no temperature sent)",
       "modelIdLabel": "Model ID",
+      "displayNameLabel": "Display Name",
+      "displayNamePlaceholder": "Same as model ID",
+      "displayNameShort": "Name",
+      "displayNameTooltip": "The label shown in the model picker. Custom models only — preset names come from the model catalog. Leave empty to use the model ID.",
+      "displayNameHint": "Optional label shown in the model picker. Leave empty to use the model ID.",
+      "displayNameError": "Could not update the display name",
       "colCost": "Cost ($/M)",
       "colRouting": "Routing",
       "autoRouter": "Auto router",
@@ -3248,7 +3404,27 @@
     "exportComplete": "Export complete",
     "exportHtmlDone": "Standalone HTML downloaded — it works offline.",
     "exportFailed": "Export failed",
-    "exportHtmlFailed": "Could not export this dashboard as HTML."
+    "exportHtmlFailed": "Could not export this dashboard as HTML.",
+    "backToChat": "Back to chat",
+    "selectArtifact": "Select artifact...",
+    "useThisVersion": "Use this version",
+    "refreshData": "Refresh data",
+    "fullScreen": "Full screen",
+    "openInNewTab": "Open in new tab",
+    "searchMembers": "Search members by name or email...",
+    "viewAsTooltip": "View-as previews identity parameters only. Sources that authenticate per user (e.g. Power BI) still run with your credentials.",
+    "apply": "Apply",
+    "copied": "Copied",
+    "artifactIdCopied": "Artifact ID copied to clipboard",
+    "copyFailed": "Failed to copy",
+    "error": "Error",
+    "refreshDashboardFailed": "Failed to refresh dashboard. {error}",
+    "exportPptxDone": "PowerPoint file downloaded successfully.",
+    "exportPptxFailed": "Failed to export PowerPoint file.",
+    "viewAs": "View as",
+    "anonymousUser": "Anonymous user",
+    "versionSetDefault": "Version set as default",
+    "versionSetDefaultFailed": "Failed to set version as default."
   },
   "filter": {
     "addFilters": "Add Filters",
@@ -4530,5 +4706,31 @@
     "continueOnboarding": "Continue onboarding",
     "configureLlm": "Configure your LLM",
     "connectFirstDataSource": "Connect your first data source"
+  },
+  "reportWebhooks": {
+    "title": "Webhooks",
+    "subtitle": "Send external events into this report.",
+    "active": "Active",
+    "rotate": "Rotate signing key",
+    "delete": "Delete",
+    "copyOnce": "Copy now — shown only once",
+    "secretKey": "Key",
+    "newWebhook": "New webhook",
+    "name": "Name",
+    "namePlaceholder": "PR triage",
+    "source": "Source",
+    "auth": "Auth",
+    "authToken": "Token header",
+    "authHmac": "HMAC (signed)",
+    "authUrlToken": "URL token",
+    "authTokenShort": "token",
+    "authHmacShort": "hmac",
+    "authUrlTokenShort": "url token",
+    "letAiDecide": "Let AI decide whether to respond",
+    "guidance": "Guidance (optional)",
+    "guidancePlaceholder": "Only respond to PRs touching billing; ignore dependabot.",
+    "createButton": "Create webhook",
+    "defaultName": "Webhook",
+    "sourceGeneric": "Generic"
   }
 }

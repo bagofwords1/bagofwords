@@ -99,6 +99,7 @@
 </template>
 
 <script setup lang="ts">
+const { t } = useI18n()
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
@@ -229,9 +230,9 @@ async function copyArtifactId() {
   if (!artifactId.value) return
   try {
     await navigator.clipboard.writeText(artifactId.value)
-    toast.add({ title: 'Copied', description: 'Artifact ID copied to clipboard', color: 'green' })
+    toast.add({ title: t('artifactFrame.copied'), description: t('artifactFrame.artifactIdCopied'), color: 'green' })
   } catch {
-    toast.add({ title: 'Failed to copy', color: 'red' })
+    toast.add({ title: t('artifactFrame.copyFailed'), color: 'red' })
   }
 }
 </script>
