@@ -30,7 +30,15 @@ from app.ai.context.summary_write_through import (
     TERMINAL_TOOL_EXECUTION_STATUSES,
     persist_tool_context_projections,
 )
-from app.ai.persisted_summary import tool_context_for_replay
+from app.ai.persisted_summary import (
+    TOOL_CONTEXT_KIND_FIELD,
+    TOOL_CONTEXT_OBSERVATION_KIND,
+    tool_context_for_replay,
+)
+
+
+_COMPACTION_OBSERVATION_MAX_CHARS_PER_TOOL = 3_000
+_COMPACTION_OBSERVATION_MAX_CHARS_TOTAL = 24_000
 
 
 def _json_value(value: Any) -> Any:
@@ -44,6 +52,40 @@ def _json_value(value: Any) -> Any:
         except Exception:
             return value
     return value
+
+
+def _compaction_observation_text(tool_execution: Any) -> str:
+    """Bound the exact observation for the background rolling summarizer.
+
+    Only new, explicitly tagged snapshots qualify. Historical result
+    projections and row-heavy specialized summaries keep their existing
+    digest paths, so this cannot rehydrate raw canonical result payloads.
+    """
+    summary = getattr(tool_execution, "context_summary_json", None)
+    if not (
+        isinstance(summary, dict)
+        and summary.get(TOOL_CONTEXT_KIND_FIELD)
+        == TOOL_CONTEXT_OBSERVATION_KIND
+    ):
+        return ""
+    observation = tool_context_for_replay(summary)
+    if not isinstance(observation, dict):
+        return ""
+    try:
+        rendered = json.dumps(
+            observation,
+            default=str,
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+    except Exception:
+        rendered = str(observation)
+    if len(rendered) > _COMPACTION_OBSERVATION_MAX_CHARS_PER_TOOL:
+        rendered = (
+            rendered[: _COMPACTION_OBSERVATION_MAX_CHARS_PER_TOOL - 1]
+            + "…"
+        )
+    return rendered
 
 
 def _is_postgres_session(db: AsyncSession) -> bool:
@@ -2053,6 +2095,41 @@ class MessageContextBuilder:
                 except Exception:
                     tool_exec_by_id = {}
 
+        # The live planner consumes provider-native tool turns below. The
+        # rolling compactor intentionally uses the textual fold path instead,
+        # so give only that path the exact bounded observations captured at
+        # execution time. Prefer the newest fold candidates when the global
+        # budget is exhausted; older tools still retain their existing digest.
+        compaction_observations: Dict[str, str] = {}
+        if completion_ids is not None:
+            remaining_observation_chars = (
+                _COMPACTION_OBSERVATION_MAX_CHARS_TOTAL
+            )
+            for completion in reversed(completions_to_process):
+                blocks = blocks_by_completion.get(str(completion.id), [])
+                for block in reversed(blocks):
+                    execution_id = str(
+                        getattr(block, "tool_execution_id", "") or ""
+                    )
+                    tool_execution = tool_exec_by_id.get(execution_id)
+                    rendered = (
+                        _compaction_observation_text(tool_execution)
+                        if tool_execution is not None
+                        else ""
+                    )
+                    if not rendered or execution_id in compaction_observations:
+                        continue
+                    if remaining_observation_chars <= 1:
+                        break
+                    if len(rendered) > remaining_observation_chars:
+                        rendered = (
+                            rendered[: remaining_observation_chars - 1] + "…"
+                        )
+                    compaction_observations[execution_id] = rendered
+                    remaining_observation_chars -= len(rendered)
+                if remaining_observation_chars <= 1:
+                    break
+
         # Reuse the exact same bounded projections already fetched for message
         # history to build provider-native tool turns. On the live path those
         # represented tool lines are omitted from the XML conversation below,
@@ -2499,6 +2576,14 @@ class MessageContextBuilder:
                                 if len(error) > 50:
                                     error = error[:50] + "..."
                                 tool_info += f" - Error: {error}"
+                            compact_observation = compaction_observations.get(
+                                str(block.tool_execution_id)
+                            )
+                            if compact_observation:
+                                tool_info += (
+                                    " | Model-visible result: "
+                                    + compact_observation
+                                )
                             system_parts.append(tool_info)
                 if in_knowledge_wrap:
                     system_parts.append("</post_analysis_knowledge_update>")
