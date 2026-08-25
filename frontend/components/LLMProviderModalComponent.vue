@@ -54,9 +54,12 @@
                             <input
                                 v-model="selectedProvider.credentials.endpoint_url"
                                 type="text"
-                                placeholder="e.g. https://<resource>.openai.azure.com"
+                                :placeholder="$t('settings.llms.azureEndpointPlaceholder')"
                                 class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {{ $t('settings.llms.azureFoundryHint') }}
+                            </p>
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'custom' || selectedProvider?.type === 'custom'">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -149,7 +152,10 @@
                                 <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Use Responses API</label>
                             </div>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.
+                                {{ $t('settings.llms.responsesApiHint') }}
+                            </p>
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                {{ $t('settings.llms.responsesApiFoundryHint') }}
                             </p>
                             <div v-if="selectedProvider.credentials.use_responses_api" class="mt-3 ms-1">
                                 <div class="flex items-center gap-2">
@@ -404,7 +410,8 @@
                                     <UCheckbox v-model="providerForm.credentials.use_responses_api" />
                                     <label class="text-sm text-gray-700 dark:text-gray-300">Use Responses API</label>
                                 </div>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support it.</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('settings.llms.responsesApiHint') }}</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">{{ $t('settings.llms.responsesApiFoundryHint') }}</p>
                                 <div v-if="providerForm.credentials.use_responses_api" class="mt-3 ms-1">
                                     <div class="flex items-center gap-2">
                                         <UCheckbox v-model="providerForm.credentials.enable_web_search" />

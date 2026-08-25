@@ -2477,12 +2477,18 @@
       "temperaturePlaceholder": "По умолчанию",
       "temperatureResetTooltip": "Сбросить к значению провайдера по умолчанию (температура не отправляется)",
       "modelIdLabel": "ID модели",
+      "modelIdEditTooltip": "Идентификатор развёртывания или модели, отправляемый провайдеру. Доступен для редактирования у пользовательских моделей на провайдерах Azure, AWS Bedrock и пользовательских (OpenAI-совместимых), где ID обозначает созданный вами объект, а не запись каталога.",
       "displayNameLabel": "Отображаемое имя",
       "displayNamePlaceholder": "Совпадает с ID модели",
       "displayNameShort": "Имя",
       "displayNameTooltip": "Название, отображаемое в списке выбора моделей. Только для пользовательских моделей — имена предустановленных моделей берутся из каталога моделей. Оставьте пустым, чтобы использовать ID модели.",
       "displayNameHint": "Необязательное название в списке выбора моделей. Оставьте пустым, чтобы использовать ID модели.",
       "displayNameError": "Не удалось обновить отображаемое имя",
+      "modelIdError": "Не удалось обновить ID модели",
+      "azureEndpointPlaceholder": "напр. https://[resource].openai.azure.com или https://[resource].services.ai.azure.com",
+      "azureFoundryHint": "Поддерживаются и Azure OpenAI, и Azure AI Foundry. Идентификатор модели — это имя вашего развёртывания.",
+      "responsesApiHint": "Использовать Responses API вместо Chat Completions. Требуется для веб-поиска и доступен только в регионах, поддерживающих Responses API.",
+      "responsesApiFoundryHint": "В Foundry это относится только к развёртываниям OpenAI.",
       "colCost": "Стоимость ($/M)",
       "colRouting": "Маршрутизация",
       "autoRouter": "Автомаршрутизатор",
@@ -3077,6 +3083,11 @@
     "setting.update_failed": "Не удалось обновить настройку",
     "query": {
       "failed_silently": "Запрос завершился ошибкой, но сгенерированный код вернул пустой результат вместо сообщения об этом"
+    },
+    "llm": {
+      "model_id_required": "Идентификатор модели не может быть пустым",
+      "model_id_not_editable": "Идентификатор модели можно менять только у пользовательских моделей на провайдерах Azure, AWS Bedrock или пользовательских (совместимых с OpenAI)",
+      "model_id_duplicate": "Модель «{model_id}» уже существует у этого провайдера"
     }
   },
   "email": {
@@ -3502,7 +3513,7 @@
       "awsSecretAccessKey": "Секретный ключ доступа AWS",
       "awsSecretAccessKeyPlaceholder": "Введите секретный ключ доступа",
       "endpointUrl": "URL конечной точки",
-      "endpointPlaceholder": "напр. https://[resource].openai.azure.com",
+      "endpointPlaceholder": "напр. https://[resource].openai.azure.com или https://[resource].services.ai.azure.com",
       "useDefaultBaseUrl": "Использовать базовый URL по умолчанию",
       "setCustomBaseUrl": "Указать пользовательский базовый URL",
       "baseUrl": "Базовый URL (необязательно)",

@@ -52,7 +52,12 @@ logger = logging.getLogger(__name__)
 # serve the run at all, which makes it the strongest fallback signal of the
 # four. Note this is the *provider's* quota — the org's own usage caps
 # (usage_policy_service) classify as 'unknown' by design and never fall back.
-FALLBACK_ELIGIBLE_CODES = ("rate_limit", "quota", "provider_error", "network")
+#
+# ``model_not_found`` (deployment/route missing) is eligible for the same
+# reason as quota: it never heals, and another model is the only way to serve
+# the run. It trips at model scope — one missing deployment says nothing about
+# the rest of the endpoint.
+FALLBACK_ELIGIBLE_CODES = ("rate_limit", "quota", "provider_error", "network", "model_not_found")
 
 # Codes that indicate the whole provider endpoint is unhealthy (breaker trips
 # at provider scope). Everything else eligible trips at model scope.
@@ -65,7 +70,9 @@ PROVIDER_SCOPE_CODES = ("network", "auth", "quota")
 # the usual cooldown is far too optimistic. A rate limit clears in seconds; a
 # spent monthly allowance or an empty credit balance does not clear until
 # someone tops it up, so probing it again mid-run is pure latency.
-STICKY_CODES = ("quota",)
+# model_not_found belongs here for the same reason: a deployment that does not
+# exist will not appear part-way through a run, so re-probing it is pure latency.
+STICKY_CODES = ("quota", "model_not_found")
 
 # Bound the chain walk; the admin UI shouldn't produce lists this long anyway.
 MAX_FALLBACK_CHAIN = 10

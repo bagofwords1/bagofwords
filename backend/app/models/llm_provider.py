@@ -61,6 +61,13 @@ BOW_PROVIDER_DETAILS = {
     "credentials": BowCredentials.schema()
 }
 
+# Provider types whose model ids are identifiers the admin owns rather than a
+# vendor catalog: Azure deployment names, Bedrock model/inference-profile ids,
+# and whatever an OpenAI-compatible server exposes. Those are routinely typo'd
+# or renamed on the provider side, so a custom model on one of these providers
+# may have its model_id edited in place instead of being deleted and re-added.
+EDITABLE_MODEL_ID_PROVIDER_TYPES = {"azure", "custom", "bedrock"}
+
 
 
 class LLMProvider(BaseSchema):

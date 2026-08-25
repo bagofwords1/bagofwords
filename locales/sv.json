@@ -2477,12 +2477,18 @@
       "temperaturePlaceholder": "Standard",
       "temperatureResetTooltip": "Återställ till leverantörens standard (ingen temperatur skickas)",
       "modelIdLabel": "Modell-ID",
+      "modelIdEditTooltip": "Distributions- eller modellidentifieraren som skickas till leverantören. Redigerbar för anpassade modeller hos Azure, AWS Bedrock och anpassade (OpenAI-kompatibla) leverantörer, där ID:t namnger något du själv skapat och inte en katalogpost.",
       "displayNameLabel": "Visningsnamn",
       "displayNamePlaceholder": "Samma som modell-ID",
       "displayNameShort": "Namn",
       "displayNameTooltip": "Etiketten som visas i modellväljaren. Endast anpassade modeller — namn på förinställda modeller kommer från modellkatalogen. Lämna tomt för att använda modell-ID:t.",
       "displayNameHint": "Valfri etikett som visas i modellväljaren. Lämna tomt för att använda modell-ID:t.",
       "displayNameError": "Det gick inte att uppdatera visningsnamnet",
+      "modelIdError": "Det gick inte att uppdatera modell-ID",
+      "azureEndpointPlaceholder": "t.ex. https://[resurs].openai.azure.com eller https://[resurs].services.ai.azure.com",
+      "azureFoundryHint": "Både Azure OpenAI och Azure AI Foundry stöds. Modell-ID:t är namnet på din distribution.",
+      "responsesApiHint": "Använd Responses-API:et i stället för Chat Completions. Krävs för webbsökning och finns bara i regioner som stöder Responses-API:et.",
+      "responsesApiFoundryHint": "På Foundry gäller det bara OpenAI-distributioner.",
       "colCost": "Kostnad ($/M)",
       "colRouting": "Routning",
       "autoRouter": "Automatisk routning",
@@ -3077,6 +3083,11 @@
     "setting.update_failed": "Det gick inte att uppdatera inställningen",
     "query": {
       "failed_silently": "En fråga misslyckades men den genererade koden returnerade ett tomt resultat i stället för att rapportera det"
+    },
+    "llm": {
+      "model_id_required": "Modell-ID:t får inte vara tomt",
+      "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
+      "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
     }
   },
   "email": {
@@ -3502,7 +3513,7 @@
       "awsSecretAccessKey": "Hemlig AWS-åtkomstnyckel",
       "awsSecretAccessKeyPlaceholder": "Ange hemlig åtkomstnyckel",
       "endpointUrl": "Slutpunkts-URL",
-      "endpointPlaceholder": "t.ex. https://[resurs].openai.azure.com",
+      "endpointPlaceholder": "t.ex. https://[resurs].openai.azure.com eller https://[resurs].services.ai.azure.com",
       "useDefaultBaseUrl": "Använd standard bas-URL",
       "setCustomBaseUrl": "Ange egen bas-URL",
       "baseUrl": "Bas-URL (valfritt)",

@@ -129,6 +129,10 @@ class GoogleConfig(BaseModel):
 
 class AzureCredentials(BaseModel):
     api_key: str
+    # Azure OpenAI resource root or Azure AI Foundry resource root. Which client
+    # serves it is derived, not configured: an Anthropic deployment goes to the
+    # Messages API on any Azure hostname, and the OpenAI-shaped routes are
+    # chosen from the hostname (see app.ai.llm.llm).
     endpoint_url: str
     # Opt-in to Azure OpenAI's Responses API (/openai/v1) instead of Chat
     # Completions. Off by default — only some Azure regions serve Responses.
@@ -214,4 +218,7 @@ class LLMModelCreateInProvider(LLMModelBase):
 
 class LLMModelUpdate(BaseModel):
     name: Optional[str] = None
+    # Only editable for custom models on providers whose model ids are
+    # deployment/ARN identifiers the admin owns (azure, custom, bedrock).
+    model_id: Optional[str] = None
     config: Optional[Dict[str, Any]] = None

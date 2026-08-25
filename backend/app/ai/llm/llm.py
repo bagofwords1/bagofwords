@@ -88,6 +88,65 @@ def _parse_temperature(raw) -> Optional[float]:
     return value
 
 
+# Public Azure AI Foundry resources are always on this host suffix.
+_AZURE_FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+
+
+def _is_anthropic_model_id(model_id: Optional[str]) -> bool:
+    """Whether a deployment name denotes an Anthropic model.
+
+    This is the primary routing signal for the Azure provider, ahead of the
+    endpoint. Measured against a live Foundry resource: an Anthropic deployment
+    answers ONLY on ``/anthropic/v1/messages``, and it answers there on every
+    hostname the resource carries (``services.ai``, ``cognitiveservices``,
+    ``openai.azure.com`` alike), while both OpenAI-shaped routes reject it with
+    ``404 api_not_supported``. So the model family decides the surface and the
+    hostname does not enter into it.
+
+    Deployment names are admin-chosen, so this is a heuristic. Foundry defaults
+    the name to the catalog id (``claude-haiku-4-5``), and a renamed deployment
+    still matches as long as the name carries the family. One named to hide it
+    entirely lands on the OpenAI surface and fails as ``model_not_found`` —
+    immediate and legible, not a stall.
+    """
+    name = (model_id or "").strip().lower()
+    return "claude" in name or "anthropic" in name
+
+
+def _azure_foundry_anthropic_base_url(endpoint_url: str) -> str:
+    """Derive the Foundry Anthropic base_url from a provider endpoint.
+
+    Foundry serves Anthropic deployments at ``<resource>/anthropic/v1/messages``
+    — the native Messages API, not the OpenAI-compatible surface, which answers
+    them with ``404 api_not_supported``.
+
+    Returns the ``/anthropic`` root and NOT ``/anthropic/v1``: the Anthropic SDK
+    appends its own ``/v1/messages`` to whatever base_url it is given, so
+    passing the versioned path produces ``/anthropic/v1/v1/messages``.
+    """
+    base = LLM._azure_v1_base_url(endpoint_url)
+    # _azure_v1_base_url already normalized away portal paths and settled the
+    # scheme/host; swap its /openai/v1/ tail for the Anthropic root.
+    return base[: -len("openai/v1/")] + "anthropic"
+
+
+def _is_azure_foundry_endpoint(endpoint_url: str) -> bool:
+    """Whether an Azure endpoint is a Foundry resource, by hostname.
+
+    Only decides which OpenAI-shaped route to use — the deployment-scoped one
+    the Azure SDK builds, or ``/openai/v1``. Foundry serves both, so this is not
+    a correctness fork there; it matters for a classic Azure OpenAI resource,
+    which may only serve the deployment route. Defaulting anything unrecognized
+    to that route therefore keeps existing providers on their proven path.
+
+    Anthropic deployments never reach this function — they are routed by model
+    family, which holds on every hostname (see _is_anthropic_model_id).
+    """
+    base = (endpoint_url or "").strip().rstrip("/").lower()
+    host = base.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    return host.endswith(_AZURE_FOUNDRY_HOST_SUFFIX) or "/openai/v1" in base
+
+
 def _retry_delay(attempt: int) -> float:
     """Jittered exponential backoff: 0.5s, 1s, 2s… capped at 4s."""
     return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
@@ -174,20 +233,44 @@ class LLM:
             endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
-            # Default to Chat Completions (AzureClient) — works in every region.
-            # Admins opt into the Responses API explicitly (use_responses_api),
-            # which is required for native web search and only available in some
-            # Azure regions. Web search is honored only on the Responses path.
-            use_responses_api = bool(additional_config.get("use_responses_api", False))
-            if use_responses_api:
+            if _is_anthropic_model_id(self.model_id):
+                # Model family first, endpoint second. An Anthropic deployment
+                # answers only on /anthropic/v1 (the native Messages API), and
+                # answers there on every hostname an Azure AI Foundry resource
+                # carries — so no endpoint inspection can improve on this, and
+                # any that tried would get it wrong for the resource's
+                # openai.azure.com alias.
+                self.client = Anthropic(
+                    api_key=self.api_key,
+                    base_url=_azure_foundry_anthropic_base_url(endpoint_url),
+                    temperature=configured_temperature,
+                )
+            elif bool(additional_config.get("use_responses_api", False)):
+                # Opt-in, and required for native web search: the Responses API
+                # is only served in some Azure regions, so Chat Completions
+                # stays the default. Both surfaces expose it at the same
+                # /openai/v1 base.
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     base_url=self._azure_v1_base_url(endpoint_url),
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
                 )
+            elif _is_azure_foundry_endpoint(endpoint_url):
+                # Foundry: OpenAI-compatible Chat Completions under /openai/v1,
+                # reached with the plain OpenAI client rather than the Azure
+                # SDK's deployment-scoped one.
+                self.client = OpenAi(
+                    api_key=self.api_key,
+                    base_url=self._azure_v1_base_url(endpoint_url),
+                    temperature=configured_temperature,
+                )
             else:
-                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url, temperature=configured_temperature)
+                self.client = AzureClient(
+                    api_key=self.api_key,
+                    endpoint_url=endpoint_url,
+                    temperature=configured_temperature,
+                )
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
@@ -223,19 +306,30 @@ class LLM:
 
     @staticmethod
     def _azure_v1_base_url(endpoint_url: str) -> str:
-        """Derive the Azure OpenAI v1 Responses base_url from a provider endpoint.
+        """Derive the ``/openai/v1`` base_url from a provider endpoint.
 
         The AzureClient (Chat Completions) takes the resource root
-        (``https://<resource>.openai.azure.com``). The Responses API lives under
+        (``https://<resource>.openai.azure.com``). The v1 surface — Responses on
+        Azure OpenAI, and everything on Azure AI Foundry
+        (``https://<resource>.services.ai.azure.com``) — lives under
         ``/openai/v1/`` on that same host. Accept either form so admins can paste
         whichever they have, and normalize to the v1 base the OpenAI client wants.
         """
-        base = (endpoint_url or "").rstrip("/")
+        base = (endpoint_url or "").strip().rstrip("/")
         if "/openai/v1" in base:
             # Already a v1 base (possibly without trailing slash).
             return base.split("/openai/v1")[0] + "/openai/v1/"
         if base.endswith("/openai"):
             return base + "/v1/"
+        # Strip the non-inference paths the Azure portal hands out, so pasting
+        # one does not silently produce a URL that exists nowhere. The Foundry
+        # portal shows the project endpoint
+        # (``.../api/projects/<name>``) far more prominently than the resource
+        # root, and ``/models`` is the older Azure AI Inference route; appending
+        # /openai/v1 to either yields a path APIM answers with a 401 whose
+        # message blames the key, which is near-impossible to debug from the UI.
+        base = re.sub(r"/api/projects/[^/]+$", "", base)
+        base = re.sub(r"/models$", "", base)
         return base + "/openai/v1/"
 
     def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
