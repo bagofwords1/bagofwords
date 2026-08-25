@@ -2204,6 +2204,60 @@ class InstructionService:
                 return r.get("proposed_version_id") == pv
         return False
 
+    async def _is_in_main_build(self, db: AsyncSession, instruction) -> bool:
+        """True when the live build carries this instruction."""
+        from app.models.instruction_build import InstructionBuild
+        from app.models.build_content import BuildContent
+        return (await db.execute(
+            select(BuildContent.id)
+            .join(InstructionBuild, InstructionBuild.id == BuildContent.build_id)
+            .where(
+                InstructionBuild.is_main == True,  # noqa: E712
+                InstructionBuild.organization_id == str(instruction.organization_id),
+                InstructionBuild.deleted_at == None,  # noqa: E711
+                BuildContent.instruction_id == str(instruction.id),
+            ).limit(1)
+        )).scalar_one_or_none() is not None
+
+    async def _retire_rejected_create_suggestion(self, db: AsyncSession, instruction, *,
+                                                 organization: Organization) -> bool:
+        """Soft-delete an instruction whose CREATE suggestion was rejected outright.
+
+        Rejecting an EDIT decides the edit; the live instruction is untouched.
+        Rejecting the suggestion that would have INTRODUCED an instruction
+        leaves nothing to review — but the draft row survived it, invisible on
+        every build-scoped surface (which read the main build) while still
+        answering ``search_instructions``. The agent kept finding rejected
+        suggestions and reporting them as existing instructions, and the row
+        count in chat drifted above what the Agents page shows. Retire the row
+        instead of leaving it orphaned.
+
+        Both conditions must hold, and both are proven, never assumed: the
+        instruction is absent from the main build, and every open proposal for
+        it carries a terminal verdict.
+        """
+        from datetime import datetime
+        iid = str(instruction.id)
+        if await self._is_in_main_build(db, instruction):
+            return False
+        rows = await self._pending_suggestion_builds(db, iid, organization)
+        if not rows:
+            # No proposal to have rejected — leave unexplained state alone.
+            return False
+        for build, _proposed_text, proposed_vid in rows:
+            if self._voided_marker_matches(build, iid):
+                continue
+            pv = str(proposed_vid) if proposed_vid else None
+            if not self._settled_marker_matches(build, iid, pv):
+                return False  # still on the table somewhere
+        instruction.deleted_at = datetime.utcnow()
+        await db.commit()
+        logger.info(
+            f"Retired instruction {iid}: its create suggestion was rejected and "
+            f"it never reached the main build"
+        )
+        return True
+
     async def _settle_resolved_suggestion_rows(self, db: AsyncSession, instruction, *,
                                                organization: Organization,
                                                build_ids: Optional[set] = None) -> None:
@@ -2711,7 +2765,18 @@ class InstructionService:
         await self._emit_review_verdict_events(
             db, instruction=instruction, verdicts=verdicts, user=current_user,
         )
-        return await self.get_instruction(db, instruction.id, organization, current_user), "ok"
+        # Read the response BEFORE any retirement below: the caller asked to
+        # reject a change, and answering its own request with a 404 because the
+        # row it named is now gone would read as a failure.
+        resolved = await self.get_instruction(db, instruction.id, organization, current_user)
+        try:
+            await self._retire_rejected_create_suggestion(
+                db, instruction, organization=organization,
+            )
+        except Exception as e:
+            # A leftover draft row is untidy, not broken — never fail the reject.
+            logger.warning(f"Failed to retire rejected create suggestion {instruction_id}: {e}")
+        return resolved, "ok"
 
     async def reject_hunk(self, db: AsyncSession, instruction_id: str, *, build_id: str, hunk_key: str,
                           against_main_build_id: Optional[str],

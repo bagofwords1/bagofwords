@@ -2865,9 +2865,22 @@ const mergedSegments = computed(() => {
 const highlightBuild = ref<string | null>(null)
 const reloadAfterResolve = async () => {
   if (!detail.value) return
-  const { data } = await useMyFetch<Instruction>(`/api/instructions/${detail.value.id}`, { method: 'GET' })
-  if (data.value) { detail.value = data.value; if (!editing.value) syncDraft(data.value) }
-  await loadPending(detail.value.id); await loadVersions(detail.value.id); refreshLists(); fetchReviewCount()
+  const id = detail.value.id
+  const { data } = await useMyFetch<Instruction>(`/api/instructions/${id}`, { method: 'GET' })
+  // Rejecting the suggestion that would have INTRODUCED an instruction retires
+  // it server-side — there is no row left to reload. Keeping the pane open on
+  // the stale copy would leave the reviewer reading an instruction the tree no
+  // longer lists.
+  if (!data.value) {
+    allInstructions.value = allInstructions.value.filter(i => i.id !== id)
+    editing.value = false; detail.value = null; selectedId.value = null
+    versions.value = []; mainText.value = null; mainVersionId.value = null
+    pendingBuilds.value = []; closeDiff()
+    refreshLists(); fetchPendingMap(); fetchCounts(); fetchReviewCount()
+    return
+  }
+  detail.value = data.value; if (!editing.value) syncDraft(data.value)
+  await loadPending(id); await loadVersions(id); refreshLists(); fetchReviewCount()
 }
 // Scroll container of the review/diff pane — preserved across resolve reloads so
 // accepting a change doesn't jump the page back to the top.
