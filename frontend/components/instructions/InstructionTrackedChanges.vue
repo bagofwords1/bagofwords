@@ -474,4 +474,13 @@ onBeforeUnmount(() => {
   font-size: 0.95em;
   white-space: nowrap;
 }
+
+/* Dark mode: the light-theme indigo-800 above is unreadable on the dark
+   surface. Same chip palette as InstructionText / InstructionEditor. The
+   `.dark` class lives on <html>, outside this component's scope, hence
+   :global matched by the component-unique `.instr-mention` class. */
+:global(.dark .instr-mention) {
+  background-color: rgba(129, 140, 248, 0.18);
+  color: #c7d2fe;
+}
 </style>

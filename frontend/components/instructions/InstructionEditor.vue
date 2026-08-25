@@ -780,4 +780,40 @@ function onRawInput() {
 .raw-textarea::placeholder {
   color: #9ca3af;
 }
+
+/* ─── Dark mode ────────────────────────────────────────────────────────────
+   Every color above is a hardcoded light-theme literal, so without these the
+   instruction body renders near-black on the dark surface. Palette mirrors
+   InstructionText's dark block so the editor and the read-only view match.
+
+   The `.dark` class lives on <html> (Tailwind darkMode: 'class'), outside this
+   component's scope, so these are authored as :global and matched by the
+   component-unique `.wysiwyg-content` / `.bubble-*` / `.raw-textarea` classes.
+   Each pairs with an equal-specificity light rule above and wins by order. */
+:global(.dark .wysiwyg-content .tiptap-prose) { color: #e5e7eb; }
+:global(.dark .wysiwyg-content .tiptap-prose h1),
+:global(.dark .wysiwyg-content .tiptap-prose h2),
+:global(.dark .wysiwyg-content .tiptap-prose h3) { color: #f9fafb; }
+:global(.dark .wysiwyg-content .tiptap-prose code) { background: #374151; color: #e5e7eb; }
+:global(.dark .wysiwyg-content .tiptap-prose pre) { background: #1f2937; }
+:global(.dark .wysiwyg-content .tiptap-prose blockquote) { border-inline-start-color: #374151; color: #9ca3af; }
+:global(.dark .wysiwyg-content .mention-chip) {
+  background-color: rgba(129, 140, 248, 0.18);
+  color: #c7d2fe;
+}
+
+/* The bubble toolbar is teleported to <body> by tippy, so it sits outside the
+   component subtree — `.dark` on <html> still reaches it. */
+:global(.dark .bubble-toolbar) {
+  background: #1f2937;
+  border-color: #374151;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+:global(.dark .bubble-btn) { color: #d1d5db; }
+:global(.dark .bubble-btn:hover) { background-color: #374151; }
+:global(.dark .bubble-btn.active) { background-color: #3730a3; color: #e0e7ff; }
+:global(.dark .bubble-sep) { background: #374151; }
+
+:global(.dark .raw-textarea) { color: #e5e7eb; }
+:global(.dark .raw-textarea::placeholder) { color: #6b7280; }
 </style>
