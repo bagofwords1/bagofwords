@@ -54,9 +54,54 @@
                             <input
                                 v-model="selectedProvider.credentials.endpoint_url"
                                 type="text"
-                                placeholder="e.g. https://<resource>.openai.azure.com"
+                                :placeholder="azureEndpointPlaceholder(selectedProvider.credentials.endpoint_mode)"
                                 class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
+                            <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                Azure OpenAI and Azure AI Foundry are both supported. Model ID is your deployment name.
+                            </p>
+
+                            <div class="mt-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Endpoint type</label>
+                                    <span
+                                        v-if="azureDetectedLabel(selectedProvider.credentials)"
+                                        class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+                                    >
+                                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                        Detected: {{ azureDetectedLabel(selectedProvider.credentials) }}
+                                    </span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button
+                                        v-for="opt in azureEndpointModes"
+                                        :key="opt.value"
+                                        type="button"
+                                        @click="selectedProvider.credentials.endpoint_mode = opt.value"
+                                        :class="['px-3 py-2 text-xs rounded-lg border cursor-pointer text-center transition-colors',
+                                            azureModeValue(selectedProvider.credentials) === opt.value
+                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium'
+                                                : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']"
+                                    >
+                                        {{ opt.label }}
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                                    {{ azureEndpointModeHint(azureModeValue(selectedProvider.credentials)) }}
+                                </p>
+                            </div>
+                            <div v-if="resolvedAzureMode(selectedProvider.credentials) === 'azure_openai'" class="mt-3">
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                                    API version (optional)
+                                </label>
+                                <input
+                                    v-model="selectedProvider.credentials.api_version"
+                                    type="text"
+                                    placeholder="e.g. 2024-10-21"
+                                    class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to use the default. Azure OpenAI endpoints only.</p>
+                            </div>
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'custom' || selectedProvider?.type === 'custom'">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -149,7 +194,10 @@
                                 <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Use Responses API</label>
                             </div>
                             <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                                Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.
+                                Use the Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.
+                            </p>
+                            <p v-if="resolvedAzureMode(selectedProvider.credentials) === 'foundry'" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                                On Foundry this works for OpenAI models only — leave it off for catalog models (Llama, DeepSeek, Grok, Mistral).
                             </p>
                             <div v-if="selectedProvider.credentials.use_responses_api" class="mt-3 ms-1">
                                 <div class="flex items-center gap-2">
@@ -398,13 +446,50 @@
                                         class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                                 </div>
                             </div>
+                            <!-- Azure: which surface the endpoint speaks -->
+                            <div v-if="providerForm.provider_type === 'azure'" class="mt-4">
+                                <div class="flex items-center justify-between mb-2">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">Endpoint type</label>
+                                    <span
+                                        v-if="azureDetectedLabel(providerForm.credentials)"
+                                        class="inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400"
+                                    >
+                                        <span class="w-1.5 h-1.5 rounded-full bg-green-500"></span>
+                                        Detected: {{ azureDetectedLabel(providerForm.credentials) }}
+                                    </span>
+                                </div>
+                                <div class="grid grid-cols-3 gap-2">
+                                    <button
+                                        v-for="opt in azureEndpointModes"
+                                        :key="opt.value"
+                                        type="button"
+                                        @click="providerForm.credentials.endpoint_mode = opt.value"
+                                        :class="['px-3 py-2 text-xs rounded-lg border cursor-pointer text-center transition-colors',
+                                            azureModeValue(providerForm.credentials) === opt.value
+                                                ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium'
+                                                : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']"
+                                    >
+                                        {{ opt.label }}
+                                    </button>
+                                </div>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">
+                                    {{ azureEndpointModeHint(azureModeValue(providerForm.credentials)) }}
+                                </p>
+                            </div>
+                            <div v-if="providerForm.provider_type === 'azure' && resolvedAzureMode(providerForm.credentials) === 'azure_openai'" class="mt-3">
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">API version (optional)</label>
+                                <input v-model="providerForm.credentials.api_version" type="text" placeholder="e.g. 2024-10-21"
+                                    class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to use the default. Azure OpenAI endpoints only.</p>
+                            </div>
                             <!-- Azure: Responses API opt-in gates web search -->
                             <div v-if="providerForm.provider_type === 'azure'" class="mt-3">
                                 <div class="flex items-center gap-2">
                                     <UCheckbox v-model="providerForm.credentials.use_responses_api" />
                                     <label class="text-sm text-gray-700 dark:text-gray-300">Use Responses API</label>
                                 </div>
-                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Use Azure OpenAI's Responses API instead of Chat Completions. Required for web search, and only available in regions that support it.</p>
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Use the Responses API instead of Chat Completions. Required for web search, and only available in regions that support it.</p>
+                                <p v-if="resolvedAzureMode(providerForm.credentials) === 'foundry'" class="text-xs text-gray-500 dark:text-gray-400 mt-1">On Foundry this works for OpenAI models only — leave it off for catalog models (Llama, DeepSeek, Grok, Mistral).</p>
                                 <div v-if="providerForm.credentials.use_responses_api" class="mt-3 ms-1">
                                     <div class="flex items-center gap-2">
                                         <UCheckbox v-model="providerForm.credentials.enable_web_search" />
@@ -663,6 +748,64 @@ const providersWithNewOption = computed(() => {
     ];
 });
 
+// --- Azure endpoint surfaces -------------------------------------------------
+// Azure OpenAI resources and Azure AI Foundry resources speak different HTTP
+// surfaces, so the backend picks a different client for each. It infers the
+// surface from the hostname; these controls let an admin state it outright,
+// which is the only workable option behind private DNS / Private Link.
+const azureEndpointModes = [
+    { value: 'auto', label: 'Auto-detect' },
+    { value: 'azure_openai', label: 'Azure OpenAI' },
+    { value: 'foundry', label: 'Azure AI Foundry' },
+];
+
+// 'auto' is stored as an absent key, so an unset field is auto — not "nothing
+// selected". Without this the segmented control would render with no active
+// option on every provider saved before endpoint_mode existed.
+function azureModeValue(credentials: Record<string, any> | undefined | null): string {
+    return credentials?.endpoint_mode || 'auto';
+}
+
+// What auto-detection resolved the current URL to, for the inline badge.
+// Only meaningful while the mode is actually auto and a URL has been typed —
+// with an explicit mode the buttons already say it, and repeating it as a
+// "detected" badge would imply a confirmation the detection never performed.
+function azureDetectedLabel(credentials: Record<string, any> | undefined | null): string {
+    if (azureModeValue(credentials) !== 'auto') return '';
+    if (!String(credentials?.endpoint_url || '').trim()) return '';
+    const resolved = resolvedAzureMode(credentials);
+    return azureEndpointModes.find(o => o.value === resolved)?.label || '';
+}
+
+// Mirrors _resolve_azure_endpoint_mode in backend/app/ai/llm/llm.py — kept in
+// sync so the form can show the right fields before anything is saved. The
+// backend remains the authority; this only drives which inputs are visible.
+function resolvedAzureMode(credentials: Record<string, any> | undefined | null): string {
+    const mode = credentials?.endpoint_mode;
+    if (mode === 'foundry' || mode === 'azure_openai') return mode;
+    const url = String(credentials?.endpoint_url || '').trim().replace(/\/+$/, '').toLowerCase();
+    const host = url.split('://').pop()?.split('/')[0]?.split(':')[0] || '';
+    if (host.endsWith('.services.ai.azure.com')) return 'foundry';
+    if (url.includes('/openai/v1')) return 'foundry';
+    return 'azure_openai';
+}
+
+function azureEndpointPlaceholder(mode: string | undefined): string {
+    if (mode === 'foundry') return 'e.g. https://<resource>.services.ai.azure.com';
+    if (mode === 'azure_openai') return 'e.g. https://<resource>.openai.azure.com';
+    return 'e.g. https://<resource>.openai.azure.com or https://<resource>.services.ai.azure.com';
+}
+
+function azureEndpointModeHint(mode: string | undefined): string {
+    if (mode === 'foundry') {
+        return 'Uses the OpenAI-compatible /openai/v1 surface. Reaches catalog deployments (Llama, DeepSeek, Grok, Mistral) as well as OpenAI models.';
+    }
+    if (mode === 'azure_openai') {
+        return 'Uses the deployment-scoped Azure OpenAI API. OpenAI models only.';
+    }
+    return 'Detected from the hostname. Set it explicitly for private DNS or Private Link endpoints, where the hostname does not identify the surface.';
+}
+
 const showBaseUrl = ref(false);
 const showBaseUrlNew = ref(false);
 const isTestingConnection = ref(false);
@@ -694,7 +837,10 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
     // Exclude fields that have dedicated UI controls
-    let filtered = all.filter(f => f.key !== 'verify_ssl' && f.key !== 'enable_web_search' && f.key !== 'use_responses_api');
+    // Fields with dedicated UI controls below — endpoint_mode is a select and
+    // api_version only applies to one of its values, so neither belongs in the
+    // generic text-input loop.
+    let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'endpoint_mode', 'api_version'].includes(f.key));
     if (providerType === 'openai') {
         filtered = filtered.filter(f => f.key !== 'base_url');
     }
@@ -921,6 +1067,11 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
         if (providerType === 'custom') {
             providerForm.value.credentials.verify_ssl = true;
         }
+        // Default the Azure endpoint surface to hostname detection, so the
+        // select shows a value instead of rendering blank.
+        if (providerType === 'azure') {
+            providerForm.value.credentials.endpoint_mode = 'auto';
+        }
     }
     // Reset base URL toggle for new provider on provider type changes
     if (isNewProviderSelected.value) {
@@ -1107,6 +1258,10 @@ watch(selectedProvider, (newValue) => {
         // Hydrate the Azure Responses-API opt-in from additional_config
         if ((newValue.provider_type === 'azure' || newValue.type === 'azure')) {
             (newValue.credentials as any).use_responses_api = !!(newValue as any)?.additional_config?.use_responses_api;
+            // 'auto' is stored as an absent key, so an unset endpoint_mode maps
+            // back to the auto option rather than to an empty select.
+            (newValue.credentials as any).endpoint_mode = (newValue as any)?.additional_config?.endpoint_mode || 'auto';
+            (newValue.credentials as any).api_version = (newValue as any)?.additional_config?.api_version || '';
         }
         // Ensure base_url and verify_ssl fields exist for Custom so users can view/update them
         if ((newValue.provider_type === 'custom' || newValue.type === 'custom')) {

@@ -33,7 +33,11 @@ class AzureClient(LLMClient):
         # Admin-configured override; None keeps the per-call historical default
         # (see _default_temperature).
         self.temperature = temperature
-        # endpoint_url should be the Azure OpenAI resource endpoint, e.g. https://<resource>.openai.azure.com
+        # endpoint_url must be an Azure OpenAI resource root, e.g.
+        # https://<resource>.openai.azure.com — this client speaks the
+        # deployment-scoped route (/openai/deployments/{name}/...?api-version=)
+        # that only that surface serves. Azure AI Foundry endpoints are routed
+        # to the OpenAI-compatible client instead (see the azure branch of LLM.__init__).
         effective_api_version = api_version or "2024-10-21"
         self.client = AzureOpenAI(
             api_key=api_key,

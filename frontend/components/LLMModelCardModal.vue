@@ -23,6 +23,25 @@
             </div>
 
             <div class="mt-4 divide-y divide-gray-100 dark:divide-gray-800 border-y border-gray-100 dark:border-gray-800">
+                <!-- Model ID. Editable only for custom models on providers whose
+                     ids the admin owns (Azure deployments, Bedrock model ids,
+                     self-hosted OpenAI-compatible models) — see
+                     EDITABLE_MODEL_ID_PROVIDER_TYPES on the backend. Everywhere
+                     else the id is the model-catalog key, so editing it would
+                     detach the row from its pricing and context window. -->
+                <div v-if="canEditModelId" class="flex items-center justify-between py-2.5 gap-4">
+                    <UTooltip :text="$t('settings.llms.modelIdEditTooltip')">
+                        <span class="text-sm text-gray-700 dark:text-gray-300 underline decoration-dotted decoration-gray-300 underline-offset-2">{{ $t('settings.llms.modelIdLabel') }}</span>
+                    </UTooltip>
+                    <input
+                        v-model="modelIdDraft"
+                        type="text"
+                        maxlength="200"
+                        :placeholder="model.model_id"
+                        data-testid="card-model-id-input"
+                        class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-48 text-sm text-end focus:outline-none focus:border-blue-500"
+                    />
+                </div>
                 <!-- Display name. Custom models only — a preset's name is owned by
                      the model catalog and is re-applied on every models-list load,
                      so the backend rejects renaming one. Empty = fall back to the
@@ -35,7 +54,7 @@
                         v-model="nameDraft"
                         type="text"
                         maxlength="120"
-                        :placeholder="model.model_id"
+                        :placeholder="effectiveModelId"
                         data-testid="card-name-input"
                         class="border border-gray-300 dark:border-gray-600 dark:bg-gray-800 rounded px-2 py-1 w-48 text-sm text-end focus:outline-none focus:border-blue-500"
                     />
@@ -229,6 +248,7 @@ const nameDraft = ref<string>('');
 const enabledDraft = ref(false);
 const visionDraft = ref(false);
 const imageGenDraft = ref(false);
+const modelIdDraft = ref('');
 const contextDraft = ref<number | null>(null);
 // String draft so "" (provider default) stays distinct from 0 (an explicit,
 // valid temperature).
@@ -241,14 +261,33 @@ const saving = ref(false);
 
 const deleteBlocked = computed(() => !!props.model && (props.model.is_default || props.model.is_small_default));
 
+// Mirrors EDITABLE_MODEL_ID_PROVIDER_TYPES in backend/app/models/llm_provider.py.
+const EDITABLE_MODEL_ID_PROVIDER_TYPES = ['azure', 'custom', 'bedrock'];
+const canEditModelId = computed(() =>
+    !!props.model?.is_custom
+    && EDITABLE_MODEL_ID_PROVIDER_TYPES.includes(props.model?.provider?.provider_type)
+);
+
+// Same blank-resets-to-current gesture as the name field: an empty box means
+// "leave it alone" rather than an attempt to save an empty id.
+const effectiveModelId = computed(() =>
+    modelIdDraft.value.trim() || props.model?.model_id || ''
+);
+const modelIdChanged = computed(() =>
+    canEditModelId.value && effectiveModelId.value !== props.model?.model_id
+);
+
 // A blank input resolves to the model_id, so clearing the field is the "reset
-// to default" gesture and never produces a phantom dirty state.
+// to default" gesture and never produces a phantom dirty state. It resolves
+// against the id being saved, so clearing the name during an id edit does not
+// pin the model to the id it is moving away from.
 const effectiveName = computed(() =>
-    nameDraft.value.trim() || props.model?.model_id || ''
+    nameDraft.value.trim() || effectiveModelId.value
 );
 
 const syncDrafts = () => {
     nameDraft.value = props.model?.name ?? '';
+    modelIdDraft.value = props.model?.model_id ?? '';
     enabledDraft.value = !!props.model?.is_enabled;
     visionDraft.value = !!props.model?.supports_vision;
     imageGenDraft.value = !!props.model?.supports_image_generation;
@@ -268,7 +307,8 @@ watch(() => [props.modelValue, props.model?.id], () => {
 const isDirty = computed(() => {
     if (!props.model) return false;
     const norm = (v: any) => (v == null || v === '' ? null : Number(v));
-    return (props.model.is_custom && effectiveName.value !== props.model.name)
+    return modelIdChanged.value
+        || (props.model.is_custom && effectiveName.value !== props.model.name)
         || enabledDraft.value !== !!props.model.is_enabled
         || visionDraft.value !== !!props.model.supports_vision
         || imageGenDraft.value !== !!props.model.supports_image_generation
@@ -342,14 +382,28 @@ const save = async () => {
     }
 
     const nameChanged = !!model.is_custom && effectiveName.value !== model.name;
+    const idChanged = modelIdChanged.value;
 
     saving.value = true;
     try {
-        if (nameChanged) {
+        // One PATCH for both fields: the backend resolves the name fallback
+        // against the incoming model_id, so sending them together keeps a
+        // model named after its id in sync with the new id.
+        if (nameChanged || idChanged) {
             const response = await useMyFetch(`/llm/models/${model.id}`, {
-                method: 'PATCH', body: { name: effectiveName.value },
+                method: 'PATCH',
+                body: {
+                    ...(nameChanged ? { name: effectiveName.value } : {}),
+                    ...(idChanged ? { model_id: effectiveModelId.value } : {}),
+                },
             });
-            if (response.status.value !== 'success') { fail(t('settings.llms.displayNameError')); return; }
+            if (response.status.value !== 'success') {
+                const errAny = response.error as any;
+                const err = (errAny && (errAny.value || errAny)) || {};
+                const detail = err?.data?.detail;
+                fail(String(detail || (idChanged ? t('settings.llms.modelIdError') : t('settings.llms.displayNameError'))));
+                return;
+            }
         }
         if (enabledDraft.value !== !!model.is_enabled) {
             const response = await useMyFetch(`/llm/models/${model.id}/toggle`, { method: 'POST', query: { enabled: enabledDraft.value } });

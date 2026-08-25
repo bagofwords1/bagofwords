@@ -305,3 +305,66 @@ def test_provider_message_is_preserved_on_quota():
     )
     assert "exceeded your current quota" in err.provider_message
     assert err.summary and err.summary != err.provider_message
+
+
+class TestModelNotFound:
+    """A missing deployment/route is permanent, so it must not be retried.
+
+    Reported as an Azure AI Foundry Claude deployment that appeared to hang:
+    the endpoint answered 404 in ~200ms, but 'provider_error' is retryable, so
+    the LLM facade, the planner and the fallback chain each replayed it with
+    backoff. The user saw ~46s of "thinking" and no error at all.
+    """
+
+    @staticmethod
+    def _err(body, status=404, cls_name="NotFoundError"):
+        exc = type(cls_name, (Exception,), {})(f"Error code: {status} - {body}")
+        exc.status_code = status
+        return exc
+
+    @pytest.mark.parametrize("body", [
+        # Azure AI Foundry, OpenAI-compatible surface asked for a Claude model
+        {"error": {"code": "api_not_supported", "message": "Requested API is currently not supported"}},
+        # Azure OpenAI, deployment name that does not exist
+        {"error": {"code": "DeploymentNotFound",
+                   "message": "The API deployment for this resource does not exist."}},
+        # OpenAI proper
+        {"error": {"code": "model_not_found",
+                   "message": "The model 'x' does not exist or you do not have access to it."}},
+    ])
+    def test_classified_as_model_not_found(self, body):
+        err = classify(self._err(body), provider="azure", model="claude-haiku-4-5")
+        assert err.code == "model_not_found"
+        assert err.status == 404
+
+    def test_is_not_retryable(self):
+        from app.ai.llm.llm import _RETRYABLE_CODES
+        assert "model_not_found" not in _RETRYABLE_CODES
+
+    def test_is_fallback_eligible_at_model_scope(self):
+        # Another model is the only way to serve the run, but one missing
+        # deployment says nothing about the rest of the endpoint.
+        from app.ai.llm.fallback import (
+            FALLBACK_ELIGIBLE_CODES, PROVIDER_SCOPE_CODES, STICKY_CODES,
+        )
+        assert "model_not_found" in FALLBACK_ELIGIBLE_CODES
+        assert "model_not_found" not in PROVIDER_SCOPE_CODES
+        assert "model_not_found" in STICKY_CODES
+
+    def test_provider_message_is_preserved(self):
+        body = {"error": {"code": "api_not_supported", "message": "Requested API is currently not supported"}}
+        err = classify(self._err(body), provider="azure", model="claude-haiku-4-5")
+        assert "not supported" in err.provider_message.lower()
+        assert "claude-haiku-4-5" in err.summary
+
+    def test_other_404s_without_markers_stay_provider_error(self):
+        # Don't swallow every 404 — only ones that actually name a missing model.
+        exc = Exception("Error code: 404 - {'error': {'message': 'Resource not found'}}")
+        exc.status_code = 404
+        assert classify(exc, provider="azure", model="m").code == "provider_error"
+
+    def test_5xx_and_429_are_unchanged(self):
+        for status, expected in ((500, "provider_error"), (503, "provider_error")):
+            exc = Exception(f"Error code: {status} - server error")
+            exc.status_code = status
+            assert classify(exc, provider="azure", model="m").code == expected

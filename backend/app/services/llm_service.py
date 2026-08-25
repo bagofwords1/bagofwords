@@ -8,7 +8,7 @@ from app.models.llm_model import LLMModel
 from app.models.organization import Organization
 from app.models.user import User
 from app.settings.config import settings
-from app.models.llm_provider import LLM_PROVIDER_DETAILS
+from app.models.llm_provider import LLM_PROVIDER_DETAILS, EDITABLE_MODEL_ID_PROVIDER_TYPES
 from app.models.llm_model import LLM_MODEL_DETAILS, DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
 from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate, LLMProviderTestConnection
 from app.ai.llm.llm import LLM
@@ -296,7 +296,7 @@ class LLMService:
         model_id: str,
         model_data,
     ) -> LLMModel:
-        """Update a model's editable fields (name, config).
+        """Update a model's editable fields (name, model_id, config).
 
         Like create_model, the route PATCH /llm/models/{model_id} predates the
         implementation — it used to 500 with AttributeError. Config keys are
@@ -309,17 +309,37 @@ class LLMService:
         silently reverted within seconds. Rejecting it is honest; accepting it
         would look like it worked. A blank name resets a custom model back to
         its model_id rather than violating the NOT NULL column.
+
+        Editing model_id is narrower still: only a custom model on an
+        EDITABLE_MODEL_ID_PROVIDER_TYPES provider, where the id names something
+        the admin created (an Azure deployment, a Bedrock model/inference
+        profile, a self-hosted model) rather than a catalog entry. Elsewhere the
+        id is the catalog key that _apply_catalog_model_details matches on, so
+        changing it would silently detach the row from its pricing and context
+        window. Both fields are applied against the pre-update model_id, so a
+        single request can rename and re-point a model at once.
         """
         model = await self._get_owned_model(db, organization, model_id)
 
         data = model_data.dict(exclude_unset=True)
+        new_model_id = None
+        if "model_id" in data:
+            new_model_id = await self._validated_new_model_id(db, organization, model, data["model_id"])
         if "name" in data:
             if not model.is_custom:
                 raise HTTPException(
                     status_code=400,
                     detail="Only custom models can be renamed; preset names come from the model catalog",
                 )
-            model.name = (data["name"] or "").strip() or model.model_id
+            model.name = (data["name"] or "").strip() or (new_model_id or model.model_id)
+        if new_model_id is not None:
+            # A custom model created without a display name got its model_id as
+            # the name (see create_model). Keep that fallback in sync instead of
+            # leaving the row labelled with the id it no longer uses — unless
+            # this request also set a name, which wins.
+            if "name" not in data and model.name == model.model_id:
+                model.name = new_model_id
+            model.model_id = new_model_id
         if data.get("config") is not None:
             # Reassign (not mutate) so SQLAlchemy detects the JSON change.
             model.config = {**dict(model.config or {}), **data["config"]}
@@ -397,6 +417,51 @@ class LLMService:
             if not await user_can_use_model(db, current_user.id, organization.id, model):
                 raise HTTPException(status_code=403, detail="You do not have access to this model")
         return model
+
+    async def _validated_new_model_id(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        model: LLMModel,
+        raw_model_id,
+    ) -> "str | None":
+        """Vet a requested model_id change, returning None when it is a no-op.
+
+        Guards mirror create_model: non-blank, and unique among the live models
+        of the same provider (the pair is what create_model rejects duplicates
+        on, so an edit must not be able to sneak past it).
+        """
+        candidate = (raw_model_id or "").strip()
+        if not candidate:
+            raise HTTPException(status_code=400, detail="Model ID cannot be empty")
+        if candidate == model.model_id:
+            return None
+
+        provider = await db.get(LLMProvider, model.provider_id) if model.provider_id else None
+        provider_type = getattr(provider, "provider_type", None)
+        if not model.is_custom or provider_type not in EDITABLE_MODEL_ID_PROVIDER_TYPES:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) "
+                    "providers can have their model ID edited"
+                ),
+            )
+
+        dup = (await db.execute(
+            select(LLMModel)
+            .filter(LLMModel.organization_id == organization.id)
+            .filter(LLMModel.provider_id == model.provider_id)
+            .filter(LLMModel.model_id == candidate)
+            .filter(LLMModel.id != model.id)
+            .filter(LLMModel.deleted_at == None)  # noqa: E711
+        )).unique().scalars().first()
+        if dup is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Model '{candidate}' already exists on this provider",
+            )
+        return candidate
 
     async def _get_owned_model(
         self,
@@ -1616,6 +1681,31 @@ class LLMService:
                     **existing_additional_config,
                     "use_responses_api": bool(credentials.get("use_responses_api")),
                 }
+
+        # Azure: which surface the endpoint speaks (Azure OpenAI vs AI Foundry)
+        # and an optional api-version pin. Both are non-secret routing hints, so
+        # they live in additional_config alongside endpoint_url. 'auto' is the
+        # default and is stored as an absent key so inference stays in one place
+        # (_resolve_azure_endpoint_mode).
+        if provider.provider_type == "azure":
+            if "endpoint_mode" in credentials:
+                endpoint_mode = credentials.get("endpoint_mode")
+                if endpoint_mode and endpoint_mode != "auto":
+                    existing_additional_config = {
+                        **existing_additional_config,
+                        "endpoint_mode": endpoint_mode,
+                    }
+                else:
+                    existing_additional_config.pop("endpoint_mode", None)
+            if "api_version" in credentials:
+                api_version = credentials.get("api_version")
+                if api_version:
+                    existing_additional_config = {
+                        **existing_additional_config,
+                        "api_version": api_version,
+                    }
+                else:
+                    existing_additional_config.pop("api_version", None)
 
         # Custom (OpenAI-compatible): base_url (required), verify_ssl (optional)
         if provider.provider_type == "custom":
