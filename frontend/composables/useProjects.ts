@@ -12,6 +12,8 @@ export interface Project {
     member_count: number
     is_owner: boolean
     can_manage: boolean
+    created_at?: string
+    updated_at?: string
 }
 
 const projects = ref<Project[]>([])

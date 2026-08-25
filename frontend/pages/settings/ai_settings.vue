@@ -26,7 +26,7 @@
                     <div v-for="(feature, key) in regularConfigFeatures" :key="`config_${key}`" class="flex flex-col md:w-2/3">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
-                                {{ feature.name }}
+                                {{ featureLabel(String(key), feature.name) }}
                                 <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
                                     <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
@@ -60,7 +60,7 @@
                                 {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
                             </span>
                         </div>
-                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ feature.description }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ featureDescription(String(key), feature.description) }}</p>
                     </div>
 
                     <!-- Allow LLM See Data - Special highlighted setting at the end -->
@@ -68,7 +68,7 @@
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
                                 <Icon name="heroicons:shield-exclamation" class="me-2 w-5 h-5 text-amber-600" />
-                                {{ configFeatures.allow_llm_see_data.name }}
+                                {{ featureLabel('allow_llm_see_data', configFeatures.allow_llm_see_data.name) }}
                                 <UTooltip v-if="configFeatures.allow_llm_see_data.state === 'locked'" :text="$t('settings.aiSettingsPage.locked')">
                                     <Icon name="heroicons:lock-closed" class="ms-2 w-4 h-4 text-gray-400 dark:text-gray-400" />
                                 </UTooltip>
@@ -79,7 +79,7 @@
                                 @change="handleAllowLlmSeeDataChange"
                             />
                         </div>
-                        <p class="text-sm text-amber-700 mt-2.5">{{ configFeatures.allow_llm_see_data.description }}</p>
+                        <p class="text-sm text-amber-700 mt-2.5">{{ featureDescription('allow_llm_see_data', configFeatures.allow_llm_see_data.description) }}</p>
                         <p class="text-xs text-amber-600 mt-1 font-medium">
                             <Icon name="heroicons:exclamation-triangle" class="inline w-3 h-3 me-1" />
                             {{ $t('settings.aiSettingsPage.llmAccessWarning') }}
@@ -97,7 +97,7 @@
                     <div v-for="(feature, key) in aiFeatures" :key="`ai_${key}`" class="flex flex-col md:w-2/3">
                         <div class="flex items-center justify-between">
                             <div class="font-medium flex items-center">
-                                {{ feature.name }}
+                                {{ featureLabel(String(key), feature.name) }}
                                 <UTooltip v-if="feature.is_lab" :text="$t('settings.aiSettingsPage.beta')">
                                     <Icon name="heroicons:beaker" class="ms-2 w-4 h-4" />
                                 </UTooltip>
@@ -131,7 +131,7 @@
                                 {{ feature.value }} {{ $t('settings.aiSettingsPage.notEditable') }}
                             </span>
                         </div>
-                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ feature.description }}</p>
+                        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2.5">{{ featureDescription(String(key), feature.description) }}</p>
                     </div>
                 </div>
             </div>
@@ -242,7 +242,21 @@ interface SettingsResponse {
 
 definePageMeta({ auth: true, permissions: ['manage_settings'], layout: 'settings' })
 
-const { t } = useI18n()
+const { t, te } = useI18n()
+
+// Feature labels come from the backend as English literals (and are persisted
+// into organization_settings.config on save, so a stored row can hold a stale
+// English string). Translate off the stable setting KEY instead, and fall back
+// to whatever the API sent when a locale has no entry yet — that keeps new
+// backend settings readable instead of blank.
+const featureLabel = (key: string, fallback?: string): string => {
+    const path = `settings.aiSettingsPage.features.${key}.name`
+    return te(path) ? t(path) : (fallback || key)
+}
+const featureDescription = (key: string, fallback?: string): string => {
+    const path = `settings.aiSettingsPage.features.${key}.description`
+    return te(path) ? t(path) : (fallback || '')
+}
 const loading = ref(true)
 const error = ref('')
 

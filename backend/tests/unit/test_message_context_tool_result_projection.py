@@ -33,6 +33,7 @@ for _stmt in re.findall(
     exec(_stmt)  # noqa: S102 -- test-only, mirrors alembic/env.py verbatim
 
 from app.ai.context.builders.message_context_builder import MessageContextBuilder
+from app.ai.context.parts import ToolCallPart, ToolResultPart
 from app.ai.context.sections.base import xml_escape
 from app.ai.persisted_summary import UI_TOOL_PREVIEW_ROWS, build_tool_context_summary
 from app.dependencies import async_session_maker
@@ -346,6 +347,97 @@ async def test_nested_read_query_history_keeps_referenceable_digest(db_and_hydra
     assert str(scenario.row_count) in rendered.replace(",", "")
     assert re.search(rf"\b{scenario.column_count}\s+(?:cols|columns)\b", rendered)
     assert _LARGE_PAYLOAD_MARKER not in rendered
+
+
+@pytest.mark.asyncio
+async def test_native_history_moves_tool_details_without_prompt_duplication(
+    db_and_hydrations,
+):
+    """Agent opt-in gets typed turns while XML keeps only dialogue text."""
+    db, hydrated_large_payloads = db_and_hydrations
+    scenario = await _seed_nested_read_query_result(db)
+    hydrated_large_payloads.clear()
+    db.expunge_all()
+    organization = (
+        (
+            await db.execute(
+                select(Organization).where(
+                    Organization.id == scenario.organization_id
+                )
+            )
+        )
+        .unique()
+        .scalar_one()
+    )
+    builder = MessageContextBuilder(
+        db, organization, SimpleNamespace(id=scenario.report_id)
+    )
+    builder.use_durable_transcript = True
+
+    section = await builder.build(max_messages=20)
+    transcript = builder.get_durable_transcript()
+    rendered = section.render()
+
+    assert "Tool: read_query" not in rendered
+    calls = [
+        part
+        for turn in transcript.turns
+        for part in turn.parts
+        if isinstance(part, ToolCallPart)
+    ]
+    results = [
+        part
+        for turn in transcript.turns
+        for part in turn.parts
+        if isinstance(part, ToolResultPart)
+    ]
+    assert len(calls) == len(results) == 1
+    assert calls[0].id == results[0].call_id
+    assert scenario.query_id in results[0].content
+    assert _LARGE_PAYLOAD_MARKER not in results[0].content
+    assert hydrated_large_payloads == []
+
+
+@pytest.mark.asyncio
+async def test_native_history_reuses_the_existing_query_budget(db_and_hydrations):
+    """Durable replay changes one SELECT's scope; it does not add a SELECT."""
+    db, _hydrated_large_payloads = db_and_hydrations
+    scenario = await _seed_nested_read_query_result(db)
+    db.expunge_all()
+    organization = (
+        (
+            await db.execute(
+                select(Organization).where(
+                    Organization.id == scenario.organization_id
+                )
+            )
+        )
+        .unique()
+        .scalar_one()
+    )
+
+    async def _query_count(*, native: bool) -> int:
+        builder = MessageContextBuilder(
+            db, organization, SimpleNamespace(id=scenario.report_id)
+        )
+        builder.use_durable_transcript = native
+        count = 0
+
+        def _record(*_args):
+            nonlocal count
+            count += 1
+
+        event.listen(db.bind.sync_engine, "before_cursor_execute", _record)
+        try:
+            await builder.build(max_messages=20)
+        finally:
+            event.remove(db.bind.sync_engine, "before_cursor_execute", _record)
+        return count
+
+    legacy_count = await _query_count(native=False)
+    native_count = await _query_count(native=True)
+
+    assert native_count <= legacy_count
 
 
 @pytest.mark.asyncio

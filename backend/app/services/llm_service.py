@@ -254,7 +254,10 @@ class LLMService:
                 row.is_small_default = False
 
         row = LLMModel(
-            name=model.name or model.model_id,
+            # Display name is user-supplied for custom models; blank falls back
+            # to the model_id (the column is NOT NULL). See update_model for the
+            # rename path and why presets don't get one.
+            name=(model.name or "").strip() or model.model_id,
             model_id=model.model_id,
             provider_id=provider.id,
             organization_id=organization.id,
@@ -298,12 +301,25 @@ class LLMService:
         Like create_model, the route PATCH /llm/models/{model_id} predates the
         implementation — it used to 500 with AttributeError. Config keys are
         merged (not replaced) so e.g. routing_hint survives an unrelated update.
+
+        Renaming is limited to custom models on purpose. A preset's name is
+        catalog-owned: _apply_catalog_model_details reassigns it from
+        LLM_MODEL_DETAILS on every _sync_provider_with_latest_models pass, which
+        get_models runs on each models-list load — so a preset rename would be
+        silently reverted within seconds. Rejecting it is honest; accepting it
+        would look like it worked. A blank name resets a custom model back to
+        its model_id rather than violating the NOT NULL column.
         """
         model = await self._get_owned_model(db, organization, model_id)
 
         data = model_data.dict(exclude_unset=True)
-        if data.get("name"):
-            model.name = data["name"]
+        if "name" in data:
+            if not model.is_custom:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Only custom models can be renamed; preset names come from the model catalog",
+                )
+            model.name = (data["name"] or "").strip() or model.model_id
         if data.get("config") is not None:
             # Reassign (not mutate) so SQLAlchemy detects the JSON change.
             model.config = {**dict(model.config or {}), **data["config"]}
@@ -1428,7 +1444,15 @@ class LLMService:
             db_model.organization_id = organization.id
             db_model.provider = provider
             db_model.is_custom = model.get("is_custom", False)
-            
+            # A custom model's name is whatever the admin typed in the provider
+            # dialog. Blank (or a client that omits it entirely) falls back to
+            # the model_id — `name` is NOT NULL, so without this an API caller
+            # that sends only a model_id gets an IntegrityError. The catalog
+            # branch below can still upgrade a *nameless* custom model to the
+            # catalog's nicer label; an explicit name always wins.
+            if db_model.is_custom:
+                db_model.name = (model.get("name") or "").strip() or model["model_id"]
+
             # Check if this model would be default according to config
             model_details = _catalog_details(model)
 
@@ -1698,7 +1722,11 @@ class LLMService:
                 if not db_model:
                     raise HTTPException(status_code=404, detail="Model not found")
 
-                # Update fields that can be changed
+                # Update fields that can be changed. Note `name` is deliberately
+                # NOT among them: the provider dialog echoes back whatever name
+                # it loaded, so honoring it here would let a stale dialog undo a
+                # rename made through PATCH /llm/models/{id}. Renames go through
+                # update_model only; this path just leaves the stored name alone.
                 if db_model.is_enabled != model.is_enabled:
                     db_model.is_enabled = model.is_enabled
                     db.add(db_model)

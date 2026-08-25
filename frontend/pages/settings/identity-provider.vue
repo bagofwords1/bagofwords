@@ -26,7 +26,7 @@
     <!-- ================================================================== -->
     <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
       <button
-        class="w-full flex items-center justify-between px-4 py-3 text-left"
+        class="w-full flex items-center justify-between px-4 py-3 text-start"
         @click="scimOpen = !scimOpen"
       >
         <div>
@@ -141,7 +141,7 @@
     <!-- ================================================================== -->
     <div class="border border-gray-200 dark:border-gray-700 rounded-lg">
       <button
-        class="w-full flex items-center justify-between px-4 py-3 text-left"
+        class="w-full flex items-center justify-between px-4 py-3 text-start"
         @click="ldapOpen = !ldapOpen"
       >
         <div>

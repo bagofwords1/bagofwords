@@ -35,11 +35,12 @@ def _input(obs_count=3, **kw):
         })
     kw.setdefault("schemas_combined", "<schemas><table name='sales'/></schemas>")
     kw.setdefault("instructions", "<instructions>rule one</instructions>")
+    user_message = kw.pop("user_message", "what is total revenue?")
     return PlannerInput(
         organization_name="Org",
         organization_ai_analyst_name="AI",
         timezone="UTC",
-        user_message="what is total revenue?",
+        user_message=user_message,
         past_observations=obs,
         last_observation=obs[-1]["observation"] if obs else None,
         tool_catalog=[],
@@ -222,6 +223,36 @@ def test_live_transcript_preferred_over_observations():
     blob = _blob(PromptBuilderV3.build(_input(use_transcript=True, transcript=live)))
     assert "LIVE_TOOL" in blob
     assert "call_0_0" not in blob, "must not fall back to reconstructed ids"
+
+
+def test_rehydrated_history_precedes_the_current_follow_up():
+    """Prior-completion tools must not appear to run after the new user ask."""
+    from app.ai.context.transcript import Transcript
+    from app.ai.context.parts import ToolCallPart, ToolResultPart
+
+    live = Transcript()
+    live.add_assistant_step(calls=[
+        ToolCallPart(id="historical-call", tool_name="inspect_data")
+    ])
+    live.add_tool_results([
+        ToolResultPart(
+            call_id="historical-call",
+            tool_name="inspect_data",
+            content='{"remembered_value":41}',
+            tokens=6,
+        )
+    ])
+    live.history_turn_count = len(live.turns)
+
+    v3 = PromptBuilderV3.build(
+        _input(
+            user_message="CURRENT_FOLLOW_UP_MARKER",
+            use_transcript=True,
+            transcript=live,
+        )
+    )
+    blob = _blob(v3)
+    assert blob.index("remembered_value") < blob.index("CURRENT_FOLLOW_UP_MARKER")
 
 
 # --- budget resolution ---------------------------------------------------

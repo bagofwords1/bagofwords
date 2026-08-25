@@ -1855,6 +1855,8 @@ class AgentV2:
                         loop_index=harness_loop_index,
                         planner_decision_model=final_decision,
                         phase="knowledge_harness",
+                        persist_tool_intents=True,
+                        max_tool_intents=4,
                     )
                 except Exception as _pd_exc:
                     logger.warning(f"Knowledge harness: save_plan_decision_from_model failed: {_pd_exc!r}")
@@ -1896,6 +1898,14 @@ class AgentV2:
                     break
                 # Bound a single decision batch.
                 actions_list = actions_list[:4]
+                _harness_intents = {
+                    int(te.action_index): te
+                    for te in (
+                        getattr(harness_plan_decision, "durable_tool_executions", [])
+                        if harness_plan_decision is not None else []
+                    )
+                    if getattr(te, "action_index", None) is not None
+                }
 
                 step_observations: list = []
 
@@ -1914,10 +1924,11 @@ class AgentV2:
                     except Exception:
                         pass
 
-                for action in actions_list:
+                for _h_action_index, action in enumerate(actions_list):
                     tool_name = action.name
                     tool_input = action.arguments or {}
                     observation = None  # per-action; aggregated after the batch
+                    tool_execution = _harness_intents.get(_h_action_index)
 
                     tool = self.registry.get(tool_name)
                     if not tool:
@@ -1926,18 +1937,34 @@ class AgentV2:
                             "summary": f"Unknown tool '{tool_name}'",
                             "error": {"code": "unknown_tool", "message": tool_name},
                         }
+                        if tool_execution is not None:
+                            await self.project_manager.finish_tool_execution(
+                                self.db,
+                                tool_execution=tool_execution,
+                                status="error",
+                                success=False,
+                                result_summary=observation["summary"],
+                                result_json=observation,
+                                error_message=observation["error"]["message"],
+                                observation=observation,
+                            )
                         step_observations.append({"tool": tool_name, **observation})
                         continue
 
                     # === Start tool execution tracking (persisted row + tool.started SSE) ===
-                    tool_execution = await self.project_manager.start_tool_execution_from_models(
-                        self.db,
-                        agent_execution=self.current_execution,
-                        plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
-                        tool_name=tool_name,
-                        tool_action=getattr(action, "type", None),
-                        tool_input_model=tool_input,
-                    )
+                    if tool_execution is None:
+                        tool_execution = await self.project_manager.start_tool_execution_from_models(
+                            self.db,
+                            agent_execution=self.current_execution,
+                            plan_decision_id=(str(harness_plan_decision.id) if harness_plan_decision else None),
+                            tool_name=tool_name,
+                            tool_action=getattr(action, "type", None),
+                            tool_input_model=tool_input,
+                            provider_call_id=getattr(action, "id", None),
+                            provider_name=getattr(action, "provider", None),
+                            provider_signature=getattr(action, "signature", None),
+                            action_index=_h_action_index,
+                        )
 
                     runtime_ctx = {
                         "db": self.db,
@@ -2040,6 +2067,7 @@ class AgentV2:
                             summary=observation.get("summary", "") if observation else "",
                             error_message=_observation_error_message(observation),
                             success=bool(observation and not _observation_failed(observation) and not _is_stopped),
+                            observation=observation,
                         )
                     except Exception as _fin_err:
                         logger.warning(f"Knowledge harness: finish_tool_execution failed: {_fin_err!r}")
@@ -3086,8 +3114,11 @@ class AgentV2:
                 tool_name="route_model",
                 tool_action="fallback",
                 arguments_json={"cause": "fallback", "code": err_payload.get("code")},
+                # The model switch already happened; this is a retrospective
+                # audit marker, so keep its historical single-commit path.
+                persist_before_dispatch=False,
             )
-            await self.project_manager.finish_tool_execution(
+            _fb_te = await self.project_manager.finish_tool_execution(
                 self.db,
                 tool_execution=_fb_te,
                 status="success",
@@ -3452,7 +3483,7 @@ class AgentV2:
         Best-effort: bookkeeping must never break an otherwise-healthy run.
         """
         try:
-            if not outcome or outcome.get("skipped"):
+            if not outcome:
                 return
             action = outcome.get("action")
             tool_name = outcome.get("tool_name") or getattr(action, "name", "unknown_tool")
@@ -3913,6 +3944,10 @@ class AgentV2:
 
             # Prime static and refresh warm in parallel for faster startup
             # Pass prompt_text to enable intelligent instruction search
+            try:
+                self.context_hub.message_builder.use_durable_transcript = True
+            except Exception:
+                pass
             with tracer.start_as_current_span("agent.context_initial_load") as span:
                 span.set_attribute("agent.context.phase", "initial_prime_and_refresh")
                 if self.report is not None:
@@ -3922,6 +3957,25 @@ class AgentV2:
                     self.context_hub.refresh_warm(),
                 )
             _mlog("context_primed")
+            # MessageContextBuilder already fetched the detailed window's
+            # blocks and bounded tool projections. Adopt the native turns it
+            # assembled from that same query before the first planner call;
+            # this is the cross-completion/process handoff and adds no query or
+            # commit to startup.
+            try:
+                durable_transcript = (
+                    self.context_hub.message_builder.get_durable_transcript()
+                )
+                if durable_transcript is not None and durable_transcript.turns:
+                    self.transcript.turns.extend(durable_transcript.turns)
+                    self.transcript.history_turn_count = len(self.transcript.turns)
+                    logger.info(
+                        "[transcript] rehydrated %d durable turn(s) before execution=%s",
+                        len(durable_transcript.turns),
+                        self.current_execution.id,
+                    )
+            except Exception:
+                logger.exception("durable transcript rehydration failed; using legacy context")
             view = self.context_hub.get_view()
             # Token metadata update in background (non-blocking)
             asyncio.create_task(self._update_context_token_metadata_background(view))
@@ -4536,12 +4590,17 @@ class AgentV2:
                                     tool_name="web_search",
                                     tool_action="search",
                                     arguments_json={"query": _q, "queries": _queries},
+                                    # This event is emitted only after the
+                                    # provider search has completed. Persist it
+                                    # atomically with the result below instead
+                                    # of adding a redundant pre-result commit.
+                                    persist_before_dispatch=False,
                                 )
                                 # The provider reports per-call status; treat anything
                                 # other than 'completed' (e.g. 'failed', 'incomplete')
                                 # as an error so it doesn't render as a silent success.
                                 _ws_ok = (evt.status or "completed") == "completed"
-                                await self.project_manager.finish_tool_execution(
+                                _te = await self.project_manager.finish_tool_execution(
                                     self.db,
                                     tool_execution=_te,
                                     status="success" if _ws_ok else "error",
@@ -4931,6 +4990,8 @@ class AgentV2:
                                     seq=decision_seq,
                                     loop_index=loop_index,
                                     planner_decision_model=decision,
+                                    persist_tool_intents=True,
+                                    max_tool_intents=self._max_actions_per_decision(),
                                 )
                             except Exception as _pd_exc:
                                 logger.error(
@@ -5074,6 +5135,14 @@ class AgentV2:
                             # `action` keeps its name for back-compat with downstream branches
                             # below that haven't been moved into the dispatch path.
                             action = actions_list[0] if actions_list else None
+                            _prestarted_tool_executions = {
+                                int(te.action_index): te
+                                for te in (
+                                    getattr(current_plan_decision, "durable_tool_executions", [])
+                                    if current_plan_decision is not None else []
+                                )
+                                if getattr(te, "action_index", None) is not None
+                            }
 
                             # Only treat analysis_complete as terminal if there's NO action
                             if decision.analysis_complete and not action:
@@ -5251,6 +5320,7 @@ class AgentV2:
                                 """
                                 tool_name = action.name
                                 tool_input = action.arguments
+                                tool_execution = _prestarted_tool_executions.get(tool_index)
 
                                 # A natively-registered MCP tool is rewritten into the
                                 # equivalent execute_mcp call before anything else runs.
@@ -5260,28 +5330,60 @@ class AgentV2:
                                 # the gateway path, so native registration changes how
                                 # the model SEES the tool, not how we execute it.
                                 tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
+                                if tool_execution is not None:
+                                    # Keep the durable row aligned with the actual
+                                    # gateway call while retaining the provider's
+                                    # own id/signature on the dedicated columns.
+                                    tool_execution.tool_name = tool_name
+                                    tool_execution.arguments_json = tool_input
+
+                                async def _refuse_before_dispatch(_observation: dict):
+                                    """Close a staged intent that policy/validation refused."""
+                                    if tool_execution is not None:
+                                        async with self._tool_db_lock:
+                                            self.project_manager._configure_finished_tool_execution(
+                                                tool_execution,
+                                                result_model=_observation,
+                                                summary=_observation.get("summary", "Tool was not executed"),
+                                                error_message=(
+                                                    (_observation.get("error") or {}).get("message")
+                                                    if isinstance(_observation.get("error"), dict)
+                                                    else None
+                                                ),
+                                                success=False,
+                                                observation=_observation,
+                                            )
+                                            await self.project_manager.commit_tool_and_attach_block(
+                                                self.db,
+                                                self.system_completion,
+                                                self.current_execution,
+                                                tool_execution,
+                                                block_id=_block_id_for_action,
+                                            )
+                                    return {
+                                        "index": tool_index,
+                                        "tool_name": tool_name,
+                                        "tool_input": tool_input,
+                                        "action": action,
+                                        "skipped": True,
+                                        "inv": _inv,
+                                        "tool_execution": tool_execution,
+                                        "observation": _observation,
+                                    }
 
                                 # Validate tool availability for chosen plan_type
                                 if not self._validate_tool_for_plan_type(tool_name, decision.plan_type):
-                                    return {
-                                        "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
-                                        "action": action, "skipped": True, "inv": _inv,
-                                        "observation": {
+                                    return await _refuse_before_dispatch({
                                             "summary": f"Tool '{tool_name}' not available for plan_type '{decision.plan_type}'",
                                             "error": {"code": "resolve_error", "message": "tool/plan_type mismatch"},
-                                        },
-                                    }
+                                        })
 
                                 tool = self.registry.get(tool_name)
                                 if not tool:
-                                    return {
-                                        "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
-                                        "action": action, "skipped": True, "inv": _inv,
-                                        "observation": {
+                                    return await _refuse_before_dispatch({
                                             "summary": f"Tool '{tool_name}' unavailable",
                                             "error": {"code": "resolve_error", "message": "not registered"},
-                                        },
-                                    }
+                                        })
 
                                 # Artifact budget is enforced BEFORE execution: an
                                 # over-budget call must not run (each one is a full
@@ -5320,22 +5422,23 @@ class AgentV2:
                                             "keeps everything that did go through — ask me to continue and I'll pick "
                                             "up the rest."
                                         )
-                                    return {
-                                        "index": tool_index, "tool_name": tool_name, "tool_input": tool_input,
-                                        "action": action, "skipped": True, "inv": _inv,
-                                        "observation": _refusal_obs,
-                                    }
+                                    return await _refuse_before_dispatch(_refusal_obs)
 
                                 async with self._tool_db_lock:
                                     # Start tool execution tracking
-                                    tool_execution = await self.project_manager.start_tool_execution_from_models(
-                                        self.db,
-                                        agent_execution=self.current_execution,
-                                        plan_decision_id=current_plan_decision.id if current_plan_decision else None,
-                                        tool_name=tool_name,
-                                        tool_action=action.type,
-                                        tool_input_model=tool_input,
-                                    )
+                                    if tool_execution is None:
+                                        tool_execution = await self.project_manager.start_tool_execution_from_models(
+                                            self.db,
+                                            agent_execution=self.current_execution,
+                                            plan_decision_id=current_plan_decision.id if current_plan_decision else None,
+                                            tool_name=tool_name,
+                                            tool_action=action.type,
+                                            tool_input_model=tool_input,
+                                            provider_call_id=getattr(action, "id", None),
+                                            provider_name=getattr(action, "provider", None),
+                                            provider_signature=getattr(action, "signature", None),
+                                            action_index=tool_index,
+                                        )
                                     # Telemetry: tool started
                                     try:
                                         _start_props = {
@@ -5569,6 +5672,7 @@ class AgentV2:
                                             error_message=_error_msg,
                                             success=_success_flag,
                                             sub_timings_json=tool_sub_timings,
+                                            observation=observation,
                                         )
                                     except AttributeError:
                                         # Fallback if helper isn't wired yet — keep behavior
@@ -5584,6 +5688,7 @@ class AgentV2:
                                             context_snapshot_id=None,
                                             success=_success_flag,
                                             sub_timings_json=tool_sub_timings,
+                                            observation=observation,
                                         )
 
                                     # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
@@ -5875,6 +5980,11 @@ class AgentV2:
                                 # analysis_complete finalizer or the planner will
                                 # request the refused action until the step limit.
                                 if _o.get("skipped") and not self._outcome_ends_run(_o):
+                                    # The provider emitted this call even though
+                                    # local policy refused to dispatch it. Pair it
+                                    # with the explicit error result so the native
+                                    # transcript remains structurally valid.
+                                    self._buffer_transcript_part(_o)
                                     continue
                                 _obs = _o.get("observation")
                                 _tn = _o.get("tool_name")

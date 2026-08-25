@@ -14,6 +14,7 @@ _ID_PATTERNS = [
 
 # Number of recent messages to render in full
 _RECENT_FULL = 7
+_COMPACTION_OBSERVATION_MARKER = "Model-visible result:"
 
 
 class MessageItem(BaseModel):
@@ -82,11 +83,20 @@ def _minify_message(text: str) -> str:
     if len(text) > 120:
         snippet += "…"
     parts = [xml_escape(snippet)]
+    # The rolling-compaction builder appends an independently bounded exact
+    # observation fragment. Its scope can contain more than _RECENT_FULL
+    # messages, so ordinary minification would otherwise cut the very facts
+    # the compactor must summarize. This marker is never added to normal live
+    # history, and its aggregate budget is enforced before this renderer.
+    marker_index = text.find(_COMPACTION_OBSERVATION_MARKER)
+    if marker_index >= 0:
+        observation_fragment = text[marker_index:].strip()
+        if observation_fragment not in snippet:
+            parts.append(xml_escape(observation_fragment))
     if tool_part and tool_part not in snippet:
         parts.append(xml_escape(tool_part))
     for id_str in ids:
         if id_str not in snippet:
             parts.append(xml_escape(id_str))
     return " | ".join(parts)
-
 

@@ -39,6 +39,7 @@ class Outcome(str, Enum):
     FAILED = "failed"
     DENIED = "denied"
     INTERRUPTED = "interrupted"
+    OUTCOME_UNKNOWN = "outcome_unknown"
 
 
 class Tier(int, Enum):
