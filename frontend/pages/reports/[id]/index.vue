@@ -515,7 +515,7 @@
 																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
-																	{{ ins.load_mode || 'always' }}
+																	{{ getLoadModeLabel(ins.load_mode) }}
 																</span>
 															</div>
 														</div>
@@ -1116,6 +1116,8 @@ import { useCan } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 // Types
 type ChatRole = 'user' | 'system'

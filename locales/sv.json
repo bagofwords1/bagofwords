@@ -843,7 +843,7 @@
     "userPrompt": "Användarprompt",
     "instructionsCount": "{count} instruktioner",
     "alwaysCount": "{count} alltid",
-    "intelligentCount": "{count} intelligenta",
+    "intelligentCount": "{count} smarta",
     "noInstructions": "Inga instruktioner laddade.",
     "feedback": "Feedback",
     "positive": "Positiv",
@@ -2418,7 +2418,7 @@
         },
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
-          "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”intelligenta” instruktioner de återstående platserna."
+          "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
         },
         "allow_report_webhooks": {
           "name": "Rapport-webhooks",
