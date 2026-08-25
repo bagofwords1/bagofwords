@@ -82,7 +82,7 @@
               <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
                 :class="loadMode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
               >
-                {{ loadMode }}
+                {{ loadModeLabel }}
               </span>
             </div>
 
@@ -339,6 +339,16 @@ const confidence = computed(() => {
 const loadMode = computed(() => {
   const args = props.toolExecution?.arguments_json || {}
   return args.load_mode || 'intelligent'
+})
+
+// `load_mode` is the raw stored value ('intelligent'); the UI calls that mode "Smart".
+const loadModeLabel = computed(() => {
+  const labels: Record<string, string> = {
+    always: t('agentsPage.optLoadAlways'),
+    intelligent: t('agentsPage.optLoadSmart'),
+    disabled: t('agentsPage.optLoadOff')
+  }
+  return labels[loadMode.value] || loadMode.value
 })
 
 const evidence = computed(() => {

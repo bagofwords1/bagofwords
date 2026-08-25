@@ -147,7 +147,7 @@
                 </span>
                 <span v-if="inst.load_mode === 'always'"
                       class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 flex-shrink-0">
-                  {{ inst.load_mode }}
+                  {{ getLoadModeLabel(inst.load_mode) }}
                 </span>
               </li>
             </ul>
@@ -170,6 +170,8 @@ import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import { useCan } from '~/composables/usePermissions'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 interface ToolExecution {
   id: string

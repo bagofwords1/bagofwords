@@ -881,7 +881,7 @@
     "userPrompt": "User Prompt",
     "instructionsCount": "{count} instructions",
     "alwaysCount": "{count} always",
-    "intelligentCount": "{count} intelligent",
+    "intelligentCount": "{count} smart",
     "noInstructions": "No instructions loaded.",
     "feedback": "Feedback",
     "positive": "Positive",
@@ -2578,7 +2578,7 @@
         },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
-          "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'intelligent' instructions fill remaining slots."
+          "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
         },
         "allow_report_webhooks": {
           "name": "Report Webhooks",

@@ -106,7 +106,7 @@
                   </span>
                 </td>
                 <td class="px-4 py-2.5 text-end whitespace-nowrap text-[12px] font-mono tabular-nums text-gray-400 dark:text-gray-500">
-                  {{ row.load_mode }}
+                  {{ getLoadModeLabel(row.load_mode) }}
                 </td>
               </tr>
             </tbody>
@@ -228,6 +228,8 @@
 import MultiSelectFilter from '~/components/instructions/MultiSelectFilter.vue'
 import FilterChipGroup from '~/components/instructions/FilterChipGroup.vue'
 import ActiveFilterChips from '~/components/instructions/ActiveFilterChips.vue'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 const props = defineProps<{
   modelValue: boolean

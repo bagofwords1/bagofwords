@@ -77,6 +77,8 @@ export interface Instruction {
 }
 
 export function useInstructionHelpers() {
+  const { t } = useI18n()
+
   // Status helpers
   //
   // Display labels are decoupled from the backend enum:
@@ -346,13 +348,17 @@ export function useInstructionHelpers() {
   }
 
   // Load mode helpers
+  //
+  // The stored value is the backend enum ('always' | 'intelligent' | 'disabled');
+  // the UI calls 'intelligent' mode "Smart". Never render load_mode raw — route it
+  // through here so the label stays consistent and localized.
   const getLoadModeLabel = (loadMode?: string) => {
     const labels: Record<string, string> = {
-      always: 'Always',
-      intelligent: 'Smart',
-      disabled: 'Off'
+      always: t('agentsPage.optLoadAlways'),
+      intelligent: t('agentsPage.optLoadSmart'),
+      disabled: t('agentsPage.optLoadOff')
     }
-    return labels[loadMode || 'always'] || 'Always'
+    return labels[loadMode || 'always'] || labels.always
   }
 
   const getLoadModeClass = (loadMode?: string) => {
