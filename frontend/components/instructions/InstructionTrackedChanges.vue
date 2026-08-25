@@ -414,8 +414,9 @@ async function _resolve(seg: any, action: 'accept' | 'reject') {
     }
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
-    await load({ silent: true })
+    // Tell the host BEFORE reloading ourselves — see resolveAll.
     emit('changed')
+    await load({ silent: true })
     await nextTick()
     if (scrollEl.value) scrollEl.value.scrollTop = top
   } catch (e: any) {
@@ -438,8 +439,16 @@ async function resolveAll(mode: 'accept' | 'reject') {
     }
     const { error } = await useMyFetch(url, { method: 'POST', body })
     if (error.value) throw new Error((error.value as any)?.data?.detail || 'Failed')
-    await load({ silent: true })
+    // Tell the host the resolve landed BEFORE reloading ourselves. Reloading
+    // first emits `empty`/`error` on the way, and every host answers those by
+    // dropping this pane — so by the time `changed` was reached it was being
+    // emitted from a component the host had already torn down, and the host's
+    // own refresh never ran. It showed a stale copy of the instruction, with
+    // its "Pending review" badge, until the page was reloaded by hand.
+    // Rejecting a create suggestion makes that certain rather than likely: the
+    // instruction is retired, so the reload below is guaranteed to 404.
     emit('changed')
+    await load({ silent: true })
     await nextTick()
     if (scrollEl.value) scrollEl.value.scrollTop = top
   } catch (e: any) {

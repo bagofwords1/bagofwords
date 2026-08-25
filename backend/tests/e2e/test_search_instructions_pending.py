@@ -103,6 +103,7 @@ def _hit(output, instruction_id):
 
 ORIGINAL = "Churn is measured over a rolling 30 day window for the churn metric."
 ADDITION = "Trial accounts are excluded from the churn denominator."
+DRAFT_ONLY_TEXT = "Archived workspaces are excluded from every rollup."
 
 
 @pytest.mark.e2e
@@ -172,3 +173,108 @@ async def test_instruction_without_staged_edit_has_no_pending_edit(
 
     assert _hit(output, instr["id"])["pending_edit"] is None
     assert "do not re-propose" not in (output["message"] or "").lower()
+
+
+def _reject_everything(test_client, instruction_id, headers):
+    """Reject every hunk the review surface currently shows, as the UI does."""
+    review = test_client.get(
+        f"/api/instructions/{instruction_id}/review-hunks", headers=headers
+    )
+    assert review.status_code == 200, review.json()
+    review = review.json()
+    resp = test_client.post(
+        f"/api/instructions/{instruction_id}/hunks/reject-all",
+        json={
+            "against_main_build_id": review["main_build_id"],
+            "against_main_version_id": review["main_version_id"],
+            "hunks": [
+                {"build_id": s["build_id"], "hunk_key": h["key"]}
+                for s in review["suggestions"]
+                for h in s["hunks"]
+            ],
+        },
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_rejected_edit_is_no_longer_reported_as_pending(
+    test_client, create_global_instruction, create_user, login_user, whoami
+):
+    """A reject records its verdict on the BUILD and leaves the build `draft`,
+    so "the build is pending" stopped meaning "this proposal awaits a decision".
+    Search kept advertising rejected suggestions as pending edits, telling the
+    agent a learning was already staged for review when the reviewer had thrown
+    it away."""
+    token, user_id, org_id = _new_admin(create_user, login_user, whoami)
+    instr = create_global_instruction(
+        text=ORIGINAL, user_token=token, org_id=org_id, status="published"
+    )
+    build_id = await _stage_edit(instr["id"], ADDITION, user_id=user_id, org_id=org_id)
+
+    _reject_everything(test_client, instr["id"], _auth(token, org_id))
+
+    output = await _search("churn", user_id=user_id, org_id=org_id, build_id=build_id)
+    hit = _hit(output, instr["id"])
+    assert hit["pending_edit"] is None, "a rejected suggestion is not awaiting review"
+    assert hit["text"] == ORIGINAL
+    assert "do not re-propose" not in (output["message"] or "").lower()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_orphaned_rejected_draft_is_not_reported_as_existing(
+    test_client, create_global_instruction, create_user, login_user, whoami
+):
+    """The shape left behind by every reject that predates retirement: a draft
+    row whose only proposal was settled, absent from the main build and from
+    every build-scoped surface — yet search handed it to the agent, which then
+    reported the rejected suggestion as an existing instruction and declined to
+    re-create it."""
+    import os
+    import json as _json
+    from sqlalchemy import create_engine, text as _sql
+
+    token, user_id, org_id = _new_admin(create_user, login_user, whoami)
+    create_global_instruction(
+        text=ORIGINAL, user_token=token, org_id=org_id, status="published"
+    )
+
+    from tests.e2e.test_instruction import _inject_new_instruction_suggestion
+    iid, bid = _inject_new_instruction_suggestion(org_id, DRAFT_ONLY_TEXT)
+
+    # Stamp the verdict the way a reject does, without retiring the row.
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace(
+        "postgresql+asyncpg:", "postgresql:"
+    )
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            vid = conn.execute(
+                _sql("SELECT instruction_version_id FROM build_contents"
+                     " WHERE build_id=:b AND instruction_id=:i"),
+                {"b": bid, "i": iid},
+            ).scalar()
+            # The injected row has no author; the own-drafts branch this
+            # guards is scoped to the caller's own drafts, so claim it.
+            conn.execute(
+                _sql("UPDATE instructions SET user_id=:u WHERE id=:i"),
+                {"u": str(user_id), "i": iid},
+            )
+            conn.execute(
+                _sql("UPDATE instruction_builds SET rejected_hunks=:r WHERE id=:b"),
+                {"b": bid, "r": _json.dumps([
+                    {"instruction_id": iid, "key": "__settled__", "action": "settle",
+                     "main_version_id": None, "proposed_version_id": str(vid)},
+                ])},
+            )
+    finally:
+        engine.dispose()
+
+    output = await _search("archived", user_id=user_id, org_id=org_id)
+    assert str(iid) not in {item["id"] for item in output["instructions"]}, (
+        "a rejected draft must not be offered to the agent as an existing instruction"
+    )

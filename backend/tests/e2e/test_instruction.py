@@ -1600,7 +1600,6 @@ def test_new_instruction_accept_all_makes_it_live(
 def test_new_instruction_reject_all_resolves_everywhere(
     test_client,
     create_global_instruction,
-    get_instruction,
     create_user,
     login_user,
     whoami,
@@ -1624,15 +1623,130 @@ def test_new_instruction_reject_all_resolves_everywhere(
     )
     assert resp.status_code == 200, resp.json()
 
-    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
-    assert review["suggestions"] == []
+    # Nothing anywhere still calls it pending, and it never went live.
     sweep = test_client.get("/api/instructions/pending-changes", headers=headers).json()
     assert iid not in sweep["instruction_ids"]
-    pending = test_client.get(f"/api/instructions/{iid}/pending-builds", headers=headers).json()
-    assert pending == []
-    # Not live: the row stays a draft and main gained no content for it.
+    listed = test_client.get(
+        "/api/instructions",
+        params={"include_own": "true", "include_drafts": "true",
+                "include_archived": "true", "limit": 200},
+        headers=headers,
+    ).json()
+    assert iid not in {row["id"] for row in listed["items"]}
+    # And it is not left behind either: rejecting the suggestion that would have
+    # INTRODUCED this instruction retires the row. It used to survive as an
+    # orphaned draft — invisible in every build-scoped surface, yet still
+    # answering search_instructions, so the agent kept reporting a rejected
+    # suggestion as an existing instruction.
+    assert test_client.get(f"/api/instructions/{iid}", headers=headers).status_code == 404
+    assert test_client.get(
+        f"/api/instructions/{iid}/review-hunks", headers=headers
+    ).status_code == 404
+
+
+@pytest.mark.e2e
+def test_reject_all_on_an_edit_keeps_the_live_instruction(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """The guard on retiring rejected creates: rejecting an EDIT decides the
+    edit, never the instruction. Only a suggestion the main build never carried
+    may retire its row — an instruction that is live stays live, with its
+    original text, no matter how many suggested changes are rejected."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    live = create_global_instruction(
+        text="original live rule", user_token=token, org_id=org_id, status="published",
+    )
+    iid = live["id"]
+    _inject_suggestion_build(org_id, iid, "original live rule, plus a suggested clause")
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
     detail = get_instruction(iid, user_token=token, org_id=org_id)
-    assert detail["status"] == "draft"
+    assert detail["status"] == "published"
+    assert detail["text"] == "original live rule"
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"] == []
+
+
+def _drop_main_build(org_id):
+    """Turn the org into a LEGACY one: no main build, the state `_main_text_of`
+    documents for orgs that predate main-build content, where the cached
+    instruction row IS the live text. Clears the flag rather than deleting the
+    row so suggestion builds forked from it keep resolving their base."""
+    import os
+    from sqlalchemy import create_engine, text
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE instruction_builds SET is_main=:no"
+                     " WHERE organization_id=:org AND is_main=:yes"),
+                {"no": False, "yes": True, "org": org_id},
+            )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.e2e
+def test_reject_all_on_an_edit_keeps_the_live_instruction_in_a_legacy_org(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Same guarantee as the test above, in an org with NO main build.
+
+    Retirement proves "never went live" from main-build ABSENCE, and in a
+    legacy org every instruction is absent from a main build that doesn't
+    exist — live ones included. Without the has-a-main-build guard, rejecting
+    an edit here soft-deleted the published instruction the edit was written
+    against."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    live = create_global_instruction(
+        text="original live rule", user_token=token, org_id=org_id, status="published",
+    )
+    iid = live["id"]
+    _inject_suggestion_build(org_id, iid, "original live rule, plus a suggested clause")
+    _drop_main_build(org_id)
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"], "the legacy org should still show the edit to review"
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+    # The instruction survives its rejected edit, with its original text.
+    assert test_client.get(f"/api/instructions/{iid}", headers=headers).status_code == 200
+    detail = get_instruction(iid, user_token=token, org_id=org_id)
+    assert detail["status"] == "published"
+    assert detail["text"] == "original live rule"
 
 
 def _pending_badge_state(test_client, headers):
