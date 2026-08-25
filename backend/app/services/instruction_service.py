@@ -1537,14 +1537,7 @@ class InstructionService:
         meta_src = None
         if instruction.current_version_id:
             meta_src = await self.version_service.get_version(db, instruction.current_version_id)
-        has_main_build = (await db.execute(
-            select(InstructionBuild.id).where(
-                InstructionBuild.organization_id == str(instruction.organization_id),
-                InstructionBuild.is_main == True,  # noqa: E712
-                InstructionBuild.deleted_at == None,  # noqa: E711
-            ).limit(1)
-        )).scalar_one_or_none()
-        if has_main_build:
+        if await self._org_has_main_build(db, instruction.organization_id):
             # The org HAS a main build and this instruction isn't in it: a NEW
             # instruction that so far exists only in pending suggestion builds.
             # Its live baseline is EMPTY text. The row/current-version cache
@@ -2204,6 +2197,23 @@ class InstructionService:
                 return r.get("proposed_version_id") == pv
         return False
 
+    async def _org_has_main_build(self, db: AsyncSession, organization_id) -> bool:
+        """True when the org keeps its live content in a main build at all.
+
+        False for orgs that predate main-build content, where the cached
+        instruction row / current version IS the live text. In such an org
+        `_is_in_main_build` is False for EVERY instruction, live ones included,
+        so its answer proves nothing on its own.
+        """
+        from app.models.instruction_build import InstructionBuild
+        return (await db.execute(
+            select(InstructionBuild.id).where(
+                InstructionBuild.organization_id == str(organization_id),
+                InstructionBuild.is_main == True,  # noqa: E712
+                InstructionBuild.deleted_at == None,  # noqa: E711
+            ).limit(1)
+        )).scalar_one_or_none() is not None
+
     async def _is_in_main_build(self, db: AsyncSession, instruction) -> bool:
         """True when the live build carries this instruction."""
         from app.models.instruction_build import InstructionBuild
@@ -2219,6 +2229,42 @@ class InstructionService:
             ).limit(1)
         )).scalar_one_or_none() is not None
 
+    # The one verdict reason callers match on: an instruction the main build
+    # carries is simply live, the ordinary case, not a near miss worth
+    # reporting. Matched by the backfill script — keep it a constant, not a
+    # prose string two files have to agree on by hand.
+    RETIREMENT_REASON_LIVE = "carried by the main build"
+
+    async def _retirement_verdict(self, db: AsyncSession, instruction, *,
+                                  organization: Organization) -> tuple[bool, str]:
+        """The retirement DECISION and why, with no write of its own.
+
+        Split from `_retire_rejected_create_suggestion` so the backfill script
+        (`tools/agent/retire_rejected_instruction_drafts.py`) can report what it
+        would do — and on what grounds — without re-implementing the rule and
+        drifting from it. See that method's docstring for what each condition
+        proves. The reason is narration for the report; the bool is the answer.
+        """
+        iid = str(instruction.id)
+        if not await self._org_has_main_build(db, instruction.organization_id):
+            return False, "org has no main build (legacy): absence proves nothing"
+        if await self._is_in_main_build(db, instruction):
+            return False, self.RETIREMENT_REASON_LIVE
+        rows = await self._pending_suggestion_builds(db, iid, organization)
+        if not rows:
+            # No proposal to have rejected — leave unexplained state alone.
+            return False, "no proposal on record"
+        open_count = 0
+        for build, _proposed_text, proposed_vid in rows:
+            if self._voided_marker_matches(build, iid):
+                continue
+            pv = str(proposed_vid) if proposed_vid else None
+            if not self._settled_marker_matches(build, iid, pv):
+                open_count += 1  # still on the table somewhere
+        if open_count:
+            return False, f"{open_count} proposal(s) still open"
+        return True, "every proposal for it was rejected; it never went live"
+
     async def _retire_rejected_create_suggestion(self, db: AsyncSession, instruction, *,
                                                  organization: Organization) -> bool:
         """Soft-delete an instruction whose CREATE suggestion was rejected outright.
@@ -2232,24 +2278,29 @@ class InstructionService:
         count in chat drifted above what the Agents page shows. Retire the row
         instead of leaving it orphaned.
 
-        Both conditions must hold, and both are proven, never assumed: the
-        instruction is absent from the main build, and every open proposal for
-        it carries a terminal verdict.
+        Every condition must hold, and each is proven, never assumed: the org
+        keeps its live content in a main build, the instruction is absent from
+        that build, and every open proposal for it carries a terminal verdict.
+
+        The main-build-exists check is what keeps this from eating live text.
+        Absence from the main build only means "never went live" in an org that
+        HAS a main build; in a legacy org (see `_main_text_of`) there is none,
+        `_is_in_main_build` is False for EVERY row including live ones, and
+        without this guard rejecting an EDIT to a published instruction would
+        soft-delete the instruction the edit was written against.
+
+        Deliberately NOT gated on `Instruction.status`: the MCP create path
+        stages new instructions as "published" and lets the build carry the
+        approval, so a status gate would skip exactly the orphans this exists
+        to retire. Main-build membership, not status, is what "live" means here.
         """
         from datetime import datetime
         iid = str(instruction.id)
-        if await self._is_in_main_build(db, instruction):
+        may_retire, _why = await self._retirement_verdict(
+            db, instruction, organization=organization,
+        )
+        if not may_retire:
             return False
-        rows = await self._pending_suggestion_builds(db, iid, organization)
-        if not rows:
-            # No proposal to have rejected — leave unexplained state alone.
-            return False
-        for build, _proposed_text, proposed_vid in rows:
-            if self._voided_marker_matches(build, iid):
-                continue
-            pv = str(proposed_vid) if proposed_vid else None
-            if not self._settled_marker_matches(build, iid, pv):
-                return False  # still on the table somewhere
         instruction.deleted_at = datetime.utcnow()
         await db.commit()
         logger.info(

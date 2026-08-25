@@ -1683,6 +1683,72 @@ def test_reject_all_on_an_edit_keeps_the_live_instruction(
     assert review["suggestions"] == []
 
 
+def _drop_main_build(org_id):
+    """Turn the org into a LEGACY one: no main build, the state `_main_text_of`
+    documents for orgs that predate main-build content, where the cached
+    instruction row IS the live text. Clears the flag rather than deleting the
+    row so suggestion builds forked from it keep resolving their base."""
+    import os
+    from sqlalchemy import create_engine, text
+
+    url = os.environ["TEST_DATABASE_URL"]
+    sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+    engine = create_engine(sync_url)
+    try:
+        with engine.begin() as conn:
+            conn.execute(
+                text("UPDATE instruction_builds SET is_main=:no"
+                     " WHERE organization_id=:org AND is_main=:yes"),
+                {"no": False, "yes": True, "org": org_id},
+            )
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.e2e
+def test_reject_all_on_an_edit_keeps_the_live_instruction_in_a_legacy_org(
+    test_client,
+    create_global_instruction,
+    get_instruction,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Same guarantee as the test above, in an org with NO main build.
+
+    Retirement proves "never went live" from main-build ABSENCE, and in a
+    legacy org every instruction is absent from a main build that doesn't
+    exist — live ones included. Without the has-a-main-build guard, rejecting
+    an edit here soft-deleted the published instruction the edit was written
+    against."""
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+
+    live = create_global_instruction(
+        text="original live rule", user_token=token, org_id=org_id, status="published",
+    )
+    iid = live["id"]
+    _inject_suggestion_build(org_id, iid, "original live rule, plus a suggested clause")
+    _drop_main_build(org_id)
+
+    review = test_client.get(f"/api/instructions/{iid}/review-hunks", headers=headers).json()
+    assert review["suggestions"], "the legacy org should still show the edit to review"
+    resp = test_client.post(
+        f"/api/instructions/{iid}/hunks/reject-all",
+        json=_exact_review_payload(review),
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.json()
+
+    # The instruction survives its rejected edit, with its original text.
+    assert test_client.get(f"/api/instructions/{iid}", headers=headers).status_code == 200
+    detail = get_instruction(iid, user_token=token, org_id=org_id)
+    assert detail["status"] == "published"
+    assert detail["text"] == "original live rule"
+
+
 def _pending_badge_state(test_client, headers):
     """The three badge surfaces the /agents page renders from: the counts badge
     (chip + per-row dots), the org-wide sweep, and the pending_only list."""

@@ -10,10 +10,11 @@ how its instruction count drifted above what the Agents page shows.
 `InstructionService.reject_all_hunks` now retires such rows as it rejects them.
 This backfills the ones already in the database.
 
-The decision is delegated to `_retire_rejected_create_suggestion`, the same
-helper the reject path calls, so this script cannot drift from the runtime
-rule: a row is retired only when the main build does not carry it AND every
-open proposal for it holds a terminal verdict.
+The decision is made by `_retirement_verdict` — the same predicate
+`_retire_rejected_create_suggestion` calls on the reject path — so
+this script cannot drift from the runtime rule: a row is retired only when its
+org keeps a main build that does not carry it AND every open proposal for it
+holds a terminal verdict. Nothing here re-implements any part of that test.
 
 Run from backend/ — reports without writing anything:
   uv run python ../tools/agent/retire_rejected_instruction_drafts.py
@@ -47,47 +48,38 @@ async def amain(apply: bool) -> int:
             str(o.id): o for o in
             (await db.execute(select(Organization))).unique().scalars().all()
         }
-        drafts = (await db.execute(
-            select(Instruction).where(
-                Instruction.status == "draft",
-                Instruction.deleted_at.is_(None),
-            )
+        candidates = (await db.execute(
+            select(Instruction).where(Instruction.deleted_at.is_(None))
         )).unique().scalars().all()
 
-        for instruction in drafts:
+        for instruction in candidates:
             org = orgs.get(str(instruction.organization_id))
             if org is None:
                 continue
             label = (instruction.title or (instruction.text or "")[:48] or "(untitled)").strip()
-            if await service._is_in_main_build(db, instruction):
-                kept.append((instruction.id, label, "carried by the main build"))
+            may_retire, why = await service._retirement_verdict(
+                db, instruction, organization=org,
+            )
+            if not may_retire:
+                # Healthy live rows are the overwhelming majority of a scan and
+                # say nothing; only near-misses are worth a line.
+                if why != InstructionService.RETIREMENT_REASON_LIVE:
+                    kept.append((instruction.id, label, why))
                 continue
-            rows = await service._pending_suggestion_builds(db, str(instruction.id), org)
-            if not rows:
-                kept.append((instruction.id, label, "no proposal on record"))
-                continue
-            undecided = [
-                build for build, _text, proposed_vid in rows
-                if not service._voided_marker_matches(build, str(instruction.id))
-                and not service._settled_marker_matches(
-                    build, str(instruction.id),
-                    str(proposed_vid) if proposed_vid else None,
-                )
-            ]
-            if undecided:
-                kept.append((instruction.id, label, f"{len(undecided)} proposal(s) still open"))
+            # The write path re-checks for itself. Report ITS answer, so a row
+            # can never be printed as retired when the helper declined.
+            if apply and not await service._retire_rejected_create_suggestion(
+                db, instruction, organization=org,
+            ):
+                kept.append((instruction.id, label, "state changed mid-run; left alone"))
                 continue
             retired.append((instruction.id, label))
-            if apply:
-                await service._retire_rejected_create_suggestion(
-                    db, instruction, organization=org,
-                )
 
     verb = "Retired" if apply else "Would retire"
-    print(f"{verb} {len(retired)} draft instruction(s):")
+    print(f"{verb} {len(retired)} orphaned instruction(s):")
     for iid, label in retired:
         print(f"  - {iid}  {label}")
-    print(f"\nLeft alone ({len(kept)}):")
+    print(f"\nNear misses left alone ({len(kept)}) — live rows are not listed:")
     for iid, label, why in kept:
         print(f"  - {iid}  {label}  — {why}")
     if not apply and retired:

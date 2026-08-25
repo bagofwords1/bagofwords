@@ -2866,12 +2866,16 @@ const highlightBuild = ref<string | null>(null)
 const reloadAfterResolve = async () => {
   if (!detail.value) return
   const id = detail.value.id
-  const { data } = await useMyFetch<Instruction>(`/api/instructions/${id}`, { method: 'GET' })
+  const { data, error } = await useMyFetch<Instruction>(`/api/instructions/${id}`, { method: 'GET' })
   // Rejecting the suggestion that would have INTRODUCED an instruction retires
   // it server-side — there is no row left to reload. Keeping the pane open on
   // the stale copy would leave the reviewer reading an instruction the tree no
-  // longer lists.
+  // longer lists. Only a 404 means that: on a transient failure (500, network
+  // blip, expired token) the row still exists, so hold the pane rather than
+  // throwing the reviewer out of a review they are in the middle of.
   if (!data.value) {
+    const code = (error.value as any)?.statusCode ?? (error.value as any)?.status
+    if (code !== 404) return
     allInstructions.value = allInstructions.value.filter(i => i.id !== id)
     editing.value = false; detail.value = null; selectedId.value = null
     versions.value = []; mainText.value = null; mainVersionId.value = null
