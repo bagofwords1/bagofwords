@@ -127,35 +127,13 @@ class GoogleConfig(BaseModel):
     top_p: Optional[float] = 0.8
     top_k: Optional[int] = 40
 
-# Azure endpoint surfaces. 'auto' infers from the hostname (the default and
-# right answer for public Azure); the explicit modes override that inference
-# for private DNS / Private Link endpoints.
-AZURE_ENDPOINT_MODE_AUTO = "auto"
-AZURE_ENDPOINT_MODE_AZURE_OPENAI = "azure_openai"
-AZURE_ENDPOINT_MODE_FOUNDRY = "foundry"
-AZURE_ENDPOINT_MODES = {
-    AZURE_ENDPOINT_MODE_AUTO,
-    AZURE_ENDPOINT_MODE_AZURE_OPENAI,
-    AZURE_ENDPOINT_MODE_FOUNDRY,
-}
-
 class AzureCredentials(BaseModel):
     api_key: str
+    # Azure OpenAI resource root or Azure AI Foundry resource root. Which client
+    # serves it is derived, not configured: an Anthropic deployment goes to the
+    # Messages API on any Azure hostname, and the OpenAI-shaped routes are
+    # chosen from the hostname (see app.ai.llm.llm).
     endpoint_url: str
-    # Which Azure surface ``endpoint_url`` points at. Azure OpenAI resources
-    # (``<res>.openai.azure.com``) serve the deployment-scoped route the Azure
-    # SDK builds. Azure AI Foundry resources (``<res>.services.ai.azure.com``)
-    # do not serve that route at all; they answer on ``/openai/v1`` for
-    # OpenAI-family deployments and ``/anthropic/v1`` for Anthropic ones. Each
-    # needs a different client, so the surface has to be known before the first
-    # request. Default 'auto' infers it from the hostname — the explicit values
-    # exist for private DNS / Private Link, where the hostname is a customer
-    # domain that gives nothing away.
-    # Persisted to additional_config, not encrypted.
-    endpoint_mode: Optional[str] = None  # 'auto' | 'azure_openai' | 'foundry'
-    # Azure OpenAI api-version pin. Only used on the azure_openai surface (the
-    # v1 surfaces take no api-version). None keeps the client's default.
-    api_version: Optional[str] = None
     # Opt-in to Azure OpenAI's Responses API (/openai/v1) instead of Chat
     # Completions. Off by default — only some Azure regions serve Responses.
     # Persisted to additional_config, not encrypted.
@@ -163,16 +141,6 @@ class AzureCredentials(BaseModel):
     # Per-provider opt-in for native web search. Only effective when
     # use_responses_api is on (web search is a Responses-API tool).
     enable_web_search: Optional[bool] = None
-
-    @validator('endpoint_mode')
-    def validate_endpoint_mode(cls, v):
-        if v in (None, ''):
-            return None
-        if v not in AZURE_ENDPOINT_MODES:
-            raise ValueError(
-                f"endpoint_mode must be one of {sorted(AZURE_ENDPOINT_MODES)}"
-            )
-        return v
 
 class AzureConfig(BaseModel):
     max_tokens: Optional[int] = 2048

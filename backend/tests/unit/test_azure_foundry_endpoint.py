@@ -18,7 +18,7 @@ from app.ai.llm.llm import (
     LLM,
     _azure_foundry_anthropic_base_url,
     _is_anthropic_model_id,
-    _resolve_azure_endpoint_mode,
+    _is_azure_foundry_endpoint,
 )
 from app.ai.llm.clients.anthropic_client import Anthropic
 from app.ai.llm.clients.azure_client import AzureClient
@@ -42,8 +42,9 @@ def _azure_model(model_id: str = "gpt-4o", **additional_config) -> types.SimpleN
     )
 
 
-class TestEndpointModeResolution:
-    """Inference is hostname-based; an explicit mode always wins."""
+class TestFoundryEndpointDetection:
+    """Hostname inference, which now only picks between the two OpenAI-shaped
+    routes. Anthropic deployments never consult it."""
 
     @pytest.mark.parametrize("url", [
         "https://myres.services.ai.azure.com",
@@ -51,33 +52,22 @@ class TestEndpointModeResolution:
         "https://MyRes.Services.AI.Azure.Com",
         "https://myres.services.ai.azure.com/openai/v1",
     ])
-    def test_foundry_hosts_infer_foundry(self, url):
-        assert _resolve_azure_endpoint_mode(url, None) == "foundry"
+    def test_foundry_hosts_detected(self, url):
+        assert _is_azure_foundry_endpoint(url) is True
 
     @pytest.mark.parametrize("url", [
         "https://myres.openai.azure.com",
         "https://myres.openai.azure.com/",
+        # Unrecognized (private DNS, gateway) falls to the deployment route,
+        # which is the compatible choice for a classic Azure OpenAI resource.
+        "https://llm.corp.internal",
     ])
-    def test_azure_openai_hosts_infer_azure_openai(self, url):
-        assert _resolve_azure_endpoint_mode(url, None) == "azure_openai"
+    def test_everything_else_keeps_the_deployment_route(self, url):
+        assert _is_azure_foundry_endpoint(url) is False
 
-    def test_v1_path_infers_foundry_on_any_host(self):
-        # An admin who pasted a v1 base has told us which surface they mean,
-        # whatever the hostname (private DNS, gateway, Private Link).
-        assert _resolve_azure_endpoint_mode("https://llm.corp.internal/openai/v1", None) == "foundry"
-
-    def test_explicit_mode_overrides_inference(self):
-        # The Private Link case: the hostname reveals nothing, so the admin's
-        # choice has to beat the hostname heuristic in both directions.
-        assert _resolve_azure_endpoint_mode("https://llm.corp.internal", "foundry") == "foundry"
-        assert _resolve_azure_endpoint_mode(
-            "https://myres.services.ai.azure.com", "azure_openai"
-        ) == "azure_openai"
-
-    def test_auto_and_junk_fall_back_to_inference(self):
-        assert _resolve_azure_endpoint_mode("https://myres.services.ai.azure.com", "auto") == "foundry"
-        assert _resolve_azure_endpoint_mode("https://myres.services.ai.azure.com", "") == "foundry"
-        assert _resolve_azure_endpoint_mode("https://r.openai.azure.com", "nonsense") == "azure_openai"
+    def test_v1_path_counts_on_any_host(self):
+        # An admin who pasted a v1 base has said which route they mean.
+        assert _is_azure_foundry_endpoint("https://llm.corp.internal/openai/v1") is True
 
 
 class TestClientSelection:
@@ -110,23 +100,12 @@ class TestClientSelection:
         llm = LLM(_azure_model())
         assert isinstance(llm.client, AzureClient)
 
-    def test_explicit_foundry_mode_routes_private_endpoint(self):
-        llm = LLM(_azure_model(
-            endpoint_url="https://llm.corp.internal", endpoint_mode="foundry"
-        ))
-        assert isinstance(llm.client, OpenAi)
-        assert str(llm.client.client.base_url) == "https://llm.corp.internal/openai/v1/"
-
     def test_responses_opt_in_wins_on_both_surfaces(self):
         # Responses lives at the same v1 base on either surface, so the opt-in
         # keeps working — it is not silently dropped by the new Foundry branch.
         for url in ("https://r.openai.azure.com", "https://myres.services.ai.azure.com"):
             llm = LLM(_azure_model(endpoint_url=url, use_responses_api=True))
             assert isinstance(llm.client, OpenAIResponsesClient)
-
-    def test_api_version_pin_reaches_azure_client(self):
-        llm = LLM(_azure_model(api_version="2025-01-01-preview"))
-        assert "2025-01-01-preview" in str(llm.client.client._api_version)
 
     def test_missing_endpoint_url_still_raises(self):
         model = _azure_model()
@@ -196,14 +175,29 @@ class TestAnthropicOnFoundry:
         ))
         assert isinstance(llm.client, OpenAi)
 
-    def test_anthropic_model_on_azure_openai_is_not_rerouted(self):
-        # Only Foundry serves the Anthropic surface. An Azure OpenAI resource
-        # keeps the historical client whatever the deployment is named.
+    @pytest.mark.parametrize("host", [
+        "https://myres.services.ai.azure.com",
+        "https://myres.cognitiveservices.azure.com",
+        # The alias that makes a Foundry resource indistinguishable from a
+        # classic Azure OpenAI one. Measured: the Anthropic surface answers
+        # here too, so routing on the hostname would break this case and only
+        # this case — which is why the model family decides instead.
+        "https://myres.openai.azure.com",
+    ])
+    def test_model_family_beats_hostname(self, host):
+        llm = LLM(_azure_model(model_id="claude-haiku-4-5", endpoint_url=host))
+        assert isinstance(llm.client, Anthropic)
+        assert str(llm.client.async_client.base_url).rstrip("/") == host + "/anthropic"
+
+    def test_responses_opt_in_does_not_capture_anthropic(self):
+        # Responses is an OpenAI-only surface; an Anthropic deployment must not
+        # be pulled onto it by a provider-level toggle it has no say in.
         llm = LLM(_azure_model(
             model_id="claude-haiku-4-5",
-            endpoint_url="https://r.openai.azure.com",
+            endpoint_url="https://myres.services.ai.azure.com",
+            use_responses_api=True,
         ))
-        assert isinstance(llm.client, AzureClient)
+        assert isinstance(llm.client, Anthropic)
 
 
 class TestAnthropicClientBaseUrl:

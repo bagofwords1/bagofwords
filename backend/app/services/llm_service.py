@@ -1682,31 +1682,6 @@ class LLMService:
                     "use_responses_api": bool(credentials.get("use_responses_api")),
                 }
 
-        # Azure: which surface the endpoint speaks (Azure OpenAI vs AI Foundry)
-        # and an optional api-version pin. Both are non-secret routing hints, so
-        # they live in additional_config alongside endpoint_url. 'auto' is the
-        # default and is stored as an absent key so inference stays in one place
-        # (_resolve_azure_endpoint_mode).
-        if provider.provider_type == "azure":
-            if "endpoint_mode" in credentials:
-                endpoint_mode = credentials.get("endpoint_mode")
-                if endpoint_mode and endpoint_mode != "auto":
-                    existing_additional_config = {
-                        **existing_additional_config,
-                        "endpoint_mode": endpoint_mode,
-                    }
-                else:
-                    existing_additional_config.pop("endpoint_mode", None)
-            if "api_version" in credentials:
-                api_version = credentials.get("api_version")
-                if api_version:
-                    existing_additional_config = {
-                        **existing_additional_config,
-                        "api_version": api_version,
-                    }
-                else:
-                    existing_additional_config.pop("api_version", None)
-
         # Custom (OpenAI-compatible): base_url (required), verify_ssl (optional)
         if provider.provider_type == "custom":
             base_url = credentials.get("base_url")
