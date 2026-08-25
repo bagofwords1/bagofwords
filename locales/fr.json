@@ -2485,6 +2485,10 @@
       "displayNameHint": "Libellé facultatif affiché dans le sélecteur de modèles. Laissez vide pour utiliser l’ID du modèle.",
       "displayNameError": "Impossible de mettre à jour le nom d’affichage",
       "modelIdError": "Impossible de mettre à jour l’ID du modèle",
+      "azureEndpointPlaceholder": "ex. https://[ressource].openai.azure.com ou https://[ressource].services.ai.azure.com",
+      "azureFoundryHint": "Azure OpenAI et Azure AI Foundry sont tous deux pris en charge. L'ID du modèle est le nom de votre déploiement.",
+      "responsesApiHint": "Utiliser l'API Responses au lieu de Chat Completions. Requise pour la recherche web et disponible uniquement dans les régions qui prennent en charge l'API Responses.",
+      "responsesApiFoundryHint": "Sur Foundry, cela ne s'applique qu'aux déploiements OpenAI.",
       "colCost": "Coût ($/M)",
       "colRouting": "Routage",
       "autoRouter": "Routeur automatique",
@@ -3079,6 +3083,11 @@
     "setting.update_failed": "Échec de la mise à jour du paramètre",
     "query": {
       "failed_silently": "Une requête a échoué mais le code généré a renvoyé un résultat vide au lieu de le signaler"
+    },
+    "llm": {
+      "model_id_required": "L'ID du modèle ne peut pas être vide",
+      "model_id_not_editable": "Seuls les modèles personnalisés sur les fournisseurs Azure, AWS Bedrock ou personnalisés (compatibles OpenAI) peuvent voir leur ID de modèle modifié",
+      "model_id_duplicate": "Le modèle « {model_id} » existe déjà chez ce fournisseur"
     }
   },
   "email": {

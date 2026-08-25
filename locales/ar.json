@@ -2485,6 +2485,10 @@
       "displayNameHint": "تسمية اختيارية تظهر في محدّد النماذج. اتركه فارغًا لاستخدام معرّف النموذج.",
       "displayNameError": "تعذّر تحديث الاسم المعروض",
       "modelIdError": "تعذّر تحديث معرّف النموذج",
+      "azureEndpointPlaceholder": "مثال: https://[resource].openai.azure.com أو https://[resource].services.ai.azure.com",
+      "azureFoundryHint": "كلٌّ من Azure OpenAI وAzure AI Foundry مدعوم. معرّف النموذج هو اسم النشر الخاص بك.",
+      "responsesApiHint": "استخدام واجهة Responses بدلاً من Chat Completions. مطلوبة للبحث على الويب، ومتاحة فقط في المناطق التي تدعم واجهة Responses.",
+      "responsesApiFoundryHint": "في Foundry ينطبق ذلك على عمليات نشر OpenAI فقط.",
       "colCost": "التكلفة ($/M)",
       "colRouting": "التوجيه",
       "autoRouter": "الموجّه التلقائي",
@@ -3079,6 +3083,11 @@
     "setting.update_failed": "تعذّر تحديث الإعداد",
     "query": {
       "failed_silently": "فشل استعلام لكن الكود المُولَّد أعاد نتيجة فارغة بدل الإبلاغ عن ذلك"
+    },
+    "llm": {
+      "model_id_required": "لا يمكن أن يكون معرّف النموذج فارغًا",
+      "model_id_not_editable": "لا يمكن تعديل معرّف النموذج إلا للنماذج المخصّصة لدى مزوّدي Azure أو AWS Bedrock أو المزوّدين المخصّصين (المتوافقين مع OpenAI)",
+      "model_id_duplicate": "النموذج '{model_id}' موجود بالفعل لدى هذا المزوّد"
     }
   },
   "email": {

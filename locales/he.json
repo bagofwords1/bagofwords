@@ -2565,6 +2565,10 @@
       "displayNameHint": "תווית אופציונלית המוצגת בבורר המודלים. השאירו ריק כדי להשתמש במזהה המודל.",
       "displayNameError": "לא ניתן היה לעדכן את שם התצוגה",
       "modelIdError": "לא ניתן היה לעדכן את מזהה המודל",
+      "azureEndpointPlaceholder": "למשל https://[resource].openai.azure.com או https://[resource].services.ai.azure.com",
+      "azureFoundryHint": "יש תמיכה גם ב-Azure OpenAI וגם ב-Azure AI Foundry. מזהה המודל הוא שם ה-deployment שלך.",
+      "responsesApiHint": "שימוש ב-Responses API במקום ב-Chat Completions. נדרש לחיפוש באינטרנט, וזמין רק באזורים שתומכים ב-Responses API.",
+      "responsesApiFoundryHint": "ב-Foundry זה חל על deployments של OpenAI בלבד.",
       "colCost": "עלות ($/מיליון)",
       "colRouting": "ניתוב",
       "autoRouter": "נתב אוטומטי",
@@ -3157,6 +3161,11 @@
     "setting.update_failed": "עדכון ההגדרה נכשל",
     "query": {
       "failed_silently": "שאילתה נכשלה אך הקוד שנוצר החזיר תוצאה ריקה במקום לדווח על כך"
+    },
+    "llm": {
+      "model_id_required": "מזהה המודל לא יכול להיות ריק",
+      "model_id_not_editable": "ניתן לערוך את מזהה המודל רק עבור מודלים מותאמים אישית בספקי Azure, AWS Bedrock או ספקים מותאמים (תואמי OpenAI)",
+      "model_id_duplicate": "המודל '{model_id}' כבר קיים אצל ספק זה"
     }
   },
   "email": {

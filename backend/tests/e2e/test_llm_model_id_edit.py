@@ -224,6 +224,8 @@ def test_model_id_is_not_editable_on_catalog_providers(
         headers=admin["headers"],
     )
     assert resp.status_code == 400, resp.text
+    # The frontend localizes off error_code, not off the English detail.
+    assert resp.json()["error_code"] == "llm.model_id_not_editable"
 
     unchanged = _find(get_models(admin["token"], admin["org_id"]), "some-custom-model")
     assert unchanged["model_id"] == "some-custom-model"
@@ -252,6 +254,7 @@ def test_preset_model_id_cannot_be_edited(admin, get_models, test_client):
         headers=admin["headers"],
     )
     assert resp.status_code == 400, resp.text
+    assert resp.json()["error_code"] == "llm.model_id_not_editable"
 
 
 @pytest.mark.e2e
@@ -277,6 +280,7 @@ def test_blank_model_id_is_rejected(admin, get_models, test_client):
             headers=admin["headers"],
         )
         assert resp.status_code == 400, f"blank id {blank!r} should be rejected: {resp.text}"
+        assert resp.json()["error_code"] == "llm.model_id_required"
 
     unchanged = _find(get_models(admin["token"], admin["org_id"]), "llama-3.1-70b")
     assert unchanged["model_id"] == "llama-3.1-70b"
@@ -302,6 +306,10 @@ def test_model_id_edit_cannot_collide_with_a_sibling_model(admin, get_models, te
         headers=admin["headers"],
     )
     assert resp.status_code == 409, resp.text
+    body = resp.json()
+    assert body["error_code"] == "llm.model_id_duplicate"
+    # params feed the locale interpolation, so the id has to travel structured.
+    assert body["params"] == {"model_id": "model-a"}
 
     models = get_models(admin["token"], admin["org_id"])
     assert _find(models, "model-b")["id"] == model_b["id"]

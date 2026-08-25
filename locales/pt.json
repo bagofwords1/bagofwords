@@ -2485,6 +2485,10 @@
       "displayNameHint": "Rótulo opcional exibido no seletor de modelos. Deixe vazio para usar o ID do modelo.",
       "displayNameError": "Não foi possível atualizar o nome de exibição",
       "modelIdError": "Não foi possível atualizar o ID do modelo",
+      "azureEndpointPlaceholder": "ex.: https://[recurso].openai.azure.com ou https://[recurso].services.ai.azure.com",
+      "azureFoundryHint": "Azure OpenAI e Azure AI Foundry são ambos suportados. O ID do modelo é o nome da sua implantação.",
+      "responsesApiHint": "Usar a API Responses em vez de Chat Completions. Necessária para a pesquisa na web e disponível apenas em regiões que suportam a API Responses.",
+      "responsesApiFoundryHint": "No Foundry, aplica-se apenas às implantações da OpenAI.",
       "colCost": "Custo ($/M)",
       "colRouting": "Roteamento",
       "autoRouter": "Roteador automático",
@@ -3079,6 +3083,11 @@
     "setting.update_failed": "Falha ao atualizar configuração",
     "query": {
       "failed_silently": "Uma consulta falhou, mas o código gerado retornou um resultado vazio em vez de informar o erro"
+    },
+    "llm": {
+      "model_id_required": "O ID do modelo não pode ficar vazio",
+      "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
+      "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor"
     }
   },
   "email": {

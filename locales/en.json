@@ -2647,6 +2647,10 @@
       "displayNameHint": "Optional label shown in the model picker. Leave empty to use the model ID.",
       "displayNameError": "Could not update the display name",
       "modelIdError": "Could not update the model ID",
+      "azureEndpointPlaceholder": "e.g. https://[resource].openai.azure.com or https://[resource].services.ai.azure.com",
+      "azureFoundryHint": "Azure OpenAI and Azure AI Foundry are both supported. Model ID is your deployment name.",
+      "responsesApiHint": "Use the Responses API instead of Chat Completions. Required for web search, and only available in regions that support the Responses API.",
+      "responsesApiFoundryHint": "On Foundry it applies to OpenAI deployments only.",
       "colCost": "Cost ($/M)",
       "colRouting": "Routing",
       "autoRouter": "Auto router",
@@ -3217,7 +3221,12 @@
     "resource.conflict": "Resource already exists or conflicts with existing state",
     "resource.duplicate": "Duplicate resource",
     "setting.update_failed": "Failed to update setting",
-    "query.failed_silently": "A query failed but the generated code returned an empty result instead of reporting it"
+    "query.failed_silently": "A query failed but the generated code returned an empty result instead of reporting it",
+    "llm": {
+      "model_id_required": "Model ID cannot be empty",
+      "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
+      "model_id_duplicate": "Model '{model_id}' already exists on this provider"
+    }
   },
   "email": {
     "dashboardShare": {

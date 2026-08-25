@@ -2485,6 +2485,10 @@
       "displayNameHint": "Optionale Bezeichnung im Modellauswahlmenü. Leer lassen, um die Modell-ID zu verwenden.",
       "displayNameError": "Anzeigename konnte nicht aktualisiert werden",
       "modelIdError": "Modell-ID konnte nicht aktualisiert werden",
+      "azureEndpointPlaceholder": "z. B. https://[ressource].openai.azure.com oder https://[ressource].services.ai.azure.com",
+      "azureFoundryHint": "Azure OpenAI und Azure AI Foundry werden beide unterstützt. Die Modell-ID ist der Name Ihres Deployments.",
+      "responsesApiHint": "Die Responses-API statt Chat Completions verwenden. Für die Websuche erforderlich und nur in Regionen verfügbar, die die Responses-API unterstützen.",
+      "responsesApiFoundryHint": "Auf Foundry gilt dies nur für OpenAI-Deployments.",
       "colCost": "Kosten ($/M)",
       "colRouting": "Routing",
       "autoRouter": "Auto-Router",
@@ -3079,6 +3083,11 @@
     "setting.update_failed": "Einstellung konnte nicht aktualisiert werden",
     "query": {
       "failed_silently": "Eine Abfrage ist fehlgeschlagen, aber der generierte Code hat ein leeres Ergebnis zurückgegeben, statt das zu melden"
+    },
+    "llm": {
+      "model_id_required": "Die Modell-ID darf nicht leer sein",
+      "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
+      "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
     }
   },
   "email": {

@@ -16,6 +16,7 @@ from app.dependencies import async_session_maker
 from datetime import datetime
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
+from app.errors import AppError, ErrorCode
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -433,19 +434,19 @@ class LLMService:
         """
         candidate = (raw_model_id or "").strip()
         if not candidate:
-            raise HTTPException(status_code=400, detail="Model ID cannot be empty")
+            raise AppError.bad_request(
+                ErrorCode.LLM_MODEL_ID_REQUIRED, "Model ID cannot be empty"
+            )
         if candidate == model.model_id:
             return None
 
         provider = await db.get(LLMProvider, model.provider_id) if model.provider_id else None
         provider_type = getattr(provider, "provider_type", None)
         if not model.is_custom or provider_type not in EDITABLE_MODEL_ID_PROVIDER_TYPES:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) "
-                    "providers can have their model ID edited"
-                ),
+            raise AppError.bad_request(
+                ErrorCode.LLM_MODEL_ID_NOT_EDITABLE,
+                "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) "
+                "providers can have their model ID edited",
             )
 
         dup = (await db.execute(
@@ -457,9 +458,10 @@ class LLMService:
             .filter(LLMModel.deleted_at == None)  # noqa: E711
         )).unique().scalars().first()
         if dup is not None:
-            raise HTTPException(
-                status_code=409,
-                detail=f"Model '{candidate}' already exists on this provider",
+            raise AppError.conflict(
+                ErrorCode.LLM_MODEL_ID_DUPLICATE,
+                f"Model '{candidate}' already exists on this provider",
+                model_id=candidate,
             )
         return candidate
 

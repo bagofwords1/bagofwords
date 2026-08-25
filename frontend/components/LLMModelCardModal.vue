@@ -236,6 +236,7 @@ const props = defineProps<{
 const emit = defineEmits(['update:modelValue', 'updated', 'deleted']);
 
 const { t } = useI18n();
+const { getErrorMessage } = useErrorMessage();
 const toast = useToast();
 
 const open = computed({
@@ -398,10 +399,13 @@ const save = async () => {
                 },
             });
             if (response.status.value !== 'success') {
+                // The model_id guards ship an error_code, so getErrorMessage
+                // resolves them against the locale catalog. Anything untagged
+                // (the rename guard, a 500) still falls back to the server
+                // string and then to the per-field message below.
                 const errAny = response.error as any;
                 const err = (errAny && (errAny.value || errAny)) || {};
-                const detail = err?.data?.detail;
-                fail(String(detail || (idChanged ? t('settings.llms.modelIdError') : t('settings.llms.displayNameError'))));
+                fail(getErrorMessage(err, idChanged ? t('settings.llms.modelIdError') : t('settings.llms.displayNameError')));
                 return;
             }
         }
