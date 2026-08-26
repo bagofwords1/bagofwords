@@ -4,6 +4,7 @@
 - Added native Azure AI Foundry endpoint support to the Azure connector, with editable model ids and fast-failing model-not-found errors (#1020)
 - Rejecting all hunks of a suggested new instruction now retires its orphaned draft, so it no longer resurfaces in search or counts (#1021)
 - Renamed the 'intelligent' instruction load mode to 'Smart' across the UI, with localized labels (#1022)
+- Fixed unreadable instruction body and mention chips in dark mode (#1023)
 
 ## Version 0.0.548 (August 24, 2026)
 - Custom LLM models (Azure deployments, Bedrock, OpenAI-compatible endpoints, fine-tuned ids) can now be given an editable display name, distinct from the model id (#1018)
