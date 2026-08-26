@@ -139,6 +139,24 @@ class CircuitBreaker:
                 self._failures.pop(key, None)
         return False
 
+    def clear_model(self, model_id: str) -> None:
+        """Forget one model's failure history and any open cooldown.
+
+        For when a model's identity changes underneath a stable db id — editing
+        a typo'd Azure deployment name is the case this exists for. The key is
+        the row id, which the edit does not change, and model_not_found is
+        sticky, so the corrected model would otherwise stay routed around for
+        the rest of the 15-minute cooldown with nothing to show why.
+
+        Best-effort by nature: the breaker is in-process, so this clears the
+        worker that handled the edit and the others keep their own copy until
+        it expires. That is the same approximation the class already documents,
+        and the worst case is unchanged — one doomed attempt per worker.
+        """
+        key = f"model:{model_id}"
+        self._failures.pop(key, None)
+        self._open_until.pop(key, None)
+
     def reset(self) -> None:
         self._failures.clear()
         self._open_until.clear()

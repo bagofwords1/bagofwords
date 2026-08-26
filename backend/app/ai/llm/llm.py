@@ -113,6 +113,50 @@ def _is_anthropic_model_id(model_id: Optional[str]) -> bool:
     return "claude" in name or "anthropic" in name
 
 
+# Every route an Azure resource serves hangs off the same root, so any of them
+# in the endpoint field is a path the admin copied rather than one we should
+# honor. The portal is what puts them there: the deployment page shows a Target
+# URI per surface, and the Foundry overview shows the project endpoint far more
+# prominently than the resource root.
+#
+#   /api/projects/<name>                        Foundry project endpoint
+#   /models, /models/chat/completions           Azure AI Inference
+#   /openai, /openai/v1[/...]                   OpenAI-compatible v1 surface
+#   /openai/deployments/<name>/<verb>           Azure OpenAI Target URI
+#   /anthropic[/v1[/messages]]                  Foundry Anthropic Target URI
+#
+# A path prefix that matches none of these is left alone: an APIM or reverse
+# proxy fronting Azure under one is legitimate, and the routes above hang off
+# that prefix exactly as they would off a bare host.
+_AZURE_PORTAL_PATH_TAIL = re.compile(
+    r"/(?:"
+    r"api/projects/[^/]+"
+    r"|models(?:/.*)?"
+    r"|openai(?:/v1(?:/.*)?|/deployments/.+)?"
+    r"|anthropic(?:/v1(?:/messages)?)?"
+    r")$"
+)
+
+
+def _azure_resource_root(endpoint_url: str) -> str:
+    """Reduce a pasted Azure endpoint to the resource root every route hangs off.
+
+    Admins paste whatever the portal showed them, and the surface they land on
+    is chosen here rather than by the path they happened to copy — so the path
+    is normalized away and each caller appends the route it needs.
+
+    Left unnormalized, the Anthropic Target URI was the damaging one: it is not
+    rejected but silently doubled, since the Anthropic base is derived by
+    appending ``/anthropic`` to this result.
+    """
+    base = (endpoint_url or "").strip().rstrip("/")
+    # Query and fragment first: the Target URI carries ``?api-version=``, which
+    # would otherwise defeat the ``$`` anchor and survive into the middle of
+    # the derived URL.
+    base = base.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return _AZURE_PORTAL_PATH_TAIL.sub("", base)
+
+
 def _azure_foundry_anthropic_base_url(endpoint_url: str) -> str:
     """Derive the Foundry Anthropic base_url from a provider endpoint.
 
@@ -124,10 +168,7 @@ def _azure_foundry_anthropic_base_url(endpoint_url: str) -> str:
     appends its own ``/v1/messages`` to whatever base_url it is given, so
     passing the versioned path produces ``/anthropic/v1/v1/messages``.
     """
-    base = LLM._azure_v1_base_url(endpoint_url)
-    # _azure_v1_base_url already normalized away portal paths and settled the
-    # scheme/host; swap its /openai/v1/ tail for the Anthropic root.
-    return base[: -len("openai/v1/")] + "anthropic"
+    return _azure_resource_root(endpoint_url) + "/anthropic"
 
 
 def _is_azure_foundry_endpoint(endpoint_url: str) -> bool:
@@ -312,25 +353,9 @@ class LLM:
         (``https://<resource>.openai.azure.com``). The v1 surface — Responses on
         Azure OpenAI, and everything on Azure AI Foundry
         (``https://<resource>.services.ai.azure.com``) — lives under
-        ``/openai/v1/`` on that same host. Accept either form so admins can paste
-        whichever they have, and normalize to the v1 base the OpenAI client wants.
+        ``/openai/v1/`` on that same host, so admins may paste either form.
         """
-        base = (endpoint_url or "").strip().rstrip("/")
-        if "/openai/v1" in base:
-            # Already a v1 base (possibly without trailing slash).
-            return base.split("/openai/v1")[0] + "/openai/v1/"
-        if base.endswith("/openai"):
-            return base + "/v1/"
-        # Strip the non-inference paths the Azure portal hands out, so pasting
-        # one does not silently produce a URL that exists nowhere. The Foundry
-        # portal shows the project endpoint
-        # (``.../api/projects/<name>``) far more prominently than the resource
-        # root, and ``/models`` is the older Azure AI Inference route; appending
-        # /openai/v1 to either yields a path APIM answers with a 401 whose
-        # message blames the key, which is near-impossible to debug from the UI.
-        base = re.sub(r"/api/projects/[^/]+$", "", base)
-        base = re.sub(r"/models$", "", base)
-        return base + "/openai/v1/"
+        return _azure_resource_root(endpoint_url) + "/openai/v1/"
 
     def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
         """Validate that the model supports vision if images are provided."""

@@ -22,13 +22,19 @@ from app.ai.llm.types import (
 )
 
 
+# Pinned GA version for the deployment-scoped route. Not admin-configurable:
+# it was, briefly, and never had a demonstrable case — the v1 surfaces take no
+# api-version at all, and this default has served the deployment route unchanged
+# since 2024. Bump it here when a newer GA adds something the client needs.
+_API_VERSION = "2024-10-21"
+
+
 class AzureClient(LLMClient):
     # Class-level default so instances created without __init__ (test doubles
     # built via __new__) still resolve the attribute.
     temperature: float | None = None
 
-    def __init__(self, api_key: str, endpoint_url: str, api_version: str | None = None,
-                 temperature: float | None = None):
+    def __init__(self, api_key: str, endpoint_url: str, temperature: float | None = None):
         super().__init__()
         # Admin-configured override; None keeps the per-call historical default
         # (see _default_temperature).
@@ -38,16 +44,15 @@ class AzureClient(LLMClient):
         # deployment-scoped route (/openai/deployments/{name}/...?api-version=)
         # that only that surface serves. Azure AI Foundry endpoints are routed
         # to the OpenAI-compatible client instead (see the azure branch of LLM.__init__).
-        effective_api_version = api_version or "2024-10-21"
         self.client = AzureOpenAI(
             api_key=api_key,
             azure_endpoint=endpoint_url,
-            api_version=effective_api_version,
+            api_version=_API_VERSION,
         )
         self.async_client = AsyncAzureOpenAI(
             api_key=api_key,
             azure_endpoint=endpoint_url,
-            api_version=effective_api_version,
+            api_version=_API_VERSION,
         )
 
     def _resolve_temperature(self, model_id: str) -> float:

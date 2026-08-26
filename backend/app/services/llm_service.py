@@ -341,6 +341,21 @@ class LLMService:
             if "name" not in data and model.name == model.model_id:
                 model.name = new_model_id
             model.model_id = new_model_id
+            # Re-pointing the id is the remedy for a deployment name that does
+            # not resolve, and that failure classifies as model_not_found, which
+            # opens a *sticky* fallback breaker keyed by this row's db id — an id
+            # the edit leaves untouched. Clear it here so the corrected model is
+            # eligible again at once, rather than being skipped as a fallback or
+            # routing candidate for the remainder of the cooldown, which reads
+            # from the admin's side as the fix not having taken.
+            try:
+                from app.ai.llm.fallback import breaker as _breaker
+                _breaker.clear_model(str(model.id))
+            except Exception:
+                logger.warning(
+                    "Failed to clear fallback breaker after model_id edit: model=%s",
+                    model.id, exc_info=True,
+                )
         if data.get("config") is not None:
             # Reassign (not mutate) so SQLAlchemy detects the JSON change.
             model.config = {**dict(model.config or {}), **data["config"]}
