@@ -53,10 +53,14 @@ def _accepts_temperature(model_id: str) -> bool:
 
 
 class Anthropic(LLMClient):
-    def __init__(self, api_key: str, base_url: str = None, temperature: Optional[float] = None):
+    def __init__(self, api_key: str, base_url: str = None, temperature: Optional[float] = None,
+                 default_headers: Optional[dict] = None):
         super().__init__()
-        self.client = AnthropicAPI(api_key=api_key)
-        self.async_client = AsyncAnthropic(api_key=api_key)
+        client_kwargs: dict = {"api_key": api_key}
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        self.client = AnthropicAPI(**client_kwargs)
+        self.async_client = AsyncAnthropic(**client_kwargs)
         self.max_tokens = 32768
         # Admin-configured override, or the historical default. Either way the
         # _accepts_temperature gate stays authoritative: model families that

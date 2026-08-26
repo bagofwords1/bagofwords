@@ -27,24 +27,30 @@ class AzureClient(LLMClient):
     # built via __new__) still resolve the attribute.
     temperature: float | None = None
 
-    def __init__(self, api_key: str, endpoint_url: str, api_version: str | None = None,
-                 temperature: float | None = None):
+    def __init__(self, api_key: str | None, endpoint_url: str, api_version: str | None = None,
+                 temperature: float | None = None,
+                 default_headers: dict | None = None,
+                 azure_ad_token_provider=None):
         super().__init__()
         # Admin-configured override; None keeps the per-call historical default
         # (see _default_temperature).
         self.temperature = temperature
         # endpoint_url should be the Azure OpenAI resource endpoint, e.g. https://<resource>.openai.azure.com
         effective_api_version = api_version or "2024-10-21"
-        self.client = AzureOpenAI(
-            api_key=api_key,
-            azure_endpoint=endpoint_url,
-            api_version=effective_api_version,
-        )
-        self.async_client = AsyncAzureOpenAI(
-            api_key=api_key,
-            azure_endpoint=endpoint_url,
-            api_version=effective_api_version,
-        )
+        client_kwargs: dict = {
+            "azure_endpoint": endpoint_url,
+            "api_version": effective_api_version,
+        }
+        # Entra ID auth: an azure-identity bearer-token provider replaces the
+        # static API key (the SDK requires exactly one of the two).
+        if azure_ad_token_provider is not None:
+            client_kwargs["azure_ad_token_provider"] = azure_ad_token_provider
+        else:
+            client_kwargs["api_key"] = api_key
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        self.client = AzureOpenAI(**client_kwargs)
+        self.async_client = AsyncAzureOpenAI(**client_kwargs)
 
     def _resolve_temperature(self, model_id: str) -> float:
         """Admin-configured value when set, else the historical default

@@ -12,6 +12,7 @@ from app.models.llm_provider import LLM_PROVIDER_DETAILS
 from app.models.llm_model import LLM_MODEL_DETAILS, DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW
 from app.schemas.llm_schema import AnthropicCredentials, OpenAICredentials, GoogleCredentials, LLMModelSchema, LLMProviderCreate, LLMProviderTestConnection
 from app.ai.llm.llm import LLM
+from app.ai.llm.header_injection import validate_header_config
 from app.dependencies import async_session_maker
 from datetime import datetime
 from app.core.telemetry import telemetry
@@ -1591,6 +1592,31 @@ class LLMService:
                     # Explicitly clear endpoint_url when set to empty/null
                     existing_additional_config.pop("endpoint_url", None)
 
+            # Entra ID auth: auth_mode + service-principal identifiers are
+            # non-secret → additional_config; the client_secret is a secret and
+            # rides the encrypted api_secret slot (api_key keeps the API key so
+            # switching modes doesn't lose either credential).
+            if "auth_mode" in credentials:
+                raw_auth_mode = credentials.get("auth_mode")
+                auth_mode = raw_auth_mode.lower() if isinstance(raw_auth_mode, str) else raw_auth_mode
+                allowed_auth_modes = {"api_key", "entra_client_secret", "entra_default"}
+                if auth_mode not in allowed_auth_modes:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid auth_mode for Azure provider: {raw_auth_mode!r}. "
+                               f"Allowed values are: {', '.join(sorted(allowed_auth_modes))}."
+                    )
+                existing_additional_config = { **existing_additional_config, "auth_mode": auth_mode }
+            for entra_field in ("tenant_id", "client_id"):
+                if entra_field in credentials:
+                    value = credentials.get(entra_field)
+                    if value:
+                        existing_additional_config = { **existing_additional_config, entra_field: value }
+                    else:
+                        existing_additional_config.pop(entra_field, None)
+            if credentials.get("client_secret"):
+                api_secret = credentials["client_secret"]
+
         # OpenAI: base_url (optional)
         if provider.provider_type == "openai":
             base_url = credentials.get("base_url")
@@ -1661,6 +1687,29 @@ class LLMService:
                 api_key = credentials["aws_access_key_id"]
             if credentials.get("aws_secret_access_key"):
                 api_secret = credentials["aws_secret_access_key"]
+
+        # All providers: custom outbound headers + per-user identity forwarding
+        # (non-secret → additional_config, mirroring MCP connections). Present
+        # keys replace the stored value; empty clears it.
+        if "headers" in credentials or "header_injection" in credentials:
+            try:
+                clean_headers, clean_rules = validate_header_config(
+                    credentials.get("headers") if "headers" in credentials
+                    else existing_additional_config.get("headers"),
+                    [r.dict() if hasattr(r, "dict") else r for r in credentials.get("header_injection") or []]
+                    if "header_injection" in credentials
+                    else existing_additional_config.get("header_injection"),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc))
+            if clean_headers:
+                existing_additional_config = { **existing_additional_config, "headers": clean_headers }
+            else:
+                existing_additional_config.pop("headers", None)
+            if clean_rules:
+                existing_additional_config = { **existing_additional_config, "header_injection": clean_rules }
+            else:
+                existing_additional_config.pop("header_injection", None)
         provider.additional_config = existing_additional_config if existing_additional_config else None
 
         # Only (re-)encrypt credentials when a new key/secret is provided

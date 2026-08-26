@@ -110,6 +110,7 @@ class BedrockClient(LLMClient):
         api_key: Optional[str] = None,
         aws_access_key_id: Optional[str] = None,
         aws_secret_access_key: Optional[str] = None,
+        extra_headers: Optional[dict] = None,
     ):
         super().__init__()
         if auth_mode not in self._SUPPORTED_AUTH_MODES:
@@ -151,6 +152,21 @@ class BedrockClient(LLMClient):
         else:
             self.client = boto3.client(
                 "bedrock-runtime", region_name=region, config=_http_config()
+            )
+
+        if extra_headers:
+            # Same request-created hook the api_key Bearer injection uses. It
+            # fires after SigV4 signing, and the signature only covers signed
+            # headers, so appending unsigned custom headers here is safe for
+            # every auth mode.
+            _headers = dict(extra_headers)
+
+            def _add_extra_headers(request, **kwargs):
+                for name, value in _headers.items():
+                    request.headers[name] = value
+
+            self.client.meta.events.register(
+                "request-created.bedrock-runtime.*", _add_extra_headers
             )
 
         self._region = region

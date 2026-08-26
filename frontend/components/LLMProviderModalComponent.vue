@@ -36,7 +36,7 @@
                         </span>
                     </div>
                     <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
-                        <div class="" v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock'">
+                        <div class="" v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock' && !(isAzureSelected && selectedProvider.credentials.auth_mode && selectedProvider.credentials.auth_mode !== 'api_key')">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 API Key
                             </label>
@@ -47,7 +47,7 @@
                                 class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
                         </div>
-                        <div class="" v-if="selectedProvider?.provider_type === 'azure' || selectedProvider?.type === 'azure'">
+                        <div class="" v-if="isAzureSelected">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 Endpoint URL
                             </label>
@@ -57,6 +57,42 @@
                                 placeholder="e.g. https://<resource>.openai.azure.com"
                                 class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
                             />
+                        </div>
+                        <!-- Azure: authentication mode (API key vs Microsoft Entra ID) -->
+                        <div v-if="isAzureSelected">
+                            <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Authentication</label>
+                            <div class="flex gap-2 mt-2">
+                                <button type="button" @click="selectedProvider.credentials.auth_mode = 'api_key'"
+                                    :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'api_key') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                    API Key
+                                </button>
+                                <button type="button" @click="selectedProvider.credentials.auth_mode = 'entra_client_secret'"
+                                    :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'entra_client_secret' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                    Entra ID (Service Principal)
+                                </button>
+                                <button type="button" @click="selectedProvider.credentials.auth_mode = 'entra_default'"
+                                    :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'entra_default' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                    Entra ID (Default)
+                                </button>
+                            </div>
+                            <p v-if="selectedProvider.credentials.auth_mode === 'entra_default'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses DefaultAzureCredential (managed identity, workload identity, env vars, Azure CLI).</p>
+                            <template v-if="selectedProvider.credentials.auth_mode === 'entra_client_secret'">
+                                <div class="mt-2">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tenant ID <span class="text-red-500">*</span></label>
+                                    <input v-model="selectedProvider.credentials.tenant_id" type="text" placeholder="Directory (tenant) ID"
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                </div>
+                                <div class="mt-2">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Client ID <span class="text-red-500">*</span></label>
+                                    <input v-model="selectedProvider.credentials.client_id" type="text" placeholder="Application (client) ID"
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                </div>
+                                <div class="mt-2">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Client Secret <span class="text-red-500">*</span></label>
+                                    <input v-model="selectedProvider.credentials.client_secret" type="password" placeholder="Keep blank to use stored secret"
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                </div>
+                            </template>
                         </div>
                         <div class="" v-if="selectedProvider?.provider_type === 'custom' || selectedProvider?.type === 'custom'">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -173,6 +209,57 @@
                             <p v-if="selectedProvider.credentials.base_url" class="text-xs text-gray-500 dark:text-gray-400 mt-1">
                                 Note: a custom base URL uses the Chat Completions API, which does not support web search. Clear it to use web search.
                             </p>
+                        </div>
+                        <!-- Custom headers + identity forwarding (all providers) -->
+                        <div>
+                            <button type="button" class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" @click="showHeadersSection = !showHeadersSection">
+                                <span class="transform transition-transform mt-1" :class="{ 'rotate-90': showHeadersSection }">
+                                    <Icon name="heroicons:chevron-right" class="w-3" />
+                                </span>
+                                Custom headers
+                                <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                            </button>
+                            <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
+                                <div>
+                                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Static headers</label>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">Sent on every request to this provider (e.g. a gateway routing key or cost-center tag).</p>
+                                    <div v-for="(row, index) in headerRows" :key="`hdr-${index}`" class="flex items-center gap-2 mt-2">
+                                        <input v-model="row.key" type="text" placeholder="Header name" data-testid="static-header-key"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                        <input v-model="row.value" type="text" placeholder="Value" data-testid="static-header-value"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                        <button type="button" @click="removeHeaderRow(index)" class="text-red-500 hover:text-red-700">
+                                            <Icon name="heroicons:trash" class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button type="button" @click="addHeaderRow" data-testid="add-static-header" class="text-xs text-blue-500 hover:text-blue-700 underline flex items-center gap-1 mt-2">
+                                        <Icon name="heroicons:plus-circle" class="w-3.5 h-3.5" />
+                                        Add header
+                                    </button>
+                                </div>
+                                <div>
+                                    <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Identity forwarding</label>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400">Forward the signed-in user's identity as headers so your gateway can attribute cost per user.</p>
+                                    <div v-for="(row, index) in forwardRows" :key="`fwd-${index}`" class="flex items-center gap-2 mt-2">
+                                        <input v-model="row.header" type="text" placeholder="Header name" data-testid="forward-header-name"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                        <select v-model="row.kind" data-testid="forward-source-kind"
+                                            class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 focus:outline-none focus:border-blue-500">
+                                            <option v-for="kind in FORWARD_KINDS" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+                                        </select>
+                                        <input v-if="row.kind === 'membership.attr' || row.kind === 'static'" v-model="row.extra" type="text"
+                                            :placeholder="row.kind === 'membership.attr' ? 'Attribute key' : 'Value ({user.email} allowed)'" data-testid="forward-source-extra"
+                                            class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                        <button type="button" @click="removeForwardRow(index)" class="text-red-500 hover:text-red-700">
+                                            <Icon name="heroicons:trash" class="w-4 h-4" />
+                                        </button>
+                                    </div>
+                                    <button type="button" @click="addForwardRow" data-testid="add-forward-rule" class="text-xs text-blue-500 hover:text-blue-700 underline flex items-center gap-1 mt-2">
+                                        <Icon name="heroicons:plus-circle" class="w-3.5 h-3.5" />
+                                        Add forwarding rule
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                         <div class="">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
@@ -420,6 +507,102 @@
                                 </div>
                                 <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Native, provider-executed web search for external facts. Requires the org-level Web Fetch setting to also be on.</p>
                             </div>
+                            <!-- Azure: authentication mode for new provider -->
+                            <template v-if="providerForm.provider_type === 'azure'">
+                                <div class="mt-3">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Authentication</label>
+                                    <div class="flex gap-2 mt-2">
+                                        <button type="button" @click="providerForm.credentials.auth_mode = 'api_key'"
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'api_key') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                            API Key
+                                        </button>
+                                        <button type="button" @click="providerForm.credentials.auth_mode = 'entra_client_secret'"
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'entra_client_secret' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                            Entra ID (Service Principal)
+                                        </button>
+                                        <button type="button" @click="providerForm.credentials.auth_mode = 'entra_default'"
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'entra_default' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                            Entra ID (Default)
+                                        </button>
+                                    </div>
+                                    <p v-if="providerForm.credentials.auth_mode === 'entra_default'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses DefaultAzureCredential (managed identity, workload identity, env vars, Azure CLI).</p>
+                                </div>
+                                <template v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'api_key'">
+                                    <div class="mt-2">
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">API Key <span class="text-red-500">*</span></label>
+                                        <input v-model="providerForm.credentials.api_key" type="password" placeholder="Enter Azure OpenAI API key"
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    </div>
+                                </template>
+                                <template v-if="providerForm.credentials.auth_mode === 'entra_client_secret'">
+                                    <div class="mt-2">
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tenant ID <span class="text-red-500">*</span></label>
+                                        <input v-model="providerForm.credentials.tenant_id" type="text" placeholder="Directory (tenant) ID"
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Client ID <span class="text-red-500">*</span></label>
+                                        <input v-model="providerForm.credentials.client_id" type="text" placeholder="Application (client) ID"
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    </div>
+                                    <div class="mt-2">
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Client Secret <span class="text-red-500">*</span></label>
+                                        <input v-model="providerForm.credentials.client_secret" type="password" placeholder="Enter client secret"
+                                            class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
+                                    </div>
+                                </template>
+                            </template>
+                            <!-- Custom headers + identity forwarding (all providers, new form) -->
+                            <div class="mt-3">
+                                <button type="button" class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300 mb-1" @click="showHeadersSection = !showHeadersSection">
+                                    <span class="transform transition-transform mt-1" :class="{ 'rotate-90': showHeadersSection }">
+                                        <Icon name="heroicons:chevron-right" class="w-3" />
+                                    </span>
+                                    Custom headers
+                                    <span v-if="headerRows.length + forwardRows.length > 0" class="text-xs text-gray-400">({{ headerRows.length + forwardRows.length }})</span>
+                                </button>
+                                <div v-if="showHeadersSection" class="mt-2 space-y-4 ps-1">
+                                    <div>
+                                        <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Static headers</label>
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">Sent on every request to this provider (e.g. a gateway routing key or cost-center tag).</p>
+                                        <div v-for="(row, index) in headerRows" :key="`hdr-new-${index}`" class="flex items-center gap-2 mt-2">
+                                            <input v-model="row.key" type="text" placeholder="Header name" data-testid="static-header-key"
+                                                class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                            <input v-model="row.value" type="text" placeholder="Value" data-testid="static-header-value"
+                                                class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                            <button type="button" @click="removeHeaderRow(index)" class="text-red-500 hover:text-red-700">
+                                                <Icon name="heroicons:trash" class="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <button type="button" @click="addHeaderRow" data-testid="add-static-header" class="text-xs text-blue-500 hover:text-blue-700 underline flex items-center gap-1 mt-2">
+                                            <Icon name="heroicons:plus-circle" class="w-3.5 h-3.5" />
+                                            Add header
+                                        </button>
+                                    </div>
+                                    <div>
+                                        <label class="text-xs font-medium text-gray-700 dark:text-gray-300">Identity forwarding</label>
+                                        <p class="text-xs text-gray-500 dark:text-gray-400">Forward the signed-in user's identity as headers so your gateway can attribute cost per user.</p>
+                                        <div v-for="(row, index) in forwardRows" :key="`fwd-new-${index}`" class="flex items-center gap-2 mt-2">
+                                            <input v-model="row.header" type="text" placeholder="Header name" data-testid="forward-header-name"
+                                                class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                            <select v-model="row.kind" data-testid="forward-source-kind"
+                                                class="text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 focus:outline-none focus:border-blue-500">
+                                                <option v-for="kind in FORWARD_KINDS" :key="kind.value" :value="kind.value">{{ kind.label }}</option>
+                                            </select>
+                                            <input v-if="row.kind === 'membership.attr' || row.kind === 'static'" v-model="row.extra" type="text"
+                                                :placeholder="row.kind === 'membership.attr' ? 'Attribute key' : 'Value ({user.email} allowed)'" data-testid="forward-source-extra"
+                                                class="flex-1 min-w-0 text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1 focus:outline-none focus:border-blue-500" />
+                                            <button type="button" @click="removeForwardRow(index)" class="text-red-500 hover:text-red-700">
+                                                <Icon name="heroicons:trash" class="w-4 h-4" />
+                                            </button>
+                                        </div>
+                                        <button type="button" @click="addForwardRow" data-testid="add-forward-rule" class="text-xs text-blue-500 hover:text-blue-700 underline flex items-center gap-1 mt-2">
+                                            <Icon name="heroicons:plus-circle" class="w-3.5 h-3.5" />
+                                            Add forwarding rule
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -666,6 +849,76 @@ const providersWithNewOption = computed(() => {
 const showBaseUrl = ref(false);
 const showBaseUrlNew = ref(false);
 const isTestingConnection = ref(false);
+
+const isAzureSelected = computed(() =>
+    selectedProvider.value?.provider_type === 'azure' || selectedProvider.value?.type === 'azure');
+
+// --- Custom headers + identity forwarding (all providers) ---
+// Rows are shared between the edit view and the new-provider form; only one is
+// ever active at a time. Serialized into credentials.headers /
+// credentials.header_injection on save & test (backend persists them to
+// additional_config, mirroring MCP connections).
+type HeaderRow = { key: string; value: string };
+type ForwardRow = { header: string; kind: string; extra: string };
+const showHeadersSection = ref(false);
+const headerRows = ref<HeaderRow[]>([]);
+const forwardRows = ref<ForwardRow[]>([]);
+const FORWARD_KINDS = [
+    { value: 'user.email', label: 'User email' },
+    { value: 'user.name', label: 'User name' },
+    { value: 'user.id', label: 'User ID' },
+    { value: 'membership.role', label: 'Org role' },
+    { value: 'membership.attr', label: 'Profile attribute' },
+    { value: 'static', label: 'Static value' },
+];
+
+function addHeaderRow() { headerRows.value.push({ key: '', value: '' }); }
+function removeHeaderRow(index: number) { headerRows.value.splice(index, 1); }
+function addForwardRow() { forwardRows.value.push({ header: '', kind: 'user.email', extra: '' }); }
+function removeForwardRow(index: number) { forwardRows.value.splice(index, 1); }
+
+function resetHeaderRows() {
+    headerRows.value = [];
+    forwardRows.value = [];
+    showHeadersSection.value = false;
+}
+
+function hydrateHeaderRows(cfg: any) {
+    headerRows.value = Object.entries(cfg?.headers || {}).map(([key, value]) => ({ key, value: String(value ?? '') }));
+    forwardRows.value = ((cfg?.header_injection || []) as any[]).map((rule: any) => {
+        const source = String(rule?.source || '');
+        if (source.startsWith('membership.attr:')) return { header: rule.header, kind: 'membership.attr', extra: source.slice('membership.attr:'.length) };
+        if (source.startsWith('static:')) return { header: rule.header, kind: 'static', extra: source.slice('static:'.length) };
+        return { header: rule.header, kind: source, extra: '' };
+    });
+    showHeadersSection.value = headerRows.value.length > 0 || forwardRows.value.length > 0;
+}
+
+function serializeHeaderConfig(credentials: Record<string, any>) {
+    const headers: Record<string, string> = {};
+    headerRows.value.forEach(row => {
+        const key = row.key.trim();
+        const value = row.value.trim();
+        if (key && value) headers[key] = value;
+    });
+    const rules = forwardRows.value
+        .map(row => {
+            const header = row.header.trim();
+            if (!header) return null;
+            let source = row.kind;
+            if (row.kind === 'membership.attr') {
+                const attrKey = row.extra.trim();
+                if (!attrKey) return null;
+                source = `membership.attr:${attrKey}`;
+            } else if (row.kind === 'static') {
+                source = `static:${row.extra}`;
+            }
+            return { header, source };
+        })
+        .filter((rule): rule is { header: string; source: string } => !!rule);
+    credentials.headers = headers;
+    credentials.header_injection = rules;
+}
 const canTestConnection = computed(() => {
     if (selectedProvider.value && selectedProvider.value.type !== 'new_provider') {
         // Existing provider: must have provider_type and some credential (api_key may be blank to use stored)
@@ -678,6 +931,14 @@ const canTestConnection = computed(() => {
         if (creds.auth_mode === 'api_key') return !!creds.api_key;
         if (creds.auth_mode === 'access_keys') return !!creds.aws_access_key_id && !!creds.aws_secret_access_key;
         return true; // IAM mode: region is enough
+    }
+    // Azure: Entra modes don't require api_key
+    if (providerForm.value.provider_type === 'azure') {
+        const creds = providerForm.value.credentials;
+        if (!creds?.endpoint_url) return false;
+        if (creds.auth_mode === 'entra_client_secret') return !!creds.tenant_id && !!creds.client_id && !!creds.client_secret;
+        if (creds.auth_mode === 'entra_default') return true;
+        return !!creds.api_key;
     }
     // New provider form: need type and at least api_key
     return !!providerForm.value.provider_type && !!providerForm.value.credentials && typeof providerForm.value.credentials.api_key !== 'undefined';
@@ -694,13 +955,17 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     const providerType = providerForm.value.provider_type;
     const all = fieldsForProvider(providerType);
     // Exclude fields that have dedicated UI controls
-    let filtered = all.filter(f => f.key !== 'verify_ssl' && f.key !== 'enable_web_search' && f.key !== 'use_responses_api');
+    let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection'].includes(f.key));
     if (providerType === 'openai') {
         filtered = filtered.filter(f => f.key !== 'base_url');
     }
     if (providerType === 'bedrock') {
         // Only show region; auth_mode and api_key are rendered as custom UI
         return filtered.filter(f => f.key === 'region');
+    }
+    if (providerType === 'azure') {
+        // Only show endpoint_url; auth_mode / api_key / Entra fields render as custom UI
+        return filtered.filter(f => f.key === 'endpoint_url');
     }
     return filtered;
 });
@@ -735,6 +1000,7 @@ function getFieldPlaceholder(field: CredentialField): string {
     showDangerZone.value = false;
     showBaseUrl.value = false;
     showBaseUrlNew.value = false;
+    resetHeaderRows();
   }
 
 const isNewProviderSelected = computed(() => {
@@ -769,6 +1035,7 @@ const resetForm = () => {
         credentials: {}
     };
     showDangerZone.value = false;
+    resetHeaderRows();
     // Reset any selected models
     models.value.forEach((model: any) => {
         model.selected = false;
@@ -921,6 +1188,12 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
         if (providerType === 'custom') {
             providerForm.value.credentials.verify_ssl = true;
         }
+        // Default Azure auth to API key for new providers
+        if (providerType === 'azure' && !providerForm.value.credentials.auth_mode) {
+            providerForm.value.credentials.auth_mode = 'api_key';
+        }
+        // A new provider starts with no custom headers
+        resetHeaderRows();
     }
     // Reset base URL toggle for new provider on provider type changes
     if (isNewProviderSelected.value) {
@@ -940,6 +1213,8 @@ watch(() => providerForm.value.provider_type, (providerType: string) => {
 });
 
 async function createProvider() {
+    // Fold the header editor rows into the credentials payload
+    serializeHeaderConfig(providerForm.value.credentials);
     // Gather selected preset models
     const selectedPresetModels = models.value
         .filter((model: AvailableModel) => model.provider_type === providerForm.value.provider_type && !!model.is_enabled)
@@ -1033,6 +1308,11 @@ async function updateProvider() {
         // Same: onContextWindowChange records an override when the admin edits the size.
         context_window_tokens_override: model.context_window_tokens_override ?? null
     }));
+
+    // Fold the header editor rows into the credentials payload
+    if (selectedProvider.value?.credentials) {
+        serializeHeaderConfig(selectedProvider.value.credentials);
+    }
 
     // Prepare update payload with existing models + new custom models
     const updatePayload = {
@@ -1132,6 +1412,16 @@ watch(selectedProvider, (newValue) => {
                 (newValue.credentials as any).api_key = null;
             }
         }
+        // Hydrate Azure auth mode + Entra service-principal identifiers
+        if ((newValue.provider_type === 'azure' || newValue.type === 'azure')) {
+            const cfg = (newValue as any)?.additional_config || {};
+            (newValue.credentials as any).auth_mode = cfg.auth_mode || 'api_key';
+            (newValue.credentials as any).tenant_id = cfg.tenant_id || null;
+            (newValue.credentials as any).client_id = cfg.client_id || null;
+            (newValue.credentials as any).client_secret = null;
+        }
+        // Hydrate custom headers + identity forwarding rows (all providers)
+        hydrateHeaderRows((newValue as any)?.additional_config);
         providerForm.value = {
             name: '',
             provider_type: '',
@@ -1233,6 +1523,12 @@ function toggleBaseUrlNewProvider() {
 async function testConnection() {
     try {
         isTestingConnection.value = true;
+        // Fold the header editor rows into whichever credentials the test uses
+        if (selectedProvider.value && selectedProvider.value.type !== 'new_provider' && selectedProvider.value.credentials) {
+            serializeHeaderConfig(selectedProvider.value.credentials);
+        } else {
+            serializeHeaderConfig(providerForm.value.credentials);
+        }
         // Build payload from either existing-selected provider (edit mode) or new form
         let payload: any;
         if (selectedProvider.value && selectedProvider.value.type !== 'new_provider') {

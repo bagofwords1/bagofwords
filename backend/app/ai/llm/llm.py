@@ -26,6 +26,7 @@ from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
+from app.ai.llm.header_injection import build_provider_headers
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
@@ -120,14 +121,18 @@ class LLM:
             self.api_key = self.model.provider.decrypt_credentials()[0]
         except Exception as exc:
             # For most providers, failing to decrypt credentials is a hard error.
-            # The only exception is Bedrock when using non-API-key auth (e.g., IAM),
-            # where an API key is not required.
+            # The exceptions are auth modes that don't need an API key: Bedrock
+            # under IAM/access-key auth, and Azure under Entra ID auth (tokens
+            # come from azure-identity, not a stored key).
             additional_config = getattr(self.model.provider, "additional_config", None) or {}
-            auth_mode = additional_config.get("auth_mode", "iam") if isinstance(additional_config, dict) else "iam"
-            if self.provider == "bedrock" and auth_mode != "api_key":
+            auth_mode = additional_config.get("auth_mode") if isinstance(additional_config, dict) else None
+            if (self.provider == "bedrock" and (auth_mode or "iam") != "api_key") or (
+                self.provider == "azure" and (auth_mode or "api_key") != "api_key"
+            ):
                 logger.warning(
-                    "Failed to decrypt credentials for Bedrock provider in '%s' auth mode; "
+                    "Failed to decrypt credentials for %s provider in '%s' auth mode; "
                     "continuing without api_key. Error: %s",
+                    self.provider,
                     auth_mode,
                     exc,
                 )
@@ -154,40 +159,66 @@ class LLM:
         configured_temperature = _parse_temperature(model_config.get("temperature"))
         if configured_temperature is None:
             configured_temperature = _parse_temperature(additional_config.get("temperature"))
+        # Custom outbound headers: static admin-configured headers plus per-user
+        # identity forwarding rules resolved against the ambient identity (see
+        # app.ai.llm.header_injection). LLM instances are constructed per run /
+        # per call site, inside the identity scope AgentV2 stamps, so resolving
+        # here keeps every client and both sync/async paths covered.
+        custom_headers = build_provider_headers(additional_config) or None
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
             if base_url:
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
-                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
             else:
                 # Default OpenAI → Responses API (supports reasoning content)
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
+                    default_headers=custom_headers,
                 )
         elif self.provider == "anthropic":
-            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature)
+            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "google":
-            self.client = Google(api_key=self.api_key, temperature=configured_temperature)
+            self.client = Google(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "azure":
             endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
+            auth_mode = additional_config.get("auth_mode", "api_key")
+            azure_ad_token_provider = None
+            if auth_mode in ("entra_client_secret", "entra_default"):
+                azure_ad_token_provider = self._build_entra_token_provider(auth_mode, additional_config)
             # Default to Chat Completions (AzureClient) — works in every region.
             # Admins opt into the Responses API explicitly (use_responses_api),
             # which is required for native web search and only available in some
             # Azure regions. Web search is honored only on the Responses path.
+            # Entra auth always uses Chat Completions: the Responses path runs on
+            # the plain OpenAI client, which has no AAD token-provider hook.
             use_responses_api = bool(additional_config.get("use_responses_api", False))
+            if use_responses_api and azure_ad_token_provider is not None:
+                logger.warning(
+                    "Azure provider uses Entra ID auth; ignoring use_responses_api "
+                    "(Responses API is only supported with api_key auth)."
+                )
+                use_responses_api = False
             if use_responses_api:
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     base_url=self._azure_v1_base_url(endpoint_url),
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
+                    default_headers=custom_headers,
                 )
             else:
-                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url, temperature=configured_temperature)
+                self.client = AzureClient(
+                    api_key=self.api_key,
+                    endpoint_url=endpoint_url,
+                    temperature=configured_temperature,
+                    default_headers=custom_headers,
+                    azure_ad_token_provider=azure_ad_token_provider,
+                )
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
@@ -195,7 +226,7 @@ class LLM:
             verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
-            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature)
+            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")
@@ -205,7 +236,7 @@ class LLM:
             if auth_mode == "api_key" and not self.api_key:
                 raise ValueError("Bedrock provider with auth_mode 'api_key' requires provider credentials")
 
-            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode}
+            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode, "extra_headers": custom_headers}
             if auth_mode == "api_key":
                 bedrock_kwargs["api_key"] = self.api_key
             elif auth_mode == "access_keys":
@@ -220,6 +251,41 @@ class LLM:
             self.client = BedrockClient(**bedrock_kwargs)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+    def _build_entra_token_provider(self, auth_mode: str, additional_config: dict):
+        """Build an AAD bearer-token provider for Azure OpenAI Entra ID auth.
+
+        'entra_client_secret' authenticates as a service principal from the
+        stored tenant/client ids + encrypted client secret; 'entra_default'
+        walks azure-identity's DefaultAzureCredential chain (managed identity,
+        workload identity, env vars, Azure CLI). get_bearer_token_provider
+        caches and refreshes tokens, so the provider stays valid past the
+        ~1h token lifetime for long-lived clients.
+        """
+        from azure.identity import (
+            ClientSecretCredential,
+            DefaultAzureCredential,
+            get_bearer_token_provider,
+        )
+
+        if auth_mode == "entra_client_secret":
+            tenant_id = additional_config.get("tenant_id")
+            client_id = additional_config.get("client_id")
+            try:
+                _, client_secret = self.model.provider.decrypt_credentials()
+            except Exception:
+                client_secret = None
+            if not tenant_id or not client_id or not client_secret:
+                raise ValueError(
+                    "Azure provider with auth_mode 'entra_client_secret' requires "
+                    "tenant_id, client_id, and a stored client_secret"
+                )
+            credential = ClientSecretCredential(
+                tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+            )
+        else:
+            credential = DefaultAzureCredential()
+        return get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
 
     @staticmethod
     def _azure_v1_base_url(endpoint_url: str) -> str:
