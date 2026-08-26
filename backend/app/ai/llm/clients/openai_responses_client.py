@@ -60,11 +60,14 @@ class OpenAIResponsesClient(LLMClient):
         base_url: Optional[str] = None,
         enable_web_search: bool = False,
         temperature: Optional[float] = None,
+        default_headers: Optional[dict[str, Any]] = None,
     ):
         super().__init__()
         client_kwargs: dict[str, Any] = {"api_key": api_key}
         if base_url:
             client_kwargs["base_url"] = base_url
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
         self.client = OpenAI(**client_kwargs)
         self.async_client = AsyncOpenAI(**client_kwargs)
         self.enable_web_search = enable_web_search

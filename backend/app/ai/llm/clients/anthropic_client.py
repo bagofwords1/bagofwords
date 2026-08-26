@@ -53,17 +53,20 @@ def _accepts_temperature(model_id: str) -> bool:
 
 
 class Anthropic(LLMClient):
-    def __init__(self, api_key: str, base_url: str = None, temperature: Optional[float] = None):
+    def __init__(self, api_key: str, base_url: str = None, temperature: Optional[float] = None,
+                 default_headers: Optional[dict] = None):
         super().__init__()
         # base_url was accepted but silently dropped here, so every caller got
         # api.anthropic.com no matter what it asked for. It is a real routing
         # input: Anthropic models hosted on Azure AI Foundry answer the same
         # Messages API under ``<resource>/anthropic/v1``.
-        kwargs = {"api_key": api_key}
+        client_kwargs: dict = {"api_key": api_key}
         if base_url:
-            kwargs["base_url"] = base_url
-        self.client = AnthropicAPI(**kwargs)
-        self.async_client = AsyncAnthropic(**kwargs)
+            client_kwargs["base_url"] = base_url
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
+        self.client = AnthropicAPI(**client_kwargs)
+        self.async_client = AsyncAnthropic(**client_kwargs)
         self.max_tokens = 32768
         # Admin-configured override, or the historical default. Either way the
         # _accepts_temperature gate stays authoritative: model families that
