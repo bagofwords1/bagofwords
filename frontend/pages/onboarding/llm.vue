@@ -356,7 +356,7 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
   // simple text fields (e.g. enable_web_search renders as an empty box) and
   // belong in the full provider settings, not the first-run setup. Mirrors the
   // filter in LLMProviderModalComponent.
-  let filtered = all.filter(f => f.key !== 'verify_ssl' && f.key !== 'enable_web_search' && f.key !== 'use_responses_api')
+  let filtered = all.filter(f => !['verify_ssl', 'enable_web_search', 'use_responses_api', 'headers', 'header_injection'].includes(f.key))
   if (providerType === 'openai') return filtered.filter(f => f.key !== 'base_url')
   if (providerType === 'bedrock') return filtered.filter(f => f.key === 'region')
   return filtered
