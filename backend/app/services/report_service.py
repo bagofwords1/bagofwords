@@ -766,9 +766,6 @@ class ReportService:
         return report_schema
 
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
-        # Extract widget data and remove it from report_data
-        widget_data = report_data.widget
-        del report_data.widget
         file_uuids = report_data.files or []
         del report_data.files
         data_source_ids = report_data.data_sources or []
@@ -2658,7 +2655,6 @@ class ReportService:
                         organization_id=str(ds.organization_id),
                         created_at=ds.created_at,
                         updated_at=ds.updated_at,
-                        context=ds.context,
                         description=ds.description,
                         summary=ds.summary,
                         is_active=ds.is_active,
@@ -2805,7 +2801,8 @@ class ReportService:
                     schema.forked_from_user_name = parent.user.name or parent.user.email
 
     async def _set_slug_for_report(self, db: AsyncSession, report: Report):
-        title_slug = report.title.replace(" ", "-").lower()
+        # title is optional on create — a missing/empty one must not 500 here.
+        title_slug = (report.title or "untitled").replace(" ", "-").lower()
         title_slug = "".join(e for e in title_slug if e.isalnum() or e == "-")
 
         _uuid = uuid.uuid4().hex[:4]
