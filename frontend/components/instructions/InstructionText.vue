@@ -3,7 +3,7 @@
     <template v-for="(segment, i) in segments" :key="i">
       <span
         v-if="segment.ref || segment.mention"
-        class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950 border border-indigo-100 text-[11px] font-sans font-medium text-indigo-700 align-baseline"
+        class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-indigo-50 dark:bg-indigo-400/[0.18] border border-indigo-100 dark:border-transparent text-[11px] font-sans font-medium text-indigo-700 dark:text-indigo-200 align-baseline"
       >
         <template v-if="segment.ref">
           <DataSourceIcon

@@ -38,6 +38,7 @@ class OpenAi(LLMClient):
         base_url: str = "https://api.openai.com/v1",
         verify_ssl: bool = True,
         temperature: Optional[float] = None,
+        default_headers: Optional[dict[str, str]] = None,
     ):
         super().__init__()
         # No temperature is sent unless one was explicitly configured. This
@@ -48,11 +49,15 @@ class OpenAi(LLMClient):
         # name-based detection can recognize an alias.
         self.temperature = temperature
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+        if default_headers:
+            kwargs["default_headers"] = default_headers
         if not verify_ssl:
             kwargs["http_client"] = httpx.Client(verify=verify_ssl)
         self.client = OpenAI(**kwargs)
 
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
+        if default_headers:
+            async_kwargs["default_headers"] = default_headers
         if not verify_ssl:
             async_kwargs["http_client"] = httpx.AsyncClient(verify=verify_ssl)
         self.async_client = AsyncOpenAI(**async_kwargs)

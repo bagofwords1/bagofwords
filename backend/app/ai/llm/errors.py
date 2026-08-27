@@ -25,9 +25,32 @@ ERROR_CODES = (
     "rate_limit",
     "quota",
     "context_length",
+    "model_not_found",
     "provider_error",
     "network",
     "unknown",
+)
+
+# ---- model not found -----------------------------------------------------
+#
+# A deployment/model/route that does not exist is permanent: the identical
+# request will fail identically forever. Separating it from provider_error
+# matters because provider_error is retryable — an unrouted model otherwise
+# burns the full retry budget (LLM facade, then planner, each with backoff)
+# and surfaces ~45s later as a silent stall instead of an immediate,
+# actionable "that model isn't there".
+_MODEL_NOT_FOUND_MARKERS = (
+    "deploymentnotfound",
+    "the api deployment for this resource does not exist",
+    "api_not_supported",
+    "requested api is currently not supported",
+    "model_not_found",
+    "does not exist or you do not have access to it",
+    "modelnotfound",
+    "could not find model",
+    "unknown model",
+    "invalid model",
+    "resourcenotfoundexception",
 )
 
 # ---- quota vs rate limit -------------------------------------------------
@@ -255,6 +278,26 @@ def classify(
             model=model,
             status=None,
             summary=f"Could not reach {provider}",
+            provider_message=provider_message,
+            request_id=request_id,
+            raw_tail=raw_tail,
+        )
+
+    # Model / deployment / route does not exist. Checked before the generic
+    # 4xx branch: both are 404s, but only this one is permanent, and the two
+    # differ in whether a retry is worth anything.
+    if any(t in pmsg_low or t in low for t in _MODEL_NOT_FOUND_MARKERS) or (
+        status == 404 and "notfound" in cls_name
+    ):
+        return LLMError(
+            code="model_not_found",
+            provider=provider,
+            model=model,
+            status=status,
+            summary=(
+                f"{provider} has no model '{model}' at this endpoint"
+                if model else f"{provider} could not find the requested model"
+            ),
             provider_message=provider_message,
             request_id=request_id,
             raw_tail=raw_tail,

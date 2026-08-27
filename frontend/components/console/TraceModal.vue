@@ -269,7 +269,7 @@
                                                 <span v-if="ins.category" class="text-[9px] px-1.5 py-0.5 rounded bg-gray-200 dark:bg-gray-800 text-gray-600 dark:text-gray-400 flex-shrink-0">{{ ins.category }}</span>
                                                 <span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
                                                       :class="ins.load_mode === 'always' ? 'bg-green-100 text-green-700' : ins.load_mode === 'intelligent' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600'">
-                                                    {{ ins.load_mode || 'always' }}
+                                                    {{ getLoadModeLabel(ins.load_mode) }}
                                                 </span>
                                             </div>
                                         </div>
@@ -520,6 +520,8 @@ import SearchInstructionsTool from '../tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '../tools/ReadInstructionTool.vue'
 import DataSourceIcon from '../DataSourceIcon.vue'
 import Spinner from '../Spinner.vue'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 const { isJudgeEnabled } = useOrgSettings()
 const { t } = useI18n()
 

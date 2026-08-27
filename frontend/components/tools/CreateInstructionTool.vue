@@ -82,7 +82,7 @@
               <span class="px-1.5 py-0.5 rounded text-[9px] font-medium"
                 :class="loadMode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
               >
-                {{ loadMode }}
+                {{ getLoadModeLabel(loadMode) }}
               </span>
             </div>
 
@@ -167,6 +167,8 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import { dispatchInstructionResolved, INSTRUCTION_RESOLVED_EVENT } from '~/composables/useTrackedChanges'
 
 const { t } = useI18n()
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 interface ToolExecution {
   id: string

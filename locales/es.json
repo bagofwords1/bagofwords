@@ -2557,12 +2557,18 @@
       "temperaturePlaceholder": "Predeterminado",
       "temperatureResetTooltip": "Restablecer al valor predeterminado del proveedor (no se envía temperatura)",
       "modelIdLabel": "ID del modelo",
+      "modelIdEditTooltip": "El identificador de despliegue o de modelo que se envía al proveedor. Editable en modelos personalizados de proveedores Azure, AWS Bedrock y personalizados (compatibles con OpenAI), donde el ID nombra algo creado por ti y no una entrada del catálogo.",
       "displayNameLabel": "Nombre visible",
       "displayNamePlaceholder": "Igual que el ID del modelo",
       "displayNameShort": "Nombre",
       "displayNameTooltip": "La etiqueta que se muestra en el selector de modelos. Solo para modelos personalizados: los nombres de los modelos predefinidos provienen del catálogo de modelos. Déjalo vacío para usar el ID del modelo.",
       "displayNameHint": "Etiqueta opcional que se muestra en el selector de modelos. Déjalo vacío para usar el ID del modelo.",
       "displayNameError": "No se pudo actualizar el nombre visible",
+      "modelIdError": "No se pudo actualizar el ID del modelo",
+      "azureEndpointPlaceholder": "p. ej. https://[recurso].openai.azure.com o https://[recurso].services.ai.azure.com",
+      "azureFoundryHint": "Se admiten tanto Azure OpenAI como Azure AI Foundry. El ID del modelo es el nombre de tu implementación.",
+      "responsesApiHint": "Usa la API de Responses en lugar de Chat Completions. Necesaria para la búsqueda web y solo disponible en las regiones que admiten la API de Responses.",
+      "responsesApiFoundryHint": "En Foundry solo se aplica a las implementaciones de OpenAI.",
       "colCost": "Coste ($/M)",
       "colRouting": "Enrutamiento",
       "autoRouter": "Enrutador automático",
@@ -3155,6 +3161,11 @@
     "setting.update_failed": "No se pudo actualizar la configuración",
     "query": {
       "failed_silently": "Una consulta falló, pero el código generado devolvió un resultado vacío en lugar de informarlo"
+    },
+    "llm": {
+      "model_id_required": "El ID del modelo no puede estar vacío",
+      "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
+      "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
     }
   },
   "email": {
@@ -3580,7 +3591,7 @@
       "awsSecretAccessKey": "Clave secreta de AWS",
       "awsSecretAccessKeyPlaceholder": "Introduce la clave secreta",
       "endpointUrl": "URL del endpoint",
-      "endpointPlaceholder": "p. ej. https://[recurso].openai.azure.com",
+      "endpointPlaceholder": "p. ej. https://[recurso].openai.azure.com o https://[recurso].services.ai.azure.com",
       "useDefaultBaseUrl": "Usar URL base predeterminada",
       "setCustomBaseUrl": "Establecer URL base personalizada",
       "baseUrl": "URL base (opcional)",

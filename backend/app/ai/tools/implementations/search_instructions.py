@@ -32,6 +32,67 @@ PENDING_BUILD_STATUSES = ("draft", "pending_approval")
 MAX_PENDING_DELTA_LENGTH = 200
 
 
+def _has_terminal_verdict(build, instruction_id: str, proposed_version_id) -> bool:
+    """True when this build's proposal for `instruction_id` was already decided.
+
+    A reject records its verdict on the BUILD (``rejected_hunks`` + a settled
+    marker); it never touches the instruction row, and a build keeps its
+    ``draft`` status afterwards. So "the build is pending" is not the same
+    question as "this proposal is still awaiting a decision", and only the
+    markers can tell them apart.
+    """
+    from app.services.instruction_service import InstructionService
+    iid = str(instruction_id)
+    if InstructionService._voided_marker_matches(build, iid):
+        return True
+    pv = str(proposed_version_id) if proposed_version_id else None
+    return InstructionService._settled_marker_matches(build, iid, pv)
+
+
+async def _decided_draft_ids(db, instruction_ids: list[str]) -> set[str]:
+    """Of `instruction_ids`, those whose every open proposal was already decided.
+
+    Used to keep reviewed-away drafts out of the search results. A rejected
+    suggestion leaves its instruction row behind as a ``draft`` that no
+    build-scoped surface renders — without this the tool hands the agent
+    instructions the reviewer threw away, and the agent reports them as
+    existing ("it is already in the system") and declines to re-create them.
+
+    Deliberately one-directional: an id is returned only when a verdict is
+    positively proven. A draft with no pending build at all is left alone —
+    unexplained state must not make an instruction vanish from the agent's view.
+    """
+    ids = [str(i) for i in instruction_ids if i]
+    if not ids:
+        return set()
+    try:
+        from sqlalchemy import select
+        from app.models.build_content import BuildContent
+        from app.models.instruction_build import InstructionBuild
+
+        rows = (await db.execute(
+            select(BuildContent.instruction_id, BuildContent.instruction_version_id, InstructionBuild)
+            .join(InstructionBuild, BuildContent.build_id == InstructionBuild.id)
+            .where(
+                BuildContent.instruction_id.in_(ids),
+                InstructionBuild.deleted_at.is_(None),
+                InstructionBuild.status.in_(PENDING_BUILD_STATUSES),
+            )
+        )).all()
+        seen: set[str] = set()
+        live: set[str] = set()
+        for instruction_id, version_id, build in rows:
+            key = str(instruction_id)
+            seen.add(key)
+            if not _has_terminal_verdict(build, instruction_id, version_id):
+                live.add(key)
+        return seen - live
+    except Exception as e:
+        # Fail open: a broken filter must not hide instructions that exist.
+        logger.warning(f"Failed to resolve decided instruction drafts: {e}")
+        return set()
+
+
 def _pending_delta(live_text: str, staged_text: str) -> str | None:
     """What ``staged_text`` adds on top of ``live_text``, clamped.
 
@@ -68,7 +129,7 @@ async def _load_pending_edits(db, live_text_by_id: dict, current_build_id=None) 
         from app.models.instruction_build import InstructionBuild
 
         rows = (await db.execute(
-            select(BuildContent.instruction_id, InstructionVersion, InstructionBuild.id)
+            select(BuildContent.instruction_id, InstructionVersion, InstructionBuild)
             .join(
                 InstructionVersion,
                 BuildContent.instruction_version_id == InstructionVersion.id,
@@ -81,7 +142,13 @@ async def _load_pending_edits(db, live_text_by_id: dict, current_build_id=None) 
         )).all()
 
         out: dict = {}
-        for instruction_id, version, build_id in rows:
+        for instruction_id, version, build in rows:
+            # An accepted/rejected proposal is not "awaiting approval" — the
+            # build stays `draft` after the verdict, so status alone would
+            # keep advertising a decided suggestion as a pending edit.
+            if _has_terminal_verdict(build, instruction_id, getattr(version, "id", None)):
+                continue
+            build_id = build.id
             key = str(instruction_id)
             is_current = bool(current_build_id) and str(build_id) == str(current_build_id)
             # A suggestion from this session takes precedence — it is the one
@@ -368,6 +435,26 @@ class SearchInstructionsTool(Tool):
                         if str(row.id) not in seen_ids:
                             candidates.append(row)
                             candidate_total += 1
+
+            # Drafts the reviewer already decided on are gone from every
+            # build-scoped surface, but their rows survive a reject — so the
+            # two branches above can re-surface a suggestion the user threw
+            # away, which the agent then reports as an existing instruction
+            # ("it is already in the system") and refuses to re-create.
+            # Published rows are live by definition and never filtered here.
+            if not chat_mode:
+                draft_ids = [
+                    str(c.id) for c in candidates
+                    if getattr(c, "status", None) == "draft" and getattr(c, "id", None)
+                ]
+                if draft_ids:
+                    decided_ids = await _decided_draft_ids(db, draft_ids)
+                    kept = [
+                        c for c in candidates
+                        if getattr(c, "status", None) != "draft" or str(c.id) not in decided_ids
+                    ]
+                    candidate_total -= len(candidates) - len(kept)
+                    candidates = kept
 
             # --- Apply patterns (union) ---
             # Haystack includes the instruction id so UUID/fragment queries
