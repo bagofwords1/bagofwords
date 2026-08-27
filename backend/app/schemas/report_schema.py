@@ -1,6 +1,6 @@
 from pydantic import BaseModel, field_validator
 from typing import List, Optional, Literal
-from .widget_schema import WidgetSchema, WidgetCreate
+from .widget_schema import WidgetSchema
 from app.schemas.user_schema import UserSchema
 from datetime import datetime
 from app.schemas.data_source_schema import DataSourceReportSchema
@@ -12,7 +12,6 @@ class ReportBase(BaseModel):
     title: Optional[str] = None
 
 class ReportCreate(ReportBase):
-    widget: Optional[WidgetCreate] = None
     files: Optional[List[str]] = []
     data_sources: Optional[List[str]] = []
     external_platform_id: Optional[str] = None

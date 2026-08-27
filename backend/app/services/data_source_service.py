@@ -272,6 +272,7 @@ class DataSourceService:
         legacy_count_by_ds: dict | None = None,
         include_indexing_events: bool = True,
         include_table_counts: bool = True,
+        include_config: bool = True,
         cred_index=None,  # connection_identity.UserCredentialIndex
     ) -> List[ConnectionEmbedded]:
         """
@@ -302,6 +303,14 @@ class DataSourceService:
         one (connection_identity.UserCredentialIndex) across every agent they
         are about to return, so the per-user credential lookups don't repeat
         per connection.
+
+        ``include_config=False`` omits the connection config from the payload.
+        List endpoints (/data_sources, /data_sources/active, public listings)
+        are reachable by every org member and pass False: config carries
+        internal topology (server URLs, MCP static headers, header/metadata
+        injection rules) that belongs on the manage-gated surfaces only
+        (/connections/{id}, /data_sources/{id}/connections, the detail view).
+        connector_key is unaffected — it is derived here before serialization.
         """
         from app.schemas.data_source_registry import data_shape_for
         if not data_source.connections:
@@ -493,7 +502,7 @@ class DataSourceService:
                 type=conn.type,
                 auth_policy=conn.auth_policy,
                 allowed_user_auth_modes=conn.allowed_user_auth_modes,
-                config=conn.config if isinstance(conn.config, dict) else json.loads(conn.config) if conn.config else {},
+                config=(conn.config if isinstance(conn.config, dict) else json.loads(conn.config) if conn.config else {}) if include_config else None,
                 is_active=conn.is_active,
                 last_synced_at=conn.last_synced_at,
                 user_status=user_status,
@@ -1431,6 +1440,7 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                include_config=False,
                 cred_index=cred_index,
             )
             conn = d.connections[0] if d.connections else None
@@ -1677,6 +1687,7 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                include_config=False,
                 include_table_counts=False,
                 cred_index=cred_index,
             )
@@ -1781,6 +1792,7 @@ class DataSourceService:
                 table_count_by_conn=table_count_by_conn,
                 legacy_count_by_ds=legacy_count_by_ds,
                 include_indexing_events=False,
+                include_config=False,
             )
 
             s = DataSourceListItemSchema(
