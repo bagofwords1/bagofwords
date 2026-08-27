@@ -969,6 +969,15 @@ onUnmounted(() => {
     blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
     table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
     table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
+
+    /* useMarkdownAutoDir stamps an explicit dir (dominant-direction estimate)
+       on these blocks; once stamped, isolate replaces plaintext so the stamped
+       dir governs alignment — plaintext keeps re-resolving from the first
+       strong character, which is exactly what mis-aligns an RTL sentence that
+       opens with a Latin token (see composables/useMarkdownAutoDir.ts). */
+    :where(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, table):is([dir="rtl"], [dir="ltr"]) {
+        unicode-bidi: isolate;
+    }
 }
 
 /* Fade transitions */
