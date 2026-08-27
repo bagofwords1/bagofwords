@@ -23,6 +23,7 @@ def _assert_data_sources_sanitized(report: dict):
 
 @pytest.mark.e2e
 def test_report_responses_omit_connection_internals(
+    test_client,
     create_data_source,
     create_report,
     get_report,
@@ -69,6 +70,17 @@ def test_report_responses_omit_connection_internals(
     listed = get_reports(user_token=user_token, org_id=org_id)
     for report in listed.get("reports", listed if isinstance(listed, list) else []):
         _assert_data_sources_sanitized(report)
+
+    # Member-reachable data source list endpoints must not embed connection
+    # config either — it belongs on the manage-gated surfaces only.
+    headers = {"Authorization": f"Bearer {user_token}", "X-Organization-Id": str(org_id)}
+    for path in ("/api/data_sources", "/api/data_sources/active?include_unconnected=true"):
+        response = test_client.get(path, headers=headers)
+        assert response.status_code == 200, response.json()
+        for item in response.json():
+            for conn in item.get("connections", []):
+                assert not conn.get("config"), f"{path} leaks connection config: {conn}"
+                assert "credentials" not in conn
 
 
 @pytest.mark.e2e
