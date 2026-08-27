@@ -556,6 +556,19 @@ def ext_for_mime(mime: Optional[str]) -> Optional[str]:
 _RENDERABLE_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"}
 
 
+def is_picture_name(name: Optional[str]) -> bool:
+    """True when this name is a picture the browser can render as-is.
+
+    Distinguishes "the source IS an image" from "the source was RENDERED to
+    images": a page render of a PDF is a new artifact, while a re-encoded PNG
+    is the same file the user already has. Callers use it to decide whether a
+    materialized image id may stand in for the source file id.
+    """
+    leaf = str(name or "").rsplit("/", 1)[-1]
+    ext = leaf.rsplit(".", 1)[-1].lower() if "." in leaf else ""
+    return ext in _RENDERABLE_IMAGE_EXTS
+
+
 def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 150):
     """Turn a *binary* file payload into page images for a vision model.
 
@@ -640,6 +653,55 @@ def allow_llm_see_data(runtime_ctx: Dict[str, Any]) -> bool:
 # Hard cap on auto-attach size. Larger files still return content inline but
 # don't get persisted — the agent should reach for a more specific reader.
 _ATTACH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
+
+# Hard cap on the ORIGINAL bytes kept so the UI can show the real document.
+# Deliberately below _ATTACH_MAX_BYTES: the preview copy is a convenience, and
+# a 40 MB scan is not worth a second copy on disk plus a full browser download
+# just to render one page. Oversize sources fall back to an on-demand fetch.
+_PREVIEW_MAX_BYTES = 25 * 1024 * 1024  # 25 MB
+
+
+async def read_source_bytes(client, file_id: str) -> Tuple[bytes, str, Optional[str]]:
+    """The file's ORIGINAL bytes + name + mime, unparsed.
+
+    Prefers the client's raw-bytes reader so callers persist a real .pdf/.xlsx
+    instead of a reparsed copy, and falls back to serializing whatever
+    ``read_file`` returns for clients that expose no such reader.
+
+    Clients disagree on the return shape — network_dir/s3/graph_drive/
+    google_drive hand back ``(bytes, name, mime)`` while OneNote returns bare
+    bytes — so normalize it here. Unpacking the bare-bytes form into three
+    names is a TypeError, which is exactly why this belongs in one place.
+    """
+    leaf = str(file_id or "").rsplit("/", 1)[-1] or "file"
+    if hasattr(client, "read_raw_bytes"):
+        import asyncio
+
+        raw = await asyncio.to_thread(client.read_raw_bytes, file_id)
+        if isinstance(raw, tuple):
+            content = raw[0]
+            name = raw[1] if len(raw) > 1 else ""
+            mime = raw[2] if len(raw) > 2 else None
+            return content, (name or leaf), mime
+        return raw, leaf, None
+
+    # No raw reader: reparse and serialize, so the caller still gets bytes.
+    import json
+
+    payload = await client.aread_file(file_id)
+    if isinstance(payload, pd.DataFrame):
+        buf = io.StringIO()
+        payload.to_csv(buf, index=False)
+        return buf.getvalue().encode("utf-8"), f"{leaf}.csv", "text/csv"
+    if isinstance(payload, (dict, list)):
+        return (
+            json.dumps(payload, default=str).encode("utf-8"),
+            f"{leaf}.json",
+            "application/json",
+        )
+    if isinstance(payload, (bytes, bytearray)):
+        return bytes(payload), leaf, None
+    return str(payload).encode("utf-8"), f"{leaf}.txt", "text/plain"
 
 
 async def _find_cached_connector_file(
@@ -841,4 +903,88 @@ async def attach_drive_file_to_session(
             await db.rollback()
         except Exception:
             pass
+        return None
+
+
+async def persist_source_document(
+    runtime_ctx: Dict[str, Any],
+    client,
+    file_id: str,
+    *,
+    connection_id: Optional[str] = None,
+    session_file=None,
+    raw_bytes: Optional[bytes] = None,
+    raw_name: Optional[str] = None,
+    raw_mime: Optional[str] = None,
+    reuse_existing: bool = False,
+) -> Optional[str]:
+    """File id holding the ORIGINAL document bytes, for the UI's viewer.
+
+    The session file a read normally produces is a DERIVATIVE — a PDF whose text
+    extracted becomes ``report.pdf.txt``, an xlsx becomes ``sales.csv`` — so it
+    is useless to an <iframe>. This keeps the real bytes alongside it, which is
+    what ``/files/{id}/embed#page=N`` needs to open the document at the page the
+    model actually read.
+
+    Session-file sources short-circuit: the original IS already a File, so its
+    own id comes back instead of a duplicate row.
+
+    ``source_ref`` deliberately differs from the rendered copy's (a bare
+    ``file_id``). attach_drive_file_to_session refreshes in place on a
+    (report, connection, ref) hit, so sharing the ref would overwrite the
+    .txt/.csv row the model was handed — silently breaking inspect_data /
+    create_data on the very id it is holding.
+
+    ``raw_bytes`` is the bytes the read ALREADY fetched (see DocumentText) —
+    always pass them when available. Without them this has to fetch the object
+    again, which on S3/SharePoint means downloading the whole file twice.
+
+    ``reuse_existing`` is for the content-cache hit path, where a matching
+    file_version proves the remote object is unchanged: an existing copy is
+    therefore still faithful and can be reused without any fetch at all.
+
+    Best-effort by contract: returns None and never raises when the source is
+    oversize, unreachable, or there is no report context. A missing preview must
+    never fail a read.
+    """
+    if session_file is not None:
+        return str(session_file.id)
+    try:
+        if reuse_existing and raw_bytes is None:
+            db = runtime_ctx.get("db")
+            report = runtime_ctx.get("report")
+            if db is not None and report is not None:
+                existing = await _find_cached_connector_file(
+                    db, report=report, connection_id=connection_id,
+                    source_ref=f"{file_id}#source", source_kind="connector",
+                )
+                if existing is not None:
+                    return str(existing.id)
+            # Nothing kept for THIS report yet — the content cache is keyed on
+            # (connection, file, version) and shared across reports, so a hit
+            # there says nothing about this report's files. Fall through and
+            # fetch once to seed it.
+        if raw_bytes is None:
+            raw_bytes, raw_name, raw_mime = await read_source_bytes(client, file_id)
+        if not raw_bytes:
+            return None
+        if len(raw_bytes) > _PREVIEW_MAX_BYTES:
+            logger.info(
+                "persist_source_document: %s skipped (%.1f MB > %d MB preview cap)",
+                file_id,
+                len(raw_bytes) / (1024 * 1024),
+                _PREVIEW_MAX_BYTES // (1024 * 1024),
+            )
+            return None
+        name = raw_name or str(file_id or "").rsplit("/", 1)[-1] or "file"
+        return await attach_drive_file_to_session(
+            runtime_ctx,
+            filename=name,
+            content_bytes=raw_bytes,
+            mime_type=raw_mime,
+            connection_id=connection_id,
+            source_ref=f"{file_id}#source",
+        )
+    except Exception as e:
+        logger.warning("persist_source_document: failed for %s: %s", file_id, e)
         return None

@@ -1526,6 +1526,16 @@
       "moreShown": "+{count} more shown to the agent",
       "filesSkippedSingular": "{count} file skipped ({reasons})",
       "filesSkippedPlural": "{count} files skipped ({reasons})"
+    },
+    "readFile": {
+      "reading": "Reading {name}…",
+      "read": "Read {name}",
+      "rowsCols": "{rows} rows × {cols} cols",
+      "truncated": "truncated",
+      "pages": "pages {shown}",
+      "pagesOfTotal": "pages {shown} / {total}",
+      "pathLabel": "Path:",
+      "attachedAsSessionFile": "Attached to this conversation as session file"
     }
   },
   "entityCreate": {
@@ -4732,5 +4742,14 @@
     "createButton": "Create webhook",
     "defaultName": "Webhook",
     "sourceGeneric": "Generic"
+  },
+  "filePreview": {
+    "unavailable": "Preview unavailable",
+    "document": "Document",
+    "pageN": "Page {n}",
+    "ofTotalPages": "{n} of {total} pages",
+    "showingRows": "Showing {n} of {total} rows",
+    "openInPanel": "Open in side panel",
+    "closeFilePanel": "Close file"
   }
 }

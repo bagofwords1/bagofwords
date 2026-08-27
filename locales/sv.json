@@ -1488,6 +1488,16 @@
       "snapshotted": "Läste sidan",
       "snapshotting": "Läser sidan",
       "working": "Surfar"
+    },
+    "readFile": {
+      "reading": "Läser {name}…",
+      "read": "Läste {name}",
+      "rowsCols": "{rows} rader × {cols} kolumner",
+      "truncated": "avkortad",
+      "pages": "sidor {shown}",
+      "pagesOfTotal": "sidor {shown} / {total}",
+      "pathLabel": "Sökväg:",
+      "attachedAsSessionFile": "Bifogad till denna konversation som sessionsfil"
     }
   },
   "entityCreate": {
@@ -4736,5 +4746,14 @@
     "createButton": "Skapa webhook",
     "defaultName": "Webhook",
     "sourceGeneric": "Allmän"
+  },
+  "filePreview": {
+    "unavailable": "Förhandsgranskning ej tillgänglig",
+    "document": "Dokument",
+    "pageN": "Sida {n}",
+    "ofTotalPages": "{n} av {total} sidor",
+    "showingRows": "Visar {n} av {total} rader",
+    "openInPanel": "Öppna i sidopanelen",
+    "closeFilePanel": "Stäng filen"
   }
 }

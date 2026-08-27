@@ -5,6 +5,8 @@ from sqlalchemy import select
 from app.dependencies import get_db
 from typing import Optional
 import os
+import re
+from urllib.parse import quote
 
 from app.services.file_service import FileService
 from app.schemas.file_schema import FileSchema, FileSchemaWithMetadata, FileSchemaWithCompletionId
@@ -125,6 +127,34 @@ async def remove_file_from_report(file_id: str, report_id: str, current_user: Us
     )
     return result
 
+def _content_disposition(kind: str, filename: str) -> str:
+    """A Content-Disposition value that survives a non-Latin filename.
+
+    HTTP headers are latin-1, so interpolating a Hebrew / Cyrillic / CJK name
+    straight into `filename="…"` raises UnicodeEncodeError inside the ASGI
+    server and turns a perfectly readable file into a 500. That is exactly what
+    an <iframe> preview of "סקירת אלבומים ומכירות.pdf" hit.
+
+    Emit both RFC 6266 forms: a transliterated `filename=` that any client can
+    parse, plus `filename*=UTF-8''…` carrying the real name for those that
+    understand it. Same shape the report / agent-export / step download routes
+    already use. Transliteration can strip a name down to nothing but its
+    extension (".pdf"), which browsers save as a hidden extensionless file — so
+    a stem with no letters or digits left is replaced outright.
+    """
+    name = filename or "file"
+    # A stray double quote would terminate the quoted-string early and corrupt
+    # the header, so it goes before anything else looks at the name.
+    ascii_name = name.encode("ascii", "ignore").decode("ascii").strip().replace('"', "")
+    stem, dot, _ = ascii_name.rpartition(".")
+    if not dot:
+        stem = ascii_name
+    if not re.search(r"[A-Za-z0-9]", stem):
+        ext = name.rpartition(".")[2]
+        ascii_name = f"file.{ext}" if ext.isalnum() else "file"
+    return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8\'\'{quote(name)}"
+
+
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')
 async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
@@ -184,7 +214,7 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
         content=content,
         media_type=file.content_type,
         headers={
-            "Content-Disposition": f'attachment; filename="{file.filename}"',
+            "Content-Disposition": _content_disposition("attachment", file.filename),
         },
     )
 
@@ -265,7 +295,7 @@ async def get_file_embed(
         media_type=file.content_type or "application/octet-stream",
         headers={
             # inline so <img>/<iframe> render it rather than downloading
-            "Content-Disposition": f'inline; filename="{file.filename or file_id}"',
+            "Content-Disposition": _content_disposition("inline", file.filename or file_id),
             "Cache-Control": "private, max-age=300",
         },
     )

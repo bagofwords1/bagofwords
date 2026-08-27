@@ -507,6 +507,13 @@ def build_tool_context_summary(
             "image_file_ids",
             "pages_total",
             "pages_shown",
+            # The UI render contract (ReadFilePreview). Report read endpoints
+            # serve THIS projection rather than result_json, so a field missing
+            # here is invisible to the card no matter what the tool returned —
+            # which is exactly how the document preview vanished the moment a
+            # completed turn was refetched. Bounded: seven scalars, unlike the
+            # text/csv excerpts truncated below.
+            "preview",
             "error",
         ):
             if result_json.get(field) is not None:

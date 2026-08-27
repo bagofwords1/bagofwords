@@ -29,6 +29,8 @@ from ._file_tool_common import (
     attached_file_connections,
     audit_file_access_denied,
     describe_file_connections,
+    is_picture_name,
+    persist_source_document,
     render_file_images,
     render_file_payload,
     render_pdf_pages_images,
@@ -140,6 +142,68 @@ def _content_details(output: Dict[str, Any], *, max_chars: int) -> str:
         bits.append(f"full file is attached as session_file_id={sfid} (use inspect_data to analyze it)")
     bits.append("page the rest with windowed reads (offset/length) — do NOT re-run the same read")
     return shown + "\n[" + "; ".join(bits) + "]"
+
+
+def _build_preview(output: Dict[str, Any], *, preview_file_id: Optional[str],
+                   first_image_mime: Optional[str] = None) -> Dict[str, Any]:
+    """The UI contract for this read (see ReadFilePreview).
+
+    A DOCUMENT always beats its page renders: when a scanned PDF is rasterized
+    so a vision model can read it, the user is still shown the real PDF opened
+    at the page in question, not the PNG the model saw. `preview_file_id` is
+    only ever passed when it holds the ORIGINAL bytes.
+
+    Every branch returns the SAME keys — the frontend reads this as a fixed
+    shape, so an absent id must be an explicit null, not a missing field.
+    """
+    preview: Dict[str, Any] = {
+        "kind": "none",
+        "file_id": None,
+        "mime": None,
+        "target_page": None,
+        "pages_total": output.get("pages_total"),
+        "image_file_ids": None,
+        "truncated": False,
+    }
+
+    # page_range reports "10-15"; the viewer opens at the first of them.
+    target_page = None
+    shown = output.get("pages_shown")
+    if shown:
+        try:
+            target_page = int(str(shown).split("-", 1)[0])
+        except (TypeError, ValueError):
+            target_page = None
+
+    if preview_file_id and _doc_ext(output.get("file_name") or "") == "pdf":
+        preview.update({
+            "kind": "pdf",
+            "file_id": preview_file_id,
+            "mime": "application/pdf",
+            "target_page": target_page or 1,
+        })
+        return preview
+
+    image_ids = output.get("image_file_ids") or []
+    if image_ids:
+        pages_total = preview["pages_total"]
+        preview.update({
+            "kind": "image",
+            "file_id": image_ids[0],
+            "mime": first_image_mime or "image/png",
+            "image_file_ids": image_ids,
+            # Renders are capped (render_file_images max_pages), so a gallery
+            # showing fewer pages than the document has must say so.
+            "truncated": bool(pages_total and len(image_ids) < pages_total),
+        })
+        return preview
+
+    ct = output.get("content_type")
+    if ct == "tabular":
+        preview.update({"kind": "table", "truncated": bool(output.get("truncated"))})
+    elif ct in ("text", "json"):
+        preview.update({"kind": "text", "truncated": bool(output.get("truncated"))})
+    return preview
 
 
 class ReadFileTool(Tool):
@@ -380,7 +444,8 @@ class ReadFileTool(Tool):
                 and allow_llm_see_data(runtime_ctx)
             ):
                 import asyncio as _asyncio
-                import base64 as _b64
+
+                raw_bytes = None
                 try:
                     raw = await _asyncio.to_thread(client.read_raw_bytes, data.file_id)
                     raw_bytes = raw[0] if isinstance(raw, tuple) else raw
@@ -388,63 +453,70 @@ class ReadFileTool(Tool):
                 except Exception as e:
                     imgs, total = [], paged.get("pages_total")
                 if imgs:
-                    output = {
-                        "success": True,
-                        "connection_id": data.connection_id,
-                        "file_id": data.file_id,
-                        "content_type": "images",
-                        "image_count": len(imgs),
-                        "pages_total": total,
-                        "pages_shown": shown,
-                        "path": _display_path(data.file_id, client if session_file is not None else None) or None,
-                    }
-                    blocks = [
-                        {"data": _b64.b64encode(png).decode("utf-8"),
-                         "media_type": mtype, "source_type": "base64"}
-                        for png, mtype in imgs
-                    ]
                     reason = (
                         "as_images requested" if data.as_images
                         else "garbled text layer" if doc_text_is_usable(paged.get("text"))
                         else "no extractable text"
                     )
+                    # Keep the ORIGINAL document so the UI can open it at the
+                    # page that was read. The page PNGs stay vision-only — they
+                    # ride the observation as base64 and are NOT materialized
+                    # (attach_images=False), so paging through a long PDF can't
+                    # mint a File row per page.
+                    source_file_id = await persist_source_document(
+                        runtime_ctx, client, data.file_id,
+                        connection_id=data.connection_id,
+                        session_file=session_file,
+                        raw_bytes=raw_bytes,
+                    )
+                    output, observation = await self._finalize(
+                        data, runtime_ctx,
+                        rendered={"content_type": "binary", "pages_shown": shown},
+                        session_file_id=source_file_id,
+                        image_pngs=[png for png, _mtype in imgs],
+                        pages_total=total,
+                        cached=False,
+                        source_name=(
+                            getattr(client, "display_name", None)
+                            if session_file is not None else None
+                        ),
+                        attach_images=False,
+                        summary_note=reason,
+                        preview_file_id=source_file_id,
+                    )
                     yield ToolEndEvent(type="tool.end", payload={
-                        "output": output,
-                        "observation": {
-                            "summary": (
-                                f"Read pages {shown} of {total} from {data.file_id} "
-                                f"as image(s) for vision ({reason})"
-                            ),
-                            "success": True,
-                            "images": blocks,
-                        },
+                        "output": output, "observation": observation,
                     })
                     return
 
-            output = {
-                "success": True,
-                "connection_id": data.connection_id,
-                "file_id": data.file_id,
-                "content_type": "text",
-                "text": paged.get("text") or "",
-                "pages_total": paged.get("pages_total"),
-                "pages_shown": shown,
-                "path": _display_path(data.file_id, client if session_file is not None else None) or None,
-            }
-            name = (
-                getattr(client, "display_name", None) if session_file is not None
-                else _name_from_path_id(data.file_id)
+            # Same deal for a text page read: the slice goes to the model, the
+            # whole document is kept so the card can open it at that page.
+            # Deliberately no cache write — the cache key carries no page
+            # dimension, so storing a slice under the whole-file key would
+            # later be served back as the entire file.
+            source_file_id = await persist_source_document(
+                runtime_ctx, client, data.file_id,
+                connection_id=data.connection_id,
+                session_file=session_file,
             )
-            if name:
-                output["file_name"] = name
-            summary = (
-                f"Read pages {shown} of {paged.get('pages_total')} from {data.file_id}"
+            output, observation = await self._finalize(
+                data, runtime_ctx,
+                rendered={
+                    "content_type": "text",
+                    "text": paged.get("text") or "",
+                    "pages_total": paged.get("pages_total"),
+                    "pages_shown": shown,
+                },
+                session_file_id=source_file_id,
+                image_pngs=[],
+                pages_total=paged.get("pages_total"),
+                cached=False,
+                source_name=(
+                    getattr(client, "display_name", None)
+                    if session_file is not None else None
+                ),
+                preview_file_id=source_file_id,
             )
-            observation = {"summary": summary, "success": True}
-            if allow_llm_see_data(runtime_ctx):
-                details = _content_details(output, max_chars=_OBS_DETAILS_MAX_CHARS)
-                if details:
-                    observation["details"] = details
             yield ToolEndEvent(type="tool.end", payload={
                 "output": output, "observation": observation,
             })
@@ -495,10 +567,27 @@ class ReadFileTool(Tool):
                 session_file_id = await self._persist_rendered_session(
                     runtime_ctx, data.file_id, rendered,
                     connection_id=getattr(data, "connection_id", None))
+                # The cached entry carries the source's real name (opaque Graph
+                # ids have none of their own), which is what says whether there
+                # is a document worth showing.
+                cached_name = rendered.get("file_name") or _name_from_path_id(data.file_id)
+                if _doc_ext(cached_name or "") == "pdf":
+                    # A cache hit means file_version matched, so a copy already
+                    # kept for THIS report is still faithful — reuse it with no
+                    # fetch. The content cache is shared across reports, so a
+                    # report seeing this file for the first time still fetches.
+                    preview_file_id = await persist_source_document(
+                        runtime_ctx, client, data.file_id,
+                        connection_id=data.connection_id,
+                        session_file=session_file,
+                        reuse_existing=True,
+                    )
+                else:
+                    preview_file_id = None
                 output, observation = await self._finalize(
                     data, runtime_ctx, rendered=rendered, session_file_id=session_file_id,
                     image_pngs=cached.get("image_bytes") or [], pages_total=cached.get("pages_total"),
-                    cached=True,
+                    cached=True, preview_file_id=preview_file_id,
                 )
                 yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
                 return
@@ -515,6 +604,14 @@ class ReadFileTool(Tool):
                 err = _fte(self._operation_name, _cn, e)
             yield self._fail_read(data, err)
             return
+
+        # The connector handed us the source bytes alongside the extracted text
+        # (DocumentText), from the one and only fetch. Captured here because the
+        # garbled-text escalation below reassigns `payload`. Re-downloading a
+        # 20 MB object from S3/SharePoint just to render a preview is not an
+        # acceptable cost, so this is the ONLY place the bytes come from.
+        source_raw = getattr(payload, "raw", None)
+        source_raw_mime = getattr(payload, "mime", "") or None
 
         # Note pages (OneNote) are text PLUS embedded media. The images are
         # separate Graph resources, not bytes inside the payload, so — unlike
@@ -533,8 +630,17 @@ class ReadFileTool(Tool):
             note_path = payload.get("path") or None
             payload = payload.get("text") or ""
 
+        # Dispatch on the file's real NAME. Opaque provider ids (Graph) carry no
+        # extension, so without the connector-supplied name a scanned PDF from
+        # SharePoint reached the renderer unidentifiable and never rendered —
+        # and the output carried no file_name for the UI to key off either.
+        render_name = (
+            getattr(client, "display_name", None) if session_file is not None
+            else payload_name(payload, data.file_id)
+        )
         rendered = render_file_payload(
-            name=None, payload=payload, max_rows=data.max_rows, max_chars=data.max_chars
+            name=render_name, payload=payload,
+            max_rows=data.max_rows, max_chars=data.max_chars,
         )
 
         # Garbled-text escalation for rich documents. Extraction can "succeed"
@@ -547,13 +653,6 @@ class ReadFileTool(Tool):
         # docx/pptx through LibreOffice; previously this was PDF-only, so
         # as_images on a Word file was silently a no-op.
         garble_note: Optional[str] = None
-        # Dispatch on the file's real NAME. Opaque provider ids (Graph) carry no
-        # extension, so without the connector-supplied name a scanned PDF from
-        # SharePoint reached the renderer unidentifiable and never rendered.
-        render_name = (
-            getattr(client, "display_name", None) if session_file is not None
-            else payload_name(payload, data.file_id)
-        )
         # Images rendered during escalation, reused below rather than rendered
         # twice — a LibreOffice conversion is far too expensive to repeat.
         prerendered: Optional[tuple] = None
@@ -605,7 +704,7 @@ class ReadFileTool(Tool):
                 if imgs:
                     payload = raw_bytes
                     rendered = {
-                        "file_name": rendered.get("file_name"),
+                        "file_name": rendered.get("file_name") or render_name,
                         "content_type": "binary",
                         "byte_count": len(raw_bytes),
                         "truncated": False,
@@ -632,6 +731,26 @@ class ReadFileTool(Tool):
                 runtime_ctx, file_id=data.file_id, payload=payload,
                 connection_id=getattr(data, "connection_id", None),
             )
+
+        # What the UI can actually open. A session file IS the upload, and a
+        # binary read already persisted the real bytes — both are viewable as
+        # they stand. A text-extracted document is the gap: its session file is
+        # a .txt derivative, so keep the original alongside it, reusing the
+        # bytes the read already fetched.
+        if session_file is not None or rendered.get("content_type") == "binary":
+            preview_file_id = session_file_id
+        elif _doc_ext(render_name) == "pdf":
+            preview_file_id = await persist_source_document(
+                runtime_ctx, client, data.file_id,
+                connection_id=data.connection_id,
+                raw_bytes=source_raw,
+                raw_name=render_name,
+                raw_mime=source_raw_mime or "application/pdf",
+            )
+        else:
+            # Office documents need a LibreOffice conversion before a browser
+            # can show them; that runs on demand, not on every read.
+            preview_file_id = None
 
         # Vision fallback: a file that couldn't be turned into text (scanned /
         # image-based / CID-font PDF, or a picture) comes back as binary — render
@@ -663,6 +782,13 @@ class ReadFileTool(Tool):
             ),
             attach_images=(session_file is None),
             summary_note=garble_note,
+            source_is_image=is_picture_name(render_name),
+            # Only when session_file_id holds the ORIGINAL bytes: a session file
+            # IS the upload, and a binary render persisted the real file. A
+            # text/tabular connector read stored a .txt/.csv derivative instead,
+            # which no viewer can open — that gap closes when connector
+            # documents get their originals kept.
+            preview_file_id=preview_file_id,
         )
 
         # Populate the cache. Skip un-rendered binary so a later vision-capable
@@ -677,7 +803,8 @@ class ReadFileTool(Tool):
         ):
             cache_rendered = {
                 k: v for k, v in output.items()
-                if k not in ("success", "connection_id", "file_id", "session_file_id", "image_file_ids")
+                if k not in ("success", "connection_id", "file_id", "session_file_id",
+                             "image_file_ids", "preview")
             }
             _file_cache.write(
                 data.connection_id, data.file_id, version,
@@ -737,12 +864,18 @@ class ReadFileTool(Tool):
 
     async def _finalize(self, data, runtime_ctx, *, rendered, session_file_id,
                         image_pngs, pages_total, cached, source_name=None,
-                        attach_images=True, summary_note=None):
+                        attach_images=True, summary_note=None,
+                        source_is_image=False, preview_file_id=None):
         """Assemble the tool output + observation from a rendered payload and any
         page images. Shared by the fresh-read and cache-hit paths so both emit an
         identical shape. Materializes page images as session files (unless the
         source is itself a session file — attach_images=False) and, when the
-        model supports vision, attaches them as observation image blocks."""
+        model supports vision, attaches them as observation image blocks.
+
+        ``source_is_image`` says the SOURCE is a picture, not merely that it was
+        rendered to one — see the image_file_ids fallback below.
+        ``preview_file_id`` is the File id holding the ORIGINAL document, when
+        one was kept; it is what lets the UI show a .pdf rather than a render."""
         output = {"success": True, "connection_id": data.connection_id, "file_id": data.file_id}
         output.update({k: v for k, v in (rendered or {}).items() if k != "_pages"})
         if output.get("file_name") is None:
@@ -763,6 +896,7 @@ class ReadFileTool(Tool):
             output["session_file_id"] = session_file_id
 
         observation_images = None
+        first_image_mime = None
         if image_pngs:
             import base64
             model = runtime_ctx.get("model")
@@ -788,6 +922,8 @@ class ReadFileTool(Tool):
                 # bytes themselves — a wrong declared media_type is a provider
                 # 400.
                 mime = sniff_image_mime(png)
+                if first_image_mime is None:
+                    first_image_mime = mime
                 ext = "jpg" if mime == "image/jpeg" else "png"
                 if attach_images:
                     fid = await attach_drive_file_to_session(
@@ -799,17 +935,32 @@ class ReadFileTool(Tool):
                 if supports_vision:
                     blocks.append({"data": base64.b64encode(png).decode("utf-8"),
                                    "media_type": mime, "source_type": "base64"})
-            if not attach_images and session_file_id:
+            if not attach_images and source_is_image and session_file_id:
                 # The source image is already a session file — point back at it
-                # instead of duplicating the bytes on every look.
+                # instead of duplicating the bytes on every look. Gated on the
+                # source actually BEING a picture: for a rendered document this
+                # id is the .pdf/.docx itself, and handing it back as an image
+                # id gives the UI a broken <img> and the model a wrong type.
                 file_ids = [session_file_id]
             if file_ids:
                 output["image_file_ids"] = file_ids
             if blocks:
                 observation_images = blocks
 
+        output["preview"] = _build_preview(
+            output, preview_file_id=preview_file_id,
+            first_image_mime=first_image_mime,
+        )
+
         ct = output.get("content_type", "?")
-        bits = [f"Read {data.file_id}", ct]
+        # A page-scoped read names its slice: "Read pages 10-15 of 120" is what
+        # makes paging progress legible to the model across turns.
+        shown_pages = output.get("pages_shown")
+        bits = [
+            f"Read pages {shown_pages} of {output.get('pages_total')} from {data.file_id}"
+            if shown_pages else f"Read {data.file_id}",
+            ct,
+        ]
         if ct == "tabular":
             bits.append(f"{output.get('row_count')} rows × {output.get('col_count')} cols")
         elif ct == "images":

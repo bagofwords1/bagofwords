@@ -4,7 +4,7 @@
       <div class="mb-2 flex items-center text-xs text-gray-500 dark:text-gray-400">
         <span v-if="status === 'running'" class="flex items-center">
           <Spinner class="w-3 h-3 me-1.5 shrink-0 text-gray-400" />
-          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : 'Reading ' + fileLabel + '…' }}</span>
+          <span class="tool-shimmer">{{ modelTitle ? modelTitle + '…' : $t('tools.readFile.reading', { name: fileLabel }) }}</span>
         </span>
         <span
           v-else
@@ -16,26 +16,57 @@
           <Icon v-if="expandable" :name="expanded ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-3 h-3 me-1 text-gray-400 dark:text-gray-500 rtl-flip" />
           <DataSourceIcon v-if="connIcon" :type="connIcon.type" :connector-key="connIcon.connectorKey" class="w-3 h-3 me-1 shrink-0" />
           <Icon v-else name="heroicons-document-arrow-down" class="w-3 h-3 me-1 text-gray-400" />
-          <span>{{ modelTitle || ('Read ' + fileLabel) }}</span>
+          <span>{{ modelTitle || $t('tools.readFile.read', { name: fileLabel }) }}</span>
           <span v-if="contentType" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">{{ contentType }}</span>
-          <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ rowCount }} rows × {{ colCount }} cols</span>
-          <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">truncated</span>
+          <span v-if="rowCount != null" class="ms-2 text-gray-400">{{ $t('tools.readFile.rowsCols', { rows: rowCount, cols: colCount }) }}</span>
+          <span v-if="truncated" class="ms-2 text-[10px] text-yellow-600">{{ $t('tools.readFile.truncated') }}</span>
           <span v-if="windowed" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ windowLabel }}</span>
-          <span v-if="pagesShown" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">pages {{ pagesShown }}<template v-if="pagesTotal"> / {{ pagesTotal }}</template></span>
+          <span v-if="pagesShown" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-600 dark:text-blue-400">{{ pagesTotal
+            ? $t('tools.readFile.pagesOfTotal', { shown: pagesShown, total: pagesTotal })
+            : $t('tools.readFile.pages', { shown: pagesShown }) }}</span>
         </span>
       </div>
     </Transition>
 
+    <!-- Visual previews render on success without being asked, the way a
+         chart does in create_data; only plain text waits behind the chevron. -->
+    <Transition name="fade" appear>
+      <div v-if="showVisualPreview" class="mb-2">
+        <FilePreview
+          v-if="preview.kind === 'pdf' || preview.kind === 'image'"
+          :kind="preview.kind"
+          :file-id="preview.file_id"
+          :image-file-ids="preview.image_file_ids"
+          :target-page="preview.target_page"
+          :pages-total="preview.pages_total"
+          :truncated="preview.truncated"
+          :name="rj.file_name"
+          :expanded="expanded"
+          :can-expand="canExpand"
+          @open="openImage"
+          @expand="emitOpenPanel"
+        />
+        <FileTablePreview
+          v-else-if="preview.kind === 'table'"
+          :csv="rj.csv"
+          :row-count="rj.row_count"
+          :col-count="rj.col_count"
+        />
+      </div>
+    </Transition>
+
+    <ImagePreviewModal ref="imageModal" />
+
     <Transition name="fade" appear>
       <div v-if="expanded && expandable" class="text-xs text-gray-600 dark:text-gray-400">
         <div v-if="filePath" class="mb-1 text-[11px] text-gray-500 dark:text-gray-400">
-          <span class="text-gray-400 dark:text-gray-500">Path:</span>
+          <span class="text-gray-400 dark:text-gray-500">{{ $t('tools.readFile.pathLabel') }}</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
         </div>
-        <pre v-if="hasContent" class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
+        <pre v-if="hasContent && preview.kind !== 'table'" class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
         <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
           <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
-          Attached to this conversation as session file
+          {{ $t('tools.readFile.attachedAsSessionFile') }}
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{{ sessionFileId.slice(0, 8) }}…</code>
         </div>
         <ToolCallParams :params="toolExecution?.arguments_json" />
@@ -50,6 +81,9 @@
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
+import FilePreview from '~/components/FilePreview.vue'
+import FileTablePreview from '~/components/FileTablePreview.vue'
+import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon, FILE_SOURCE_TYPES, fileToolNoun } from '~/composables/useToolConnectionIcon'
 
@@ -62,7 +96,26 @@ interface ToolExecution {
   arguments_json?: any
 }
 
-const props = defineProps<{ toolExecution: ToolExecution; dataSources?: any[] }>()
+const props = withDefaults(defineProps<{
+  toolExecution: ToolExecution
+  dataSources?: any[]
+  /** Host page has a side panel to open documents into. */
+  canExpand?: boolean
+}>(), { canExpand: false })
+
+// Only documents and images earn the panel — a ten-row table is already fully
+// readable in the card, and half a screen of it is just noise.
+const emit = defineEmits<{ (e: 'openFilePreview', payload: any): void }>()
+function emitOpenPanel() {
+  emit('openFilePreview', {
+    fileId: preview.value.file_id,
+    kind: preview.value.kind,
+    targetPage: preview.value.target_page,
+    pagesTotal: preview.value.pages_total,
+    imageFileIds: preview.value.image_file_ids,
+    name: rj.value.file_name || '',
+  })
+}
 // files / emails / pages — same card, source-appropriate noun.
 const noun = computed(() => fileToolNoun(props.toolExecution?.tool_name))
 
@@ -137,6 +190,22 @@ const previewText = computed(() => {
   if (rj.value.byte_count) return `(binary, ${rj.value.byte_count} bytes)`
   return ''
 })
+
+// The server decides what to render — the stored session file is often a
+// derivative of the source (report.pdf -> report.pdf.txt), so the file name
+// and content_type here cannot answer it. Older tool executions predate the
+// contract and simply get no visual preview.
+const preview = computed<any>(() => rj.value.preview || { kind: 'none' })
+const showVisualPreview = computed(() =>
+  status.value !== 'running'
+  && !errorMessage.value
+  && ['pdf', 'image', 'table'].includes(preview.value.kind),
+)
+
+const imageModal = ref<any>(null)
+function openImage(fileId: string) {
+  imageModal.value?.open({ id: fileId, filename: rj.value.file_name || '' })
+}
 
 const expanded = ref(false)
 </script>

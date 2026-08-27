@@ -1488,6 +1488,16 @@
       "snapshotted": "Страница прочитана",
       "snapshotting": "Читает страницу",
       "working": "Работает в браузере"
+    },
+    "readFile": {
+      "reading": "Чтение {name}…",
+      "read": "Прочитано {name}",
+      "rowsCols": "{rows} строк × {cols} столбцов",
+      "truncated": "усечено",
+      "pages": "стр. {shown}",
+      "pagesOfTotal": "стр. {shown} / {total}",
+      "pathLabel": "Путь:",
+      "attachedAsSessionFile": "Прикреплено к этому диалогу как файл сессии"
     }
   },
   "entityCreate": {
@@ -4736,5 +4746,14 @@
     "createButton": "Создать webhook",
     "defaultName": "Webhook",
     "sourceGeneric": "Обычный"
+  },
+  "filePreview": {
+    "unavailable": "Предпросмотр недоступен",
+    "document": "Документ",
+    "pageN": "Стр. {n}",
+    "ofTotalPages": "{n} из {total} страниц",
+    "showingRows": "Показано {n} из {total} строк",
+    "openInPanel": "Открыть в боковой панели",
+    "closeFilePanel": "Закрыть файл"
   }
 }

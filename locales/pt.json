@@ -1488,6 +1488,16 @@
       "snapshotted": "Página lida",
       "snapshotting": "Lendo a página",
       "working": "Navegando"
+    },
+    "readFile": {
+      "reading": "A ler {name}…",
+      "read": "Lido {name}",
+      "rowsCols": "{rows} linhas × {cols} colunas",
+      "truncated": "truncado",
+      "pages": "páginas {shown}",
+      "pagesOfTotal": "páginas {shown} / {total}",
+      "pathLabel": "Caminho:",
+      "attachedAsSessionFile": "Anexado a esta conversa como ficheiro de sessão"
     }
   },
   "entityCreate": {
@@ -4736,5 +4746,14 @@
     "createButton": "Criar webhook",
     "defaultName": "Webhook",
     "sourceGeneric": "Genérico"
+  },
+  "filePreview": {
+    "unavailable": "Pré-visualização indisponível",
+    "document": "Documento",
+    "pageN": "Página {n}",
+    "ofTotalPages": "{n} de {total} páginas",
+    "showingRows": "A mostrar {n} de {total} linhas",
+    "openInPanel": "Abrir no painel lateral",
+    "closeFilePanel": "Fechar ficheiro"
   }
 }

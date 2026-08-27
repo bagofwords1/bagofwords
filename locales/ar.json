@@ -1488,6 +1488,16 @@
       "snapshotted": "تمت قراءة الصفحة",
       "snapshotting": "جارٍ قراءة الصفحة",
       "working": "جارٍ التصفح"
+    },
+    "readFile": {
+      "reading": "جارٍ قراءة {name}…",
+      "read": "تمت قراءة {name}",
+      "rowsCols": "{rows} صف × {cols} عمود",
+      "truncated": "مقتطع",
+      "pages": "صفحات {shown}",
+      "pagesOfTotal": "صفحات {shown} / {total}",
+      "pathLabel": "المسار:",
+      "attachedAsSessionFile": "مُرفق بهذه المحادثة كملف جلسة"
     }
   },
   "entityCreate": {
@@ -4736,5 +4746,14 @@
     "createButton": "إنشاء Webhook",
     "defaultName": "Webhook",
     "sourceGeneric": "عام"
+  },
+  "filePreview": {
+    "unavailable": "المعاينة غير متوفرة",
+    "document": "مستند",
+    "pageN": "صفحة {n}",
+    "ofTotalPages": "{n} من {total} صفحة",
+    "showingRows": "عرض {n} من {total} صف",
+    "openInPanel": "فتح في اللوحة الجانبية",
+    "closeFilePanel": "إغلاق الملف"
   }
 }

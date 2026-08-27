@@ -34,6 +34,7 @@ from app.data_sources.clients._document_text import (
 )
 from app.data_sources.clients._file_source_common import (
     GlobScopeError,
+    DocumentText,
     NamedBytes,
     INDEX_NONE,
     globs_from_str,
@@ -888,7 +889,9 @@ class GraphDriveClient(DataSourceClient):
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(content, name)
             if doc_text_is_usable(text, ext):
-                return text
+                # Carry the bytes we already downloaded: the tool layer shows
+                # the user the real document, and must not fetch it twice.
+                return DocumentText(text, raw=content, name=name, mime=mime)
             return NamedBytes(content, name=name, mime=mime)
 
         if ext == "csv":

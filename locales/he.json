@@ -1500,6 +1500,16 @@
       "snapshotted": "הדף נקרא",
       "snapshotting": "קורא את הדף",
       "working": "גולש"
+    },
+    "readFile": {
+      "reading": "קורא את {name}…",
+      "read": "נקרא {name}",
+      "rowsCols": "{rows} שורות × {cols} עמודות",
+      "truncated": "נחתך",
+      "pages": "עמודים {shown}",
+      "pagesOfTotal": "עמודים {shown} / {total}",
+      "pathLabel": "נתיב:",
+      "attachedAsSessionFile": "צורף לשיחה זו כקובץ סשן"
     }
   },
   "entityCreate": {
@@ -4734,5 +4744,14 @@
     "createButton": "יצירת Webhook",
     "defaultName": "Webhook",
     "sourceGeneric": "כללי"
+  },
+  "filePreview": {
+    "unavailable": "התצוגה המקדימה אינה זמינה",
+    "document": "מסמך",
+    "pageN": "עמוד {n}",
+    "ofTotalPages": "{n} מתוך {total} עמודים",
+    "showingRows": "מוצגות {n} מתוך {total} שורות",
+    "openInPanel": "פתיחה בפאנל הצדדי",
+    "closeFilePanel": "סגירת הקובץ"
   }
 }
