@@ -1443,6 +1443,18 @@ class ElasticsearchConfig(BaseModel):
         description="Optional comma-separated index names or globs to expose (e.g. logs-*,metrics-*). Default: all non-system indices.",
         json_schema_extra={"ui:type": "string"},
     )
+    kibana_url: Optional[str] = Field(
+        None,
+        title="Kibana URL",
+        description=(
+            "Optional Kibana base URL (e.g. https://kibana.example.com:5601). "
+            "When set, the connection also catalogs Kibana dashboards and saved "
+            "searches so the agent can reuse the team's curated investigation "
+            "queries. Authenticates with this connection's Elasticsearch "
+            "credentials (API key or username/password)."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
 
 
 # Azure Data Explorer (Kusto)

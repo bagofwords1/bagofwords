@@ -24,3 +24,25 @@ services:
       interval: 5s
       timeout: 5s
       retries: 40
+
+  # Kibana for the dashboard-catalog feedback loop. It authenticates to ES as
+  # kibana_system, whose password is set by seed_kibana.py — Kibana retries
+  # until that runs, so start order doesn't matter. Web UI + API on :5601.
+  kibana:
+    image: docker.elastic.co/kibana/kibana:8.15.3
+    container_name: bow-kibana
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - ELASTICSEARCH_USERNAME=kibana_system
+      - ELASTICSEARCH_PASSWORD=kibana_pwd
+      - xpack.encryptedSavedObjects.encryptionKey=bow-sandbox-encryption-key-32ch
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -s http://localhost:5601/api/status | grep -q '\"level\":\"available\"'"]
+      interval: 10s
+      timeout: 5s
+      retries: 60

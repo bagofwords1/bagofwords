@@ -47,14 +47,22 @@ nothing" instead of zeroing the whole catalog.
 """
 import base64
 import json
+import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
 
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
+
+logger = logging.getLogger(__name__)
+
+DASHBOARD_PREFIX = "dashboard::"
+SAVED_SEARCH_PREFIX = "saved_search::"
+MAX_KIBANA_OBJECTS = 300     # cap on dashboards / saved searches cataloged
+_FIND_PAGE = 100             # saved-objects _find page size
 
 
 # Trailing date/rollover suffix on a time-series index, e.g.
@@ -130,6 +138,7 @@ class ElasticsearchClient(DataSourceClient):
         secure: bool = True,
         verify_certs: bool = True,
         index_pattern: Optional[str] = None,
+        kibana_url: Optional[str] = None,
     ):
         self.host = host
         self.port = port
@@ -139,6 +148,14 @@ class ElasticsearchClient(DataSourceClient):
         self.secure = secure
         self.verify_certs = verify_certs
         self.index_pattern = index_pattern
+        # Optional Kibana base URL: enables the dashboard / saved-search
+        # catalog. Kibana authenticates through Elasticsearch security, so the
+        # connection's existing credentials (API key or basic) are reused —
+        # no separate Kibana credential.
+        k = (kibana_url or "").strip().rstrip("/")
+        if k and not (k.startswith("http://") or k.startswith("https://")):
+            k = f"http://{k}" if not secure else f"https://{k}"
+        self.kibana_url = k or None
 
         # A full URL in `host` wins over port/secure (managed endpoints have
         # no separate host/port).
@@ -562,12 +579,403 @@ class ElasticsearchClient(DataSourceClient):
             tables.append(self._union_table(name, members, "data_stream", backing))
         return tables
 
+    # ---------- Kibana dashboards & saved searches ---------- #
+    #
+    # Kibana stores the operators' investigation knowledge as saved objects:
+    # dashboards (panels referencing Lens/legacy visualizations and Discover
+    # sessions) and saved searches. Cataloging them lets the agent replay a
+    # manual RCA: find the dashboard for the affected service, read what each
+    # panel queries, re-run it scoped to the incident window. ES|QL panels and
+    # Discover searches carry directly runnable queries; Lens/legacy panels
+    # are config-not-query, so they surface as a structured summary (index
+    # pattern + fields + operations) the agent composes DSL/ES|QL from.
+    # Everything here is best-effort: no kibana_url, an unreachable Kibana, or
+    # an unparseable object never breaks index discovery.
+
+    def _kibana_request(self, method: str, path: str,
+                        params: Optional[Dict[str, Any]] = None,
+                        json_body: Any = None) -> Any:
+        auth, extra_headers = self._auth()
+        headers = {"Content-Type": "application/json", "kbn-xsrf": "true"}
+        headers.update(extra_headers)
+        resp = requests.request(
+            method, f"{self.kibana_url}{path}", params=params, json=json_body,
+            auth=auth, verify=self.verify_certs, timeout=self.TIMEOUTS,
+            headers=headers,
+        )
+        if resp.status_code >= 400:
+            raise ElasticsearchHttpError(
+                f"Kibana request {method} {path} failed "
+                f"({resp.status_code}): {resp.text[:300]}",
+                resp.status_code, resp.text[:2000])
+        try:
+            return resp.json()
+        except ValueError:
+            raise RuntimeError(f"Kibana returned non-JSON on {path}: {resp.text[:200]}")
+
+    def _kibana_spaces(self) -> List[str]:
+        """Space ids visible to the credentials; ['default'] when the spaces
+        API is unavailable (basic license, missing privilege)."""
+        try:
+            spaces = self._kibana_request("GET", "/api/spaces/space")
+            ids = [s.get("id") for s in spaces if s.get("id")]
+            return ids or ["default"]
+        except Exception as e:
+            logger.warning(f"Kibana spaces enumeration failed ({e}); using default space")
+            return ["default"]
+
+    @staticmethod
+    def _space_path(space: str) -> str:
+        return "" if space in ("default", "", None) else f"/s/{space}"
+
+    def _find_saved_objects(self, space: str, so_type: str) -> List[Dict[str, Any]]:
+        """All saved objects of one type in one space, paginated."""
+        out: List[Dict[str, Any]] = []
+        page = 1
+        while len(out) < MAX_KIBANA_OBJECTS:
+            body = self._kibana_request(
+                "GET", f"{self._space_path(space)}/api/saved_objects/_find",
+                params={"type": so_type, "per_page": _FIND_PAGE, "page": page})
+            objs = body.get("saved_objects") or []
+            out.extend(objs)
+            if len(objs) < _FIND_PAGE:
+                break
+            page += 1
+        return out[:MAX_KIBANA_OBJECTS]
+
+    def _bulk_get(self, space: str, refs: List[Tuple[str, str]]) -> Dict[Tuple[str, str], Dict]:
+        """Resolve (type, id) references via _bulk_get; failures resolve to {}."""
+        if not refs:
+            return {}
+        try:
+            body = self._kibana_request(
+                "POST", f"{self._space_path(space)}/api/saved_objects/_bulk_get",
+                json_body=[{"type": t, "id": i} for t, i in refs])
+            return {(o.get("type"), o.get("id")): o
+                    for o in (body.get("saved_objects") or []) if not o.get("error")}
+        except Exception as e:
+            logger.warning(f"Kibana _bulk_get failed: {e}")
+            return {}
+
+    # -- panel query extraction (per dialect) --
+
+    @staticmethod
+    def _parse_json_attr(raw) -> Any:
+        if isinstance(raw, (dict, list)):
+            return raw
+        try:
+            return json.loads(raw or "null")
+        except (ValueError, TypeError):
+            return None
+
+    @classmethod
+    def _lens_panel(cls, attrs: Dict[str, Any],
+                    pattern_titles: Dict[str, str]) -> Dict[str, Any]:
+        """Summarize a Lens visualization's query intent.
+
+        `textBased` (ES|QL) layers carry a runnable query. `formBased` /
+        `indexpattern` layers are agg configs — summarized as
+        field/operation pairs over the referenced index pattern."""
+        state = attrs.get("state") or {}
+        ds_states = state.get("datasourceStates") or {}
+        # ES|QL layers → runnable.
+        text_based = ds_states.get("textBased") or {}
+        for layer in (text_based.get("layers") or {}).values():
+            q = ((layer.get("query") or {}).get("esql")
+                 if isinstance(layer.get("query"), dict) else None)
+            if q:
+                return {"kind": "lens_esql", "query": q, "runnable": True,
+                        "language": "esql", "index": None, "summary": q}
+        # Form-based layers → summary of operations.
+        ops: List[str] = []
+        form = ds_states.get("formBased") or ds_states.get("indexpattern") or {}
+        for layer in (form.get("layers") or {}).values():
+            for col in (layer.get("columns") or {}).values():
+                op = col.get("operationType") or "?"
+                field = col.get("sourceField") or col.get("label") or ""
+                ops.append(f"{op}({field})" if field else op)
+        bar_query = ((state.get("query") or {}).get("query")
+                     if isinstance(state.get("query"), dict) else None)
+        index = None
+        for r in attrs.get("references") or []:
+            if r.get("type") == "index-pattern":
+                index = pattern_titles.get(r.get("id")) or index
+        summary = ", ".join(ops[:12]) or "lens visualization"
+        if bar_query:
+            summary += f' [query: {bar_query}]'
+        return {"kind": "lens", "query": bar_query, "runnable": False,
+                "language": "kuery", "index": index, "summary": summary}
+
+    @classmethod
+    def _search_source(cls, attrs: Dict[str, Any]) -> Tuple[Optional[str], Optional[str]]:
+        """(query_string, index_pattern_ref_id) from kibanaSavedObjectMeta."""
+        meta = attrs.get("kibanaSavedObjectMeta") or {}
+        ss = cls._parse_json_attr(meta.get("searchSourceJSON")) or {}
+        q = ss.get("query") or {}
+        query = q.get("query") if isinstance(q, dict) else None
+        index_ref = ss.get("indexRefName") or ss.get("index")
+        return (query or None), index_ref
+
+    @classmethod
+    def _viz_panel(cls, attrs: Dict[str, Any],
+                   pattern_titles: Dict[str, str],
+                   ref_index: Optional[str]) -> Dict[str, Any]:
+        """Summarize a legacy (visState) visualization."""
+        vis = cls._parse_json_attr(attrs.get("visState")) or {}
+        aggs = []
+        for a in vis.get("aggs") or []:
+            p = a.get("params") or {}
+            f = p.get("field")
+            aggs.append(f"{a.get('type')}({f})" if f else str(a.get("type")))
+        query, _ = cls._search_source(attrs)
+        summary = f"{vis.get('type') or 'viz'}: " + (", ".join(aggs) or "no aggs")
+        if query:
+            summary += f' [query: {query}]'
+        return {"kind": "visualization", "query": query, "runnable": False,
+                "language": "kuery", "index": ref_index, "summary": summary}
+
+    @classmethod
+    def _discover_panel(cls, attrs: Dict[str, Any],
+                        ref_index: Optional[str]) -> Dict[str, Any]:
+        """A Discover session / saved search — runnable as a query_string."""
+        query, _ = cls._search_source(attrs)
+        cols = attrs.get("columns") or []
+        summary = f"saved search: {query or '*'}"
+        if cols:
+            summary += f" | columns: {', '.join(cols[:8])}"
+        return {"kind": "search", "query": query or "*", "runnable": True,
+                "language": "query_string", "index": ref_index, "summary": summary}
+
+    def _resolve_dashboard_panels(self, space: str,
+                                  dash: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Extract panels (title, kind, index, query/summary, runnable) from a
+        dashboard saved object, resolving by-reference panels via _bulk_get."""
+        attrs = dash.get("attributes") or {}
+        panels = self._parse_json_attr(attrs.get("panelsJSON")) or []
+        refs = {r.get("name"): r for r in (dash.get("references") or [])}
+
+        # Collect referenced objects (panels + index patterns) for one bulk call.
+        wanted: List[Tuple[str, str]] = []
+        for r in (dash.get("references") or []):
+            if r.get("type") in ("lens", "visualization", "search", "map"):
+                wanted.append((r["type"], r["id"]))
+        resolved = self._bulk_get(space, sorted(set(wanted)))
+
+        # Index-pattern titles: from dashboard refs + refs of resolved objects.
+        ip_refs: List[Tuple[str, str]] = [
+            ("index-pattern", r["id"]) for r in (dash.get("references") or [])
+            if r.get("type") == "index-pattern"]
+        for o in resolved.values():
+            for r in (o.get("references") or []):
+                if r.get("type") == "index-pattern":
+                    ip_refs.append(("index-pattern", r["id"]))
+        ip_objs = self._bulk_get(space, sorted(set(ip_refs)))
+        pattern_titles = {i: (o.get("attributes") or {}).get("title")
+                          for (_, i), o in ip_objs.items()}
+
+        def ref_index_for(obj) -> Optional[str]:
+            for r in (obj or {}).get("references") or []:
+                if r.get("type") == "index-pattern":
+                    return pattern_titles.get(r.get("id"))
+            return None
+
+        out: List[Dict[str, Any]] = []
+        for p in panels if isinstance(panels, list) else []:
+            try:
+                cfg = p.get("embeddableConfig") or {}
+                title = (p.get("title") or cfg.get("title")
+                         or cfg.get("savedObjectId") or "").strip()
+                ptype = p.get("type") or ""
+                ref = None
+                ref_name = p.get("panelRefName")
+                if ref_name:
+                    key = f"{p.get('panelIndex')}:{ref_name}"
+                    ref = refs.get(key) or refs.get(ref_name)
+                inline_attrs = cfg.get("attributes") if isinstance(cfg.get("attributes"), dict) else None
+                obj = None
+                if ref:
+                    obj = resolved.get((ref.get("type"), ref.get("id")))
+                    ptype = ref.get("type") or ptype
+                attrs_src = inline_attrs or ((obj or {}).get("attributes") or {})
+                if not attrs_src:
+                    continue
+                title = title or (attrs_src.get("title") or "").strip() or ptype
+                if ptype == "lens":
+                    # By-value lens: index-pattern refs live inside the config.
+                    local_titles = dict(pattern_titles)
+                    if inline_attrs:
+                        extra = [("index-pattern", r["id"])
+                                 for r in (inline_attrs.get("references") or [])
+                                 if r.get("type") == "index-pattern"]
+                        for (_, i), o in self._bulk_get(space, extra).items():
+                            local_titles[i] = (o.get("attributes") or {}).get("title")
+                        attrs_src = dict(attrs_src)
+                        attrs_src.setdefault("references", inline_attrs.get("references") or [])
+                    panel = self._lens_panel(attrs_src, local_titles)
+                    if panel["index"] is None:
+                        panel["index"] = ref_index_for(obj or {"references": (inline_attrs or {}).get("references")})
+                elif ptype == "search":
+                    panel = self._discover_panel(attrs_src, ref_index_for(obj))
+                elif ptype == "visualization":
+                    panel = self._viz_panel(attrs_src, pattern_titles, ref_index_for(obj))
+                else:
+                    continue  # maps, links, images — no query content
+                panel["title"] = title
+                out.append(panel)
+            except Exception as e:
+                logger.warning(f"Kibana panel parse failed on dashboard "
+                               f"'{(attrs.get('title') or '?')}': {e}")
+        return out
+
+    def _panel_column_desc(self, p: Dict[str, Any]) -> str:
+        idx = f" over {p['index']}" if p.get("index") else ""
+        if p.get("runnable") and p.get("language") == "esql":
+            return f"ES|QL{idx}: {p['query']}"
+        if p.get("runnable"):
+            return f"query_string{idx}: {p['query']}"
+        return f"{p['kind']}{idx}: {p['summary']}"
+
+    def _dashboard_table(self, space: str, dash: Dict[str, Any],
+                         panels: List[Dict[str, Any]]) -> Table:
+        attrs = dash.get("attributes") or {}
+        title = (attrs.get("title") or dash.get("id") or "").strip()
+        columns = [TableColumn(name=p["title"], dtype="panel",
+                               description=self._panel_column_desc(p))
+                   for p in panels]
+        titles = "; ".join(p["title"] for p in panels[:8])
+        user_desc = (attrs.get("description") or "").strip()
+        desc = (f"Kibana dashboard '{title}' (space: {space})."
+                + (f" {user_desc}" if user_desc else "")
+                + (f" Panels: {titles}." if titles else "")
+                + " Each panel column's description carries its query (ES|QL /"
+                  " query_string panels are directly runnable) or its Lens/viz"
+                  " aggregation summary — reuse them for incident analysis,"
+                  " re-scoped to the incident time window. Run a panel with"
+                  " execute_query('{\"dashboard\": \"" + f"{space}/{title}" + "\","
+                  " \"panel\": \"<title>\", \"earliest\": \"now-4h\"}') or adapt"
+                  " its query directly against the index it names.")
+        return Table(
+            name=f"{DASHBOARD_PREFIX}{space}/{title}", description=desc,
+            columns=columns, pks=[], fks=[],
+            metadata_json={"kibana": {
+                "kind": "dashboard", "space": space, "dashboard_id": dash.get("id"),
+                "panel_count": len(panels), "managed": bool(dash.get("managed")),
+                "panels": panels,
+            }},
+        )
+
+    def _kibana_dashboard_tables(self) -> List[Table]:
+        tables: List[Table] = []
+        for space in self._kibana_spaces():
+            for dash in self._find_saved_objects(space, "dashboard"):
+                if len(tables) >= MAX_KIBANA_OBJECTS:
+                    return tables
+                try:
+                    panels = self._resolve_dashboard_panels(space, dash)
+                    tables.append(self._dashboard_table(space, dash, panels))
+                except Exception as e:
+                    logger.warning(
+                        f"Kibana dashboard catalog skipped "
+                        f"{space}/{(dash.get('attributes') or {}).get('title')}: {e}")
+        return tables
+
+    def _kibana_saved_search_tables(self) -> List[Table]:
+        tables: List[Table] = []
+        for space in self._kibana_spaces():
+            for so in self._find_saved_objects(space, "search"):
+                if len(tables) >= MAX_KIBANA_OBJECTS:
+                    return tables
+                attrs = so.get("attributes") or {}
+                title = (attrs.get("title") or "").strip()
+                if not title:
+                    continue
+                ip_refs = [("index-pattern", r["id"])
+                           for r in (so.get("references") or [])
+                           if r.get("type") == "index-pattern"]
+                ip = self._bulk_get(space, ip_refs)
+                index = next(((o.get("attributes") or {}).get("title")
+                              for o in ip.values()), None)
+                query, _ = self._search_source(attrs)
+                user_desc = (attrs.get("description") or "").strip()
+                desc = (f"Kibana saved search (space: {space})."
+                        + (f" {user_desc}" if user_desc else "")
+                        + (f" Query over {index}: " if index else " Query: ")
+                        + f"`{query or '*'}`."
+                        + " Run it with execute_query('{\"saved_search\": \""
+                        + f"{space}/{title}" + "\", \"earliest\": \"now-4h\"}')"
+                        " or adapt the query_string against the index.")
+                tables.append(Table(
+                    name=f"{SAVED_SEARCH_PREFIX}{space}/{title}", description=desc,
+                    columns=[], pks=[], fks=[],
+                    metadata_json={"kibana": {
+                        "kind": "saved_search", "space": space,
+                        "search_id": so.get("id"), "index": index,
+                        "query": query or "*", "columns": attrs.get("columns") or [],
+                    }},
+                ))
+        return tables
+
+    def _kibana_knowledge_tables(self) -> List[Table]:
+        """Dashboards + saved searches, best-effort — never fails discovery."""
+        if not self.kibana_url:
+            return []
+        tables: List[Table] = []
+        try:
+            tables.extend(self._kibana_dashboard_tables())
+        except Exception as e:
+            logger.warning(f"Kibana dashboard catalog failed: {e}")
+        try:
+            tables.extend(self._kibana_saved_search_tables())
+        except Exception as e:
+            logger.warning(f"Kibana saved-search catalog failed: {e}")
+        return tables
+
+    def _find_dashboard(self, space: str, name: str) -> Dict[str, Any]:
+        """A dashboard saved object by title (exact, case-insensitive) or id."""
+        want = name.strip().lower()
+        matches = []
+        for dash in self._find_saved_objects(space, "dashboard"):
+            title = ((dash.get("attributes") or {}).get("title") or "").strip()
+            if dash.get("id") == name or title.lower() == want:
+                matches.append(dash)
+        if not matches:
+            raise ValueError(f"Kibana dashboard not found in space '{space}': {name}")
+        return matches[0]
+
     def get_schemas(self) -> List[Table]:
-        return self.get_tables()
+        tables = self.get_tables()
+        tables.extend(self._kibana_knowledge_tables())
+        return tables
+
+    @staticmethod
+    def _split_kibana_ref(ref: str, prefix: str) -> Tuple[str, str]:
+        """`dashboard::default/Checkout Health` (or bare `default/…`, or just a
+        title/id) → (space, name). Space defaults to 'default'."""
+        r = (ref or "").strip()
+        if r.startswith(prefix):
+            r = r[len(prefix):]
+        if "/" in r:
+            space, name = r.split("/", 1)
+            return (space or "default"), name
+        return "default", r
 
     def get_schema(self, index_name: str) -> Table:
         """Schema for a single index (or alias/pattern resolving to one or
-        more). A pattern like `logs-app-*` unions every matching index."""
+        more; a pattern like `logs-app-*` unions every matching index) — or
+        the live panel set for a `dashboard::space/title` /
+        `saved_search::space/title` Kibana entry."""
+        if index_name.startswith(DASHBOARD_PREFIX):
+            space, name = self._split_kibana_ref(index_name, DASHBOARD_PREFIX)
+            dash = self._find_dashboard(space, name)
+            panels = self._resolve_dashboard_panels(space, dash)
+            return self._dashboard_table(space, dash, panels)
+        if index_name.startswith(SAVED_SEARCH_PREFIX):
+            space, name = self._split_kibana_ref(index_name, SAVED_SEARCH_PREFIX)
+            want = name.strip().lower()
+            for t in self._kibana_saved_search_tables():
+                if t.name.lower() == f"{SAVED_SEARCH_PREFIX}{space}/{want}":
+                    return t
+            raise ValueError(f"Kibana saved search not found: {space}/{name}")
         body = self._request("GET", f"/{index_name}/_mapping",
                              params=self._target_params(index_name))
         members = [
@@ -598,12 +1006,16 @@ class ElasticsearchClient(DataSourceClient):
         }
         """
         try:
-            envelope = json.loads(query)
+            envelope = json.loads(query) if isinstance(query, str) else query
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON query: {e}")
         if not isinstance(envelope, dict):
             raise ValueError("Query must be a JSON object")
 
+        if envelope.get("dashboard"):
+            return self._execute_dashboard(envelope)
+        if envelope.get("saved_search"):
+            return self._execute_saved_search(envelope)
         if "esql" in envelope:
             return self._execute_esql(envelope["esql"])
         if "sql" in envelope:
@@ -611,7 +1023,10 @@ class ElasticsearchClient(DataSourceClient):
 
         index = envelope.get("index")
         if not index or not isinstance(index, str):
-            raise ValueError("Query must specify 'index' (or use 'sql'/'esql')")
+            raise ValueError(
+                "Query must specify 'index' (or use 'sql'/'esql', or a Kibana "
+                "knowledge envelope: {\"dashboard\": \"space/title\"} / "
+                "{\"saved_search\": \"space/title\"})")
 
         body = {k: v for k, v in envelope.items() if k in self.SEARCH_KEYS}
         has_aggs = "aggs" in body or "aggregations" in body
@@ -643,6 +1058,95 @@ class ElasticsearchClient(DataSourceClient):
         df.insert(0, "_id", [h.get("_id") for h in hits])
         df.insert(1, "_index", [h.get("_index") for h in hits])
         return df
+
+    def _run_query_string(self, index: Optional[str], query: str,
+                          spec: Dict[str, Any]) -> pd.DataFrame:
+        """Run a Kibana query_string panel/search as a DSL search, scoped to
+        the incident window (`earliest`/`latest`, default now-24h .. now)."""
+        if not index:
+            raise ValueError(
+                "This panel does not name an index pattern — compose a query "
+                "against one of the catalog's index tables instead.")
+        body: Dict[str, Any] = {
+            "index": index,
+            "query": {"bool": {
+                "must": ([{"query_string": {"query": query}}]
+                         if query and query != "*" else [{"match_all": {}}]),
+                "filter": [{"range": {"@timestamp": {
+                    "gte": spec.get("earliest") or "now-24h",
+                    "lte": spec.get("latest") or "now"}}}],
+            }},
+            "sort": [{"@timestamp": {"order": "desc", "unmapped_type": "date"}}],
+            "size": int(spec.get("limit") or spec.get("size") or 100),
+        }
+        return self.execute_query(json.dumps(body))
+
+    def _panels_inventory(self, panels: List[Dict[str, Any]]) -> pd.DataFrame:
+        return pd.DataFrame([{
+            "panel": p.get("title"), "kind": p.get("kind"),
+            "index": p.get("index"), "runnable": bool(p.get("runnable")),
+            "query": p.get("query") if p.get("runnable") else p.get("summary"),
+        } for p in panels])
+
+    def _execute_dashboard(self, spec: Dict[str, Any]) -> pd.DataFrame:
+        if not self.kibana_url:
+            raise ValueError("This connection has no Kibana URL configured.")
+        space, name = self._split_kibana_ref(str(spec["dashboard"]), DASHBOARD_PREFIX)
+        dash = self._find_dashboard(space, name)
+        panels = self._resolve_dashboard_panels(space, dash)
+        panel_ref = spec.get("panel")
+        if panel_ref is None or panel_ref == "":
+            # No panel selected → the inventory (title, kind, query/summary),
+            # so the agent can read the queries and pick.
+            return self._panels_inventory(panels)
+        panel = None
+        if isinstance(panel_ref, int) or (isinstance(panel_ref, str) and panel_ref.isdigit()):
+            i = int(panel_ref)
+            if 0 <= i < len(panels):
+                panel = panels[i]
+        if panel is None:
+            want = str(panel_ref).strip().lower()
+            panel = next((p for p in panels
+                          if (p.get("title") or "").strip().lower() == want), None)
+        if panel is None:
+            titles = "; ".join(p.get("title") or "?" for p in panels)
+            raise ValueError(f"Panel '{panel_ref}' not found on {space}/{name}. "
+                             f"Panels: {titles}")
+        if panel.get("runnable") and panel.get("language") == "esql":
+            # ES|QL runs as stored — its FROM/WHERE already encode the scope;
+            # adapt the query text itself to change the window.
+            return self._execute_esql(panel["query"])
+        if panel.get("runnable"):
+            return self._run_query_string(panel.get("index"), panel.get("query") or "*", spec)
+        # Config-not-query panel (Lens aggs / legacy viz): return its recipe so
+        # the agent can compose the equivalent DSL/ES|QL — never a dead end.
+        return pd.DataFrame([{
+            "panel": panel.get("title"), "kind": panel.get("kind"),
+            "index": panel.get("index"), "runnable": False,
+            "recipe": panel.get("summary"),
+            "hint": ("Not directly executable. Compose the equivalent query "
+                     "against the index above using this recipe (operations "
+                     "are Lens/viz aggregations)."),
+        }])
+
+    def _execute_saved_search(self, spec: Dict[str, Any]) -> pd.DataFrame:
+        if not self.kibana_url:
+            raise ValueError("This connection has no Kibana URL configured.")
+        space, name = self._split_kibana_ref(str(spec["saved_search"]), SAVED_SEARCH_PREFIX)
+        want = name.strip().lower()
+        for so in self._find_saved_objects(space, "search"):
+            attrs = so.get("attributes") or {}
+            title = (attrs.get("title") or "").strip()
+            if so.get("id") != name and title.lower() != want:
+                continue
+            query, _ = self._search_source(attrs)
+            ip_refs = [("index-pattern", r["id"]) for r in (so.get("references") or [])
+                       if r.get("type") == "index-pattern"]
+            ip = self._bulk_get(space, ip_refs)
+            index = next(((o.get("attributes") or {}).get("title")
+                          for o in ip.values()), None)
+            return self._run_query_string(index, query or "*", spec)
+        raise ValueError(f"Kibana saved search not found: {space}/{name}")
 
     def _execute_sql(self, sql: str) -> pd.DataFrame:
         """Run a statement via Elasticsearch SQL (`POST /_sql?format=json`).
@@ -866,6 +1370,27 @@ class ElasticsearchClient(DataSourceClient):
         # not an empty result.
         scope = (f"\nSCOPE: this connection is restricted to {', '.join(self._patterns)} — "
                  f"every query must target these patterns.\n" if self._patterns else "")
+        kibana_note = ""
+        if self.kibana_url:
+            kibana_note = (
+                "KIBANA KNOWLEDGE (dashboards & saved searches): tables named "
+                "`dashboard::<space>/<title>` are the deployment's Kibana dashboards — "
+                "the SAME dashboards operators stare at during a manual investigation. "
+                "Each panel is a column whose description carries its query: "
+                "`ES|QL:` / `query_string:` panels are DIRECTLY runnable; `lens` / "
+                "`visualization` panels show the aggregation recipe (operations over an "
+                "index pattern) to compose the equivalent DSL/ES|QL from. "
+                "`saved_search::<space>/<title>` tables are Discover saved searches "
+                "(runnable query_string). For an incident/RCA question PREFER these over "
+                "writing queries from scratch — they encode the fields, indices, and "
+                "thresholds the team actually uses. Envelopes: "
+                '{"dashboard": "<space>/<title>"} -> panel inventory; '
+                '{"dashboard": "<space>/<title>", "panel": "<title>", "earliest": "now-4h"} '
+                "-> run one panel (query_string panels get the time window applied; ES|QL "
+                "panels run as stored — edit the ES|QL text to change the window); "
+                '{"saved_search": "<space>/<title>", "earliest": "now-4h"} -> run a saved '
+                "search. Never paste `dashboard::...` into the `index` field."
+            )
         return f"""
 Elasticsearch cluster at {self.base_url}
 {scope}
@@ -899,6 +1424,8 @@ CRITICAL RULES:
    ask the same question with the query DSL envelope.
 
 Use execute_query() with a JSON envelope string.
+
+{kibana_note}
 
 **Example - log investigation (errors across services, last 24h):**
 ```python

@@ -127,6 +127,11 @@ _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # descriptions, and saved-search SPL is in the table description.
     "splunk": ("kind", "app", "view_id", "dashboard_type", "panel_count",
                "saved_search_name", "cron", "alert"),
+    # Kibana knowledge objects on an Elasticsearch connection (dashboard:: /
+    # saved_search:: tables) — same rationale as `splunk`: kind + address for
+    # the execute_query envelope; the bulky `panels` blob stays out (panel
+    # queries already render as column descriptions).
+    "kibana": ("kind", "space", "dashboard_id", "panel_count", "index"),
     # AnalysisServicesClient's system prompt instructs the agent to pick MDX vs
     # DAX from modelType — it can't do that if modelType isn't in context.
     "analysis_services": (
