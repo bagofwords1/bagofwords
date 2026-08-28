@@ -1,0 +1,31 @@
+{
+ "scenario": "destructive_gauntlet",
+ "report_id": "1b4d7118-9736-4ada-b39e-efbd917450cb",
+ "passes": {
+  "artifact_completed": true,
+  "no_fatal_render_errors": true,
+  "no_unknown_viz_refs": true,
+  "no_out_of_range_refs": true,
+  "all_payload_vizs_rendered": true,
+  "min_visualizations": true,
+  "retained:Gauntlet Prime": true,
+  "retained:emerald": false,
+  "server_param:genre": true,
+  "filter_interaction": true
+ },
+ "failures": [
+  "retained:emerald: not found in head code/title"
+ ],
+ "metrics": {
+  "completions": 16,
+  "started": "2026-08-28 18:47:21.533964",
+  "ended": "2026-08-28 18:52:20.622394",
+  "tool_calls": {
+   "error": 1,
+   "success": 20
+  },
+  "artifact_versions": 6,
+  "code_chars": 4425
+ },
+ "score": 0.9
+}

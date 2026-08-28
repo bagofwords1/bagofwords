@@ -1,0 +1,39 @@
+{
+ "scenario": "memory_gauntlet",
+ "report_id": "a1968b95-1052-4cff-9fe9-875f89f6d966",
+ "passes": {
+  "artifact_completed": true,
+  "no_fatal_render_errors": true,
+  "no_unknown_viz_refs": true,
+  "no_out_of_range_refs": true,
+  "all_payload_vizs_rendered": false,
+  "min_visualizations": false,
+  "retained:Momentum": true,
+  "retained:indigo": false,
+  "retained:rounded-xl": true,
+  "absent:Revenue by Genre": true,
+  "kpi_row_first": true,
+  "server_param:genre": false,
+  "server_param:country": false,
+  "filter_interaction": false
+ },
+ "failures": [
+  "all_payload_vizs_rendered: unreferenced ['289fee78-1925-49e0-8696-2e2d0095ff43', 'c9ae43d1-ca74-4ca8-a8d9-0e6a5918db22']",
+  "min_visualizations: 2 vizs",
+  "retained:indigo: not found in head code/title",
+  "server_param:genre: declared=[]",
+  "server_param:country: declared=[]",
+  "filter_interaction: skip"
+ ],
+ "metrics": {
+  "completions": 22,
+  "started": "2026-08-28 18:40:40.720154",
+  "ended": "2026-08-28 18:46:40.869531",
+  "tool_calls": {
+   "success": 18
+  },
+  "artifact_versions": 9,
+  "code_chars": 7908
+ },
+ "score": 0.571
+}
