@@ -48,6 +48,20 @@
     return window.ARTIFACT_DATA;
   };
 
+  // ── vizById() ───────────────────────────────────────────────────────────────
+  // Stable, id-keyed access to a visualization's data. Preferred over
+  // positional `viz[N]` (which silently repoints at the wrong dataset when
+  // the viz set changes). Positional access remains supported for legacy
+  // artifacts — this runtime only ever grows.
+  window.vizById = function(id) {
+    var data = window.ARTIFACT_DATA || {};
+    var list = data.visualizations || [];
+    for (var i = 0; i < list.length; i++) {
+      if (list[i] && String(list[i].id) === String(id)) return list[i];
+    }
+    return null;
+  };
+
   // ── useCurrentUser() ────────────────────────────────────────────────────────
   // The viewing user, injected by the host as ARTIFACT_DATA.current_user:
   // { id, name, email, image_url, role, profile_attributes } — every field

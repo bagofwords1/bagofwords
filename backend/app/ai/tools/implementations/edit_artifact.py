@@ -55,6 +55,43 @@ DIFF_MARKER_PATTERNS = [
     re.compile(r'^>{6,}\s*REPLACE\s*$', re.MULTILINE),
 ]
 
+# Pinned-decisions digest bounds: keep the whole section well under ~2K tokens
+# so it can ride in every edit prompt without re-creating the 38K→63K growth
+# that got history dropped in the first place.
+PINNED_HEAD_MAX_CHARS = 1500
+PINNED_EDIT_MAX_LINES = 15
+PINNED_EDIT_LINE_MAX_CHARS = 300
+
+
+def build_pinned_decisions(accumulated_spec: Optional[str]) -> str:
+    """Distill the accumulated generation spec into a bounded decisions digest.
+
+    The spec is the original generation prompt followed by one
+    ``+ Edit (vN): <edit_prompt>`` line per prior edit (see the versioning
+    block in run_stream). The digest keeps the original intent (truncated)
+    plus the most recent edit lines, so durable decisions ("keep KPIs on
+    top", "brand color X") survive into later edits without full history.
+    Deterministic — no LLM call.
+    """
+    if not accumulated_spec:
+        return ""
+    parts = re.split(r"\n\+ Edit \(v\d+\): ", "\n" + accumulated_spec.strip())
+    head = (parts[0] or "").strip()
+    edit_lines = [p.strip().replace("\n", " ") for p in parts[1:] if p.strip()]
+
+    lines: List[str] = []
+    if head:
+        clipped = head[:PINNED_HEAD_MAX_CHARS]
+        if len(head) > PINNED_HEAD_MAX_CHARS:
+            clipped += " …"
+        lines.append(f"- Original request: {clipped}")
+    for e in edit_lines[-PINNED_EDIT_MAX_LINES:]:
+        clipped = e[:PINNED_EDIT_LINE_MAX_CHARS]
+        if len(e) > PINNED_EDIT_LINE_MAX_CHARS:
+            clipped += " …"
+        lines.append(f"- Later edit: {clipped}")
+    return "\n".join(lines)
+
 
 def _normalize_text(text: str) -> str:
     """Normalize text for matching: CRLF→LF, strip trailing whitespace per line,
@@ -304,9 +341,9 @@ class EditArtifactTool(Tool):
     """Tool for surgically editing existing artifact code.
 
     This tool loads the existing code and applies targeted search/replace diffs
-    based on the user's instruction. For small, focused changes only — if the
-    change is too large for diffs, the tool returns a failure so the planner
-    can route to create_artifact instead.
+    based on the user's instruction. It is the default path for any change to an
+    existing artifact — an edit may carry many diff hunks. create_artifact is
+    reserved for from-scratch rebuilds the user explicitly asked for.
     """
 
     def __init__(self):
@@ -319,9 +356,11 @@ class EditArtifactTool(Tool):
         return ToolMetadata(
             name="edit_artifact",
             description=(
-                "Apply small, surgical edits to an existing artifact using search/replace diffs. "
-                "Best for: tweaking colors, adjusting layout, fixing bugs, adding a single component. "
-                "NOT for large redesigns or full rewrites — use create_artifact for those. "
+                "Apply surgical edits to an existing artifact using search/replace diffs. "
+                "The DEFAULT tool for any change to an existing artifact: colors, layout, bug fixes, "
+                "adding/removing components, multi-part restyles — an edit may carry many diffs, so "
+                "size is not a reason to rebuild. Use create_artifact only for a from-scratch rebuild "
+                "the user explicitly asked for. "
                 "Prioritize using read_artifact before editing an artifact. "
                 "If the edit is adding a new visualization, you MUST ADD it as a parameter to the tool. "
                 "Requires artifact_id from a previous create_artifact or read_artifact result. "
@@ -367,12 +406,12 @@ class EditArtifactTool(Tool):
     ) -> str:
         """Build the dynamic user prompt for editing existing artifact code.
 
-        Page mode deliberately omits the conversation history and the
-        accumulated spec: the planner already distills intent into
-        edit_prompt, and after a diff edit the code IS the current spec.
-        Re-sending both grew edit prompts unboundedly (38K→63K tokens by
-        v11+ in production) and caused context-length failures. Static
-        reference material lives in _build_edit_system_prompt.
+        Page mode omits the full conversation history and the raw accumulated
+        spec (re-sending both grew edit prompts unboundedly — 38K→63K tokens
+        by v11+ in production — and caused context-length failures). Durable
+        intent instead rides in the bounded PINNED DECISIONS digest built by
+        build_pinned_decisions() from the accumulated spec. Static reference
+        material lives in _build_edit_system_prompt.
         """
 
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
@@ -407,13 +446,24 @@ class EditArtifactTool(Tool):
                 + "\n".join(lines)
             )
 
+        # Pinned decisions: a bounded digest of the accumulated spec, so durable
+        # design intent from earlier turns survives without re-sending history
+        # (full history+spec grew edit prompts 38K→63K tokens; this stays ~6K chars).
+        pinned_section = ""
+        pinned = build_pinned_decisions(original_spec)
+        if pinned:
+            pinned_section = f"""
+**PINNED DECISIONS (durable design intent from earlier turns):** The user established these across the conversation. Do NOT undo any of them unless the current edit request explicitly overrides one:
+{pinned}
+"""
+
         removed_section = ""
         if removed_vizs:
             removed_list = "\n".join(f'- "{rv.get("title", "Unknown")}" (id={rv.get("id")})' for rv in removed_vizs)
             removed_section = f"""
 **REMOVED VISUALIZATIONS — delete their code:** The following visualizations have been REMOVED from this artifact's data payload:
 {removed_list}
-Delete every code section that references them: charts, KPI cards, tables, filters fed by their columns, and any derived computations. CRITICAL: `data.visualizations` is re-indexed after removal — its current order is exactly the VISUALIZATION DATA list below. Update every `viz[N]` index reference in the surviving code to match the new order.
+Delete every code section that references them: charts, KPI cards, tables, filters fed by their columns, and any derived computations. Data access is id-keyed — delete every `vizById("<removed id>")` reference; surviving `vizById()` references are unaffected by the removal. If any legacy `viz[N]` index references remain, `data.visualizations` is re-indexed after removal — its current order is exactly the VISUALIZATION DATA list below; update those indexes to match (or better, convert them to `vizById("<uuid>")`).
 """
 
         render_errors_section = ""
@@ -437,7 +487,7 @@ EDIT REQUEST (primary specification — follow exactly)
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 {identity_context}
 {language_directive}
-{removed_section}{render_errors_section}
+{pinned_section}{removed_section}{render_errors_section}
 EXISTING DASHBOARD CODE:
 
 ```
@@ -472,7 +522,8 @@ DATA ACCESS:
 - Access values: `row[column.field]`, display labels: `column.headerName`
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
 - **Sample vs full data:** `rows` in the user message are a SAMPLE (capped at 100) for editing context; at runtime the dashboard receives the FULL dataset — `row_count` rows. Never write workarounds for the sample size.
-- **NEVER hardcode data** — ALL values from `data.visualizations[N].rows`
+- **NEVER hardcode data** — ALL values from the viz data payload (`vizById("<uuid>").rows`)
+- **DATA ACCESS IS ID-KEYED:** bind data with `vizById("<uuid>")` (uuids are in the VISUALIZATION DATA `id` fields). NEVER add new positional `viz[N]` references; when your edit touches a line that still uses `viz[N]`, convert it to `vizById("<uuid>")`.
 - **DEFENSIVE CODING**: Row values can be `null`/`undefined`. ALWAYS guard before string methods: `(val || '').includes('x')` or `String(val ?? '').toLowerCase()`. Never call `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()` on a potentially nullish value.
 
 View hints — follow the viz config:
@@ -489,7 +540,7 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 - `<FilterSearch>`, `<FilterDateRange>` — `className` replaces default theme.
 - `fmt()`, `<LoadingSpinner>`
 - All components are fully themeable. When the user's design calls for something these can't express — build custom React + Tailwind.
-- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{viz[N]}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{viz[N]}}`. When an edit touches an existing card that lacks it, add `viz={{viz[N]}}` too. If the card renders FILTERED rows (`filterRows(viz[N].rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown. If the card aggregates/derives its value, also pass `calc="<formula>"` (e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover. For CUSTOM markup (your own div tiles/charts/tables, not the prebuilt components), annotate each item's outer element with `data-bow-viz="N"` and `data-bow-calc="<formula>"` instead — a global overlay renders the same popover on those.
+- **`viz` prop:** `<KPICard>` and `<SectionCard>` accept `viz={{vizById("<uuid>")}}` — this renders a built-in "ⓘ" info popover (Data tab with rows, Code tab with the query). When adding new cards from a visualization, pass `viz={{vizById("<uuid>")}}`. When an edit touches an existing card that lacks it, add it too. If the card renders FILTERED rows (`filterRows(vizById("<uuid>").rows)`), also pass `rows={{<filtered rows>}}` so the popover's Data tab matches what's shown. If the card aggregates/derives its value, also pass `calc="<formula>"` (e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"`) — shown as a "Calculation" line in the popover. For CUSTOM markup (your own div tiles/charts/tables, not the prebuilt components), annotate each item's outer element with `data-bow-viz="N"` (index in data.visualizations order) and `data-bow-calc="<formula>"` instead — a global overlay renders the same popover on those.
 
 DATA-CAPABILITY CHECK — DO THIS FIRST, BEFORE GENERATING DIFFS:
 Before producing any SEARCH/REPLACE blocks, verify the edit is achievable with the visualization data available. An edit that adds a filter/chart/KPI referencing a column that doesn't exist in any viz will silently break — surfacing the gap is far better than producing a broken diff.
@@ -527,9 +578,9 @@ FILTER PLACEMENT — global vs local:
 
 FILTER DATA FLOW — CRITICAL:
 - Every viz that passes the feasibility check for a filter MUST use `filterRows()` as its data source — for charts, tables, AND any KPI/summary derived from that viz.
-- KPI cards summarizing filtered data MUST be computed from filtered rows, NEVER from raw `viz[N].rows`.
+- KPI cards summarizing filtered data MUST be computed from filtered rows, NEVER from raw `vizById("<uuid>").rows`.
 
-WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from viz[N].rows and the viz should be filtered (AND has the filter column), switch it to filterRows(viz[N].rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
+WHEN EDITING FILTERS: audit every data derivation in the existing code (useMemo, .map(), chart option builders, KPI computations). If it reads from a viz's raw .rows and the viz should be filtered (AND has the filter column), switch it to filterRows(vizById("<uuid>").rows). Check useMemo dependencies — they must include the filtered result, not the raw viz object.
 
 ═══════════════════════════════════════════════════════════════════════════════
 DESIGN GUIDANCE (for style/theme edits)
@@ -790,6 +841,23 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         content = artifact.content or {}
         existing_code = content.get("code", "")
         existing_viz_ids = content.get("visualization_ids", [])
+
+        # Legacy upgrade (lazy, deterministic, no LLM): positional viz[N]
+        # references are rewritten to id-keyed vizById("<uuid>") against the
+        # STORED visualization_ids order — the order those indexes were
+        # written against. The stored row is untouched; the migrated code is
+        # what the model edits and what persists as the next version.
+        viz_ref_migrations = 0
+        if artifact.mode == "page" and existing_code and existing_viz_ids:
+            from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs
+            existing_code, viz_ref_migrations = migrate_positional_viz_refs(
+                existing_code, [str(v) for v in existing_viz_ids]
+            )
+            if viz_ref_migrations:
+                logger.info(
+                    f"edit_artifact: migrated {viz_ref_migrations} positional viz reference(s) "
+                    f"to vizById() for artifact {artifact.id}"
+                )
 
         if not existing_code:
             yield ToolEndEvent(
@@ -1160,14 +1228,32 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         edit_failed = False
 
         if num_blocks == 0:
-            # No diff blocks found — reject full rewrites, edit_artifact is for surgical diffs only.
-            # The planner should use create_artifact for large changes.
-            logger.warning("edit_artifact: No SEARCH/REPLACE blocks found. Change is too large for surgical edit.")
-            edit_failed = True
-            warnings.append(
-                "This change is too large for edit_artifact (no surgical diffs could be produced). "
-                "The artifact was NOT modified. Use create_artifact to rebuild the dashboard with this change instead."
-            )
+            # No SEARCH/REPLACE blocks — the model answered with a full
+            # rewrite. Accept it as the fallback path (same contract as
+            # edit_doc: surgical diffs preferred, full rewrite fallback)
+            # instead of failing the whole edit back to the planner. The
+            # rewrite still goes through sanitization, the size guard, the
+            # viz-reference gate, and render validation below.
+            _rewrite = ""
+            try:
+                _rewrite = self._create_tool._extract_code(buffer, mode=artifact.mode) or ""
+            except Exception as e:
+                logger.warning(f"edit_artifact: rewrite-fallback extraction failed: {e}")
+            if _rewrite and len(_rewrite) >= min(4000, int(len(existing_code) * 0.5)):
+                logger.info(
+                    "edit_artifact: no diff blocks — accepting full-rewrite fallback "
+                    f"({len(_rewrite)} chars vs original {len(existing_code)})"
+                )
+                new_code = _rewrite
+                diff_applied = False
+                warnings.append("Edit applied as a full rewrite (no surgical diffs were produced).")
+            else:
+                logger.warning("edit_artifact: No SEARCH/REPLACE blocks and no usable rewrite in output.")
+                edit_failed = True
+                warnings.append(
+                    "The edit produced neither surgical diffs nor a usable full rewrite. "
+                    "The artifact was NOT modified. Retry with a more specific edit_prompt."
+                )
 
         elif not diff_applied:
             # Diff blocks found but some/all failed to match — return original unchanged (Aider-style)
