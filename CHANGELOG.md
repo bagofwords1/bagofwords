@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.550 (August 28, 2026)
+- Viewers can now chat with a shared dashboard on /r/{id}, with owner-controlled scope and per-viewer isolated threads (#1034)
+- Made the artifact sandbox and AgGrid tables dark-mode friendly (#1033)
+- Splunk connector now catalogs dashboards and saved searches, and can run them for RCA workflows (#1032)
+- Added a per-platform toggle to disable the new-conversation-report announcement on Slack, Teams, Google Chat, and email (#1031)
+- Documented root causes and a remediation plan for artifact iteration latency, edit regressions, and dashboard filtering gaps (#1030)
+
 ## Version 0.0.549 (August 25, 2026)
 - Added native Azure AI Foundry endpoint support to the Azure connector, with editable model ids and fast-failing model-not-found errors (#1020)
 - Rejecting all hunks of a suggested new instruction now retires its orphaned draft, so it no longer resurfaces in search or counts (#1021)
