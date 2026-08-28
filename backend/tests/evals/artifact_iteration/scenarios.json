@@ -1,0 +1,101 @@
+{
+  "description": "Complex artifact-iteration evals (long-memory, design, destructive iteration). Drive each scenario's turns through the real chat UI against a sandbox stack (see docs/feedback-loops/artifact-iteration-filtering.md for the harness), then score with scorer.py. Architecture-neutral: scores the coder-based and planner-authored pipelines identically.",
+  "scenarios": [
+    {
+      "id": "memory_gauntlet",
+      "title": "Long-memory iteration (12 turns)",
+      "turns": [
+        "Using the Chinook Music Store: create a granular revenue dataset from invoice lines with columns for invoice date, genre name, customer country, artist name and album title.",
+        "Build a dashboard titled 'Memory Gauntlet' from this data. PERMANENT DESIGN RULE #1: the KPI row (total revenue and invoice count) is always the FIRST section, above everything else. Also include a monthly revenue trend line chart and a revenue-by-genre bar chart.",
+        "PERMANENT DESIGN RULE #2: all accent colors on this dashboard are indigo (#6366f1) - never change this unless I say so.",
+        "Add a table of the top 10 artists by revenue at the bottom.",
+        "Rename the monthly trend section heading to 'Momentum'.",
+        "Add a genre filter that re-runs the data server-side across every chart and the KPIs.",
+        "Give all cards rounded-xl corners and a subtle border.",
+        "Add a third KPI card: distinct customer count.",
+        "Remove the revenue-by-genre bar chart - we don't need it.",
+        "Also add a customer-country filter, same server-side behavior as the genre filter.",
+        "Make the artists table header row bold with a slate background.",
+        "Tighten the vertical spacing between sections a bit."
+      ],
+      "checks": {
+        "retention_all": [
+          "Momentum",
+          "indigo|#6366f1|6366f1",
+          "rounded-xl"
+        ],
+        "absent_all": [
+          "Revenue by Genre"
+        ],
+        "kpi_first_section": true,
+        "min_visualizations": 3,
+        "filter_params_expected": [
+          "genre",
+          "country"
+        ],
+        "filter_interaction": {
+          "option_label": "Rock",
+          "kpi_should_change": true
+        }
+      }
+    },
+    {
+      "id": "design_oneshot",
+      "title": "Complex one-shot design build",
+      "turns": [
+        "Using the Chinook Music Store: create one wide granular revenue dataset from invoice lines with invoice date, genre, customer country, customer id, artist, album, unit price and quantity.",
+        "Build a dashboard titled 'Chinook Executive Suite' with ALL of the following: a KPI row with four cards (total revenue, invoice count, distinct customers, average order value); a monthly revenue trend line chart; a top-10 artists horizontal bar chart; a revenue-by-genre donut chart; and a recent-invoices table. Add TWO global filters - genre and customer country - as server-side query parameters with an All option that re-run the data at the source. Dark slate theme with indigo accents, fully responsive."
+      ],
+      "checks": {
+        "retention_all": [
+          "Executive Suite"
+        ],
+        "expected_sections": [
+          "Total Revenue|TOTAL REVENUE",
+          "Trend|Monthly|trend",
+          "Artists|artists",
+          "Genre|genre",
+          "Invoices|invoices"
+        ],
+        "min_visualizations": 3,
+        "filter_params_expected": [
+          "genre",
+          "country"
+        ],
+        "filter_interaction": {
+          "option_label": "Rock",
+          "kpi_should_change": true
+        },
+        "revenue_total_expected": 2328.6
+      }
+    },
+    {
+      "id": "destructive_gauntlet",
+      "title": "Destructive iteration / regression gauntlet (8 turns)",
+      "turns": [
+        "Using the Chinook Music Store: create a granular revenue dataset from invoice lines with invoice date, genre, customer country and artist.",
+        "Build a dashboard titled 'Gauntlet' with: a total-revenue KPI, a monthly trend line, a revenue-by-genre bar chart, and a genre filter that re-runs the data server-side everywhere.",
+        "Add a top-10 artists table that respects the same genre filter.",
+        "Restyle the KPI card: emerald accent, large number.",
+        "Remove the monthly trend line chart.",
+        "Rename the dashboard to 'Gauntlet Prime'.",
+        "Add back a monthly revenue trend, as an area chart this time.",
+        "Make the genre filter default to 'All' and double-check every section still responds to it."
+      ],
+      "checks": {
+        "retention_all": [
+          "Gauntlet Prime",
+          "emerald|10b981|059669|34d399"
+        ],
+        "min_visualizations": 3,
+        "filter_params_expected": [
+          "genre"
+        ],
+        "filter_interaction": {
+          "option_label": "Rock",
+          "kpi_should_change": true
+        }
+      }
+    }
+  ]
+}
