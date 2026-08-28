@@ -453,7 +453,7 @@ class EditArtifactTool(Tool):
         pinned = build_pinned_decisions(original_spec)
         if pinned:
             pinned_section = f"""
-**PINNED DECISIONS (durable design intent from earlier turns):** The user established these across the conversation. Do NOT undo any of them unless the current edit request explicitly overrides one:
+**PINNED DECISIONS (durable design intent from earlier turns, oldest first):** The user established these across the conversation. Do NOT undo any of them unless the current edit request explicitly overrides one. Where two entries conflict (e.g. "dark mode" then "light mode"), the LATER entry supersedes the earlier one:
 {pinned}
 """
 
@@ -610,7 +610,7 @@ Rules:
 - Order blocks top to bottom.
 - Preserve existing code unless the user asked to change it.
 - For NEW charts, use `<EChart option={{...}} height={{N}} />` — supports ALL ECharts types. 'bow' theme handles base styling.
-- Do NOT output full code. Only SEARCH/REPLACE blocks. If the change feels too large for diffs, output nothing — the planner will use create_artifact instead.
+- Prefer SEARCH/REPLACE blocks. If the change is genuinely too large or scattered for surgical diffs, output the FULL corrected code in a single `<script type="text/babel">...</script>` block instead (a rewrite) — NEVER output nothing. A rewrite must still preserve everything the user didn't ask to change.
 
 ⚠️ **Implement the user's full request.** Don't skip requested changes to save tokens. Don't rewrite code the user didn't ask to change."""
 
@@ -1353,6 +1353,49 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
                     yield _item
 
             if _validate_result is not None:
+                # Viz-reference errors that survived the repair budget are a
+                # HARD gate on edits: a persisted version that references a
+                # missing viz (or drops one) renders plausibly-wrong output —
+                # worse than rejecting the edit and keeping the last good
+                # version. (Params-wiring findings stay warnings, as before.)
+                _residual_ref_errors = [
+                    e for e in (_validate_result.get("params_wiring_errors") or [])
+                    if str(e).startswith("[viz refs]")
+                ]
+                if _validate_result["clean"] and _residual_ref_errors:
+                    yield ToolEndEvent(
+                        type="tool.end",
+                        payload={
+                            "output": {
+                                "success": False,
+                                "artifact_id": str(artifact.id),
+                                "error": f"Edit rejected — visualization reference errors: {_residual_ref_errors[0]}",
+                            },
+                            "observation": {
+                                "summary": (
+                                    f"Edit rejected for artifact '{artifact.title or 'Untitled'}' (v{artifact.version}): "
+                                    "the edited code fails the visualization-reference contract and in-tool repair "
+                                    "did not converge. The artifact was NOT modified — the previous version remains live."
+                                ),
+                                "error": {
+                                    "type": "viz_reference_errors",
+                                    "message": _residual_ref_errors[0],
+                                    "viz_reference_errors": _residual_ref_errors,
+                                    "remediation": (
+                                        "Retry edit_artifact with an edit_prompt that resolves each listed reference "
+                                        "error (delete sections for removed vizs, add sections for unreferenced ones, "
+                                        "use vizById(\"<uuid>\") with ids from the artifact's data payload)."
+                                    ),
+                                },
+                                "artifact_id": str(artifact.id),
+                                "mode": artifact.mode,
+                                "version": artifact.version,
+                                "diff_applied": False,
+                                "warnings": warnings,
+                            },
+                        },
+                    )
+                    return
                 if _validate_result["clean"]:
                     new_code = _validate_result["code"]
                     screenshot_base64 = _validate_result["screenshot"]

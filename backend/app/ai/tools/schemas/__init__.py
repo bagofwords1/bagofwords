@@ -14,6 +14,8 @@ from .edit_instruction import EditInstructionInput, EditInstructionOutput
 from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .read_artifact import ReadArtifactInput, ReadArtifactOutput
 from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
+from .add_parameter import AddParameterInput, AddParameterOutput
+from .apply_artifact_edit import ApplyArtifactEditInput, ApplyArtifactEditOutput, ArtifactEditOp
 from .search_reports import SearchReportsInput, SearchReportsOutput, SearchReportsItem
 from .read_report import (
     ReadReportInput,

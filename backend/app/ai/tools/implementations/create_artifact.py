@@ -2447,13 +2447,21 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data; bind 
         prior_code_block = ""
         if prior_code:
             _clipped = prior_code[:30000]
+            _truncation_note = ""
+            if len(prior_code) > 30000:
+                _truncation_note = (
+                    f"\nNOTE: the baseline below is TRUNCATED at 30,000 of {len(prior_code)} "
+                    "characters. Preserve everything visible; for the truncated remainder, use "
+                    "the YOUR VISUALIZATIONS list to ensure every viz still gets a section — do "
+                    "not invent content for parts you cannot see, and do not drop their vizs.\n"
+                )
             prior_code_block = (
                 "\n**REBUILD OVER EXISTING ARTIFACT — PRESERVE BY DEFAULT:** this report already "
                 "has a dashboard; its current code is below. You are rebuilding it, not starting "
                 "fresh. Reproduce EVERYTHING the request does not explicitly change — the same "
                 "charts, layout structure, styling, titles, and filters — and apply only the "
                 "requested changes on top. Do not drop, restyle, or reorganize anything the user "
-                "didn't name.\n\n```jsx\n" + _clipped + "\n```\n"
+                "didn't name.\n" + _truncation_note + "\n```jsx\n" + _clipped + "\n```\n"
             )
 
         # Server-side query parameters: when any viz declares them, the

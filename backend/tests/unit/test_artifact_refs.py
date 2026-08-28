@@ -60,6 +60,24 @@ def test_codemod_noop_without_ids_or_code():
     assert migrate_positional_viz_refs(code, []) == (code, 0)
 
 
+def test_codemod_skips_string_literals_and_comments():
+    # A quoted "viz[0]" must not become nested-quote vizById("...") — that
+    # would break the code; real references on the same/other lines still
+    # migrate.
+    code = (
+        "const label = 'use viz[0] to access data';\n"
+        'const doc = "see viz[1] for details";\n'
+        "// legacy note: viz[2] was the table\n"
+        "const real = viz[0].rows;"
+    )
+    out, n = migrate_positional_viz_refs(code, IDS)
+    assert n == 1
+    assert "'use viz[0] to access data'" in out
+    assert '"see viz[1] for details"' in out
+    assert "// legacy note: viz[2] was the table" in out
+    assert f'vizById("{IDS[0]}").rows' in out
+
+
 def test_codemod_is_idempotent():
     code = "const a = viz[0].rows;"
     once, _ = migrate_positional_viz_refs(code, IDS)
@@ -97,6 +115,22 @@ def test_gate_flags_payload_viz_never_referenced():
     code = f'const a = vizById("{IDS[0]}"); const b = vizById("{IDS[1]}");'
     errors = viz_reference_errors(code, _payload(titles=["Rev", "Orders", "Churn"]))
     assert any(IDS[2] in e and "Churn" in e for e in errors)
+
+
+def test_gate_flags_chartless_page():
+    # Reviewer counterexample: a page that references NONE of its payload
+    # vizs renders no data and must fail the gate.
+    code = "const x = <div className='p-8'>Hello</div>;"
+    errors = viz_reference_errors(code, _payload())
+    assert any("NONE" in e for e in errors)
+
+
+def test_gate_slice_is_not_coverage():
+    # Reviewer counterexample: viz.slice(0, 1) renders one viz, not all —
+    # it must not satisfy coverage.
+    code = "const first = viz.slice(0, 1); const n = viz.length;"
+    errors = viz_reference_errors(code, _payload())
+    assert errors, "slice/length alone must not count as full coverage"
 
 
 def test_gate_accepts_whole_list_iteration_as_coverage():
