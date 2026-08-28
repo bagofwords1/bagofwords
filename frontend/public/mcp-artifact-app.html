@@ -8,6 +8,21 @@
   <!-- Vendored libs (downloaded by scripts/download-vendor-libs.sh) -->
   <!-- Tailwind CSS -->
   <script src="/libs/tailwindcss-3.4.16.js"></script>
+  <script>
+    // Match the artifact iframe runtime: dark: variants activate via a `dark`
+    // class on <html>. MCP hosts don't post ARTIFACT_SET_COLOR_MODE, so follow
+    // the OS/browser preference (and track changes) instead.
+    tailwind.config = { darkMode: 'class' };
+    (function () {
+      var mq = window.matchMedia('(prefers-color-scheme: dark)');
+      function apply() {
+        document.documentElement.classList.toggle('dark', mq.matches);
+        try { window.dispatchEvent(new CustomEvent('bow-colormode', { detail: { mode: mq.matches ? 'dark' : 'light' } })); } catch (e) {}
+      }
+      apply();
+      if (mq.addEventListener) mq.addEventListener('change', apply);
+    })();
+  </script>
 
   <!-- React 18 -->
   <script crossorigin src="/libs/react-18.production.min.js"></script>
@@ -29,7 +44,7 @@
     block below overrides useArtifactData with an event-driven variant because
     MCP delivers ARTIFACT_DATA via postMessage rather than inlined srcdoc.
   -->
-  <script src="/libs/artifact-globals.js?v=2"></script>
+  <script src="/libs/artifact-globals.js?v=7"></script>
 
   <style>
     html, body, #root {
@@ -39,7 +54,10 @@
     }
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background-color: #ffffff; color: #0f172a;
     }
+    html.dark body { background-color: #111827; color: #e5e7eb; }
+    html.dark #global-loader { background: #111827; }
     #global-loader {
       position: fixed; top: 0; left: 0; right: 0; bottom: 0;
       display: flex; align-items: center; justify-content: center;

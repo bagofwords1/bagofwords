@@ -39,14 +39,15 @@ export default {
              {};
     },
     headerStyles() {
+      // Color intentionally omitted: it inherits from .ag-header-cell, whose
+      // color tracks the theme CSS vars reactively (a live color-mode flip
+      // updates it; header component params captured in columnDefs would not).
       return {
-        color: this.themeTokens.textColor || '#0f172a',
         fontFamily: this.themeTokens.fontFamily || 'Inter, ui-sans-serif, system-ui'
       };
     },
     iconStyles() {
       return {
-        color: this.themeTokens.axis?.xLabelColor || this.themeTokens.textColor || '#6b7280',
         opacity: 0.7
       };
     },

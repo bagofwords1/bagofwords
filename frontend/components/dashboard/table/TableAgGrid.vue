@@ -118,6 +118,8 @@ const updateData = () => {
 }
 
 watch(() => props.step, updateData, { deep: true, immediate: true })
+// headerComponentParams embed theme colors — rebuild on a live color-mode flip
+watch(tokens, updateData)
 </script>
 
 <style>

@@ -826,6 +826,19 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+
+// App color mode, forwarded into the artifact iframe. Non-reactive snapshot so
+// a toggle updates the live iframe via postMessage instead of reloading srcdoc.
+const colorMode = useColorMode();
+let artifactColorMode: 'light' | 'dark' = colorMode.value === 'dark' ? 'dark' : 'light';
+watch(() => colorMode.value, (v) => {
+    artifactColorMode = v === 'dark' ? 'dark' : 'light';
+    artifactIframeRef.value?.contentWindow?.postMessage(
+        { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
+        window.location.origin
+    );
+});
+
 const queryParamSpecs = ref<Record<string, any[]>>({});
 const paramValues = ref<Record<string, any>>({});
 // Host-resolved stable choices per param (static options + options-source
@@ -1112,6 +1125,7 @@ const iframeSrcdoc = computed(() => {
         data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
+        colorMode: artifactColorMode,
     });
 });
 

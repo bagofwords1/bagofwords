@@ -1,6 +1,39 @@
-import type { ThemeDefinition } from './types';
+import type { ThemeDefinition, ThemeTokens } from './types';
 
 export const DEFAULT_THEME_NAME = 'default';
+
+// Dark-mode counterpart of the `default` theme's tokens. Not registered in
+// `themes` so it never shows up in the report theme picker — it is applied by
+// useDashboardTheme when the app color mode is dark and the report has no
+// explicit (non-default) theme.
+export const DARK_DEFAULT_TOKENS: ThemeTokens = {
+  palette: [
+    '#60a5fa', // blue
+    '#34d399', // emerald
+    '#fbbf24', // amber
+    '#f87171', // rose/red
+    '#a78bfa'  // violet
+  ] as any,
+  background: '#111827',
+  textColor: '#e5e7eb',
+  cardBackground: '#111827',
+  cardBorder: '#374151',
+  fontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+  headingFontFamily: 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial',
+  axis: {
+    xLabelColor: '#94a3b8', xLineColor: '#374151',
+    yLabelColor: '#94a3b8', yLineColor: '#374151',
+    gridLineColor: 'rgba(148, 163, 184, 0.15)',
+    gridShow: true,
+    xLabelShowAll: false,
+    xLabelRotate: 0,
+    xLabelInterval: 'auto' as any
+  },
+  legend: { textColor: '#cbd5e1' },
+  grid: { top: '10%', bottom: '12%', left: '6%', right: '4%' },
+  tooltip: { backgroundColor: 'rgba(15, 23, 42, 0.95)', borderColor: 'transparent', textStyle: { color: '#e2e8f0' } },
+  animation: { duration: 500, easing: 'cubicOut' }
+};
 
 export const themes: Record<string, ThemeDefinition> = {
   default: {

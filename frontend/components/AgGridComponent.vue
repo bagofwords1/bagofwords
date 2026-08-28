@@ -3,7 +3,7 @@
     <ag-grid-vue
       :columnDefs="columnDefs"
       :rowData="rowData"
-      class="ag-theme-balham ag-grid"
+      :class="[agThemeClass, 'ag-grid']"
       :gridOptions="gridOptions"
       :pagination="paginationEnabled"
       :paginationPageSize="PAGE_SIZE"
@@ -21,6 +21,14 @@ import CustomLoadingRenderer from './CustomLoadingRenderer.vue'; // Import the C
 import 'ag-grid-community/styles/ag-grid.css';
 //import 'ag-grid-community/styles/ag-theme-alpine.css';
 import 'ag-grid-community/styles/ag-theme-balham.css';
+
+// Follow the app color mode so the grid chrome (menus, filter popups, icons)
+// doesn't stay light on a dark page. Wrappers that theme via .ag-theme-custom
+// CSS variables still win — their rules use !important.
+const colorMode = useColorMode();
+const agThemeClass = computed(() =>
+  colorMode.value === 'dark' ? 'ag-theme-balham-dark' : 'ag-theme-balham'
+);
 
 const isLoading = ref(true);
 
