@@ -376,7 +376,10 @@ class EditArtifactTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["artifact", "dashboard", "edit"],
-            allowed_modes=["chat"],
+            # Retired from the planner: all artifact edits are planner-authored
+            # via apply_artifact_edit (docs via edit_doc). The class remains for
+            # compat/tests; empty allowed_modes hides it from tool selection.
+            allowed_modes=[],
         )
 
     @property

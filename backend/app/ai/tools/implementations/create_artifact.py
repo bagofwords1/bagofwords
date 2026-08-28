@@ -563,8 +563,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         images: Dict[str, bytes],
         runtime_ctx: Dict[str, Any],
         deadline_monotonic: Optional[float] = None,
+        max_repairs: Optional[int] = None,
     ) -> AsyncIterator[Any]:
         """Execute slides code and repair it in-tool when it fails.
+
+        max_repairs caps the LLM repair rounds (None = MAX_RENDER_REPAIR_ATTEMPTS;
+        0 = execute-only, no repair LLM — the planner-authored path).
 
         Slides twin of _validate_and_repair_stream. Async generator: yields
         ToolProgressEvent items for the UI, then a final dict result:
@@ -604,10 +608,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         original_error = error
         candidate = code
         attempts = 0
+        _pptx_repair_budget = self.MAX_RENDER_REPAIR_ATTEMPTS if max_repairs is None else max_repairs
 
         while (
             error
-            and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
+            and attempts < _pptx_repair_budget
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
         ):
@@ -657,8 +662,16 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         mode: str,
         runtime_ctx: Dict[str, Any],
         deadline_monotonic: Optional[float] = None,
+        max_repairs: Optional[int] = None,
+        strict: bool = False,
     ) -> AsyncIterator[Any]:
         """Render-validate page code and repair it in-tool when it fails.
+
+        max_repairs caps the LLM repair rounds (None = MAX_RENDER_REPAIR_ATTEMPTS;
+        0 = pure validation, no repair LLM — the planner-authored path).
+        strict=True additionally fails the result when contract errors
+        (viz refs / params wiring) remain — they are merged into `errors`
+        instead of riding along as annotations.
 
         Async generator: yields ToolProgressEvent items for the UI, then a
         final dict result:
@@ -714,10 +727,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         original_wiring = list(wiring)
         candidate = code
         attempts = 0
+        _repair_budget = self.MAX_RENDER_REPAIR_ATTEMPTS if max_repairs is None else max_repairs
 
         while (
             (fatal or wiring)
-            and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
+            and attempts < _repair_budget
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
         ):
@@ -742,7 +756,19 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             if mode == "page":
                 wiring = wiring + viz_reference_errors(candidate, artifact_data)
 
-        if not fatal:
+        if strict and not fatal and wiring:
+            # Strict (planner-authored) mode: contract errors are as fatal as
+            # render errors — return them as the failure so nothing persists
+            # and the planner gets the exact list to fix.
+            yield {
+                "code": original_code,
+                "clean": False,
+                "screenshot": screenshot,
+                "errors": list(errors) + list(wiring),
+                "repair_attempts": attempts,
+                "params_wiring_errors": wiring,
+            }
+        elif not fatal:
             # Render fatality decides candidate vs original; unconverged wiring
             # only ANNOTATES — a rendering dashboard with a dead control still
             # beats no dashboard, but the caller must be able to say so.
@@ -1233,68 +1259,78 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 logger.warning("Failed to load prior artifact code for rebuild reference", exc_info=True)
                 prior_code = ""
 
-        prompt = self._build_prompt(
-            user_prompt=data.prompt,
-            title=data.title,
-            mode=data.mode,
-            viz_profiles=viz_profiles,
-            instructions_context=instructions_context,
-            identity_context=identity_context,
-            report_title=getattr(report, 'title', None) if report else None,
-            allow_llm_see_data=allow_llm_see_data,
-            messages_context=messages_context,
-            image_count=len(completion_images),
-            organization_settings=organization_settings,
-            files=included_files,
-            prior_code=prior_code,
-        )
-        # Static reference goes in the system prompt so provider-side prompt
-        # caching reuses it across artifact calls (page mode only — slides
-        # keeps its single-prompt path).
-        system_prompt = self._build_page_system_prompt() if data.mode == "page" else None
-
-        # Stream from LLM
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+        # ═══════════════════════════════════════════════════════════════════
+        # Planner-authored path (primary): the planner supplies the complete
+        # source in `code` — NO in-tool generation LLM. Validation below is a
+        # single strict pass; failures return structured errors and persist
+        # nothing (the planner's own loop is the repair loop).
+        # ═══════════════════════════════════════════════════════════════════
+        planner_authored = bool((data.code or "").strip())
         buffer = ""
-        slides_detected = 0  # Track number of slides detected during streaming
+        slides_detected = 0
+        if not planner_authored:
+            prompt = self._build_prompt(
+                user_prompt=data.prompt,
+                title=data.title,
+                mode=data.mode,
+                viz_profiles=viz_profiles,
+                instructions_context=instructions_context,
+                identity_context=identity_context,
+                report_title=getattr(report, 'title', None) if report else None,
+                allow_llm_see_data=allow_llm_see_data,
+                messages_context=messages_context,
+                image_count=len(completion_images),
+                organization_settings=organization_settings,
+                files=included_files,
+                prior_code=prior_code,
+            )
+            # Static reference goes in the system prompt so provider-side prompt
+            # caching reuses it across artifact calls (page mode only — slides
+            # keeps its single-prompt path).
+            system_prompt = self._build_page_system_prompt() if data.mode == "page" else None
 
-        async for evt in llm.inference_stream_v2(
-            messages=[Message(role="user", content=prompt)],
-            system=system_prompt,
-            images=completion_images if completion_images else None,
-            usage_scope="create_artifact",
-            usage_scope_ref_id=str(report.id) if report else None,
-        ):
-            if sigkill_event and sigkill_event.is_set():
-                break
-            if isinstance(evt, TextDeltaEvent):
-                buffer += evt.text
+            # Stream from LLM
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
+            llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+            buffer = ""
+            slides_detected = 0  # Track number of slides detected during streaming
 
-            # For slides mode, detect new slides as they're generated
-            if data.mode == "slides":
-                # Count slide sections in buffer
-                current_slides = buffer.count('<section class="slide"')
-                if current_slides > slides_detected:
-                    # New slide detected
-                    for i in range(slides_detected, current_slides):
-                        yield ToolProgressEvent(
-                            type="tool.progress",
-                            payload={
-                                "stage": "slide_generated",
-                                "slide_index": i,
-                                "total_slides": current_slides,
-                                "timing": False,
-                            }
-                        )
-                    slides_detected = current_slides
+            async for evt in llm.inference_stream_v2(
+                messages=[Message(role="user", content=prompt)],
+                system=system_prompt,
+                images=completion_images if completion_images else None,
+                usage_scope="create_artifact",
+                usage_scope_ref_id=str(report.id) if report else None,
+            ):
+                if sigkill_event and sigkill_event.is_set():
+                    break
+                if isinstance(evt, TextDeltaEvent):
+                    buffer += evt.text
 
-            # Stream partial updates
-            if len(buffer) % 100 == 0:  # Throttle updates
-                yield ToolProgressEvent(
-                    type="tool.progress",
-                    payload={"stage": "generating", "chars": len(buffer), "timing": False}
-                )
+                # For slides mode, detect new slides as they're generated
+                if data.mode == "slides":
+                    # Count slide sections in buffer
+                    current_slides = buffer.count('<section class="slide"')
+                    if current_slides > slides_detected:
+                        # New slide detected
+                        for i in range(slides_detected, current_slides):
+                            yield ToolProgressEvent(
+                                type="tool.progress",
+                                payload={
+                                    "stage": "slide_generated",
+                                    "slide_index": i,
+                                    "total_slides": current_slides,
+                                    "timing": False,
+                                }
+                            )
+                        slides_detected = current_slides
+
+                # Stream partial updates
+                if len(buffer) % 100 == 0:  # Throttle updates
+                    yield ToolProgressEvent(
+                        type="tool.progress",
+                        payload={"stage": "generating", "chars": len(buffer), "timing": False}
+                    )
 
         # Check sigkill after LLM generation
         if sigkill_event and sigkill_event.is_set():
@@ -1310,8 +1346,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             )
             return
 
-        # Extract the code from the response
-        code = self._extract_code(buffer, mode=data.mode)
+        # Extract the code: from the planner-authored source (tolerating a
+        # bare script without fences) or from the generation buffer.
+        if planner_authored:
+            _raw = (data.code or "").strip()
+            code = self._extract_code(_raw, mode=data.mode) or _raw
+        else:
+            code = self._extract_code(buffer, mode=data.mode)
 
         # ═══════════════════════════════════════════════════════════════════════
         # Mode-specific processing: slides uses python-pptx, page skips to save
@@ -1348,6 +1389,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 await load_image_bytes(db, included_files),
                 runtime_ctx,
                 deadline_monotonic=_repair_deadline,
+                max_repairs=(0 if planner_authored else None),
             ):
                 if isinstance(_item, dict):
                     _pptx_result = _item
@@ -1421,6 +1463,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             _validate_result: Optional[Dict[str, Any]] = None
             async for _item in self._validate_and_repair_stream(
                 code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
+                max_repairs=(0 if planner_authored else None),
+                strict=planner_authored,
             ):
                 if isinstance(_item, dict):
                     _validate_result = _item

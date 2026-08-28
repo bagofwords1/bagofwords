@@ -90,3 +90,25 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
   harness without a browser can persist a JSX-invalid edit. Acceptable for
   the same reason the create-side fallback is; revisit if a headless-less
   deploy target appears.
+
+## Phase-3 completion — planner authors everything (final architecture)
+
+- `create_artifact` accepts planner-authored source in `code`: the Haiku
+  planner wrote the full JSX itself (2,080 chars in the tool arguments) and
+  the tool ran mechanically — "Dashboard Created 0.7s" (persist + gates +
+  one render validation) vs 25s+ on the old coder path. Strict mode: contract
+  errors fail the create outright (no annotate-and-persist).
+- Slides: the planner authored the complete python-pptx script (2,980 chars,
+  `mode='slides'`) — valid 2-slide deck with correct Chinook figures,
+  "Presentation Created 1.0s". Script-as-source; execution is the validation
+  (max_repairs=0 — no repair LLM on planner-authored paths).
+- `apply_artifact_edit` now covers slides too, and is the ONLY edit path the
+  planner sees (edit_artifact retired via allowed_modes=[]; class kept for
+  compat). Follow-up edit turn: indigo accent + section rename applied
+  mechanically, live on v2.
+- The artifact authoring reference (page JSX + runtime docs + slides contract
+  + edit-op rules, ~42K chars, static/cacheable) rides in the planner system
+  prompt; `<current_artifact>` carries the working code (30K cap with a
+  read_artifact fallback note).
+- Whole final flow ran with ZERO inner-LLM (coder) calls: create ×2, edit ×1,
+  all planner-authored. 39 artifact-suite unit tests green.

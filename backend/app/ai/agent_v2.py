@@ -1354,6 +1354,11 @@ class AgentV2:
                 "version": artifact.version,
                 "generation_prompt": artifact.generation_prompt,
                 "visualizations": visualizations,
+                # The current source: the planner authors artifact code itself
+                # (create_artifact.code / apply_artifact_edit ops), so the code
+                # IS the working context. Rendering caps it; oversize falls
+                # back to read_artifact.
+                "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")

@@ -1,12 +1,16 @@
 # Robust artifacts — one authoring architecture, hard boundary contracts
 
-Status: phases 1-2 implemented and verified e2e; PR #1030 review findings
-addressed (hard-blocking gate on edits, tightened coverage, string-safe
-codemod, v3 alignment, rewrite-capable coder prompt); F3 shipped
-(`add_parameter` — in-place retro-parameterization); phase-3 step 1 shipped
-(`apply_artifact_edit` — planner-authored mechanical edits, no inner LLM).
-Remaining: F2 (report-level parameters), phase-3 steps 2-3 (slides
-script-as-source; planner-authored creates, then delete the coder LLM).
+Status: COMPLETE except F2. Phases 1-2, the PR #1030 review fixes, F3
+(`add_parameter`), and the full phase-3 architecture are implemented and
+verified e2e: the PLANNER authors all artifact source (create_artifact.code
+— JSX pages and python-pptx slides scripts — and apply_artifact_edit ops);
+the tools are mechanical (gates + one render/execute validation, no inner
+LLM, failures persist nothing); edit_artifact is retired from the planner
+(class kept for compat; its legacy codegen path in create_artifact remains
+only as a deprecated fallback when `code` is omitted). The authoring
+reference lives in the planner system prompt (cacheable) and
+<current_artifact> carries the working code (30K cap, read_artifact
+fallback). Remaining: F2 (report-level parameters).
 Verification: docs/feedback-loops/artifact-iteration-filtering.md
 Trigger: customer complaints — iterating an artifact regresses other areas of
 the page, and dashboards lack Tableau-style filters/parameterized queries.

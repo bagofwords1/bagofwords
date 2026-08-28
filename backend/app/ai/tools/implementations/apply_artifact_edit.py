@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 
 class ApplyArtifactEditTool(Tool):
-    """Mechanical find/replace edits on a page artifact — no inner LLM."""
+    """Mechanical find/replace edits on a page or slides artifact — no inner LLM."""
 
     def __init__(self):
         from app.ai.tools.implementations.create_artifact import CreateArtifactTool
@@ -41,15 +41,15 @@ class ApplyArtifactEditTool(Tool):
         return ToolMetadata(
             name="apply_artifact_edit",
             description=(
-                "Apply exact find/replace edits YOU author to a page artifact — mechanical, no second "
+                "Apply exact find/replace edits YOU author to a page or slides artifact — mechanical, no second "
                 "model, atomic. Use when the current artifact code is in your context (from read_artifact "
                 "this turn, or a create/edit result) and the change is precise: text, labels, colors, "
                 "classNames, values, deleting/adding a self-contained section. Each `find` must match the "
                 "code exactly once. The tool enforces the viz-reference and params-wiring contracts and "
                 "render-validates before persisting; on any failure NOTHING is applied and the error tells "
-                "you exactly what to correct — fix the ops and call again. Prefer edit_artifact instead "
-                "when you have NOT read the current code or the change needs open-ended chart/data "
-                "reasoning across the file."
+                "you exactly what to correct — fix the ops and call again. If the current code is not in your "
+                "context, call read_artifact first. For a from-scratch redesign, author new source and call "
+                "create_artifact with `code`. For slides, ops edit the python-pptx script; validation = the script executes and saves a deck."
             ),
             category="action",
             version="1.0.0",
@@ -104,8 +104,8 @@ class ApplyArtifactEditTool(Tool):
         if artifact is None or (report is not None and str(artifact.report_id) != str(report.id)):
             yield self._fail(None, "not_found", f"Artifact {data.artifact_id} not found in this report.")
             return
-        if artifact.mode != "page":
-            yield self._fail(artifact, "wrong_mode", f"apply_artifact_edit only supports page artifacts (this one is '{artifact.mode}') — use edit_artifact or edit_doc.")
+        if artifact.mode not in ("page", "slides"):
+            yield self._fail(artifact, "wrong_mode", f"apply_artifact_edit supports page and slides artifacts (this one is '{artifact.mode}') — use edit_doc for documents.")
             return
 
         content = artifact.content or {}
@@ -115,11 +115,14 @@ class ApplyArtifactEditTool(Tool):
             yield self._fail(artifact, "no_code", "Artifact has no code to edit.")
             return
 
-        # Legacy upgrade first, so planner-authored finds written against
-        # vizById-style code match, and the persisted version is id-keyed.
-        code, migrations = migrate_positional_viz_refs(code, existing_viz_ids)
-        if migrations:
-            logger.info(f"apply_artifact_edit: migrated {migrations} positional viz reference(s) for {artifact.id}")
+        # Legacy upgrade first (page only), so planner-authored finds written
+        # against vizById-style code match, and the persisted version is
+        # id-keyed. Slides scripts address the injected `visualizations` list —
+        # no codemod applies.
+        if artifact.mode == "page":
+            code, migrations = migrate_positional_viz_refs(code, existing_viz_ids)
+            if migrations:
+                logger.info(f"apply_artifact_edit: migrated {migrations} positional viz reference(s) for {artifact.id}")
 
         # Apply ops atomically: validate every op against the WORKING code in
         # order; the first failure rejects the whole batch.
@@ -184,33 +187,70 @@ class ApplyArtifactEditTool(Tool):
         except Exception:
             pass
 
-        # Deterministic gates — hard, no repair (the planner corrects and retries).
-        gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
-        gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)
-        if gate_errors:
-            yield self._fail(
-                artifact, "contract_errors",
-                f"{len(gate_errors)} contract error(s); first: {gate_errors[0]}",
-                {"errors": gate_errors, "remediation": "Correct the ops to resolve each error and call apply_artifact_edit again."},
-            )
-            return
-
-        # One render validation pass — no in-tool repair.
         screenshot_b64: Optional[str] = None
         render_errors: List[str] = []
-        try:
-            html = self._create_tool._build_thumbnail_html(artifact_data, new_code, mode="page")
-            screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
-            fatal = self._create_tool.fatal_render_errors(render_errors)
-            if fatal:
+        _pptx_tmp = None
+
+        if artifact.mode == "slides":
+            # Mechanical validation for slides: the edited script must execute
+            # and save a deck. No LLM repair — planner fixes and retries.
+            import tempfile as _tempfile
+            from pathlib import Path as _Path
+            from app.ai.tools.implementations._artifact_images import load_image_bytes
+            _pptx_tmp = _Path(_tempfile.mkstemp(suffix=".pptx")[1])
+            _pptx_tmp.unlink(missing_ok=True)
+            report_data = {
+                "id": str(report.id) if report else None,
+                "title": getattr(report, "title", None) if report else None,
+                "theme": getattr(report, "theme", None) if report else None,
+            }
+            _pptx_res = None
+            async for _item in self._create_tool._execute_and_repair_pptx(
+                new_code,
+                artifact_data.get("visualizations") or [],
+                report_data,
+                _pptx_tmp,
+                await load_image_bytes(db, content.get("files") or []),
+                runtime_ctx,
+                max_repairs=0,
+            ):
+                if isinstance(_item, dict):
+                    _pptx_res = _item
+                else:
+                    yield _item
+            if not _pptx_res or not _pptx_res.get("ok"):
                 yield self._fail(
-                    artifact, "render_failed",
-                    f"The edited code fails to render: {fatal[0]}",
-                    {"render_errors": render_errors, "remediation": "Fix the ops (or use edit_artifact for an open-ended repair) and retry."},
+                    artifact, "pptx_execution_failed",
+                    f"The edited slides script fails to execute: {(_pptx_res or {}).get('error') or 'unknown error'}",
+                    {"remediation": "Fix the ops so the python-pptx script runs (it must call prs.save(_pptx_output_path)) and call apply_artifact_edit again."},
                 )
                 return
-        except Exception as e:
-            logger.warning(f"apply_artifact_edit: render validation unavailable, persisting unvalidated: {e}")
+        else:
+            # Deterministic gates — hard, no repair (the planner corrects and retries).
+            gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
+            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)
+            if gate_errors:
+                yield self._fail(
+                    artifact, "contract_errors",
+                    f"{len(gate_errors)} contract error(s); first: {gate_errors[0]}",
+                    {"errors": gate_errors, "remediation": "Correct the ops to resolve each error and call apply_artifact_edit again."},
+                )
+                return
+
+            # One render validation pass — no in-tool repair.
+            try:
+                html = self._create_tool._build_thumbnail_html(artifact_data, new_code, mode="page")
+                screenshot_b64, render_errors = await self._create_tool._take_preview_screenshot(html)
+                fatal = self._create_tool.fatal_render_errors(render_errors)
+                if fatal:
+                    yield self._fail(
+                        artifact, "render_failed",
+                        f"The edited code fails to render: {fatal[0]}",
+                        {"render_errors": render_errors, "remediation": "Fix the ops to resolve the render error and retry."},
+                    )
+                    return
+            except Exception as e:
+                logger.warning(f"apply_artifact_edit: render validation unavailable, persisting unvalidated: {e}")
 
         # Persist as the next version (stored rows are never rewritten).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
@@ -240,6 +280,27 @@ class ApplyArtifactEditTool(Tool):
         db.add(new_artifact)
         await db.commit()
         await db.refresh(new_artifact)
+
+        # Slides: move the validated deck under the new version's id and
+        # render previews (a preview failure only costs the preview).
+        if artifact.mode == "slides" and _pptx_tmp is not None:
+            import shutil as _shutil
+            from pathlib import Path as _Path
+            uploads_dir = _Path(__file__).parent.parent.parent.parent.parent / "uploads" / "pptx"
+            uploads_dir.mkdir(parents=True, exist_ok=True)
+            out_path = uploads_dir / f"{new_artifact.id}.pptx"
+            _shutil.move(str(_pptx_tmp), str(out_path))
+            new_artifact.pptx_path = str(out_path)
+            try:
+                from app.ai.code_execution.pptx_executor import PptxPreviewService
+                PptxPreviewService(logger=logger).generate_previews(
+                    pptx_path=out_path, artifact_id=str(new_artifact.id)
+                )
+            except Exception as e:
+                logger.warning(f"apply_artifact_edit: preview generation failed (deck still downloadable): {e}")
+            db.add(new_artifact)
+            await db.commit()
+            await db.refresh(new_artifact)
 
         yield ToolEndEvent(
             type="tool.end",
