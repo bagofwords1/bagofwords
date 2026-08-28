@@ -1,6 +1,9 @@
 # Robust artifacts — one authoring architecture, hard boundary contracts
 
-Status: agreed direction (design only, no implementation yet)
+Status: phases 1-2 of the sequencing implemented and verified e2e (edit-first
+routing, rebuild-with-prior-code, pinned-decisions digest, vizById + legacy
+codemod + viz-reference gate, params-by-default); phase 3 (the dumb-tool
+switch) not started
 Trigger: customer complaints — iterating an artifact regresses other areas of
 the page, and dashboards lack Tableau-style filters/parameterized queries.
 (Speed was examined and explicitly deprioritized: slow-but-correct is
