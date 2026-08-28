@@ -357,10 +357,50 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         return prompt
     
     @staticmethod
+    def _format_artifact_chat_context(ctx) -> str:
+        """Context for shared-artifact viewer chat (/r/{id} bubble).
+
+        In data-only scope the dashboard's visualization data is inlined here —
+        it is the ONLY data surface the conversation has. In agents scope the
+        block just anchors the conversation to the dashboard; data comes from
+        the attached agents via the normal query tools.
+        """
+        if not ctx:
+            return ''
+        lines: List[str] = ['<artifact_chat_context>']
+        lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
+        title = ctx.get('artifact_title') or ctx.get('source_report_title')
+        if title:
+            lines.append(f'  Dashboard: {json.dumps(title)}')
+        if ctx.get('scope') == 'data_only':
+            lines.append("  Scope: the dashboard's own data ONLY (below). You have no query tools and no other data access — if a question needs data beyond this, say so plainly.")
+            for viz in ctx.get('visualizations') or []:
+                lines.append('  <visualization>')
+                lines.append(f'    title: {json.dumps(viz.get("title"))}')
+                cols = viz.get('columns') or []
+                if cols:
+                    lines.append(f'    columns: {json.dumps(cols)}')
+                total = viz.get('total_rows')
+                rows = viz.get('rows') or []
+                shown = len(rows)
+                if total is not None and total > shown:
+                    lines.append(f'    rows (showing {shown} of {total}):')
+                else:
+                    lines.append('    rows:')
+                lines.append(f'    {json.dumps(rows)}')
+                lines.append('  </visualization>')
+        else:
+            lines.append('  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.')
+        lines.append('</artifact_chat_context>')
+        return '\n'.join(lines)
+
+    @staticmethod
     def _format_platform_context(planner_input: PlannerInput) -> str:
         """Render platform-specific context (e.g. Excel selection) for injection into the prompt."""
         ctx = getattr(planner_input, 'platform_context', None)
         platform = planner_input.external_platform
+        if platform == 'artifact_chat':
+            return PromptBuilder._format_artifact_chat_context(ctx)
         if platform != 'excel':
             return ''
 

@@ -408,6 +408,25 @@ from app.core.otel import get_tracer
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 tracer = get_tracer(__name__)
 
+# Tools available to shared-artifact viewer chat (report_type='artifact_chat').
+# Read/query only: the viewer may ask questions and run fresh queries against
+# the agents the owner shared, but never mutate the dashboard, message anyone,
+# schedule anything, or change agent scope. Everything else is filtered out of
+# the catalog before the planner ever sees it.
+ARTIFACT_CHAT_TOOL_ALLOWLIST = {
+    "clarify",
+    "describe_tables",
+    "describe_entity",
+    "create_data",       # run a fresh query inside the viewer's own thread
+    "inspect_data",
+    "read_query",
+    "read_artifact",
+    "list_files",
+    "read_file",
+    "grep_files",
+    "search_files",
+}
+
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
@@ -786,6 +805,16 @@ class AgentV2:
         self._notes_enabled = bool(getattr(notes_enabled_cfg, "value", False)) if notes_enabled_cfg is not None else False
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
+
+        # Shared-artifact viewer chat runs read/query-only: no artifact or
+        # dashboard mutations, no comms, no automation, no agent-scope tools
+        # (the roster is a server-synced hard scope — see ArtifactChatService).
+        # Keyed on the report's own type so no caller can forget to pass it.
+        if getattr(self.report, 'report_type', 'regular') == 'artifact_chat':
+            all_catalog_dicts = [
+                t for t in all_catalog_dicts
+                if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
+            ]
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
