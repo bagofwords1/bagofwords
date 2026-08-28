@@ -42,7 +42,7 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
 - Coder prompt now offers a full-rewrite fallback instead of "output
   nothing" (edit_artifact system prompt).
 - Gate hard-blocks on edits: unconverged `[viz refs]` errors reject the edit
-  and keep the last good version (`edit_artifact` + `apply_artifact_edit`).
+  and keep the last good version (`edit_artifact` + `edit_artifact`).
   Verified tool-level: an edit deleting a viz binding was rejected with a
   precise error and persisted nothing.
 - Coverage tightened with the reviewer's counterexamples as unit tests:
@@ -70,12 +70,12 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
   declaration back (no declared-but-dead params — this rollback was added
   after the first attempt exposed the gap).
 
-## Phase-3 step 1 — apply_artifact_edit (mechanical, planner-authored)
+## Phase-3 step 1 — edit_artifact (mechanical, planner-authored)
 
 - Tool-level: exact-once find/replace applied atomically and persisted a new
   version with no LLM call; an edit that orphaned a payload viz was rejected
   by the hard gate with nothing persisted.
-- Planner-level (Haiku): `read_artifact` → `apply_artifact_edit` changed the
+- Planner-level (Haiku): `read_artifact` → `edit_artifact` changed the
   dashboard heading; new version rendered live ("Chinook Revenue Monitor
   2025") with filters intact.
 - Payload note: `collect_artifact_payload` appends the report's other
@@ -84,7 +84,7 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
 
 ## Known limitation recorded
 
-- `apply_artifact_edit` falls back to persisting unvalidated when Playwright
+- `edit_artifact` falls back to persisting unvalidated when Playwright
   is unavailable in-process (same contract as create_artifact's missing-
   Playwright fallback). In-server, render validation runs; a standalone
   harness without a browser can persist a JSX-invalid edit. Acceptable for
@@ -102,7 +102,7 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
   `mode='slides'`) — valid 2-slide deck with correct Chinook figures,
   "Presentation Created 1.0s". Script-as-source; execution is the validation
   (max_repairs=0 — no repair LLM on planner-authored paths).
-- `apply_artifact_edit` now covers slides too, and is the ONLY edit path the
+- `edit_artifact` now covers slides too, and is the ONLY edit path the
   planner sees (edit_artifact retired via allowed_modes=[]; class kept for
   compat). Follow-up edit turn: indigo accent + section rename applied
   mechanically, live on v2.
@@ -112,3 +112,21 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
   read_artifact fallback note).
 - Whole final flow ran with ZERO inner-LLM (coder) calls: create ×2, edit ×1,
   all planner-authored. 39 artifact-suite unit tests green.
+
+## Rename: the mechanical tool IS edit_artifact
+
+- The planner-facing mechanical tool now carries the canonical name
+  `edit_artifact` (create/edit/read symmetry; matches model priors). The old
+  coder-based implementation lives on as `edit_artifact_legacy`
+  (registry-hidden, allowed_modes=[]) solely for the MCP surface, whose
+  external callers send English instructions and cannot author diffs.
+- Schema bridge: a call passing the legacy `edit_prompt` shape is rejected
+  with explicit guidance to author find/replace ops — a model imitating old
+  history self-corrects in one round (unit-tested).
+- Frontend dual-mapping reverted to the single `edit_artifact` name.
+- Verified e2e: planner turn ran read_artifact → edit_artifact with
+  `{artifact_id, edits:[{find, replace}]}` args, "Dashboard Edited | Diff |
+  v4 | 0.7s", pane auto-refreshed, label change live.
+- Also fixed in passing: `_get_active_artifact` resolves the report id from
+  `self.report` when `report_id` is unset (a pre-existing test failure on
+  main in test_artifact_relationship_loading).

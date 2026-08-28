@@ -15,7 +15,6 @@ from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .read_artifact import ReadArtifactInput, ReadArtifactOutput
 from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
 from .add_parameter import AddParameterInput, AddParameterOutput
-from .apply_artifact_edit import ApplyArtifactEditInput, ApplyArtifactEditOutput, ArtifactEditOp
 from .search_reports import SearchReportsInput, SearchReportsOutput, SearchReportsItem
 from .read_report import (
     ReadReportInput,
@@ -23,7 +22,8 @@ from .read_report import (
     ReadReportMessage,
     ReadReportArtifact,
 )
-from .edit_artifact import EditArtifactInput, EditArtifactOutput
+from .edit_artifact import EditArtifactInput, EditArtifactOutput, ArtifactEditOp
+from .edit_artifact_legacy import LegacyEditArtifactInput, LegacyEditArtifactOutput
 from .create_doc import CreateDocInput, CreateDocOutput
 from .edit_doc import EditDocInput, EditDocOutput, DocEditOp
 from .create_note import CreateNoteInput, CreateNoteOutput

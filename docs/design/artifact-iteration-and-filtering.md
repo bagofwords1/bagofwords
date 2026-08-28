@@ -3,7 +3,7 @@
 Status: COMPLETE except F2. Phases 1-2, the PR #1030 review fixes, F3
 (`add_parameter`), and the full phase-3 architecture are implemented and
 verified e2e: the PLANNER authors all artifact source (create_artifact.code
-— JSX pages and python-pptx slides scripts — and apply_artifact_edit ops);
+— JSX pages and python-pptx slides scripts — and edit_artifact ops);
 the tools are mechanical (gates + one render/execute validation, no inner
 LLM, failures persist nothing); edit_artifact is retired from the planner
 (class kept for compat; its legacy codegen path in create_artifact remains

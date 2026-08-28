@@ -172,7 +172,7 @@ async def test_transient_error_still_retried():
 # ─── 3. Edit prompt slimming + system split ──────────────────────────────────
 
 def _build_page_edit_prompt(**overrides):
-    from app.ai.tools.implementations.edit_artifact import EditArtifactTool
+    from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool
 
     tool = EditArtifactTool()
     kwargs = dict(
@@ -220,10 +220,22 @@ def test_edit_input_accepts_remove_visualization_ids():
 
     data = EditArtifactInput(
         artifact_id="a1",
-        edit_prompt="remove the pie chart",
+        edits=[{"find": "<PieChart />", "replace": ""}],
         remove_visualization_ids=["v2"],
     )
     assert data.remove_visualization_ids == ["v2"]
+
+
+def test_edit_input_rejects_legacy_edit_prompt_with_guidance():
+    # The pre-mechanical edit_artifact took an English edit_prompt; a model
+    # imitating old history must get actionable guidance, not a bare
+    # missing-field error.
+    import pytest as _pytest
+    from app.ai.tools.schemas.edit_artifact import EditArtifactInput
+
+    with _pytest.raises(Exception) as exc:
+        EditArtifactInput(artifact_id="a1", edit_prompt="remove the pie chart")
+    assert "find/replace" in str(exc.value)
 
 
 def test_removed_vizs_produce_delete_and_reindex_instructions():

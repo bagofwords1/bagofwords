@@ -2,7 +2,7 @@
 
 Final phase-3 state of docs/design/artifact-iteration-and-filtering.md: the
 PLANNER authors all artifact source itself — full code on create_artifact
-(`code`), exact find/replace ops on apply_artifact_edit — and the tools are
+(`code`), exact find/replace ops on edit_artifact — and the tools are
 mechanical (apply, gate, render-validate, persist; no inner LLM). This module
 assembles the static reference the planner needs to do that authoring. It is
 stable across calls so provider-side prompt caching absorbs its size.
@@ -29,7 +29,7 @@ textually local. Validation = the script executes and saves; on failure the tool
 returns the exact exception — fix the script and call again.
 
 ═══════════════════════════════════════════════════════════════════════════════
-MECHANICAL EDITS (apply_artifact_edit) — op authoring rules
+MECHANICAL EDITS (edit_artifact) — op authoring rules
 ═══════════════════════════════════════════════════════════════════════════════
 - Each op is {find, replace}; `find` must match the CURRENT code exactly once
   (whitespace included). Keep finds minimal but unique; extend with surrounding
@@ -58,7 +58,7 @@ def build_artifact_authoring_reference() -> str:
         "═══════════════════════════════════════════════════════════════════════════════\n"
         "Artifacts are authored BY YOU, the planner: pass the complete source as\n"
         "create_artifact.code (JSX for page, python-pptx for slides) and author exact\n"
-        "find/replace ops for apply_artifact_edit. The tools are mechanical — they gate\n"
+        "find/replace ops for edit_artifact. The tools are mechanical — they gate\n"
         "(viz references, params wiring), render-validate once, and persist; on failure\n"
         "they return precise errors and persist NOTHING. Your loop is the repair loop:\n"
         "fix the code/ops and call again. The reference below (written for a code\n"

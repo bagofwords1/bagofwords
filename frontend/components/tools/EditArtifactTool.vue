@@ -220,14 +220,14 @@ const artifactVersion = computed(() => props.toolExecution.result_json?.version)
 const diffApplied = computed(() => {
   const r: any = props.toolExecution.result_json || {}
   if (r.diff_applied !== undefined && r.diff_applied !== null) return r.diff_applied
-  // apply_artifact_edit reports applied_ops: mechanical ops are always diffs
-  if (props.toolExecution.tool_name === 'apply_artifact_edit' && r.applied_ops) return true
+  // the mechanical edit path reports applied_ops: ops are always diffs
+  if (r.applied_ops) return true
   return null
 })
 const editInstruction = computed(() => {
   const args: any = props.toolExecution.arguments_json || {}
   if (args.edit_prompt || args.edit_instruction) return args.edit_prompt || args.edit_instruction
-  // apply_artifact_edit: summarize the mechanical find/replace ops
+  // mechanical edit path: summarize the find/replace ops
   if (Array.isArray(args.edits) && args.edits.length) {
     return args.edits
       .slice(0, 3)

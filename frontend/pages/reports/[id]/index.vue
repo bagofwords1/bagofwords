@@ -2082,7 +2082,7 @@ function getScheduledStats(userMsg: ChatMessage): string | null {
 		const te = b.tool_execution
 		if (!te || te.status !== 'success') continue
 		if (te.tool_name === 'create_data' && te.created_step_id) queries++
-		if (te.tool_name === 'create_artifact' || te.tool_name === 'edit_artifact' || te.tool_name === 'apply_artifact_edit') artifacts++
+		if (te.tool_name === 'create_artifact' || te.tool_name === 'edit_artifact') artifacts++
 	}
 
 	const parts: string[] = []
@@ -2361,7 +2361,6 @@ function getToolComponent(toolName: string) {
 		case 'read_report':
 			return ReadReportTool
 		case 'edit_artifact':
-		case 'apply_artifact_edit':
 			return EditArtifactTool
 		case 'create_doc':
 			return CreateDocTool
@@ -3052,7 +3051,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							const modeLabel = payload.arguments.mode === 'slides' ? 'presentation' : 'dashboard'
 							lastBlock.tool_execution.result_summary = `Creating ${modeLabel}: "${payload.arguments.title || 'Untitled'}"…`
 						}
-						if ((payload.tool_name === 'edit_artifact' || payload.tool_name === 'apply_artifact_edit') && payload.arguments) {
+						if (payload.tool_name === 'edit_artifact' && payload.arguments) {
 							;(lastBlock.tool_execution as any).arguments_json = payload.arguments
 						}
 						if (payload.tool_name === 'inspect_data' && payload.arguments) {
@@ -3269,7 +3268,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					}
 
 					// Visualizations resolved for create_artifact / edit_artifact
-					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact' || payload.tool_name === 'apply_artifact_edit') && payload.payload) {
+					if ((payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact') && payload.payload) {
 						if (payload.payload.stage === 'visualizations_resolved' && Array.isArray(payload.payload.visualizations)) {
 							;(lastBlock.tool_execution as any).progress_visualizations = payload.payload.visualizations
 						}
@@ -3476,7 +3475,7 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						} catch {}
 					}
 					// If artifact was edited successfully, refresh ArtifactFrame with the new version
-					if ((payload.tool_name === 'edit_artifact' || payload.tool_name === 'apply_artifact_edit') && payload.status === 'success') {
+					if (payload.tool_name === 'edit_artifact' && payload.status === 'success') {
 						hasArtifacts.value = true
 						try {
 							window.dispatchEvent(new CustomEvent('artifact:created', {

@@ -7,7 +7,7 @@ then the standard builder-run path (``QueryService.run_query_new_step``)
 validates declarations-vs-code, executes once with defaults, persists the new
 step, and promotes it to the query's default. Visualizations bound to the
 query pick the parameter up automatically; the dashboard still needs its
-control wired via useParams() (edit_artifact / apply_artifact_edit next).
+control wired via useParams() (edit_artifact next).
 
 This removes the "regenerate the whole query to add a filter" tax — see
 docs/design/artifact-iteration-and-filtering.md (F3).

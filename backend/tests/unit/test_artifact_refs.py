@@ -1,5 +1,5 @@
 """Id-keyed viz reference contract: codemod + gate (app/ai/tools/implementations/_artifact_refs.py)
-and the pinned-decisions digest (edit_artifact.build_pinned_decisions).
+and the pinned-decisions digest (edit_artifact_legacy.build_pinned_decisions).
 
 The behaviors promised:
 - legacy positional `viz[N]` / `data.visualizations[N]` references migrate
@@ -15,7 +15,7 @@ from app.ai.tools.implementations._artifact_refs import (
     migrate_positional_viz_refs,
     viz_reference_errors,
 )
-from app.ai.tools.implementations.edit_artifact import build_pinned_decisions
+from app.ai.tools.implementations.edit_artifact_legacy import build_pinned_decisions
 
 
 IDS = [

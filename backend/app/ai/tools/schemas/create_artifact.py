@@ -27,13 +27,13 @@ class CreateArtifactInput(BaseModel):
         "CONTRACT: If your prompt specifies a cross-viz behavior (global filter, time comparison, slice/groupby, rank-across, drill-down), you MUST have already completed the Dashboard Contract preflight (see planner instructions): every viz_id in `visualization_ids` satisfies that contract directly, or you rebuilt its data via `create_data` this turn, or it was dropped/substituted because it was meaningless under the contract. Do NOT include a viz that can't participate in the declared contract — that ships a dashboard where the filter works on some charts and not others.\n\n"
         "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your prompt describes a CHANGE to that artifact, not a fresh build. "
         "Preserve the existing title (don't invent 'Enhanced X' / 'Improved Y') unless the user asked to rename. Describe ALL existing vizs in the layout (they're still on the canvas) plus the new additions. "
-        "Prefer `apply_artifact_edit` for changes to an existing artifact; only use `create_artifact` for a from-scratch rebuild — and even then, carry all prior viz_ids forward.\n\n"
+        "Prefer `edit_artifact` for changes to an existing artifact; only use `create_artifact` for a from-scratch rebuild — and even then, carry all prior viz_ids forward.\n\n"
         "PERSONALIZATION: personalization is a RUNTIME BINDING, never resolved text. When the user wants a personalized "
         "greeting/title/section, write the INSTRUCTION ('greet the viewing user by name via current_user, with a neutral "
         "fallback') — NEVER substitute the requester's actual name/email into this plan (not 'exactly: \"Yochay's Album "
         "Catalog\"'). The artifact is shared: every viewer gets their own identity at render time. If a preview/screenshot "
         "appears to lack personalization, that preview renders as an ANONYMOUS viewer — the fix is NEVER a literal name.\n\n"
-        "Do NOT use this tool to modify an existing artifact; use apply_artifact_edit instead. "
+        "Do NOT use this tool to modify an existing artifact; use edit_artifact instead. "
         "For a WRITTEN report/document/memo (not an interactive dashboard), use create_doc instead."
     ))
     code: Optional[str] = Field(default=None, description=(
@@ -82,5 +82,5 @@ class CreateArtifactOutput(BaseModel):
     code: str = Field(..., description="The generated React/JSX code")
     mode: str = Field(..., description="Artifact mode, eiither 'page' for dashboards/reports or 'slides' for presentation, deck or powerpoint export")
     title: Optional[str] = Field(None, description="Artifact title")
-    visualization_ids: List[str] = Field(default_factory=list, description="All visualization IDs included in this artifact. Use these when making further edits with apply_artifact_edit.")
+    visualization_ids: List[str] = Field(default_factory=list, description="All visualization IDs included in this artifact. Use these when making further edits with edit_artifact.")
     version: int = Field(default=1, description="Version number of the artifact")
