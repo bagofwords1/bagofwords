@@ -1,9 +1,13 @@
 # Robust artifacts — one authoring architecture, hard boundary contracts
 
-Status: phases 1-2 of the sequencing implemented and verified e2e (edit-first
-routing, rebuild-with-prior-code, pinned-decisions digest, vizById + legacy
-codemod + viz-reference gate, params-by-default); phase 3 (the dumb-tool
-switch) not started
+Status: phases 1-2 implemented and verified e2e; PR #1030 review findings
+addressed (hard-blocking gate on edits, tightened coverage, string-safe
+codemod, v3 alignment, rewrite-capable coder prompt); F3 shipped
+(`add_parameter` — in-place retro-parameterization); phase-3 step 1 shipped
+(`apply_artifact_edit` — planner-authored mechanical edits, no inner LLM).
+Remaining: F2 (report-level parameters), phase-3 steps 2-3 (slides
+script-as-source; planner-authored creates, then delete the coder LLM).
+Verification: docs/feedback-loops/artifact-iteration-filtering.md
 Trigger: customer complaints — iterating an artifact regresses other areas of
 the page, and dashboards lack Tableau-style filters/parameterized queries.
 (Speed was examined and explicitly deprioritized: slow-but-correct is
