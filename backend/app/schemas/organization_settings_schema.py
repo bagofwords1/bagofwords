@@ -292,6 +292,18 @@ class OrganizationSettingsConfig(BaseModel):
     whatsapp_session_max_age_hours: int = 24
     google_chat_session_max_age_hours: int = 120
 
+    # Whether the bot announces "I've started a new conversation report" (with a
+    # link) when a message on an external channel creates a fresh report. Plain
+    # per-platform bools (not FeatureConfig) so they surface in each channel's
+    # integration modal on the Channels settings page. WhatsApp has no flag: it
+    # never sends the announcement (see ExternalPlatformManager). The explicit
+    # "new" command confirmation is always sent regardless — it is the only
+    # feedback that command gets.
+    slack_announce_new_report: bool = True
+    teams_announce_new_report: bool = True
+    google_chat_announce_new_report: bool = True
+    email_announce_new_report: bool = True
+
     # Org-wide default automation policy for agent reliability (the
     # self-learning loop). A plain dict matching AgentAutomationPolicy; agents
     # inherit this and may override per-agent via

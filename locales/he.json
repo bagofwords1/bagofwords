@@ -1914,7 +1914,12 @@
           "sessionStalenessTitle": "חלון השיחה",
           "hoursSuffix": "שעות",
           "sessionStalenessSaved": "חלון השיחה עודכן",
-          "sessionStalenessInvalid": "יש להזין מספר שלם בין 1 ל-720 שעות"
+          "sessionStalenessInvalid": "יש להזין מספר שלם בין 1 ל-720 שעות",
+          "announceNewReportTitle": "הכרזה על שיחה חדשה",
+          "announceNewReportLabel": "הכרזה על דוחות שיחה חדשים",
+          "announceNewReportDesc": "כאשר הודעה פותחת דוח שיחה חדש, הבוט משיב בהודעת \"פתחתי דוח שיחה חדש\" עם קישור. כבו כדי לדלג על ההודעה.",
+          "announceNewReportEnabled": "הכרזה על דוחות חדשים הופעלה",
+          "announceNewReportDisabled": "הכרזה על דוחות חדשים כובתה"
         },
         "slack": {
           "title": "אינטגרציית Slack",

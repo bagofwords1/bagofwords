@@ -1834,7 +1834,12 @@
           "sessionStalenessTitle": "Konversationssession",
           "hoursSuffix": "timmar",
           "sessionStalenessSaved": "Sessionsfönstret uppdaterat",
-          "sessionStalenessInvalid": "Ange ett heltal mellan 1 och 720 timmar"
+          "sessionStalenessInvalid": "Ange ett heltal mellan 1 och 720 timmar",
+          "announceNewReportTitle": "Avisering om ny konversation",
+          "announceNewReportLabel": "Avisera nya konversationsrapporter",
+          "announceNewReportDesc": "När ett meddelande startar en ny konversationsrapport svarar boten med meddelandet \"Jag har startat en ny konversationsrapport\" med en länk. Stäng av för att hoppa över meddelandet.",
+          "announceNewReportEnabled": "Avisering om nya rapporter aktiverad",
+          "announceNewReportDisabled": "Avisering om nya rapporter inaktiverad"
         },
         "slack": {
           "title": "Slack-integration",

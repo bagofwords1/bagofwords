@@ -1834,7 +1834,12 @@
           "sessionStalenessTitle": "Konversationssitzung",
           "hoursSuffix": "Stunden",
           "sessionStalenessSaved": "Sitzungsfenster aktualisiert",
-          "sessionStalenessInvalid": "Geben Sie eine ganze Zahl zwischen 1 und 720 Stunden ein"
+          "sessionStalenessInvalid": "Geben Sie eine ganze Zahl zwischen 1 und 720 Stunden ein",
+          "announceNewReportTitle": "Ankündigung neuer Unterhaltungen",
+          "announceNewReportLabel": "Neue Konversationsberichte ankündigen",
+          "announceNewReportDesc": "Wenn eine Nachricht einen neuen Konversationsbericht startet, antwortet der Bot mit einer Nachricht „Ich habe einen neuen Konversationsbericht gestartet“ samt Link. Deaktivieren, um diese Nachricht zu überspringen.",
+          "announceNewReportEnabled": "Ankündigung neuer Berichte aktiviert",
+          "announceNewReportDisabled": "Ankündigung neuer Berichte deaktiviert"
         },
         "slack": {
           "title": "Slack-Integration",

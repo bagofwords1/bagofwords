@@ -1834,7 +1834,12 @@
           "sessionStalenessTitle": "Сессия разговора",
           "hoursSuffix": "часов",
           "sessionStalenessSaved": "Окно сессии обновлено",
-          "sessionStalenessInvalid": "Введите целое число от 1 до 720 часов"
+          "sessionStalenessInvalid": "Введите целое число от 1 до 720 часов",
+          "announceNewReportTitle": "Уведомление о новом диалоге",
+          "announceNewReportLabel": "Сообщать о новых отчётах диалога",
+          "announceNewReportDesc": "Когда сообщение создаёт новый отчёт диалога, бот отвечает сообщением «Я начал новый отчёт диалога» со ссылкой. Отключите, чтобы пропустить это сообщение.",
+          "announceNewReportEnabled": "Уведомление о новых отчётах включено",
+          "announceNewReportDisabled": "Уведомление о новых отчётах отключено"
         },
         "slack": {
           "title": "Интеграция со Slack",

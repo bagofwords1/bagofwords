@@ -1834,7 +1834,12 @@
           "sessionStalenessTitle": "Session de conversation",
           "hoursSuffix": "heures",
           "sessionStalenessSaved": "Fenêtre de session mise à jour",
-          "sessionStalenessInvalid": "Saisissez un nombre entier entre 1 et 720 heures"
+          "sessionStalenessInvalid": "Saisissez un nombre entier entre 1 et 720 heures",
+          "announceNewReportTitle": "Annonce de nouvelle conversation",
+          "announceNewReportLabel": "Annoncer les nouveaux rapports de conversation",
+          "announceNewReportDesc": "Lorsqu'un message démarre un nouveau rapport de conversation, le bot répond par un message « J'ai démarré un nouveau rapport de conversation » avec un lien. Désactivez pour ignorer ce message.",
+          "announceNewReportEnabled": "Annonce des nouveaux rapports activée",
+          "announceNewReportDisabled": "Annonce des nouveaux rapports désactivée"
         },
         "slack": {
           "title": "Intégration Slack",
