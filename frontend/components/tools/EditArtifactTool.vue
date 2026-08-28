@@ -78,7 +78,8 @@
           <span>{{ $t('tools.editArtifact.generatingEdit') }}</span>
           <span v-if="progressChars" class="ms-1 text-gray-300 dark:text-gray-600">{{ $t('tools.editArtifact.charsCount', { n: progressChars }) }}</span>
         </div>
-        <div v-else-if="progressStage === 'applying_edit'"><span>{{ $t('tools.editArtifact.applyingEdit') }}</span></div>
+        <div v-else-if="progressStage === 'applying_edit' || progressStage === 'applying_edits'"><span>{{ $t('tools.editArtifact.applyingEdit') }}</span></div>
+        <div v-else-if="progressStage === 'validating' || progressStage === 'validating_render'"><span>{{ $t('tools.editArtifact.processing') }}</span></div>
         <div v-else-if="progressStage === 'saving_artifact'"><span>{{ $t('tools.editArtifact.savingArtifact') }}</span></div>
         <div v-else><span>{{ $t('tools.editArtifact.processing') }}</span></div>
       </div>
@@ -216,8 +217,25 @@ const thumbnailUrl = computed(() => {
 })
 
 const artifactVersion = computed(() => props.toolExecution.result_json?.version)
-const diffApplied = computed(() => props.toolExecution.result_json?.diff_applied ?? null)
-const editInstruction = computed(() => props.toolExecution.arguments_json?.edit_prompt || props.toolExecution.arguments_json?.edit_instruction || '')
+const diffApplied = computed(() => {
+  const r: any = props.toolExecution.result_json || {}
+  if (r.diff_applied !== undefined && r.diff_applied !== null) return r.diff_applied
+  // apply_artifact_edit reports applied_ops: mechanical ops are always diffs
+  if (props.toolExecution.tool_name === 'apply_artifact_edit' && r.applied_ops) return true
+  return null
+})
+const editInstruction = computed(() => {
+  const args: any = props.toolExecution.arguments_json || {}
+  if (args.edit_prompt || args.edit_instruction) return args.edit_prompt || args.edit_instruction
+  // apply_artifact_edit: summarize the mechanical find/replace ops
+  if (Array.isArray(args.edits) && args.edits.length) {
+    return args.edits
+      .slice(0, 3)
+      .map((e: any) => `${String(e.find || '').slice(0, 40)} → ${String(e.replace || '').slice(0, 40)}`)
+      .join(' · ') + (args.edits.length > 3 ? ` (+${args.edits.length - 3} more)` : '')
+  }
+  return ''
+})
 
 // Confirmation state
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)

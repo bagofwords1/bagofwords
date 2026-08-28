@@ -575,6 +575,7 @@ function getToolComponent(toolName: string) {
         case 'create_artifact':
             return CreateArtifactTool
         case 'edit_artifact':
+        case 'apply_artifact_edit':
             return EditArtifactTool
         case 'read_artifact':
             return ReadArtifactTool

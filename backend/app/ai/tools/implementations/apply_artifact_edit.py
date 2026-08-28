@@ -308,8 +308,13 @@ class ApplyArtifactEditTool(Tool):
                 "output": {
                     "success": True,
                     "artifact_id": str(new_artifact.id),
+                    "title": new_artifact.title,
+                    "mode": new_artifact.mode,
                     "version": new_artifact.version,
                     "applied_ops": len(data.edits),
+                    # Mechanical ops are surgical by definition — lets the UI
+                    # card show the same Diff badge as historical edits.
+                    "diff_applied": True,
                     "code": new_code,
                 },
                 "observation": {
