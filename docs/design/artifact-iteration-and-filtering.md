@@ -120,6 +120,42 @@ v0-style multi-file projects (complexity a dashboard doesn't need); hybrid
 smart+dumb edit tools (two architectures to maintain; rejected in favor of the
 full switch).
 
+## Backwards compatibility
+
+Two existing properties make this cheap: artifact versions are immutable rows
+(edits insert, never rewrite), and every artifact carries its full source as
+data. Governing principles: stored rows are never rewritten; mechanical
+upgrades happen lazily at edit time; semantic upgrades happen only on user
+request; the shared runtime only ever grows.
+
+- **Runtime is additive — and is the main landmine.** `artifact-globals.js`
+  is shared by every artifact ever created (not pinned per artifact), so all
+  changes are retroactive. `vizById()` is added; `viz[N]` ordering and
+  `useFilters`/`filterRows` are kept forever. Alongside this work, version the
+  injected lib bundle and stamp `content.runtime_version` on new rows so
+  future runtime changes cannot silently break old dashboards.
+- **`viz[N]` → `vizById` is a deterministic codemod, no LLM**: `viz[3]` ≡
+  `visualization_ids[3]`. Run it as a pre-step the first time a legacy
+  artifact is *edited* (new version row; gates apply from then on). Never
+  migrate on view. Reverting to a pre-migration version is fine — the codemod
+  reruns on the next edit.
+- **Gates are generation-aware.** Full enforcement on new-generation artifacts
+  (post-codemod or newly created); viewing legacy artifacts is ungated. The
+  filter-wiring gate never retro-fails old hand-rolled filter code — filter
+  semantics upgrade only when the user asks for filter changes on that
+  artifact (auto-rewriting logic can change behavior; renaming an index
+  cannot).
+- **The dumb-tool switch doesn't touch stored artifacts.** It changes who
+  authors edits, not the stored format; legacy JSX is equally editable via
+  planner-authored find/replace.
+- **Slides is the one format break — don't migrate it.** Old decks stay
+  HTML-source (renderer + existing pptx-export transcode kept alive; still
+  editable as text); new decks are pptx scripts; `content.source_format`
+  distinguishes them. Moving an old deck to the new pipeline is an explicit
+  user-chosen rebuild, never automatic.
+- **No DB migration.** All markers ride in the existing `content` JSON;
+  absent fields = legacy.
+
 ## Sequencing
 
 1. **Prompt-level fixes (cheap, current system):** drop the ~30% → rebuild
