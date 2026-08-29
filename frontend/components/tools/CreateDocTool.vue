@@ -58,6 +58,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+import { toolErrorText } from '~/utils/toolError'
 
 interface Props {
   toolExecution: {
@@ -88,7 +89,7 @@ const docId = computed(() => props.toolExecution.result_json?.doc_id)
 const docTitle = computed(() => props.toolExecution.result_json?.title || props.toolExecution.arguments_json?.title || '')
 const outline = computed(() => props.toolExecution.result_json?.outline || [])
 const vizCount = computed(() => (props.toolExecution.result_json?.visualization_ids || []).length)
-const errorMessage = computed(() => props.toolExecution.result_json?.error || props.toolExecution.result_summary || '')
+const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error) || props.toolExecution.result_summary || '')
 
 const formatDuration = computed(() => {
   const ms = props.toolExecution.duration_ms

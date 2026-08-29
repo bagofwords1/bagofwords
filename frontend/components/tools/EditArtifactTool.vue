@@ -156,6 +156,7 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+import { toolErrorText } from '~/utils/toolError'
 
 const { t } = useI18n()
 
@@ -285,7 +286,7 @@ async function rejectConfirmation() {
   } catch {}
 }
 
-const errorMessage = computed(() => props.toolExecution.result_json?.error || '')
+const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error))
 
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''
