@@ -32,6 +32,27 @@ VIZ_BY_ID_RE = re.compile(r"vizById\(\s*['\"]([0-9a-fA-F][0-9a-fA-F-]{10,40})['\
 VIZ_ITERATION_RE = re.compile(r"\b(?:viz|visualizations)\s*\.\s*(?:map|forEach)\b")
 
 
+def _quoted_id_refs(src: str, ids: List[str]) -> set:
+    """Payload ids that appear as a quoted string literal anywhere in the code.
+
+    Coverage asks "does the code bind this viz?", but `vizById(...)` is only
+    the RECOMMENDED spelling, not the only correct one — the runtime global is
+    literally a lookup by id over the same list, so
+    ``visualizations.find(v => v.id === "<uuid>")``, an ``{ "<uuid>": ... }``
+    map, or ``byId["<uuid>"]`` bind exactly as well. Matching the helper's
+    NAME rejected working dashboards in production (a create that bound all 8
+    payload vizs via `.find` was told it "references NONE of the
+    visualizations"), so coverage matches the ids themselves.
+
+    Only QUOTED ids count, so prose or a comment merely mentioning a uuid
+    binds nothing. The residual false-pass is an id quoted inside a comment
+    (`// was vizById("<uuid>")`) — rare, and it costs one unrendered viz,
+    where the false FAILURE it replaces discarded an entire valid artifact
+    and forced a full regeneration.
+    """
+    return {vid for vid in ids if re.search(r"['\"]" + re.escape(vid) + r"['\"]", src)}
+
+
 def _inside_string_or_comment(line: str, col: int) -> bool:
     """Heuristic: is column ``col`` of ``line`` inside a string literal or
     after a ``//`` line comment? Counts unescaped quote characters before the
@@ -149,6 +170,8 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     if ids and src.strip() and not VIZ_ITERATION_RE.search(src):
         referenced = set()
         referenced |= id_refs & known
+        # Any binding style counts, not just vizById() — see _quoted_id_refs.
+        referenced |= _quoted_id_refs(src, ids)
         for idx in positional_idxs:
             if idx < len(ids):
                 referenced.add(ids[idx])
@@ -159,7 +182,8 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
                 errors.append(
                     "[viz refs] The code references NONE of the visualizations in this "
                     f"artifact's data payload ({names}) — the page renders no data. Bind "
-                    "each viz with vizById(\"<uuid>\") or render the whole list."
+                    "each viz by id (vizById(\"<uuid>\") is the recommended form) or render "
+                    "the whole list."
                 )
             else:
                 errors.append(
