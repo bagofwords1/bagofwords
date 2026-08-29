@@ -306,3 +306,22 @@ def test_stdlib_written_payload_with_nan_is_still_readable(monkeypatch):
     monkeypatch.undo()
     decoded = enc.decrypt_value(envelope)
     assert decoded["a"] != decoded["a"], "expected NaN back from the stdlib path"
+
+
+def test_explicit_none_is_stored_as_null_not_column_default():
+    """Writing ``data = None`` explicitly must stay None on read-back.
+
+    Plain ``JSON`` marks an explicit None as a meaningful value
+    (``should_evaluate_none``), so SQLAlchemy stores JSON null instead of
+    applying the column's ``default=dict``. TypeDecorator does not inherit
+    that flag from its impl; without propagating it, a seeded
+    ``Step(data=None)`` on the ``default=dict`` column silently came back as
+    ``{}`` (caught by tests/e2e/test_report_refresh_on_view.py).
+    """
+    from sqlalchemy import JSON
+
+    assert enc.EncryptedJSON().should_evaluate_none is JSON().should_evaluate_none
+    assert (
+        enc.EncryptedJSON(none_as_null=True).should_evaluate_none
+        is JSON(none_as_null=True).should_evaluate_none
+    )

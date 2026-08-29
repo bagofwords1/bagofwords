@@ -267,6 +267,15 @@ class EncryptedJSON(TypeDecorator):
     impl = JSON
     cache_ok = True
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        # TypeDecorator does not inherit this from its impl. Plain JSON marks
+        # an explicit ``None`` as a meaningful value (stored as JSON null,
+        # column defaults suppressed) unless ``none_as_null=True``; without
+        # this line, ``step.data = None`` on a column with ``default=dict``
+        # silently comes back as ``{}`` instead of ``None``.
+        self.should_evaluate_none = self.impl_instance.should_evaluate_none
+
     def process_bind_param(self, value, dialect):
         if value is None or value is JSON.NULL:
             return value
