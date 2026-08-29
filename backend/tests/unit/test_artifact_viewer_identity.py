@@ -103,7 +103,7 @@ def test_planner_briefs_forbid_resolved_personalization():
     from app.ai.tools.schemas.edit_artifact import EditArtifactInput
 
     create_desc = CreateArtifactInput.model_fields["prompt"].description or ""
-    edit_desc = EditArtifactInput.model_fields["edit_prompt"].description or ""
+    edit_desc = EditArtifactInput.model_fields["edits"].description or ""
     for desc in (create_desc, edit_desc):
         assert "RUNTIME BINDING" in desc
         assert "ANONYMOUS" in desc
