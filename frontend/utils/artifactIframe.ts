@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '6';
+export const ARTIFACT_GLOBALS_VERSION = '7'; // v7: vizById() id-keyed data access
 
 export interface ArtifactIframeFile {
   id: string;

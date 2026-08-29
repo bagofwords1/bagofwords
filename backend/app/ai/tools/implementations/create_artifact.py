@@ -1557,9 +1557,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "message": _error_msg,
                     "repair_attempts": pptx_repair_attempts,
                     "remediation": (
-                        "The generated python-pptx code does not execute. Call edit_artifact with an "
-                        "edit_prompt that quotes the exact error above, or create_artifact to rebuild "
-                        "with a simpler deck if the error persists."
+                        "The python-pptx script does not execute. Fix the script yourself against the "
+                        "exact error above and call create_artifact again with the corrected `code` "
+                        "(nothing was persisted); simplify the deck if the error persists."
                     ),
                 },
                 "artifact_id": str(artifact.id),
@@ -1607,9 +1607,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "render_errors": render_errors,
                     "repair_attempts": repair_attempts,
                     "remediation": (
-                        "The generated code does not render. Call edit_artifact with an edit_prompt "
-                        "that quotes the exact error(s) above, or create_artifact to rebuild with a "
-                        "simpler layout if the errors persist."
+                        "The code does not render. Fix it yourself against the exact error(s) above "
+                        "and call create_artifact again with the corrected `code` (a failed create "
+                        "persists nothing); simplify the layout if the errors persist."
                     ),
                 },
                 "artifact_id": str(artifact.id),
