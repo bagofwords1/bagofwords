@@ -8,6 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import bindparam, func, select, text
 
 from app.models.query import Query
+from app.ee.encryption import envelope_marker_sql
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.ai.context.sections.queries_section import QueriesSection, QueryObservation, QueryVisualizationSummary
@@ -270,6 +271,11 @@ class QueryContextBuilder:
                     ) preview
                 ) AS preview_rows
             """
+        # Encrypted snapshots are opaque to the JSON operators above, so select
+        # a marker that flags them and re-read just those rows through the ORM,
+        # where the column type decrypts. Per-row detection keeps this correct
+        # on a table that mixes encrypted and plaintext snapshots.
+        encrypted_sql = envelope_marker_sql("s.data", postgres=True)
         stmt = text(f"""
             SELECT
                 s.id,
@@ -280,14 +286,20 @@ class QueryContextBuilder:
                 s.view,
                 s.data->'info' AS info,
                 s.data->'columns' AS columns,
+                {encrypted_sql} AS encrypted_marker,
                 {preview_sql}
             FROM steps s
             WHERE s.id IN :step_ids
         """).bindparams(bindparam("step_ids", expanding=True))
         try:
             res = await self.db.execute(stmt, {"step_ids": step_ids, "preview_limit": 5})
-            return {
-                str(row.id): {
+            projected: Dict[str, Dict[str, Any]] = {}
+            encrypted_ids: List[str] = []
+            for row in res.all():
+                if row.encrypted_marker is not None:
+                    encrypted_ids.append(str(row.id))
+                    continue
+                projected[str(row.id)] = {
                     "id": str(row.id),
                     "title": row.title or "",
                     "query_id": str(row.query_id) if row.query_id else None,
@@ -298,8 +310,14 @@ class QueryContextBuilder:
                     "columns": _json_value(row.columns) or [],
                     "preview_rows": _json_value(row.preview_rows) or [],
                 }
-                for row in res.all()
-            }
+            if encrypted_ids:
+                projected.update(
+                    await self._get_legacy_step_summaries_fallback(
+                        encrypted_ids,
+                        include_data_preview,
+                    )
+                )
+            return projected
         except Exception as e:
             logger.error(f"Failed to load projected step summaries: {e}")
             return await self._get_legacy_step_summaries_fallback(

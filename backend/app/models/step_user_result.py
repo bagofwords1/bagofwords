@@ -2,6 +2,7 @@ from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text, UniqueC
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
+from app.ee.encryption import EncryptedJSON
 
 
 class StepUserResult(BaseSchema):
@@ -37,7 +38,7 @@ class StepUserResult(BaseSchema):
     status_reason = Column(Text, nullable=True)
 
     # Same shape as Step.data ({"rows": [...], "columns": [...]})
-    data = Column(JSON, nullable=True, default=dict)
+    data = Column(EncryptedJSON, nullable=True, default=dict)
 
     # Whose credentials executed the query: 'viewer' | 'creator'
     executed_as = Column(String(20), nullable=False, default='viewer')

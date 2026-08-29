@@ -15,6 +15,7 @@ from sqlalchemy import (
 from sqlalchemy.orm import relationship
 
 from .base import BaseSchema
+from app.ee.encryption import EncryptedJSON
 
 
 logger = logging.getLogger(__name__)
@@ -55,12 +56,12 @@ class ToolExecution(BaseSchema):
     sub_timings_json = Column(JSON, nullable=True)
 
     result_summary = Column(String, nullable=True)
-    result_json = Column(JSON, nullable=True)
+    result_json = Column(EncryptedJSON, nullable=True)
     # Immutable, bounded projection consumed by conversation history. The full
     # result_json remains untouched for the UI/audit trail. Row-heavy tools use
     # specialized output shapes; ordinary tools prefer the exact model-visible
     # observation and fall back to a generic result projection when needed.
-    context_summary_json = Column(JSON(none_as_null=True), nullable=True)
+    context_summary_json = Column(EncryptedJSON(none_as_null=True), nullable=True)
     artifact_refs_json = Column(JSON, nullable=True)
 
     created_widget_id = Column(String(36), ForeignKey('widgets.id'), nullable=True)
