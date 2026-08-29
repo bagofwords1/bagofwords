@@ -301,6 +301,18 @@ class OrganizationSettingsService:
                             )
                         # Normalize so a {'value': N} payload is stored as the bare int.
                         value_update = new_value
+                    # Bool check for the per-platform "announce new conversation
+                    # report" toggles (plain-bool settings, edited from the
+                    # Channels page integration modals).
+                    if key in ('slack_announce_new_report', 'teams_announce_new_report', 'google_chat_announce_new_report', 'email_announce_new_report'):
+                        new_value = value_update.get('value') if isinstance(value_update, dict) else value_update
+                        if not isinstance(new_value, bool):
+                            raise HTTPException(
+                                status_code=400,
+                                detail="Announce new report must be a boolean."
+                            )
+                        # Normalize so a {'value': b} payload is stored as the bare bool.
+                        value_update = new_value
                     # Get current config dict from DB or default from schema
                     current_value_dict = current_config.get(key)
                     is_feature = False
