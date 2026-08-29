@@ -16,7 +16,7 @@
     (function () {
       var mq = window.matchMedia('(prefers-color-scheme: dark)');
       function apply() {
-        document.documentElement.classList.toggle('dark', mq.matches);
+        document.documentElement.classList.toggle('dark', mq.matches || !!window.__bowForcedDark);
         try { window.dispatchEvent(new CustomEvent('bow-colormode', { detail: { mode: mq.matches ? 'dark' : 'light' } })); } catch (e) {}
       }
       apply();
@@ -44,8 +44,11 @@
     block below overrides useArtifactData with an event-driven variant because
     MCP delivers ARTIFACT_DATA via postMessage rather than inlined srcdoc.
   -->
+<<<<<<< HEAD
   <!-- Keep the ?v in sync with ARTIFACT_GLOBALS_VERSION in utils/artifactIframe.ts -->
-  <script src="/libs/artifact-globals.js?v=8"></script>
+=======
+>>>>>>> origin/claude/artifact-sandbox-dark-mode-x9787f
+  <script src="/libs/artifact-globals.js?v=9"></script>
 
   <style>
     html, body, #root {

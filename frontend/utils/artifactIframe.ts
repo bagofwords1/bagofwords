@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '8'; // v8: vizById() id-keyed data access + dark-mode variants
+export const ARTIFACT_GLOBALS_VERSION = '9'; // v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
 
 export interface ArtifactIframeFile {
   id: string;
@@ -352,7 +352,9 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
     window.addEventListener('message', function (e) {
       var d = e && e.data;
       if (d && d.type === 'ARTIFACT_SET_COLOR_MODE') {
-        document.documentElement.classList.toggle('dark', d.mode === 'dark');
+        // A forced-dark artifact (root <div className="dark">) stays dark
+        // whatever the host theme — see watchForcedDark in artifact-globals.
+        document.documentElement.classList.toggle('dark', d.mode === 'dark' || !!window.__bowForcedDark);
         // Charts (and anything else theme-bound at init time) listen for this.
         try { window.dispatchEvent(new CustomEvent('bow-colormode', { detail: { mode: d.mode } })); } catch (err) {}
       }

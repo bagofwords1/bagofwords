@@ -1533,6 +1533,30 @@
     return document.documentElement.classList.contains('dark');
   }
 
+  // Forced-dark artifacts: generated code that wraps its page in
+  // <div className="dark"> means "dark regardless of the host theme". Mirror
+  // that onto <html> so everything OUTSIDE the wrapper follows too — portaled
+  // dropdowns/popovers (they mount on document.body), the bow-dark chart
+  // theme, and the body background. The host's color-mode toggle checks
+  // window.__bowForcedDark and never strips the class while a forced-dark
+  // root is present.
+  (function watchForcedDark() {
+    function sync() {
+      var root = document.getElementById('root');
+      var forced = !!(root && (root.classList.contains('dark') || root.querySelector(':scope .dark')));
+      window.__bowForcedDark = forced;
+      if (forced && !_bowIsDark()) {
+        document.documentElement.classList.add('dark');
+        try { window.dispatchEvent(new CustomEvent('bow-colormode', { detail: { mode: 'dark' } })); } catch (e) {}
+      }
+    }
+    try {
+      var mo = new MutationObserver(sync);
+      mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
+      sync();
+    } catch (e) { /* non-fatal */ }
+  })();
+
   // ── EChart wrapper ──────────────────────────────────────────────────────────
   function safeOption(opt) {
     if (opt && opt.tooltip && typeof opt.tooltip.formatter === 'function') {
