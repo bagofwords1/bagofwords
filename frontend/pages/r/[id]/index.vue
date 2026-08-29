@@ -249,6 +249,14 @@
                 </div>
             </div>
         </div>
+
+        <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
+             availability — sign-in prompt for anonymous, member check inside) -->
+        <ArtifactChatBubble
+            v-if="reportLoaded && report?.artifact_chat_enabled"
+            :report-id="String($route.params.id)"
+            :raised="report.general?.bow_credit !== false"
+        />
     </div>
 </template>
 
@@ -259,6 +267,7 @@ import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
+import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 
 const route = useRoute();

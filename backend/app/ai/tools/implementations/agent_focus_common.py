@@ -101,6 +101,12 @@ async def resolve_run_agents(db, organization: Any, user: Any, report: Any) -> L
         # agent the user can reach.
         return []
     attached = list(getattr(report, "data_sources", None) or [])
+    # Artifact-chat threads are never Auto: their roster is the owner-allowed ∩
+    # viewer-accessible intersection synced per message, and empty means
+    # "dashboard data only" — widening to everything the viewer can access
+    # would hand a shared-dashboard chat far more than the owner shared.
+    if not attached and getattr(report, "report_type", "regular") == "artifact_chat":
+        return []
     agents = attached if attached else await accessible_agents(db, organization, user)
     return [ds for ds in agents if DataSourceService.is_execution_live(ds)]
 
@@ -163,6 +169,10 @@ async def resolve_candidate_agents(
     attached = list(getattr(report, "data_sources", None) or [])
     attached_ids = {str(ds.id) for ds in attached}
     if not attached:
+        # Artifact-chat threads never widen to Auto (see resolve_run_agents);
+        # their focus tools are filtered out anyway — defense in depth.
+        if getattr(report, "report_type", "regular") == "artifact_chat":
+            return [], "attached", set()
         # Auto: the working set is everything accessible; nothing needs attach.
         agents = await accessible_agents(db, organization, user)
         return agents, "accessible", {str(a.id) for a in agents}

@@ -242,6 +242,8 @@ class ReportService:
         run_identity: str | None = None,
         shared_group_ids: list[str] | None = None,
         include_data_tab: bool | None = None,
+        artifact_chat_enabled: bool | None = None,
+        artifact_chat_data_source_ids: list[str] | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
@@ -302,6 +304,32 @@ class ReportService:
         # rather than writing a setting that means nothing there.
         if share_type == 'artifact' and include_data_tab is not None:
             report.include_data_tab = bool(include_data_tab)
+
+        # Artifact-only chat settings, same omit-means-unchanged semantics.
+        if share_type == 'artifact' and artifact_chat_enabled is not None:
+            report.artifact_chat_enabled = bool(artifact_chat_enabled)
+        if share_type == 'artifact' and artifact_chat_data_source_ids is not None:
+            if artifact_chat_data_source_ids == ["*"]:
+                # Sentinel: reset to "inherit the report's attached roster".
+                report.artifact_chat_data_source_ids = None
+            else:
+                # Validate every id is a data source of this org; anything else
+                # (typo, foreign org) must not end up in the allowlist.
+                from app.models.data_source import DataSource
+                ids = [str(x) for x in artifact_chat_data_source_ids]
+                if ids:
+                    valid_rows = (await db.execute(
+                        select(DataSource.id).where(
+                            DataSource.id.in_(ids),
+                            DataSource.organization_id == str(organization.id),
+                            DataSource.deleted_at.is_(None),
+                        )
+                    )).all()
+                    valid_ids = {str(r[0]) for r in valid_rows}
+                    unknown = [i for i in ids if i not in valid_ids]
+                    if unknown:
+                        raise HTTPException(status_code=400, detail="Unknown data source in artifact_chat_data_source_ids")
+                report.artifact_chat_data_source_ids = ids
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
