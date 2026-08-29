@@ -49,6 +49,7 @@ from app.dependencies import async_session_maker
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_PROMPT,
     ANON_PREVIEW_NOTE,
+    STATIC_PREVIEW_NOTE,
     build_identity_context,
 )
 from app.ai.prompt_language import build_language_directive
@@ -1677,6 +1678,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         if _attach_screenshot:
             summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
             summary_msg += ANON_PREVIEW_NOTE
+            summary_msg += STATIC_PREVIEW_NOTE
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,

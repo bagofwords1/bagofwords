@@ -24,7 +24,6 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors
-from app.ai.tools.implementations._sandbox_context import ANON_PREVIEW_NOTE
 from app.models.artifact import Artifact
 
 logger = logging.getLogger(__name__)
@@ -340,7 +339,6 @@ class EditArtifactTool(Tool):
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{new_version}. "
                         "Contracts verified and render validated. No further verification needed."
-                        + (ANON_PREVIEW_NOTE if screenshot_b64 else "")
                     ),
                     "artifact_id": str(new_artifact.id),
                     "mode": new_artifact.mode,

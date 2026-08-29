@@ -95,31 +95,83 @@ def test_titles_are_viewer_agnostic_by_contract():
 
 
 def test_planner_briefs_forbid_resolved_personalization():
-    """The planner writes the design/edit briefs; both field descriptions must
-    forbid substituting the requester's name (the 'exactly: Yochay's Album
-    Catalog' plan) and must explain the anonymous preview so the planner never
-    'repairs' working personalization by hardcoding."""
+    """Whoever writes artifact code must be told not to substitute the
+    requester's name (the 'exactly: Yochay's Album Catalog' plan) and must
+    understand the anonymous preview, so working personalization is never
+    'repaired' by hardcoding.
+
+    The brief-carrying surface differs per path: create_artifact still takes a
+    free-text `prompt`, the legacy (MCP) editor still takes `edit_prompt`, and
+    the planner-authored path has no brief field at all — its guidance rides in
+    the authoring reference that ships in the planner system prompt.
+    """
     from app.ai.tools.schemas.create_artifact import CreateArtifactInput
-    from app.ai.tools.schemas.edit_artifact import EditArtifactInput
+    from app.ai.tools.schemas.edit_artifact_legacy import LegacyEditArtifactInput
+    from app.ai.agents.planner.artifact_authoring import (
+        build_artifact_authoring_reference,
+    )
 
     create_desc = CreateArtifactInput.model_fields["prompt"].description or ""
-    edit_desc = EditArtifactInput.model_fields["edits"].description or ""
+    edit_desc = LegacyEditArtifactInput.model_fields["edit_prompt"].description or ""
     for desc in (create_desc, edit_desc):
         assert "RUNTIME BINDING" in desc
         assert "ANONYMOUS" in desc
 
+    # The planner authors the code itself now, so the same contract must reach
+    # it without any brief field in the loop.
+    reference = build_artifact_authoring_reference()
+    assert "ANONYMOUS" in reference
+    assert "hardcoding" in reference
 
-def test_anon_preview_note_attached_to_screenshots():
-    """The reflection screenshot renders anonymously on purpose; the note that
-    says so must exist and be wired into both tools' observations."""
+
+def test_preview_notes_attached_wherever_a_screenshot_is():
+    """Every tool that hands the model a render screenshot must label it, on
+    both axes the model has misread: the preview is ANONYMOUS (missing names
+    are expected) and it is STATIC (closed dropdowns are expected).
+
+    The mechanical edit_artifact is deliberately exempt — it attaches no image
+    (there is no inner LLM to reflect on one), so it has nothing to label.
+    """
     import inspect
-    from app.ai.tools.implementations._sandbox_context import ANON_PREVIEW_NOTE
+    from app.ai.tools.implementations._sandbox_context import (
+        ANON_PREVIEW_NOTE,
+        STATIC_PREVIEW_NOTE,
+    )
     from app.ai.tools.implementations import create_artifact as ca
+    from app.ai.tools.implementations import read_artifact as ra
+    from app.ai.tools.implementations import edit_artifact_legacy as eal
     from app.ai.tools.implementations import edit_artifact as ea
 
     assert "EXPECTED behavior" in ANON_PREVIEW_NOTE
-    assert "ANON_PREVIEW_NOTE" in inspect.getsource(ca)
-    assert "ANON_PREVIEW_NOTE" in inspect.getsource(ea)
+    assert "EXPECTED" in STATIC_PREVIEW_NOTE
+    # The static note must name the closed-by-default surfaces and forbid
+    # "fixing" them — that misdiagnosis burned a turn's whole edit budget.
+    for token in ("multi-select", "dropdown", "CLOSED", "NEVER"):
+        assert token in STATIC_PREVIEW_NOTE
+
+    for module in (ca, ra, eal):
+        src = inspect.getsource(module)
+        assert "ANON_PREVIEW_NOTE" in src, f"{module.__name__} attaches an unlabeled screenshot"
+        assert "STATIC_PREVIEW_NOTE" in src, f"{module.__name__} attaches an unlabeled screenshot"
+
+    # Exemption is real, not an oversight: assert it attaches no image at all.
+    assert '"images"' not in inspect.getsource(ea)
+
+
+def test_screenshot_limits_documented_in_authoring_reference():
+    """Observations get compacted out of long conversations; the caveat must
+    also live in the always-present system-prompt reference."""
+    from app.ai.agents.planner.artifact_authoring import (
+        build_artifact_authoring_reference,
+    )
+
+    reference = build_artifact_authoring_reference()
+    assert "STATIC capture" in reference
+    for token in ("dropdown", "CLOSED", "read its wiring in the CODE", "read the CODE"):
+        if token in reference:
+            break
+    else:
+        raise AssertionError("reference must redirect interaction checks to the code")
 
 
 def test_render_repair_attempt_budget():
