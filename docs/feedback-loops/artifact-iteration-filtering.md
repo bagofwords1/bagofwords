@@ -1,4 +1,8 @@
-# Feedback loop — artifact iteration robustness & filtering (phases 1–2 + round 2 + F3 + phase-3 step 1)
+# Feedback loop — artifact iteration robustness & filtering (phases 1–3 complete)
+
+Note: sections below are a chronological log; tool names reflect each era
+(the mechanical edit tool was briefly named apply_artifact_edit before taking
+the canonical edit_artifact name — see the Rename section).
 
 Verifies the changes on `claude/artifact-iteration-filtering-2chyem`
 (design: `docs/design/artifact-iteration-and-filtering.md`) against a full
@@ -42,7 +46,7 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
 - Coder prompt now offers a full-rewrite fallback instead of "output
   nothing" (edit_artifact system prompt).
 - Gate hard-blocks on edits: unconverged `[viz refs]` errors reject the edit
-  and keep the last good version (`edit_artifact` + `edit_artifact`).
+  and keep the last good version (the coder-based editor and the mechanical tool alike).
   Verified tool-level: an edit deleting a viz binding was rejected with a
   precise error and persisted nothing.
 - Coverage tightened with the reviewer's counterexamples as unit tests:
@@ -102,9 +106,9 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
   `mode='slides'`) — valid 2-slide deck with correct Chinook figures,
   "Presentation Created 1.0s". Script-as-source; execution is the validation
   (max_repairs=0 — no repair LLM on planner-authored paths).
-- `edit_artifact` now covers slides too, and is the ONLY edit path the
-  planner sees (edit_artifact retired via allowed_modes=[]; class kept for
-  compat). Follow-up edit turn: indigo accent + section rename applied
+- The mechanical tool now covers slides too, and is the ONLY edit path the
+  planner sees (the coder-based editor retired via allowed_modes=[]; class kept
+  for compat). Follow-up edit turn: indigo accent + section rename applied
   mechanically, live on v2.
 - The artifact authoring reference (page JSX + runtime docs + slides contract
   + edit-op rules, ~42K chars, static/cacheable) rides in the planner system
