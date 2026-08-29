@@ -59,6 +59,10 @@
                                 <div v-if="block.content" class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-md px-3 py-2 max-w-[95%] text-xs text-gray-800 dark:text-gray-200 chat-md">
                                     <MDC :value="block.content" />
                                 </div>
+                                <!-- Tool activity stays a thin status line: this is a
+                                     text-only surface (Teams-style) — the agent is
+                                     instructed to present all data inline in its answer,
+                                     so tool outputs never need their own UI here. -->
                                 <div v-else-if="block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
                                     <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3" />
                                     <Icon v-else :name="block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check'" class="w-3 h-3" />
@@ -228,22 +232,32 @@ async function send() {
     }
 }
 
+// The trailing spinner shows whenever the agent is working with nothing
+// visibly in progress: before the first visible block, and between rounds
+// (a tool finished, the next planner call hasn't produced anything yet).
+// Planner bookkeeping blocks are invisible (orderedBlocks filters them), so
+// they must not count as "in progress" here either.
+function refreshWaitSpinner(assistantMsg: any) {
+    const visible = orderedBlocks(assistantMsg)
+    streamHasBlocks.value = visible.some((b: any) => b.status === 'in_progress')
+}
+
 function handleEvent(evt: any, assistantMsg: any) {
     const kind = evt.event
     if (kind === 'block.upsert' && evt.data?.block) {
         const block = evt.data.block
-        streamHasBlocks.value = true
         const blocks = assistantMsg.completion_blocks
         const idx = blocks.findIndex((b: any) => b.id === block.id)
         if (idx >= 0) blocks[idx] = block
         else blocks.push(block)
+        refreshWaitSpinner(assistantMsg)
         scrollToBottom()
     } else if (kind === 'block.delta.text' && evt.data?.block_id) {
         // Full overwrite snapshot for a block's text field.
         const b = assistantMsg.completion_blocks.find((x: any) => x.id === evt.data.block_id)
         if (b && evt.data.field === 'content' && evt.data.text) {
             b.content = evt.data.text
-            streamHasBlocks.value = true
+            refreshWaitSpinner(assistantMsg)
             scrollToBottom()
         }
     } else if (kind === 'block.delta.token' && evt.data?.block_id) {
@@ -251,7 +265,7 @@ function handleEvent(evt: any, assistantMsg: any) {
         const b = assistantMsg.completion_blocks.find((x: any) => x.id === evt.data.block_id)
         if (b && evt.data.field === 'content' && evt.data.token) {
             b.content = (b.content || '') + String(evt.data.token)
-            streamHasBlocks.value = true
+            refreshWaitSpinner(assistantMsg)
             scrollToBottom()
         }
     } else if (kind === 'completion.finished') {
