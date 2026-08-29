@@ -369,6 +369,7 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             return ''
         lines: List[str] = ['<artifact_chat_context>']
         lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
+        lines.append('  TEXT-ONLY SURFACE: the viewer chats in a small text bubble and sees ONLY your text replies — tool outputs, tables, and widgets you produce are NOT visible to them. Every answer must be self-contained: present the relevant data inline as short markdown lists or tables. NEVER refer to a table or result as "above", "available", or "shown" — nothing but your text is shown. For large results, include the most relevant rows (up to ~20) inline and say how many rows the full result has.')
         title = ctx.get('artifact_title') or ctx.get('source_report_title')
         if title:
             lines.append(f'  Dashboard: {json.dumps(title)}')

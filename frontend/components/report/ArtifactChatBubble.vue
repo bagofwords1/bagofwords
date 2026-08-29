@@ -59,17 +59,10 @@
                                 <div v-if="block.content" class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-md px-3 py-2 max-w-[95%] text-xs text-gray-800 dark:text-gray-200 chat-md">
                                     <MDC :value="block.content" />
                                 </div>
-                                <!-- Tool blocks render with the same components as the
-                                     report/conversation pages, read-only. -->
-                                <div v-else-if="block.tool_execution && getToolComponent(block.tool_execution.tool_name)"
-                                    class="w-full text-xs overflow-x-auto">
-                                    <component
-                                        :is="getToolComponent(block.tool_execution.tool_name)"
-                                        :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
-                                        :tool-execution="block.tool_execution"
-                                        :readonly="true"
-                                    />
-                                </div>
+                                <!-- Tool activity stays a thin status line: this is a
+                                     text-only surface (Teams-style) — the agent is
+                                     instructed to present all data inline in its answer,
+                                     so tool outputs never need their own UI here. -->
                                 <div v-else-if="block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
                                     <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3" />
                                     <Icon v-else :name="block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check'" class="w-3 h-3" />
@@ -123,37 +116,6 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import Spinner from '~/components/Spinner.vue'
-// The same tool renderers the report and shared-conversation pages use —
-// scoped to the artifact-chat tool allowlist (see ARTIFACT_CHAT_TOOL_ALLOWLIST
-// in backend/app/ai/agent_v2.py).
-import CreateDataTool from '~/components/tools/CreateDataTool.vue'
-import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
-import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
-import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
-import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
-import InspectDataTool from '~/components/tools/InspectDataTool.vue'
-import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
-import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
-import ListFilesTool from '~/components/tools/ListFilesTool.vue'
-import ReadFileTool from '~/components/tools/ReadFileTool.vue'
-import ClarifyTool from '~/components/tools/ClarifyTool.vue'
-
-function getToolComponent(toolName: string) {
-    switch (toolName) {
-        case 'create_data': return CreateDataTool
-        case 'describe_tables': return DescribeTablesTool
-        case 'describe_entity': return DescribeEntityTool
-        case 'read_query': return ReadQueryTool
-        case 'read_artifact': return ReadArtifactTool
-        case 'inspect_data': return InspectDataTool
-        case 'search_files': return SearchFilesTool
-        case 'grep_files': return GrepFilesTool
-        case 'list_files': return ListFilesTool
-        case 'read_file': return ReadFileTool
-        case 'clarify': return ClarifyTool
-        default: return null
-    }
-}
 
 const props = defineProps<{ reportId: string; raised?: boolean }>()
 
