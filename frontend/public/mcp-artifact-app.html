@@ -29,7 +29,8 @@
     block below overrides useArtifactData with an event-driven variant because
     MCP delivers ARTIFACT_DATA via postMessage rather than inlined srcdoc.
   -->
-  <script src="/libs/artifact-globals.js?v=2"></script>
+  <!-- Keep the ?v in sync with ARTIFACT_GLOBALS_VERSION in utils/artifactIframe.ts -->
+  <script src="/libs/artifact-globals.js?v=7"></script>
 
   <style>
     html, body, #root {

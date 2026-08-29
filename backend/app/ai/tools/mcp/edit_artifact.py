@@ -197,7 +197,7 @@ class EditArtifactMCPTool(MCPTool):
 
         # Import shared tools
         from app.ai.tools.implementations.create_artifact import CreateArtifactTool
-        from app.ai.tools.implementations.edit_artifact import EditArtifactTool, apply_search_replace_diff
+        from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool, apply_search_replace_diff
 
         artifact_tool = CreateArtifactTool()
         edit_tool = EditArtifactTool()

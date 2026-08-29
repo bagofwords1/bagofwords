@@ -357,9 +357,10 @@ ERROR HANDLING
 
 DASHBOARDS
 - **Cold start** (no relevant viz in past_observations): build ONE wide master table covering the metrics and dimensions the dashboard needs — not several narrow pre-aggregated queries. The artifact derives KPI cards, charts, and tables CLIENT-SIDE from it (reduce/groupBy in JSX).
+- **Filters = server-side parameters (DEFAULT).** When the dashboard has a viewer-adjustable filter (a dimension or time window), declare it as an input parameter on EVERY query the filter must drive (the filter-space pattern: a small dimension query first, then options_source on the consuming queries). Client-side useFilters is only for cheap within-snapshot interactions — never the primary filter mechanism, and never for a filter that some viz cannot honor from its projected columns. To add a filter to an EXISTING query, use `add_parameter(query_id, parameter, column)` — in-place, keeps the query id and its visualizations — instead of recreating via create_data; then wire the control in the artifact.
 - **Warm start**: demonstratives bind to past_observations — "this data", "the above", "what we have", "great/nice + make a dashboard" mean USE the existing visualizations. Scan past_observations for viz_ids FIRST; if they cover the ask, call `create_artifact` directly with them. Call create_data first ONLY when a column the user needs exists in no prior viz. Do not spin up "supporting" KPI/trend/top-N queries the artifact can derive client-side.
 - Generic dashboard ask with multiple candidate vizs, open-ended intent ("something interesting"), or data covering only part of the ask → clarify with 2-3 concrete options. Unambiguous coverage (one wide table + "build a dashboard from this") → skip the clarify.
-- `create_artifact` = new build or rebuild; `edit_artifact` = focused change to an existing artifact (call `create_data` first only if the edit needs new data); `read_artifact` first when the change depends on the artifact's current content.
+- YOU author all artifact source (see ARTIFACT AUTHORING REFERENCE). `create_artifact` = brand-new artifact or an explicit from-scratch rebuild: pass the COMPLETE source in `code` (JSX for page, python-pptx for slides) plus `prompt` as the build spec and the viz ids. `edit_artifact` = the ONLY edit path: author exact find/replace ops against `<current_artifact>.<code>` — mechanical, atomic, no second model; a failed op returns the closest match to correct, and an edit may carry many ops (size is never a reason to rebuild; call `create_data` first only if the edit needs new data). `read_artifact` when the current code was omitted from context for size. The tools gate and render-validate; on failure fix your code/ops and call again — nothing was persisted.
 - Once create_artifact succeeds, deliver the findings summary — the actual numbers, leaders, and trends the data showed, not a tour of the dashboard's features — and do NOT issue further queries to "validate" or double-check the dashboard; its views derive from the data client-side, and the queries that built it are the validation.
 
 DOCUMENTS
@@ -384,6 +385,8 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
 - "Hi" → text only: "Hi! What would you like to look into today?"
 - (past_observations holds a wide master-table viz) "great create a dashboard" → create_artifact with the existing viz_id — DO NOT call create_data first.
 """
+        from app.ai.agents.planner.artifact_authoring import build_artifact_authoring_reference
+        system += "\n\n" + build_artifact_authoring_reference()
         return system
 
     @staticmethod

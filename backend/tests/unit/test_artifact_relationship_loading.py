@@ -22,7 +22,7 @@ for _stmt in re.findall(r"^from app\.models\S* import \([^)]*\)|^from app\.model
     exec(_stmt)  # noqa: S102 — test-only, mirrors alembic/env.py
 
 from app.ai.agent_v2 import AgentV2
-from app.ai.tools.implementations.edit_artifact import EditArtifactTool
+from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool
 from app.ai.tools.implementations.read_artifact import ReadArtifactTool
 from app.ai.tools.implementations.read_query import ReadQueryTool
 from app.models.artifact import Artifact

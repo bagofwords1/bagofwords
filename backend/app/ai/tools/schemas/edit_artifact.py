@@ -1,65 +1,53 @@
-from typing import Optional, List
-from pydantic import BaseModel, Field
+from typing import Any, List, Optional
+from pydantic import BaseModel, Field, model_validator
+
+
+class ArtifactEditOp(BaseModel):
+    """One exact find/replace operation. `find` must match the current code
+    EXACTLY ONCE (whitespace included). Keep finds as short as possible while
+    still unique."""
+
+    find: str = Field(..., description="Exact text to locate in the current artifact code — must occur exactly once.")
+    replace: str = Field(..., description="Replacement text (empty string deletes the found text).")
 
 
 class EditArtifactInput(BaseModel):
-    """Input for edit_artifact tool.
+    """Input for edit_artifact — the MECHANICAL artifact edit path.
 
-    - artifact_id: ID of the existing artifact to edit (from previous create_artifact/read_artifact)
-    - edit_instruction: natural language description of the change to make
-    - visualization_ids: optional list of NEW visualization IDs to add (existing ones are kept automatically)
-    - title: optional updated title
+    YOU author the exact code edits (no second model involved): the tool
+    applies them atomically, enforces the viz-reference and params-wiring
+    contracts, render-validates once, and persists a new version. If any op
+    fails to match, NOTHING is applied and the error names the closest match
+    so you can correct the find text.
     """
 
-    artifact_id: str = Field(..., description="ID of the existing artifact to edit. Find this in previous create_artifact or read_artifact results as 'artifact_id: <uuid>' in the conversation.")
-    edit_prompt: str = Field(..., description=(
-        "Structured edit request. Be specific about what to change. Use relevant sections:\n\n"
-        "## Layout changes\n"
-        "What to move, add, resize. E.g., 'Move KPI row above the chart grid', 'Add a new bar chart in the bottom-right panel'. "
-        "Only describe REMOVAL if the user explicitly asked to remove something — otherwise the edit is additive.\n\n"
-        "## Style changes\n"
-        "Colors, theme, spacing, typography changes. Capture the user's visual intent verbatim — this overrides existing styling.\n"
-        "E.g., 'Switch to dark mode with slate-900 bg', 'Remove all shadows and gradients, flat BI look'.\n\n"
-        "## Filter changes\n"
-        "Add/remove/fix filter behavior. E.g., 'Add global year filter across all vizs', 'Remove the city local filter'. "
-        "If this edit introduces a NEW cross-viz filter (or comparison/slice/rank/drill), you MUST have completed the Dashboard Contract preflight first (see planner): every viz in the final artifact satisfies the filter, has been rebuilt via `create_data` to satisfy it, or was substituted/dropped because it was meaningless under it. Do NOT scope a new global filter to only a subset of vizs that mechanically accept it — that ships a broken dashboard.\n\n"
-        "## Data changes\n"
-        "Chart type changes, KPI calculations, new data mappings. E.g., 'Change bar chart to horizontal bars', 'Show top 6 artists instead of 10'.\n\n"
-        "Only include sections relevant to the edit. Also use this to fix visual issues (e.g., 'the bar chart is cut off', 'KPI cards are overlapping').\n\n"
-        "CONTINUITY: Edits are ADDITIVE by default. Phrases like 'improve', 'make it amazing', 'add KPIs', 'redesign' never imply removing existing vizs or content. "
-        "Preserve the existing title unless the user asked to rename.\n\n"
-        "PERSONALIZATION: personalization is a RUNTIME BINDING, never resolved text. Ask for 'greet the viewing user by "
-        "name via current_user' — NEVER substitute the requester's actual name/email into this edit request, and NEVER "
-        "instruct 'explicitly/permanently' show a specific person's name. Previews/screenshots render as an ANONYMOUS "
-        "viewer (current_user=null), so a preview showing a neutral fallback instead of a name is CORRECT behavior — "
-        "do not issue an edit to 'fix' it, and never by hardcoding a name."
-    ))
-    visualization_ids: Optional[List[str]] = Field(default=None, description="List of NEW visualization IDs to include in the artifact. IMPORTANT: If you called create_data before this edit, you MUST pass the resulting visualization_id(s) here. Without them, the new visualizations will not appear in the dashboard. Existing visualization IDs from the original artifact are kept automatically — only pass new ones.")
-    remove_visualization_ids: Optional[List[str]] = Field(default=None, description=(
-        "Visualization IDs to REMOVE from the artifact. Use when the user asks to remove a chart/KPI/table, "
-        "or to REPLACE one (pass the old viz id here and the new viz id in visualization_ids). "
-        "Removed visualizations are dropped from the artifact's data payload and their code sections are deleted. "
-        "Without this, edits are additive and stale visualizations stay in the dashboard forever."
-    ))
-    title: Optional[str] = Field(default=None, description="Updated title for the artifact. If not provided, the existing title is kept.")
-    file_ids: Optional[List[str]] = Field(default=None, description="List of NEW File IDs (generated images from generate_image, or uploaded images/PDFs) to embed. Existing embedded files are kept automatically — only pass new ones. Reference them in the code with <BowFile id=\"<file_id>\" /> (see the sandbox runtime docs).")
+    artifact_id: str = Field(..., description="Id of the page-mode artifact to edit.")
+    edits: List[ArtifactEditOp] = Field(..., min_length=1, description="Ordered find/replace operations, applied atomically (all or none).")
+    visualization_ids: Optional[List[str]] = Field(default=None, description="NEW visualization ids to add to the artifact's data payload (existing ones are kept automatically). Your edits must add code sections rendering them via vizById(\"<uuid>\").")
+    remove_visualization_ids: Optional[List[str]] = Field(default=None, description="Visualization ids to REMOVE from the payload. Your edits must delete every code section referencing them.")
+    title: Optional[str] = Field(default=None, description="Updated artifact title (kept if omitted).")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_legacy_shape(cls, data: Any) -> Any:
+        """Bridge for stale patterns: the pre-mechanical edit_artifact took an
+        English `edit_prompt`. Reject it with guidance instead of a confusing
+        missing-field error, so a model imitating old history self-corrects."""
+        if isinstance(data, dict) and data.get("edit_prompt") and not data.get("edits"):
+            raise ValueError(
+                "edit_artifact no longer takes an English edit_prompt — YOU author the "
+                "edit: pass `edits` as exact find/replace ops against the current code "
+                "in <current_artifact>.<code> (see the ARTIFACT AUTHORING REFERENCE). "
+                "Call read_artifact first if the code is not in your context."
+            )
+        return data
 
 
 class EditArtifactOutput(BaseModel):
-    """Output from edit_artifact tool.
+    """Output from edit_artifact."""
 
-    - artifact_id: ID of the edited artifact
-    - code: the updated code after applying the edit
-    - mode: artifact mode (page/slides)
-    - title: the artifact title
-    - version: bumped version number
-    - diff_applied: whether the edit was applied as a surgical diff (true) or fell back to full rewrite (false)
-    """
-
-    artifact_id: str = Field(..., description="ID of the edited artifact")
-    code: str = Field(..., description="The updated code after applying the edit")
-    mode: str = Field(..., description="Artifact mode: 'page' or 'slides'")
-    title: Optional[str] = Field(None, description="Artifact title")
-    visualization_ids: List[str] = Field(default_factory=list, description="All visualization IDs included in this artifact after the edit. Use these when making further edits.")
-    version: int = Field(..., description="Bumped version number of the artifact")
-    diff_applied: bool = Field(..., description="True if the edit was applied as a surgical search/replace diff. False if the tool fell back to a full code rewrite.")
+    success: bool = Field(...)
+    artifact_id: str = Field(...)
+    version: Optional[int] = Field(default=None)
+    applied_ops: Optional[int] = Field(default=None)
+    error: Optional[str] = Field(default=None)

@@ -563,8 +563,12 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         images: Dict[str, bytes],
         runtime_ctx: Dict[str, Any],
         deadline_monotonic: Optional[float] = None,
+        max_repairs: Optional[int] = None,
     ) -> AsyncIterator[Any]:
         """Execute slides code and repair it in-tool when it fails.
+
+        max_repairs caps the LLM repair rounds (None = MAX_RENDER_REPAIR_ATTEMPTS;
+        0 = execute-only, no repair LLM — the planner-authored path).
 
         Slides twin of _validate_and_repair_stream. Async generator: yields
         ToolProgressEvent items for the UI, then a final dict result:
@@ -604,10 +608,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         original_error = error
         candidate = code
         attempts = 0
+        _pptx_repair_budget = self.MAX_RENDER_REPAIR_ATTEMPTS if max_repairs is None else max_repairs
 
         while (
             error
-            and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
+            and attempts < _pptx_repair_budget
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
         ):
@@ -657,8 +662,16 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         mode: str,
         runtime_ctx: Dict[str, Any],
         deadline_monotonic: Optional[float] = None,
+        max_repairs: Optional[int] = None,
+        strict: bool = False,
     ) -> AsyncIterator[Any]:
         """Render-validate page code and repair it in-tool when it fails.
+
+        max_repairs caps the LLM repair rounds (None = MAX_RENDER_REPAIR_ATTEMPTS;
+        0 = pure validation, no repair LLM — the planner-authored path).
+        strict=True additionally fails the result when contract errors
+        (viz refs / params wiring) remain — they are merged into `errors`
+        instead of riding along as annotations.
 
         Async generator: yields ToolProgressEvent items for the UI, then a
         final dict result:
@@ -700,7 +713,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # Params-wiring contract rides the same repair loop: an unwired param
         # renders fine but silently never re-runs the data — as much a defect
         # as a thrown error, and fixable by the same in-tool repair.
+        # The viz-reference contract rides along too: a reference to a viz that
+        # isn't in the payload (or a payload viz the code never renders) is a
+        # silent-wrong-data defect no screenshot can catch.
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
+        if mode == "page":
+            wiring = wiring + viz_reference_errors(code, artifact_data)
 
         original_code = code
         original_screenshot = screenshot
@@ -708,10 +727,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         original_wiring = list(wiring)
         candidate = code
         attempts = 0
+        _repair_budget = self.MAX_RENDER_REPAIR_ATTEMPTS if max_repairs is None else max_repairs
 
         while (
             (fatal or wiring)
-            and attempts < self.MAX_RENDER_REPAIR_ATTEMPTS
+            and attempts < _repair_budget
             and _time_left()
             and not (sigkill_event and sigkill_event.is_set())
         ):
@@ -733,8 +753,22 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             candidate = fixed
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
+            if mode == "page":
+                wiring = wiring + viz_reference_errors(candidate, artifact_data)
 
-        if not fatal:
+        if strict and not fatal and wiring:
+            # Strict (planner-authored) mode: contract errors are as fatal as
+            # render errors — return them as the failure so nothing persists
+            # and the planner gets the exact list to fix.
+            yield {
+                "code": original_code,
+                "clean": False,
+                "screenshot": screenshot,
+                "errors": list(errors) + list(wiring),
+                "repair_attempts": attempts,
+                "params_wiring_errors": wiring,
+            }
+        elif not fatal:
             # Render fatality decides candidate vs original; unconverged wiring
             # only ANNOTATES — a rendering dashboard with a dead control still
             # beats no dashboard, but the caller must be able to say so.
@@ -1201,67 +1235,102 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if data.mode == "page":
             identity_context = await build_identity_context(db, user, organization)
 
-        prompt = self._build_prompt(
-            user_prompt=data.prompt,
-            title=data.title,
-            mode=data.mode,
-            viz_profiles=viz_profiles,
-            instructions_context=instructions_context,
-            identity_context=identity_context,
-            report_title=getattr(report, 'title', None) if report else None,
-            allow_llm_see_data=allow_llm_see_data,
-            messages_context=messages_context,
-            image_count=len(completion_images),
-            organization_settings=organization_settings,
-            files=included_files,
-        )
-        # Static reference goes in the system prompt so provider-side prompt
-        # caching reuses it across artifact calls (page mode only — slides
-        # keeps its single-prompt path).
-        system_prompt = self._build_page_system_prompt() if data.mode == "page" else None
-
-        # Stream from LLM
-        yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
-        llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
-        buffer = ""
-        slides_detected = 0  # Track number of slides detected during streaming
-
-        async for evt in llm.inference_stream_v2(
-            messages=[Message(role="user", content=prompt)],
-            system=system_prompt,
-            images=completion_images if completion_images else None,
-            usage_scope="create_artifact",
-            usage_scope_ref_id=str(report.id) if report else None,
-        ):
-            if sigkill_event and sigkill_event.is_set():
-                break
-            if isinstance(evt, TextDeltaEvent):
-                buffer += evt.text
-
-            # For slides mode, detect new slides as they're generated
-            if data.mode == "slides":
-                # Count slide sections in buffer
-                current_slides = buffer.count('<section class="slide"')
-                if current_slides > slides_detected:
-                    # New slide detected
-                    for i in range(slides_detected, current_slides):
-                        yield ToolProgressEvent(
-                            type="tool.progress",
-                            payload={
-                                "stage": "slide_generated",
-                                "slide_index": i,
-                                "total_slides": current_slides,
-                                "timing": False,
-                            }
-                        )
-                    slides_detected = current_slides
-
-            # Stream partial updates
-            if len(buffer) % 100 == 0:  # Throttle updates
-                yield ToolProgressEvent(
-                    type="tool.progress",
-                    payload={"stage": "generating", "chars": len(buffer), "timing": False}
+        # Rebuild-over-existing: when this report already has a completed artifact
+        # of the same mode, its code goes into the prompt as the preservation
+        # baseline — a rebuild must reproduce everything the request doesn't name.
+        prior_code = ""
+        if data.mode == "page" and report is not None:
+            try:
+                _prev_res = await db.execute(
+                    select(Artifact)
+                    .where(
+                        Artifact.report_id == str(report.id),
+                        Artifact.mode == "page",
+                        Artifact.status == "completed",
+                        Artifact.id != artifact.id,
+                    )
+                    .order_by(Artifact.created_at.desc())
+                    .limit(1)
                 )
+                _prev = _prev_res.scalar_one_or_none()
+                if _prev is not None and isinstance(_prev.content, dict):
+                    prior_code = _prev.content.get("code") or ""
+            except Exception:
+                logger.warning("Failed to load prior artifact code for rebuild reference", exc_info=True)
+                prior_code = ""
+
+        # ═══════════════════════════════════════════════════════════════════
+        # Planner-authored path (primary): the planner supplies the complete
+        # source in `code` — NO in-tool generation LLM. Validation below is a
+        # single strict pass; failures return structured errors and persist
+        # nothing (the planner's own loop is the repair loop).
+        # ═══════════════════════════════════════════════════════════════════
+        planner_authored = bool((data.code or "").strip())
+        buffer = ""
+        slides_detected = 0
+        if not planner_authored:
+            prompt = self._build_prompt(
+                user_prompt=data.prompt,
+                title=data.title,
+                mode=data.mode,
+                viz_profiles=viz_profiles,
+                instructions_context=instructions_context,
+                identity_context=identity_context,
+                report_title=getattr(report, 'title', None) if report else None,
+                allow_llm_see_data=allow_llm_see_data,
+                messages_context=messages_context,
+                image_count=len(completion_images),
+                organization_settings=organization_settings,
+                files=included_files,
+                prior_code=prior_code,
+            )
+            # Static reference goes in the system prompt so provider-side prompt
+            # caching reuses it across artifact calls (page mode only — slides
+            # keeps its single-prompt path).
+            system_prompt = self._build_page_system_prompt() if data.mode == "page" else None
+
+            # Stream from LLM
+            yield ToolProgressEvent(type="tool.progress", payload={"stage": "llm_generating"})
+            llm = LLM(runtime_ctx.get("model"), usage_session_maker=async_session_maker)
+            buffer = ""
+            slides_detected = 0  # Track number of slides detected during streaming
+
+            async for evt in llm.inference_stream_v2(
+                messages=[Message(role="user", content=prompt)],
+                system=system_prompt,
+                images=completion_images if completion_images else None,
+                usage_scope="create_artifact",
+                usage_scope_ref_id=str(report.id) if report else None,
+            ):
+                if sigkill_event and sigkill_event.is_set():
+                    break
+                if isinstance(evt, TextDeltaEvent):
+                    buffer += evt.text
+
+                # For slides mode, detect new slides as they're generated
+                if data.mode == "slides":
+                    # Count slide sections in buffer
+                    current_slides = buffer.count('<section class="slide"')
+                    if current_slides > slides_detected:
+                        # New slide detected
+                        for i in range(slides_detected, current_slides):
+                            yield ToolProgressEvent(
+                                type="tool.progress",
+                                payload={
+                                    "stage": "slide_generated",
+                                    "slide_index": i,
+                                    "total_slides": current_slides,
+                                    "timing": False,
+                                }
+                            )
+                        slides_detected = current_slides
+
+                # Stream partial updates
+                if len(buffer) % 100 == 0:  # Throttle updates
+                    yield ToolProgressEvent(
+                        type="tool.progress",
+                        payload={"stage": "generating", "chars": len(buffer), "timing": False}
+                    )
 
         # Check sigkill after LLM generation
         if sigkill_event and sigkill_event.is_set():
@@ -1277,8 +1346,13 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             )
             return
 
-        # Extract the code from the response
-        code = self._extract_code(buffer, mode=data.mode)
+        # Extract the code: from the planner-authored source (tolerating a
+        # bare script without fences) or from the generation buffer.
+        if planner_authored:
+            _raw = (data.code or "").strip()
+            code = self._extract_code(_raw, mode=data.mode) or _raw
+        else:
+            code = self._extract_code(buffer, mode=data.mode)
 
         # ═══════════════════════════════════════════════════════════════════════
         # Mode-specific processing: slides uses python-pptx, page skips to save
@@ -1315,6 +1389,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 await load_image_bytes(db, included_files),
                 runtime_ctx,
                 deadline_monotonic=_repair_deadline,
+                max_repairs=(0 if planner_authored else None),
             ):
                 if isinstance(_item, dict):
                     _pptx_result = _item
@@ -1388,6 +1463,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             _validate_result: Optional[Dict[str, Any]] = None
             async for _item in self._validate_and_repair_stream(
                 code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
+                max_repairs=(0 if planner_authored else None),
+                strict=planner_authored,
             ):
                 if isinstance(_item, dict):
                     _validate_result = _item
@@ -1480,9 +1557,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "message": _error_msg,
                     "repair_attempts": pptx_repair_attempts,
                     "remediation": (
-                        "The generated python-pptx code does not execute. Call edit_artifact with an "
-                        "edit_prompt that quotes the exact error above, or create_artifact to rebuild "
-                        "with a simpler deck if the error persists."
+                        "The python-pptx script does not execute. Fix the script yourself against the "
+                        "exact error above and call create_artifact again with the corrected `code` "
+                        "(nothing was persisted); simplify the deck if the error persists."
                     ),
                 },
                 "artifact_id": str(artifact.id),
@@ -1530,9 +1607,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "render_errors": render_errors,
                     "repair_attempts": repair_attempts,
                     "remediation": (
-                        "The generated code does not render. Call edit_artifact with an edit_prompt "
-                        "that quotes the exact error(s) above, or create_artifact to rebuild with a "
-                        "simpler layout if the errors persist."
+                        "The code does not render. Fix it yourself against the exact error(s) above "
+                        "and call create_artifact again with the corrected `code` (a failed create "
+                        "persists nothing); simplify the layout if the errors persist."
                     ),
                 },
                 "artifact_id": str(artifact.id),
@@ -2211,7 +2288,7 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
 
 All components are fully themeable via `className`/`titleClassName`/`subtitleClassName`/`style`. Don't leave default white/slate styling when your design calls for something different. If the design needs something these can't express — build custom React + Tailwind.
 
-**INFO POPOVER (required):** Pass `viz={{viz[N]}}` to every `<KPICard>` and `<SectionCard>` you build from a visualization. This renders a small built-in "ⓘ" button that lets users inspect the data behind each component (Data tab with rows, Code tab with the query). Use the index of the visualization the card is derived from (the primary one if it combines several). When a card renders FILTERED rows (you called `filterRows(viz[N].rows)`), ALSO pass `rows={{<those filtered rows>}}` so the popover shows the filtered view that matches the component, not the full dataset. When a card AGGREGATES or derives its value client-side, ALSO pass `calc="<formula>"` describing the math with real column names, e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"` or `calc="COUNT(DISTINCT CustomerId)"` — the popover shows it as a "Calculation" line. If you render a chart with a bare `<EChart>` that is NOT inside a `<SectionCard>`, pass `viz={{viz[N]}}` (and `rows`/`calc` if relevant) to the `<EChart>` itself so it still gets the popover.
+**INFO POPOVER (required):** Pass `viz={{vizById("<uuid>")}}` (or the const you bound from it) to every `<KPICard>` and `<SectionCard>` you build from a visualization. This renders a small built-in "ⓘ" button that lets users inspect the data behind each component (Data tab with rows, Code tab with the query). Use the id of the visualization the card is derived from (the primary one if it combines several). When a card renders FILTERED rows (you called `filterRows(vizById("<uuid>").rows)`), ALSO pass `rows={{<those filtered rows>}}` so the popover shows the filtered view that matches the component, not the full dataset. When a card AGGREGATES or derives its value client-side, ALSO pass `calc="<formula>"` describing the math with real column names, e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"` or `calc="COUNT(DISTINCT CustomerId)"` — the popover shows it as a "Calculation" line. If you render a chart with a bare `<EChart>` that is NOT inside a `<SectionCard>`, pass `viz={{vizById("<uuid>")}}` (and `rows`/`calc` if relevant) to the `<EChart>` itself so it still gets the popover.
 
 **CUSTOM MARKUP — add `data-bow-*` attributes (required):** Whenever you build your OWN containers instead of `<KPICard>`/`<SectionCard>`/`<EChart>` (custom `<div>` KPI tiles, chart wrappers, tables), annotate each item's outer element with `data-bow-viz="N"` (source visualization index) and `data-bow-calc="<formula>"` when the value is derived. A global overlay then renders the same Data/Code/Calc popover on each item. Example: `<div data-bow-viz={{0}} data-bow-calc="SUM(UnitPrice × Quantity)">...custom tile...</div>`. EVERY metric, chart, and table must be reachable via either a prebuilt component's `viz` prop OR a `data-bow-viz` attribute — never leave an item with no way to inspect its data.
 
@@ -2238,7 +2315,8 @@ Each visualization:
 - Use `column.field` to access row values: `row[column.field]`
 - Use `column.headerName` for display labels
 - Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
-- **Do not hardcode data** — all values should come from `data.visualizations[N].rows`
+- **Do not hardcode data** — all values should come from the viz data payload (`vizById("<uuid>").rows`)
+- **DATA ACCESS IS ID-KEYED (MANDATORY):** every visualization in YOUR VISUALIZATIONS has an `id` (uuid). Bind data with `vizById("<that uuid>")` — e.g. `const revTrend = vizById("2f9c…");` — NEVER by position (`viz[0]`, `viz[1]`, `data.visualizations[N]`). Positional indexes silently repoint at the wrong dataset when the viz set changes; id-keyed access is stable. Copy each uuid EXACTLY from the `id` field of the viz it renders. (The uuids live in code only — never display them in visible text.)
 - **Sample vs full data:** the `rows`/`sample_rows` shown in the user message are a SAMPLE (capped at 100 rows per visualization) for generation and preview. At runtime the dashboard receives the FULL dataset — `row_count` rows. `row_count` is the true dataset size; `sample_row_count` is the sample size. Write code that works on the full dataset (aggregate with reduce/Map, paginate long tables) and NEVER hardcode workarounds for the sample size.
 - **Defensive coding**: Row values and properties can be `null`/`undefined`. Use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Do not call string methods on a value that could be nullish.
 
@@ -2247,9 +2325,10 @@ The `view_config` on each visualization describes how the author wants the data 
 
 - `view_config.aggregation` (`"sum" | "avg" | "count" | "min" | "max"`): the raw rows are granular, so aggregate the relevant value column before rendering (especially for `count`, `metric_card`, `pie_chart`, `heatmap`). Use `rows.reduce(...)`. Example for a metric card with aggregation=sum:
   ```js
+  const revenue = vizById("<uuid of the revenue viz>");
   const total = useMemo(
-    () => viz[0].rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0),
-    [viz]
+    () => revenue.rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0),
+    [revenue]
   );
   ```
   For pie/heatmap/bar charts that group by a category, group first and aggregate the value per group rather than using the first matching row.
@@ -2265,7 +2344,7 @@ The `view_config` on each visualization describes how the author wants the data 
     setFilter('column_name', value);
   }}, []);
   ```
-  If the underlying runtime uses richer operators (`equals`, `greater_than`, etc.), either call `setFilter` with the operator-aware object it expects, or compute the filtered rows directly via `filterRows(viz[N].rows)` once the filter is seeded. Render the filtered view when defaults are present so the initial numbers match the author's intent.
+  If the underlying runtime uses richer operators (`equals`, `greater_than`, etc.), either call `setFilter` with the operator-aware object it expects, or compute the filtered rows directly via `filterRows(vizById("<uuid>").rows)` once the filter is seeded. Render the filtered view when defaults are present so the initial numbers match the author's intent.
 
 FILTERING:
 - Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
@@ -2273,7 +2352,7 @@ FILTERING:
   - `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, dtype "object"/"int64" with few values)
   - `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
   - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
-- Get unique values directly: `[...new Set(viz[N].rows.map(r => r[field]))]`
+- Get unique values directly: `[...new Set(vizById("<uuid>").rows.map(r => r[field]))]`
 
 FILTER FEASIBILITY AUDIT — DO THIS FIRST, BEFORE WRITING CODE:
 Before wiring any cross-viz filter, verify it will actually work. A filter that looks wired but silently leaves some vizs untouched is a broken dashboard, not a partial one.
@@ -2293,7 +2372,7 @@ FILTER PLACEMENT — global vs local:
 
 FILTER DATA FLOW:
 - Every viz that passes the feasibility audit for a filter should use `filterRows()` as its data source — for charts, tables, and any KPI/summary derived from that viz.
-- KPI cards that summarize filtered data (sum, count, avg) should be computed from filtered rows, not from raw `viz[N].rows`.
+- KPI cards that summarize filtered data (sum, count, avg) should be computed from filtered rows, not from raw `vizById("<uuid>").rows`.
 - Do not call `filterRows` on a viz that doesn't have the filter column just to "be safe" — silently passing rows through makes the filter look active when it isn't. Audit first, wire second.
 
 EXAMPLE 1 — Global "region" filter affecting KPIs + bar chart + table:
@@ -2371,7 +2450,8 @@ OUTPUT FORMAT
 function App() {{
   const data = useArtifactData();
   if (!data) return <div className="flex items-center justify-center h-screen text-gray-400"><LoadingSpinner size={{32}} /></div>;
-  const viz = data.visualizations;
+  // Id-keyed data access — one binding per viz, uuid copied from its `id`:
+  const revTrend = vizById("<uuid from YOUR VISUALIZATIONS>");
   // ... concise dashboard code
 }}
 ReactDOM.createRoot(document.getElementById('root')).render(<App />);
@@ -2380,7 +2460,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(<App />);
 
 Structure: all code should be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. Do not put return statements outside a function.
 
-Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<EChart option={{...}} />` for charts. Pass `viz={{viz[N]}}` to every KPICard/SectionCard so the built-in info popover shows the data behind it. RESPONSIVE — fluid width, responsive grids (`grid-cols-1 md:grid-cols-2 lg:grid-cols-N`), no fixed-pixel widths, no horizontal page scroll at any width (see RESPONSIVE LAYOUT section above); required unless the user asked for a fixed width. Handle zero rows. No hardcoded data. No UUIDs/branding/emoji. Guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
+Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data; bind each viz by id with `vizById("<uuid>")` — NEVER positional `viz[N]`. `<EChart option={{...}} />` for charts. Pass `viz={{vizById("<uuid>")}}` (or the binding you made from it) to every KPICard/SectionCard so the built-in info popover shows the data behind it. RESPONSIVE — fluid width, responsive grids (`grid-cols-1 md:grid-cols-2 lg:grid-cols-N`), no fixed-pixel widths, no horizontal page scroll at any width (see RESPONSIVE LAYOUT section above); required unless the user asked for a fixed width. Handle zero rows. No hardcoded data. No UUIDs, branding, or emoji in user-visible text (uuids belong in vizById() calls only). Guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
 
 **Code size:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity."""
 
@@ -2397,6 +2477,7 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
         identity_context: str = "",
+        prior_code: str = "",
     ) -> str:
         """Build the dynamic user prompt for page/dashboard generation.
 
@@ -2404,6 +2485,28 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data. `<ECh
         as the system prompt); this carries only per-call state.
         """
         viz_json = json.dumps(viz_profiles, indent=2, default=str)
+
+        # Rebuild baseline: the report's current artifact code. A rebuild is
+        # not a blank slate — everything the request doesn't name must survive.
+        prior_code_block = ""
+        if prior_code:
+            _clipped = prior_code[:30000]
+            _truncation_note = ""
+            if len(prior_code) > 30000:
+                _truncation_note = (
+                    f"\nNOTE: the baseline below is TRUNCATED at 30,000 of {len(prior_code)} "
+                    "characters. Preserve everything visible; for the truncated remainder, use "
+                    "the YOUR VISUALIZATIONS list to ensure every viz still gets a section — do "
+                    "not invent content for parts you cannot see, and do not drop their vizs.\n"
+                )
+            prior_code_block = (
+                "\n**REBUILD OVER EXISTING ARTIFACT — PRESERVE BY DEFAULT:** this report already "
+                "has a dashboard; its current code is below. You are rebuilding it, not starting "
+                "fresh. Reproduce EVERYTHING the request does not explicitly change — the same "
+                "charts, layout structure, styling, titles, and filters — and apply only the "
+                "requested changes on top. Do not drop, restyle, or reorganize anything the user "
+                "didn't name.\n" + _truncation_note + "\n```jsx\n" + _clipped + "\n```\n"
+            )
 
         # Server-side query parameters: when any viz declares them, the
         # dashboard must wire controls through useParams() (not useFilters).
@@ -2477,6 +2580,7 @@ Design request (primary specification — takes precedence when it conflicts wit
 {f"**Organization Instructions:**{chr(10)}{instructions_context}" if instructions_context else ""}
 {identity_context}
 {f"**Conversation History:**{chr(10)}{messages_context}" if messages_context else ""}
+{prior_code_block}
 {language_directive}
 
 If the user specified a theme, layout, colors, or style above — follow that exactly.
@@ -2513,6 +2617,7 @@ Now create the dashboard:"""
         organization_settings: Any = None,
         files: Optional[List[Dict[str, Any]]] = None,
         identity_context: str = "",
+        prior_code: str = "",
     ) -> str:
         """Build the prompt for generating artifact code. Dispatches to mode-specific builders."""
         if mode == "slides":
@@ -2540,6 +2645,7 @@ Now create the dashboard:"""
             organization_settings=organization_settings,
             files=files,
             identity_context=identity_context,
+            prior_code=prior_code,
         )
 
     def _extract_code(self, response: str, mode: str = "page") -> str:

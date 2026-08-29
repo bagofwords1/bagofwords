@@ -433,7 +433,7 @@ def test_edit_artifact_refuses_docs_and_read_artifact_returns_markdown(
 
     events = _run(_run_tool(
         EditArtifactTool(),
-        {"artifact_id": doc_id, "edit_prompt": "## Style changes\nMake it blue"},
+        {"artifact_id": doc_id, "edits": [{"find": "Guarded", "replace": "Blue"}]},
         report["id"],
     ))
     payload = _end_payload(events)

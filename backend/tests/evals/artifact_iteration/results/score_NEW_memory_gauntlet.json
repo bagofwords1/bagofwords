@@ -1,0 +1,36 @@
+{
+ "scenario": "memory_gauntlet",
+ "report_id": "e0b5103c-07ac-43ef-8060-e7a01980e621",
+ "passes": {
+  "artifact_completed": true,
+  "no_fatal_render_errors": true,
+  "no_unknown_viz_refs": true,
+  "no_out_of_range_refs": true,
+  "all_payload_vizs_rendered": true,
+  "min_visualizations": false,
+  "retained:Momentum": true,
+  "retained:indigo": true,
+  "retained:rounded-xl": true,
+  "absent:Revenue by Genre": true,
+  "kpi_row_first": true,
+  "server_param:genre": true,
+  "server_param:country": true,
+  "filter_interaction": false
+ },
+ "failures": [
+  "min_visualizations: 1 vizs",
+  "filter_interaction: skip"
+ ],
+ "metrics": {
+  "completions": 26,
+  "started": "2026-08-28 18:22:00.652355",
+  "ended": "2026-08-28 18:28:40.501739",
+  "tool_calls": {
+   "error": 4,
+   "success": 21
+  },
+  "artifact_versions": 11,
+  "code_chars": 7190
+ },
+ "score": 0.857
+}

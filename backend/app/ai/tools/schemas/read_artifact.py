@@ -29,7 +29,7 @@ class ReadArtifactInput(BaseModel):
         description=(
             "RANGE READ: 1-based line number to start reading from. Use together with `limit` "
             "to read a slice of a LONG artifact (one whose full read returned an outline instead of code). "
-            "The returned code slice is VERBATIM — safe to quote in edit_artifact SEARCH blocks or edit_doc find strings."
+            "The returned code slice is VERBATIM — safe to quote in edit_artifact find ops or edit_doc find strings."
         ),
     )
     limit: Optional[int] = Field(
@@ -46,7 +46,7 @@ class ReadArtifactInput(BaseModel):
         description=(
             "GREP READ: Python regex matched against each LINE of the artifact's code (or markdown for docs). "
             "Returns matching lines with 1-based line numbers plus `before`/`after` context lines — all VERBATIM, "
-            "safe to quote in edit_artifact SEARCH blocks or edit_doc find strings. "
+            "safe to quote in edit_artifact find ops or edit_doc find strings. "
             "Use this to locate the exact region to edit in a LONG artifact without loading the whole code. "
             "Mutually exclusive with offset/limit (grep wins if both are set)."
         ),

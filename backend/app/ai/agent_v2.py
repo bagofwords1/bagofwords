@@ -1269,11 +1269,12 @@ class AgentV2:
             from app.models.artifact import Artifact
             from app.models.query import Query
             from app.models.visualization import Visualization
+            _report_id = getattr(self, "report_id", None) or (str(self.report.id) if self.report else None)
             result = await self.db.execute(
                 select(Artifact)
                 .options(lazyload("*"))
                 .where(
-                    Artifact.report_id == str(self.report_id),
+                    Artifact.report_id == str(_report_id),
                     Artifact.status == "completed",
                     # Docs (mode='doc') must never occupy the active-artifact slot:
                     # dashboard continuity rules and edit_artifact routing bind to it.
@@ -1354,6 +1355,11 @@ class AgentV2:
                 "version": artifact.version,
                 "generation_prompt": artifact.generation_prompt,
                 "visualizations": visualizations,
+                # The current source: the planner authors artifact code itself
+                # (create_artifact.code / edit_artifact ops), so the code
+                # IS the working context. Rendering caps it; oversize falls
+                # back to read_artifact.
+                "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")
