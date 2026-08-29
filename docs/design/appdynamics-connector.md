@@ -410,7 +410,19 @@ surfaces health-rule *violations* but not the rule *definitions*.
   `(A AND B) OR (C AND D AND E)`); "execution" = routing the rule's metric
   path through the existing `metric_data` table with the incident window.
   Zero unsupported APIs. **This is the high-value, zero-risk half.**
-- `dashboard::<name>` — hybrid:
+- `dashboard::<name>` — note the missing `<app>/` prefix, unlike Splunk
+  (`dashboard::<app>/<name>`) and Kibana (`dashboard::<space>/<title>`):
+  AppD custom dashboards are **account-scoped**, not application-scoped —
+  the listing takes no application id, and one dashboard freely mixes
+  widgets across applications (the app reference lives per data series, in
+  `metricMatchCriteriaTemplate.applicationName`). So there is no honest app
+  namespace for the table name; instead, derive the referenced-apps set
+  from the widgets and surface it in the catalog description
+  ("apps: bow-sample-bank, ACME-Air") and in
+  `metadata_json["appdynamics"]["applications"]`, which is what lets the
+  planner match an alert to the right dashboard. Duplicate names are legal
+  (create doesn't auto-suffix; import does) — disambiguate with the
+  dashboard id. Hybrid access:
   - *Listing*: `GET /controller/restui/dashboards/getAllDashboardsByType/false`
     (unsupported `restui`, but see verification below) as best-effort
     auto-discovery, PLUS an optional `dashboard_ids` config list that skips
