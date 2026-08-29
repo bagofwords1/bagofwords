@@ -146,6 +146,66 @@ def test_gate_tolerates_legacy_in_range_positional_code():
     assert viz_reference_errors(code, _payload()) == []
 
 
+# ── binding style: coverage must not depend on the accessor's NAME ──────────
+# Regression suite for a production incident (report 903c375a): a dashboard
+# that bound every payload viz via `.find(v => v.id === "<uuid>")` was rejected
+# with "The code references NONE of the visualizations", costing a full
+# regeneration. vizById() IS that lookup — see artifact-globals.js.
+
+def test_gate_accepts_find_by_id_as_binding():
+    """Attempt 2 of the incident: correct ids, inlined lookup. Must pass."""
+    code = "\n".join(
+        f'const v{n} = data.visualizations.find(v => v.id === "{vid}");'
+        for n, vid in enumerate(IDS)
+    )
+    assert viz_reference_errors(code, _payload()) == []
+
+
+def test_gate_accepts_id_keyed_map_and_bracket_lookup():
+    """Other spellings that bind by id without naming the helper."""
+    code = (
+        f'const BY_ID = {{ mom: "{IDS[0]}", ord: "{IDS[1]}" }};\n'
+        f'const churn = byId[\'{IDS[2]}\'];'
+    )
+    assert viz_reference_errors(code, _payload()) == []
+
+
+def test_gate_accepts_mixed_binding_styles():
+    code = (
+        f'const a = vizById("{IDS[0]}");\n'
+        f'const b = vizs.find(v => v.id === "{IDS[1]}");\n'
+        f'const c = lookup["{IDS[2]}"];'
+    )
+    assert viz_reference_errors(code, _payload()) == []
+
+
+def test_gate_still_flags_unknown_id_alongside_full_coverage():
+    """Attempt 1 of the incident: every payload viz bound correctly, plus one
+    invented id. The unknown-ref check is scoped to vizById() and must still
+    fire — that was a true positive worth keeping."""
+    ghost = "99999999-dead-beef-cccc-000000000009"
+    code = "\n".join(f'const v = vizById("{vid}");' for vid in IDS)
+    code += f'\nconst missing = vizById("{ghost}");'
+    errors = viz_reference_errors(code, _payload())
+    assert len(errors) == 1, errors
+    assert ghost in errors[0] and "no visualization with that id" in errors[0]
+
+
+def test_gate_still_flags_missing_viz_under_new_matching():
+    """Widening coverage must not mask a genuinely dropped chart."""
+    code = f'const a = vizs.find(v => v.id === "{IDS[0]}");'
+    errors = viz_reference_errors(code, _payload(titles=["Rev", "Orders", "Churn"]))
+    assert any(IDS[2] in e and "Churn" in e for e in errors)
+
+
+def test_gate_bare_unquoted_uuid_is_not_a_reference():
+    """A uuid must be a string literal to count — prose mentioning one does
+    not bind anything."""
+    code = f"// dashboard for {IDS[0]} {IDS[1]} {IDS[2]}\nconst x = <div>hi</div>;"
+    errors = viz_reference_errors(code, _payload())
+    assert any("NONE" in e for e in errors)
+
+
 def test_gate_empty_payload_and_empty_code():
     assert viz_reference_errors("", _payload()) == []
     assert viz_reference_errors("const x = 1;", {"visualizations": []}) == []
