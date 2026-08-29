@@ -3,7 +3,7 @@
 ## Version 0.0.550 (August 28, 2026)
 - Viewers can now chat with a shared dashboard on /r/{id}, with owner-controlled scope and per-viewer isolated threads (#1034)
 - Made the artifact sandbox and AgGrid tables dark-mode friendly (#1033)
-- Splunk connector now catalogs dashboards and saved searches, and can run them for RCA workflows (#1032)
+- Splunk and Elasticsearch/Kibana connectors now catalog dashboards and saved searches, and can run them for RCA workflows (#1032)
 - Added a per-platform toggle to disable the new-conversation-report announcement on Slack, Teams, Google Chat, and email (#1031)
 - Overhauled artifact iteration: planner-authored artifacts with mechanical edit tools, id-keyed viz bindings, edit-first routing, and dashboard filters with parameters by default (#1030)
 
