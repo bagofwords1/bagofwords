@@ -142,8 +142,10 @@ const updateData = () => {
     }
 }
 
-// Watch for changes
+// Watch for changes (tokens too — headerComponentParams embed theme colors,
+// so a live color-mode flip must rebuild the column defs)
 watch(step, updateData, { deep: true, immediate: true });
+watch(tokens, updateData);
 </script>
 
 <style>

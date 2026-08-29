@@ -45,6 +45,7 @@ references to any of them.
 • **Tailwind CSS (v3.4)** — All utility classes available
   - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
   - Dark/light themes, responsive grids, flexbox
+  - **HOST DARK MODE**: the sandbox runs Tailwind with `darkMode: 'class'` and the host app toggles a `dark` class on `<html>` to match the viewer's theme (live, no reload). The iframe body and every pre-built component (KPICard, SectionCard, DataTable, filters, EChart via the bow/bow-dark themes, popovers) adapt automatically. When you write CUSTOM surfaces with light colors (e.g. `bg-white`, `text-slate-900`, `bg-slate-50`), ALWAYS pair them with `dark:` variants (e.g. `bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100`) so the artifact stays readable in both modes. An intentionally single-look design (e.g. an all-dark ops dashboard) may skip `dark:` variants but must then set explicit backgrounds everywhere.
 
 • **Babel** — JSX is transpiled automatically
   - Code must be wrapped in `<script type="text/babel">...</script>`

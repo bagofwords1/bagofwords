@@ -627,7 +627,7 @@
           filename: (viz.title || 'export')
         });
       },
-      className: 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0'
+      className: 'inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[11px] font-medium text-slate-400 hover:text-slate-700 hover:bg-slate-100 dark:hover:text-slate-200 dark:hover:bg-slate-700/60 transition-colors shrink-0'
     }, [
       h('svg', { key: 'i', width: 11, height: 11, viewBox: '0 0 16 16', fill: 'none' }, [
         h('path', { key: 'a', d: 'M8 2v8m0 0l-3-3m3 3l3-3', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }),
@@ -639,7 +639,7 @@
     return h('div', { key: 'data', style: { display: 'flex', flexDirection: 'column', gap: 8 } }, [
       calcText ? h('div', { key: 'calc' }, [
         h('div', { key: 'l', className: 'text-[10px] font-medium uppercase tracking-wide text-slate-400 mb-1' }, 'Calculation'),
-        h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1.5' }, calcText)
+        h('div', { key: 'v', className: 'text-xs font-mono text-slate-700 bg-slate-50 border border-slate-100 dark:text-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-md px-2 py-1.5' }, calcText)
       ]) : null,
       (metaBits.length || exportBtn) ? h('div', { key: 'm', className: 'flex items-center justify-between gap-2' }, [
         h('span', { key: 'mb', className: 'text-[11px] text-slate-400' }, metaBits.join('  ·  ')),
@@ -647,21 +647,21 @@
       ]) : null,
       filterNote ? h('div', { key: 'af', className: 'text-[11px] text-slate-500' }, filterNote) : null,
       cols.length ? h('div', {
-        key: 'tbl', className: 'border border-slate-100 rounded-md overflow-auto', style: { maxHeight: 300 }
+        key: 'tbl', className: 'border border-slate-100 dark:border-slate-700 rounded-md overflow-auto', style: { maxHeight: 300 }
       }, h('table', { className: 'border-collapse', style: { minWidth: '100%' } }, [
         h('thead', { key: 'h' }, h('tr', {}, cols.map(function(c, i) {
           return h('th', {
             key: i,
-            className: 'text-left font-medium text-slate-500 bg-slate-50 px-2 py-1.5 border-b border-slate-100 whitespace-nowrap sticky top-0',
+            className: 'text-left font-medium text-slate-500 bg-slate-50 border-b border-slate-100 dark:text-slate-400 dark:bg-slate-800 dark:border-slate-700 px-2 py-1.5 whitespace-nowrap sticky top-0',
             style: { fontSize: 11 }
           }, c.header);
         }))),
         h('tbody', { key: 'b' }, dataRows.slice(0, MAXR).map(function(row, ri) {
-          return h('tr', { key: ri, className: ri % 2 ? 'bg-slate-50/40' : '' }, cols.map(function(c, ci) {
+          return h('tr', { key: ri, className: ri % 2 ? 'bg-slate-50/40 dark:bg-slate-800/40' : '' }, cols.map(function(c, ci) {
             var cell = _infoCell(row[c.field]);
             return h('td', {
               key: ci, title: cell,
-              className: 'px-2 py-1 text-slate-700 whitespace-nowrap border-b border-slate-50',
+              className: 'px-2 py-1 text-slate-700 border-b border-slate-50 dark:text-slate-200 dark:border-slate-800 whitespace-nowrap',
               style: { fontSize: 11, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis' }
             }, cell);
           }));
@@ -676,7 +676,7 @@
   function _codeTabBody(viz) {
     return h('div', { key: 'code' }, viz.code
       ? h('pre', {
-          className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 rounded-md p-2 overflow-auto',
+          className: 'text-[11px] font-mono text-slate-700 bg-slate-50 border border-slate-100 dark:text-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-md p-2 overflow-auto',
           style: { maxHeight: 340, whiteSpace: 'pre-wrap', wordBreak: 'break-word', margin: 0 }
         }, viz.code)
       : h('div', { className: 'text-xs text-slate-400 py-4 text-center' }, 'No query available for this visualization.'));
@@ -739,7 +739,7 @@
       return h('button', {
         key: id, type: 'button', onClick: function() { setTab(id); },
         className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors '
-          + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600')
+          + (active ? 'border-slate-800 text-slate-800 dark:border-slate-200 dark:text-slate-200' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300')
       }, label);
     }
 
@@ -749,7 +749,7 @@
     var panel = (open && pos) ? ReactDOM.createPortal(
       h('div', {
         ref: panelRef,
-        className: 'bg-white border border-slate-200 rounded-lg shadow-xl',
+        className: 'bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-700 rounded-lg shadow-xl',
         style: {
           position: 'fixed', left: pos.left,
           top: pos.top != null ? pos.top : undefined,
@@ -759,21 +759,21 @@
         }
       }, [
         h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-1' }, [
-          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, viz.title || 'Details'),
+          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 dark:text-slate-200 leading-snug' }, viz.title || 'Details'),
           h('button', {
             key: 'x', type: 'button', 'aria-label': 'Close',
             onClick: function() { setOpen(false); },
-            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600'
+            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300'
           }, h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' },
             h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
         ]),
-        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [
+        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100 dark:border-slate-700' }, [
           tabButton('data', 'Data'),
           tabButton('code', 'Code')
         ]),
         h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? codeBody : dataBody),
         viz.id ? h('div', {
-          key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all'
+          key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 dark:border-slate-700 text-[10px] font-mono text-slate-400 break-all'
         }, 'ID  ' + viz.id) : null
       ]),
       document.body
@@ -784,7 +784,7 @@
         key: 'btn', ref: btnRef, type: 'button', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setOpen(function(o) { return !o; }); },
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full transition-colors '
-          + (open ? 'text-slate-600 bg-slate-100' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100')
+          + (open ? 'text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-700' : 'text-slate-300 hover:text-slate-500 hover:bg-slate-100 dark:text-slate-600 dark:hover:text-slate-400 dark:hover:bg-slate-800')
       }, h('svg', { width: 15, height: 15, viewBox: '0 0 16 16', fill: 'none' }, [
         h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
         h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
@@ -801,11 +801,11 @@
   window.KPICard = function(props) {
     var color = props.color || '#3B82F6';
     // Structural classes always applied; className adds to (not replaces) defaults
-    var cls = 'relative rounded-2xl border p-5 shadow-sm overflow-hidden bg-white border-slate-200 text-slate-900'
+    var cls = 'relative rounded-2xl border p-5 shadow-sm overflow-hidden bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100'
       + (props.className ? ' ' + props.className : '');
-    var titleCls = 'text-xs font-medium uppercase tracking-wider mb-1 text-slate-500'
+    var titleCls = 'text-xs font-medium uppercase tracking-wider mb-1 text-slate-500 dark:text-slate-400'
       + (props.titleClassName ? ' ' + props.titleClassName : '');
-    var subtitleCls = 'text-sm mt-1 text-slate-500'
+    var subtitleCls = 'text-sm mt-1 text-slate-500 dark:text-slate-400'
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
       h('div', { key: 'bar', className: 'absolute inset-x-0 top-0 h-1', style: { background: 'linear-gradient(90deg, ' + color + ', ' + color + '99)' } }),
@@ -817,11 +817,11 @@
   };
 
   window.SectionCard = function(props) {
-    var cls = 'relative rounded-2xl border shadow-sm p-6 bg-white border-slate-200'
+    var cls = 'relative rounded-2xl border shadow-sm p-6 bg-white border-slate-200 dark:bg-slate-900 dark:border-slate-700'
       + (props.className ? ' ' + props.className : '');
-    var titleCls = 'text-lg font-semibold text-slate-800'
+    var titleCls = 'text-lg font-semibold text-slate-800 dark:text-slate-100'
       + (props.titleClassName ? ' ' + props.titleClassName : '');
-    var subtitleCls = 'text-sm mt-1 text-slate-500'
+    var subtitleCls = 'text-sm mt-1 text-slate-500 dark:text-slate-400'
       + (props.subtitleClassName ? ' ' + props.subtitleClassName : '');
     return h('div', { className: cls, style: props.style }, [
       props.viz ? h('div', { key: 'info', className: 'absolute top-3 right-3 z-10' }, h(window.InfoPopover, { viz: props.viz, rows: props.rows, calc: props.calc })) : null,
@@ -997,7 +997,7 @@
           'data-testid': 'bow-dt-search',
           placeholder: props.searchPlaceholder || 'Search...',
           onChange: function(e) { setQuery(e.target.value); setPage(0); },
-          className: 'rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-700 bg-white outline-none focus:border-blue-400 min-w-[160px]'
+          className: 'rounded-lg border border-slate-200 text-slate-700 bg-white dark:border-slate-700 dark:text-slate-200 dark:bg-slate-900 dark:placeholder-slate-500 px-3 py-1.5 text-sm outline-none focus:border-blue-400 min-w-[160px]'
         }) : h('span', { key: 's' }),
         exportable ? h('button', {
           key: 'x', type: 'button', 'data-testid': 'bow-dt-export',
@@ -1008,7 +1008,7 @@
               filename: (viz.title || 'table')
             });
           },
-          className: 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 border border-slate-200 hover:text-slate-800 hover:bg-slate-50 transition-colors shrink-0'
+          className: 'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-500 border border-slate-200 hover:text-slate-800 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-400 dark:hover:text-slate-200 dark:hover:bg-slate-800 transition-colors shrink-0'
         }, [
           h('svg', { key: 'i', width: 12, height: 12, viewBox: '0 0 16 16', fill: 'none' }, [
             h('path', { key: 'a', d: 'M8 2v8m0 0l-3-3m3 3l3-3', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round' }),
@@ -1020,7 +1020,7 @@
     }
 
     // ── header ──
-    var thead = h('thead', { key: 'h', className: 'text-xs uppercase bg-slate-50 sticky top-0 z-[1]' },
+    var thead = h('thead', { key: 'h', className: 'text-xs uppercase bg-slate-50 dark:bg-slate-800 sticky top-0 z-[1]' },
       h('tr', {}, cols.map(function(c, i) {
         var numeric = numericByField[c.field];
         var isSorted = sort && sort.field === c.field;
@@ -1028,14 +1028,14 @@
           key: i,
           onClick: function() { clickHeader(c.field); },
           'aria-sort': isSorted ? (sort.desc ? 'descending' : 'ascending') : undefined,
-          className: 'px-4 py-3 font-medium text-slate-500 whitespace-nowrap select-none '
+          className: 'px-4 py-3 font-medium text-slate-500 dark:text-slate-400 whitespace-nowrap select-none '
             + (numeric ? 'text-end' : 'text-start')
-            + (sortable ? ' cursor-pointer hover:text-slate-800' : '')
+            + (sortable ? ' cursor-pointer hover:text-slate-800 dark:hover:text-slate-200' : '')
         }, h('span', { className: 'inline-flex items-center gap-1' }, [
           h('span', { key: 't' }, c.header),
           sortable ? h('span', {
             key: 'a',
-            className: 'text-[9px] leading-none ' + (isSorted ? 'text-slate-700' : 'text-slate-300')
+            className: 'text-[9px] leading-none ' + (isSorted ? 'text-slate-700 dark:text-slate-200' : 'text-slate-300 dark:text-slate-600')
           }, isSorted ? (sort.desc ? '▼' : '▲') : '⇅') : null
         ]));
       })));
@@ -1049,16 +1049,16 @@
         key: i,
         onClick: function() { clickRow(row, i); },
         className: (onPage ? '' : 'bow-dt-offpage hidden ')
-          + 'border-b border-slate-100 transition-colors '
-          + (isSel ? 'bg-blue-50 hover:bg-blue-50 '
-              : (zebra ? 'bg-slate-50/40 ' : '') + 'hover:bg-slate-100 ')
+          + 'border-b border-slate-100 dark:border-slate-800 transition-colors '
+          + (isSel ? 'bg-blue-50 hover:bg-blue-50 dark:bg-blue-950/40 dark:hover:bg-blue-950/40 '
+              : (zebra ? 'bg-slate-50/40 dark:bg-slate-800/40 ' : '') + 'hover:bg-slate-100 dark:hover:bg-slate-800 ')
           + ((selectable || props.onRowClick) ? 'cursor-pointer' : '')
       }, cols.map(function(c, j) {
         var numeric = numericByField[c.field];
         return h('td', {
           key: j,
           dir: 'auto',
-          className: 'px-4 py-2 text-slate-700 ' + (numeric ? 'text-end tabular-nums' : 'text-start')
+          className: 'px-4 py-2 text-slate-700 dark:text-slate-200 ' + (numeric ? 'text-end tabular-nums' : 'text-start')
         }, _infoCell(row ? row[c.field] : null));
       }));
     }));
@@ -1071,7 +1071,7 @@
     if (paged && sorted.length > pageSize) {
       footer = h('div', {
         key: 'f',
-        className: 'bow-dt-chrome flex items-center justify-between gap-2 pt-2 text-xs text-slate-500'
+        className: 'bow-dt-chrome flex items-center justify-between gap-2 pt-2 text-xs text-slate-500 dark:text-slate-400'
       }, [
         h('span', { key: 'c', 'data-testid': 'bow-dt-range' },
           (sorted.length ? (start + 1) : 0) + '–' + end + ' of ' + sorted.length
@@ -1080,18 +1080,18 @@
           h('button', {
             key: 'p', type: 'button', 'data-testid': 'bow-dt-prev', disabled: curPage === 0,
             onClick: function() { setPage(Math.max(0, curPage - 1)); },
-            className: 'px-2 py-1 rounded-md border border-slate-200 disabled:opacity-40 disabled:cursor-default hover:bg-slate-50'
+            className: 'px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-default'
           }, isRtl ? '›' : '‹'),
           h('span', { key: 'pg', className: 'px-1 tabular-nums' }, (curPage + 1) + '/' + pageCount),
           h('button', {
             key: 'n', type: 'button', 'data-testid': 'bow-dt-next', disabled: curPage >= pageCount - 1,
             onClick: function() { setPage(Math.min(pageCount - 1, curPage + 1)); },
-            className: 'px-2 py-1 rounded-md border border-slate-200 disabled:opacity-40 disabled:cursor-default hover:bg-slate-50'
+            className: 'px-2 py-1 rounded-md border border-slate-200 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800 disabled:opacity-40 disabled:cursor-default'
           }, isRtl ? '‹' : '›')
         ])
       ]);
     } else if (footBits.length) {
-      footer = h('div', { key: 'f', className: 'bow-dt-chrome pt-2 text-xs text-slate-500', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
+      footer = h('div', { key: 'f', className: 'bow-dt-chrome pt-2 text-xs text-slate-500 dark:text-slate-400', 'data-testid': 'bow-dt-range' }, footBits.join('  ·  '));
     }
 
     var infoBtn = (props.info && props.viz)
@@ -1134,7 +1134,7 @@
     var selected = (props.selected || []).map(String);
     var onChange = props.onChange || function() {};
     // Theme: className OR-replaces defaults (bg/border/text color); structural classes always applied.
-    var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+    var theme = props.className || 'bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100';
     var searchable = props.searchable !== undefined ? props.searchable : opts.length >= 8;
 
     var _s = React.useState(false), open = _s[0], setOpen = _s[1];
@@ -1221,12 +1221,12 @@
       var isSelected = selected.indexOf(o.val) >= 0;
       ddChildren.push(h('label', {
         key: 'opt-' + o.val,
-        className: 'flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-black/5'
+        className: 'flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-black/5 dark:hover:bg-white/10'
       }, [
         h('input', {
           key: 'cb', type: 'checkbox', checked: isSelected,
           onChange: function() { toggle(o.val); },
-          className: 'rounded border-slate-300 accent-blue-500'
+          className: 'rounded border-slate-300 dark:border-slate-600 accent-blue-500'
         }),
         h('span', { key: 'v', className: 'truncate' }, o.lbl)
       ]));
@@ -1275,7 +1275,7 @@
     var value = props.value || '';
     var onChange = props.onChange || function() {};
     var placeholder = props.placeholder || 'Search...';
-    var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+    var theme = props.className || 'bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100';
     return h('div', { className: 'inline-block min-w-[140px]' }, [
       label ? h('label', { key: 'l', className: 'block text-xs font-medium opacity-60 mb-1' }, label) : null,
       h('input', {
@@ -1292,7 +1292,7 @@
     var label = props.label || '';
     var value = props.value || {};
     var onChange = props.onChange || function() {};
-    var theme = props.className || 'bg-white border-slate-200 text-slate-900';
+    var theme = props.className || 'bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100';
     var inputType = props.type || 'date';
     return h('div', { className: 'inline-block min-w-[200px]' }, [
       label ? h('label', { key: 'l', className: 'block text-xs font-medium opacity-60 mb-1' }, label) : null,
@@ -1333,13 +1333,13 @@
   // (pdf.js unavailable in headless render, or a load error).
   function _bowPdfCard(src, filename) {
     return h('div', {
-      className: 'flex flex-col items-center justify-center gap-3 h-full w-full bg-slate-50 rounded-lg border border-slate-200 text-center p-6'
+      className: 'flex flex-col items-center justify-center gap-3 h-full w-full bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 rounded-lg border text-center p-6'
     }, [
       h('svg', { key: 'ic', width: 44, height: 44, viewBox: '0 0 24 24', fill: 'none', stroke: '#ef4444', strokeWidth: 1.5 }, [
         h('path', { key: 'p1', d: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z' }),
         h('path', { key: 'p2', d: 'M14 2v6h6' })
       ]),
-      h('div', { key: 'nm', className: 'text-sm font-medium text-slate-700' }, filename || 'Document.pdf'),
+      h('div', { key: 'nm', className: 'text-sm font-medium text-slate-700 dark:text-slate-200' }, filename || 'Document.pdf'),
       h('a', {
         key: 'op', href: src, target: '_blank', rel: 'noopener',
         className: 'inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-white text-xs font-medium hover:bg-slate-700'
@@ -1424,7 +1424,7 @@
       return h('div', { style: { height: height } }, _bowPdfCard(props.src, props.filename));
     }
     return h('div', {
-      className: 'relative w-full rounded-lg border border-slate-200 bg-slate-100 overflow-y-auto',
+      className: 'relative w-full rounded-lg border border-slate-200 bg-slate-100 dark:border-slate-700 dark:bg-slate-800 overflow-y-auto',
       style: { height: height, padding: 8 }
     }, [
       status === 'loading' ? h('div', {
@@ -1442,7 +1442,7 @@
 
     if (!file) {
       return h('div', {
-        className: wrapCls + ' flex items-center justify-center bg-slate-50 border border-dashed border-slate-200 rounded-lg text-slate-400 text-sm',
+        className: wrapCls + ' flex items-center justify-center bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 border border-dashed rounded-lg text-slate-400 text-sm',
         style: Object.assign({ minHeight: 160 }, wrapStyle)
       }, 'File not found: ' + (props.id || ''));
     }
@@ -1472,7 +1472,7 @@
     } else {
       media = h('a', {
         key: 'dl', href: src, download: file.filename || 'file',
-        className: 'inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 text-sm hover:bg-slate-50'
+        className: 'inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800 text-sm'
       }, 'Download ' + (file.filename || 'file'));
     }
 
@@ -1503,6 +1503,36 @@
     }
   });
 
+  // Dark-mode counterpart, picked automatically when the iframe <html> carries
+  // the `dark` class (host app in dark mode).
+  echarts.registerTheme('bow-dark', {
+    color: ['#60A5FA', '#34D399', '#A78BFA', '#FBBF24', '#F87171', '#22D3EE', '#F472B6', '#2DD4BF', '#93C5FD', '#6EE7B7'],
+    backgroundColor: 'transparent',
+    categoryAxis: {
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#94a3b8', fontSize: 12 }, splitLine: { show: false }
+    },
+    valueAxis: {
+      axisLine: { show: false }, axisTick: { show: false },
+      axisLabel: { color: '#94a3b8', fontSize: 12 }, splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.15)' } }
+    },
+    legend: { textStyle: { color: '#cbd5e1' } },
+    line: { smooth: true, symbol: 'none', lineStyle: { width: 2 } },
+    bar: { itemStyle: { borderRadius: [6, 6, 0, 0] } },
+    pie: { itemStyle: { borderRadius: 6 } },
+    grid: { left: 40, right: 20, top: 20, bottom: 40, containLabel: true },
+    tooltip: {
+      backgroundColor: 'rgba(15, 23, 42, 0.98)',
+      borderColor: 'rgba(71, 85, 105, 0.6)',
+      borderWidth: 1, borderRadius: 12, padding: [12, 16],
+      textStyle: { color: '#fff', fontSize: 13 }, trigger: 'axis'
+    }
+  });
+
+  function _bowIsDark() {
+    return document.documentElement.classList.contains('dark');
+  }
+
   // ── EChart wrapper ──────────────────────────────────────────────────────────
   function safeOption(opt) {
     if (opt && opt.tooltip && typeof opt.tooltip.formatter === 'function') {
@@ -1516,15 +1546,23 @@
     var ref = React.useRef(null);
     var chartRef = React.useRef(null);
     var ht = props.height || 400;
+    // Track the host color mode; the iframe shell fires 'bow-colormode' when
+    // the host toggles it. The chart re-inits with the matching theme.
+    var _dm = React.useState(_bowIsDark()), isDark = _dm[0], setIsDark = _dm[1];
+    React.useEffect(function() {
+      function onMode() { setIsDark(_bowIsDark()); }
+      window.addEventListener('bow-colormode', onMode);
+      return function() { window.removeEventListener('bow-colormode', onMode); };
+    }, []);
     React.useEffect(function() {
       if (!ref.current) return;
-      var chart = echarts.init(ref.current, 'bow');
+      var chart = echarts.init(ref.current, isDark ? 'bow-dark' : 'bow');
       chartRef.current = chart;
       if (props.option) chart.setOption(safeOption(props.option));
       var ro = new ResizeObserver(function() { chart.resize(); });
       ro.observe(ref.current);
       return function() { ro.disconnect(); chart.dispose(); };
-    }, []);
+    }, [isDark]);
     React.useEffect(function() {
       if (chartRef.current && props.option) {
         chartRef.current.setOption(safeOption(props.option), true);
@@ -1630,7 +1668,7 @@
         key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
         style: { position: 'fixed', top: Math.max(2, t.rect.top + 6), left: t.rect.right - 24, zIndex: 99998 },
-        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/80 backdrop-blur text-slate-400 hover:text-slate-700 hover:bg-white shadow-sm border border-slate-200/70 transition-colors'
+        className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-white/80 backdrop-blur text-slate-400 hover:text-slate-700 hover:bg-white border-slate-200/70 dark:bg-slate-800/80 dark:text-slate-500 dark:hover:text-slate-200 dark:hover:bg-slate-800 dark:border-slate-600/70 shadow-sm border transition-colors'
       }, h('svg', { width: 14, height: 14, viewBox: '0 0 16 16', fill: 'none' }, [
         h('circle', { key: 'c', cx: 8, cy: 8, r: 6.4, stroke: 'currentColor', strokeWidth: 1.2 }),
         h('circle', { key: 'd', cx: 8, cy: 5.2, r: 0.95, fill: 'currentColor' }),
@@ -1650,11 +1688,11 @@
       function tabButton(id, label) {
         var active = tab === id;
         return h('button', { key: id, type: 'button', onClick: function() { setTab(id); },
-          className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ' + (active ? 'border-slate-800 text-slate-800' : 'border-transparent text-slate-400 hover:text-slate-600') }, label);
+          className: 'px-3 py-2 text-xs font-medium border-b-2 -mb-px transition-colors ' + (active ? 'border-slate-800 text-slate-800 dark:border-slate-200 dark:text-slate-200' : 'border-transparent text-slate-400 hover:text-slate-600 dark:hover:text-slate-300') }, label);
       }
       panel = h('div', {
         ref: panelRef, 'data-bow-panel': '1',
-        className: 'bg-white border border-slate-200 rounded-lg shadow-xl',
+        className: 'bg-white border border-slate-200 dark:bg-slate-900 dark:border-slate-700 rounded-lg shadow-xl',
         style: {
           position: 'fixed', left: left, width: W, zIndex: 99999, maxHeight: '72vh',
           top: below ? (openT.rect.top + 28) : undefined,
@@ -1663,14 +1701,14 @@
         }
       }, [
         h('div', { key: 'hd', className: 'flex items-start justify-between gap-2 px-3.5 pt-2.5 pb-1' }, [
-          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 leading-snug' }, vTitle),
+          h('div', { key: 't', className: 'text-xs font-semibold text-slate-800 dark:text-slate-200 leading-snug' }, vTitle),
           h('button', { key: 'x', type: 'button', 'aria-label': 'Close', onClick: function() { setOpenT(null); },
-            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600' },
+            className: 'shrink-0 -mt-0.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-300' },
             h('svg', { width: 14, height: 14, viewBox: '0 0 14 14', fill: 'none' }, h('path', { d: 'M3.5 3.5l7 7M10.5 3.5l-7 7', stroke: 'currentColor', strokeWidth: 1.5, strokeLinecap: 'round' })))
         ]),
-        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100' }, [tabButton('data', 'Data'), tabButton('code', 'Code')]),
+        h('div', { key: 'tabs', className: 'flex gap-1 px-3 border-b border-slate-100 dark:border-slate-700' }, [tabButton('data', 'Data'), tabButton('code', 'Code')]),
         h('div', { key: 'bd', className: 'px-3.5 py-3 overflow-auto' }, tab === 'code' ? _codeTabBody(viz) : _dataTabBody(viz, { calc: openT.calc })),
-        viz.id ? h('div', { key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 text-[10px] font-mono text-slate-400 break-all' }, 'ID  ' + viz.id) : null
+        viz.id ? h('div', { key: 'ft', className: 'px-3.5 py-2 border-t border-slate-100 dark:border-slate-700 text-[10px] font-mono text-slate-400 break-all' }, 'ID  ' + viz.id) : null
       ]);
     }
 

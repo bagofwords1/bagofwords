@@ -357,7 +357,7 @@
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin allow-downloads"
-        class="absolute inset-0 w-full h-full border-0 bg-white z-0"
+        class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
         @load="onIframeLoad"
       />
 
@@ -890,6 +890,21 @@ async function fetchViewerContext() {
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
+
+// App color mode, forwarded into the artifact iframe (initial srcdoc + live
+// toggle via postMessage so switching themes doesn't reload the artifact).
+const colorMode = useColorMode();
+// Plain (non-reactive) snapshot read by the srcdoc computed, so a mode toggle
+// updates the live iframe via postMessage instead of recomputing srcdoc and
+// reloading the artifact.
+let artifactColorMode: 'light' | 'dark' = colorMode.value === 'dark' ? 'dark' : 'light';
+watch(() => colorMode.value, (v) => {
+  artifactColorMode = v === 'dark' ? 'dark' : 'light';
+  iframeRef.value?.contentWindow?.postMessage(
+    { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
+    window.location.origin
+  );
+});
 const dataReady = ref(false);  // Guards iframeSrcdoc to prevent rendering before data loads
 
 // ── Query parameters ─────────────────────────────────────────────────────────
@@ -2059,13 +2074,13 @@ function App() {
   const { report, visualizations } = data;
 
   return (
-    <div className="min-h-full bg-gradient-to-br from-slate-50 to-slate-100 p-8">
+    <div className="min-h-full bg-gradient-to-br from-slate-50 to-slate-100 dark:from-slate-900 dark:to-slate-950 p-8">
       {/* Header */}
       <div className="mb-8">
-        <h1 className="text-3xl font-bold text-gray-900 tracking-tight">
+        <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100 tracking-tight">
           {report?.title || 'Dashboard'}
         </h1>
-        <p className="text-sm text-gray-500 mt-2">
+        <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">
           {visualizations.length} visualization{visualizations.length !== 1 ? 's' : ''} available
         </p>
       </div>
@@ -2073,13 +2088,13 @@ function App() {
       {/* Empty state */}
       {visualizations.length === 0 ? (
         <div className="flex flex-col items-center justify-center py-16 text-center">
-          <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+          <div className="w-16 h-16 bg-gray-100 dark:bg-gray-800 rounded-full flex items-center justify-center mb-4">
             <svg className="w-8 h-8 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
             </svg>
           </div>
-          <h3 className="text-lg font-medium text-gray-900 mb-1">No visualizations yet</h3>
-          <p className="text-sm text-gray-500 max-w-sm">
+          <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-1">No visualizations yet</h3>
+          <p className="text-sm text-gray-500 dark:text-gray-400 max-w-sm">
             Ask the agent to create visualizations, then generate an artifact to see them here.
           </p>
         </div>
@@ -2126,9 +2141,9 @@ function VisualizationCard({ viz }) {
   const viewType = viz.view?.view?.type || viz.view?.type || viz.dataModel?.type || 'table';
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow">
-      <div className="px-5 py-4 border-b border-gray-50">
-        <h3 className="font-semibold text-gray-900">{viz.title}</h3>
+    <div className="bg-white dark:bg-gray-900 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden hover:shadow-md transition-shadow">
+      <div className="px-5 py-4 border-b border-gray-50 dark:border-gray-800">
+        <h3 className="font-semibold text-gray-900 dark:text-gray-100">{viz.title}</h3>
         <span className="text-xs text-gray-400 uppercase tracking-wide">{viewType}</span>
       </div>
       <div className="p-5">
@@ -2144,7 +2159,7 @@ function VisualizationCard({ viz }) {
           </div>
         )}
       </div>
-      <div className="px-5 py-3 bg-gray-50/50 text-xs text-gray-500">
+      <div className="px-5 py-3 bg-gray-50/50 dark:bg-gray-800/50 text-xs text-gray-500 dark:text-gray-400">
         {viz.rows?.length || 0} rows
       </div>
     </div>
@@ -2158,12 +2173,12 @@ function TableView({ data }) {
     : Object.keys(rows[0] || {});
 
   return (
-    <div className="overflow-x-auto max-h-72 rounded-lg border border-gray-100">
+    <div className="overflow-x-auto max-h-72 rounded-lg border border-gray-100 dark:border-gray-700">
       <table className="w-full text-sm">
-        <thead className="bg-gray-50 sticky top-0">
+        <thead className="bg-gray-50 dark:bg-gray-800 sticky top-0">
           <tr>
             {cols.slice(0, 6).map((col) => (
-              <th key={col} className="text-left px-3 py-2 font-medium text-gray-600 border-b border-gray-100">
+              <th key={col} className="text-left px-3 py-2 font-medium text-gray-600 dark:text-gray-300 border-b border-gray-100 dark:border-gray-700">
                 {col}
               </th>
             ))}
@@ -2171,9 +2186,9 @@ function TableView({ data }) {
         </thead>
         <tbody>
           {rows.slice(0, 10).map((row, i) => (
-            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50/50">
+            <tr key={i} className="border-b border-gray-50 dark:border-gray-800 hover:bg-gray-50/50 dark:hover:bg-gray-800/50">
               {cols.slice(0, 6).map((col) => (
-                <td key={col} className="px-3 py-2 text-gray-700">
+                <td key={col} className="px-3 py-2 text-gray-700 dark:text-gray-200">
                   {formatValue(row[col] ?? row[col.toLowerCase()])}
                 </td>
               ))}
@@ -2182,7 +2197,7 @@ function TableView({ data }) {
         </tbody>
       </table>
       {rows.length > 10 && (
-        <div className="text-xs text-gray-400 p-2 text-center bg-gray-50">
+        <div className="text-xs text-gray-400 p-2 text-center bg-gray-50 dark:bg-gray-800">
           Showing 10 of {rows.length} rows
         </div>
       )}
@@ -2355,6 +2370,7 @@ const iframeSrcdoc = computed(() => {
     polishMode: true,
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development',
+    colorMode: artifactColorMode,
   });
 });
 
