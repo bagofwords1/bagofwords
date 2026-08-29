@@ -63,6 +63,7 @@ import Spinner from '~/components/Spinner.vue'
 import ToolCallParams from '~/components/tools/ToolCallParams.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useToolConnectionIcon, FILE_SOURCE_TYPES, fileToolNoun } from '~/composables/useToolConnectionIcon'
+import { toolErrorText } from '~/utils/toolError'
 
 interface ToolExecution {
   id: string
@@ -93,7 +94,7 @@ const files = computed<any[]>(() => {
   return Array.isArray(rj.files) ? rj.files : []
 })
 const truncated = computed(() => !!props.toolExecution?.result_json?.truncated)
-const errorMessage = computed(() => props.toolExecution?.result_json?.error || '')
+const errorMessage = computed(() => toolErrorText(props.toolExecution?.result_json?.error))
 
 const expanded = ref(false)
 

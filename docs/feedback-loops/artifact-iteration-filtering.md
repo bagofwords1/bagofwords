@@ -202,6 +202,29 @@ state the observer never saw.
   read_artifact call against the sandbox DB confirming both notes reach the
   observation with the image; both refusal branches (with and without a known
   saved version) rendered and checked.
+- E2E (real chat turns, Haiku, Chinook, driven through the UI):
+  - Phantom spiral, faithful reproduction: asked to check the genre filter and
+    "fix it only if genuinely broken". The planner called read_artifact ONCE,
+    made ZERO edits (artifact stayed at v7), and answered from the code —
+    quoting the caveat back: "The screenshot shows the dropdown in its closed
+    state (as expected at page load), so the options aren't visible in the
+    image — but that's normal... No fix needed."
+  - Budget refusal: seven changes requested one-at-a-time drove 4 successful
+    edits (v8-v11) then the cap. The refusal resolved the REAL saved version
+    at runtime ("v11 is saved and working with all 4 of this turn's applied
+    change(s)"), and the assistant's answer led with the 4 applied changes,
+    stated "The dashboard is saved and working at v11", and listed the 3
+    deferred ones with a continue prompt — never "failed" or "broken". The
+    rendered dashboard confirmed all four changes live.
+- Card bug found by that e2e and fixed: the tool cards rendered
+  `result_json.error` directly, but pre-dispatch refusals set it to
+  `{code, message}` (string elsewhere), so the honest explanation reached the
+  user as raw JSON: `{ "code": "artifact_budget_exhausted", "message": ... }`.
+  New `frontend/utils/toolError.ts::toolErrorText()` unwraps it; wired into
+  all six cards that share the pattern (Edit/CreateArtifact, Edit/CreateDoc,
+  List/SearchFiles). Latent since the guard existed — only visible now that
+  the refusal text carries the explanation. Verified live: the card shows the
+  plain sentence.
 - Follow-up not done: the tool card still reads "Failed to Edit Dashboard"
   for a budget refusal (a distinct label needs a key across 10 locale files);
   the honest explanation now shows beneath it.
