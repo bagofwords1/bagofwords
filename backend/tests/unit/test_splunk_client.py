@@ -16,9 +16,18 @@ Covers:
   `*::sourcetype` names, and enriches wildcard-rejection errors with the
   known index list so the agent can self-correct
 
+- dashboards & saved searches: catalog as `dashboard::app/name` /
+  `saved_search::app/name` tables (panels = columns carrying the panel SPL),
+  Simple XML and Dashboard Studio parsing (incl. base/chain searches),
+  system-app + stock-content filtering, envelope routing in execute_query
+  (panel inventory / run-a-panel / run-a-saved-search with time overrides),
+  get_schema hydration, and best-effort listing that never fails discovery
+
 The search boundary (`_run_search`) is mocked, so these run with no live Splunk.
 """
 from __future__ import annotations
+
+import json
 
 import pandas as pd
 import pytest
@@ -325,6 +334,229 @@ def test_wildcard_rejection_error_includes_known_indexes(monkeypatch):
     msg = str(e.value)
     assert "specific index" in msg
     assert "Known indexes: web, app" in msg
+
+
+# ---------- dashboards & saved searches ---------- #
+
+_SIMPLE_XML = """
+<form>
+  <label>Checkout Health</label>
+  <search id="base1"><query>index=web sourcetype=access_combined uri_path="/checkout"</query></search>
+  <row>
+    <panel>
+      <title>Error rate by service</title>
+      <chart>
+        <search>
+          <query>index=web status&gt;=500 | timechart span=5m count by host</query>
+          <earliest>-4h</earliest><latest>now</latest>
+        </search>
+      </chart>
+    </panel>
+    <panel>
+      <title>Checkout failures</title>
+      <table>
+        <search base="base1"><query>| stats count by status</query></search>
+      </table>
+      <input type="time"><label>ignored</label></input>
+    </panel>
+  </row>
+</form>
+"""
+
+_STUDIO_DEF = {
+    "title": "Payments Studio",
+    "dataSources": {
+        "ds_base": {"type": "ds.search", "name": "base",
+                    "options": {"query": "index=app sourcetype=json_app service=billing",
+                                "queryParameters": {"earliest": "-24h", "latest": "now"}}},
+        "ds_chain": {"type": "ds.chain",
+                     "options": {"extend": "ds_base", "query": "| stats avg(latency_ms) by service"}},
+    },
+    "visualizations": {
+        "viz_1": {"title": "Billing latency", "dataSources": {"primary": "ds_chain"}},
+    },
+    "layout": {},
+}
+_STUDIO_XML = ("<dashboard version=\"2\"><label>Payments Studio</label>"
+               f"<definition><![CDATA[{json.dumps(_STUDIO_DEF)}]]></definition></dashboard>")
+
+_NOT_A_DASHBOARD = "<view template='pages/app.html'><label>Built-in page</label></view>"
+
+
+def _view_entry(app, name, xml, owner="sre"):
+    return {"name": name, "acl": {"app": app, "owner": owner},
+            "content": {"eai:data": xml, "isVisible": True}}
+
+
+_VIEWS = {"entry": [
+    _view_entry("payments", "checkout_health", _SIMPLE_XML),
+    _view_entry("payments", "payments_studio", _STUDIO_XML),
+    _view_entry("search", "builtin_page", _NOT_A_DASHBOARD),
+    _view_entry("splunk_monitoring_console", "mc_overview", _SIMPLE_XML),  # system app
+]}
+
+_SAVED = {"entry": [
+    {"name": "High checkout error rate", "acl": {"app": "payments", "owner": "sre"},
+     "content": {"search": 'index=web status>=500 | stats count',
+                 "is_scheduled": "1", "cron_schedule": "*/10 * * * *",
+                 "alert_type": "number of events",
+                 "dispatch.earliest_time": "-10m",
+                 "description": "Fires when checkout 5xx spikes."}},
+    {"name": "Errors in the last 24 hours", "acl": {"app": "search", "owner": "nobody"},
+     "content": {"search": "error"}},                       # stock content — skipped
+    {"name": "instrumentation", "acl": {"app": "splunk_instrumentation", "owner": "nobody"},
+     "content": {"search": "| rest ..."}},                  # system app — skipped
+]}
+
+
+def _knowledge_get(path, params=None):
+    if "/data/ui/views" in path:
+        if path.endswith("/data/ui/views"):
+            return _VIEWS
+        name = path.rsplit("/", 1)[1]
+        matches = [e for e in _VIEWS["entry"] if e["name"] == name]
+        return {"entry": matches}
+    if "/saved/searches" in path:
+        if path.endswith("/saved/searches"):
+            return _SAVED
+        name = path.rsplit("/", 1)[1].replace("%20", " ")
+        return {"entry": [e for e in _SAVED["entry"] if e["name"] == name]}
+    raise AssertionError(f"unexpected GET {path}")
+
+
+def _knowledge_client(monkeypatch, **kw):
+    c = SplunkClient(host="h", api_token="t", **kw)
+    monkeypatch.setattr(c, "_get", _knowledge_get)
+    return c
+
+
+def test_dashboard_catalog_parses_simple_xml_and_studio(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    tables = {t.name: t for t in c._knowledge_tables()}
+
+    assert set(tables) == {
+        "dashboard::payments/checkout_health",
+        "dashboard::payments/payments_studio",
+        "saved_search::payments/High checkout error rate",
+    }  # built-in page, system app, and stock saved search all filtered out
+
+    dash = tables["dashboard::payments/checkout_health"]
+    cols = {col.name: col for col in dash.columns}
+    assert set(cols) == {"Error rate by service", "Checkout failures"}
+    # The panel's saved SPL is the column description (how it reaches prompts).
+    assert "timechart span=5m count by host" in cols["Error rate by service"].description
+    # base= search resolved: base SPL + post-process.
+    assert cols["Checkout failures"].description.startswith(
+        'index=web sourcetype=access_combined uri_path="/checkout" | stats count by status')
+    meta = dash.metadata_json["splunk"]
+    assert meta["kind"] == "dashboard" and meta["app"] == "payments"
+    assert meta["dashboard_type"] == "simple_xml" and meta["panel_count"] == 2
+    assert meta["panels"][0]["earliest"] == "-4h"
+    assert "Checkout Health" in dash.description and "execute_query" in dash.description
+
+    studio = tables["dashboard::payments/payments_studio"]
+    assert studio.metadata_json["splunk"]["dashboard_type"] == "studio"
+    (panel,) = studio.metadata_json["splunk"]["panels"]
+    # ds.chain resolved onto its base, queryParameters carried through.
+    assert panel["spl"] == ("index=app sourcetype=json_app service=billing "
+                            "| stats avg(latency_ms) by service")
+    assert panel["title"] == "Billing latency" and panel["earliest"] == "-24h"
+
+
+def test_saved_search_catalog(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    (t,) = c._saved_search_tables()
+    assert t.name == "saved_search::payments/High checkout error rate"
+    meta = t.metadata_json["splunk"]
+    assert meta["kind"] == "alert" and meta["alert"] is True
+    assert meta["cron"] == "*/10 * * * *"
+    assert "index=web status>=500" in t.description       # SPL surfaced
+    assert "Fires when checkout 5xx spikes." in t.description
+
+
+def test_get_schemas_appends_knowledge_tables(monkeypatch):
+    c = _knowledge_client(monkeypatch, max_sampled_sourcetypes=0)
+    monkeypatch.setattr(c, "_run_search",
+                        lambda spl, earliest=None, latest=None, count=1000:
+                        _catalog_rows() if spl == CATALOG_SEARCH else [])
+    names = [t.name for t in c.get_schemas()]
+    assert "web::access_combined" in names
+    assert "dashboard::payments/checkout_health" in names
+    assert "saved_search::payments/High checkout error rate" in names
+
+
+def test_knowledge_listing_failure_never_fails_discovery(monkeypatch):
+    c = SplunkClient(host="h", api_token="t", max_sampled_sourcetypes=0)
+    monkeypatch.setattr(c, "_run_search",
+                        lambda spl, earliest=None, latest=None, count=1000:
+                        _catalog_rows() if spl == CATALOG_SEARCH else [])
+    def denied(path, params=None):
+        raise RuntimeError("Splunk access denied (403)")
+    monkeypatch.setattr(c, "_get", denied)
+    names = [t.name for t in c.get_schemas()]
+    assert "web::access_combined" in names                 # events still there
+    assert not any(n.startswith("dashboard::") for n in names)
+
+
+def test_execute_query_dashboard_inventory(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    df = c.execute_query({"dashboard": "payments/checkout_health"})
+    assert list(df["panel"]) == ["Error rate by service", "Checkout failures"]
+    assert df.iloc[0]["spl"].startswith("index=web status>=500")
+
+
+def test_execute_query_dashboard_panel_with_incident_window(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(c, "_run_search",
+                        lambda spl, earliest=None, latest=None, count=1000:
+                        captured.update(spl=spl, earliest=earliest, latest=latest)
+                        or [{"host": "h1", "count": "3"}])
+    df = c.execute_query('{"dashboard": "dashboard::payments/checkout_health", '
+                         '"panel": "error rate by service", "earliest": "-2h"}')
+    assert captured["spl"] == "index=web status>=500 | timechart span=5m count by host"
+    assert captured["earliest"] == "-2h"      # incident window overrides -4h
+    assert captured["latest"] == "now"        # panel default kept
+    assert list(df.columns) == ["host", "count"]
+
+
+def test_execute_query_dashboard_panel_default_time_from_panel(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(c, "_run_search",
+                        lambda spl, earliest=None, latest=None, count=1000:
+                        captured.update(earliest=earliest) or [])
+    c.execute_query({"dashboard": "payments/checkout_health", "panel": 0})
+    assert captured["earliest"] == "-4h"      # panel's own earliest
+
+
+def test_execute_query_dashboard_unknown_panel_lists_titles(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    with pytest.raises(ValueError, match="Error rate by service"):
+        c.execute_query({"dashboard": "payments/checkout_health", "panel": "nope"})
+
+
+def test_execute_query_saved_search(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    captured = {}
+    monkeypatch.setattr(c, "_run_search",
+                        lambda spl, earliest=None, latest=None, count=1000:
+                        captured.update(spl=spl, earliest=earliest) or [])
+    c.execute_query({"saved_search": "payments/High checkout error rate"})
+    assert captured["spl"] == "index=web status>=500 | stats count"
+    assert captured["earliest"] == "-10m"     # saved dispatch window
+    captured.clear()
+    c.execute_query({"saved_search": "payments/High checkout error rate",
+                     "earliest": "-1h"})
+    assert captured["earliest"] == "-1h"      # override wins
+
+
+def test_get_schema_hydrates_dashboard_and_saved_search(monkeypatch):
+    c = _knowledge_client(monkeypatch)
+    t = c.get_schema("dashboard::payments/checkout_health")
+    assert [col.name for col in t.columns] == ["Error rate by service", "Checkout failures"]
+    s = c.get_schema("saved_search::payments/High checkout error rate")
+    assert s.metadata_json["splunk"]["spl"] == "index=web status>=500 | stats count"
 
 
 # ---------- connection ---------- #

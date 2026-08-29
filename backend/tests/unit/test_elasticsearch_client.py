@@ -10,6 +10,13 @@ Covers:
 - test_connection() success / failure
 - least-privilege operation: no cluster privileges, one API key per index
   pattern — the probe ladder, per-pattern discovery, and privilege reporting
+- Kibana dashboards & saved searches (kibana_url set): catalog as
+  `dashboard::space/title` / `saved_search::space/title` tables, panel parsing
+  across every dialect (by-ref Lens formBased, by-value Lens ES|QL, Discover
+  search, legacy visState) from a REAL Kibana 8.15.3 export fixture, envelope
+  routing in execute_query (inventory / run ES|QL / run query_string with the
+  incident window / recipe fallback), get_schema hydration, and best-effort
+  listing that never fails index discovery
 
 The HTTP boundary (`_request`) is mocked, so these run with no live cluster.
 The privilege behaviours they encode were measured against a real ES 8.15.3
@@ -579,3 +586,182 @@ def test_configured_scope_is_advertised_to_the_agent():
     c = ElasticsearchClient(host="h", index_pattern="eksa*,ekpb*")
     assert "restricted to eksa*, ekpb*" in c.description
     assert "SCOPE" not in ElasticsearchClient(host="h").description
+
+
+# ---------- Kibana dashboards & saved searches ---------- #
+#
+# The fixture is a REAL Kibana 8.15.3 saved-objects export (`_export` with
+# includeReferencesDeep) of the seeded feedback-loop estate
+# (tools/elastic/seed_kibana.py): the "Checkout Health" dashboard carries one
+# panel of each dialect the parser handles — a by-reference Lens (formBased
+# aggs), a by-VALUE Lens with an ES|QL (textBased) datasource, a Discover
+# saved-search panel, and a legacy visState visualization. Never hand-edit it;
+# regenerate from a live Kibana (see tools/elastic/).
+
+import json as _json
+import os as _os
+
+_KIBANA_FIXTURE = _os.path.join(
+    _os.path.dirname(__file__), "fixtures", "kibana", "saved_objects_export.ndjson")
+
+
+def _load_kibana_objects():
+    objs = []
+    with open(_KIBANA_FIXTURE) as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            o = _json.loads(line)
+            if o.get("type"):          # skip the export summary line
+                objs.append(o)
+    return objs
+
+
+def _kibana_client(monkeypatch):
+    c = ElasticsearchClient(host="h", api_key="k", kibana_url="https://kb:5601")
+    objects = _load_kibana_objects()
+    by_key = {(o["type"], o["id"]): o for o in objects}
+
+    def fake_kibana(method, path, params=None, json_body=None):
+        if path.endswith("/api/spaces/space"):
+            return [{"id": "default"}]
+        if "/api/saved_objects/_find" in path:
+            t = (params or {}).get("type")
+            return {"saved_objects": [o for o in objects if o["type"] == t]}
+        if "/api/saved_objects/_bulk_get" in path:
+            return {"saved_objects": [
+                by_key.get((r["type"], r["id"]), {"type": r["type"], "id": r["id"],
+                                                  "error": {"statusCode": 404}})
+                for r in (json_body or [])]}
+        raise AssertionError(f"unexpected kibana call {method} {path}")
+
+    monkeypatch.setattr(c, "_kibana_request", fake_kibana)
+    return c
+
+
+def test_kibana_catalog_parses_every_panel_dialect(monkeypatch):
+    c = _kibana_client(monkeypatch)
+    tables = {t.name: t for t in c._kibana_knowledge_tables()}
+
+    assert set(tables) == {
+        "dashboard::default/Checkout Health",
+        "dashboard::default/Backend Errors",
+        "saved_search::default/Failed checkout requests",
+    }
+
+    dash = tables["dashboard::default/Checkout Health"]
+    cols = {col.name: col for col in dash.columns}
+    assert len(cols) == 4
+
+    # by-reference Lens (formBased) → recipe: operations + index pattern
+    lens = cols["5xx by service"].description
+    assert "date_histogram(@timestamp)" in lens and "terms(service)" in lens
+    assert "frontend-*" in lens and "status >= 500" in lens
+
+    # by-VALUE Lens, ES|QL datasource → directly runnable query
+    esql = cols["Error count by service (ES|QL)"].description
+    assert esql.startswith("ES|QL") and "STATS errors = COUNT(*)" in esql
+
+    # Discover panel → runnable query_string over its data view
+    search = cols["Failed checkout requests"].description
+    assert "query_string" in search and "frontend-*" in search
+    assert "status:[500 TO 599]" in search
+
+    # legacy visState visualization → recipe
+    viz = cols["Errors by host (legacy)"].description
+    assert "terms(host)" in viz and "billing-*" in viz
+
+    meta = dash.metadata_json["kibana"]
+    assert meta["kind"] == "dashboard" and meta["space"] == "default"
+    assert meta["panel_count"] == 4 and meta["dashboard_id"] == "bow-dash-checkout-health"
+
+
+def test_kibana_saved_search_catalog(monkeypatch):
+    c = _kibana_client(monkeypatch)
+    (t,) = c._kibana_saved_search_tables()
+    meta = t.metadata_json["kibana"]
+    assert meta["kind"] == "saved_search" and meta["index"] == "frontend-*"
+    assert meta["query"] == "status:[500 TO 599] AND message:checkout*"
+    assert "Investigation query for checkout incidents." in t.description
+
+
+def test_kibana_absent_url_changes_nothing(monkeypatch):
+    c = ElasticsearchClient(host="h", api_key="k")
+    assert c._kibana_knowledge_tables() == []
+    assert "KIBANA" not in c.description
+    ck = ElasticsearchClient(host="h", api_key="k", kibana_url="kb:5601")
+    assert "KIBANA KNOWLEDGE" in ck.description
+
+
+def test_kibana_listing_failure_never_fails_discovery(monkeypatch):
+    c = ElasticsearchClient(host="h", api_key="k", kibana_url="https://kb:5601")
+    def boom(*a, **k):
+        raise RuntimeError("kibana down")
+    monkeypatch.setattr(c, "_kibana_request", boom)
+    monkeypatch.setattr(c, "get_tables", lambda: [])
+    assert c.get_schemas() == []           # no raise
+
+
+def test_kibana_execute_dashboard_inventory_and_panels(monkeypatch):
+    c = _kibana_client(monkeypatch)
+
+    df = c.execute_query('{"dashboard": "default/Checkout Health"}')
+    assert set(df["panel"]) == {"5xx by service", "Error count by service (ES|QL)",
+                                "Failed checkout requests", "Errors by host (legacy)"}
+    assert set(df[df["runnable"]]["panel"]) == {"Error count by service (ES|QL)",
+                                               "Failed checkout requests"}
+
+    # ES|QL panel → runs through /_query as stored
+    ran = {}
+    monkeypatch.setattr(c, "_execute_esql",
+                        lambda q: ran.update(esql=q) or pd.DataFrame([{"errors": 1}]))
+    c.execute_query('{"dashboard": "dashboard::default/Checkout Health", '
+                    '"panel": "Error count by service (ES|QL)"}')
+    assert ran["esql"].startswith("FROM frontend-*,billing-*")
+
+    # Discover panel → query_string DSL with the incident window applied
+    captured = {}
+    def fake_request(method, path, json_body=None, params=None):
+        captured.update(path=path, body=json_body)
+        return {"hits": {"hits": []}}
+    monkeypatch.setattr(c, "_request", fake_request)
+    c.execute_query('{"dashboard": "default/Checkout Health", '
+                    '"panel": "failed checkout requests", "earliest": "now-4h"}')
+    assert captured["path"] == "/frontend-*/_search"
+    body = captured["body"]
+    assert body["query"]["bool"]["must"][0]["query_string"]["query"] == \
+        "status:[500 TO 599] AND message:checkout*"
+    assert body["query"]["bool"]["filter"][0]["range"]["@timestamp"]["gte"] == "now-4h"
+
+    # Recipe panel → structured guidance, not an error
+    df = c.execute_query('{"dashboard": "default/Checkout Health", "panel": "5xx by service"}')
+    assert df.iloc[0]["runnable"] == False              # noqa: E712
+    assert "date_histogram" in df.iloc[0]["recipe"]
+
+    # Unknown panel → error listing the real titles
+    with pytest.raises(ValueError, match="5xx by service"):
+        c.execute_query('{"dashboard": "default/Checkout Health", "panel": "nope"}')
+
+
+def test_kibana_execute_saved_search_with_window(monkeypatch):
+    c = _kibana_client(monkeypatch)
+    captured = {}
+    def fake_request(method, path, json_body=None, params=None):
+        captured.update(path=path, body=json_body)
+        return {"hits": {"hits": []}}
+    monkeypatch.setattr(c, "_request", fake_request)
+    c.execute_query('{"saved_search": "default/Failed checkout requests", '
+                    '"earliest": "now-6h", "limit": 10}')
+    assert captured["path"] == "/frontend-*/_search"
+    assert captured["body"]["size"] == 10
+    assert captured["body"]["query"]["bool"]["filter"][0]["range"]["@timestamp"]["gte"] == "now-6h"
+
+
+def test_kibana_get_schema_hydrates_dashboard(monkeypatch):
+    c = _kibana_client(monkeypatch)
+    t = c.get_schema("dashboard::default/Backend Errors")
+    assert [col.name for col in t.columns] == ["Backend errors over time"]
+    assert "backend-*" in t.columns[0].description
+    s = c.get_schema("saved_search::default/Failed checkout requests")
+    assert s.metadata_json["kibana"]["index"] == "frontend-*"

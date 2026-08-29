@@ -113,12 +113,25 @@ def _render_powerbi_cloud_metadata_xml(t: PromptTable) -> str:
 #     NAME inside execute_query, so their ids are redundant
 #   - infor_olap / sap_bw `cubeUniqueName` is literally f"[{cube}]" and `cube` is
 #     the second segment of `name`, so it's derivable
-#   - splunk writes index/sourcetype into `description`; oracle_bi and
+#   - splunk EVENT tables write index/sourcetype into `description` (flat
+#     metadata, no namespace — nothing rendered); oracle_bi and
 #     sap_datasphere put their qualifier in `name`
 _TABLE_META_KEYS: dict[str, tuple[str, ...]] = {
     # TableauClient.execute_query(datasource_luid, ...) — LUID is a REQUIRED
     # positional the agent must supply; `name` is "{project}/{datasource}".
     "tableau": ("datasourceLuid",),
+    # Splunk KNOWLEDGE objects (dashboard:: / saved_search:: tables): `kind`
+    # tells the planner this is a curated investigation artifact, not an event
+    # stream, and app/view_id address the execute_query envelope. The bulky
+    # `panels`/`spl` blobs stay out — panel SPL already renders as column
+    # descriptions, and saved-search SPL is in the table description.
+    "splunk": ("kind", "app", "view_id", "dashboard_type", "panel_count",
+               "saved_search_name", "cron", "alert"),
+    # Kibana knowledge objects on an Elasticsearch connection (dashboard:: /
+    # saved_search:: tables) — same rationale as `splunk`: kind + address for
+    # the execute_query envelope; the bulky `panels` blob stays out (panel
+    # queries already render as column descriptions).
+    "kibana": ("kind", "space", "dashboard_id", "panel_count", "index"),
     # AnalysisServicesClient's system prompt instructs the agent to pick MDX vs
     # DAX from modelType — it can't do that if modelType isn't in context.
     "analysis_services": (
