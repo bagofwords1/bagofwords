@@ -41,6 +41,11 @@ MECHANICAL EDITS (edit_artifact) — op authoring rules
 - Adding a viz: pass its id in visualization_ids AND add a section rendering
   vizById("<uuid>") in your ops. Removing one: pass remove_visualization_ids AND
   delete every reference in your ops. The viz-reference gate enforces both.
+- Syntax is gated before anything renders: code that fails to parse fails the
+  call (with the parser's line:col and a bracket-balance hint) and persists
+  nothing. Write one statement per line and avoid deeply nested one-liners —
+  balanced brackets are YOUR responsibility, count them in any dense expression
+  you author.
 """
 
 

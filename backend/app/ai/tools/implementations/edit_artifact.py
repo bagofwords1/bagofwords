@@ -226,6 +226,24 @@ class EditArtifactTool(Tool):
                 )
                 return
         else:
+            # Fast parse-only gate first: a syntax error introduced by the ops
+            # should cost ~1-2s (bare babel-standalone transform) with a
+            # bracket-balance hint, not a full validation render. Gate
+            # unavailable → None → the render pass below decides.
+            try:
+                from app.ai.tools.implementations._artifact_parse import parse_check_page_code
+                _parse_err = await parse_check_page_code(new_code)
+            except Exception as e:
+                logger.warning(f"edit_artifact: parse gate errored, deferring to render validation: {e}")
+                _parse_err = None
+            if _parse_err is not None:
+                yield self._fail(
+                    artifact, "parse_error",
+                    f"The edited code has a syntax error: {_parse_err}",
+                    {"remediation": "Fix the ops so the resulting code parses (check the exact line/col above) and call edit_artifact again. Nothing was applied."},
+                )
+                return
+
             # Deterministic gates — hard, no repair (the planner corrects and retries).
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)

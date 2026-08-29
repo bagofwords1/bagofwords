@@ -134,3 +134,31 @@ with Playwright and verified at the DB / HTTP / rendered-iframe layers.
 - Also fixed in passing: `_get_active_artifact` resolves the report id from
   `self.report` when `report_id` is unset (a pre-existing test failure on
   main in test_artifact_relationship_loading).
+
+## Parse gate (production incident follow-up)
+
+Incident: planner-authored code failed render validation twice with Babel
+"Unexpected token, expected ','" at ~10.2s per attempt — reproduced as a
+single dropped `)` in a paren-dense one-liner (the compact-code prompt
+guidance encouraged exactly that style).
+
+- New `_artifact_parse.parse_check_page_code`: the SAME vendored
+  babel-standalone, run in a blank Playwright page (no React, no data, no
+  networkidle), gates planner-authored creates and every mechanical page
+  edit BEFORE the full validation render. Measured: broken code fails in
+  1.8–2.9s (vs ~10s), error type `parse_error`, nothing persisted (create
+  keeps a status="failed" debug row, same as render failures). Browser/libs
+  unavailable → gate silently defers to render validation.
+- Babel's often-useless column pointer is enriched with a string/comment/
+  template-aware `bracket_balance_hint` ("2 unclosed '(' — innermost opened
+  at line 16, col 47"). Hint-only, never a gate (JSX text is its blind spot).
+- Prompt cause removed: the "Code size: write compact... prefer inline
+  expressions... under 8K chars" guidance replaced with one-statement-per-
+  line / break-long-expressions / name-intermediates rules (concise by
+  omitting redundancy, never by minifying); matching rule in the authoring
+  reference's edit-op section.
+- Verified: 10 unit tests (hint scanner incl. the incident reproduction +
+  live Babel round-trip incl. the stored `<script type="text/babel">`
+  wrapper shape); tool-level broken-edit + broken-create + clean-edit
+  against the sandbox DB; one live Haiku chat edit turn through the gated
+  path ("Dashboard Edited, v7, 5.8s", screenshot in session log).
