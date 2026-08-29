@@ -249,6 +249,14 @@
                 </div>
             </div>
         </div>
+
+        <!-- Floating chat (owner setting; the bubble itself resolves per-viewer
+             availability — sign-in prompt for anonymous, member check inside) -->
+        <ArtifactChatBubble
+            v-if="reportLoaded && report?.artifact_chat_enabled"
+            :report-id="String($route.params.id)"
+            :raised="report.general?.bow_credit !== false"
+        />
     </div>
 </template>
 
@@ -259,6 +267,7 @@ import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue';
 import SlideViewer from '~/components/dashboard/SlideViewer.vue';
 import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
+import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
 
 const route = useRoute();
@@ -826,6 +835,19 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+
+// App color mode, forwarded into the artifact iframe. Non-reactive snapshot so
+// a toggle updates the live iframe via postMessage instead of reloading srcdoc.
+const colorMode = useColorMode();
+let artifactColorMode: 'light' | 'dark' = colorMode.value === 'dark' ? 'dark' : 'light';
+watch(() => colorMode.value, (v) => {
+    artifactColorMode = v === 'dark' ? 'dark' : 'light';
+    artifactIframeRef.value?.contentWindow?.postMessage(
+        { type: 'ARTIFACT_SET_COLOR_MODE', mode: artifactColorMode },
+        window.location.origin
+    );
+});
+
 const queryParamSpecs = ref<Record<string, any[]>>({});
 const paramValues = ref<Record<string, any>>({});
 // Host-resolved stable choices per param (static options + options-source
@@ -1112,6 +1134,7 @@ const iframeSrcdoc = computed(() => {
         data: seed,
         code: artifactCode,
         mode: artifact.value?.mode || 'page',
+        colorMode: artifactColorMode,
     });
 });
 

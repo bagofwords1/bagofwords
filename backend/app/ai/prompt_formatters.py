@@ -314,7 +314,13 @@ class ServiceFormatter:
             except Exception:
                 pass
         for col in table.columns or []:
-            table_strs.append(f"column: {col.name} type: {col.dtype or 'any'}")
+            line = f"column: {col.name} type: {col.dtype or 'any'}"
+            # A column description can be load-bearing (a Splunk dashboard
+            # panel's saved SPL lives there) — surface it in this legacy
+            # text path too, not just the XML renderers.
+            if getattr(col, "description", None):
+                line += f" — {col.description}"
+            table_strs.append(line)
 
         return "\n".join(table_strs)
 

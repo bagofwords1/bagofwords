@@ -93,7 +93,13 @@ class CreateDataInput(BaseModel):
             "it within the report. Use static options=[...] only for a tiny "
             "fixed set; omit choices only for free-form params (dates, search "
             "text). Do NOT speculatively parameterize every literal — "
-            "no params is the common case."
+            "for one-shot answers, no params is the common case. EXCEPTION — "
+            "dashboard-bound queries: when this query feeds a dashboard with a "
+            "filter contract (a viewer-adjustable dimension or time window), "
+            "declare the shared filter dimensions as input parameters here, on "
+            "EVERY query the filter must drive — server-side parameters are the "
+            "default filter mechanism for dashboards, not client-side row "
+            "filtering."
         ),
     )
 

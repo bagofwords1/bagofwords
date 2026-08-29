@@ -7,6 +7,12 @@ read). `web:access_combined` is the highest-volume sourcetype, so with a small
 `max_sampled_sourcetypes` cap it is the one that gets its fields sampled, while
 the lower-volume sourcetypes stay "thin" — exercising the unknown-schema path.
 
+Also seeds the RCA knowledge layer the connector's dashboard support catalogs:
+two custom apps (`payments`, `sre_oncall`), classic Simple-XML dashboards
+(incl. a base-search panel and a deliberately malformed view), a Dashboard
+Studio (JSON) dashboard, and saved searches/alerts — mirroring how an
+enterprise team encodes its manual-RCA queries.
+
 Usage:  python seed_splunk.py   (Splunk must be up on localhost:8089/8088)
 Prints an auth token on the last line as: SPLUNK_TOKEN=<token>
 """
@@ -179,6 +185,170 @@ def seed_events():
     print(f"seeded {total} events across {len(SOURCETYPES)} sourcetypes")
 
 
+APPS = ["payments", "sre_oncall"]
+
+_CHECKOUT_DASHBOARD = """<form>
+  <label>Checkout Health</label>
+  <search id="base_checkout"><query>index=web sourcetype=access_combined uri_path="/checkout"</query></search>
+  <row>
+    <panel>
+      <title>HTTP 5xx rate by host</title>
+      <chart>
+        <search>
+          <query>index=web sourcetype=access_combined status&gt;=500 | timechart span=15m count by host</query>
+          <earliest>-4h</earliest><latest>now</latest>
+        </search>
+      </chart>
+    </panel>
+    <panel>
+      <title>Checkout status breakdown</title>
+      <table>
+        <search base="base_checkout"><query>| stats count by status | sort - count</query></search>
+      </table>
+    </panel>
+  </row>
+  <row>
+    <panel>
+      <title>Slow checkout requests</title>
+      <table>
+        <search>
+          <query>index=web sourcetype=access_combined uri_path="/checkout" response_time&gt;1000 | stats count avg(response_time) by host</query>
+          <earliest>-24h</earliest><latest>now</latest>
+        </search>
+      </table>
+    </panel>
+  </row>
+</form>"""
+
+_APP_ERRORS_DASHBOARD = """<dashboard>
+  <label>Backend Errors</label>
+  <row>
+    <panel>
+      <title>Errors by logger</title>
+      <table>
+        <search>
+          <query>index=app sourcetype=log4j (level=ERROR OR level=FATAL) | stats count by logger, error_code | sort - count</query>
+          <earliest>-24h</earliest><latest>now</latest>
+        </search>
+      </table>
+    </panel>
+    <panel>
+      <title>Error messages over time</title>
+      <chart>
+        <search>
+          <query>index=app sourcetype=log4j (level=ERROR OR level=FATAL) | timechart span=1h count by message</query>
+          <earliest>-24h</earliest><latest>now</latest>
+        </search>
+      </chart>
+    </panel>
+  </row>
+</dashboard>"""
+
+_STUDIO_DEFINITION = {
+    "title": "Service Latency (Studio)",
+    "description": "Dashboard Studio format — exercises the JSON parser.",
+    "dataSources": {
+        "ds_base": {
+            "type": "ds.search", "name": "billing events",
+            "options": {
+                "query": "index=app sourcetype=json_app",
+                "queryParameters": {"earliest": "-24h", "latest": "now"},
+            },
+        },
+        "ds_latency": {
+            "type": "ds.chain", "name": "latency by service",
+            "options": {"extend": "ds_base",
+                        "query": "| stats avg(latency_ms) as avg_latency, max(latency_ms) as max_latency by service"},
+        },
+    },
+    "visualizations": {
+        "viz_latency": {"type": "splunk.table", "title": "Latency by service",
+                        "dataSources": {"primary": "ds_latency"}},
+    },
+    "layout": {"type": "grid", "structure": []},
+}
+
+_STUDIO_DASHBOARD = ("<dashboard version=\"2\" theme=\"light\">"
+                     "<label>Service Latency (Studio)</label>"
+                     "<definition><![CDATA[" + json.dumps(_STUDIO_DEFINITION)
+                     + "]]></definition></dashboard>")
+
+# Unparseable on purpose: the connector must skip it without failing discovery.
+_BROKEN_VIEW = "<dashboard><label>Broken</label><row><panel>"
+
+DASHBOARDS = [
+    ("payments", "checkout_health", _CHECKOUT_DASHBOARD),
+    ("payments", "service_latency_studio", _STUDIO_DASHBOARD),
+    ("sre_oncall", "backend_errors", _APP_ERRORS_DASHBOARD),
+    ("sre_oncall", "broken_view", _BROKEN_VIEW),
+]
+
+SAVED_SEARCHES = [
+    ("payments", "High checkout error rate", {
+        "search": 'index=web sourcetype=access_combined uri_path="/checkout" status>=500 | stats count',
+        "description": "Alert: checkout 5xx volume over the last window.",
+        "is_scheduled": "1", "cron_schedule": "*/15 * * * *",
+        "dispatch.earliest_time": "-15m", "dispatch.latest_time": "now",
+        "alert_type": "number of events", "alert_comparator": "greater than",
+        "alert_threshold": "10",
+    }),
+    ("sre_oncall", "Failed logins by source", {
+        "search": 'index=security sourcetype=auth_audit action=login outcome=failure | stats count by src_ip, user | sort - count',
+        "description": "Investigation query for auth incidents.",
+        "dispatch.earliest_time": "-24h", "dispatch.latest_time": "now",
+    }),
+]
+
+
+def create_apps():
+    for app in APPS:
+        mgmt_req("POST", "/services/apps/local",
+                 {"name": app, "label": app.replace("_", " ").title(),
+                  "visible": "1", "template": "barebones"})
+    print(f"apps ensured: {', '.join(APPS)}")
+
+
+def create_dashboards():
+    for app, name, xml in DASHBOARDS:
+        # Update-or-create: POST to the collection 409s on re-runs, so try the
+        # entity first. The deliberately broken view may be rejected by some
+        # Splunk versions — that's fine, just note it.
+        try:
+            try:
+                mgmt_req("POST", f"/servicesNS/admin/{app}/data/ui/views/{urllib.parse.quote(name)}",
+                         {"eai:data": xml})
+            except RuntimeError:
+                mgmt_req("POST", f"/servicesNS/admin/{app}/data/ui/views",
+                         {"name": name, "eai:data": xml})
+        except RuntimeError as e:
+            print(f"(dashboard create note for {app}/{name}: {e})")
+            continue
+        # Share app-wide so a non-owner role sees it too.
+        try:
+            mgmt_req("POST", f"/servicesNS/admin/{app}/data/ui/views/{urllib.parse.quote(name)}/acl",
+                     {"owner": "admin", "sharing": "app"})
+        except RuntimeError as e:
+            print(f"(dashboard acl note: {e})")
+    print(f"dashboards ensured: {', '.join(f'{a}/{n}' for a, n, _ in DASHBOARDS)}")
+
+
+def create_saved_searches():
+    for app, name, props in SAVED_SEARCHES:
+        try:
+            mgmt_req("POST", f"/servicesNS/admin/{app}/saved/searches/{urllib.parse.quote(name)}",
+                     props)
+        except RuntimeError:
+            mgmt_req("POST", f"/servicesNS/admin/{app}/saved/searches",
+                     {"name": name, **props})
+        try:
+            mgmt_req("POST",
+                     f"/servicesNS/admin/{app}/saved/searches/{urllib.parse.quote(name)}/acl",
+                     {"owner": "admin", "sharing": "app"})
+        except RuntimeError as e:
+            print(f"(saved search acl note: {e})")
+    print(f"saved searches ensured: {', '.join(n for _, n, _ in SAVED_SEARCHES)}")
+
+
 def make_token():
     # Mint an auth token (JWT) for the connector. Enable token auth first.
     try:
@@ -203,6 +373,9 @@ def make_token():
 if __name__ == "__main__":
     wait_ready()
     create_indexes()
+    create_apps()
+    create_dashboards()
+    create_saved_searches()
     open_hec()
     seed_events()
     print("waiting for indexers to flush...")

@@ -11,6 +11,10 @@ dependencies = [
     "pydantic>=2.13.4,<2.14",
     "pydantic-settings>=2.14.2,<2.15",
     "python-multipart>=0.0.32,<0.1",
+    # Payload (de)serialization for encrypted analytical columns. Several times
+    # faster than the stdlib json module, which is what keeps app.ee.encryption
+    # off the critical path — see app/ee/encryption/types.py.
+    "orjson>=3.11.0,<4",
     "email-validator>=2.3.0,<2.4",
     "jinja2>=3.1.6,<3.2",
     "fastapi-users[sqlalchemy]>=15.0.5,<15.1",

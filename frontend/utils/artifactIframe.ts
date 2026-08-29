@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '6';
+export const ARTIFACT_GLOBALS_VERSION = '9'; // v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
 
 export interface ArtifactIframeFile {
   id: string;
@@ -96,6 +96,13 @@ export interface ArtifactIframeOptions {
   loadingLabel?: string;
   /** Default 'production'. 'development' gives clearer React error messages. */
   reactBuild?: 'production' | 'development';
+  /**
+   * Host app color mode. 'dark' sets class="dark" on the iframe <html> (and
+   * Tailwind runs with darkMode:'class'), so artifact code and the sandbox
+   * globals can use dark: variants. Toggle live without a reload by posting
+   * { type: 'ARTIFACT_SET_COLOR_MODE', mode: 'dark' | 'light' } to the iframe.
+   */
+  colorMode?: 'light' | 'dark';
 }
 
 const SC = '</' + 'script>';
@@ -317,13 +324,15 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
 
   const embeddedData = JSON.stringify(opts.data);
   const polish = opts.polishMode ? polishScript() : '';
+  const isDark = opts.colorMode === 'dark';
 
   return `<!DOCTYPE html>
-<html>
+<html${isDark ? ' class="dark"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="/libs/tailwindcss-3.4.16.js">${SC}
+  <script>tailwind.config = { darkMode: 'class' };${SC}
   <script crossorigin src="${reactSrc}">${SC}
   <script crossorigin src="${reactDomSrc}">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
@@ -331,12 +340,26 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <script src="/libs/pdf.min.js">${SC}
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; }
+    body { font-family: system-ui, -apple-system, sans-serif; background-color: #ffffff; color: #0f172a; }
+    html.dark body { background-color: #111827; color: #e5e7eb; }
   </style>
 </head>
 <body>
   <div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100%;color:#9ca3af;">${loadingLabel}</div></div>
 
+  <script>
+    // Live color-mode toggle from the host (no iframe reload).
+    window.addEventListener('message', function (e) {
+      var d = e && e.data;
+      if (d && d.type === 'ARTIFACT_SET_COLOR_MODE') {
+        // A forced-dark artifact (root <div className="dark">) stays dark
+        // whatever the host theme — see watchForcedDark in artifact-globals.
+        document.documentElement.classList.toggle('dark', d.mode === 'dark' || !!window.__bowForcedDark);
+        // Charts (and anything else theme-bound at init time) listen for this.
+        try { window.dispatchEvent(new CustomEvent('bow-colormode', { detail: { mode: d.mode } })); } catch (err) {}
+      }
+    });
+  ${SC}
   <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
   <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
 

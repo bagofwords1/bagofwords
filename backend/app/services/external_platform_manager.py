@@ -343,6 +343,43 @@ class ExternalPlatformManager:
             return default
         return hours if hours > 0 else default
 
+    async def _get_announce_new_report(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        platform_type: str,
+    ) -> bool:
+        """Return whether the org wants the "new conversation report" announcement.
+
+        Reads ``{platform_type}_announce_new_report`` from the org's settings
+        (editable in each channel's integration modal), defaulting to the schema
+        default (True) when unset or invalid. WhatsApp has no such setting — the
+        announcement is never sent there.
+        """
+        from app.models.organization_settings import OrganizationSettings
+        from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+        from sqlalchemy import select
+
+        key = f"{platform_type}_announce_new_report"
+        default = getattr(OrganizationSettingsConfig(), key, True)
+        try:
+            result = await db.execute(
+                select(OrganizationSettings)
+                .filter(OrganizationSettings.organization_id == organization_id)
+            )
+            org_settings = result.scalar_one_or_none()
+            value = org_settings.get_config(key, default) if org_settings else default
+            # Tolerate FeatureConfig-shaped storage ({'value': b, ...}).
+            if isinstance(value, dict):
+                value = value.get("value")
+            if not isinstance(value, bool):
+                return default
+        except Exception:
+            # The announcement is auxiliary — never let its lookup break
+            # message handling.
+            return default
+        return value
+
     async def _find_recent_platform_report(
         self,
         db: AsyncSession,
@@ -639,10 +676,14 @@ class ExternalPlatformManager:
                 max_age_hours=wa_max_age_hours,
             )
 
-            if created and platform_type != "whatsapp":
+            if created and platform_type != "whatsapp" and await self._get_announce_new_report(
+                db, organization.id, platform_type
+            ):
                 # WhatsApp intentionally skips the "new report" announcement — with
                 # 24h report reuse it would only fire on the first message of a
-                # window, and the URL adds noise to a 1:1 chat.
+                # window, and the URL adds noise to a 1:1 chat. Other platforms
+                # send it unless the org turned off {platform}_announce_new_report
+                # in the channel's integration settings.
                 report_url = f"{settings.bow_config.base_url}/reports/{report.id}"
                 # Send the "new report" message in the thread
                 # For channel mentions, respond in the channel; for DMs, open a DM

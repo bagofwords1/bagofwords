@@ -47,7 +47,7 @@ class ReportSchema(ReportBase):
     id: str
     status: Literal["draft", "published", "archived"]
     slug: str
-    report_type: Literal["regular", "test"]
+    report_type: Literal["regular", "test", "artifact_chat"]
     widgets: List[WidgetSchema] = []
     dashboard_layout_versions: List[DashboardLayoutVersionSchema] = []
     data_sources: List[DataSourceReportSchema] = []
@@ -96,6 +96,12 @@ class ReportSchema(ReportBase):
     # Show the Data tab (the queries behind the report) to viewers of the
     # shared artifact page. Artifact sharing only.
     include_data_tab: bool = True
+    # Chat on the shared artifact page /r/{id}. This schema also serves the
+    # public GET /r/{id}, so the shared page reads the flag directly.
+    artifact_chat_enabled: bool = False
+    # Owner's agent allowlist for artifact-page chat: null = inherit the
+    # report's attached roster, [] = dashboard data only, list = subset.
+    artifact_chat_data_source_ids: Optional[List[str]] = None
     # True when the report reads an RLS-enabled relation: viewers always run
     # under their own identity and 'run on my behalf' (creator mode) is blocked.
     has_rls: bool = False
@@ -191,6 +197,13 @@ class ReportVisibilityUpdate(BaseModel):
     # Artifact sharing only: show viewers the Data tab on /r/{id}.
     # Omitted = leave unchanged (same semantics as run_identity).
     include_data_tab: Optional[bool] = None
+    # Artifact sharing only: allow viewers of /r/{id} to chat with the report.
+    # Omitted = leave unchanged.
+    artifact_chat_enabled: Optional[bool] = None
+    # Artifact sharing only: which agents chat may query. Sentinel-aware:
+    # omitted = leave unchanged; [] = dashboard data only; ["*"] = reset to
+    # inherit the report's attached roster (null); a list = explicit subset.
+    artifact_chat_data_source_ids: Optional[List[str]] = None
 
 
 class ViewerRunResultSchema(BaseModel):

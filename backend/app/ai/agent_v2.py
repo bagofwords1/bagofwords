@@ -408,6 +408,25 @@ from app.core.otel import get_tracer
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 tracer = get_tracer(__name__)
 
+# Tools available to shared-artifact viewer chat (report_type='artifact_chat').
+# Read/query only: the viewer may ask questions and run fresh queries against
+# the agents the owner shared, but never mutate the dashboard, message anyone,
+# schedule anything, or change agent scope. Everything else is filtered out of
+# the catalog before the planner ever sees it.
+ARTIFACT_CHAT_TOOL_ALLOWLIST = {
+    "clarify",
+    "describe_tables",
+    "describe_entity",
+    "create_data",       # run a fresh query inside the viewer's own thread
+    "inspect_data",
+    "read_query",
+    "read_artifact",
+    "list_files",
+    "read_file",
+    "grep_files",
+    "search_files",
+}
+
 
 class AgentV2:
     """Enhanced orchestrator with intelligent research/action flow."""
@@ -786,6 +805,16 @@ class AgentV2:
         self._notes_enabled = bool(getattr(notes_enabled_cfg, "value", False)) if notes_enabled_cfg is not None else False
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
+
+        # Shared-artifact viewer chat runs read/query-only: no artifact or
+        # dashboard mutations, no comms, no automation, no agent-scope tools
+        # (the roster is a server-synced hard scope — see ArtifactChatService).
+        # Keyed on the report's own type so no caller can forget to pass it.
+        if getattr(self.report, 'report_type', 'regular') == 'artifact_chat':
+            all_catalog_dicts = [
+                t for t in all_catalog_dicts
+                if t['name'] in ARTIFACT_CHAT_TOOL_ALLOWLIST
+            ]
 
         # Remove duplicates (for tools with category="both")
         seen_tools = set()
@@ -1269,11 +1298,12 @@ class AgentV2:
             from app.models.artifact import Artifact
             from app.models.query import Query
             from app.models.visualization import Visualization
+            _report_id = getattr(self, "report_id", None) or (str(self.report.id) if self.report else None)
             result = await self.db.execute(
                 select(Artifact)
                 .options(lazyload("*"))
                 .where(
-                    Artifact.report_id == str(self.report_id),
+                    Artifact.report_id == str(_report_id),
                     Artifact.status == "completed",
                     # Docs (mode='doc') must never occupy the active-artifact slot:
                     # dashboard continuity rules and edit_artifact routing bind to it.
@@ -1354,6 +1384,11 @@ class AgentV2:
                 "version": artifact.version,
                 "generation_prompt": artifact.generation_prompt,
                 "visualizations": visualizations,
+                # The current source: the planner authors artifact code itself
+                # (create_artifact.code / edit_artifact ops), so the code
+                # IS the working context. Rendering caps it; oversize falls
+                # back to read_artifact.
+                "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")
@@ -4220,6 +4255,9 @@ class AgentV2:
             total_artifact_calls = 0
             max_total_artifact_calls = 4
             artifact_refusals = {"n": 0}
+            # Last artifact version this turn actually saved, so a budget
+            # refusal can report the real state rather than a bare failure.
+            last_artifact_state: Dict[str, Any] = {}
             
             # Track whether completion.finished has been emitted to avoid duplicates
             completion_finished_emitted = False
@@ -5472,29 +5510,56 @@ class AgentV2:
                                 # succeeded.
                                 if tool_name in ("create_artifact", "edit_artifact") and total_artifact_calls >= max_total_artifact_calls:
                                     artifact_refusals["n"] += 1
+                                    # Name the state that DID save. A refusal is a
+                                    # deferral, not a broken artifact: without the
+                                    # saved version in the message the planner
+                                    # narrates the whole turn as a failure and the
+                                    # user reads a working dashboard as broken.
+                                    _saved_version = last_artifact_state.get("version")
+                                    _saved_txt = (
+                                        f"v{_saved_version} is saved and working with all {total_artifact_calls} "
+                                        "of this turn's applied change(s)"
+                                        if _saved_version is not None else
+                                        f"all {total_artifact_calls} change(s) that ran this turn are saved"
+                                    )
                                     _refusal_obs: Dict[str, Any] = {
                                         "summary": (
                                             f"Artifact call budget reached ({max_total_artifact_calls} per turn); "
                                             f"'{tool_name}' was NOT executed and every further create/edit_artifact "
-                                            "call this turn will also be refused. The latest artifact version is "
-                                            "preserved, but the change you just requested was NOT applied. Do NOT "
-                                            "request artifact tools again. Write your final answer now: state which "
-                                            "changes were actually applied and which were not, and tell the user to "
-                                            "ask again to continue. Never describe a refused edit as completed."
+                                            f"call this turn will also be refused. NOTHING IS BROKEN: {_saved_txt}. "
+                                            "Only this one further change was deferred — it was not applied. Do NOT "
+                                            "request artifact tools again. Write your final answer now: lead with what "
+                                            "IS done and saved, then name the single deferred change and tell the user "
+                                            "to ask again to continue it. Never describe a refused edit as completed, "
+                                            "and never describe the artifact as failed or broken — it is intact."
                                         ),
-                                        "error": {"code": "artifact_budget_exhausted", "message": "artifact call budget reached"},
+                                        "error": {
+                                            "code": "artifact_budget_exhausted",
+                                            "message": (
+                                                f"Edit limit for this turn reached ({max_total_artifact_calls} artifact "
+                                                f"updates). This change was not applied and the dashboard is unchanged "
+                                                f"— {_saved_txt}. Ask again to continue with the rest."
+                                            ),
+                                        },
+                                        "artifact_deferred": True,
                                     }
+                                    if _saved_version is not None:
+                                        _refusal_obs["saved_version"] = _saved_version
                                     if artifact_refusals["n"] > 1:
                                         # The planner ignored the first refusal — end the
                                         # turn rather than let it loop to the step limit
                                         # (and then narrate the refused edit as done).
                                         _refusal_obs["analysis_complete"] = True
                                         _refusal_obs["final_answer"] = (
-                                            f"I applied {total_artifact_calls} change(s) to the dashboard and then hit "
-                                            f"this turn's limit of {max_total_artifact_calls} artifact updates, so the "
-                                            "remaining requested changes were NOT applied. The latest saved version "
-                                            "keeps everything that did go through — ask me to continue and I'll pick "
-                                            "up the rest."
+                                            f"I applied {total_artifact_calls} change(s) to the dashboard"
+                                            + (
+                                                f" — it's saved and working at v{_saved_version} — and then hit"
+                                                if _saved_version is not None else ", then hit"
+                                            )
+                                            + f" this turn's limit of {max_total_artifact_calls} artifact "
+                                            "updates, so the remaining requested change was deferred rather than "
+                                            "applied. Nothing is broken and nothing was lost. Ask me to continue and "
+                                            "I'll pick up the rest."
                                         )
                                     return await _refuse_before_dispatch(_refusal_obs)
 
@@ -6097,6 +6162,18 @@ class AgentV2:
                                     # breaker, the step limit, and the budget cap.
                                     if _tn in ("create_artifact", "edit_artifact"):
                                         total_artifact_calls += 1
+                                        # Remember what actually landed: a budget
+                                        # refusal must be able to name the saved
+                                        # state ("v8 is saved") instead of
+                                        # reporting a bare failure, which reads
+                                        # to the user as a broken dashboard.
+                                        if isinstance(_obs, dict):
+                                            _v = _obs.get("version")
+                                            if _v is not None:
+                                                last_artifact_state["version"] = _v
+                                            _aid = _obs.get("artifact_id")
+                                            if _aid:
+                                                last_artifact_state["artifact_id"] = _aid
 
                                 if _obs and _obs.get("analysis_complete"):
                                     analysis_done = True

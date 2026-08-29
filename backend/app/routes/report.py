@@ -287,6 +287,8 @@ async def set_report_visibility(
         run_identity=payload.run_identity,
         shared_group_ids=payload.shared_group_ids,
         include_data_tab=payload.include_data_tab,
+        artifact_chat_enabled=payload.artifact_chat_enabled,
+        artifact_chat_data_source_ids=payload.artifact_chat_data_source_ids,
     )
 
 
@@ -303,6 +305,40 @@ async def get_report_shares(
     if share_type not in ('artifact', 'conversation'):
         raise HTTPException(status_code=400, detail="share_type must be 'artifact' or 'conversation'")
     return await report_service.get_shares(db, report_id, share_type)
+
+
+@router.get("/reports/{report_id}/artifact_chat/agents")
+@requires_permission('publish_reports', model=Report, owner_only=True)
+async def get_artifact_chat_agents(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Candidate agents for the ShareModal's chat scope picker: the agents this
+    report actually uses — its attached roster, or (for Auto reports) the
+    agents recovered from its tool executions. See
+    ArtifactChatService.candidate_agent_ids."""
+    from sqlalchemy.orm import selectinload, lazyload
+    from app.models.data_source import DataSource
+    from app.services.artifact_chat_service import artifact_chat_service
+
+    report = (await db.execute(
+        select(Report)
+        .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
+        .where(Report.id == report_id)
+    )).unique().scalar_one_or_none()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+
+    agent_ids = await artifact_chat_service.candidate_agent_ids(db, report)
+    by_id = {str(ds.id): ds for ds in (report.data_sources or [])}
+    agents = []
+    for aid in agent_ids:
+        ds = by_id.get(aid) or await db.get(DataSource, aid)
+        if ds is not None and ds.deleted_at is None:
+            agents.append({"id": str(ds.id), "name": ds.name})
+    return {"agents": agents}
 
 
 @router.post("/reports/{report_id}/fork", response_model=ForkResponse)

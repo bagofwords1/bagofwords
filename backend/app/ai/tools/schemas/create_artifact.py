@@ -27,7 +27,7 @@ class CreateArtifactInput(BaseModel):
         "CONTRACT: If your prompt specifies a cross-viz behavior (global filter, time comparison, slice/groupby, rank-across, drill-down), you MUST have already completed the Dashboard Contract preflight (see planner instructions): every viz_id in `visualization_ids` satisfies that contract directly, or you rebuilt its data via `create_data` this turn, or it was dropped/substituted because it was meaningless under the contract. Do NOT include a viz that can't participate in the declared contract — that ships a dashboard where the filter works on some charts and not others.\n\n"
         "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your prompt describes a CHANGE to that artifact, not a fresh build. "
         "Preserve the existing title (don't invent 'Enhanced X' / 'Improved Y') unless the user asked to rename. Describe ALL existing vizs in the layout (they're still on the canvas) plus the new additions. "
-        "Prefer `edit_artifact` for small/additive changes; only use `create_artifact` when the change is structurally too large for surgical diffs — and even then, carry all prior viz_ids forward.\n\n"
+        "Prefer `edit_artifact` for changes to an existing artifact; only use `create_artifact` for a from-scratch rebuild — and even then, carry all prior viz_ids forward.\n\n"
         "PERSONALIZATION: personalization is a RUNTIME BINDING, never resolved text. When the user wants a personalized "
         "greeting/title/section, write the INSTRUCTION ('greet the viewing user by name via current_user, with a neutral "
         "fallback') — NEVER substitute the requester's actual name/email into this plan (not 'exactly: \"Yochay's Album "
@@ -35,6 +35,17 @@ class CreateArtifactInput(BaseModel):
         "appears to lack personalization, that preview renders as an ANONYMOUS viewer — the fix is NEVER a literal name.\n\n"
         "Do NOT use this tool to modify an existing artifact; use edit_artifact instead. "
         "For a WRITTEN report/document/memo (not an interactive dashboard), use create_doc instead."
+    ))
+    code: Optional[str] = Field(default=None, description=(
+        "THE ARTIFACT SOURCE, AUTHORED BY YOU — this is the primary path. "
+        "For mode='page': the complete `<script type=\"text/babel\">...</script>` JSX per the "
+        "ARTIFACT AUTHORING REFERENCE in your instructions (id-keyed data access via "
+        "vizById(\"<uuid>\"), useParams() for declared query parameters). "
+        "For mode='slides': the complete python-pptx script (must call prs.save(_pptx_output_path)). "
+        "The tool applies the deterministic contracts (viz references, params wiring) and render-validates "
+        "ONCE — on failure it returns the exact errors and persists nothing; fix the code and call again. "
+        "When you supply code, `prompt` is stored as the build spec but triggers NO generation. "
+        "Omitting code falls back to legacy in-tool generation (deprecated — always author the code yourself)."
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt. Must be viewer-agnostic: never a person's name/email or a possessive built from one ('Yochay's Catalog' -> 'Album Catalog') — artifacts are shared, and per-viewer personalization happens inside the artifact via current_user, not in its title.")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")

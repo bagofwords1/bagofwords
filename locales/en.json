@@ -1989,7 +1989,12 @@
           "sessionStalenessTitle": "Conversation session",
           "hoursSuffix": "hours",
           "sessionStalenessSaved": "Conversation session window updated",
-          "sessionStalenessInvalid": "Enter a whole number between 1 and 720 hours"
+          "sessionStalenessInvalid": "Enter a whole number between 1 and 720 hours",
+          "announceNewReportTitle": "New conversation announcement",
+          "announceNewReportLabel": "Announce new conversation reports",
+          "announceNewReportDesc": "When a message starts a new conversation report, reply with an \"I've started a new conversation report\" message linking to it. Turn off to skip that message.",
+          "announceNewReportEnabled": "New report announcement enabled",
+          "announceNewReportDisabled": "New report announcement disabled"
         },
         "slack": {
           "title": "Slack Integration",
@@ -3168,7 +3173,15 @@
     "userNotFound": "User not found in organization",
     "copyFailed": "Failed to copy",
     "includeDataTab": "Include Data Tab",
-    "includeDataTabDesc": "Recipients will see the complete data history and process used to generate this report"
+    "includeDataTabDesc": "Recipients will see the complete data history and process used to generate this report",
+    "allowChat": "Allow chat",
+    "allowChatDesc": "Signed-in workspace members can ask questions about this dashboard",
+    "chatScope": "Chat can use",
+    "chatScopeAgents": "Report agents",
+    "chatScopeAgentsDesc": "Chat may run live read-only queries against the selected agents",
+    "chatScopeDataOnly": "Dashboard data only",
+    "chatScopeDataOnlyDesc": "Chat answers only from the data already on this dashboard",
+    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only."
   },
   "publish": {
     "published": "Published",

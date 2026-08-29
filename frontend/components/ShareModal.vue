@@ -75,12 +75,54 @@
             <!-- Include Data Tab option (dashboards only): whether viewers of
                  the shared artifact page see the Data tab listing the queries
                  behind the report. The conversation share has no such tab. -->
-            <div v-if="shareType === 'artifact' && isShared" class="flex items-start gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <UCheckbox v-model="includeDataTab" size="sm" :disabled="isSaving"
-                    @update:model-value="onIncludeDataTabChange" />
+            <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div class="flex flex-col min-w-0 flex-1">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.includeDataTab') }}</span>
                     <span class="text-[11px] text-gray-400">{{ $t('share.includeDataTabDesc') }}</span>
+                </div>
+                <UToggle v-model="includeDataTab" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
+                    @update:model-value="onIncludeDataTabChange" />
+            </div>
+
+            <!-- Chat on the shared artifact page (dashboards only): the owner's
+                 toggle plus the agent scope viewer chat may query. Viewer
+                 threads are private per viewer and never touch this report's
+                 own conversation. -->
+            <div v-if="shareType === 'artifact' && isShared" class="mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg" data-testid="chat-settings">
+                <div class="flex items-start justify-between gap-3">
+                    <div class="flex flex-col min-w-0">
+                        <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.allowChat') }}</span>
+                        <span class="text-[11px] text-gray-400">{{ $t('share.allowChatDesc') }}</span>
+                    </div>
+                    <UToggle v-model="chatEnabled" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
+                        data-testid="chat-enabled-toggle" @update:model-value="onChatEnabledChange" />
+                </div>
+                <div v-if="chatEnabled" class="mt-3 space-y-2">
+                    <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block">{{ $t('share.chatScope') }}</label>
+                    <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-agents">
+                        <input type="radio" value="agents" v-model="chatScope" :disabled="isSaving || reportAgents.length === 0"
+                            class="mt-0.5" @change="onChatScopeChange" />
+                        <span class="flex flex-col">
+                            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeAgents') }}</span>
+                            <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeAgentsDesc') }}</span>
+                        </span>
+                    </label>
+                    <div v-if="chatScope === 'agents' && reportAgents.length > 0" class="ms-6 space-y-1">
+                        <label v-for="agent in reportAgents" :key="agent.id" class="flex items-center gap-2 cursor-pointer">
+                            <input type="checkbox" :value="agent.id" v-model="chatAgentIds" :disabled="isSaving"
+                                @change="onChatAgentsChange" />
+                            <span class="text-xs text-gray-600 dark:text-gray-400">{{ agent.name }}</span>
+                        </label>
+                    </div>
+                    <label class="flex items-start gap-2 cursor-pointer" data-testid="chat-scope-data-only">
+                        <input type="radio" value="data_only" v-model="chatScope" :disabled="isSaving"
+                            class="mt-0.5" @change="onChatScopeChange" />
+                        <span class="flex flex-col">
+                            <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('share.chatScopeDataOnly') }}</span>
+                            <span class="text-[11px] text-gray-400">{{ $t('share.chatScopeDataOnlyDesc') }}</span>
+                        </span>
+                    </label>
+                    <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ $t('share.chatNoAgents') }}</p>
                 </div>
             </div>
 
@@ -203,6 +245,15 @@ const sharedEntries = ref<any[]>([])
 const copied = ref(false)
 // Include Data Tab when sharing (show historical execution data)
 const includeDataTab = ref(true)
+
+// Chat on the shared artifact page: toggle + agent scope. Scope maps onto the
+// backend's artifact_chat_data_source_ids: 'agents' with everything checked =
+// null (inherit the roster, sent as the ["*"] reset sentinel), a subset = that
+// list, 'data_only' = [].
+const chatEnabled = ref(false)
+const chatScope = ref<'agents' | 'data_only'>('agents')
+const chatAgentIds = ref<string[]>([])
+const reportAgents = ref<{ id: string; name: string }[]>([])
 
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
@@ -376,6 +427,31 @@ const fetchVisibility = async () => {
                 includeDataTab.value = data.include_data_tab !== false
                 if (props.report) props.report.include_data_tab = data.include_data_tab
             }
+            if (data.artifact_chat_enabled !== undefined) {
+                chatEnabled.value = data.artifact_chat_enabled === true
+                if (props.report) props.report.artifact_chat_enabled = data.artifact_chat_enabled
+            }
+            // Candidate agents = what the report actually uses (attached
+            // roster, or recovered from its runs for Auto reports) — not the
+            // raw attachment list, which is empty under Auto.
+            try {
+                const agentsRes = await useMyFetch(`/reports/${props.report.id}/artifact_chat/agents`)
+                const payload = agentsRes.data.value as any
+                reportAgents.value = (payload?.agents || []).map((a: any) => ({ id: a.id, name: a.name }))
+            } catch {
+                reportAgents.value = (data.data_sources || []).map((ds: any) => ({ id: ds.id, name: ds.name }))
+            }
+            const storedIds = data.artifact_chat_data_source_ids
+            if (storedIds === null || storedIds === undefined) {
+                chatScope.value = reportAgents.value.length > 0 ? 'agents' : 'data_only'
+                chatAgentIds.value = reportAgents.value.map(a => a.id)
+            } else if (Array.isArray(storedIds) && storedIds.length === 0) {
+                chatScope.value = 'data_only'
+                chatAgentIds.value = reportAgents.value.map(a => a.id)
+            } else {
+                chatScope.value = 'agents'
+                chatAgentIds.value = storedIds
+            }
             if (data.conversation_share_token !== undefined) {
                 conversationShareToken.value = data.conversation_share_token
                 if (props.report) props.report.conversation_share_token = data.conversation_share_token
@@ -482,6 +558,53 @@ const onIncludeDataTabChange = async (value: boolean) => {
     }
 }
 
+// One PUT per chat-settings change, mirroring onIncludeDataTabChange: resend
+// the current visibility unchanged and only the field being written.
+const saveChatSettings = async (body: Record<string, any>, revert: () => void) => {
+    isSaving.value = true
+    try {
+        const res = await useMyFetch(`/reports/${props.report.id}/visibility/artifact`, {
+            method: 'PUT',
+            body: { visibility: currentVisibility.value, ...body },
+        })
+        if (res.error.value) throw res.error.value
+        toast.add({ title: t('share.sharingUpdated'), color: 'green' })
+    } catch {
+        revert()
+        toast.add({ title: t('share.sharingFailed'), color: 'red' })
+    } finally {
+        isSaving.value = false
+    }
+}
+
+const chatScopeIdsPayload = (): string[] => {
+    if (chatScope.value === 'data_only') return []
+    const all = reportAgents.value.map(a => a.id)
+    const picked = chatAgentIds.value.filter(id => all.includes(id))
+    // Everything checked = inherit the roster (["*"] resets to null server-side).
+    if (picked.length === all.length && all.length > 0) return ['*']
+    return picked
+}
+
+const onChatEnabledChange = async (value: boolean) => {
+    if (props.report) props.report.artifact_chat_enabled = value
+    await saveChatSettings(
+        { artifact_chat_enabled: value },
+        () => { chatEnabled.value = !value; if (props.report) props.report.artifact_chat_enabled = !value },
+    )
+}
+
+const onChatScopeChange = async () => {
+    if (chatScope.value === 'agents' && chatAgentIds.value.length === 0) {
+        chatAgentIds.value = reportAgents.value.map(a => a.id)
+    }
+    await saveChatSettings({ artifact_chat_data_source_ids: chatScopeIdsPayload() }, () => {})
+}
+
+const onChatAgentsChange = async () => {
+    await saveChatSettings({ artifact_chat_data_source_ids: chatScopeIdsPayload() }, () => {})
+}
+
 const onVisibilityChange = async (value: string) => {
     const prev = props.report?.[visibilityField.value] || 'none'
     if (value === prev) return
@@ -546,6 +669,7 @@ const openModal = async () => {
     conversationShareToken.value = props.report?.conversation_share_token ?? null
     runAsCreator.value = props.report?.shared_run_identity === 'creator'
     includeDataTab.value = props.report?.include_data_tab !== false
+    chatEnabled.value = props.report?.artifact_chat_enabled === true
     await Promise.all([fetchMembers(), fetchGroups(), fetchVisibility(), fetchShares()])
 }
 

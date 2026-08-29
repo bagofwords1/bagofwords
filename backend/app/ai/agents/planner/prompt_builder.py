@@ -142,7 +142,7 @@ PLAN TYPE DECISION FRAMEWORK
 - If schemas are empty/insufficient OR the request is ambiguous, call the clarify tool. Put the full user-facing clarification in the tool's `question` argument (required). The clarify tool's `question` field is what the user sees — do not also duplicate it in assistant_message.
 - When schemas show tables under different `<connection>` tags, those are separate databases. Queries CANNOT join across connections. Plan accordingly: either scope to one connection, or instruct the coder (via interpreted_prompt) to query each connection separately and merge in Python.
 - If you have enough information, go ahead and execute — prefer create_data for generating insights.
-- PARAMETERIZED DASHBOARDS (filter-space pattern): when the request implies a viewer-adjustable filter over a dimension (genre, status, region, owner, month), FIRST create_data a small dimension query listing the distinct filter values (id + name, no parameters), THEN create_data the main query declaring the input parameter with options_source referencing the dimension query by its exact title. The dashboard control gets its choices from that source — never from the filtered rows. Skip the dimension query only when the values are a tiny fixed set (declare static options on the parameter) or the parameter is free-form (dates, search text). One dimension query can feed several consuming queries.
+- PARAMETERIZED DASHBOARDS (filter-space pattern): server-side query parameters are the DEFAULT filter mechanism for dashboards — when a dashboard has a filter contract (Step B3), declare the shared filter dimensions (typically a date range + 1-3 low-cardinality dimensions) as input parameters on EVERY query the filter must drive; reserve client-side useFilters for cheap within-snapshot interactions only. When the request implies a viewer-adjustable filter over a dimension (genre, status, region, owner, month), FIRST create_data a small dimension query listing the distinct filter values (id + name, no parameters), THEN create_data the main query declaring the input parameter with options_source referencing the dimension query by its exact title. The dashboard control gets its choices from that source — never from the filtered rows. Skip the dimension query only when the values are a tiny fixed set (declare static options on the parameter) or the parameter is free-form (dates, search text). One dimension query can feed several consuming queries. **Adding a filter to an EXISTING query → `add_parameter`, not `create_data`**: when a query already returns the right data and only needs a new viewer-adjustable filter on a column its source tables carry, call `add_parameter(query_id, parameter, column)` — the query keeps its id and visualizations, no rebuild. (Still create the dimension query first for options_source.) Then wire the control via edit_artifact (author the useParams() ops yourself). Use create_data only when the data itself must change shape.
 - If the user attached a screenshot or an image -- describe it in reasoning - don't use inspect_data for images
 - When working with data files (excel, csv, etc [not images]), ALWAYS use the inspect_data tool to verify the file content and structure before creating data widgets.
 {chr(10) + 'EXCEL PLATFORM (the user is inside the Excel add-in — see <excel_context> and <officejs_cheatsheet> below)' + chr(10) + '- The active workbook is NOT a connected database. Its cells do not appear in the schema index.' + chr(10) + '- For questions about the live sheet, use read_excel_as_csv / read_excel_range to read, reason locally, then write_to_excel / write_officejs_code to respond.' + chr(10) + '- Use create_data / describe_tables / inspect_data ONLY when the user is asking about connected database tables visible in the schema index, not the active workbook.' if planner_input.external_platform == 'excel' else ''}
@@ -180,13 +180,13 @@ ERROR HANDLING (robust; no blind retries)
   - User asks "build a customer analytics dashboard": "Query `customers` joined with `orders` on `customer_id`. Return one wide granular table: `customer_id`, `name`, `signup_date`, `country`, `plan_type`, `order_id`, `order_date`, `amount`, `product_category`. Artifact-bound — wide master table for dashboard consumption."
 - **Cross-query alignment:** When past_observations show prior row-returning queries and your new query also returns rows, reuse their identity/dimension columns. If the prior customer query returned `customer_id`, a new payments query should include `customer_id` too — without asking. (Scalar answers don't need this.)
 - **Scalar vs dashboard ambiguity:** If the user's ask could reasonably be a one-shot scalar OR the seed of a dashboard and the conversation gives no signal either way, don't silently pick the heavier path — call `clarify` with a concrete either/or ("Just the count, or a breakdown you can filter and explore?"). Defaulting to the wide query on every scalar question is what makes simple asks slow.
-- **Artifact flow (create_artifact / edit_artifact / read_artifact).** Follow these four steps in order whenever this turn will produce an artifact tool call. Skip a step only when it doesn't apply.
+- **Artifact flow (create_artifact / edit_artifact / read_artifact).** YOU author all artifact source (see ARTIFACT AUTHORING REFERENCE): full code on create, exact find/replace ops on edit. The tools are mechanical — on failure they return precise errors and persist nothing; fix your code/ops and call again. Follow these four steps in order whenever this turn will produce an artifact tool call. Skip a step only when it doesn't apply.
 
   ### Step A — Pick the right tool
-  - `create_artifact` — brand-new dashboard, rebuild/redesign, or a change too large for surgical diffs (~>30% of code). When `<current_artifact>` is non-empty, you still carry all existing viz_ids forward (see Step C).
-  - `edit_artifact` — small/focused changes to the current dashboard (color, title, a single viz, add/remove a filter, layout tweak). Needs an `artifact_id` — use `<current_artifact>.<artifact_id>` when present; otherwise call `read_artifact` first.
+  - `edit_artifact` — the ONLY edit path, for any change to an existing artifact: cosmetic tweaks, layout rearrangements, adding/removing vizs or filters, multi-part restyles. Author the exact find/replace ops yourself against `<current_artifact>.<code>` (each `find` must match exactly once); when the code was omitted for size, call `read_artifact` first. Mechanical and atomic — no second model; a failed op tells you the closest match to correct, and an edit may carry MANY ops — size is never a reason to rebuild.
+  - `create_artifact` — ONLY for (a) a brand-new artifact (no `<current_artifact>`), or (b) the user explicitly asking for a rebuild/redesign from scratch ("start over", "rebuild it", "completely redesign"), or (c) an overhaul that replaces most of the viz set per Step B. YOU author the complete source and pass it in `code` (JSX per the ARTIFACT AUTHORING REFERENCE; python-pptx for slides), with `prompt` as the build spec. When rebuilding over an existing artifact, reproduce everything the user did not ask to change from `<current_artifact>.<code>`, and carry all existing viz_ids forward (see Step C).
   - `read_artifact` — when the next step depends on what the code currently says: user reports a visual issue ("I don't see the filters"), you're unsure if the change is small or large, or you have no `artifact_id`. Pass `load_screenshot=true` when the issue is visual.
-  - **Edit that needs new data:** `create_data` first (to produce the new viz), then `edit_artifact` with BOTH `artifact_id` AND `visualization_ids: [<new_viz_id>]`. Do not call `create_artifact` just because new data is needed.
+  - **Edit that needs new data:** `create_data` first (to produce the new viz), then `edit_artifact` with BOTH `artifact_id` AND `visualization_ids: [<new_viz_id>]`, with ops adding a section that renders vizById("<new_viz_id>"). Do not call `create_artifact` just because new data is needed.
 
   ### Step B — Artifact preflight (MANDATORY before every create_artifact call)
 
@@ -228,13 +228,13 @@ ERROR HANDLING (robust; no blind retries)
   - **viz_ids are superset, never subset.** `visualization_ids` passed to `create_artifact` / `edit_artifact` MUST include every viz_id from `<current_artifact>.<visualizations>` plus any new ones — UNLESS (a) the user explicitly said "remove X" / "get rid of X", or (b) Step B classified a viz as 3 (meaningless under contract). Phrases like "improve", "make it better", "add KPIs", "redesign", "make it amazing" are ADDITIVE — they never imply removal.
   - **Title stability.** Keep `<current_artifact>.<title>` unless the user asked to rename. Do not invent "Enhanced X Dashboard" / "Improved Y" on enhance-turns.
   - **Reuse before `create_data`.** If a viz already on the canvas has rows that can produce the metric client-side, compute it in the artifact code — don't re-query. Example: a viz with 1000 rows and a `film_id` column can produce "Total Films" via a distinct count without another query.
-  - **Writing the prompt / edit_prompt.** DETAIL everything accumulated across the conversation — layout, theme/colors/style, viz placement, filters (with the contract scope from Step B), KPI cards, design preferences from ANY previous turn. Missing details = missing features. Mode: `page` for dashboards/reports (default), `slides` for presentations/PPTX.
+  - **Authoring the code (and the create `prompt` spec).** DETAIL everything accumulated across the conversation IN THE CODE YOU AUTHOR — layout, theme/colors/style, viz placement, filters (with the contract scope from Step B), KPI cards, design preferences from ANY previous turn; the create `prompt` records the same as the build spec. Missing details = missing features. Mode: `page` for dashboards/reports (default), `slides` for presentations/PPTX.
 
   ### Step D — After the call
 
   - **Success with no screenshot issues:** set `analysis_complete=true`, put a brief summary in `final_answer`, do not loop.
-  - **Screenshot shows visual bugs** (misalignment, overlap, cut-off, wrong colors): use `edit_artifact` (not another `create_artifact`) with a specific, code-level instruction ("the bar chart is cut off on the right", "KPI cards are overlapping").
-  - **User reports something missing after an edit** ("I don't see filters", "no gradient"): call `read_artifact` with `load_screenshot=true` first, then `edit_artifact` with a specific, code-level fix ("add a FilterSelect component above the grid"). Vague edit prompts are the #1 cause of failed edits.
+  - **Screenshot shows visual bugs** (misalignment, overlap, cut-off, wrong colors): use `edit_artifact` (not another `create_artifact`) with ops you author to fix the specific problem.
+  - **User reports something missing after an edit** ("I don't see filters", "no gradient"): call `read_artifact` with `load_screenshot=true` first, then `edit_artifact` with ops that add the missing piece.
 - If the user is asking for a subjective metric or uses a semantic metric that is not well defined (in instructions or schema or context), call the clarify tool (put questions in its `question` arg).
 - **Clarify discipline.** Clarify when the *user's intent* is ambiguous — not when you're unsure about implementation details you can resolve yourself.
   - **Clarify**: scalar-vs-dashboard ambiguity, "top X" without a specified metric, entity/time-window ambiguity, Step B consolidation judgment calls you can't resolve from context, undefined semantic metrics.
@@ -357,10 +357,51 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         return prompt
     
     @staticmethod
+    def _format_artifact_chat_context(ctx) -> str:
+        """Context for shared-artifact viewer chat (/r/{id} bubble).
+
+        In data-only scope the dashboard's visualization data is inlined here —
+        it is the ONLY data surface the conversation has. In agents scope the
+        block just anchors the conversation to the dashboard; data comes from
+        the attached agents via the normal query tools.
+        """
+        if not ctx:
+            return ''
+        lines: List[str] = ['<artifact_chat_context>']
+        lines.append('  You are answering questions from a VIEWER of a shared dashboard, not its owner. Keep answers concise and grounded in the dashboard.')
+        lines.append('  TEXT-ONLY SURFACE: the viewer chats in a small text bubble and sees ONLY your text replies — tool outputs, tables, and widgets you produce are NOT visible to them. Every answer must be self-contained: present the relevant data inline as short markdown lists or tables. NEVER refer to a table or result as "above", "available", or "shown" — nothing but your text is shown. For large results, include the most relevant rows (up to ~20) inline and say how many rows the full result has.')
+        title = ctx.get('artifact_title') or ctx.get('source_report_title')
+        if title:
+            lines.append(f'  Dashboard: {json.dumps(title)}')
+        if ctx.get('scope') == 'data_only':
+            lines.append("  Scope: the dashboard's own data ONLY (below). You have no query tools and no other data access — if a question needs data beyond this, say so plainly.")
+            for viz in ctx.get('visualizations') or []:
+                lines.append('  <visualization>')
+                lines.append(f'    title: {json.dumps(viz.get("title"))}')
+                cols = viz.get('columns') or []
+                if cols:
+                    lines.append(f'    columns: {json.dumps(cols)}')
+                total = viz.get('total_rows')
+                rows = viz.get('rows') or []
+                shown = len(rows)
+                if total is not None and total > shown:
+                    lines.append(f'    rows (showing {shown} of {total}):')
+                else:
+                    lines.append('    rows:')
+                lines.append(f'    {json.dumps(rows)}')
+                lines.append('  </visualization>')
+        else:
+            lines.append('  Scope: you may query the attached agents (read-only) to answer questions about this dashboard.')
+        lines.append('</artifact_chat_context>')
+        return '\n'.join(lines)
+
+    @staticmethod
     def _format_platform_context(planner_input: PlannerInput) -> str:
         """Render platform-specific context (e.g. Excel selection) for injection into the prompt."""
         ctx = getattr(planner_input, 'platform_context', None)
         platform = planner_input.external_platform
+        if platform == 'artifact_chat':
+            return PromptBuilder._format_artifact_chat_context(ctx)
         if platform != 'excel':
             return ''
 
@@ -519,6 +560,19 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
             lines.append("  </visualizations>")
         else:
             lines.append("  <visualizations>(none)</visualizations>")
+
+        code = artifact.get("code")
+        if code:
+            code_str = str(code)
+            if len(code_str) <= 30000:
+                lines.append("  <code><![CDATA[")
+                lines.append(code_str)
+                lines.append("  ]]></code>")
+            else:
+                lines.append(
+                    f"  <code>(omitted: {len(code_str)} chars — call read_artifact to load an "
+                    "outline or slice before authoring edit_artifact ops)</code>"
+                )
 
         lines.append("</current_artifact>")
         return "\n".join(lines)

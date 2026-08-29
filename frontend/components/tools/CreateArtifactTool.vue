@@ -192,6 +192,7 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+import { toolErrorText } from '~/utils/toolError'
 
 const { t } = useI18n()
 
@@ -316,7 +317,7 @@ async function rejectConfirmation() {
 const runningLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.creatingPresentation') : t('tools.createArtifact.creatingDashboard'))
 const successLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.presentationCreated') : t('tools.createArtifact.dashboardCreated'))
 const errorLabel = computed(() => artifactMode.value === 'slides' ? t('tools.createArtifact.failedPresentation') : t('tools.createArtifact.failedDashboard'))
-const errorMessage = computed(() => props.toolExecution.result_json?.error || '')
+const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error))
 
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''

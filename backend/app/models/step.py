@@ -11,6 +11,7 @@ from app.models.widget import Widget
 from app.streaming.completion_event_bus import websocket_manager
 
 from .base import BaseSchema
+from app.ee.encryption import EncryptedJSON
 # from app.services.slack_notification_service import send_step_result_to_slack # This is removed
 
 # These event listeners fire from SQLAlchemy's after_update/after_insert
@@ -36,11 +37,11 @@ class Step(BaseSchema):
     # step.data directly to a reader: resolve what they may see through
     # app.services.viewer_data_policy.resolve_step_data (or
     # report_snapshot_withheld for report-level renders with no user).
-    data = Column(JSON, nullable=True, default=dict)
+    data = Column(EncryptedJSON, nullable=True, default=dict)
     # Bounded projection used by agent context. This is deliberately separate
     # from ``data`` so prompt construction never has to parse the full snapshot.
     # It remains internal (not part of StepSchema/API serialization).
-    context_summary_json = Column(JSON(none_as_null=True), nullable=True, default=None)
+    context_summary_json = Column(EncryptedJSON(none_as_null=True), nullable=True, default=None)
     description = Column(Text, nullable=False, default="")
     type = Column(String, nullable=False, default="table")
     data_model = Column(JSON, nullable=True, default=dict)

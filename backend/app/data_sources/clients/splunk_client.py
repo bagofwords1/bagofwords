@@ -22,6 +22,16 @@ effort-enrichment discipline, adapted to Splunk's schema-on-read model:
      is not an error — it silently matches nothing — so the thin-tail path is
      safe, just one extra peek.
 
+Beyond raw events, discovery also catalogs the deployment's **knowledge
+objects** — dashboards (`data/ui/views`) and saved searches/alerts
+(`saved/searches`) — as `dashboard::<app>/<name>` and
+`saved_search::<app>/<name>` tables. A dashboard's panels become its columns,
+each carrying the panel's SPL; that SPL is the encoded tribal knowledge an
+operator uses during a manual RCA, so surfacing it lets the agent replay the
+same investigation (find the dashboard → read the panel SPL → re-run it
+scoped to the incident window). Both Simple XML and Dashboard Studio (JSON)
+definitions are parsed; listing is best-effort and never fails discovery.
+
 Auth is Splunk-native:
   - `token`    → an authentication token sent as `Authorization: Bearer <token>`
                  (Settings → Tokens; works on Splunk Cloud and 8.x+).
@@ -30,7 +40,8 @@ Auth is Splunk-native:
 import json
 import logging
 import re
-from typing import Any, Dict, List, Optional
+import xml.etree.ElementTree as ET
+from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 import requests
@@ -47,6 +58,40 @@ SAMPLE_EVENTS = 500          # events sampled per sourcetype for field discovery
 DEFAULT_MAX_SAMPLED = 50     # top-K sourcetypes that get field sampling
 CATALOG_SEARCH = "| tstats count where index=* by index, sourcetype"
 INDEX_CHUNK = 20             # indexes per OR-list tstats when wildcards are blocked
+
+DASHBOARD_PREFIX = "dashboard::"
+SAVED_SEARCH_PREFIX = "saved_search::"
+MAX_KNOWLEDGE_OBJECTS = 300  # cap on dashboards / saved searches cataloged
+SPL_DESC_MAX = 300           # panel/saved-search SPL shown in descriptions
+
+# Apps whose knowledge objects are Splunk plumbing, not operator content.
+_SYSTEM_APPS = frozenset({
+    "system", "launcher", "learned", "legacy", "user-prefs", "appsbrowser",
+    "alert_logevent", "alert_webhook", "introspection_generator_addon",
+    "journald_input", "python_upgrade_readiness_app", "sample_app",
+    "splunk_archiver", "splunk_assist", "splunk_essentials_9_0",
+    "splunk_gdi", "splunk_httpinput", "splunk_instrumentation",
+    "splunk_internal_metrics", "splunk_metrics_workspace",
+    "splunk_monitoring_console", "splunk_rapid_diag", "splunk_secure_gateway",
+    "splunk-dashboard-studio", "SplunkForwarder", "SplunkLightForwarder",
+    "SplunkDeploymentServerConfig", "splunk-rolling-upgrade",
+    "splunk_ingest_actions", "splunk_datasets_addon", "search_artifacts_helper",
+})
+
+# Stock knowledge objects shipped in the `search` app — Splunk self-monitoring
+# plumbing, never the customer's RCA content.
+_DEFAULT_VIEWS = frozenset({
+    "analytics_workspace", "dashboards", "data_lab", "datasets", "search",
+    "integrity_check_of_installed_files", "job_details_dashboard",
+    "jquery_upgrade", "orphaned_scheduled_searches",
+    "scheduled_export_dashboard", "secure_gateway_mobile_devices",
+})
+_DEFAULT_SAVED_SEARCHES = frozenset({
+    "Errors in the last 24 hours", "Errors in the last hour",
+    "License Usage Data Cube", "Messages by minute last 3 hours",
+    "Orphaned scheduled searches", "Splunk errors last 24 hours",
+    "Bucket Merge Retrieve Conf Settings", "Bucket Copy Trigger",
+})
 
 # An SPL wildcard-index reference (`index=*`). Hardened deployments (Splunk
 # Cloud guardrails, ES-restricted roles) reject searches containing it.
@@ -97,7 +142,10 @@ class SplunkClient(DataSourceClient):
     @property
     def description(self):
         text = ("Splunk client — investigate machine data (logs/events) across "
-                "indexes and sourcetypes with SPL (search, stats, timechart).")
+                "indexes and sourcetypes with SPL (search, stats, timechart), "
+                "and replay the team's dashboards and saved searches "
+                "(`dashboard::app/name` / `saved_search::app/name` tables) for "
+                "incident RCA.")
         return text + "\n\n" + self.system_prompt()
 
     # ── transport ─────────────────────────────────────────────────────────────
@@ -355,6 +403,259 @@ class SplunkClient(DataSourceClient):
             columns.append(TableColumn(name=field, dtype=dtype))
         return columns
 
+    # ── dashboards & saved searches (knowledge objects) ──────────────────────
+
+    @staticmethod
+    def _split_app_ref(ref: str, prefix: str) -> Tuple[str, str]:
+        """`dashboard::payments/checkout` (or bare `payments/checkout`, or just
+        `checkout`) → (app, name). App defaults to `-` (any app)."""
+        r = (ref or "").strip()
+        if r.startswith(prefix):
+            r = r[len(prefix):]
+        if "/" in r:
+            app, name = r.split("/", 1)
+            return (app or "-"), name
+        return "-", r
+
+    @staticmethod
+    def _truncate_spl(spl: str) -> str:
+        s = " ".join((spl or "").split())
+        return s if len(s) <= SPL_DESC_MAX else s[:SPL_DESC_MAX] + " …"
+
+    @staticmethod
+    def _parse_studio_definition(defn: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Panels from a Dashboard Studio JSON definition.
+
+        Studio splits a panel into a visualization + a data source; `ds.chain`
+        sources extend a base source with post-processing SPL, so the runnable
+        query is base + chain."""
+        sources = defn.get("dataSources") or {}
+
+        used_ds = set()
+
+        def resolve_query(ds_id, seen=None):
+            seen = seen or set()
+            if ds_id in seen:
+                return None, {}
+            seen.add(ds_id)
+            used_ds.add(ds_id)  # a base reached through a chain is consumed too
+            ds = sources.get(ds_id) or {}
+            opts = ds.get("options") or {}
+            q = opts.get("query") or ""
+            params = opts.get("queryParameters") or {}
+            base_id = opts.get("extend")
+            if base_id:
+                base_q, base_params = resolve_query(base_id, seen)
+                if base_q:
+                    q = f"{base_q.rstrip()} {q.strip()}" if q.strip() else base_q
+                params = {**base_params, **params}
+            return (q or None), params
+
+        panels: List[Dict[str, Any]] = []
+        for viz_id, viz in (defn.get("visualizations") or {}).items():
+            ds_ref = (viz.get("dataSources") or {}).get("primary")
+            if not ds_ref:
+                continue
+            q, params = resolve_query(ds_ref)
+            if not q:
+                continue
+            title = viz.get("title") or (sources.get(ds_ref) or {}).get("name") or viz_id
+            panels.append({"title": str(title), "spl": q,
+                           "earliest": params.get("earliest"),
+                           "latest": params.get("latest")})
+        # Data sources no visualization references (rare, but a search-only
+        # dashboard is still knowledge worth surfacing).
+        for ds_id, ds in sources.items():
+            if ds_id in used_ds or (ds.get("type") or "") == "ds.chain":
+                continue
+            q, params = resolve_query(ds_id)
+            if q and not any(p["spl"] == q for p in panels):
+                panels.append({"title": str(ds.get("name") or ds_id), "spl": q,
+                               "earliest": params.get("earliest"),
+                               "latest": params.get("latest")})
+        return panels
+
+    @classmethod
+    def _parse_dashboard_xml(cls, xml_text: str) -> Optional[Dict[str, Any]]:
+        """Parse a view's `eai:data` into {label, type, panels} — or None when
+        the view is not a dashboard (built-in app pages, HTML views)."""
+        try:
+            root = ET.fromstring(xml_text or "")
+        except ET.ParseError:
+            return None
+        tag = root.tag.split("}")[-1]
+        if tag not in ("dashboard", "form"):
+            return None
+        label = (root.findtext("label") or "").strip() or None
+        if (root.get("version") or "").strip() in ("2", "1.1", "2.0"):
+            defn_text = root.findtext("definition") or ""
+            try:
+                defn = json.loads(defn_text)
+            except (ValueError, TypeError):
+                return {"label": label, "type": "studio", "panels": []}
+            return {"label": label or defn.get("title"), "type": "studio",
+                    "panels": cls._parse_studio_definition(defn)}
+        # Simple XML: <row>/<panel> holding viz elements with <search><query>.
+        # Base searches (<search id=X>) are extended via <search base=X>.
+        bases: Dict[str, str] = {}
+        for s in root.iter("search"):
+            sid = s.get("id")
+            q = (s.findtext("query") or "").strip()
+            if sid and q:
+                bases[sid] = q
+        panels: List[Dict[str, Any]] = []
+
+        def search_to_panel(search_el, title):
+            q = (search_el.findtext("query") or "").strip()
+            base = search_el.get("base")
+            if base and bases.get(base):
+                q = f"{bases[base]} {q}".strip() if q else bases[base]
+            if not q:
+                return
+            panels.append({"title": title, "spl": q,
+                           "earliest": (search_el.findtext("earliest") or "").strip() or None,
+                           "latest": (search_el.findtext("latest") or "").strip() or None})
+
+        for panel_el in root.iter("panel"):
+            p_title = (panel_el.findtext("title") or "").strip()
+            for viz in list(panel_el):
+                v_tag = viz.tag.split("}")[-1]
+                if v_tag in ("title", "input", "html", "description"):
+                    continue
+                v_title = (viz.findtext("title") or "").strip() or p_title or v_tag
+                s = viz.find("search")
+                if s is not None:
+                    search_to_panel(s, v_title)
+                else:
+                    legacy = (viz.findtext("searchString") or "").strip()
+                    if legacy:
+                        panels.append({"title": v_title, "spl": legacy,
+                                       "earliest": None, "latest": None})
+        return {"label": label, "type": "simple_xml", "panels": panels}
+
+    def _list_views(self) -> List[Dict[str, Any]]:
+        body = self._get("/servicesNS/-/-/data/ui/views", params={"count": 0})
+        return body.get("entry") or []
+
+    def _get_view(self, app: str, name: str) -> Dict[str, Any]:
+        from urllib.parse import quote
+        body = self._get(f"/servicesNS/-/{quote(app, safe='')}/data/ui/views/{quote(name, safe='')}",
+                         params={"count": 1})
+        entries = body.get("entry") or []
+        if not entries:
+            raise RuntimeError(f"Splunk dashboard not found: {app}/{name}")
+        return entries[0]
+
+    @staticmethod
+    def _entry_app(entry: Dict[str, Any]) -> str:
+        return ((entry.get("acl") or {}).get("app")
+                or ((entry.get("content") or {}).get("eai:acl") or {}).get("app")
+                or "search")
+
+    def _dashboard_table(self, entry: Dict[str, Any],
+                         parsed: Dict[str, Any]) -> Table:
+        app = self._entry_app(entry)
+        name = entry.get("name")
+        label = parsed.get("label") or name
+        owner = (entry.get("acl") or {}).get("owner")
+        panels = parsed.get("panels") or []
+        columns = [TableColumn(name=p["title"], dtype="panel",
+                               description=self._truncate_spl(p["spl"]))
+                   for p in panels]
+        titles = "; ".join(p["title"] for p in panels[:8])
+        desc = (f"Splunk dashboard '{label}' (app: {app}"
+                + (f", owner: {owner}" if owner else "") + ")."
+                + (f" Panels: {titles}." if titles else "")
+                + " Each panel column's description is its saved SPL — the team's"
+                  " curated investigation queries. Run a panel with execute_query"
+                  f"({{\"dashboard\": \"{app}/{name}\", \"panel\": \"<title>\","
+                  " \"earliest\": ..., \"latest\": ...}}) scoped to the incident"
+                  " window, or adapt its SPL directly.")
+        return Table(
+            name=f"{DASHBOARD_PREFIX}{app}/{name}", description=desc,
+            columns=columns, pks=[], fks=[],
+            metadata_json={"splunk": {
+                "kind": "dashboard", "app": app, "view_id": name,
+                "dashboard_type": parsed.get("type"), "panel_count": len(panels),
+                "panels": panels,
+            }},
+        )
+
+    def _dashboard_tables(self) -> List[Table]:
+        tables: List[Table] = []
+        for entry in self._list_views():
+            if len(tables) >= MAX_KNOWLEDGE_OBJECTS:
+                break
+            app = self._entry_app(entry)
+            if app in _SYSTEM_APPS:
+                continue
+            if app == "search" and entry.get("name") in _DEFAULT_VIEWS:
+                continue
+            content = entry.get("content") or {}
+            if str(content.get("isVisible", True)).lower() in ("0", "false"):
+                continue
+            parsed = self._parse_dashboard_xml(content.get("eai:data") or "")
+            if parsed is None:
+                continue
+            try:
+                tables.append(self._dashboard_table(entry, parsed))
+            except Exception as e:
+                logger.warning(f"Splunk dashboard catalog skipped {app}/{entry.get('name')}: {e}")
+        return tables
+
+    def _saved_search_tables(self) -> List[Table]:
+        body = self._get("/servicesNS/-/-/saved/searches", params={"count": 0})
+        tables: List[Table] = []
+        for entry in (body.get("entry") or []):
+            if len(tables) >= MAX_KNOWLEDGE_OBJECTS:
+                break
+            app = self._entry_app(entry)
+            name = entry.get("name")
+            if app in _SYSTEM_APPS or not name:
+                continue
+            if app == "search" and name in _DEFAULT_SAVED_SEARCHES:
+                continue
+            content = entry.get("content") or {}
+            spl = (content.get("search") or "").strip()
+            if not spl:
+                continue
+            is_alert = str(content.get("alert_type") or "always") != "always"
+            scheduled = str(content.get("is_scheduled", "0")).lower() in ("1", "true")
+            cron = content.get("cron_schedule") or None
+            user_desc = (content.get("description") or "").strip()
+            kind_word = "alert" if is_alert else "saved search"
+            desc = (f"Splunk {kind_word} (app: {app})."
+                    + (f" {user_desc}" if user_desc else "")
+                    + (f" Scheduled: {cron}." if scheduled and cron else "")
+                    + f" SPL: {self._truncate_spl(spl)}"
+                    + " — run it with execute_query({\"saved_search\": "
+                      f"\"{app}/{name}\", \"earliest\": ..., \"latest\": ...}})"
+                      " or adapt the SPL.")
+            tables.append(Table(
+                name=f"{SAVED_SEARCH_PREFIX}{app}/{name}", description=desc,
+                columns=[], pks=[], fks=[],
+                metadata_json={"splunk": {
+                    "kind": "alert" if is_alert else "saved_search",
+                    "app": app, "saved_search_name": name, "spl": spl,
+                    "cron": cron, "alert": is_alert,
+                }},
+            ))
+        return tables
+
+    def _knowledge_tables(self) -> List[Table]:
+        """Dashboards + saved searches, best-effort: a failure (endpoint denied
+        to the role, unparseable view) never fails event discovery."""
+        tables: List[Table] = []
+        try:
+            tables.extend(self._dashboard_tables())
+        except Exception as e:
+            logger.warning(f"Splunk dashboard catalog failed: {e}")
+        try:
+            tables.extend(self._saved_search_tables())
+        except Exception as e:
+            logger.warning(f"Splunk saved-search catalog failed: {e}")
+        return tables
+
     def get_schemas(self, progress_callback=None) -> List[Table]:
         """Discover `index::sourcetype` tables (cheap) and sample fields for
         the top-K sourcetypes by volume (capped)."""
@@ -420,14 +721,32 @@ class SplunkClient(DataSourceClient):
                     progress_callback("schema", name, i + 1, total)
                 except Exception:
                     pass
+        tables.extend(self._knowledge_tables())
         return tables
 
     def get_schema(self, table_name: str) -> Table:
         """Fields for a single `index::sourcetype` table (samples on demand —
-        this is how the thin-tail tables fill in their columns).
+        this is how the thin-tail tables fill in their columns), or the full
+        panel set for a `dashboard::app/name` / `saved_search::app/name` entry
+        (re-fetched live, so a stale catalog still hydrates correctly).
 
         A bare-sourcetype name (or a legacy `*::sourcetype` one) has its index
         resolved via the index catalog — no wildcard search is ever emitted."""
+        if table_name.startswith(DASHBOARD_PREFIX):
+            app, name = self._split_app_ref(table_name, DASHBOARD_PREFIX)
+            entry = self._get_view(app, name)
+            parsed = self._parse_dashboard_xml(
+                (entry.get("content") or {}).get("eai:data") or "")
+            if parsed is None:
+                raise RuntimeError(f"Splunk view {app}/{name} is not a dashboard.")
+            return self._dashboard_table(entry, parsed)
+        if table_name.startswith(SAVED_SEARCH_PREFIX):
+            app, name = self._split_app_ref(table_name, SAVED_SEARCH_PREFIX)
+            for t in self._saved_search_tables():
+                if t.name == f"{SAVED_SEARCH_PREFIX}{app}/{name}" or (
+                        app == "-" and t.name.endswith(f"/{name}")):
+                    return t
+            raise RuntimeError(f"Splunk saved search not found: {app}/{name}")
         if "::" in table_name:
             index, sourcetype = table_name.split("::", 1)
         else:
@@ -453,35 +772,50 @@ class SplunkClient(DataSourceClient):
 
         `earliest`/`latest` default to the connection's discovery window and
         `now` when omitted; `limit` caps rows (default 1000, hard cap 50k).
+
+        Dashboard/saved-search envelopes run the SPL a knowledge object has
+        stored (fetched live at query time, so it is never stale):
+            {"dashboard": "payments/checkout_health"}            → panel inventory
+            {"dashboard": "payments/checkout_health",
+             "panel": "Error rate by service", "earliest": "-1h"} → run that panel
+            {"saved_search": "payments/High error rate", "earliest": "-1h"}
         """
-        spl, earliest, latest, limit = self._parse_spec(query)
+        spec = self._coerce_spec(query)
+        if spec.get("dashboard"):
+            return self._execute_dashboard(spec)
+        if spec.get("saved_search"):
+            return self._execute_saved_search(spec)
+        spl, earliest, latest, limit = self._parse_spec(spec)
         rows = self._run_search(spl, earliest=earliest, latest=latest, count=limit)
         if not rows:
             return pd.DataFrame()
         return pd.DataFrame(rows)
 
+    @staticmethod
+    def _coerce_spec(query) -> Dict[str, Any]:
+        if isinstance(query, dict):
+            return query
+        s = (query or "").strip()
+        # A JSON envelope, or a bare SPL string.
+        if s.startswith("{"):
+            try:
+                return json.loads(s)
+            except json.JSONDecodeError:
+                return {"spl": s}
+        return {"spl": s}
+
     def _parse_spec(self, query):
         earliest: Optional[str] = self._window()
         latest: Optional[str] = "now"
         limit = DEFAULT_LIMIT
-        spl = None
-        if isinstance(query, dict):
-            spec = query
-        else:
-            s = (query or "").strip()
-            # A JSON envelope, or a bare SPL string.
-            if s.startswith("{"):
-                try:
-                    spec = json.loads(s)
-                except json.JSONDecodeError:
-                    spec = {"spl": s}
-            else:
-                spec = {"spl": s}
+        spec = self._coerce_spec(query)
         spl = spec.get("spl") or spec.get("search") or spec.get("query")
         if not spl:
             raise ValueError(
                 'Splunk query must be an SPL string or a JSON envelope like '
-                '{"spl": "search index=web | stats count by host", "earliest": "-24h", "limit": 1000}.'
+                '{"spl": "search index=web | stats count by host", "earliest": "-24h", "limit": 1000}, '
+                'or a knowledge-object envelope like {"dashboard": "<app>/<name>", "panel": "<title>"} '
+                'or {"saved_search": "<app>/<name>"}.'
             )
         if spec.get("earliest") is not None:
             earliest = spec["earliest"]
@@ -493,6 +827,71 @@ class SplunkClient(DataSourceClient):
             except (TypeError, ValueError):
                 pass
         return spl, earliest, latest, limit
+
+    def _time_and_limit(self, spec: Dict[str, Any],
+                        default_earliest: Optional[str],
+                        default_latest: Optional[str]):
+        earliest = spec.get("earliest") or default_earliest or self._window()
+        latest = spec.get("latest") or default_latest or "now"
+        limit = DEFAULT_LIMIT
+        if spec.get("limit") is not None:
+            try:
+                limit = min(int(spec["limit"]), MAX_ROWS)
+            except (TypeError, ValueError):
+                pass
+        return earliest, latest, limit
+
+    def _execute_dashboard(self, spec: Dict[str, Any]) -> pd.DataFrame:
+        app, name = self._split_app_ref(str(spec["dashboard"]), DASHBOARD_PREFIX)
+        entry = self._get_view(app, name)
+        parsed = self._parse_dashboard_xml(
+            (entry.get("content") or {}).get("eai:data") or "")
+        if parsed is None:
+            raise RuntimeError(f"Splunk view {app}/{name} is not a dashboard.")
+        panels = parsed.get("panels") or []
+        panel_ref = spec.get("panel")
+        if panel_ref is None or panel_ref == "":
+            # No panel selected → return the panel inventory so the agent can
+            # read the SPL and pick (also covers "what does this dashboard show").
+            return pd.DataFrame([{"panel": p["title"], "spl": p["spl"],
+                                  "earliest": p.get("earliest"),
+                                  "latest": p.get("latest")} for p in panels])
+        panel = None
+        if isinstance(panel_ref, int) or (isinstance(panel_ref, str) and panel_ref.isdigit()):
+            i = int(panel_ref)
+            if 0 <= i < len(panels):
+                panel = panels[i]
+        if panel is None:
+            want = str(panel_ref).strip().lower()
+            panel = next((p for p in panels if p["title"].strip().lower() == want), None)
+        if panel is None:
+            titles = "; ".join(p["title"] for p in panels)
+            raise ValueError(f"Panel '{panel_ref}' not found on {app}/{name}. "
+                             f"Panels: {titles}")
+        earliest, latest, limit = self._time_and_limit(
+            spec, panel.get("earliest"), panel.get("latest"))
+        rows = self._run_search(panel["spl"], earliest=earliest, latest=latest,
+                                count=limit)
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+    def _execute_saved_search(self, spec: Dict[str, Any]) -> pd.DataFrame:
+        from urllib.parse import quote
+        app, name = self._split_app_ref(str(spec["saved_search"]), SAVED_SEARCH_PREFIX)
+        body = self._get(
+            f"/servicesNS/-/{quote(app, safe='')}/saved/searches/{quote(name, safe='')}",
+            params={"count": 1})
+        entries = body.get("entry") or []
+        if not entries:
+            raise RuntimeError(f"Splunk saved search not found: {app}/{name}")
+        content = entries[0].get("content") or {}
+        spl = (content.get("search") or "").strip()
+        if not spl:
+            raise RuntimeError(f"Splunk saved search {app}/{name} has no SPL.")
+        earliest, latest, limit = self._time_and_limit(
+            spec, content.get("dispatch.earliest_time"),
+            content.get("dispatch.latest_time"))
+        rows = self._run_search(spl, earliest=earliest, latest=latest, count=limit)
+        return pd.DataFrame(rows) if rows else pd.DataFrame()
 
     # ── prompts ───────────────────────────────────────────────────────────────
 
@@ -536,6 +935,26 @@ class SplunkClient(DataSourceClient):
           wildcard index searches with "you must specify a specific index" —
           and even where allowed, an explicit index is faster.
 
+        DASHBOARDS & SAVED SEARCHES (the team's curated knowledge):
+        - Tables named `dashboard::<app>/<name>` are the deployment's Splunk
+          dashboards — the SAME dashboards operators stare at during a manual
+          investigation. Each panel is a column whose description is the
+          panel's saved SPL. Tables named `saved_search::<app>/<name>` are
+          saved searches/alerts; their SPL is in the description.
+        - For an incident/RCA question, PREFER these over writing SPL from
+          scratch: find the dashboard covering the affected service, read its
+          panel SPL, then re-run panels scoped to the incident time window.
+          They encode the fields, indexes, and thresholds the team actually
+          uses.
+        - Run them via envelopes (never paste `dashboard::...` into SPL):
+          `{"dashboard": "<app>/<name>"}` → panel inventory (title + SPL);
+          `{"dashboard": "<app>/<name>", "panel": "<title>", "earliest":
+          "-1h"}` → run one panel; `{"saved_search": "<app>/<name>",
+          "earliest": "-1h"}` → run a saved search. `earliest`/`latest`
+          override the panel's own defaults — ALWAYS set them to the incident
+          window. You can also copy a panel's SPL and adapt it as a normal
+          `spl` query (e.g. add filters for one host/service).
+
         Examples:
         ```python
         # Discover fields for a thin (un-sampled) sourcetype first
@@ -544,6 +963,8 @@ class SplunkClient(DataSourceClient):
         df = client.execute_query('{"spl": "search (index=web OR index=app) (level=ERROR OR log_level=error) | stats count by host", "earliest": "-24h"}')
         # HTTP 5xx over time
         df = client.execute_query('{"spl": "search index=web sourcetype=access_combined status>=500 | timechart span=1h count", "earliest": "-7d"}')
+        # RCA: re-run a dashboard panel scoped to the incident window
+        df = client.execute_query('{"dashboard": "payments/checkout_health", "panel": "Error rate by service", "earliest": "-2h", "latest": "now"}')
         ```
         """
         return text

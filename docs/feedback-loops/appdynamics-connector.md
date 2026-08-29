@@ -73,6 +73,11 @@ Agent-seeding gotchas (if re-seeding a controller from a sandbox):
 - Stale metric-tree branches from a mislabeled run persist for the retention
   window (they appear as extra service_flows edges — harmless, but explains
   "impossible" edges like a tier calling itself).
+- `APPDYNAMICS_AGENT_BASE_DIR` must be a SHORT path (e.g. `/tmp/apb`). The
+  agent's Java proxy binds a ZeroMQ IPC socket under `<base>/run/comm/`, and
+  a deep base dir (a sandbox scratchpad path) blows the 107-char unix socket
+  limit — `ZMQException: File name too long`, the proxy shuts down, and the
+  app silently never registers (the Flask app itself keeps serving fine).
 - Kill agent processes via /proc cmdline scan, not `pkill -f` (the pattern
   matches your own shell and kills it; a surviving proxy keeps the stale
   identity alive).

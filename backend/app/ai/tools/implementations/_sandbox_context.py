@@ -45,6 +45,7 @@ references to any of them.
 • **Tailwind CSS (v3.4)** — All utility classes available
   - Use modern design: rounded-xl, shadow-lg, backdrop-blur, gradients
   - Dark/light themes, responsive grids, flexbox
+  - **HOST DARK MODE**: the sandbox runs Tailwind with `darkMode: 'class'` and the host app toggles a `dark` class on `<html>` to match the viewer's theme (live, no reload). The iframe body and every pre-built component (KPICard, SectionCard, DataTable, filters, EChart via the bow/bow-dark themes, popovers) adapt automatically. When you write CUSTOM surfaces with light colors (e.g. `bg-white`, `text-slate-900`, `bg-slate-50`), ALWAYS pair them with `dark:` variants (e.g. `bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100`) so the artifact stays readable in both modes. **FORCED-DARK DESIGN** (the user asked for a dark dashboard regardless of their app theme): do NOT hand-paint each component — put `className="dark"` (plus your dark page background) on the artifact's ROOT wrapper div. Tailwind's class strategy matches ancestors, so every built-in component (KPICard, DataTable, filters, popovers) flips to its dark variant automatically and stays consistent. NEVER mix a dark page background with default light cards.
 
 • **Babel** — JSX is transpiled automatically
   - Code must be wrapped in `<script type="text/babel">...</script>`
@@ -269,4 +270,26 @@ ANON_PREVIEW_NOTE = (
     "this screenshot is EXPECTED behavior, not a bug — at view time each "
     "signed-in viewer sees their own identity. NEVER 'fix' absent "
     "personalization by hardcoding a specific person's name."
+)
+
+
+# Appended wherever a validation/preview screenshot is attached. The image is a
+# STATIC capture at page load with nothing clicked, so every closed-by-default
+# UI surface is absent from it. Without this label the planner reads that
+# absence as a defect and burns its edit budget "fixing" filters that work —
+# the observed failure was a multi-select whose options are only in the DOM
+# once the dropdown is opened.
+STATIC_PREVIEW_NOTE = (
+    " NOTE: this is a STATIC screenshot taken at page load — NOTHING has been "
+    "clicked, typed into, hovered or focused. Dropdowns, multi-selects, "
+    "comboboxes, popovers, modals, tooltips and accordions therefore render in "
+    "their CLOSED state, and their options/menu items are correctly absent from "
+    "this image. Not seeing a control's options here is EXPECTED and is NEVER "
+    "evidence that the control is broken or unpopulated. Do NOT 'fix' a filter, "
+    "menu or dropdown because its choices are not visible in the screenshot — "
+    "this image cannot show interactive behavior at all. To check such a "
+    "control, read its wiring in the CODE (does it map over its options and set "
+    "state?); if the code is correct, it works. Only defects visible in a "
+    "resting page — layout breakage, wrong or missing values, unreadable "
+    "contrast, error text — are diagnosable from this screenshot."
 )

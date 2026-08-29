@@ -1,0 +1,33 @@
+{
+ "scenario": "design_oneshot",
+ "report_id": "ca01bc19-d6bb-4dcb-b958-2e014848483c",
+ "passes": {
+  "artifact_completed": true,
+  "no_fatal_render_errors": true,
+  "no_unknown_viz_refs": true,
+  "no_out_of_range_refs": true,
+  "all_payload_vizs_rendered": true,
+  "min_visualizations": true,
+  "retained:Executive Suite": true,
+  "section:Total Revenue": true,
+  "section:Trend": true,
+  "section:Artists": true,
+  "section:Genre": true,
+  "section:Invoices": true,
+  "server_param:genre": true,
+  "server_param:country": true,
+  "filter_interaction": true
+ },
+ "failures": [],
+ "metrics": {
+  "completions": 4,
+  "started": "2026-08-28 18:19:28.446020",
+  "ended": "2026-08-28 18:21:12.304326",
+  "tool_calls": {
+   "success": 9
+  },
+  "artifact_versions": 1,
+  "code_chars": 12272
+ },
+ "score": 1.0
+}

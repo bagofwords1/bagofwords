@@ -30,7 +30,11 @@ from app.models.artifact import Artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
-from app.ai.tools.implementations._sandbox_context import SANDBOX_RUNTIME_OBSERVATION
+from app.ai.tools.implementations._sandbox_context import (
+    SANDBOX_RUNTIME_OBSERVATION,
+    ANON_PREVIEW_NOTE,
+    STATIC_PREVIEW_NOTE,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -167,6 +171,7 @@ class ReadArtifactTool(Tool):
                 "Then use `offset`/`limit` to read a specific line range, or `grep_pattern` (with `before`/`after` context lines) to find the exact region to edit. "
                 "Both return VERBATIM code you can quote in edit_artifact SEARCH blocks or edit_doc find strings. "
                 "Pass load_screenshot=true to include the last rendered preview screenshot in the observation — use this when debugging visual issues or when you need to see the current state before deciding how to edit. "
+                "The screenshot is a STATIC capture at page load with nothing clicked: closed dropdowns/menus/modals and invisible hover states are EXPECTED there and prove nothing about whether a control works — diagnose interactive elements from the code, never from the image. "
                 "IMPORTANT: The artifact_id is found in previous create_artifact results shown as 'artifact_id: <uuid>' in the conversation. "
                 "Do NOT ask the user for URLs or artifact IDs - extract the artifact_id from the conversation context."
             ),
@@ -548,6 +553,7 @@ class ReadArtifactTool(Tool):
                     "source_type": "base64",
                 }]
                 observation["summary"] += " (screenshot included)"
+                observation["summary"] += ANON_PREVIEW_NOTE + STATIC_PREVIEW_NOTE
 
             # Include render errors if stored (useful even without screenshot)
             if artifact.render_errors:

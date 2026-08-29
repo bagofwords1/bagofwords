@@ -57,6 +57,18 @@ class Report(BaseSchema):
     # the tab is a presentation choice, not a data boundary.
     include_data_tab = Column(Boolean, nullable=False, default=True, server_default='1')
 
+    # Chat on the shared artifact page /r/{id}. Off by default; only meaningful
+    # while artifact_visibility != 'none'. Viewer conversations never touch this
+    # report's own transcript — each viewer gets a hidden child report
+    # (report_type='artifact_chat', forked_from_id=this) holding their thread.
+    artifact_chat_enabled = Column(Boolean, nullable=False, default=False, server_default='0')
+    # Which agents (data sources) artifact-page chat may query, chosen by the
+    # owner. null = inherit this report's attached roster; [] = no agents
+    # (answers come from the artifact's own data only); a list = explicit
+    # subset. Never Auto: a viewer's chat can only narrow from here — the
+    # effective set is this ∩ the viewer's own accessible agents.
+    artifact_chat_data_source_ids = Column(JSON, nullable=True, default=None)
+
     cron_schedule = Column(String, nullable=True)
     # Rerun the artifact's queries when a viewer opens the shared report page
     # (/r/{id}). Independent of cron_schedule — a report can refresh on view

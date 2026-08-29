@@ -1,0 +1,230 @@
+# Feedback loop — artifact iteration robustness & filtering (phases 1–3 complete)
+
+Note: sections below are a chronological log; tool names reflect each era
+(the mechanical edit tool was briefly named apply_artifact_edit before taking
+the canonical edit_artifact name — see the Rename section).
+
+Verifies the changes on `claude/artifact-iteration-filtering-2chyem`
+(design: `docs/design/artifact-iteration-and-filtering.md`) against a full
+local stack: backend (sqlite) + frontend + real LLM (Claude 4.5 Haiku) +
+the bundled Chinook SQLite data source
+(`backend/demo-datasources/chinook.sqlite`), driven through the real chat UI
+with Playwright and verified at the DB / HTTP / rendered-iframe layers.
+
+## Setup notes (sandbox quirks that cost time)
+
+- `scripts/download-vendor-libs.sh` must run before artifacts render (React
+  etc. are not vendored in the repo).
+- Pin `BOW_ENCRYPTION_KEY` before first boot. It is auto-generated per
+  process when unset; a backend restart otherwise mints a new key, which
+  invalidates JWTs AND orphans encrypted provider/connection credentials
+  (symptom: `KeyError: '<data source>:<connection>'` from every code run,
+  because construct_clients silently skips connections it cannot decrypt).
+- uvicorn `--reload` reliably wedges on "Waiting for background tasks to
+  complete" in this sandbox; run without the reloader and restart manually
+  after backend edits.
+
+## Phase 1–2 verification (first round)
+
+- Dashboard built by Haiku over Chinook: id-keyed `vizById("<uuid>")`
+  bindings only (0 positional refs), genre + country declared as server-side
+  input parameters on every dashboard query. Selecting Rock re-ran all 3
+  queries at the source (3× `/api/queries/{id}/run` → 200); KPI moved
+  $2,329 → $827, matching Rock's known $826.65.
+- 5 edit iterations (restyle, add viz, rename, remove viz): after every
+  version, code refs == payload id set; the dark-KPI restyle survived three
+  later edits (pinned-decisions digest); removal left no orphan refs.
+- Backward compat: a seeded positional `viz[N]` artifact rendered unchanged
+  under the new runtime; first edit codemodded every ref to `vizById`
+  (backend log confirms), applied the requested change, lost nothing; the
+  stored legacy row was untouched.
+- Doc create+edit (placeholders re-extracted) and slides create+edit
+  (valid 3-slide PPTX, v2 after edit) unaffected.
+
+## Round-2 verification (PR #1030 review findings)
+
+- Coder prompt now offers a full-rewrite fallback instead of "output
+  nothing" (edit_artifact system prompt).
+- Gate hard-blocks on edits: unconverged `[viz refs]` errors reject the edit
+  and keep the last good version (the coder-based editor and the mechanical tool alike).
+  Verified tool-level: an edit deleting a viz binding was rejected with a
+  precise error and persisted nothing.
+- Coverage tightened with the reviewer's counterexamples as unit tests:
+  a chartless page (payload, zero refs) fails; `viz.slice(0,1)` /
+  `.length` no longer count as coverage (`map`/`forEach` only).
+- Codemod skips string literals and `//` comments (quoted "viz[0]" no
+  longer becomes nested-quote breakage) — unit-tested.
+- v3 planner DASHBOARDS section aligned: server-side params are the default
+  filter mechanism; useFilters demoted to within-snapshot interactions.
+- Digest: later entries supersede earlier on conflict; rebuild baseline
+  discloses truncation beyond 30K chars.
+- Unit: 17 tests in `tests/unit/test_artifact_refs.py`; 44 green across the
+  artifact suites.
+
+## F3 — add_parameter (retro-parameterization)
+
+- Chat: "add a city filter to the existing Top 10 Artists query" →
+  `add_parameter` succeeded in-place: query kept its id and viz, now
+  declares `city_filter` (static options), new default step binds
+  `:city_filter`, `edit_artifact` wired the control.
+- UI: selecting Paris re-ran ONLY the bound query (1× `/run`) and the
+  table switched to Paris-only revenue.
+- Failure semantics verified live: an options_source pointing at the query
+  itself is rejected by declaration validation; a failed execution rolls the
+  declaration back (no declared-but-dead params — this rollback was added
+  after the first attempt exposed the gap).
+
+## Phase-3 step 1 — edit_artifact (mechanical, planner-authored)
+
+- Tool-level: exact-once find/replace applied atomically and persisted a new
+  version with no LLM call; an edit that orphaned a payload viz was rejected
+  by the hard gate with nothing persisted.
+- Planner-level (Haiku): `read_artifact` → `edit_artifact` changed the
+  dashboard heading; new version rendered live ("Chinook Revenue Monitor
+  2025") with filters intact.
+- Payload note: `collect_artifact_payload` appends the report's other
+  visualizations as stragglers (mirroring ArtifactFrame); the tool scopes
+  gating/validation to the artifact's own merged id set.
+
+## Known limitation recorded
+
+- `edit_artifact` falls back to persisting unvalidated when Playwright
+  is unavailable in-process (same contract as create_artifact's missing-
+  Playwright fallback). In-server, render validation runs; a standalone
+  harness without a browser can persist a JSX-invalid edit. Acceptable for
+  the same reason the create-side fallback is; revisit if a headless-less
+  deploy target appears.
+
+## Phase-3 completion — planner authors everything (final architecture)
+
+- `create_artifact` accepts planner-authored source in `code`: the Haiku
+  planner wrote the full JSX itself (2,080 chars in the tool arguments) and
+  the tool ran mechanically — "Dashboard Created 0.7s" (persist + gates +
+  one render validation) vs 25s+ on the old coder path. Strict mode: contract
+  errors fail the create outright (no annotate-and-persist).
+- Slides: the planner authored the complete python-pptx script (2,980 chars,
+  `mode='slides'`) — valid 2-slide deck with correct Chinook figures,
+  "Presentation Created 1.0s". Script-as-source; execution is the validation
+  (max_repairs=0 — no repair LLM on planner-authored paths).
+- The mechanical tool now covers slides too, and is the ONLY edit path the
+  planner sees (the coder-based editor retired via allowed_modes=[]; class kept
+  for compat). Follow-up edit turn: indigo accent + section rename applied
+  mechanically, live on v2.
+- The artifact authoring reference (page JSX + runtime docs + slides contract
+  + edit-op rules, ~42K chars, static/cacheable) rides in the planner system
+  prompt; `<current_artifact>` carries the working code (30K cap with a
+  read_artifact fallback note).
+- Whole final flow ran with ZERO inner-LLM (coder) calls: create ×2, edit ×1,
+  all planner-authored. 39 artifact-suite unit tests green.
+
+## Rename: the mechanical tool IS edit_artifact
+
+- The planner-facing mechanical tool now carries the canonical name
+  `edit_artifact` (create/edit/read symmetry; matches model priors). The old
+  coder-based implementation lives on as `edit_artifact_legacy`
+  (registry-hidden, allowed_modes=[]) solely for the MCP surface, whose
+  external callers send English instructions and cannot author diffs.
+- Schema bridge: a call passing the legacy `edit_prompt` shape is rejected
+  with explicit guidance to author find/replace ops — a model imitating old
+  history self-corrects in one round (unit-tested).
+- Frontend dual-mapping reverted to the single `edit_artifact` name.
+- Verified e2e: planner turn ran read_artifact → edit_artifact with
+  `{artifact_id, edits:[{find, replace}]}` args, "Dashboard Edited | Diff |
+  v4 | 0.7s", pane auto-refreshed, label change live.
+- Also fixed in passing: `_get_active_artifact` resolves the report id from
+  `self.report` when `report_id` is unset (a pre-existing test failure on
+  main in test_artifact_relationship_loading).
+
+## Parse gate (production incident follow-up)
+
+Incident: planner-authored code failed render validation twice with Babel
+"Unexpected token, expected ','" at ~10.2s per attempt — reproduced as a
+single dropped `)` in a paren-dense one-liner (the compact-code prompt
+guidance encouraged exactly that style).
+
+- New `_artifact_parse.parse_check_page_code`: the SAME vendored
+  babel-standalone, run in a blank Playwright page (no React, no data, no
+  networkidle), gates planner-authored creates and every mechanical page
+  edit BEFORE the full validation render. Measured: broken code fails in
+  1.8–2.9s (vs ~10s), error type `parse_error`, nothing persisted (create
+  keeps a status="failed" debug row, same as render failures). Browser/libs
+  unavailable → gate silently defers to render validation.
+- Babel's often-useless column pointer is enriched with a string/comment/
+  template-aware `bracket_balance_hint` ("2 unclosed '(' — innermost opened
+  at line 16, col 47"). Hint-only, never a gate (JSX text is its blind spot).
+- Prompt cause removed: the "Code size: write compact... prefer inline
+  expressions... under 8K chars" guidance replaced with one-statement-per-
+  line / break-long-expressions / name-intermediates rules (concise by
+  omitting redundancy, never by minifying); matching rule in the authoring
+  reference's edit-op section.
+- Verified: 10 unit tests (hint scanner incl. the incident reproduction +
+  live Babel round-trip incl. the stored `<script type="text/babel">`
+  wrapper shape); tool-level broken-edit + broken-create + clean-edit
+  against the sandbox DB; one live Haiku chat edit turn through the gated
+  path ("Dashboard Edited, v7, 5.8s", screenshot in session log).
+
+## Phantom-defect spiral (production incident follow-up)
+
+Incident: a dashboard whose multi-select filters worked was reported as
+broken. The planner had read the validation screenshot, seen no dropdown
+options (a static capture never shows an open menu), diagnosed a defect that
+did not exist, spent its whole 4-call artifact budget "fixing" it, and then
+told the user the fix had not been applied — so a working v8 read as failed.
+Same class as the earlier anonymous-preview bug: asserting about runtime
+state the observer never saw.
+
+- `STATIC_PREVIEW_NOTE` (`_sandbox_context.py`, sibling of
+  `ANON_PREVIEW_NOTE`) is appended wherever a screenshot is attached —
+  create_artifact success AND render-failure paths, read_artifact
+  (`load_screenshot`, the evidence source in this incident), and the legacy
+  editor. It names the closed-by-default surfaces (dropdowns, multi-selects,
+  popovers, modals, tooltips), states that their absence is EXPECTED, forbids
+  "fixing" them from the image, and redirects interaction checks to the code.
+  The `load_screenshot` tool description carries the same caveat at the point
+  of decision.
+- Observations get compacted out of long turns, so the caveat also lives in
+  the always-present authoring reference ("READING THE VALIDATION SCREENSHOT
+  — what it can and cannot tell you"), together with the anonymous-viewer
+  rule. That rule had silently regressed: it used to ride on `edit_prompt`'s
+  field description, which the planner stopped seeing when the coder was
+  retired — the failing test that flagged it was correct, not stale.
+- Budget refusals now report the state that DID save. The observation leads
+  with "NOTHING IS BROKEN: v8 is saved and working with all 4 of this turn's
+  applied change(s)", the forced final answer frames the last change as
+  deferred rather than failed, and the user-visible card message (rendered
+  from `error.message`) reads "Edit limit for this turn reached… the
+  dashboard is unchanged — v8 is saved…" instead of "artifact call budget
+  reached".
+- Verified: 18 unit tests across the two suites (both previously-failing
+  rename-fallout tests fixed by closing the real gaps they flagged, plus new
+  coverage pinning the notes at every screenshot-attaching site, the
+  mechanical tool's exemption, and the refusal's honest framing); live
+  read_artifact call against the sandbox DB confirming both notes reach the
+  observation with the image; both refusal branches (with and without a known
+  saved version) rendered and checked.
+- E2E (real chat turns, Haiku, Chinook, driven through the UI):
+  - Phantom spiral, faithful reproduction: asked to check the genre filter and
+    "fix it only if genuinely broken". The planner called read_artifact ONCE,
+    made ZERO edits (artifact stayed at v7), and answered from the code —
+    quoting the caveat back: "The screenshot shows the dropdown in its closed
+    state (as expected at page load), so the options aren't visible in the
+    image — but that's normal... No fix needed."
+  - Budget refusal: seven changes requested one-at-a-time drove 4 successful
+    edits (v8-v11) then the cap. The refusal resolved the REAL saved version
+    at runtime ("v11 is saved and working with all 4 of this turn's applied
+    change(s)"), and the assistant's answer led with the 4 applied changes,
+    stated "The dashboard is saved and working at v11", and listed the 3
+    deferred ones with a continue prompt — never "failed" or "broken". The
+    rendered dashboard confirmed all four changes live.
+- Card bug found by that e2e and fixed: the tool cards rendered
+  `result_json.error` directly, but pre-dispatch refusals set it to
+  `{code, message}` (string elsewhere), so the honest explanation reached the
+  user as raw JSON: `{ "code": "artifact_budget_exhausted", "message": ... }`.
+  New `frontend/utils/toolError.ts::toolErrorText()` unwraps it; wired into
+  all six cards that share the pattern (Edit/CreateArtifact, Edit/CreateDoc,
+  List/SearchFiles). Latent since the guard existed — only visible now that
+  the refusal text carries the explanation. Verified live: the card shows the
+  plain sentence.
+- Follow-up not done: the tool card still reads "Failed to Edit Dashboard"
+  for a budget refusal (a distinct label needs a key across 10 locale files);
+  the honest explanation now shows beneath it.

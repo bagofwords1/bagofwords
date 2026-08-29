@@ -78,7 +78,8 @@
           <span>{{ $t('tools.editArtifact.generatingEdit') }}</span>
           <span v-if="progressChars" class="ms-1 text-gray-300 dark:text-gray-600">{{ $t('tools.editArtifact.charsCount', { n: progressChars }) }}</span>
         </div>
-        <div v-else-if="progressStage === 'applying_edit'"><span>{{ $t('tools.editArtifact.applyingEdit') }}</span></div>
+        <div v-else-if="progressStage === 'applying_edit' || progressStage === 'applying_edits'"><span>{{ $t('tools.editArtifact.applyingEdit') }}</span></div>
+        <div v-else-if="progressStage === 'validating' || progressStage === 'validating_render'"><span>{{ $t('tools.editArtifact.processing') }}</span></div>
         <div v-else-if="progressStage === 'saving_artifact'"><span>{{ $t('tools.editArtifact.savingArtifact') }}</span></div>
         <div v-else><span>{{ $t('tools.editArtifact.processing') }}</span></div>
       </div>
@@ -155,6 +156,7 @@
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
+import { toolErrorText } from '~/utils/toolError'
 
 const { t } = useI18n()
 
@@ -216,8 +218,25 @@ const thumbnailUrl = computed(() => {
 })
 
 const artifactVersion = computed(() => props.toolExecution.result_json?.version)
-const diffApplied = computed(() => props.toolExecution.result_json?.diff_applied ?? null)
-const editInstruction = computed(() => props.toolExecution.arguments_json?.edit_prompt || props.toolExecution.arguments_json?.edit_instruction || '')
+const diffApplied = computed(() => {
+  const r: any = props.toolExecution.result_json || {}
+  if (r.diff_applied !== undefined && r.diff_applied !== null) return r.diff_applied
+  // the mechanical edit path reports applied_ops: ops are always diffs
+  if (r.applied_ops) return true
+  return null
+})
+const editInstruction = computed(() => {
+  const args: any = props.toolExecution.arguments_json || {}
+  if (args.edit_prompt || args.edit_instruction) return args.edit_prompt || args.edit_instruction
+  // mechanical edit path: summarize the find/replace ops
+  if (Array.isArray(args.edits) && args.edits.length) {
+    return args.edits
+      .slice(0, 3)
+      .map((e: any) => `${String(e.find || '').slice(0, 40)} → ${String(e.replace || '').slice(0, 40)}`)
+      .join(' · ') + (args.edits.length > 3 ? ` (+${args.edits.length - 3} more)` : '')
+  }
+  return ''
+})
 
 // Confirmation state
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
@@ -267,7 +286,7 @@ async function rejectConfirmation() {
   } catch {}
 }
 
-const errorMessage = computed(() => props.toolExecution.result_json?.error || '')
+const errorMessage = computed(() => toolErrorText(props.toolExecution.result_json?.error))
 
 const formatDuration = computed(() => {
   if (!props.toolExecution.duration_ms) return ''

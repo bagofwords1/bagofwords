@@ -1834,7 +1834,12 @@
           "sessionStalenessTitle": "جلسة المحادثة",
           "hoursSuffix": "ساعات",
           "sessionStalenessSaved": "تم تحديث نافذة الجلسة",
-          "sessionStalenessInvalid": "أدخل عددًا صحيحًا بين 1 و720 ساعة"
+          "sessionStalenessInvalid": "أدخل عددًا صحيحًا بين 1 و720 ساعة",
+          "announceNewReportTitle": "الإعلان عن محادثة جديدة",
+          "announceNewReportLabel": "الإعلان عن تقارير المحادثات الجديدة",
+          "announceNewReportDesc": "عندما تبدأ رسالة تقرير محادثة جديدًا، يرد البوت برسالة \"لقد بدأت تقرير محادثة جديدًا\" مع رابط إليه. أوقف التفعيل لتخطي هذه الرسالة.",
+          "announceNewReportEnabled": "تم تفعيل الإعلان عن التقارير الجديدة",
+          "announceNewReportDisabled": "تم إيقاف الإعلان عن التقارير الجديدة"
         },
         "slack": {
           "title": "تكامل Slack",

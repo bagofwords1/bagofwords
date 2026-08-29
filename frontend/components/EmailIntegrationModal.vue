@@ -27,6 +27,25 @@
             <span class="font-medium">{{ formatDate(integrationData?.created_at) }}</span></div>
         </div>
       </div>
+      <!-- New conversation announcement -->
+      <div class="bg-gray-50 dark:bg-gray-900 rounded-lg p-4 mb-4">
+        <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ $t('settings.integrations.channels.common.announceNewReportTitle') }}</h3>
+        <label class="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            v-model="announceNewReport"
+            :disabled="savingAnnounce"
+            @change="saveAnnounceNewReport"
+            class="mt-0.5"
+            data-testid="announce-new-report-toggle"
+          />
+          <span class="text-sm">
+            <span class="font-medium">{{ $t('settings.integrations.channels.common.announceNewReportLabel') }}</span>
+            <span class="block text-xs text-gray-500 dark:text-gray-400 mt-0.5">{{ $t('settings.integrations.channels.common.announceNewReportDesc') }}</span>
+          </span>
+        </label>
+      </div>
+
       <div class="flex gap-2">
         <UButton color="gray" variant="soft" :loading="testing" @click="test">{{ $t('settings.integrations.channels.common.testConnection') }}</UButton>
         <UButton color="red" variant="soft" @click="disconnect">{{ $t('settings.integrations.channels.common.disconnect') }}</UButton>
@@ -215,7 +234,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 
 const props = defineProps<{
   integrated: boolean
@@ -226,6 +245,44 @@ const props = defineProps<{
 const emit = defineEmits(['close', 'updated'])
 const toast = useToast()
 const { t } = useI18n()
+
+// "New conversation report" announcement (org setting, per platform).
+// Default mirrors the backend schema default (on).
+const announceNewReport = ref<boolean>(true)
+const savingAnnounce = ref(false)
+
+async function loadAnnounceNewReport() {
+  const res = await useMyFetch('/api/organization/settings')
+  if (res.status.value === 'success') {
+    const v = (res.data.value as any)?.config?.email_announce_new_report
+    if (typeof v === 'boolean') announceNewReport.value = v
+  }
+}
+
+async function saveAnnounceNewReport() {
+  savingAnnounce.value = true
+  const res = await useMyFetch('/api/organization/settings', {
+    method: 'PUT',
+    body: { config: { email_announce_new_report: announceNewReport.value } },
+  })
+  savingAnnounce.value = false
+  if (res.status.value === 'success') {
+    toast.add({
+      title: announceNewReport.value ? t('settings.integrations.channels.common.announceNewReportEnabled') : t('settings.integrations.channels.common.announceNewReportDisabled'),
+      color: 'green',
+    })
+  } else {
+    announceNewReport.value = !announceNewReport.value
+    toast.add({
+      title: t('settings.integrations.channels.common.failedToUpdateSetting'),
+      description: (res.error.value as any)?.data?.detail || (res.error.value as any)?.message,
+      color: 'red',
+    })
+  }
+}
+
+onMounted(() => { if (props.integrated) loadAnnounceNewReport() })
+watch(() => props.integrated, (v) => { if (v) loadAnnounceNewReport() })
 
 const cfg = computed(() => props.integrationData?.platform_config || null)
 

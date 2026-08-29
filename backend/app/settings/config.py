@@ -71,7 +71,11 @@ class Settings(BaseSettings):
                     return env_value
                 # If env var is not set and this is encryption key, generate one
                 if env_var_name == "BOW_ENCRYPTION_KEY":
-                    from .bow_config import generate_fernet_key
+                    from .bow_config import generate_fernet_key, mark_encryption_key_ephemeral
+                    # Invented here, so it changes on the next restart. Flagged
+                    # so payload encryption stays off rather than writing data
+                    # that this process alone can read.
+                    mark_encryption_key_ephemeral()
                     new_key = generate_fernet_key()
                     os.environ["BOW_ENCRYPTION_KEY"] = new_key  # Save for future use
                     return new_key

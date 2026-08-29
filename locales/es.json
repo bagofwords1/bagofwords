@@ -1914,7 +1914,12 @@
           "sessionStalenessTitle": "Sesión de conversación",
           "hoursSuffix": "horas",
           "sessionStalenessSaved": "Ventana de sesión actualizada",
-          "sessionStalenessInvalid": "Introduce un número entero entre 1 y 720 horas"
+          "sessionStalenessInvalid": "Introduce un número entero entre 1 y 720 horas",
+          "announceNewReportTitle": "Anuncio de nueva conversación",
+          "announceNewReportLabel": "Anunciar nuevos informes de conversación",
+          "announceNewReportDesc": "Cuando un mensaje inicia un nuevo informe de conversación, el bot responde con un mensaje \"He iniciado un nuevo informe de conversación\" con un enlace. Desactívalo para omitir ese mensaje.",
+          "announceNewReportEnabled": "Anuncio de nuevos informes activado",
+          "announceNewReportDisabled": "Anuncio de nuevos informes desactivado"
         },
         "slack": {
           "title": "Integración con Slack",

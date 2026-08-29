@@ -2,6 +2,7 @@ from sqlalchemy import JSON, Column, DateTime, ForeignKey, String, Text, UniqueC
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
+from app.ee.encryption import EncryptedJSON
 
 
 class EntityUserResult(BaseSchema):
@@ -34,7 +35,7 @@ class EntityUserResult(BaseSchema):
     status_reason = Column(Text, nullable=True)
 
     # Same shape as Entity.data ({"rows": [...], "columns": [...]})
-    data = Column(JSON, nullable=True, default=dict)
+    data = Column(EncryptedJSON, nullable=True, default=dict)
 
     # Stable hash of the resolved param values ('' = defaults only)
     params_fingerprint = Column(String(64), nullable=False, default='', server_default='')
