@@ -60,8 +60,8 @@
                                     <MDC :value="block.content" />
                                 </div>
                                 <div v-else-if="block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
-                                    <Icon :name="block.status === 'in_progress' ? 'heroicons:arrow-path' : (block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check')"
-                                        :class="['w-3 h-3', block.status === 'in_progress' ? 'animate-spin' : '']" />
+                                    <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3" />
+                                    <Icon v-else :name="block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check'" class="w-3 h-3" />
                                     <span class="truncate max-w-[280px]">{{ block.title }}</span>
                                 </div>
                             </template>
@@ -70,9 +70,8 @@
                             </div>
                         </div>
                     </template>
-                    <div v-if="isStreaming && !streamHasBlocks" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
-                        <Icon name="heroicons:arrow-path" class="w-3 h-3 animate-spin" />
-                        <span>Thinking...</span>
+                    <div v-if="isStreaming && !streamHasBlocks" class="flex items-center ps-1">
+                        <Spinner class="w-4 h-4" />
                     </div>
                 </div>
 
@@ -112,6 +111,7 @@
 
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
+import Spinner from '~/components/Spinner.vue'
 
 const props = defineProps<{ reportId: string; raised?: boolean }>()
 
@@ -162,6 +162,9 @@ async function loadHistory() {
 function orderedBlocks(msg: any) {
     return (msg.completion_blocks || [])
         .slice()
+        // Planner bookkeeping blocks ("Planning (action)" etc.) are noise in a
+        // compact bubble — the spinner placeholder already covers "working".
+        .filter((b: any) => b.content || (b.title && !/^planning/i.test(b.title)))
         .sort((a: any, b: any) => (a.block_index ?? 0) - (b.block_index ?? 0))
 }
 
