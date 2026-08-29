@@ -59,6 +59,17 @@
                                 <div v-if="block.content" class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-md px-3 py-2 max-w-[95%] text-xs text-gray-800 dark:text-gray-200 chat-md">
                                     <MDC :value="block.content" />
                                 </div>
+                                <!-- Tool blocks render with the same components as the
+                                     report/conversation pages, read-only. -->
+                                <div v-else-if="block.tool_execution && getToolComponent(block.tool_execution.tool_name)"
+                                    class="w-full text-xs overflow-x-auto">
+                                    <component
+                                        :is="getToolComponent(block.tool_execution.tool_name)"
+                                        :key="`${block.id}:${block.tool_execution.id || 'noid'}`"
+                                        :tool-execution="block.tool_execution"
+                                        :readonly="true"
+                                    />
+                                </div>
                                 <div v-else-if="block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
                                     <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3" />
                                     <Icon v-else :name="block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check'" class="w-3 h-3" />
@@ -112,6 +123,37 @@
 <script setup lang="ts">
 import { ref, nextTick } from 'vue'
 import Spinner from '~/components/Spinner.vue'
+// The same tool renderers the report and shared-conversation pages use —
+// scoped to the artifact-chat tool allowlist (see ARTIFACT_CHAT_TOOL_ALLOWLIST
+// in backend/app/ai/agent_v2.py).
+import CreateDataTool from '~/components/tools/CreateDataTool.vue'
+import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
+import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
+import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
+import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
+import InspectDataTool from '~/components/tools/InspectDataTool.vue'
+import SearchFilesTool from '~/components/tools/SearchFilesTool.vue'
+import GrepFilesTool from '~/components/tools/GrepFilesTool.vue'
+import ListFilesTool from '~/components/tools/ListFilesTool.vue'
+import ReadFileTool from '~/components/tools/ReadFileTool.vue'
+import ClarifyTool from '~/components/tools/ClarifyTool.vue'
+
+function getToolComponent(toolName: string) {
+    switch (toolName) {
+        case 'create_data': return CreateDataTool
+        case 'describe_tables': return DescribeTablesTool
+        case 'describe_entity': return DescribeEntityTool
+        case 'read_query': return ReadQueryTool
+        case 'read_artifact': return ReadArtifactTool
+        case 'inspect_data': return InspectDataTool
+        case 'search_files': return SearchFilesTool
+        case 'grep_files': return GrepFilesTool
+        case 'list_files': return ListFilesTool
+        case 'read_file': return ReadFileTool
+        case 'clarify': return ClarifyTool
+        default: return null
+    }
+}
 
 const props = defineProps<{ reportId: string; raised?: boolean }>()
 
@@ -228,22 +270,32 @@ async function send() {
     }
 }
 
+// The trailing spinner shows whenever the agent is working with nothing
+// visibly in progress: before the first visible block, and between rounds
+// (a tool finished, the next planner call hasn't produced anything yet).
+// Planner bookkeeping blocks are invisible (orderedBlocks filters them), so
+// they must not count as "in progress" here either.
+function refreshWaitSpinner(assistantMsg: any) {
+    const visible = orderedBlocks(assistantMsg)
+    streamHasBlocks.value = visible.some((b: any) => b.status === 'in_progress')
+}
+
 function handleEvent(evt: any, assistantMsg: any) {
     const kind = evt.event
     if (kind === 'block.upsert' && evt.data?.block) {
         const block = evt.data.block
-        streamHasBlocks.value = true
         const blocks = assistantMsg.completion_blocks
         const idx = blocks.findIndex((b: any) => b.id === block.id)
         if (idx >= 0) blocks[idx] = block
         else blocks.push(block)
+        refreshWaitSpinner(assistantMsg)
         scrollToBottom()
     } else if (kind === 'block.delta.text' && evt.data?.block_id) {
         // Full overwrite snapshot for a block's text field.
         const b = assistantMsg.completion_blocks.find((x: any) => x.id === evt.data.block_id)
         if (b && evt.data.field === 'content' && evt.data.text) {
             b.content = evt.data.text
-            streamHasBlocks.value = true
+            refreshWaitSpinner(assistantMsg)
             scrollToBottom()
         }
     } else if (kind === 'block.delta.token' && evt.data?.block_id) {
@@ -251,7 +303,7 @@ function handleEvent(evt: any, assistantMsg: any) {
         const b = assistantMsg.completion_blocks.find((x: any) => x.id === evt.data.block_id)
         if (b && evt.data.field === 'content' && evt.data.token) {
             b.content = (b.content || '') + String(evt.data.token)
-            streamHasBlocks.value = true
+            refreshWaitSpinner(assistantMsg)
             scrollToBottom()
         }
     } else if (kind === 'completion.finished') {
