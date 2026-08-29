@@ -162,3 +162,46 @@ guidance encouraged exactly that style).
   wrapper shape); tool-level broken-edit + broken-create + clean-edit
   against the sandbox DB; one live Haiku chat edit turn through the gated
   path ("Dashboard Edited, v7, 5.8s", screenshot in session log).
+
+## Phantom-defect spiral (production incident follow-up)
+
+Incident: a dashboard whose multi-select filters worked was reported as
+broken. The planner had read the validation screenshot, seen no dropdown
+options (a static capture never shows an open menu), diagnosed a defect that
+did not exist, spent its whole 4-call artifact budget "fixing" it, and then
+told the user the fix had not been applied — so a working v8 read as failed.
+Same class as the earlier anonymous-preview bug: asserting about runtime
+state the observer never saw.
+
+- `STATIC_PREVIEW_NOTE` (`_sandbox_context.py`, sibling of
+  `ANON_PREVIEW_NOTE`) is appended wherever a screenshot is attached —
+  create_artifact success AND render-failure paths, read_artifact
+  (`load_screenshot`, the evidence source in this incident), and the legacy
+  editor. It names the closed-by-default surfaces (dropdowns, multi-selects,
+  popovers, modals, tooltips), states that their absence is EXPECTED, forbids
+  "fixing" them from the image, and redirects interaction checks to the code.
+  The `load_screenshot` tool description carries the same caveat at the point
+  of decision.
+- Observations get compacted out of long turns, so the caveat also lives in
+  the always-present authoring reference ("READING THE VALIDATION SCREENSHOT
+  — what it can and cannot tell you"), together with the anonymous-viewer
+  rule. That rule had silently regressed: it used to ride on `edit_prompt`'s
+  field description, which the planner stopped seeing when the coder was
+  retired — the failing test that flagged it was correct, not stale.
+- Budget refusals now report the state that DID save. The observation leads
+  with "NOTHING IS BROKEN: v8 is saved and working with all 4 of this turn's
+  applied change(s)", the forced final answer frames the last change as
+  deferred rather than failed, and the user-visible card message (rendered
+  from `error.message`) reads "Edit limit for this turn reached… the
+  dashboard is unchanged — v8 is saved…" instead of "artifact call budget
+  reached".
+- Verified: 18 unit tests across the two suites (both previously-failing
+  rename-fallout tests fixed by closing the real gaps they flagged, plus new
+  coverage pinning the notes at every screenshot-attaching site, the
+  mechanical tool's exemption, and the refusal's honest framing); live
+  read_artifact call against the sandbox DB confirming both notes reach the
+  observation with the image; both refusal branches (with and without a known
+  saved version) rendered and checked.
+- Follow-up not done: the tool card still reads "Failed to Edit Dashboard"
+  for a budget refusal (a distinct label needs a key across 10 locale files);
+  the honest explanation now shows beneath it.

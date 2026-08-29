@@ -270,3 +270,25 @@ ANON_PREVIEW_NOTE = (
     "signed-in viewer sees their own identity. NEVER 'fix' absent "
     "personalization by hardcoding a specific person's name."
 )
+
+
+# Appended wherever a validation/preview screenshot is attached. The image is a
+# STATIC capture at page load with nothing clicked, so every closed-by-default
+# UI surface is absent from it. Without this label the planner reads that
+# absence as a defect and burns its edit budget "fixing" filters that work —
+# the observed failure was a multi-select whose options are only in the DOM
+# once the dropdown is opened.
+STATIC_PREVIEW_NOTE = (
+    " NOTE: this is a STATIC screenshot taken at page load — NOTHING has been "
+    "clicked, typed into, hovered or focused. Dropdowns, multi-selects, "
+    "comboboxes, popovers, modals, tooltips and accordions therefore render in "
+    "their CLOSED state, and their options/menu items are correctly absent from "
+    "this image. Not seeing a control's options here is EXPECTED and is NEVER "
+    "evidence that the control is broken or unpopulated. Do NOT 'fix' a filter, "
+    "menu or dropdown because its choices are not visible in the screenshot — "
+    "this image cannot show interactive behavior at all. To check such a "
+    "control, read its wiring in the CODE (does it map over its options and set "
+    "state?); if the code is correct, it works. Only defects visible in a "
+    "resting page — layout breakage, wrong or missing values, unreadable "
+    "contrast, error text — are diagnosable from this screenshot."
+)

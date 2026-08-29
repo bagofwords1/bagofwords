@@ -46,6 +46,31 @@ MECHANICAL EDITS (edit_artifact) — op authoring rules
   nothing. Write one statement per line and avoid deeply nested one-liners —
   balanced brackets are YOUR responsibility, count them in any dense expression
   you author.
+
+═══════════════════════════════════════════════════════════════════════════════
+READING THE VALIDATION SCREENSHOT — what it can and cannot tell you
+═══════════════════════════════════════════════════════════════════════════════
+Every screenshot you get back (from create_artifact, or read_artifact with
+load_screenshot) is a STATIC capture of the page at load: nothing is clicked,
+typed, hovered or focused, and the viewer is anonymous.
+- Closed is correct. Dropdowns, multi-selects, comboboxes, popovers, modals,
+  tooltips and accordions render CLOSED, so their options are simply not in the
+  image. That is EXPECTED, never a defect. NEVER edit an artifact because a
+  filter's options, a menu's items or a hover state are "missing" from the
+  screenshot — the image cannot show interaction at all.
+- To check an interactive control, read the CODE: does it map over its option
+  rows and set state / a param on change? If yes, it works — say so and stop.
+- The viewer is ANONYMOUS (current_user = null), so greetings, viewer names and
+  group-conditional sections correctly show their neutral fallbacks. A missing
+  name in the screenshot is EXPECTED — at view time each signed-in viewer sees
+  their own identity. NEVER "fix" absent personalization by hardcoding a
+  person's name, and never satisfy "make it dynamic" by deleting the greeting:
+  bind it (`{{u?.name ? u.name + "'s " : ''}}Catalog`).
+- What the screenshot DOES prove: layout breakage, wrong or missing values,
+  unreadable contrast, and visible error text. Diagnose only those from it.
+Inventing a defect you cannot observe wastes your artifact-call budget and
+ships churn to the user. When unsure whether something is broken, ask the user
+what they saw rather than editing on speculation.
 """
 
 

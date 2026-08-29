@@ -40,13 +40,40 @@ def test_budget_refusal_escalates_nudge_then_stop():
     assert 'artifact_refusals = {"n": 0}' in src
     assert 'artifact_refusals["n"] += 1' in src
     # Terminal keys are set ONLY under the >1 escalation branch
-    m = re.search(r'if artifact_refusals\["n"\] > 1:(.*?)return \{', src, re.S)
+    m = re.search(
+        r'if artifact_refusals\["n"\] > 1:(.*?)return await _refuse_before_dispatch',
+        src, re.S,
+    )
     assert m, "escalation branch not found"
     branch = m.group(1)
     assert '"analysis_complete"' in branch
     assert '"final_answer"' in branch
     # The forced answer must not fabricate success for refused work
-    assert "were NOT applied" in branch
+    assert "deferred rather than" in branch
+    # ...and must not read as a broken artifact either: the versions that DID
+    # save are intact, and saying otherwise is what made users think a working
+    # dashboard was destroyed.
+    assert "Nothing is broken and nothing was lost" in branch
+
+
+def test_budget_refusal_reports_the_saved_state():
+    """A refusal is a deferral, not a failure. Both the planner-facing summary
+    and the user-facing error message must name what IS saved, so the turn is
+    narrated as 'done through vN, one change deferred' rather than 'the edit
+    failed' (the observed report: a working v8 dashboard described as broken).
+    """
+    src = _main_loop_source()
+    assert "last_artifact_state" in src
+    m = re.search(r'artifact_refusals\["n"\] \+= 1(.*?)return await _refuse_before_dispatch', src, re.S)
+    assert m, "refusal block not found"
+    block = m.group(1)
+    assert "NOTHING IS BROKEN" in block
+    assert "saved" in block
+    # The user-visible card renders error.message — it must carry the same
+    # honest framing, not a bare "artifact call budget reached".
+    assert "Edit limit for this turn reached" in block
+    assert "was not applied" in block
+    assert "never describe the artifact as failed or broken" in block.lower()
 
 
 def test_outcome_ends_run_first_refusal_non_terminal():

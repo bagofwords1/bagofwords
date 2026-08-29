@@ -38,6 +38,7 @@ from sqlalchemy import desc
 from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_PROMPT,
     ANON_PREVIEW_NOTE,
+    STATIC_PREVIEW_NOTE,
     build_identity_context,
 )
 from app.ai.tools.implementations._artifact_images import load_image_bytes
@@ -1647,6 +1648,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 failure_observation["warnings"] = warnings
             _model = runtime_ctx.get("model")
             if screenshot_base64 and allow_llm_see_data and _model and getattr(_model, "supports_vision", False):
+                failure_observation["summary"] += ANON_PREVIEW_NOTE + STATIC_PREVIEW_NOTE
                 failure_observation["images"] = [{
                     "data": screenshot_base64,
                     "media_type": "image/png",
@@ -1729,6 +1731,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if _attach_screenshot:
             summary_msg += " Screenshot of the rendered dashboard is attached — review it for visual correctness."
             summary_msg += ANON_PREVIEW_NOTE
+            summary_msg += STATIC_PREVIEW_NOTE
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
