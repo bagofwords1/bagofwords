@@ -375,3 +375,125 @@ virtual catalog, two auth variants (**username/password default**, API Client
 OAuth secondary), `requests`-only, enterprise-gated, no MCP dependency.
 Estimated shape and size: very close to `zabbix_client.py` (~450 lines); the
 ~60 lines of token-lifecycle code apply only to the secondary OAuth variant.
+
+---
+
+## Addendum (2026-08-29): RCA knowledge catalog — dashboards & health rules
+
+Context: the Splunk and Elasticsearch/Kibana connectors now catalog the
+deployment's *knowledge objects* (dashboards, saved searches) as
+`dashboard::…` / `saved_search::…` tables, so the agent replays the team's
+manual-RCA workflow — find the dashboard for the affected service, read what
+each panel queries, re-run it scoped to the incident window (see
+`splunk_client.py` / `elasticsearch_client.py` and the shared prompt-gate
+allowlist in `tables_schema_section.py`). This addendum designs the
+AppDynamics equivalent and records a live verification of every open API
+question against a real SaaS controller (v26.x trial,
+`cloud202608170211412.saas.appdynamics.com`, 2026-08-29).
+
+### What "knowledge" means in AppD
+
+Unlike Splunk/Kibana, an AppD dashboard widget carries no runnable query —
+it carries a **metric path + entity scope**, and the connector already
+executes metric paths (`metric_data`). And the densest curated knowledge in
+AppD is not dashboards but **health rules**: full definitions carry the
+metric, the warn/critical thresholds, and the affected entities — "which
+metric matters and what *bad* means, numerically". The connector today
+surfaces health-rule *violations* but not the rule *definitions*.
+
+### Proposed catalog (mirrors the Splunk/Kibana shape)
+
+- `health_rule::<app>/<name>` — via the **fully supported** Health Rule API:
+  `GET /controller/alerting/rest/v1/applications/{id}/health-rules` (list) +
+  `/{rule-id}` (definition). Description = condition summary; metadata =
+  metric paths + thresholds + `conditionExpression` (e.g.
+  `(A AND B) OR (C AND D AND E)`); "execution" = routing the rule's metric
+  path through the existing `metric_data` table with the incident window.
+  Zero unsupported APIs. **This is the high-value, zero-risk half.**
+- `dashboard::<name>` — note the missing `<app>/` prefix, unlike Splunk
+  (`dashboard::<app>/<name>`) and Kibana (`dashboard::<space>/<title>`):
+  AppD custom dashboards are **account-scoped**, not application-scoped —
+  the listing takes no application id, and one dashboard freely mixes
+  widgets across applications (the app reference lives per data series, in
+  `metricMatchCriteriaTemplate.applicationName`). So there is no honest app
+  namespace for the table name; instead, derive the referenced-apps set
+  from the widgets and surface it in the catalog description
+  ("apps: bow-sample-bank, ACME-Air") and in
+  `metadata_json["appdynamics"]["applications"]`, which is what lets the
+  planner match an alert to the right dashboard. Duplicate names are legal
+  (create doesn't auto-suffix; import does) — disambiguate with the
+  dashboard id. Hybrid access:
+  - *Listing*: `GET /controller/restui/dashboards/getAllDashboardsByType/false`
+    (unsupported `restui`, but see verification below) as best-effort
+    auto-discovery, PLUS an optional `dashboard_ids` config list that skips
+    the listing entirely (the export API is supported, so the config-list
+    path is 100% supported end-to-end).
+  - *Hydration* (`get_schema`): `GET /controller/CustomDashboardImportExportServlet?dashboardId=<id>`
+    — the **documented** Configuration Import/Export API. Widgets become
+    panel columns; each `dataSeriesTemplates[].metricMatchCriteriaTemplate`
+    carries `applicationName`, entity scope, and
+    `metricExpressionTemplate.inputMetricPath` (note: the export drops the
+    redundant `metricPath` key — read `inputMetricPath`).
+  - *Execution*: `{"dashboard": ..., "panel": ...}` envelope resolves the
+    widget's metric path onto the existing `metric_data` route. No new query
+    engine.
+
+### Live verification (real SaaS controller, 2026-08-29)
+
+| Operation | Basic auth (`user@account`) | OAuth API client with NO roles |
+|---|---|---|
+| OAuth token issuance | n/a | works |
+| `rest/applications` | 200 | 200 |
+| `restui` dashboard listing | 200, full list | **200, EMPTY list** |
+| Export servlet by id | 200, raw dashboard JSON (all widgets) | masked as `Invalid dashboard id` |
+| Create (restui) / Import (servlet) | both work | explicit `CREATE_DASHBOARDS` permission error |
+| Health rules list + definition | 200 (7 default rules, full `evalCriterias`) | 401 |
+
+Key findings, each a design requirement:
+
+1. **`restui` listing works with plain basic auth AND bearer tokens on
+   current SaaS — no session/CSRF dance.** The "restui needs UI-session
+   auth" fear is dead on 26.x SaaS; keep the `dashboard_ids` config fallback
+   for older on-prem controllers (target 21.4) where this must be re-tested.
+2. **Under-privileged identities fail *silently*, not loudly**: empty
+   dashboard list and "invalid id" on export — never a 403. The connector
+   MUST treat "0 dashboards" as ambiguous and say "no dashboards visible —
+   check the API client's role grants / dashboard sharing" in
+   `test_connection` output and the catalog description.
+3. An API client with no roles can still authenticate and read
+   `rest/applications` — role grants gate dashboards and the alerting API
+   separately. Setup docs: "assign the API client a viewer role" in bold.
+4. The import servlet **silently drops** widget data series whose referenced
+   entities (tier/node) don't resolve on the target controller (warnings
+   array). Irrelevant to the read-only connector; critical for test seeding —
+   fixtures must reference real entities, or be captured from export.
+5. Health-rule definitions verified end-to-end on an instrumented app
+   (`bow-sample-bank`): 7 default rules, full condition trees with metric
+   paths — confirming `health_rule::` catalog entries carry enough to
+   re-run the underlying metrics via `metric_data`.
+
+Living test objects left on the trial controller: dashboards `BOW Checkout
+Health` (2196), `BOW Checkout Health_1` (2197), `BOW Bank Ops` (2198),
+`BOW Bank Ops v2` (2200); apps `bow-sample-bank`, `ACME-Air` (prior
+sessions' seeded estates), plus a two-tier `bow-payments` Python-agent
+estate (checkout-tier → billing-tier with a billing-error profile) seeded
+from this session per the feedback-loop doc's pyagent recipe.
+
+### Verification plan when implemented
+
+Tier 1/2 as usual: extend `tools/appdynamics/mock_controller.py` with the
+three endpoints, shaped from the real captured responses; unit fixtures from
+the live exports (never hand-written — see finding 4). Tier 2.5: re-run the
+probe matrix against the customer's on-prem 21.4 controller (one curl each
+for listing/export/health-rules — the only open question left is `restui`
+behavior on 21.x). Tier 3: the standard sandbox e2e (alert prompt → agent
+finds `dashboard::`/`health_rule::` entries → re-runs metric paths for the
+incident window).
+
+### Scope amendment
+
+The v1 exclusion "Dashboards, policies, actions — write/admin surface" was
+right for its mission but mischaracterizes the read path: listing + export
+is pure read. Amended scope: **v1.1 adds `health_rule::` (supported APIs
+only) and `dashboard::` (supported export + best-effort restui listing +
+`dashboard_ids` fallback)**; policies/actions/config CRUD stay out.
