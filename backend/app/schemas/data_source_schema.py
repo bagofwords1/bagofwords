@@ -171,14 +171,71 @@ class ConnectionEmbedded(BaseModel):
         from_attributes = True
 
 
+class ConnectionReportEmbedded(BaseModel):
+    """Slim connection info for Report responses — display/auth-state fields only.
+
+    Deliberately excludes ``config``: report responses reach every report
+    creator/viewer (including shared-report viewers via /r/{id}), while a
+    connection's config can carry internal topology — server URLs, MCP static
+    headers, identity header-injection rules. Full config stays on the admin
+    data-source endpoints via ConnectionEmbedded.
+
+    ``config`` is still *accepted* here (excluded from serialization) because
+    connector_key must be derived from it when validating straight off ORM
+    objects, same as ConnectionEmbedded.derive_connector_key.
+    """
+    id: str
+    name: str
+    type: str
+    auth_policy: str = "system_only"
+    allowed_user_auth_modes: Optional[List[str]] = None
+    is_active: bool = True
+    user_status: Optional[DataSourceUserStatus] = None
+    connector_key: Optional[str] = None
+    data_shape: str = "tables"
+
+    # Input-only: consumed by the validators below, never serialized.
+    config: Optional[Any] = Field(default=None, exclude=True)
+
+    @validator('allowed_user_auth_modes', pre=True)
+    def parse_json_fields(cls, v):
+        if isinstance(v, str):
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                return None
+        return v
+
+    @validator('connector_key', always=True)
+    def derive_connector_key(cls, v, values):
+        if v:
+            return v
+        return _connector_key_from_config(values.get('config'))
+
+    @validator('data_shape', always=True)
+    def derive_data_shape(cls, v, values):
+        try:
+            from app.schemas.data_source_registry import data_shape_for
+            return data_shape_for(values.get('type')) if values.get('type') else v
+        except Exception:
+            return v
+
+    class Config:
+        from_attributes = True
+
+
 class DataSourceReportSchema(BaseModel):
-    """DataSource schema used in Report responses."""
+    """DataSource schema used in Report responses.
+
+    Serialized to anyone who can view the report — so no agent-management
+    metadata here: no ``context`` (admin-authored prompt injection), no
+    connection ``config``. Those stay on the admin data-source endpoints.
+    """
     id: str
     name: str
     organization_id: str
     created_at: UTCDatetime
     updated_at: UTCDatetime
-    context: Optional[str]
     description: Optional[str]
     summary: Optional[str]
     conversation_starters: Optional[list] = None
@@ -194,12 +251,11 @@ class DataSourceReportSchema(BaseModel):
     publish_status: str = "published"
     reliability_status: str = "training"
 
-    # Connection info (multi-connection support)
-    connections: List[ConnectionEmbedded] = []
+    # Connection info (multi-connection support) — slim, config-free view.
+    connections: List[ConnectionReportEmbedded] = []
 
-    # Legacy fields for backward compatibility - computed from first connection
+    # Legacy field for backward compatibility - computed from first connection
     type: Optional[str] = None
-    config: Optional[Dict[str, Any]] = None
     # Note: NO memberships field here
     # Note: NO primary_instruction here — report context doesn't eager-load it,
     # and Pydantic from_orm would trigger a greenlet error accessing the lazy relationship.

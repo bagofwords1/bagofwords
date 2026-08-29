@@ -400,6 +400,8 @@ from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
 from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution
+from app.ai.llm.header_injection import set_llm_identity, reset_llm_identity
+from app.services.mcp_context_injection import IdentityContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
 
@@ -474,6 +476,25 @@ class AgentV2:
         self._fallback_controller = None
         self._fallback_engaged = False
         self.head_completion = head_completion
+        # Stamp the asker's identity for LLM header injection BEFORE the
+        # planner below constructs its LLM client — provider header_injection
+        # rules resolve at client construction. Membership role/attributes need
+        # a DB query, so main_execution enriches this stamp at run start; the
+        # user-level fields cover the common rules (user.email/name/id) for
+        # clients built here in __init__.
+        try:
+            _init_user = getattr(head_completion, "user", None) if head_completion else None
+        except Exception:
+            _init_user = None
+        set_llm_identity(
+            IdentityContext(
+                email=getattr(_init_user, "email", "") or "",
+                name=getattr(_init_user, "name", "") or "",
+                user_id=str(getattr(_init_user, "id", "") or ""),
+            )
+            if _init_user is not None
+            else None
+        )
         self.system_completion = system_completion
         self.system_completion_id = (
             str(system_completion.id) if system_completion is not None else None
@@ -3857,6 +3878,59 @@ class AgentV2:
                 "baseline_model_id": str(_attr_baseline) if _attr_baseline else None,
             }
         )
+        # Stamp the caller's identity for LLM header injection: providers with
+        # header_injection rules (additional_config) resolve user.email /
+        # membership.attr:* against this when their clients are constructed, so
+        # gateways can attribute cost per user. Same ambient-contextvar approach
+        # as usage attribution — LLM() is called from ~20 sites that never see
+        # the user object.
+        _identity_token = None
+        _id_user = getattr(self.head_completion, "user", None) if self.head_completion else None
+        if _id_user is not None:
+            _id_role, _id_attrs = "", {}
+            try:
+                from app.models.membership import Membership
+                _id_row = (await self.db.execute(
+                    select(Membership.role, Membership.profile_attributes).where(
+                        Membership.user_id == _id_user.id,
+                        Membership.organization_id == self.organization.id,
+                    )
+                )).first()
+                if _id_row is not None:
+                    _id_role = _id_row[0] or ""
+                    _id_attrs = dict(_id_row[1] or {})
+            except Exception:
+                logger.warning("[headers] membership lookup for identity stamp failed", exc_info=True)
+            _identity_token = set_llm_identity(IdentityContext(
+                email=getattr(_id_user, "email", "") or "",
+                name=getattr(_id_user, "name", "") or "",
+                user_id=str(getattr(_id_user, "id", "") or ""),
+                role=_id_role,
+                attributes=_id_attrs,
+            ))
+            # The planner's LLM was constructed in __init__ under the
+            # user-only identity stamp, so membership-based header rules
+            # (membership.role / membership.attr:*) resolved empty in its
+            # baked default_headers. Rebuild it under the enriched identity
+            # when the provider forwards membership fields — same cheap
+            # rebuild the model router uses on escalation.
+            try:
+                _prov_cfg = getattr(getattr(self.model, "provider", None), "additional_config", None) or {}
+                _needs_membership = any(
+                    str((r or {}).get("source", "")).startswith(("membership.", "static:"))
+                    for r in (_prov_cfg.get("header_injection") or [])
+                    if isinstance(r, dict)
+                )
+                logger.debug("[headers] identity stamped (role=%r attrs=%d membership_rules=%s)", _id_role, len(_id_attrs), _needs_membership)
+                if _needs_membership:
+                    from app.ai.llm.llm import LLM
+                    self.planner.llm = LLM(
+                        self.model,
+                        usage_session_maker=async_session_maker,
+                        usage_context=self.usage_limit_context,
+                    )
+            except Exception:
+                logger.warning("[headers] failed to rebuild planner LLM with membership identity", exc_info=True)
         try:
             import time as _time
             _t0 = _time.monotonic()
@@ -6584,6 +6658,8 @@ class AgentV2:
         finally:
             # Drop the ambient LLM usage attribution set at run start.
             reset_usage_attribution(_attribution_token)
+            if _identity_token is not None:
+                reset_llm_identity(_identity_token)
             # Single-writer mode: drop the self._writes alias. self.db's
             # lifecycle is owned by the caller (FastAPI dependency); we
             # only ever aliased to it, never opened/owned a separate

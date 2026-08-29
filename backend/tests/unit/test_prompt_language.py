@@ -44,3 +44,37 @@ def test_org_locale_is_only_the_ambiguous_fallback():
         assert "Hebrew" in directive
         # ...but the primary rule still mirrors the user.
         assert "most recent message" in directive.lower()
+
+
+def _v3_system(**kwargs) -> str:
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+    from app.schemas.ai.planner import PlannerInput
+
+    defaults = dict(
+        user_message="hello",
+        organization_name="Acme",
+        organization_ai_analyst_name="Analyst",
+    )
+    defaults.update(kwargs)
+    return PromptBuilderV3._build_system(PlannerInput(**defaults))
+
+
+def test_planner_v3_system_prompt_carries_the_language_directive():
+    # Regression guard: PlannerV3 is the default planner and its final text IS
+    # the user-facing answer, so its system prompt must carry the same
+    # mirror-the-user's-language rule as the legacy planner/answer agents.
+    # Without it, a Hebrew question against an English system prompt and
+    # English schemas gets an English reply.
+    system = _v3_system()
+    assert "LANGUAGE" in system
+    assert "ALWAYS respond in the same language as the user's most recent message" in system
+
+
+def test_planner_v3_language_fallback_uses_org_locale():
+    # The org locale names only the fallback for ambiguous messages; the
+    # primary rule still mirrors the user's message.
+    system = _v3_system(locale="he")
+    assert "Hebrew" in system
+    assert "most recent message" in system.lower()
+    # No locale -> the system default (English) is the ambiguous fallback.
+    assert "default to English" in _v3_system()

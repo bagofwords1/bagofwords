@@ -148,7 +148,6 @@ def get_llm_client(provider: str, **kwargs):
         return AzureClient(
             api_key=kwargs["api_key"],
             endpoint_url=kwargs["endpoint_url"],
-            api_version=kwargs.get("api_version"),
         )
 
     elif provider == "bedrock":

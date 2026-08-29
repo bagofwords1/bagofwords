@@ -38,7 +38,7 @@
               <span v-if="item.category" class="ms-1.5 text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 flex-shrink-0">{{ item.category }}</span>
               <span v-if="item.load_mode" class="ms-1 text-[9px] px-1 py-0.5 rounded flex-shrink-0"
                 :class="item.load_mode === 'always' ? 'bg-blue-50 dark:bg-blue-950 text-blue-600' : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'">
-                {{ item.load_mode }}
+                {{ getLoadModeLabel(item.load_mode) }}
               </span>
             </div>
             <!-- Detail row -->
@@ -73,6 +73,8 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import InstructionText from '~/components/instructions/InstructionText.vue'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 const { t } = useI18n()
 

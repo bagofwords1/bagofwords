@@ -26,6 +26,7 @@ from app.ai.llm.pii.loader import load_redactor_for_org
 from app.ai.llm.pii.redactor import PiiRedactor, PiiPromptBlockedError
 from app.models.llm_model import LLMModel
 from app.ai.llm.usage_attribution import get_usage_attribution
+from app.ai.llm.header_injection import build_provider_headers
 from app.services.llm_usage_recorder import LLMUsageRecorderService
 from app.services.usage_policy_service import UsageLimitContext, usage_policy_service
 from app.settings.logging_config import get_logger
@@ -88,6 +89,106 @@ def _parse_temperature(raw) -> Optional[float]:
     return value
 
 
+# Public Azure AI Foundry resources are always on this host suffix.
+_AZURE_FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+
+
+def _is_anthropic_model_id(model_id: Optional[str]) -> bool:
+    """Whether a deployment name denotes an Anthropic model.
+
+    This is the primary routing signal for the Azure provider, ahead of the
+    endpoint. Measured against a live Foundry resource: an Anthropic deployment
+    answers ONLY on ``/anthropic/v1/messages``, and it answers there on every
+    hostname the resource carries (``services.ai``, ``cognitiveservices``,
+    ``openai.azure.com`` alike), while both OpenAI-shaped routes reject it with
+    ``404 api_not_supported``. So the model family decides the surface and the
+    hostname does not enter into it.
+
+    Deployment names are admin-chosen, so this is a heuristic. Foundry defaults
+    the name to the catalog id (``claude-haiku-4-5``), and a renamed deployment
+    still matches as long as the name carries the family. One named to hide it
+    entirely lands on the OpenAI surface and fails as ``model_not_found`` —
+    immediate and legible, not a stall.
+    """
+    name = (model_id or "").strip().lower()
+    return "claude" in name or "anthropic" in name
+
+
+# Every route an Azure resource serves hangs off the same root, so any of them
+# in the endpoint field is a path the admin copied rather than one we should
+# honor. The portal is what puts them there: the deployment page shows a Target
+# URI per surface, and the Foundry overview shows the project endpoint far more
+# prominently than the resource root.
+#
+#   /api/projects/<name>                        Foundry project endpoint
+#   /models, /models/chat/completions           Azure AI Inference
+#   /openai, /openai/v1[/...]                   OpenAI-compatible v1 surface
+#   /openai/deployments/<name>/<verb>           Azure OpenAI Target URI
+#   /anthropic[/v1[/messages]]                  Foundry Anthropic Target URI
+#
+# A path prefix that matches none of these is left alone: an APIM or reverse
+# proxy fronting Azure under one is legitimate, and the routes above hang off
+# that prefix exactly as they would off a bare host.
+_AZURE_PORTAL_PATH_TAIL = re.compile(
+    r"/(?:"
+    r"api/projects/[^/]+"
+    r"|models(?:/.*)?"
+    r"|openai(?:/v1(?:/.*)?|/deployments/.+)?"
+    r"|anthropic(?:/v1(?:/messages)?)?"
+    r")$"
+)
+
+
+def _azure_resource_root(endpoint_url: str) -> str:
+    """Reduce a pasted Azure endpoint to the resource root every route hangs off.
+
+    Admins paste whatever the portal showed them, and the surface they land on
+    is chosen here rather than by the path they happened to copy — so the path
+    is normalized away and each caller appends the route it needs.
+
+    Left unnormalized, the Anthropic Target URI was the damaging one: it is not
+    rejected but silently doubled, since the Anthropic base is derived by
+    appending ``/anthropic`` to this result.
+    """
+    base = (endpoint_url or "").strip().rstrip("/")
+    # Query and fragment first: the Target URI carries ``?api-version=``, which
+    # would otherwise defeat the ``$`` anchor and survive into the middle of
+    # the derived URL.
+    base = base.split("?", 1)[0].split("#", 1)[0].rstrip("/")
+    return _AZURE_PORTAL_PATH_TAIL.sub("", base)
+
+
+def _azure_foundry_anthropic_base_url(endpoint_url: str) -> str:
+    """Derive the Foundry Anthropic base_url from a provider endpoint.
+
+    Foundry serves Anthropic deployments at ``<resource>/anthropic/v1/messages``
+    — the native Messages API, not the OpenAI-compatible surface, which answers
+    them with ``404 api_not_supported``.
+
+    Returns the ``/anthropic`` root and NOT ``/anthropic/v1``: the Anthropic SDK
+    appends its own ``/v1/messages`` to whatever base_url it is given, so
+    passing the versioned path produces ``/anthropic/v1/v1/messages``.
+    """
+    return _azure_resource_root(endpoint_url) + "/anthropic"
+
+
+def _is_azure_foundry_endpoint(endpoint_url: str) -> bool:
+    """Whether an Azure endpoint is a Foundry resource, by hostname.
+
+    Only decides which OpenAI-shaped route to use — the deployment-scoped one
+    the Azure SDK builds, or ``/openai/v1``. Foundry serves both, so this is not
+    a correctness fork there; it matters for a classic Azure OpenAI resource,
+    which may only serve the deployment route. Defaulting anything unrecognized
+    to that route therefore keeps existing providers on their proven path.
+
+    Anthropic deployments never reach this function — they are routed by model
+    family, which holds on every hostname (see _is_anthropic_model_id).
+    """
+    base = (endpoint_url or "").strip().rstrip("/").lower()
+    host = base.split("://", 1)[-1].split("/", 1)[0].split(":", 1)[0]
+    return host.endswith(_AZURE_FOUNDRY_HOST_SUFFIX) or "/openai/v1" in base
+
+
 def _retry_delay(attempt: int) -> float:
     """Jittered exponential backoff: 0.5s, 1s, 2s… capped at 4s."""
     return min(0.5 * (2 ** attempt), 4.0) + random.uniform(0, 0.25)
@@ -120,14 +221,18 @@ class LLM:
             self.api_key = self.model.provider.decrypt_credentials()[0]
         except Exception as exc:
             # For most providers, failing to decrypt credentials is a hard error.
-            # The only exception is Bedrock when using non-API-key auth (e.g., IAM),
-            # where an API key is not required.
+            # The exceptions are auth modes that don't need an API key: Bedrock
+            # under IAM/access-key auth, and Azure under Entra ID auth (tokens
+            # come from azure-identity, not a stored key).
             additional_config = getattr(self.model.provider, "additional_config", None) or {}
-            auth_mode = additional_config.get("auth_mode", "iam") if isinstance(additional_config, dict) else "iam"
-            if self.provider == "bedrock" and auth_mode != "api_key":
+            auth_mode = additional_config.get("auth_mode") if isinstance(additional_config, dict) else None
+            if (self.provider == "bedrock" and (auth_mode or "iam") != "api_key") or (
+                self.provider == "azure" and (auth_mode or "api_key") != "api_key"
+            ):
                 logger.warning(
-                    "Failed to decrypt credentials for Bedrock provider in '%s' auth mode; "
+                    "Failed to decrypt credentials for %s provider in '%s' auth mode; "
                     "continuing without api_key. Error: %s",
+                    self.provider,
                     auth_mode,
                     exc,
                 )
@@ -154,40 +259,99 @@ class LLM:
         configured_temperature = _parse_temperature(model_config.get("temperature"))
         if configured_temperature is None:
             configured_temperature = _parse_temperature(additional_config.get("temperature"))
+        # Custom outbound headers: static admin-configured headers plus per-user
+        # identity forwarding rules resolved against the ambient identity (see
+        # app.ai.llm.header_injection). LLM instances are constructed per run /
+        # per call site, inside the identity scope AgentV2 stamps, so resolving
+        # here keeps every client and both sync/async paths covered.
+        custom_headers = build_provider_headers(additional_config) or None
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
             if base_url:
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
-                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature)
+                self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
             else:
                 # Default OpenAI → Responses API (supports reasoning content)
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
+                    default_headers=custom_headers,
                 )
         elif self.provider == "anthropic":
-            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature)
+            self.client = Anthropic(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "google":
-            self.client = Google(api_key=self.api_key, temperature=configured_temperature)
+            self.client = Google(api_key=self.api_key, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "azure":
             endpoint_url = additional_config.get("endpoint_url")
             if not endpoint_url:
                 raise ValueError("Azure provider requires endpoint_url in additional_config")
-            # Default to Chat Completions (AzureClient) — works in every region.
-            # Admins opt into the Responses API explicitly (use_responses_api),
-            # which is required for native web search and only available in some
-            # Azure regions. Web search is honored only on the Responses path.
-            use_responses_api = bool(additional_config.get("use_responses_api", False))
-            if use_responses_api:
-                self.client = OpenAIResponsesClient(
+            auth_mode = additional_config.get("auth_mode", "api_key")
+            azure_ad_token_provider = None
+            if auth_mode in ("entra_client_secret", "entra_default"):
+                azure_ad_token_provider = self._build_entra_token_provider(auth_mode, additional_config)
+            if _is_anthropic_model_id(self.model_id):
+                # Model family first, endpoint second. An Anthropic deployment
+                # answers only on /anthropic/v1 (the native Messages API), and
+                # answers there on every hostname an Azure AI Foundry resource
+                # carries — so no endpoint inspection can improve on this, and
+                # any that tried would get it wrong for the resource's
+                # openai.azure.com alias.
+                if azure_ad_token_provider is not None:
+                    # The Anthropic SDK has no AAD token-provider hook; the
+                    # Messages surface is reached with the resource API key.
+                    logger.warning(
+                        "Azure provider uses Entra ID auth, but Anthropic deployments "
+                        "are served over the Messages API which only supports api_key "
+                        "auth; falling back to the stored API key."
+                    )
+                self.client = Anthropic(
                     api_key=self.api_key,
-                    base_url=self._azure_v1_base_url(endpoint_url),
-                    enable_web_search=enable_web_search,
+                    base_url=_azure_foundry_anthropic_base_url(endpoint_url),
                     temperature=configured_temperature,
+                    default_headers=custom_headers,
                 )
             else:
-                self.client = AzureClient(api_key=self.api_key, endpoint_url=endpoint_url, temperature=configured_temperature)
+                # Default to Chat Completions — works in every region. Admins opt
+                # into the Responses API explicitly (use_responses_api), which is
+                # required for native web search and only available in some Azure
+                # regions. Entra auth always uses the Azure SDK client: the
+                # Responses path and the plain OpenAI client have no AAD
+                # token-provider hook (Foundry serves the deployment-scoped route
+                # too, so that fallback stays correct there).
+                use_responses_api = bool(additional_config.get("use_responses_api", False))
+                if use_responses_api and azure_ad_token_provider is not None:
+                    logger.warning(
+                        "Azure provider uses Entra ID auth; ignoring use_responses_api "
+                        "(Responses API is only supported with api_key auth)."
+                    )
+                    use_responses_api = False
+                if use_responses_api:
+                    self.client = OpenAIResponsesClient(
+                        api_key=self.api_key,
+                        base_url=self._azure_v1_base_url(endpoint_url),
+                        enable_web_search=enable_web_search,
+                        temperature=configured_temperature,
+                        default_headers=custom_headers,
+                    )
+                elif _is_azure_foundry_endpoint(endpoint_url) and azure_ad_token_provider is None:
+                    # Foundry: OpenAI-compatible Chat Completions under /openai/v1,
+                    # reached with the plain OpenAI client rather than the Azure
+                    # SDK's deployment-scoped one.
+                    self.client = OpenAi(
+                        api_key=self.api_key,
+                        base_url=self._azure_v1_base_url(endpoint_url),
+                        temperature=configured_temperature,
+                        default_headers=custom_headers,
+                    )
+                else:
+                    self.client = AzureClient(
+                        api_key=self.api_key,
+                        endpoint_url=endpoint_url,
+                        temperature=configured_temperature,
+                        default_headers=custom_headers,
+                        azure_ad_token_provider=azure_ad_token_provider,
+                    )
         elif self.provider == "custom":
             base_url = self.model.provider.additional_config.get("base_url") if self.model.provider.additional_config else None
             if not base_url:
@@ -195,7 +359,7 @@ class LLM:
             verify_ssl = self.model.provider.additional_config.get("verify_ssl", True) if self.model.provider.additional_config else True
             # Use empty string for api_key if not provided (some local servers don't need auth)
             api_key = self.api_key or ""
-            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature)
+            self.client = OpenAi(api_key=api_key, base_url=base_url, verify_ssl=verify_ssl, temperature=configured_temperature, default_headers=custom_headers)
         elif self.provider == "bedrock":
             additional_config = self.model.provider.additional_config or {}
             region = additional_config.get("region")
@@ -205,7 +369,7 @@ class LLM:
             if auth_mode == "api_key" and not self.api_key:
                 raise ValueError("Bedrock provider with auth_mode 'api_key' requires provider credentials")
 
-            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode}
+            bedrock_kwargs: dict = {"region": region, "auth_mode": auth_mode, "extra_headers": custom_headers}
             if auth_mode == "api_key":
                 bedrock_kwargs["api_key"] = self.api_key
             elif auth_mode == "access_keys":
@@ -221,22 +385,52 @@ class LLM:
         else:
             raise ValueError(f"Provider {self.provider} not supported")
 
+    def _build_entra_token_provider(self, auth_mode: str, additional_config: dict):
+        """Build an AAD bearer-token provider for Azure OpenAI Entra ID auth.
+
+        'entra_client_secret' authenticates as a service principal from the
+        stored tenant/client ids + encrypted client secret; 'entra_default'
+        walks azure-identity's DefaultAzureCredential chain (managed identity,
+        workload identity, env vars, Azure CLI). get_bearer_token_provider
+        caches and refreshes tokens, so the provider stays valid past the
+        ~1h token lifetime for long-lived clients.
+        """
+        from azure.identity import (
+            ClientSecretCredential,
+            DefaultAzureCredential,
+            get_bearer_token_provider,
+        )
+
+        if auth_mode == "entra_client_secret":
+            tenant_id = additional_config.get("tenant_id")
+            client_id = additional_config.get("client_id")
+            try:
+                _, client_secret = self.model.provider.decrypt_credentials()
+            except Exception:
+                client_secret = None
+            if not tenant_id or not client_id or not client_secret:
+                raise ValueError(
+                    "Azure provider with auth_mode 'entra_client_secret' requires "
+                    "tenant_id, client_id, and a stored client_secret"
+                )
+            credential = ClientSecretCredential(
+                tenant_id=tenant_id, client_id=client_id, client_secret=client_secret
+            )
+        else:
+            credential = DefaultAzureCredential()
+        return get_bearer_token_provider(credential, "https://cognitiveservices.azure.com/.default")
+
     @staticmethod
     def _azure_v1_base_url(endpoint_url: str) -> str:
-        """Derive the Azure OpenAI v1 Responses base_url from a provider endpoint.
+        """Derive the ``/openai/v1`` base_url from a provider endpoint.
 
         The AzureClient (Chat Completions) takes the resource root
-        (``https://<resource>.openai.azure.com``). The Responses API lives under
-        ``/openai/v1/`` on that same host. Accept either form so admins can paste
-        whichever they have, and normalize to the v1 base the OpenAI client wants.
+        (``https://<resource>.openai.azure.com``). The v1 surface — Responses on
+        Azure OpenAI, and everything on Azure AI Foundry
+        (``https://<resource>.services.ai.azure.com``) — lives under
+        ``/openai/v1/`` on that same host, so admins may paste either form.
         """
-        base = (endpoint_url or "").rstrip("/")
-        if "/openai/v1" in base:
-            # Already a v1 base (possibly without trailing slash).
-            return base.split("/openai/v1")[0] + "/openai/v1/"
-        if base.endswith("/openai"):
-            return base + "/v1/"
-        return base + "/openai/v1/"
+        return _azure_resource_root(endpoint_url) + "/openai/v1/"
 
     def _validate_vision_support(self, images: Optional[list[ImageInput]]) -> None:
         """Validate that the model supports vision if images are provided."""

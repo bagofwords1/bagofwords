@@ -19,6 +19,7 @@ from typing import Any, Dict, List, Optional
 
 from app.ai.llm.types import Message, ToolSpec
 from app.ai.context.parts import TextPart as _TextPart
+from app.ai.prompt_language import language_directive_body
 from app.schemas.ai.planner import PlannerInput, PlannerInputV3, ToolDescriptor
 
 from . import transcript_bridge
@@ -290,6 +291,13 @@ class PromptBuilderV3:
         )
         rca_notes_bit = ", recording verdicts in notes as they land" if _notes_on else ""
 
+        # Mirror-the-user's-language rule (same body as the legacy planner /
+        # reporter / answer agents). The org locale only serves as the fallback
+        # for messages too short to detect a language from — it is org-level
+        # config, stable for the session, so it keeps the system prompt
+        # cache-friendly.
+        language_text = language_directive_body(getattr(planner_input, "locale", None))
+
         # NOTE: do NOT embed wall-clock time in the system prompt — it would
         # invalidate Anthropic's prompt cache on every call. The current date
         # is rendered into the per-turn user message instead (see
@@ -356,6 +364,9 @@ DASHBOARDS
 
 DOCUMENTS
 - "report", "analysis", "write-up", "memo", "root cause", "summarize in a doc" → `create_doc`: YOU author polished markdown with citations for every number, embedding live charts via `{{viz:<uuid>}}` — create the data FIRST, then the doc (structure and mermaid rules are in the tool's description). "dashboard", "monitor", "track" → `create_artifact`. Genuinely ambiguous → dashboard, with the written summary in your final message. Write docs in the user's language. Edit docs with `edit_doc` (read_artifact first unless the current markdown is in context).
+
+LANGUAGE
+{language_text}
 
 COMMUNICATION
 - Final text (no tool call) is the complete answer: plain language, markdown OK, summarize findings — don't dump raw widget data.

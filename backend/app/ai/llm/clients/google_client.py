@@ -34,9 +34,13 @@ class Google(LLMClient):
     # instead of 0 — the cost is negligible and the request actually goes through.
     MIN_THINKING_BUDGET = 128
 
-    def __init__(self, api_key: str | None = None, temperature: float | None = None):
+    def __init__(self, api_key: str | None = None, temperature: float | None = None,
+                 default_headers: dict | None = None):
         super().__init__()
-        self.client = genai.Client(api_key=api_key)
+        client_kwargs: dict = {"api_key": api_key}
+        if default_headers:
+            client_kwargs["http_options"] = types.HttpOptions(headers=default_headers)
+        self.client = genai.Client(**client_kwargs)
         # Admin-configured override, or the historical default.
         self.temperature = 0.3 if temperature is None else temperature
 

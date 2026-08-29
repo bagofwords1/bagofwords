@@ -260,7 +260,7 @@
                       class="text-[9px] px-1.5 py-0.5 rounded"
                       :class="ins.load_mode === 'always' ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-700' : ins.load_mode === 'intelligent' ? 'bg-purple-100 dark:bg-purple-950 text-purple-700' : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
                     >
-                      {{ ins.load_mode || 'always' }}
+                      {{ getLoadModeLabel(ins.load_mode) }}
                     </span>
                   </td>
                   <!-- Source type -->
@@ -652,6 +652,8 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch } from 'vue'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 interface InstructionBuild {
   id: string

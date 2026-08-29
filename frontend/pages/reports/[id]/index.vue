@@ -515,7 +515,7 @@
 																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
 																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
-																	{{ ins.load_mode || 'always' }}
+																	{{ getLoadModeLabel(ins.load_mode) }}
 																</span>
 															</div>
 														</div>
@@ -1116,6 +1116,8 @@ import { useCan } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
+// Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
+const { getLoadModeLabel } = useInstructionHelpers()
 
 // Types
 type ChatRole = 'user' | 'system'
@@ -5458,6 +5460,15 @@ onMounted(async () => {
 	blockquote { @apply border-l-4 border-gray-200 pl-4 italic my-4; unicode-bidi: plaintext; }
 	table { @apply w-full border-collapse mb-4; unicode-bidi: plaintext; }
 	table th, table td { @apply border border-gray-200 p-2 text-xs bg-white; unicode-bidi: plaintext; }
+
+	/* useMarkdownAutoDir stamps an explicit dir (dominant-direction estimate)
+	   on these blocks; once stamped, isolate replaces plaintext so the stamped
+	   dir governs alignment — plaintext keeps re-resolving from the first
+	   strong character, which is exactly what mis-aligns an RTL sentence that
+	   opens with a Latin token (see composables/useMarkdownAutoDir.ts). */
+	:where(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, table):is([dir="rtl"], [dir="ltr"]) {
+		unicode-bidi: isolate;
+	}
 }
 
 
