@@ -701,6 +701,8 @@ class ReportService:
             conversation_visibility=getattr(report, "conversation_visibility", "none") or "none",
             shared_run_identity=getattr(report, "shared_run_identity", "viewer") or "viewer",
             include_data_tab=bool(getattr(report, "include_data_tab", True)),
+            artifact_chat_enabled=bool(getattr(report, "artifact_chat_enabled", False)),
+            artifact_chat_data_source_ids=getattr(report, "artifact_chat_data_source_ids", None),
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
                 if s.share_type == 'artifact' and s.user_id and s.deleted_at is None

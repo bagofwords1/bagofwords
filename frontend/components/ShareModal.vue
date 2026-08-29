@@ -75,13 +75,13 @@
             <!-- Include Data Tab option (dashboards only): whether viewers of
                  the shared artifact page see the Data tab listing the queries
                  behind the report. The conversation share has no such tab. -->
-            <div v-if="shareType === 'artifact' && isShared" class="flex items-start gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                <UCheckbox v-model="includeDataTab" size="sm" :disabled="isSaving"
-                    @update:model-value="onIncludeDataTabChange" />
+            <div v-if="shareType === 'artifact' && isShared" class="flex items-start justify-between gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                 <div class="flex flex-col min-w-0 flex-1">
                     <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('share.includeDataTab') }}</span>
                     <span class="text-[11px] text-gray-400">{{ $t('share.includeDataTabDesc') }}</span>
                 </div>
+                <UToggle v-model="includeDataTab" size="sm" :disabled="isSaving" class="flex-shrink-0 mt-0.5"
+                    @update:model-value="onIncludeDataTabChange" />
             </div>
 
             <!-- Chat on the shared artifact page (dashboards only): the owner's
@@ -431,7 +431,16 @@ const fetchVisibility = async () => {
                 chatEnabled.value = data.artifact_chat_enabled === true
                 if (props.report) props.report.artifact_chat_enabled = data.artifact_chat_enabled
             }
-            reportAgents.value = (data.data_sources || []).map((ds: any) => ({ id: ds.id, name: ds.name }))
+            // Candidate agents = what the report actually uses (attached
+            // roster, or recovered from its runs for Auto reports) — not the
+            // raw attachment list, which is empty under Auto.
+            try {
+                const agentsRes = await useMyFetch(`/reports/${props.report.id}/artifact_chat/agents`)
+                const payload = agentsRes.data.value as any
+                reportAgents.value = (payload?.agents || []).map((a: any) => ({ id: a.id, name: a.name }))
+            } catch {
+                reportAgents.value = (data.data_sources || []).map((ds: any) => ({ id: ds.id, name: ds.name }))
+            }
             const storedIds = data.artifact_chat_data_source_ids
             if (storedIds === null || storedIds === undefined) {
                 chatScope.value = reportAgents.value.length > 0 ? 'agents' : 'data_only'

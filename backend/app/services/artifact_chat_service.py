@@ -68,19 +68,81 @@ class ArtifactChatService:
         )).scalar_one_or_none()
         return row is not None
 
+    async def candidate_agent_ids(self, db, report: Report) -> list[str]:
+        """The agents this report actually uses — the owner-side inheritance base.
+
+        A manually-attached roster is authoritative. An Auto report (empty
+        roster) has no attachment rows, but its runs still used concrete
+        agents: recover them from the report's tool executions (connection_id /
+        data_source_id arguments), falling back to the focused set. Never
+        widens to "everything accessible" — that would share more than the
+        dashboard ever used.
+        """
+        import json as _json
+
+        roster = [str(ds.id) for ds in (report.data_sources or [])]
+        if roster:
+            return roster
+
+        from app.models.agent_execution import AgentExecution
+        from app.models.tool_execution import ToolExecution
+        from app.models.data_source import DataSource
+
+        rows = (await db.execute(
+            select(ToolExecution.arguments_json)
+            .join(AgentExecution, ToolExecution.agent_execution_id == AgentExecution.id)
+            .where(AgentExecution.report_id == str(report.id))
+        )).scalars().all()
+        conn_ids: set[str] = set()
+        ds_ids: set[str] = set()
+        for raw in rows:
+            try:
+                args = raw if isinstance(raw, dict) else _json.loads(raw or "{}")
+            except Exception:
+                continue
+            cid = args.get("connection_id")
+            if cid:
+                conn_ids.add(str(cid))
+            for key in ("data_source_id",):
+                if args.get(key):
+                    ds_ids.add(str(args[key]))
+            for key in ("data_source_ids", "agent_ids"):
+                vals = args.get(key)
+                if isinstance(vals, list):
+                    ds_ids.update(str(v) for v in vals)
+        if conn_ids:
+            from app.models.domain_connection import domain_connection
+            conn_rows = (await db.execute(
+                select(domain_connection.c.data_source_id)
+                .where(domain_connection.c.connection_id.in_(list(conn_ids)))
+            )).scalars().all()
+            ds_ids.update(str(x) for x in conn_rows)
+        if ds_ids:
+            valid = (await db.execute(
+                select(DataSource.id).where(
+                    DataSource.id.in_(list(ds_ids)),
+                    DataSource.organization_id == str(report.organization_id),
+                    DataSource.deleted_at.is_(None),
+                )
+            )).scalars().all()
+            if valid:
+                return [str(x) for x in valid]
+
+        return [str(x) for x in (getattr(report, 'focused_data_source_ids', None) or [])]
+
     async def effective_agent_ids(self, db, report: Report, organization, user) -> list[str]:
         """owner allowlist ∩ viewer-accessible agents, both live.
 
-        The owner side: artifact_chat_data_source_ids, or the source report's
-        attached roster when null. Never Auto — an owner who attached nothing
-        and picked nothing shares dashboard data only.
+        The owner side: artifact_chat_data_source_ids, or — when null — the
+        agents the report actually uses (roster, or recovered from its runs
+        for Auto reports; see candidate_agent_ids). Never Auto-wide.
         """
         from app.ai.tools.implementations.agent_focus_common import accessible_agents
         from app.services.data_source_service import DataSourceService
 
         allowed = getattr(report, 'artifact_chat_data_source_ids', None)
         if allowed is None:
-            allowed_ids = {str(ds.id) for ds in (report.data_sources or [])}
+            allowed_ids = set(await self.candidate_agent_ids(db, report))
         else:
             allowed_ids = {str(x) for x in allowed}
         if not allowed_ids:
