@@ -55,15 +55,30 @@
                         </div>
                         <!-- Assistant message: tool activity lines + markdown content blocks -->
                         <div v-else class="flex flex-col gap-1.5 items-start" :data-completion-id="msg.id">
+                            <!-- A block can carry BOTH the agent's narration and a tool
+                                 call ("I'll search the sales files" + search_files), so
+                                 content and the tool line render together, in that order —
+                                 same as the report page. -->
                             <template v-for="block in orderedBlocks(msg)" :key="block.id">
                                 <div v-if="block.content" class="bg-gray-100 dark:bg-gray-800 rounded-2xl rounded-bl-md px-3 py-2 max-w-[95%] text-xs text-gray-800 dark:text-gray-200 chat-md">
                                     <MDC :value="block.content" />
                                 </div>
-                                <!-- Tool activity stays a thin status line: this is a
-                                     text-only surface (Teams-style) — the agent is
-                                     instructed to present all data inline in its answer,
-                                     so tool outputs never need their own UI here. -->
-                                <div v-else-if="block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
+                                <!-- Tool activity: the collapsed-header look of the report
+                                     page's tool components ("Created data — Revenue by
+                                     region"), but never expandable. This is a text-only
+                                     surface (Teams-style) — the answer itself carries the
+                                     data, so tool results need no UI of their own here. -->
+                                <div v-if="block.tool_execution" class="flex items-center text-[11px] text-gray-500 dark:text-gray-400 ps-1 min-w-0 max-w-full">
+                                    <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3 me-1.5 text-gray-400 flex-shrink-0" />
+                                    <Icon v-else-if="block.status === 'error'" name="heroicons-exclamation-circle" class="w-3 h-3 me-1.5 text-amber-500 flex-shrink-0" />
+                                    <Icon v-else name="heroicons-check" class="w-3 h-3 me-1.5 text-green-500 flex-shrink-0" />
+                                    <span class="flex-shrink-0" :class="block.status === 'in_progress' ? 'tool-shimmer' : 'text-gray-700 dark:text-gray-300'">
+                                        {{ toolLabel(block) }}
+                                    </span>
+                                    <span v-if="toolDetail(block)" class="ms-1 text-gray-400 truncate">— {{ toolDetail(block) }}</span>
+                                    <span v-if="toolDuration(block)" class="ms-1.5 text-gray-400 flex-shrink-0">{{ toolDuration(block) }}</span>
+                                </div>
+                                <div v-else-if="!block.content && block.title" class="flex items-center gap-1.5 text-[11px] text-gray-400 ps-1">
                                     <Spinner v-if="block.status === 'in_progress'" class="w-3 h-3" />
                                     <Icon v-else :name="block.status === 'error' ? 'heroicons:exclamation-triangle' : 'heroicons:check'" class="w-3 h-3" />
                                     <span class="truncate max-w-[280px]">{{ block.title }}</span>
@@ -163,12 +178,51 @@ async function loadHistory() {
     } catch { /* thread just renders empty */ }
 }
 
+// Verb labels matching the report page's tool headers, for the tools in the
+// artifact-chat allowlist (ARTIFACT_CHAT_TOOL_ALLOWLIST, backend). Unknown
+// tools fall back to a prettified tool_name so a new tool never renders blank.
+const TOOL_LABELS: Record<string, { running: string; done: string }> = {
+    create_data: { running: 'Creating data', done: 'Created data' },
+    describe_tables: { running: 'Describing tables', done: 'Described tables' },
+    describe_entity: { running: 'Reading entity', done: 'Read entity' },
+    read_query: { running: 'Reading query', done: 'Read query' },
+    read_artifact: { running: 'Reading dashboard', done: 'Read dashboard' },
+    inspect_data: { running: 'Inspecting data', done: 'Inspected data' },
+    search_files: { running: 'Searching files', done: 'Searched files' },
+    grep_files: { running: 'Searching files', done: 'Searched files' },
+    list_files: { running: 'Listing files', done: 'Listed files' },
+    read_file: { running: 'Reading file', done: 'Read file' },
+    clarify: { running: 'Asking a question', done: 'Asked a question' },
+}
+
+function toolLabel(block: any): string {
+    const name = block.tool_execution?.tool_name || ''
+    const entry = TOOL_LABELS[name]
+    if (entry) return block.status === 'in_progress' ? entry.running : entry.done
+    return name.replace(/_/g, ' ').replace(/^./, (c: string) => c.toUpperCase())
+}
+
+// The tool's own human title ("Finding sales.csv", "Revenue by region").
+// Deliberately NOT block.title — that is planner bookkeeping
+// ("Planning (research) → search_files") and never reads well here.
+function toolDetail(block: any): string {
+    const detail = block.tool_execution?.arguments_json?.title || ''
+    return detail && detail.toLowerCase() !== toolLabel(block).toLowerCase() ? detail : ''
+}
+
+// Sub-second calls are the norm; a "0.1s" on every line is just noise.
+function toolDuration(block: any): string {
+    const ms = block.tool_execution?.duration_ms ?? block.duration_ms
+    if (!ms || ms < 1000 || block.status === 'in_progress') return ''
+    return `${(ms / 1000).toFixed(1)}s`
+}
+
 function orderedBlocks(msg: any) {
     return (msg.completion_blocks || [])
         .slice()
         // Planner bookkeeping blocks ("Planning (action)" etc.) are noise in a
         // compact bubble — the spinner placeholder already covers "working".
-        .filter((b: any) => b.content || (b.title && !/^planning/i.test(b.title)))
+        .filter((b: any) => b.content || b.tool_execution || (b.title && !/^planning/i.test(b.title)))
         .sort((a: any, b: any) => (a.block_index ?? 0) - (b.block_index ?? 0))
 }
 
@@ -285,4 +339,18 @@ function handleEvent(evt: any, assistantMsg: any) {
 .chat-md :deep(th), .chat-md :deep(td) { border: 1px solid rgb(209 213 219 / 0.6); padding: 2px 6px; }
 .chat-md :deep(code) { background: rgb(0 0 0 / 0.06); border-radius: 3px; padding: 0 3px; font-size: 11px; }
 .chat-md :deep(pre) { overflow-x: auto; background: rgb(0 0 0 / 0.05); border-radius: 6px; padding: 6px; margin: 0.3rem 0; }
+
+/* Same shimmer as the report page's tool headers (see CreateDataTool.vue). */
+.tool-shimmer {
+    background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+    background-size: 200% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    animation: chat-shimmer 2s linear infinite;
+}
+@keyframes chat-shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
 </style>
