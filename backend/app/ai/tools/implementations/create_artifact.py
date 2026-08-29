@@ -1460,16 +1460,34 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             if included_files:
                 artifact_data["files"] = await self._build_file_datauris(db, included_files)
 
+            # Planner-authored code goes through a fast parse-only gate first:
+            # a syntax error should cost ~1-2s (babel-standalone transform in a
+            # bare page) and come back with a bracket-balance hint, not burn a
+            # full ~10s validation render to learn the same thing. Gate
+            # unavailable (no browser/libs) → None → full render decides.
+            parse_error: Optional[str] = None
+            if planner_authored:
+                try:
+                    from app.ai.tools.implementations._artifact_parse import parse_check_page_code
+                    parse_error = await parse_check_page_code(code)
+                except Exception as e:
+                    logger.warning(f"parse gate errored, deferring to render validation: {e}")
+                    parse_error = None
+
             _validate_result: Optional[Dict[str, Any]] = None
-            async for _item in self._validate_and_repair_stream(
-                code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
-                max_repairs=(0 if planner_authored else None),
-                strict=planner_authored,
-            ):
-                if isinstance(_item, dict):
-                    _validate_result = _item
-                else:
-                    yield _item
+            if parse_error is not None:
+                render_clean = False
+                render_errors = [f"[parse] {parse_error}"]
+            else:
+                async for _item in self._validate_and_repair_stream(
+                    code, artifact_data, data.mode, runtime_ctx, deadline_monotonic=_repair_deadline,
+                    max_repairs=(0 if planner_authored else None),
+                    strict=planner_authored,
+                ):
+                    if isinstance(_item, dict):
+                        _validate_result = _item
+                    else:
+                        yield _item
             if _validate_result is not None:
                 code = _validate_result["code"]
                 render_clean = bool(_validate_result["clean"])
@@ -1593,16 +1611,23 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # errors. The artifact row is persisted as status="failed" for
         # debugging, but it is not presented as a working dashboard.
         if data.mode == "page" and not render_clean:
+            # A "[parse] ..." error came from the fast parse gate: the code
+            # never reached a render, so report it as a syntax failure with
+            # Babel's message (plus the bracket-balance hint when one applies).
+            is_parse_failure = bool(render_errors) and all(e.startswith("[parse]") for e in render_errors)
             fatal_errors = self.fatal_render_errors(render_errors)
             first_error = fatal_errors[0] if fatal_errors else (render_errors[0] if render_errors else "unknown render error")
             failure_observation: Dict[str, Any] = {
                 "summary": (
+                    f"Artifact '{data.title or 'Untitled'}' failed to parse (syntax error — "
+                    f"nothing was rendered or persisted as working). {first_error}"
+                    if is_parse_failure else
                     f"Artifact '{data.title or 'Untitled'}' failed render validation with "
                     f"{len(fatal_errors)} fatal error(s) after {repair_attempts} in-tool repair attempt(s). "
                     f"First error: {first_error}"
                 ),
                 "error": {
-                    "type": "render_validation_failed",
+                    "type": "parse_error" if is_parse_failure else "render_validation_failed",
                     "message": first_error,
                     "render_errors": render_errors,
                     "repair_attempts": repair_attempts,
@@ -2464,7 +2489,7 @@ Structure: all code should be inside `function App() {{ ... }}` with `ReactDOM.c
 
 Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data; bind each viz by id with `vizById("<uuid>")` — NEVER positional `viz[N]`. `<EChart option={{...}} />` for charts. Pass `viz={{vizById("<uuid>")}}` (or the binding you made from it) to every KPICard/SectionCard so the built-in info popover shows the data behind it. RESPONSIVE — fluid width, responsive grids (`grid-cols-1 md:grid-cols-2 lg:grid-cols-N`), no fixed-pixel widths, no horizontal page scroll at any width (see RESPONSIVE LAYOUT section above); required unless the user asked for a fixed width. Handle zero rows. No hardcoded data. No UUIDs, branding, or emoji in user-visible text (uuids belong in vizById() calls only). Guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
 
-**Code size:** Write compact code — no unnecessary variables, comments, or verbose JSX. Omit default props. Don't repeat theme styling the 'bow' theme already provides. Prefer inline expressions over separate variables when used once. For simple dashboards target under 8K characters. For detailed/specific user requests, use as much space as needed to faithfully implement their design — fidelity to the user's request is more important than brevity."""
+**Code formatting:** Keep the code concise by omitting redundancy (unnecessary comments, default props, theme styling the 'bow' theme already provides) — never by minifying. Write ONE statement per line and break long expressions across lines: syntax errors report line:col, and a 300-char one-liner makes both authoring mistakes and fixing them far more likely. Name an intermediate variable instead of nesting calls more than ~3 levels deep (paren-soup like `f(g(h(x)))))` is where unbalanced brackets come from). Use as much space as the design needs — fidelity to the user's request is more important than brevity."""
 
     def _build_page_prompt(
         self,
