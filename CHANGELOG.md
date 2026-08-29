@@ -6,6 +6,7 @@
 - Splunk and Elasticsearch/Kibana connectors now catalog dashboards and saved searches, and can run them for RCA workflows (#1032)
 - Added a per-platform toggle to disable the new-conversation-report announcement on Slack, Teams, Google Chat, and email (#1031)
 - Overhauled artifact iteration: planner-authored artifacts with mechanical edit tools, id-keyed viz bindings, edit-first routing, and dashboard filters with parameters by default (#1030)
+- Query results are now encrypted at rest (enterprise data_encryption): Step/Entity data, tool results, and context summaries stored as Fernet envelopes under BOW_ENCRYPTION_KEY, with plaintext rows still readable (#1019)
 
 ## Version 0.0.549 (August 25, 2026)
 - Added native Azure AI Foundry endpoint support to the Azure connector, with editable model ids and fast-failing model-not-found errors (#1020)
