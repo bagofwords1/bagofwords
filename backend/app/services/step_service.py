@@ -185,7 +185,16 @@ class StepService:
         if report is not None:
             from sqlalchemy.orm import lazyload
             result = await db.execute(
-                select(Step).options(lazyload("*")).filter(Step.id == step_id)
+                select(Step)
+                .options(
+                    lazyload("*"),
+                    # lazyload("*") cancels the mapper's lazy="selectin" on
+                    # Step.query too, and param resolution needs
+                    # query.parameters — an async lazy load here would raise
+                    # MissingGreenlet. Load it explicitly, columns only.
+                    selectinload(Step.query).options(lazyload("*")),
+                )
+                .filter(Step.id == step_id)
             )
             step = result.scalar_one_or_none()
         else:
@@ -199,6 +208,54 @@ class StepService:
             raise ValueError("Report not found")
         return step, report
 
+    async def _resolve_step_params(
+        self,
+        db: AsyncSession,
+        step: Step,
+        stored: Optional[dict],
+        run_user: Optional[User],
+        organization_id: Optional[str],
+    ) -> dict:
+        """Resolve the param values a saved step must re-execute with.
+
+        `stored` is what the step (or the viewer's own result row) last ran
+        with. It is NOT replayed verbatim:
+
+        - identity-sourced params are stripped and re-derived from the user
+          running *now*, so a rerun can never execute under a borrowed
+          identity. resolve_param_values also rejects a submitted value for
+          an identity param outright (ParamError), so passing them through
+          would fail besides being unsafe.
+        - unknown names (a param dropped from the query since the last run)
+          are stripped; resolve_param_values rejects those too.
+
+        Everything else — defaults, coercion, required checks — is the same
+        resolver the interactive run uses, so both paths agree by
+        construction.
+        """
+        from app.ai.code_execution.query_params import resolve_param_values
+        from app.schemas.param_schema import parse_param_specs
+
+        query = getattr(step, "query", None)
+        specs = parse_param_specs(getattr(query, "parameters", None) if query else None)
+        if not specs:
+            return {}
+
+        by_name = {s.name: s for s in specs}
+        submitted = {
+            k: v for k, v in (stored or {}).items()
+            if k in by_name and by_name[k].source != "identity"
+        }
+
+        if run_user is not None and organization_id:
+            from app.services.rls_identity_service import resolve_identity
+            identity = await resolve_identity(db, run_user, str(organization_id))
+        else:
+            from app.data_sources.fast.rls import ANONYMOUS
+            identity = ANONYMOUS
+
+        return resolve_param_values(specs, submitted, identity)
+
     async def _execute_step_code(
         self,
         db: AsyncSession,
@@ -208,11 +265,16 @@ class StepService:
         db_clients: Optional[dict] = None,
         organization=None,
         organization_settings=None,
+        params: Optional[dict] = None,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
 
         Pure execution — persists nothing. `current_user` decides whose
         data-source credentials are used when `db_clients` isn't prebuilt.
+        `params` are the resolved parameter values the saved code declares;
+        callers resolve them via _resolve_step_params. Omitting them makes
+        the executor inject {}, which is NOT "run with defaults" — code that
+        subscripts params raises KeyError on an empty dict.
         """
         if db_clients is None:
             # Build db_clients using construct_clients for multi-connection support.
@@ -256,6 +318,7 @@ class StepService:
         import asyncio
         df, output_log, _ = await executor.execute_code_async(
             code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
+            params=params,
         )
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
         return df
@@ -279,10 +342,21 @@ class StepService:
         """
         step, report = await self._load_step_for_rerun(db, step_id, report)
 
+        # The values this step last ran with, re-resolved for whoever is
+        # rerunning now. A refresh keeps the filter the dashboard is showing
+        # rather than silently resetting it to the declared defaults.
+        params = await self._resolve_step_params(
+            db, step,
+            stored=step.applied_params,
+            run_user=current_user,
+            organization_id=getattr(report, "organization_id", None),
+        )
+
         df = await self._execute_step_code(
             db, step, report,
             current_user=current_user, db_clients=db_clients,
             organization=organization, organization_settings=organization_settings,
+            params=params,
         )
 
         # Update existing step instead of creating new one
@@ -322,36 +396,79 @@ class StepService:
         the row (status='error') instead of raised, so the viewer sees why
         their run failed.
         """
+        from app.ai.code_execution.query_params import params_fingerprint
         from app.models.step_user_result import StepUserResult
 
         step, report = await self._load_step_for_rerun(db, step_id, report)
 
+        # What this viewer last ran this step with. They may hold one row per
+        # parameter combination (the table's unique key includes the
+        # fingerprint), so take their most recent — that is the slice the
+        # dashboard is showing them — and fall back to the shared snapshot's
+        # values for a viewer who has never run it themselves.
+        prior = (await db.execute(
+            select(StepUserResult)
+            .where(
+                StepUserResult.step_id == str(step_id),
+                StepUserResult.user_id == str(run_user.id),
+            )
+            .order_by(StepUserResult.last_run_at.desc().nullslast())
+            .limit(1)
+        )).scalars().first()
+        stored = (prior.applied_params if prior is not None else None)
+        if stored is None:
+            stored = step.applied_params
+
+        # Identity params resolve against whoever the run executes as: the
+        # viewer in 'viewer' mode, the report creator in 'creator' mode —
+        # matching whose credentials reach the data source.
+        identity_user = run_user if executed_as == 'viewer' else credential_user
+
+        params: dict = {}
         status = 'success'
         status_reason = None
         data = None
         try:
+            params = await self._resolve_step_params(
+                db, step,
+                stored=stored,
+                run_user=identity_user,
+                organization_id=getattr(report, "organization_id", None),
+            )
             data = await self._execute_step_code(
                 db, step, report,
                 current_user=credential_user, db_clients=db_clients,
                 organization=organization, organization_settings=organization_settings,
+                params=params,
             )
         except Exception as e:
+            # Includes ParamError from resolution: the viewer gets the reason
+            # on their row rather than the whole report rerun aborting. The
+            # row then lands in the no-params slot, which is where a run that
+            # never resolved values belongs.
             status = 'error'
             status_reason = str(e)[:2000] or e.__class__.__name__
 
+        # Write to the slot for THIS parameter combination. The unique key is
+        # (step_id, user_id, params_fingerprint); a lookup that ignores the
+        # fingerprint raises MultipleResultsFound as soon as the viewer holds
+        # more than one combination.
+        fingerprint = params_fingerprint(params)
         existing = await db.execute(
             select(StepUserResult).where(
                 StepUserResult.step_id == str(step_id),
                 StepUserResult.user_id == str(run_user.id),
+                StepUserResult.params_fingerprint == fingerprint,
             )
         )
-        row = existing.scalar_one_or_none()
+        row = existing.scalars().first()
         if row is None:
             row = StepUserResult(
                 step_id=str(step_id),
                 user_id=str(run_user.id),
                 organization_id=str(report.organization_id),
                 report_id=str(report.id),
+                params_fingerprint=fingerprint,
             )
             db.add(row)
 
@@ -359,6 +476,7 @@ class StepService:
         row.status_reason = status_reason
         row.data = data
         row.executed_as = executed_as
+        row.applied_params = dict(params) if params else None
         row.last_run_at = datetime.utcnow()
         await db.commit()
         await db.refresh(row)
