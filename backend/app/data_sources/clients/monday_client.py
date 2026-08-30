@@ -44,16 +44,6 @@ MAX_BOARDS = 1_000       # discovery cap — beyond this, scope with the config
 MAX_WORKSPACES = 1_000   # sanity cap for the workspace sweep
 RETRIES = 6              # per-request retries on 429/complexity/5xx
 
-# monday's account-wide `boards` listing does not reliably return every board
-# kind: shareable boards (board_kind "share") are omitted from the unqualified
-# crawl even when the token can open them directly (customer-observed — boards
-# returned by `boards (ids:)` were absent from every crawl page). Board-level
-# sharing also does not imply workspace membership, so the per-workspace sweep
-# cannot recover them either: a CLOSED workspace the identity is not a member
-# of never appears in `workspaces`, so there is no id to sweep with. Crawling
-# each kind explicitly is the only pass that depends on neither assumption.
-_BOARD_KINDS = ("public", "private", "share")
-
 # Board fields fetched during discovery. `type` distinguishes real boards from
 # auto-managed subitem shadow boards (sub_items_board) — filtering by name
 # prefix ("Subitems of ") wrongly drops real boards monday creates with that
@@ -258,49 +248,6 @@ class MondayClient(DataSourceClient):
                            "continuing with the global board crawl only.", e)
         return workspaces
 
-    def _crawl_boards_into(
-        self,
-        boards_by_id: Dict[str, dict],
-        board_kind: Optional[str] = None,
-    ) -> tuple[List[int], bool]:
-        """Paginate the account-wide `boards` listing into `boards_by_id`.
-
-        Pagination stops only on an EMPTY page — monday does not guarantee
-        non-final pages are full, and breaking on a short page silently
-        truncates every board after it. `board_kind` scopes the listing to one
-        kind; None is the unqualified listing.
-
-        Returns (page sizes, whether the MAX_BOARDS cap cut the crawl short).
-        """
-        page_sizes: List[int] = []
-        page = 1
-        kind_var = ", $kind: BoardKind" if board_kind else ""
-        kind_arg = ", board_kind: $kind" if board_kind else ""
-        while True:
-            variables: Dict[str, Any] = {"limit": BOARDS_PAGE, "page": page}
-            if board_kind:
-                variables["kind"] = board_kind
-            data = self._gql(
-                f"""
-                query ($limit: Int!, $page: Int!{kind_var}) {{
-                  boards (limit: $limit, page: $page, state: active, order_by: created_at,
-                          hierarchy_types: [classic, multi_level]{kind_arg}) {{
-                    {_BOARD_FIELDS}
-                  }}
-                }}
-                """,
-                variables,
-            )
-            batch = [b for b in (data.get("boards") or []) if b]
-            page_sizes.append(len(batch))
-            if not batch:
-                return page_sizes, False
-            for board in batch:
-                boards_by_id.setdefault(str(board["id"]), board)
-            if len(boards_by_id) >= MAX_BOARDS:
-                return page_sizes, True
-            page += 1
-
     def _fetch_boards(self, deep: bool = False) -> List[dict]:
         """All active boards visible to the token, with columns.
 
@@ -309,10 +256,7 @@ class MondayClient(DataSourceClient):
         1. A global `boards (limit, page)` crawl. Pagination stops only on an
            EMPTY page — monday does not guarantee non-final pages are full, and
            breaking on a short page silently truncates every board after it.
-        2. A per-kind crawl over `_BOARD_KINDS`. The unqualified listing in (1)
-           omits shareable boards, and pass (3) cannot reach them when their
-           workspace is closed to this identity — see `_BOARD_KINDS`.
-        3. With `deep=True`, a per-workspace id sweep
+        2. With `deep=True`, a per-workspace id sweep
            (`boards (workspace_ids: [...])`), the strategy monday's own MCP
            server uses. The global listing is known to omit boards that
            direct/workspace-scoped queries return (observed with shareable
@@ -327,36 +271,36 @@ class MondayClient(DataSourceClient):
             return self._boards_cache
 
         boards_by_id: Dict[str, dict] = {}
-        page_sizes, truncated = self._crawl_boards_into(boards_by_id)
+        page_sizes: List[int] = []
+        truncated = False
+        page = 1
+        while True:
+            data = self._gql(
+                f"""
+                query ($limit: Int!, $page: Int!) {{
+                  boards (limit: $limit, page: $page, state: active, order_by: created_at,
+                          hierarchy_types: [classic, multi_level]) {{
+                    {_BOARD_FIELDS}
+                  }}
+                }}
+                """,
+                {"limit": BOARDS_PAGE, "page": page},
+            )
+            batch = [b for b in (data.get("boards") or []) if b]
+            page_sizes.append(len(batch))
+            if not batch:
+                break
+            for board in batch:
+                boards_by_id.setdefault(str(board["id"]), board)
+            if len(boards_by_id) >= MAX_BOARDS:
+                truncated = True
+                break
+            page += 1
         # page_sizes ends [..., last_non_empty, 0] on a full crawl — a short
         # LAST non-empty page is normal; short pages before it are not.
         if any(0 < size < BOARDS_PAGE for size in page_sizes[:-2]):
             logger.info("monday discovery: global crawl returned short non-final "
                         "pages %s — continued to the empty page.", page_sizes)
-
-        # Per-kind crawl (see _BOARD_KINDS): the unqualified listing above
-        # silently omits shareable boards, and the workspace sweep below cannot
-        # reach them when their workspace is closed to this identity. Each pass
-        # is best-effort — an API version or token that rejects `board_kind`
-        # must not fail the whole index, since the other passes still stand.
-        kind_recovered: Dict[str, int] = {}
-        for kind in _BOARD_KINDS:
-            if truncated:
-                break
-            before = len(boards_by_id)
-            try:
-                _, truncated = self._crawl_boards_into(boards_by_id, board_kind=kind)
-            except RuntimeError as e:
-                logger.warning("monday discovery: board_kind=%s crawl failed (%s) — "
-                               "continuing with the remaining discovery passes.", kind, e)
-                continue
-            if len(boards_by_id) > before:
-                kind_recovered[kind] = len(boards_by_id) - before
-        if kind_recovered:
-            logger.warning("monday discovery: %d board(s) were missing from the "
-                           "unqualified global listing and recovered by crawling "
-                           "board kinds explicitly: %s",
-                           sum(kind_recovered.values()), kind_recovered)
 
         # Per-workspace sweep: cheap id-only pages, then recover full payloads
         # for boards the global crawl did not return.
@@ -383,28 +327,19 @@ class MondayClient(DataSourceClient):
                     if board_id not in boards_by_id and board_id not in missing_ids:
                         missing_ids.append(board_id)
                 page += 1
-        swept = 0
         for start in range(0, len(missing_ids), BOARDS_PAGE):
             chunk = missing_ids[start:start + BOARDS_PAGE]
             data = self._gql(
-                # hierarchy_types is pinned here too: every discovery query must
-                # state it rather than depend on monday's version-specific
-                # default, which excludes multi-level boards for compatibility.
-                f"query ($ids: [ID!]) {{ boards (ids: $ids, state: active, "
-                f"hierarchy_types: [classic, multi_level]) {{ {_BOARD_FIELDS} }} }}",
+                f"query ($ids: [ID!]) {{ boards (ids: $ids, state: active) {{ {_BOARD_FIELDS} }} }}",
                 {"ids": chunk},
             )
             for board in (data.get("boards") or []):
                 if board:
                     boards_by_id.setdefault(str(board["id"]), board)
-                    swept += 1
-        # Report what was actually RECOVERED, not what was nominated: a by-id
-        # fetch that returns nothing for an id must not read as a success in the
-        # logs, or a missing-board report looks like a healthy run.
         if missing_ids:
             logger.warning("monday discovery: %d board(s) were missing from the global "
-                           "listing; %d recovered via the workspace sweep (ids: %s)",
-                           len(missing_ids), swept, missing_ids[:20])
+                           "listing and recovered via the workspace sweep: %s",
+                           len(missing_ids), missing_ids[:20])
 
         boards = list(boards_by_id.values())
 
@@ -444,11 +379,9 @@ class MondayClient(DataSourceClient):
                 b for b in boards
                 if str(b.get("id")) in wanted or (b.get("name") or "").lower() in wanted
             ]
-        logger.info("monday discovery: %d board(s) in the catalog (global crawl pages "
-                    "%s, %d added by the per-kind crawl %s, %d recovered via workspace "
-                    "sweep%s).",
-                    len(boards), page_sizes, sum(kind_recovered.values()),
-                    kind_recovered or {}, swept,
+        logger.info("monday discovery: %d board(s) in the catalog "
+                    "(global crawl pages %s, %d recovered via workspace sweep%s).",
+                    len(boards), page_sizes, len(missing_ids),
                     "" if deep else "; sweep skipped (shallow)")
         self._boards_cache = boards
         self._deep_done = deep
