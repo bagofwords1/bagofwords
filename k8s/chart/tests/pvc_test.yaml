@@ -1,0 +1,66 @@
+suite: test pvc
+templates:
+  - pvc.yaml
+release:
+  name: test-release
+chart:
+  appVersion: 0.0.1-test
+set:
+  postgresql.auth.username: test
+  postgresql.auth.password: test
+  postgresql.auth.database: testdb
+tests:
+  - it: is absent by default
+    asserts:
+      - hasDocuments:
+          count: 0
+
+  - it: renders when enabled
+    set:
+      persistence.uploads.enabled: true
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+      - equal:
+          path: metadata.name
+          value: test-release-uploads
+      - equal:
+          path: metadata.labels["app.kubernetes.io/name"]
+          value: test-release
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+      - equal:
+          path: spec.accessModes[0]
+          value: ReadWriteOnce
+      - equal:
+          path: spec.resources.requests.storage
+          value: 10Gi
+      - notExists:
+          path: spec.storageClassName
+
+  - it: honors size, storageClass and accessModes
+    set:
+      persistence.uploads.enabled: true
+      persistence.uploads.size: 50Gi
+      persistence.uploads.storageClass: efs-sc
+      persistence.uploads.accessModes:
+        - ReadWriteMany
+    asserts:
+      - equal:
+          path: spec.resources.requests.storage
+          value: 50Gi
+      - equal:
+          path: spec.storageClassName
+          value: efs-sc
+      - equal:
+          path: spec.accessModes[0]
+          value: ReadWriteMany
+
+  - it: is absent when an existing claim is provided
+    set:
+      persistence.uploads.enabled: true
+      persistence.uploads.existingClaim: my-uploads
+    asserts:
+      - hasDocuments:
+          count: 0
