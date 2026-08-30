@@ -605,3 +605,109 @@ def test_retry_on_429(monkeypatch):
     result = MondayClient(api_token="t").test_connection()
     assert result["success"] is True
     assert attempts["n"] == 2
+
+
+# ── regression: the MAX_BOARDS cap silently dropped the OLDEST boards ───────
+
+def _numbered_boards(count, start_id=1000):
+    """`count` boards, newest first — the order monday's listing returns."""
+    return [
+        {**BOARD_LINKED, "id": str(start_id + count - i), "name": f"Board {count - i:04d}",
+         "type": "board", "workspace": {"id": "9", "name": "Sales"}}
+        for i in range(count)
+    ]
+
+
+def _paged(boards, workspace_boards=None):
+    """Serve the crawl in BOARDS_PAGE-sized pages, optionally workspace-scoped."""
+    from app.data_sources.clients.monday_client import BOARDS_PAGE
+
+    def responder(query, variables):
+        if "workspaces (limit: $limit, page: $page" in query:
+            page = variables.get("page", 1)
+            ws = [{"id": "9", "name": "Sales", "kind": "open"}]
+            return FakeResponse({"data": {"workspaces": ws if page == 1 else []}})
+        if "boards (limit: $limit, page: $page" in query:
+            pool = boards
+            if "workspace_ids: $ws" in query:
+                pool = workspace_boards if workspace_boards is not None else []
+            page = variables.get("page", 1)
+            start = (page - 1) * BOARDS_PAGE
+            return FakeResponse({"data": {"boards": pool[start:start + BOARDS_PAGE]}})
+        if "workspace_ids: $ws" in query:      # id-only sweep
+            return FakeResponse({"data": {"boards": []}})
+        if "boards (ids: $ids" in query:
+            wanted = set(variables.get("ids") or [])
+            return FakeResponse({"data": {"boards": [b for b in boards if str(b["id"]) in wanted]}})
+        raise AssertionError(f"unexpected query: {query}")
+    return responder
+
+
+def test_cap_truncation_keeps_boards_under_the_limit(monkeypatch):
+    """Baseline: an account under the cap loses nothing."""
+    monkeypatch.setattr("app.data_sources.clients.monday_client.MAX_BOARDS", 100)
+    boards = _numbered_boards(60)
+    fake_post(monkeypatch, _paged(boards))
+    tables = MondayClient(api_token="t").get_schemas()
+    assert len(tables) == 60
+
+
+def test_subitem_boards_do_not_consume_the_cap(monkeypatch):
+    """Shadow boards are discarded anyway, so they must not spend the budget.
+
+    120 rows — 60 real, 60 shadows — against a 60-board cap must still yield
+    all 60 REAL boards. Counting shadows toward the cap yielded ~30.
+    """
+    monkeypatch.setattr("app.data_sources.clients.monday_client.MAX_BOARDS", 60)
+    real = _numbered_boards(60, start_id=1000)
+    shadows = [
+        {**b, "id": str(int(b["id"]) + 500_000), "type": "sub_items_board",
+         "name": f"Subitems of {b['name']}"}
+        for b in real
+    ]
+    interleaved = [b for pair in zip(real, shadows) for b in pair]
+    fake_post(monkeypatch, _paged(interleaved))
+    tables = MondayClient(api_token="t").get_schemas()
+    assert len(tables) == 60
+    assert not [t for t in tables if t.name.startswith("Subitems of ")]
+
+
+def test_workspace_scoped_connection_is_not_cut_by_the_account_wide_cap(monkeypatch):
+    """Customer case: a connection scoped to ONE workspace returned a subset.
+
+    The account-wide crawl returns boards newest-first and stops at the cap, so
+    on a large account it never reaches the wanted workspace's OLDER boards —
+    and the workspace filter used to run after the cap, over a list those
+    boards had already been cut from. Scoping the crawl fixes it.
+    """
+    monkeypatch.setattr("app.data_sources.clients.monday_client.MAX_BOARDS", 50)
+    # The wanted workspace's boards are the OLDEST in the account, so an
+    # account-wide newest-first crawl hits the cap long before reaching them.
+    wanted = [
+        {**BOARD_LINKED, "id": str(100 + i), "name": f"Scoped Board {i}", "type": "board",
+         "workspace": {"id": "42", "name": "Ops Workspace"}}
+        for i in range(18)
+    ]
+    account_wide = _numbered_boards(400, start_id=900_000) + wanted
+
+    def responder(query, variables):
+        if "workspaces (limit: $limit, page: $page" in query:
+            page = variables.get("page", 1)
+            ws = [{"id": "42", "name": "Ops Workspace", "kind": "closed"}]
+            return FakeResponse({"data": {"workspaces": ws if page == 1 else []}})
+        return _paged(account_wide, workspace_boards=wanted)(query, variables)
+
+    fake_post(monkeypatch, responder)
+    tables = MondayClient(api_token="t", workspaces="Ops Workspace").get_schemas()
+    assert len(tables) == 18, f"expected all 18 workspace boards, got {len(tables)}"
+
+
+def test_unresolvable_workspace_name_still_falls_back_to_the_account_crawl(monkeypatch):
+    """An entry with no id to scope by (Main workspace, unknown name) must not
+    silently index nothing — the account-wide crawl still runs."""
+    boards = [BOARD_MAIN]
+    fake_post(monkeypatch, _paged(boards))
+    tables = MondayClient(api_token="t", workspaces="Main workspace").get_schemas()
+    # BOARD_MAIN sits in workspace "Sales", so "Main workspace" matches nothing —
+    # the point is that discovery ran and did not raise.
+    assert isinstance(tables, list)

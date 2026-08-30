@@ -40,7 +40,14 @@ PAGE_SIZE = 500          # items_page maximum page size
 DEFAULT_LIMIT = 100      # when the query spec omits `limit`
 BOARDS_PAGE = 50         # boards per page during schema discovery
 WORKSPACES_PAGE = 50     # workspaces per page during the per-workspace sweep
-MAX_BOARDS = 1_000       # discovery cap — beyond this, scope with the config
+# Safety valve, not a budget. The account-wide listing returns boards NEWEST
+# FIRST (order_by: created_at), so stopping early does not drop a random
+# sample — it drops the OLDEST boards, which on a mature account are the
+# long-lived ones people actually query. A customer with a few thousand boards
+# silently lost their oldest ones at the previous 1_000 cap. Truncating is now
+# a loud, last-resort event; scope the connection with the workspaces/boards
+# config to stay well under it.
+MAX_BOARDS = 10_000
 MAX_WORKSPACES = 1_000   # sanity cap for the workspace sweep
 RETRIES = 6              # per-request retries on 429/complexity/5xx
 
@@ -96,6 +103,24 @@ _LABELED_TYPES = {"status", "dropdown"}
 # comma-joined).
 _LINKED_ID_TYPES = {"board_relation", "dependency"}
 _ITEM_IDS_SUFFIX = " (item_ids)"
+
+
+def _is_subitem_board(board: dict) -> bool:
+    """Subitem boards are auto-managed shadows of their parent board.
+
+    Filter by the API `type` field; fall back to the name prefix only when
+    `type` is absent, because the prefix alone wrongly drops real boards monday
+    creates with that name ("Expand subitems into a new board") and misses
+    renamed/localized shadows.
+
+    Applied DURING the crawl, not after: shadow boards can be half of a
+    workspace's rows, and counting them toward MAX_BOARDS spends the discovery
+    budget on rows that are discarded anyway.
+    """
+    board_type = board.get("type")
+    if board_type is not None:
+        return board_type == "sub_items_board"
+    return (board.get("name") or "").startswith("Subitems of ")
 
 
 class MondayClient(DataSourceClient):
@@ -248,14 +273,102 @@ class MondayClient(DataSourceClient):
                            "continuing with the global board crawl only.", e)
         return workspaces
 
+    def _crawl_boards_into(
+        self,
+        boards_by_id: Dict[str, dict],
+        workspace_ids: Optional[List[str]] = None,
+    ) -> tuple[List[int], bool]:
+        """Paginate the `boards` listing into `boards_by_id`.
+
+        Pagination stops only on an EMPTY page — monday does not guarantee
+        non-final pages are full, and breaking on a short page silently
+        truncates every board after it.
+
+        `workspace_ids` scopes the listing to those workspaces. A connection
+        configured with `workspaces` crawls each one directly instead of
+        crawling the whole account and filtering afterwards: the account-wide
+        crawl can hit MAX_BOARDS before it ever reaches the wanted workspace's
+        older boards, which silently returned a subset of a scoped connection.
+
+        Subitem shadow boards are dropped here rather than after the crawl, so
+        the cap counts boards that will actually be indexed.
+
+        Returns (page sizes, whether MAX_BOARDS cut the crawl short).
+        """
+        page_sizes: List[int] = []
+        page = 1
+        ws_var = ", $ws: [ID]" if workspace_ids else ""
+        ws_arg = ", workspace_ids: $ws" if workspace_ids else ""
+        while True:
+            variables: Dict[str, Any] = {"limit": BOARDS_PAGE, "page": page}
+            if workspace_ids:
+                variables["ws"] = workspace_ids
+            data = self._gql(
+                f"""
+                query ($limit: Int!, $page: Int!{ws_var}) {{
+                  boards (limit: $limit, page: $page, state: active, order_by: created_at,
+                          hierarchy_types: [classic, multi_level]{ws_arg}) {{
+                    {_BOARD_FIELDS}
+                  }}
+                }}
+                """,
+                variables,
+            )
+            batch = [b for b in (data.get("boards") or []) if b]
+            page_sizes.append(len(batch))
+            if not batch:
+                return page_sizes, False
+            for board in batch:
+                if not _is_subitem_board(board):
+                    boards_by_id.setdefault(str(board["id"]), board)
+            if len(boards_by_id) >= MAX_BOARDS:
+                return page_sizes, True
+            page += 1
+
+    def _configured_workspace_ids(self) -> tuple[List[str], bool]:
+        """Resolve the `workspaces` config to ids the crawl can scope by.
+
+        Returns (ids, everything_resolved). Names are matched case-insensitively
+        against the workspace listing. `everything_resolved` is False when any
+        config entry has no id to scope with — the legacy Main workspace (whose
+        boards report `workspace: null`, so there is no id), an unknown name, or
+        a workspace listing this token cannot read. The caller then falls back
+        to the account-wide crawl so a scoped connection never indexes LESS
+        than it did before.
+        """
+        wanted = {w.lower() for w in (self.workspaces or [])}
+        if not wanted:
+            return [], True
+        by_key: Dict[str, str] = {}
+        for workspace in self._fetch_workspaces():
+            ws_id = str(workspace.get("id"))
+            by_key[ws_id.lower()] = ws_id
+            name = (workspace.get("name") or "").lower()
+            if name:
+                by_key.setdefault(name, ws_id)
+        ids, resolved = [], True
+        for entry in wanted:
+            if entry in {"main workspace", "main"}:
+                resolved = False       # workspace: null — no id to scope by
+                continue
+            ws_id = by_key.get(entry)
+            if ws_id is None:
+                resolved = False
+            elif ws_id not in ids:
+                ids.append(ws_id)
+        return ids, resolved
+
     def _fetch_boards(self, deep: bool = False) -> List[dict]:
         """All active boards visible to the token, with columns.
 
         Discovery deliberately combines two passes:
 
-        1. A global `boards (limit, page)` crawl. Pagination stops only on an
-           EMPTY page — monday does not guarantee non-final pages are full, and
-           breaking on a short page silently truncates every board after it.
+        1. A `boards (limit, page)` crawl — scoped to the configured workspaces
+           when `workspaces` is set, account-wide otherwise. Pagination stops
+           only on an EMPTY page: monday does not guarantee non-final pages are
+           full, and breaking on a short page silently truncates every board
+           after it. The listing returns boards NEWEST FIRST, so the MAX_BOARDS
+           cap drops the OLDEST boards — see MAX_BOARDS.
         2. With `deep=True`, a per-workspace id sweep
            (`boards (workspace_ids: [...])`), the strategy monday's own MCP
            server uses. The global listing is known to omit boards that
@@ -273,29 +386,25 @@ class MondayClient(DataSourceClient):
         boards_by_id: Dict[str, dict] = {}
         page_sizes: List[int] = []
         truncated = False
-        page = 1
-        while True:
-            data = self._gql(
-                f"""
-                query ($limit: Int!, $page: Int!) {{
-                  boards (limit: $limit, page: $page, state: active, order_by: created_at,
-                          hierarchy_types: [classic, multi_level]) {{
-                    {_BOARD_FIELDS}
-                  }}
-                }}
-                """,
-                {"limit": BOARDS_PAGE, "page": page},
-            )
-            batch = [b for b in (data.get("boards") or []) if b]
-            page_sizes.append(len(batch))
-            if not batch:
+        # A workspace-scoped connection crawls its workspaces directly. The
+        # account-wide crawl returns boards newest-first and stops at
+        # MAX_BOARDS, so on a large account it can exhaust the cap before
+        # reaching the wanted workspace's older boards — a scoped connection
+        # then indexed a subset of one workspace for no visible reason.
+        scoped_ids, fully_resolved = self._configured_workspace_ids()
+        for ws_id in scoped_ids:
+            sizes, hit_cap = self._crawl_boards_into(boards_by_id, workspace_ids=[ws_id])
+            page_sizes.extend(sizes)
+            truncated = truncated or hit_cap
+            if truncated:
                 break
-            for board in batch:
-                boards_by_id.setdefault(str(board["id"]), board)
-            if len(boards_by_id) >= MAX_BOARDS:
-                truncated = True
-                break
-            page += 1
+        if not scoped_ids or not fully_resolved:
+            # No scoping configured, or at least one entry had no id to scope
+            # by (Main workspace / unknown name / unreadable listing) — the
+            # account-wide crawl still runs so nothing is lost.
+            sizes, hit_cap = self._crawl_boards_into(boards_by_id)
+            page_sizes.extend(sizes)
+            truncated = truncated or hit_cap
         # page_sizes ends [..., last_non_empty, 0] on a full crawl — a short
         # LAST non-empty page is normal; short pages before it are not.
         if any(0 < size < BOARDS_PAGE for size in page_sizes[:-2]):
@@ -305,7 +414,15 @@ class MondayClient(DataSourceClient):
         # Per-workspace sweep: cheap id-only pages, then recover full payloads
         # for boards the global crawl did not return.
         missing_ids: List[str] = []
-        for workspace in (self._fetch_workspaces() if deep else []):
+        sweep_workspaces = self._fetch_workspaces() if deep else []
+        if scoped_ids and fully_resolved:
+            # A scoped connection only cares about its own workspaces. Sweeping
+            # the rest pulls in boards the config filter discards anyway — pure
+            # API cost, and on a big account that is hundreds of wasted pages.
+            sweep_workspaces = [
+                w for w in sweep_workspaces if str(w.get("id")) in set(scoped_ids)
+            ]
+        for workspace in sweep_workspaces:
             page = 1
             while True:
                 data = self._gql(
@@ -341,23 +458,9 @@ class MondayClient(DataSourceClient):
                            "listing and recovered via the workspace sweep: %s",
                            len(missing_ids), missing_ids[:20])
 
-        boards = list(boards_by_id.values())
-
-        # Subitem boards are auto-managed shadows of their parent board. Filter
-        # by API type; fall back to the name prefix only when `type` is absent.
-        def _is_subitem_board(board: dict) -> bool:
-            board_type = board.get("type")
-            if board_type is not None:
-                return board_type == "sub_items_board"
-            return (board.get("name") or "").startswith("Subitems of ")
-
-        boards = [b for b in boards if not _is_subitem_board(b)]
-
-        if truncated or len(boards) > MAX_BOARDS:
-            boards = boards[:MAX_BOARDS]
-            logger.warning("monday discovery: board catalog truncated at the %d-board "
-                           "cap — scope the connection with the workspaces/boards "
-                           "config to index the rest.", MAX_BOARDS)
+        # The crawl already excludes subitem shadows; the sweep's by-id
+        # recovery does not, so filter once more over the merged catalog.
+        boards = [b for b in boards_by_id.values() if not _is_subitem_board(b)]
 
         if self.workspaces:
             wanted = {w.lower() for w in self.workspaces}
@@ -379,9 +482,26 @@ class MondayClient(DataSourceClient):
                 b for b in boards
                 if str(b.get("id")) in wanted or (b.get("name") or "").lower() in wanted
             ]
-        logger.info("monday discovery: %d board(s) in the catalog "
-                    "(global crawl pages %s, %d recovered via workspace sweep%s).",
-                    len(boards), page_sizes, len(missing_ids),
+        # Cap LAST, after the config filters. Applied before them, a scoped
+        # connection had its workspace's boards cut by an account-wide limit
+        # they were never meant to compete for.
+        dropped = max(0, len(boards) - MAX_BOARDS)
+        if dropped:
+            # Only when boards are ACTUALLY lost: hitting the cap mid-crawl and
+            # then filtering down to fewer than the cap costs nothing, and an
+            # error logged for that teaches people to ignore this line.
+            boards = boards[:MAX_BOARDS]
+            logger.error("monday discovery: board catalog TRUNCATED at the %d-board cap "
+                         "— %d board(s) dropped, OLDEST first (the listing returns "
+                         "newest boards first). Scope the connection with the "
+                         "workspaces/boards config to index the rest.",
+                         MAX_BOARDS, dropped)
+
+        logger.info("monday discovery: %d board(s) in the catalog (crawl pages %s%s, "
+                    "%d recovered via workspace sweep%s).",
+                    len(boards), page_sizes,
+                    f", scoped to workspace(s) {scoped_ids}" if scoped_ids else "",
+                    len(missing_ids),
                     "" if deep else "; sweep skipped (shallow)")
         self._boards_cache = boards
         self._deep_done = deep
