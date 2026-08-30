@@ -8,7 +8,7 @@ import uuid
 import json
 import pandas as pd
 import numpy as np
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 
 from app.ai.prompt_formatters import TableFormatter
 from app.models.completion import Completion
@@ -183,7 +183,6 @@ class StepService:
     ) -> tuple[Step, Report]:
         """Load a step (and its report) for re-execution."""
         if report is not None:
-            from sqlalchemy.orm import lazyload
             result = await db.execute(
                 select(Step)
                 .options(
@@ -208,6 +207,17 @@ class StepService:
             raise ValueError("Report not found")
         return step, report
 
+    def _step_param_specs(self, step: Step) -> list:
+        """The param specs the step's query declares; [] when it declares none.
+
+        Parsed from Query.parameters, which _load_step_for_rerun loads
+        explicitly — a lazy load here would raise MissingGreenlet.
+        """
+        from app.schemas.param_schema import parse_param_specs
+
+        query = getattr(step, "query", None)
+        return parse_param_specs(getattr(query, "parameters", None) if query else None)
+
     async def _resolve_step_params(
         self,
         db: AsyncSession,
@@ -215,6 +225,7 @@ class StepService:
         stored: Optional[dict],
         run_user: Optional[User],
         organization_id: Optional[str],
+        specs: Optional[list] = None,
     ) -> dict:
         """Resolve the param values a saved step must re-execute with.
 
@@ -234,10 +245,9 @@ class StepService:
         construction.
         """
         from app.ai.code_execution.query_params import resolve_param_values
-        from app.schemas.param_schema import parse_param_specs
 
-        query = getattr(step, "query", None)
-        specs = parse_param_specs(getattr(query, "parameters", None) if query else None)
+        if specs is None:
+            specs = self._step_param_specs(step)
         if not specs:
             return {}
 
@@ -266,6 +276,7 @@ class StepService:
         organization=None,
         organization_settings=None,
         params: Optional[dict] = None,
+        param_specs: Optional[list] = None,
     ) -> dict:
         """Execute a step's saved code and return the formatted result frame.
 
@@ -275,6 +286,13 @@ class StepService:
         callers resolve them via _resolve_step_params. Omitting them makes
         the executor inject {}, which is NOT "run with defaults" — code that
         subscripts params raises KeyError on an empty dict.
+
+        `param_specs` enables the identity-bind check: when the query declares
+        an identity param, the executed SQL is captured and verified to carry
+        the resolved value, exactly as run_query_viewer does. Saved code that
+        lost its identity predicate (a regenerated step, a hand-edited query)
+        would otherwise serve one identity's rows to another reader. Raises
+        ParamError rather than returning unscoped rows.
         """
         if db_clients is None:
             # Build db_clients using construct_clients for multi-connection support.
@@ -316,10 +334,26 @@ class StepService:
         # and contextvar propagation as the agent path), and the result
         # formatting — also pandas-heavy for large frames — goes off-loop too.
         import asyncio
+        # Only capture when there is an identity bind to verify — the capture
+        # holds every rendered statement the step runs, so it is not free.
+        identity_specs = [
+            s for s in (param_specs or []) if getattr(s, "source", None) == "identity"
+        ]
+        captured_queries: Optional[list] = [] if identity_specs else None
         df, output_log, _ = await executor.execute_code_async(
             code=code, ds_clients=db_clients, excel_files=excel_files, loadables=loadables,
-            params=params,
+            params=params, captured_queries=captured_queries,
         )
+        if identity_specs:
+            from app.ai.code_execution.query_params import (
+                ParamError,
+                verify_identity_binds_in_queries,
+            )
+            identity_err = verify_identity_binds_in_queries(
+                captured_queries or [], params or {}, identity_specs
+            )
+            if identity_err:
+                raise ParamError(identity_err)
         df = await asyncio.to_thread(executor.format_df_for_widget, df)
         return df
 
@@ -345,18 +379,20 @@ class StepService:
         # The values this step last ran with, re-resolved for whoever is
         # rerunning now. A refresh keeps the filter the dashboard is showing
         # rather than silently resetting it to the declared defaults.
+        specs = self._step_param_specs(step)
         params = await self._resolve_step_params(
             db, step,
             stored=step.applied_params,
             run_user=current_user,
             organization_id=getattr(report, "organization_id", None),
+            specs=specs,
         )
 
         df = await self._execute_step_code(
             db, step, report,
             current_user=current_user, db_clients=db_clients,
             organization=organization, organization_settings=organization_settings,
-            params=params,
+            params=params, param_specs=specs,
         )
 
         # Update existing step instead of creating new one
@@ -416,6 +452,11 @@ class StepService:
         # values for a viewer who has never run it themselves.
         prior = (await db.execute(
             select(StepUserResult)
+            # Columns only. StepUserResult.step and .user are lazy="selectin",
+            # and Step.query is too, so an unqualified select fans out to
+            # three extra round trips per step — and pulls Step.data, an
+            # encrypted blob, just to read applied_params off this row.
+            .options(lazyload("*"))
             .where(
                 StepUserResult.step_id == str(step_id),
                 StepUserResult.user_id == str(run_user.id),
@@ -441,24 +482,27 @@ class StepService:
         status = 'success'
         status_reason = None
         data = None
+        specs = self._step_param_specs(step)
         try:
             params = await self._resolve_step_params(
                 db, step,
                 stored=stored,
                 run_user=identity_user,
                 organization_id=getattr(report, "organization_id", None),
+                specs=specs,
             )
             data = await self._execute_step_code(
                 db, step, report,
                 current_user=credential_user, db_clients=db_clients,
                 organization=organization, organization_settings=organization_settings,
-                params=params,
+                params=params, param_specs=specs,
             )
         except Exception as e:
-            # Includes ParamError from resolution: the viewer gets the reason
-            # on their row rather than the whole report rerun aborting. The
-            # row then lands in the no-params slot, which is where a run that
-            # never resolved values belongs.
+            # Includes ParamError from resolution AND from the identity-bind
+            # check: the viewer gets the reason on their row rather than the
+            # whole report rerun aborting — and, for a failed bind check, no
+            # data, which is the point. The row then lands in the no-params
+            # slot, which is where a run that never resolved values belongs.
             status = 'error'
             status_reason = str(e)[:2000] or e.__class__.__name__
 

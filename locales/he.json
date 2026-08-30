@@ -3365,6 +3365,7 @@
     "selectArtifact": "בחירת פריט...",
     "useThisVersion": "השתמש בגרסה הזו",
     "refreshData": "רענון נתונים",
+    "refreshDisabledViewAs": "צא ממצב “צפייה בתור” כדי לרענן — הרענון רץ בשמך, לא בשם המשתמש שבתצוגה המקדימה.",
     "fullScreen": "מסך מלא",
     "openInNewTab": "פתיחה בלשונית חדשה",
     "searchMembers": "חיפוש חברים לפי שם או אימייל...",

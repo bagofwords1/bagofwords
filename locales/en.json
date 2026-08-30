@@ -3433,6 +3433,7 @@
     "selectArtifact": "Select artifact...",
     "useThisVersion": "Use this version",
     "refreshData": "Refresh data",
+    "refreshDisabledViewAs": "Exit view-as to refresh — a refresh runs as you, not as the previewed member.",
     "fullScreen": "Full screen",
     "openInNewTab": "Open in new tab",
     "searchMembers": "Search members by name or email...",

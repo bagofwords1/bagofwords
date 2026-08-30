@@ -3287,6 +3287,7 @@
     "selectArtifact": "Välj artefakt...",
     "useThisVersion": "Använd den här versionen",
     "refreshData": "Uppdatera data",
+    "refreshDisabledViewAs": "Avsluta visa-som för att uppdatera – uppdateringen körs som du, inte som den förhandsgranskade medlemmen.",
     "fullScreen": "Helskärm",
     "openInNewTab": "Öppna i ny flik",
     "searchMembers": "Sök medlemmar på namn eller e-post...",
