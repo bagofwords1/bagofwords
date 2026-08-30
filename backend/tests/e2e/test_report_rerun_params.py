@@ -21,7 +21,11 @@ Contract asserted here:
   2. identity-bound params are recomputed for whoever runs the refresh and are
      never replayed from what was stored;
   3. the per-viewer result cache is keyed by parameter combination, so a
-     viewer holding several combinations does not break their refresh.
+     viewer holding several combinations does not break their refresh;
+  4. the rerun records the values it actually executed with, so applied_params
+     never drifts from the data beside it (it also seeds the next rerun);
+  5. 'creator' share mode swaps CREDENTIALS only — identity params still bind
+     the viewer, matching run_query_viewer.
 
 Run:
     cd backend
@@ -32,6 +36,7 @@ import uuid
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import select
 
 from app.dependencies import async_session_maker
 from app.models.artifact import Artifact
@@ -69,12 +74,13 @@ def generate_df(ds_clients, excel_files, params):
 """
 
 
-def _param_spec(name="BillingYear", source="input", identity_binding=None):
+def _param_spec(name="BillingYear", source="input", identity_binding=None,
+                default=None):
     return {
         "name": name,
         "type": "string",
         "label": name,
-        "default": None,
+        "default": default,
         "required": False,
         "source": source,
         "identity_binding": identity_binding,
@@ -157,6 +163,12 @@ async def _step_rows(step_id):
         return (step.data or {}).get("rows") or []
 
 
+async def _step_applied_params(step_id):
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        return step.applied_params
+
+
 @pytest.mark.e2e
 def test_rerun_executes_parameterized_steps_with_their_stored_values(
     create_report, create_user, login_user, whoami, rerun_report
@@ -227,6 +239,122 @@ def test_rerun_recomputes_identity_params_instead_of_replaying_them(
     assert rows, "identity-bound step was not refreshed"
     assert rows[0]["ran_for"] == user["email"]
     assert rows[0]["ran_for"] != "someone-else@example.com"
+
+    # The re-derived value is also what the step now records as "what this run
+    # executed with" — leaving the stale dict there would both misreport the
+    # run and feed the next rerun's resolution.
+    assert _run(_step_applied_params(seeded["step_ids"][0])) == {
+        "Viewer": user["email"]
+    }
+
+
+@pytest.mark.e2e
+def test_rerun_records_the_values_it_actually_executed_with(
+    create_report, create_user, login_user, whoami, rerun_report
+):
+    """applied_params must reflect the resolved values, not the stored ones.
+
+    Resolution fills in declared defaults for params the last run never had a
+    value for. If the rerun does not write them back, applied_params keeps
+    claiming the step ran with nothing while the data says otherwise — and
+    that stale dict is what seeds the NEXT rerun.
+    """
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    report = create_report(title="Defaulted filter", user_token=token,
+                           org_id=org_id, data_sources=[])
+    seeded = _run(_seed(
+        report["id"],
+        specs_and_code=[([_param_spec(default="2020")], PARAM_CODE)],
+        # Never ran with an explicit value — the default is the only source.
+        applied_params_per_query=[None],
+    ))
+
+    body = rerun_report(report["id"], user_token=token, org_id=org_id)
+    assert body["steps_failed"] == 0, body
+
+    rows = _run(_step_rows(seeded["step_ids"][0]))
+    assert rows and rows[0]["ran_for"] == "2020", rows
+    assert _run(_step_applied_params(seeded["step_ids"][0])) == {
+        "BillingYear": "2020"
+    }
+
+
+async def _creator_mode_run(step_id, report_id, viewer_id, owner_id):
+    """Run a step in 'creator' share mode: the owner's credentials, the
+    viewer's identity."""
+    from app.models.user import User
+    from app.services.step_service import StepService
+
+    async with async_session_maker() as db:
+        viewer = await db.get(User, viewer_id)
+        owner = await db.get(User, owner_id)
+        return await StepService().run_step_to_user_result(
+            db, str(step_id), run_user=viewer, credential_user=owner,
+            executed_as="creator",
+        )
+
+
+@pytest.mark.e2e
+def test_creator_mode_binds_identity_params_to_the_viewer(
+    create_report, create_user, login_user, whoami, test_client
+):
+    """'creator' mode swaps CREDENTIALS, not identity.
+
+    query_service.run_query_viewer resolves identity params from the caller in
+    both share modes (the personalization tier: the owner's connection runs
+    the query, the caller's identity scopes it). Binding them to the
+    credential user here instead would make the same dashboard return
+    different rows depending on whether the viewer moved a filter or hit
+    refresh.
+    """
+    owner = create_user()
+    owner_token = login_user(owner["email"], owner["password"])
+    org_id = whoami(owner_token)["organizations"][0]["id"]
+
+    # Second org member: invite, then register against that invite (sign-up is
+    # closed after the first user, so create_user picks the token up itself).
+    viewer_email = f"viewer_{uuid.uuid4().hex[:6]}@test.com"
+    test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": viewer_email, "role": "member"},
+        headers={"Authorization": f"Bearer {owner_token}",
+                 "X-Organization-Id": str(org_id)},
+    )
+    viewer = create_user(email=viewer_email, password="test123")
+
+    report = create_report(title="Creator-mode dashboard", user_token=owner_token,
+                           org_id=org_id, data_sources=[])
+    seeded = _run(_seed(
+        report["id"],
+        specs_and_code=[([
+            _param_spec(name="Viewer", source="identity",
+                        identity_binding="viewer.email"),
+        ], IDENTITY_CODE)],
+        applied_params_per_query=[None],
+    ))
+
+    async def _ids():
+        async with async_session_maker() as db:
+            from app.models.user import User as _U
+            r = await db.get(Report, report["id"])
+            v = (await db.execute(
+                select(_U).where(_U.email == viewer["email"])
+            )).scalars().first()
+            return str(r.user_id), str(v.id)
+
+    owner_id, viewer_id = _run(_ids())
+
+    row = _run(_creator_mode_run(seeded["step_ids"][0], report["id"],
+                                 viewer_id, owner_id))
+
+    assert row.status == "success", row.status_reason
+    assert row.executed_as == "creator"
+    assert (row.data or {}).get("rows")[0]["ran_for"] == viewer["email"]
+    assert (row.data or {}).get("rows")[0]["ran_for"] != owner["email"]
+    assert row.applied_params == {"Viewer": viewer["email"]}
 
 
 async def _viewer_run(step_id, report_id, user_id, fingerprints):

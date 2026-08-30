@@ -361,6 +361,14 @@ class StepService:
 
         # Update existing step instead of creating new one
         step.data = df
+        # Record what this run actually executed with, not what the previous
+        # one did: resolution fills in defaults, drops params the query no
+        # longer declares, and re-derives identity values. applied_params is
+        # read back as "the values this run executed with" (read_query,
+        # report_service) and seeds the NEXT rerun's resolution, so leaving
+        # the stale dict in place lets both drift. Mirrors the entity refresh
+        # path (entity_service.run_entity_with_update).
+        step.applied_params = dict(params) if params else None
 
         # The shared snapshot changed — per-viewer cached results for this
         # step are now stale. They are a cache of derived data, so hard-delete.
@@ -419,10 +427,15 @@ class StepService:
         if stored is None:
             stored = step.applied_params
 
-        # Identity params resolve against whoever the run executes as: the
-        # viewer in 'viewer' mode, the report creator in 'creator' mode —
-        # matching whose credentials reach the data source.
-        identity_user = run_user if executed_as == 'viewer' else credential_user
+        # Identity params always bind the VIEWER, in both share modes —
+        # `credential_user` decides only whose credentials reach the data
+        # source. 'creator' mode is the personalization tier: the owner's
+        # connection runs the query, the caller's identity scopes it. This
+        # mirrors run_query_viewer (query_service), which resolves identity
+        # from the caller regardless of credential mode; binding it to the
+        # owner here would make the same dashboard return different rows
+        # depending on whether the viewer moved a filter or hit refresh.
+        identity_user = run_user
 
         params: dict = {}
         status = 'success'
