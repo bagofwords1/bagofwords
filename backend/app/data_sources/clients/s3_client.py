@@ -339,12 +339,20 @@ class S3Client(DataSourceClient):
             text, pages_total = _extract_pdf_pages_from_bytes(
                 data, key, page_range[0], page_range[1]
             )
+                # The bytes this read already downloaded, carried like
+                # DocumentText.raw does for whole-file reads. Without them the
+                # tool layer fetches the same object a second time just to keep
+                # the original for the viewer — 2N downloads for N page reads.
+                # `name` rides along because an opaque provider id carries no
+                # filename of its own, and the preview needs the extension.
             return {
                 "__doc_pages__": True,
                 "text": text,
                 "pages_total": pages_total,
                 "first": max(1, page_range[0]),
                 "last": min(page_range[1], pages_total),
+                "raw": data,
+                "name": key.rsplit("/", 1)[-1],
             }
 
         # Structured read — pull the whole object (size-capped).

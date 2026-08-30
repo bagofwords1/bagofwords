@@ -376,3 +376,118 @@ class TestSingleFetch:
         pv = payload["output"]["preview"]
         assert pv["kind"] == "pdf"
         assert pv["file_id"] == "SRC-1"
+
+
+class TestPageRangeReusesTheFetch:
+    """A page read must not pay for the file twice.
+
+    Graph and S3 have no ranged-read API for this — the client downloads the
+    whole object and extracts the slice locally. Fetching it a second time to
+    keep the original for the viewer made paging through a document cost 2N
+    downloads for N page reads, so the bytes ride along on the result.
+    """
+
+    @staticmethod
+    def _paging_client(pdf_bytes, name="deck.pdf", carry=True):
+        """Mimics graph_drive/s3: one download per read_file, bytes carried on
+        the __doc_pages__ result. `carry=False` is the network_dir shape."""
+        class PagingClient:
+            def __init__(self):
+                self.reads = 0
+                self.raw_reads = 0
+
+            async def aread_file(self, file_id, page_range=None, **kw):
+                self.reads += 1
+                if page_range is None:
+                    raise AssertionError("page_range read expected")
+                out = {
+                    "__doc_pages__": True,
+                    "text": f"pages {page_range[0]}-{page_range[1]}",
+                    "pages_total": 15,
+                    "first": page_range[0],
+                    "last": page_range[1],
+                }
+                if carry:
+                    out["raw"] = pdf_bytes
+                    out["name"] = name
+                return out
+
+            async def afile_version(self, file_id):
+                return None
+
+            def read_raw_bytes(self, file_id):
+                self.raw_reads += 1
+                raise AssertionError(
+                    "second download: the page read already fetched this object"
+                )
+
+        return PagingClient()
+
+    @pytest.mark.asyncio
+    async def test_paging_costs_one_download_per_read(self):
+        pdf = build_multipage_pdf(PAGES)
+        client = self._paging_client(pdf)
+        with patch(_RESOLVE, new=AsyncMock(return_value=(client, None))), \
+                patch(_ATTACH, new=AsyncMock(return_value="SRC-1")):
+            for rng in ("1-5", "6-10", "11-15"):
+                payload = await _run_read(
+                    {"connection_id": "C1", "file_id": "01OPAQUEID", "page_range": rng}, {}
+                )
+                assert payload["output"]["success"] is True
+
+        assert client.reads == 3
+        assert client.raw_reads == 0
+
+    @pytest.mark.asyncio
+    async def test_carried_name_makes_the_preview_resolve(self):
+        """An opaque provider id carries no filename, and _build_preview keys the
+        pdf branch off the extension — so without the carried name the document
+        is fetched and stored and then never shown."""
+        pdf = build_multipage_pdf(PAGES)
+        client = self._paging_client(pdf)
+        with patch(_RESOLVE, new=AsyncMock(return_value=(client, None))), \
+                patch(_ATTACH, new=AsyncMock(return_value="SRC-1")):
+            payload = await _run_read(
+                {"connection_id": "C1", "file_id": "01OPAQUEID", "page_range": "4-6"}, {}
+            )
+        out = payload["output"]
+        assert out["file_name"] == "deck.pdf"
+        pv = out["preview"]
+        assert pv["kind"] == "pdf"
+        assert pv["file_id"] == "SRC-1"
+        assert pv["target_page"] == 4
+
+    @pytest.mark.asyncio
+    async def test_the_stored_bytes_are_the_real_pdf(self):
+        pdf = build_multipage_pdf(PAGES)
+        client = self._paging_client(pdf)
+        with patch(_RESOLVE, new=AsyncMock(return_value=(client, None))), \
+                patch(_ATTACH, new=AsyncMock(return_value="SRC-1")) as attach:
+            await _run_read(
+                {"connection_id": "C1", "file_id": "01OPAQUEID", "page_range": "2"}, {}
+            )
+        writes = [
+            c for c in attach.await_args_list
+            if str(c.kwargs.get("source_ref", "")).endswith("#source")
+        ]
+        assert len(writes) == 1
+        assert writes[0].kwargs["content_bytes"] == pdf
+        assert writes[0].kwargs["filename"] == "deck.pdf"
+
+    @pytest.mark.asyncio
+    async def test_a_client_that_carries_nothing_still_works(self):
+        """network_dir extracts straight from disk and carries no bytes; the
+        fallback re-read is local, so it stays a plain str result."""
+        pdf = build_multipage_pdf(PAGES)
+        client = self._paging_client(pdf, carry=False)
+
+        def local_reread(file_id):
+            return pdf, "deck.pdf", "application/pdf"
+        client.read_raw_bytes = local_reread
+
+        with patch(_RESOLVE, new=AsyncMock(return_value=(client, None))), \
+                patch(_ATTACH, new=AsyncMock(return_value="SRC-1")):
+            payload = await _run_read(
+                {"connection_id": "C1", "file_id": "book.pdf", "page_range": "2"}, {}
+            )
+        assert payload["output"]["preview"]["kind"] == "pdf"

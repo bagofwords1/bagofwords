@@ -867,12 +867,20 @@ class GraphDriveClient(DataSourceClient):
             if ext != "pdf":
                 raise ValueError("page_range is supported for PDF files only.")
             text, pages_total = _extract_pdf_pages_from_bytes(content, name, page_range[0], page_range[1])
+                # The bytes this read already downloaded, carried like
+                # DocumentText.raw does for whole-file reads. Without them the
+                # tool layer fetches the same object a second time just to keep
+                # the original for the viewer — 2N downloads for N page reads.
+                # `name` rides along because an opaque provider id carries no
+                # filename of its own, and the preview needs the extension.
             return {
                 "__doc_pages__": True,
                 "text": text,
                 "pages_total": pages_total,
                 "first": max(1, page_range[0]),
                 "last": min(page_range[1], pages_total),
+                "raw": content,
+                "name": name,
             }
 
         if max_bytes and len(content) > max_bytes:
@@ -912,12 +920,22 @@ class GraphDriveClient(DataSourceClient):
     def read_raw_bytes(self, file_id: str):
         """Raw item bytes + name + mime, unparsed — for attach_file (persist
         the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
-        Same access boundary as read_file: off-glob items are denied."""
-        drive_id = self._resolve_drive_id()
-        resolved_id = self._resolve_item_id(drive_id, file_id)
+        Same access boundary as read_file: off-glob items are denied.
+
+        Resolution goes through _locate, exactly as read_file does. It used to
+        call _resolve_drive_id/_resolve_item_id directly — the single-library
+        path — which cannot split the qualified ``drive|item`` id list_files
+        hands out on a multi-library connection. It fed the whole string in as
+        the item id and every call raised, silently: attach_file failed, the
+        as_images escalation became a no-op that returned the same unreadable
+        text, and the document preview never appeared."""
+        drive_id, resolved_id = self._locate(file_id)
         meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
-        self._enforce_scope(self._rel_from_parent((meta.get("parentReference") or {}).get("path"), name))
+        # _scoped_path (not _rel_from_parent) for the same reason read_file uses
+        # it: across libraries the listed paths carry a library prefix, so the
+        # glob check must be given the prefixed form it was written against.
+        self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         return content, name, (meta.get("file") or {}).get("mimeType")
 

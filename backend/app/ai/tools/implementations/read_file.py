@@ -426,6 +426,12 @@ class ReadFileTool(Tool):
                 )
                 return
             shown = f"{paged.get('first')}-{paged.get('last')}"
+            # Bytes and name the client carried over from the fetch it already
+            # made (see the __doc_pages__ contract). Absent for network_dir,
+            # which extracts straight from disk — there the fallback re-read is
+            # local and free.
+            paged_raw = paged.get("raw")
+            paged_name = paged.get("name") or None
 
             # Scanned/image-only pages (no usable text), glyph-soup extractions
             # (text came back but it's garbled — subset font with a broken
@@ -445,10 +451,11 @@ class ReadFileTool(Tool):
             ):
                 import asyncio as _asyncio
 
-                raw_bytes = None
+                raw_bytes = paged_raw
                 try:
-                    raw = await _asyncio.to_thread(client.read_raw_bytes, data.file_id)
-                    raw_bytes = raw[0] if isinstance(raw, tuple) else raw
+                    if raw_bytes is None:
+                        raw = await _asyncio.to_thread(client.read_raw_bytes, data.file_id)
+                        raw_bytes = raw[0] if isinstance(raw, tuple) else raw
                     imgs, total = render_pdf_pages_images(raw_bytes, rng[0], rng[1])
                 except Exception as e:
                     imgs, total = [], paged.get("pages_total")
@@ -468,10 +475,12 @@ class ReadFileTool(Tool):
                         connection_id=data.connection_id,
                         session_file=session_file,
                         raw_bytes=raw_bytes,
+                        raw_name=paged_name,
                     )
                     output, observation = await self._finalize(
                         data, runtime_ctx,
-                        rendered={"content_type": "binary", "pages_shown": shown},
+                        rendered={"content_type": "binary", "pages_shown": shown,
+                                  "file_name": paged_name},
                         session_file_id=source_file_id,
                         image_pngs=[png for png, _mtype in imgs],
                         pages_total=total,
@@ -498,6 +507,8 @@ class ReadFileTool(Tool):
                 runtime_ctx, client, data.file_id,
                 connection_id=data.connection_id,
                 session_file=session_file,
+                raw_bytes=paged_raw,
+                raw_name=paged_name,
             )
             output, observation = await self._finalize(
                 data, runtime_ctx,
@@ -506,6 +517,7 @@ class ReadFileTool(Tool):
                     "text": paged.get("text") or "",
                     "pages_total": paged.get("pages_total"),
                     "pages_shown": shown,
+                    "file_name": paged_name,
                 },
                 session_file_id=source_file_id,
                 image_pngs=[],
