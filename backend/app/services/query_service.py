@@ -1032,6 +1032,14 @@ class QueryService:
         schema.viewer_result = resolution.viewer_result
         schema.data = resolution.data
         schema.snapshot_withheld = resolution.withheld
+        # Same boundary as data/code: applied_params carries the identity the
+        # snapshot was materialized under, which is not this accessor's.
+        from app.services.viewer_data_policy import redact_applied_params
+        schema.applied_params = redact_applied_params(
+            getattr(step, "applied_params", None),
+            getattr(q, "parameters", None),
+            withheld=resolution.withheld,
+        )
         if resolution.withheld:
             # No code either — SQL leaks schema/table/filter details.
             schema.code = ""

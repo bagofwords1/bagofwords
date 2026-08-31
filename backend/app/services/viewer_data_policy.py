@@ -135,24 +135,37 @@ async def resolve_step_data(
     return StepDataResolution(data=shared, viewer_result=viewer_result)
 
 
-async def _step_query_has_identity_params(db: AsyncSession, step) -> bool:
-    """Does the step's query declare any identity-source parameter?"""
-    query_id = getattr(step, "query_id", None)
-    if not query_id:
-        return False
-    from app.models.query import Query
-    row = (await db.execute(
-        select(Query.parameters).where(Query.id == str(query_id))
-    )).first()
-    if not row or not row[0]:
-        return False
-    try:
-        return any(
-            isinstance(p, dict) and p.get("source") == "identity"
-            for p in row[0]
-        )
-    except Exception:
-        return False
+def redact_applied_params(
+    applied: Optional[dict], parameters: Any, *, withheld: bool
+) -> Optional[dict]:
+    """What a non-owner reader may see of a step's `applied_params`.
+
+    The values a snapshot was materialized with include, for an
+    identity-sourced param, an identity that is NOT the reader's — an email,
+    a department, a group list. That crosses exactly the boundary `code` and
+    `data` are already gated on, so it gets the same treatment: a withheld
+    reader gets nothing, and identity-derived names are dropped for everyone
+    else (the shared-report routes serve anonymous readers).
+
+    `input_identity_default` is dropped too. Once resolved there is no way to
+    tell a client-supplied value from the identity fallback, so this fails
+    closed. Nothing reads identity values back on the client — the dashboard
+    controls skip them when seeding filter state.
+
+    `parameters` is the raw Query.parameters list; returns None rather than an
+    empty dict so the field stays absent instead of shipping `{}`.
+    """
+    if withheld or not applied:
+        return None
+    from app.schemas.param_schema import parse_param_specs
+
+    identity_names = {
+        s.name for s in parse_param_specs(parameters)
+        if s.source in ("identity", "input_identity_default")
+    }
+    if not identity_names:
+        return dict(applied) or None
+    return {k: v for k, v in applied.items() if k not in identity_names} or None
 
 
 async def _org_fallback_ds_ids(

@@ -2183,6 +2183,16 @@ class ReportService:
         from app.services.viewer_data_policy import resolve_step_data
         resolution = await resolve_step_data(db, step, report, user)
 
+        # applied_params holds the values the snapshot was materialized with,
+        # identity values included — same trust boundary as `code` and `data`
+        # above, and this route serves anonymous readers.
+        from app.services.viewer_data_policy import redact_applied_params
+        applied_params = redact_applied_params(
+            getattr(step, "applied_params", None),
+            getattr(query, "parameters", None),
+            withheld=resolution.withheld,
+        )
+
         return PublicStepSchema(
             id=step.id,
             title=step.title,
@@ -2193,7 +2203,7 @@ class ReportService:
             view=view_dict,
             viewer_result=resolution.viewer_result,
             snapshot_withheld=resolution.withheld,
-            applied_params=getattr(step, "applied_params", None),
+            applied_params=applied_params,
         )
 
     async def get_public_artifacts(self, db: AsyncSession, report_id: str, user=None):

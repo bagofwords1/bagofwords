@@ -3287,6 +3287,7 @@
     "selectArtifact": "Selecionar artefato...",
     "useThisVersion": "Usar esta versão",
     "refreshData": "Atualizar dados",
+    "refreshDisabledViewAs": "Saia do modo «ver como» para atualizar: a atualização é executada como você, não como o membro pré-visualizado.",
     "fullScreen": "Tela cheia",
     "openInNewTab": "Abrir em nova aba",
     "searchMembers": "Buscar membros por nome ou e-mail...",

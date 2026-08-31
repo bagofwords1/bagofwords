@@ -80,12 +80,16 @@
       <div class="flex items-center gap-2">
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
-        <!-- Refresh Dashboard (rerun + refresh) -->
-        <UTooltip :text="$t('artifactFrame.refreshData')">
+        <!-- Refresh Dashboard (rerun + refresh).
+             Disabled while previewing as someone else: neither refresh
+             endpoint takes run_as_user_id, so the rerun would resolve
+             identity params as YOU and replace what is on screen while the
+             banner still says "Viewing as X". -->
+        <UTooltip :text="isViewAsActive ? $t('artifactFrame.refreshDisabledViewAs') : $t('artifactFrame.refreshData')">
           <button
             @click="refreshDashboard"
-            :disabled="isRefreshing"
-            class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50"
+            :disabled="isRefreshing || isViewAsActive"
+            class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Spinner v-if="isRefreshing" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
             <Icon v-else name="heroicons:arrow-path" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
@@ -604,6 +608,9 @@ function submitPolishPrompt() {
 // Refresh Dashboard - reruns report queries and refreshes data
 async function refreshDashboard() {
   if (isRefreshing.value) return;
+  // Belt and braces with the button's :disabled — refreshing under view-as
+  // would resolve identity params as the caller, not the previewed member.
+  if (isViewAsActive.value) return;
 
   isRefreshing.value = true;
   isLoading.value = true;
@@ -1401,6 +1408,13 @@ const previewLoading = ref(false);
 const membersList = ref<any[]>([]);
 const canViewAs = computed(() =>
   selectedArtifact.value?.mode === 'page' && !isPendingArtifact.value && !snapshotWithheld.value);
+
+// Previewing as somebody else. Only the per-query run (/api/queries/{id}/run)
+// carries run_as_user_id; both refresh endpoints resolve identity from the
+// caller, so refreshing here would silently swap the slice on screen — and,
+// for the owner, persist THEIR slice into the snapshot every reader sees.
+// Exit view-as first.
+const isViewAsActive = computed(() => canViewAs.value && viewAsMode.value !== 'you');
 
 const viewAsOptions = computed(() => [
   { value: 'you', label: 'You', email: (viewerContext.value?.email as string) || '' },

@@ -3287,6 +3287,7 @@
     "selectArtifact": "Sélectionner un artefact...",
     "useThisVersion": "Utiliser cette version",
     "refreshData": "Actualiser les données",
+    "refreshDisabledViewAs": "Quittez le mode « voir en tant que » pour actualiser : l'actualisation s'exécute en votre nom, pas au nom du membre prévisualisé.",
     "fullScreen": "Plein écran",
     "openInNewTab": "Ouvrir dans un nouvel onglet",
     "searchMembers": "Rechercher des membres par nom ou e-mail...",
