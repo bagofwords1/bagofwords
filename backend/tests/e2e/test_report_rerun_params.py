@@ -581,14 +581,18 @@ async def _publish(report_id):
 
 
 @pytest.mark.e2e
-def test_public_step_strips_identity_values_from_applied_params(
+def test_public_step_withholds_an_input_identity_default_snapshot(
     create_report, create_user, login_user, whoami, test_client
 ):
-    """An input_identity_default param resolves from the viewer's identity when
-    the client sends nothing. Its stored value is therefore an identity, but
-    the step is NOT identity-tainted (only source='identity' taints), so the
-    snapshot is served rather than withheld — redaction is the only thing
-    standing between that value and an anonymous reader."""
+    """input_identity_default resolves from the identity binding whenever the
+    client submits nothing — which is exactly how a snapshot is materialized
+    (owner refresh, schedule, refresh-on-view all submit nothing). So the
+    shared snapshot is filtered by the OWNER's identity and must be withheld
+    from other readers, same as source='identity'.
+
+    Both the rows and the stored value have to go: the value is an identity,
+    and the rows are that identity's slice.
+    """
     user = create_user()
     token = login_user(user["email"], user["password"])
     org_id = whoami(token)["organizations"][0]["id"]
@@ -615,8 +619,11 @@ def test_public_step_strips_identity_values_from_applied_params(
     assert resp.status_code == 200, resp.text
     body = resp.json()
 
+    assert body["snapshot_withheld"] is True
+    assert body["code"] == ""
+    assert not (body.get("data") or {}).get("rows")
     assert "secret-department" not in resp.text
-    assert body["applied_params"] == {"BillingYear": "2023"}
+    assert body["applied_params"] is None
 
 
 @pytest.mark.e2e

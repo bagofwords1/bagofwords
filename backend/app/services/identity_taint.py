@@ -40,10 +40,26 @@ class TaintResult:
                 self.latest_upstream_refresh = ts
 
 
+# Param sources whose value is derived from an identity, and which therefore
+# make the snapshot they produced one identity's slice.
+#
+# `input_identity_default` counts. Its value is the viewer's identity binding
+# whenever the client submits nothing — which is exactly how a snapshot is
+# materialized (the owner's refresh, the schedule, refresh-on-view all run
+# with no submitted value). So the shared snapshot of such a query is filtered
+# by the OWNER's identity, and serving it to another reader shows them the
+# owner's slice, the very thing this module exists to prevent. After
+# resolution there is no way to tell a client-supplied value from the identity
+# fallback, so this fails closed. The frontend already groups the two sources
+# this way when deciding which queries to re-run on a view-as switch
+# (queriesWithIdentityParams).
+_IDENTITY_SOURCES = ("identity", "input_identity_default")
+
+
 def _has_identity_param(parameters) -> bool:
     try:
         return any(
-            isinstance(p, dict) and p.get("source") == "identity"
+            isinstance(p, dict) and p.get("source") in _IDENTITY_SOURCES
             for p in (parameters or [])
         )
     except Exception:

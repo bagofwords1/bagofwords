@@ -168,26 +168,6 @@ def redact_applied_params(
     return {k: v for k, v in applied.items() if k not in identity_names} or None
 
 
-async def _step_query_has_identity_params(db: AsyncSession, step) -> bool:
-    """Does the step's query declare any identity-source parameter?"""
-    query_id = getattr(step, "query_id", None)
-    if not query_id:
-        return False
-    from app.models.query import Query
-    row = (await db.execute(
-        select(Query.parameters).where(Query.id == str(query_id))
-    )).first()
-    if not row or not row[0]:
-        return False
-    try:
-        return any(
-            isinstance(p, dict) and p.get("source") == "identity"
-            for p in row[0]
-        )
-    except Exception:
-        return False
-
-
 async def _org_fallback_ds_ids(
     db: AsyncSession, organization_id: str | None, code: str | None
 ) -> list[str]:
