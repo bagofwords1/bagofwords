@@ -44,5 +44,17 @@ export function useFileEmbedUrl() {
     cache.delete(fileId)
   }
 
-  return { getEmbedUrl, invalidate }
+  /**
+   * How long the current token for `fileId` is still considered fresh.
+   * Mounted frames use this to schedule a re-mint just after the freshness
+   * window closes — the "re-minted a few minutes BEFORE expiry" promise above
+   * is theirs to keep, since a cache check alone only runs on fresh mounts.
+   */
+  function msUntilRefresh(fileId: string): number {
+    const hit = cache.get(fileId)
+    if (!hit) return 0
+    return Math.max(0, TOKEN_TTL_MS - REFRESH_MARGIN_MS - (Date.now() - hit.mintedAt))
+  }
+
+  return { getEmbedUrl, invalidate, msUntilRefresh }
 }

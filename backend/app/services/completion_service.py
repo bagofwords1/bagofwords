@@ -1994,6 +1994,13 @@ class CompletionService:
                 .where(
                     report_file_association.c.report_id == report_id,
                     File.content_type.like("image/%"),
+                    # Only user uploads are "pending attachments" waiting to be
+                    # claimed by the message being sent. Tool-materialized files
+                    # (source_kind="connector": read_file page renders, picture
+                    # reads) also sit in report.files with a NULL completion_id,
+                    # and claiming them here showed them as attachments on the
+                    # NEXT unrelated user message.
+                    File.source_kind == "upload",
                 )
             )).scalars().all())
             if not image_file_ids:

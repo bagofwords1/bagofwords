@@ -14,10 +14,20 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import zipfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+# PDFium (the native library behind pypdfium2) is not thread-safe, and
+# pypdfium2 adds no locking of its own. Extraction here and rasterization in
+# _file_tool_common both run on asyncio worker threads, so two concurrent PDF
+# reads would otherwise race inside the same native state. EVERY pypdfium2
+# call sequence — open, per-page work, close — must run while holding this
+# lock. Serializing PDF work is the accepted cost; a race can corrupt PDFium
+# state or segfault the whole process.
+PDFIUM_LOCK = threading.Lock()
 
 # pypdf is chatty on real-world PDFs ("Ignoring wrong pointing object",
 # "FloatObject invalid", …) — harmless recovery warnings that flood the logs
@@ -204,6 +214,8 @@ def _open_pdf(path: str):
 
     pypdfium2 is already a dependency — render_pdf_pages_images rasterizes
     pages with it — so this costs no new package.
+
+    Callers must hold PDFIUM_LOCK for the whole open→read→close sequence.
     """
     import pypdfium2 as pdfium
 
@@ -234,49 +246,51 @@ def extract_pdf_pages_text(path: str, first: int, last: int,
     extract_document_text, a targeted page read failing silently would strand
     the model in a retry loop.
     """
-    pdf = _open_pdf(path)
-    try:
-        pages_total = len(pdf)
-        first = max(1, int(first))
-        last = min(pages_total, int(last))
-        parts: list[str] = []
-        total = 0
-        for i in range(first - 1, last):
-            try:
-                t = _pdf_page_text(pdf, i)
-            except Exception:
-                t = ""
-            parts.append(t)
-            total += len(t)
-            if total >= max_chars:
-                break
-        return sanitize_extracted_text("\n".join(parts)[:max_chars]), pages_total
-    finally:
-        pdf.close()
+    with PDFIUM_LOCK:
+        pdf = _open_pdf(path)
+        try:
+            pages_total = len(pdf)
+            first = max(1, int(first))
+            last = min(pages_total, int(last))
+            parts: list[str] = []
+            total = 0
+            for i in range(first - 1, last):
+                try:
+                    t = _pdf_page_text(pdf, i)
+                except Exception:
+                    t = ""
+                parts.append(t)
+                total += len(t)
+                if total >= max_chars:
+                    break
+            return sanitize_extracted_text("\n".join(parts)[:max_chars]), pages_total
+        finally:
+            pdf.close()
 
 
 def _pdf(path: str, max_chars: int) -> str:
     # Search-oriented: a genuinely locked or corrupt file yields "" and is
     # skipped, unlike extract_pdf_pages_text where the caller wants the error.
-    try:
-        pdf = _open_pdf(path)
-    except Exception:
-        return ""
-    try:
-        parts: list[str] = []
-        total = 0
-        for i in range(min(len(pdf), _PDF_MAX_PAGES)):
-            try:
-                t = _pdf_page_text(pdf, i)
-            except Exception:
-                continue
-            parts.append(t)
-            total += len(t)
-            if total >= max_chars:
-                break
-        return "\n".join(parts)[:max_chars]
-    finally:
-        pdf.close()
+    with PDFIUM_LOCK:
+        try:
+            pdf = _open_pdf(path)
+        except Exception:
+            return ""
+        try:
+            parts: list[str] = []
+            total = 0
+            for i in range(min(len(pdf), _PDF_MAX_PAGES)):
+                try:
+                    t = _pdf_page_text(pdf, i)
+                except Exception:
+                    continue
+                parts.append(t)
+                total += len(t)
+                if total >= max_chars:
+                    break
+            return "\n".join(parts)[:max_chars]
+        finally:
+            pdf.close()
 
 
 # Match the visible-text runs in an OOXML part: <w:t> (Word) / <a:t>

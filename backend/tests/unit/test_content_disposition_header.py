@@ -63,3 +63,29 @@ def test_fallback_keeps_a_usable_extension(name, expected):
 
 def test_ascii_names_are_left_alone():
     assert 'filename="report.pdf"' in _content_disposition("attachment", "report.pdf")
+
+
+@pytest.mark.parametrize("name", [
+    "reports/2024/annual.pdf",       # connector ids are often full paths
+    "evil\r\nX-Injected: 1.pdf",     # CR/LF must never reach a header value
+    "tab\there.csv",
+])
+def test_control_chars_and_separators_cannot_break_the_header(name):
+    """CR/LF survive an ascii encode, and h11 rejects (or worse, splits) the
+    header at send time — the exact 500 class this helper exists to prevent."""
+    header = _content_disposition("attachment", name)
+    header.encode("latin-1")
+    assert "\r" not in header and "\n" not in header and "\t" not in header
+
+
+def test_slashes_are_percent_encoded_in_the_ext_value():
+    """"/" is not an attr-char in RFC 5987: strict parsers drop the whole
+    filename* when it appears literally. quote()'s default safe="/" kept it."""
+    header = _content_disposition("inline", "reports/2024/annual.pdf")
+    assert "filename*=UTF-8''reports%2F2024%2Fannual.pdf" in header
+
+
+def test_backslash_cannot_escape_the_closing_quote():
+    header = _content_disposition("attachment", 'trail\\')
+    assert header.count('"') == 2
+    assert '\\"' not in header

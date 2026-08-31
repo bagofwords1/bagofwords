@@ -477,11 +477,15 @@ class ReadFileTool(Tool):
                         raw_bytes=raw_bytes,
                         raw_name=paged_name,
                     )
+                    # source_file_id reaches the UI via preview_file_id only.
+                    # As session_file_id it would be a raw PDF advertised to
+                    # the model as inspect_data/read_excel_as_csv input — a
+                    # guaranteed parse failure.
                     output, observation = await self._finalize(
                         data, runtime_ctx,
                         rendered={"content_type": "binary", "pages_shown": shown,
                                   "file_name": paged_name},
-                        session_file_id=source_file_id,
+                        session_file_id=None,
                         image_pngs=[png for png, _mtype in imgs],
                         pages_total=total,
                         cached=False,
@@ -519,7 +523,7 @@ class ReadFileTool(Tool):
                     "pages_shown": shown,
                     "file_name": paged_name,
                 },
-                session_file_id=source_file_id,
+                session_file_id=None,
                 image_pngs=[],
                 pages_total=paged.get("pages_total"),
                 cached=False,

@@ -426,26 +426,31 @@ def render_pdf_pages_images(pdf_bytes: bytes, first: int, last: int, *, max_page
     Raises on an unreadable PDF."""
     import pypdfium2 as pdfium
     from app.ai.llm.image_utils import encode_pil_for_vision
+    from app.data_sources.clients._document_text import PDFIUM_LOCK
 
-    pdf = pdfium.PdfDocument(bytes(pdf_bytes))
-    try:
-        total = len(pdf)
-        first = max(1, int(first))
-        last = min(total, int(last))
-        out = []
-        for i in range(first - 1, last):
-            if len(out) >= max_pages:
-                break
-            page = pdf[i]
-            try:
-                bitmap = page.render(scale=dpi / 72.0)
-                pil = bitmap.to_pil()
-                out.append(encode_pil_for_vision(pil))
-            finally:
-                page.close()
-        return out, total
-    finally:
-        pdf.close()
+    # PDFium is not thread-safe; this runs on worker threads concurrently with
+    # text extraction (_document_text), so every PDFium sequence takes the
+    # shared lock.
+    with PDFIUM_LOCK:
+        pdf = pdfium.PdfDocument(bytes(pdf_bytes))
+        try:
+            total = len(pdf)
+            first = max(1, int(first))
+            last = min(total, int(last))
+            out = []
+            for i in range(first - 1, last):
+                if len(out) >= max_pages:
+                    break
+                page = pdf[i]
+                try:
+                    bitmap = page.render(scale=dpi / 72.0)
+                    pil = bitmap.to_pil()
+                    out.append(encode_pil_for_vision(pil))
+                finally:
+                    page.close()
+            return out, total
+        finally:
+            pdf.close()
 
 
 def render_file_payload(name: str, payload: Any, max_rows: int, max_chars: int) -> Dict[str, Any]:
@@ -555,6 +560,11 @@ def ext_for_mime(mime: Optional[str]) -> Optional[str]:
 # Picture files we can hand to a vision model as-is (normalized to PNG).
 _RENDERABLE_IMAGE_EXTS = {"png", "jpg", "jpeg", "gif", "webp", "bmp", "tiff", "tif"}
 
+# The subset a BROWSER can render in an <img> tag. TIFF is the difference:
+# PIL decodes it for the vision path, but no mainstream browser displays it,
+# so a .tiff file id handed to the UI as an image produces a broken picture.
+_BROWSER_IMAGE_EXTS = _RENDERABLE_IMAGE_EXTS - {"tiff", "tif"}
+
 
 def is_picture_name(name: Optional[str]) -> bool:
     """True when this name is a picture the browser can render as-is.
@@ -562,11 +572,12 @@ def is_picture_name(name: Optional[str]) -> bool:
     Distinguishes "the source IS an image" from "the source was RENDERED to
     images": a page render of a PDF is a new artifact, while a re-encoded PNG
     is the same file the user already has. Callers use it to decide whether a
-    materialized image id may stand in for the source file id.
+    materialized image id may stand in for the source file id — so the test is
+    browser renderability, not merely "PIL can open it".
     """
     leaf = str(name or "").rsplit("/", 1)[-1]
     ext = leaf.rsplit(".", 1)[-1].lower() if "." in leaf else ""
-    return ext in _RENDERABLE_IMAGE_EXTS
+    return ext in _BROWSER_IMAGE_EXTS
 
 
 def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 150):
@@ -615,17 +626,19 @@ def render_file_images(file_id: str, payload, *, max_pages: int = 8, dpi: int = 
         if ext == "pdf":
             import pypdfium2 as pdfium
             from app.ai.llm.image_utils import encode_pil_for_vision
-            pdf = pdfium.PdfDocument(data)
-            try:
-                total = len(pdf)
-                out = []
-                for i in range(min(total, max_pages)):
-                    page = pdf[i]
-                    pil = page.render(scale=dpi / 72.0).to_pil()
-                    out.append(encode_pil_for_vision(pil))
-                return out, total
-            finally:
-                pdf.close()
+            from app.data_sources.clients._document_text import PDFIUM_LOCK
+            with PDFIUM_LOCK:
+                pdf = pdfium.PdfDocument(data)
+                try:
+                    total = len(pdf)
+                    out = []
+                    for i in range(min(total, max_pages)):
+                        page = pdf[i]
+                        pil = page.render(scale=dpi / 72.0).to_pil()
+                        out.append(encode_pil_for_vision(pil))
+                    return out, total
+                finally:
+                    pdf.close()
     except Exception as e:  # corrupt/locked file, unsupported image
         logger.info("render_file_images: could not render %s: %s", file_id, e)
     return [], 0
@@ -704,6 +717,16 @@ async def read_source_bytes(client, file_id: str) -> Tuple[bytes, str, Optional[
     return str(payload).encode("utf-8"), f"{leaf}.txt", "text/plain"
 
 
+def _append_analysis_file(runtime_ctx: Dict[str, Any], db_file) -> None:
+    """Add a just-attached file to the turn's live analysis roster (dedup)."""
+    try:
+        ef = runtime_ctx.get("excel_files")
+        if isinstance(ef, list) and all(getattr(x, "id", None) != db_file.id for x in ef):
+            ef.append(db_file)
+    except Exception as e:
+        logger.warning("attach_drive_file_to_session: excel_files refresh failed: %s", e)
+
+
 async def _find_cached_connector_file(
     db, *, report, connection_id: Optional[str], source_ref: Optional[str],
     source_kind: str,
@@ -748,6 +771,7 @@ async def attach_drive_file_to_session(
     source_kind: str = "connector",
     connection_id: Optional[str] = None,
     source_ref: Optional[str] = None,
+    analysis: bool = True,
 ) -> Optional[str]:
     """Materialize connector bytes as a File the code sandbox can read.
 
@@ -767,6 +791,12 @@ async def attach_drive_file_to_session(
     Returns the File row id, or None if the file wasn't attached (no report
     context, oversize, or persistence failed — non-fatal, caller still returns
     inline content).
+
+    ``analysis=False`` marks a file that exists for the VIEWER, not the code
+    sandbox (persist_source_document's original-document copies): it is still
+    linked to the report so the embed route and the refresh-in-place cache can
+    find it, but it must not join the analysis roster the model is told to run
+    inspect_data / create_data against.
     """
     db = runtime_ctx.get("db")
     report = runtime_ctx.get("report")
@@ -822,6 +852,31 @@ async def attach_drive_file_to_session(
 
         if cached is not None:
             path = cached.path
+            # Refresh is only worth its cost when the bytes actually changed.
+            # A model paging through one document re-persists it once per
+            # page_range read; without this check each of those rewrote the
+            # whole file, regenerated the preview and issued several commits
+            # for content that is byte-identical. Size first (free), full
+            # compare only on a size match.
+            unchanged = False
+            try:
+                if (
+                    cached.content_type == resolved_mime
+                    and cached.filename == filename
+                    and os.path.getsize(path) == len(content_bytes)
+                ):
+                    async with aiofiles.open(path, "rb") as fh:
+                        unchanged = (await fh.read()) == content_bytes
+            except OSError:
+                unchanged = False
+            if unchanged:
+                logger.info(
+                    "attach_drive_file_to_session: %s unchanged, reusing session file %s",
+                    filename, cached.id,
+                )
+                if analysis:
+                    _append_analysis_file(runtime_ctx, cached)
+                return str(cached.id)
             async with aiofiles.open(path, "wb") as fh:
                 await fh.write(content_bytes)
             cached.content_type = resolved_mime
@@ -875,12 +930,10 @@ async def attach_drive_file_to_session(
         # report.files and isn't refreshed mid-run, so a file materialized now
         # would be invisible to inspect_data / create_data called later THIS
         # turn. Append it to the live list (same object as agent.analysis_files).
-        try:
-            ef = runtime_ctx.get("excel_files")
-            if isinstance(ef, list) and all(getattr(x, "id", None) != db_file.id for x in ef):
-                ef.append(db_file)
-        except Exception as e:
-            logger.warning("attach_drive_file_to_session: excel_files refresh failed: %s", e)
+        # Viewer-only copies (analysis=False) stay out: a raw .pdf in the
+        # analysis roster invites read_excel_as_csv calls that can only fail.
+        if analysis:
+            _append_analysis_file(runtime_ctx, db_file)
 
         # Best-effort raw preview, same as upload path.
         try:
@@ -984,6 +1037,9 @@ async def persist_source_document(
             mime_type=raw_mime,
             connection_id=connection_id,
             source_ref=f"{file_id}#source",
+            # Viewer copy: the model analyzes the DERIVATIVE session file
+            # (.txt/.csv), never this raw original — keep it off the roster.
+            analysis=False,
         )
     except Exception as e:
         logger.warning("persist_source_document: failed for %s: %s", file_id, e)

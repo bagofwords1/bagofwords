@@ -55,7 +55,11 @@ class TestSourceDocumentIsKept:
         )
         out = payload["output"]
         assert out["success"] is True
-        assert out["session_file_id"] == "SRC-1"
+        # The kept document is a VIEWER copy: it reaches the UI through
+        # preview.file_id only. As session_file_id it would be a raw PDF the
+        # output schema advertises as inspect_data / read_excel_as_csv input.
+        assert "session_file_id" not in out
+        assert out["preview"]["file_id"] == "SRC-1"
         # The page slice still reaches the model.
         assert out["pages_shown"] == "2-2" and out["pages_total"] == 3
         assert "UNIQUE-B" in (payload["observation"].get("details") or "")
@@ -64,6 +68,8 @@ class TestSourceDocumentIsKept:
         assert kw["content_bytes"].startswith(b"%PDF")
         assert kw["filename"] == "book.pdf"
         assert kw["mime_type"] == "application/pdf"
+        # Viewer copies stay off the analysis roster.
+        assert kw["analysis"] is False
 
     @pytest.mark.asyncio
     async def test_source_ref_cannot_clobber_the_rendered_copy(self, tmp_path):
@@ -80,15 +86,17 @@ class TestSourceDocumentIsKept:
 
     @pytest.mark.asyncio
     async def test_session_pdf_is_not_re_attached(self, tmp_path):
-        """A conversation attachment IS the original — echo its id instead of
-        minting a duplicate row on every page read."""
+        """A conversation attachment IS the original — the preview points at its
+        own id instead of minting a duplicate row on every page read."""
         f = _mk_file(tmp_path, "book.pdf", build_multipage_pdf(PAGES), "application/pdf")
         with patch(_ATTACH, new=AsyncMock(return_value="SHOULD-NOT-BE-USED")) as attach:
             payload = await _run_read(
                 {"connection_id": "", "file_id": f.id, "page_range": "2"},
                 _runtime_ctx([f]),
             )
-        assert payload["output"]["session_file_id"] == f.id
+        out = payload["output"]
+        assert "session_file_id" not in out
+        assert out["preview"]["file_id"] == f.id
         attach.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -126,7 +134,8 @@ class TestRasterizedDocumentsAreNotImages:
         )
         out = payload["output"]
         assert out["content_type"] == "images"
-        assert out["session_file_id"] == "SRC-1"
+        assert "session_file_id" not in out
+        assert out["preview"]["file_id"] == "SRC-1"
         assert "image_file_ids" not in out
         # Vision still received the rendered pages.
         assert payload["observation"]["images"]
@@ -197,6 +206,8 @@ class TestReadSourceBytesNormalizesClientShapes:
     [
         ("scan.PNG", True),
         ("photo.jpeg", True),
+        ("scan.tiff", False),  # PIL decodes TIFF but no mainstream browser renders it
+        ("scan.tif", False),
         ("report.pdf", False),
         ("deck.pptx", False),
         ("noextension", False),

@@ -118,7 +118,7 @@ defineEmits<{
   (e: 'expand'): void
 }>()
 
-const { getEmbedUrl } = useFileEmbedUrl()
+const { getEmbedUrl, msUntilRefresh } = useFileEmbedUrl()
 
 const embedUrl = ref('')
 const pending = ref(false)
@@ -169,15 +169,38 @@ onMounted(() => {
   observer.observe(rootEl.value)
 })
 
-onUnmounted(stopObserving)
+// A mounted iframe keeps whatever token URL it was given, and `visible` never
+// flips back to false — so without this timer nothing would ever re-run load()
+// and a tab left open past the token's TTL showed a dead 403 frame. Re-mint
+// just after the cache's freshness window closes; the iframe src swaps
+// reactively through frameSrc.
+let refreshTimer: ReturnType<typeof setTimeout> | null = null
+
+function clearRefreshTimer() {
+  if (refreshTimer) {
+    clearTimeout(refreshTimer)
+    refreshTimer = null
+  }
+}
+
+onUnmounted(() => {
+  stopObserving()
+  clearRefreshTimer()
+})
 
 async function load() {
+  clearRefreshTimer()
   if (!visible.value || props.kind !== 'pdf' || !props.fileId) return
   pending.value = true
   try {
     embedUrl.value = await getEmbedUrl(props.fileId)
   } finally {
     pending.value = false
+  }
+  if (embedUrl.value && props.fileId) {
+    // +1s past the freshness cutoff so getEmbedUrl sees a stale entry and
+    // mints a new token instead of serving the same one back.
+    refreshTimer = setTimeout(load, msUntilRefresh(props.fileId) + 1000)
   }
 }
 

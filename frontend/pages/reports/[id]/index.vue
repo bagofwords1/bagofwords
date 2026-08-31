@@ -1032,6 +1032,7 @@
 					:pages-total="panelFile.pagesTotal"
 					:name="panelFile.name"
 					:expanded="true"
+					@open="(fid: string) => openImagePreview({ id: fid, filename: panelFile?.name || '' })"
 				/>
 			</div>
 		</template>

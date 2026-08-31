@@ -143,16 +143,28 @@ def _content_disposition(kind: str, filename: str) -> str:
     a stem with no letters or digits left is replaced outright.
     """
     name = filename or "file"
+    # Control characters (CR/LF above all) survive an ascii encode and blow up
+    # header serialization in h11 — or worse, split the header. Strip them from
+    # the source name before either form is built.
+    name = "".join(c for c in name if c.isprintable())
+    if not name.strip():
+        name = "file"
     # A stray double quote would terminate the quoted-string early and corrupt
     # the header, so it goes before anything else looks at the name.
     ascii_name = name.encode("ascii", "ignore").decode("ascii").strip().replace('"', "")
+    # Backslash is the quoted-string escape character — a trailing one would
+    # escape the closing quote itself.
+    ascii_name = ascii_name.replace("\\", "")
     stem, dot, _ = ascii_name.rpartition(".")
     if not dot:
         stem = ascii_name
     if not re.search(r"[A-Za-z0-9]", stem):
         ext = name.rpartition(".")[2]
         ascii_name = f"file.{ext}" if ext.isalnum() else "file"
-    return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8\'\'{quote(name)}"
+    # safe='' — quote()'s default keeps "/" literal, but "/" is not an
+    # attr-char in RFC 5987 ext-value, and connector names can be full paths
+    # ("reports/2024/annual.pdf"): strict parsers drop the whole filename*.
+    return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8\'\'{quote(name, safe='')}"
 
 
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
