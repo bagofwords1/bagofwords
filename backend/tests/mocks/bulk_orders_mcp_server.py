@@ -193,6 +193,54 @@ def query_work_orders_with_prompt(
 
 @mcp.tool(
     description=(
+        "Fetch one LN production order by company and order number. Returns "
+        "the full BOD ShowResponse envelope with all order header fields."
+    ),
+)
+def get_production_order(company: str = "", order: str = "", ctx: Context = None) -> str:
+    """The LN regression shape: ONE wide record buried four envelope levels
+    deep, whose only array is a tiny project-pegging sidecar. The old pipeline
+    reduced the whole response to that sidecar ("1 records") and told the agent
+    it had seen everything; the header fields around it never reached context.
+    """
+    rng = random.Random(_SEED + 2)
+    order_no = order or "AYS601037"
+    header = {
+        "ProductionOrder": order_no,
+        "Company": company or "111",
+        "Item": "FRM-7710",
+        "ItemDescription": "Aluminium frame, 54cm, matte",
+        "OrderStatus": "released",
+        "QuantityOrdered": 120,
+        "QuantityDelivered": 80,
+        "QuantityRejected": 2,
+        "plannedDeliveryDate": "2026-09-12",
+        "actualDeliveryDate": "2026-09-03",
+        "actualProductionStartDate": "2026-08-21T07:05:24Z",
+        "Warehouse": "205",
+        "Planner": "P-103",
+        "PlannerName": "Ingrid Sollberg",
+        "CalculationOffice": "C1993",
+        "Remarks": "expedite; customer escalation",
+        # Filler so the header is unmistakably wide, like the real BOD.
+        **{f"attribute{i:02d}": rng.choice(["yes", "no", "", None, i]) for i in range(45)},
+        "ProjectPegging": [
+            {
+                "Project": "X707",
+                "Activity": "PCA80115",
+                "DistributionLine": "1",
+                "EffectivityUnit": "0",
+                "ProjectDescription": "GDMU",
+            }
+        ],
+    }
+    return json.dumps(
+        {"ShowResponse": {"ShowResponse": {"DataArea": {"ProductionOrdersSF": header}}}}
+    )
+
+
+@mcp.tool(
+    description=(
         "Return the free-text shift handover notes for the production week. "
         "Plain prose, no structure."
     ),

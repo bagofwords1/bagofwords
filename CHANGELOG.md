@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.551 (September 1, 2026)
+- MCP tool results now reach the agent whole when they fit the inline budget, instead of being reduced to the first detected record list; deep envelopes are also detected (#1041)
+
 ## Version 0.0.550 (August 28, 2026)
 - Viewers can now chat with a shared dashboard on /r/{id}, with owner-controlled scope and per-viewer isolated threads (#1034)
 - Made the artifact sandbox and AgGrid tables dark-mode friendly (#1033)

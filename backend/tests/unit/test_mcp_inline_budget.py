@@ -12,6 +12,7 @@ from app.ai.tools.implementations.execute_mcp import (
     _MIN_PREVIEW_ROWS,
     _fit_rows,
     _inline_budget,
+    _inline_preview,
     _result_summary,
 )
 
@@ -130,6 +131,58 @@ def test_empty_result_is_not_reported_as_truncated():
     assert _fit_rows([], _DEFAULT_INLINE_CHARS) == ([], False)
 
 
+# -- the whole payload, not just the detected list --------------------------
+
+def test_envelope_that_fits_goes_inline_whole():
+    """The regression this exists for: a wide single-record response whose only
+    list is a tiny sidecar (project pegging) was reduced to that sidecar, with
+    99% of the budget unspent — and the agent answered from the sidecar."""
+    envelope = {
+        "ShowResponse": {"ShowResponse": {"DataArea": {"ProductionOrdersSF": {
+            "orderNumber": "AYS601037",
+            "actualDeliveryDate": "2026-08-20",
+            **{f"field{i}": f"value{i}" for i in range(40)},
+            "pegging": [{"Project": "X707", "Activity": "PCA80115"}],
+        }}}},
+    }
+    rows = [{"Project": "X707", "Activity": "PCA80115"}]
+    preview, shown, truncated, is_full = _inline_preview(
+        envelope, rows, "ShowResponse.ShowResponse.DataArea.ProductionOrdersSF.pegging",
+        _DEFAULT_INLINE_CHARS,
+    )
+    assert preview is envelope
+    assert is_full is True
+    assert truncated is False
+    assert shown == 1
+
+
+def test_oversized_envelope_falls_back_to_rows():
+    envelope = {"data": _rows(10), "noise": "x" * 100_000}
+    preview, shown, truncated, is_full = _inline_preview(
+        envelope, envelope["data"], "data", 5_000
+    )
+    assert is_full is False
+    assert preview == envelope["data"]
+    assert truncated is False  # all 10 narrow rows fit the row budget
+
+
+def test_bare_list_payload_never_claims_full_payload():
+    """path == "": the rows ARE the payload; the flag would be redundant noise."""
+    rows = _rows(5)
+    preview, shown, truncated, is_full = _inline_preview(rows, rows, "", _DEFAULT_INLINE_CHARS)
+    assert preview == rows
+    assert is_full is False
+    assert truncated is False
+
+
+def test_zero_budget_never_inlines_the_envelope():
+    envelope = {"data": _rows(40)}
+    preview, shown, truncated, is_full = _inline_preview(envelope, envelope["data"], "data", 0)
+    assert is_full is False
+    assert len(preview) == _MIN_PREVIEW_ROWS
+    assert truncated is True
+
+
 # -- compaction ------------------------------------------------------------
 
 def test_superseded_mcp_preview_is_compacted():
@@ -150,6 +203,23 @@ def test_superseded_mcp_preview_is_compacted():
     assert obs["file_id"] == "f1"
     assert obs["row_count"] == 400
     assert obs["summary"] == "Executed"
+
+
+def test_full_payload_preview_compacts_with_char_units():
+    """A whole-payload preview is a dict; compaction must not choke on it (or
+    report its key count as 'chars')."""
+    b = ObservationContextBuilder()
+    b.add_tool_observation(
+        "execute_mcp", {},
+        {"summary": "Executed", "preview": {"env": {"data": _rows(30)}}, "preview_is_full_payload": True},
+        loop_index=1,
+    )
+    b.add_tool_observation("create_data", {}, {"summary": "ok"}, loop_index=2)
+    obs = b.tool_observations[0]["observation"]
+    assert "preview" not in obs
+    shown = int(obs["preview_compacted"].split()[0])
+    assert shown > 100  # serialized size, not len(dict) == 1
+    assert "chars" in obs["preview_compacted"]
 
 
 def test_text_preview_compacts_with_char_units():
@@ -181,12 +251,28 @@ def _tabular(**over):
     return _result_summary("get_production_order", "tabular", out)
 
 
-def test_complete_result_says_answer_directly():
+def test_full_payload_result_says_answer_directly():
     """The whole point of the bigger budget: no second call to re-read data
     the agent can already see."""
-    s = _tabular(row_count=40, preview_truncated=False)
+    s = _tabular(row_count=40, preview_truncated=False, preview_is_full_payload=True)
+    assert "COMPLETE response is shown above" in s
+    assert "answer directly" in s
+
+
+def test_bare_list_result_says_answer_directly():
+    s = _tabular(row_count=40, preview_truncated=False, tabular_path="")
     assert "All of them are shown above" in s
     assert "answer directly" in s
+
+
+def test_partial_envelope_result_warns_about_the_rest():
+    """Untruncated rows from an envelope too big to inline whole: the list is
+    complete, the response is not — the old 'all shown, answer directly' here
+    is exactly how a tiny sidecar list became the whole answer."""
+    s = _tabular(row_count=1, preview_truncated=False)
+    assert "answer directly" not in s
+    assert "MORE outside 'data'" in s
+    assert "read_file(file_id='f1')" in s
 
 
 def test_truncated_result_routes_reading_to_read_file():
