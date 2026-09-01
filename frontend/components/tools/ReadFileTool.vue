@@ -29,7 +29,18 @@
     </Transition>
 
     <!-- Visual previews render on success without being asked, the way a
-         chart does in create_data; only plain text waits behind the chevron. -->
+         chart does in create_data; only plain text waits behind the chevron.
+         Exception: page-render galleries of a document (preview.derived) are
+         a lossy stand-in, so they wait behind an explicit click. -->
+    <button
+      v-if="derivedGalleryCollapsed"
+      type="button"
+      class="mb-2 text-[11px] px-2 py-1 rounded border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
+      @click="galleryOpen = true"
+    >
+      <Icon name="heroicons-photo" class="w-3 h-3 inline align-text-bottom me-1" />
+      {{ $t('tools.readFile.showPagePreviews', { n: (preview.image_file_ids || []).length }) }}
+    </button>
     <Transition name="fade" appear>
       <div v-if="showVisualPreview" class="mb-2">
         <FilePreview
@@ -202,11 +213,27 @@ const previewText = computed(() => {
 // and content_type here cannot answer it. Older tool executions predate the
 // contract and simply get no visual preview.
 const preview = computed<any>(() => rj.value.preview || { kind: 'none' })
+
+// Document page renders (docx/pptx rasters and the like) auto-collapse; the
+// user opens them explicitly. Absent flag = older execution = old behavior.
+const galleryOpen = ref(false)
+const isDerivedGallery = computed(
+  () => preview.value.kind === 'image' && preview.value.derived === true,
+)
+const derivedGalleryCollapsed = computed(() =>
+  isDerivedGallery.value
+  && !galleryOpen.value
+  && !props.readonly
+  && status.value !== 'running'
+  && !errorMessage.value,
+)
+
 const showVisualPreview = computed(() => {
   if (status.value === 'running' || errorMessage.value) return false
   // Token-backed viewers need an authenticated user; guests get the
   // text-only card they had before previews existed.
   if (props.readonly) return preview.value.kind === 'table'
+  if (isDerivedGallery.value && !galleryOpen.value) return false
   return ['pdf', 'image', 'table'].includes(preview.value.kind)
 })
 

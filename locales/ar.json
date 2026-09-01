@@ -1497,7 +1497,8 @@
       "pages": "صفحات {shown}",
       "pagesOfTotal": "صفحات {shown} / {total}",
       "pathLabel": "المسار:",
-      "attachedAsSessionFile": "مُرفق بهذه المحادثة كملف جلسة"
+      "attachedAsSessionFile": "مُرفق بهذه المحادثة كملف جلسة",
+      "showPagePreviews": "عرض معاينات الصفحات ({n})"
     }
   },
   "entityCreate": {

@@ -1497,7 +1497,8 @@
       "pages": "páginas {shown}",
       "pagesOfTotal": "páginas {shown} / {total}",
       "pathLabel": "Caminho:",
-      "attachedAsSessionFile": "Anexado a esta conversa como ficheiro de sessão"
+      "attachedAsSessionFile": "Anexado a esta conversa como ficheiro de sessão",
+      "showPagePreviews": "Mostrar pré-visualizações de páginas ({n})"
     }
   },
   "entityCreate": {

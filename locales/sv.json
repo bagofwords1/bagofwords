@@ -1497,7 +1497,8 @@
       "pages": "sidor {shown}",
       "pagesOfTotal": "sidor {shown} / {total}",
       "pathLabel": "Sökväg:",
-      "attachedAsSessionFile": "Bifogad till denna konversation som sessionsfil"
+      "attachedAsSessionFile": "Bifogad till denna konversation som sessionsfil",
+      "showPagePreviews": "Visa sidförhandsvisningar ({n})"
     }
   },
   "entityCreate": {

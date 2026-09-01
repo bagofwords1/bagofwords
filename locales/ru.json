@@ -1497,7 +1497,8 @@
       "pages": "стр. {shown}",
       "pagesOfTotal": "стр. {shown} / {total}",
       "pathLabel": "Путь:",
-      "attachedAsSessionFile": "Прикреплено к этому диалогу как файл сессии"
+      "attachedAsSessionFile": "Прикреплено к этому диалогу как файл сессии",
+      "showPagePreviews": "Показать предпросмотр страниц ({n})"
     }
   },
   "entityCreate": {

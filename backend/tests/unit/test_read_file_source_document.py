@@ -277,6 +277,41 @@ class TestPreviewContract:
         assert pv["kind"] == "image"
         assert pv["file_id"] == f.id
         assert pv["image_file_ids"] == [f.id]
+        # A picture IS the content — the card auto-shows it.
+        assert pv["derived"] is False
+
+    def test_document_renders_are_marked_derived(self):
+        """Rasterized pages of a document are a lossy stand-in; the flag lets
+        the card keep the gallery collapsed until the user asks for it."""
+        from app.ai.tools.implementations.read_file import _build_preview
+
+        pv = _build_preview(
+            {"image_file_ids": ["r1", "r2"], "pages_total": 2},
+            preview_file_id=None,
+        )
+        assert pv["kind"] == "image"
+        assert pv["derived"] is True
+
+    def test_a_source_picture_is_never_derived(self):
+        """Even when the id points at a normalized re-encode of the picture,
+        it is still the picture the user has — auto-show it."""
+        from app.ai.tools.implementations.read_file import _build_preview
+
+        pv = _build_preview(
+            {"image_file_ids": ["p1"]},
+            preview_file_id=None, source_is_image=True,
+        )
+        assert pv["kind"] == "image"
+        assert pv["derived"] is False
+
+    def test_non_image_previews_carry_derived_false(self):
+        from app.ai.tools.implementations.read_file import _build_preview
+
+        pv = _build_preview(
+            {"file_name": "a.pdf"}, preview_file_id="F1",
+        )
+        assert pv["kind"] == "pdf"
+        assert pv["derived"] is False
 
     @pytest.mark.asyncio
     async def test_tabular_read_previews_as_a_table(self, tmp_path):
@@ -387,6 +422,32 @@ class TestSingleFetch:
         pv = payload["output"]["preview"]
         assert pv["kind"] == "pdf"
         assert pv["file_id"] == "SRC-1"
+
+    @pytest.mark.asyncio
+    async def test_as_images_escalation_reuses_the_bytes_from_the_read(self):
+        """"Read as text, then re-read as_images" must not re-download: the
+        escalation renders from the bytes the read already carried
+        (DocumentText.raw), and read_raw_bytes stays untouched for remote
+        sources. RemoteLikeClient raises on any raw read, so a regression
+        fails loudly."""
+        pdf = build_multipage_pdf(PAGES)
+        client = self._remote_like(pdf)
+        model = MagicMock()
+        model.supports_vision = True
+        with patch(_RESOLVE, new=AsyncMock(return_value=(client, None))), \
+                patch(_ATTACH, new=AsyncMock(return_value="SRC-1")):
+            payload = await _run_read(
+                {"connection_id": "C1", "file_id": "01LZCXOPAQUE9F3",
+                 "as_images": True},
+                {"model": model},
+            )
+
+        assert client.reads == 1
+        assert client.raw_reads == 0
+        out = payload["output"]
+        assert out["content_type"] == "images"
+        # Vision received the rendered pages.
+        assert payload["observation"]["images"]
 
 
 class TestPageRangeReusesTheFetch:

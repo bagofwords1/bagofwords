@@ -17,18 +17,19 @@
     <!-- Document: the browser's own PDF viewer, opened at the page that was
          read. Office files reach here only once converted server-side. -->
     <template v-if="kind === 'pdf'">
+      <!-- Placeholder only while the token is still being minted. When the
+           mint failed outright, render nothing: the card's text path still
+           exists, and a permanent frame-sized "unavailable" box is worse
+           than no preview. -->
       <div
-        v-if="!embedUrl"
+        v-if="!embedUrl && (pending || !visible)"
         class="flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50"
         :style="{ height: frameHeight }"
       >
-        <Spinner v-if="pending || !visible" class="w-4 h-4 text-gray-400" />
-        <span v-else class="text-[11px] text-gray-400 dark:text-gray-500">
-          {{ $t('filePreview.unavailable') }}
-        </span>
+        <Spinner class="w-4 h-4 text-gray-400" />
       </div>
       <iframe
-        v-else
+        v-else-if="embedUrl"
         :src="frameSrc"
         :title="name || $t('filePreview.document')"
         class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white"

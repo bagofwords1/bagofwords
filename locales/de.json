@@ -1497,7 +1497,8 @@
       "pages": "Seiten {shown}",
       "pagesOfTotal": "Seiten {shown} / {total}",
       "pathLabel": "Pfad:",
-      "attachedAsSessionFile": "Dieser Unterhaltung als Sitzungsdatei angehängt"
+      "attachedAsSessionFile": "Dieser Unterhaltung als Sitzungsdatei angehängt",
+      "showPagePreviews": "Seitenvorschauen anzeigen ({n})"
     }
   },
   "entityCreate": {

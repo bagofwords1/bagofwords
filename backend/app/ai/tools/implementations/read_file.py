@@ -145,7 +145,8 @@ def _content_details(output: Dict[str, Any], *, max_chars: int) -> str:
 
 
 def _build_preview(output: Dict[str, Any], *, preview_file_id: Optional[str],
-                   first_image_mime: Optional[str] = None) -> Dict[str, Any]:
+                   first_image_mime: Optional[str] = None,
+                   source_is_image: bool = False) -> Dict[str, Any]:
     """The UI contract for this read (see ReadFilePreview).
 
     A DOCUMENT always beats its page renders: when a scanned PDF is rasterized
@@ -164,6 +165,11 @@ def _build_preview(output: Dict[str, Any], *, preview_file_id: Optional[str],
         "pages_total": output.get("pages_total"),
         "image_file_ids": None,
         "truncated": False,
+        # True when the images are page RENDERS of a document, not the source
+        # picture itself. The card auto-shows real pictures (they ARE the
+        # content) but keeps derived galleries — a lossy rasterized stand-in —
+        # collapsed behind a click.
+        "derived": False,
     }
 
     # page_range reports "10-15"; the viewer opens at the first of them.
@@ -195,6 +201,9 @@ def _build_preview(output: Dict[str, Any], *, preview_file_id: Optional[str],
             # Renders are capped (render_file_images max_pages), so a gallery
             # showing fewer pages than the document has must say so.
             "truncated": bool(pages_total and len(image_ids) < pages_total),
+            # A picture source stays "the picture" even when the id points at
+            # a normalized re-encode; only document rasters count as derived.
+            "derived": not source_is_image,
         })
         return preview
 
@@ -697,13 +706,21 @@ class ReadFileTool(Tool):
                     model and getattr(model, "supports_vision", False)
                     and allow_llm_see_data(runtime_ctx)
                 )
+                # The read already fetched the original bytes once (source_raw,
+                # captured above) — S3/SharePoint/Drive carry them on the
+                # DocumentText payload. Re-fetching here made every as_images /
+                # garble escalation download the object a second time. Only
+                # path-backed sources (network_dir returns plain str) fall back
+                # to read_raw_bytes, where the re-read is a local file open.
                 raw_bytes = None
-                if vision_ok and hasattr(client, "read_raw_bytes"):
-                    try:
-                        raw = await asyncio.to_thread(client.read_raw_bytes, data.file_id)
-                        raw_bytes = raw[0] if isinstance(raw, tuple) else raw
-                    except Exception:
-                        raw_bytes = None
+                if vision_ok:
+                    raw_bytes = source_raw
+                    if raw_bytes is None and hasattr(client, "read_raw_bytes"):
+                        try:
+                            raw = await asyncio.to_thread(client.read_raw_bytes, data.file_id)
+                            raw_bytes = raw[0] if isinstance(raw, tuple) else raw
+                        except Exception:
+                            raw_bytes = None
                 # Render BEFORE discarding the text: conversion can fail (no
                 # soffice, missing format filter, corrupt file), and dropping
                 # readable text for a render that never materializes would be a
@@ -966,6 +983,7 @@ class ReadFileTool(Tool):
         output["preview"] = _build_preview(
             output, preview_file_id=preview_file_id,
             first_image_mime=first_image_mime,
+            source_is_image=source_is_image,
         )
 
         ct = output.get("content_type", "?")

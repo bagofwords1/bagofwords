@@ -1509,7 +1509,8 @@
       "pages": "páginas {shown}",
       "pagesOfTotal": "páginas {shown} / {total}",
       "pathLabel": "Ruta:",
-      "attachedAsSessionFile": "Adjuntado a esta conversación como archivo de sesión"
+      "attachedAsSessionFile": "Adjuntado a esta conversación como archivo de sesión",
+      "showPagePreviews": "Mostrar vistas previas de páginas ({n})"
     }
   },
   "entityCreate": {

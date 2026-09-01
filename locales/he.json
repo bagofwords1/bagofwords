@@ -1509,7 +1509,8 @@
       "pages": "עמודים {shown}",
       "pagesOfTotal": "עמודים {shown} / {total}",
       "pathLabel": "נתיב:",
-      "attachedAsSessionFile": "צורף לשיחה זו כקובץ סשן"
+      "attachedAsSessionFile": "צורף לשיחה זו כקובץ סשן",
+      "showPagePreviews": "הצג תצוגות מקדימות של עמודים ({n})"
     }
   },
   "entityCreate": {

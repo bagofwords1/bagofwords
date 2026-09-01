@@ -1535,7 +1535,8 @@
       "pages": "pages {shown}",
       "pagesOfTotal": "pages {shown} / {total}",
       "pathLabel": "Path:",
-      "attachedAsSessionFile": "Attached to this conversation as session file"
+      "attachedAsSessionFile": "Attached to this conversation as session file",
+      "showPagePreviews": "Show page previews ({n})"
     }
   },
   "entityCreate": {
