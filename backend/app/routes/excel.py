@@ -394,14 +394,41 @@ def _build_taskpane_html(base_url: str) -> str:
     }}).then(function() {{ console.log = origLog; }});
   }}
 
-  function appendDataToExcel(data) {{
+  function appendDataToExcel(payload) {{
+    // Two payload shapes:
+    //   new  — {{ id, completion_id, data: {{ columns, rows, title }} }} (write_to_excel
+    //          via tool.partial); the write is ACKed with an officeJsResult so
+    //          the backend tool only reports success once the range is written.
+    //   legacy — {{ widget: {{ last_step: {{ data: {{ columns, rows }} }} }} }} (older
+    //          "Add to Excel" buttons); no id, fire-and-forget as before.
+    var id = payload && payload.id;
+    var completionId = payload && payload.completion_id;
+
+    function postResult(body) {{
+      if (!id) return;
+      if (cancelledOfficeJsIds[id]) {{
+        console.warn("[bow-officejs] dropping applyToExcel result for cancelled id", id);
+        delete cancelledOfficeJsIds[id];
+        return;
+      }}
+      body.id = id;
+      if (completionId) body.completion_id = completionId;
+      postToApp({{ type: "officeJsResult", data: JSON.stringify(body) }});
+    }}
+
+    var colDefs, rows;
+    if (payload && payload.data && payload.data.columns) {{
+      colDefs = payload.data.columns; rows = payload.data.rows || [];
+    }} else if (payload && payload.widget && payload.widget.last_step && payload.widget.last_step.data) {{
+      colDefs = payload.widget.last_step.data.columns; rows = payload.widget.last_step.data.rows;
+    }} else {{
+      postResult({{ success: false, error: "applyToExcel payload had no columns/rows.", logs: [], ranges_touched: [] }});
+      return;
+    }}
+
     Excel.run(function(ctx) {{
       var range = ctx.workbook.getSelectedRange();
       range.load(["address","rowIndex","columnIndex"]); return ctx.sync().then(function() {{
-        var colDefs, rows;
-        if (data && data.widget && data.widget.last_step && data.widget.last_step.data) {{
-          colDefs = data.widget.last_step.data.columns; rows = data.widget.last_step.data.rows;
-        }} else return;
         var headers = colDefs.map(function(c) {{ return c.headerName || c.field || ""; }});
         var values = [headers];
         rows.forEach(function(row) {{
@@ -421,9 +448,20 @@ def _build_taskpane_html(base_url: str) -> str:
           target.format.borders.getItem(b).weight = "Thin";
         }});
         target.getEntireColumn().format.autofitColumns();
-        return ctx.sync();
+        target.load(["address"]);
+        return ctx.sync().then(function() {{
+          postResult({{
+            success: true,
+            return_value: {{ wrote_to: target.address, rows: values.length, cols: headers.length }},
+            logs: [],
+            ranges_touched: [target.address]
+          }});
+        }});
       }});
-    }}).catch(function(e) {{ console.error("Excel.run error:", e); }});
+    }}).catch(function(e) {{
+      console.error("Excel.run error:", e);
+      postResult({{ success: false, error: (e && e.message) ? e.message : String(e), logs: [], ranges_touched: [] }});
+    }});
   }}
 
   function handleSelectionChange() {{

@@ -3449,18 +3449,20 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						rj.answer = (rj.answer || '') + delta
 						lastBlock.status = 'in_progress'
 					}
-					// Forward Office.js code execution to the Excel taskpane.
+					// Forward Office.js execution (code runs + acked table writes)
+					// to the Excel taskpane. Both action types carry id +
+					// completion_id and are answered with an officeJsResult.
 					const excelAction = payload.payload?.excel_action
-					if (excelAction && excelAction.type === 'runOfficeJs' && isExcel.value) {
+					if (excelAction && (excelAction.type === 'runOfficeJs' || excelAction.type === 'applyToExcel') && isExcel.value) {
 						try {
 							window.parent.postMessage({
-								type: 'runOfficeJs',
+								type: excelAction.type,
 								data: JSON.stringify(excelAction)
 							}, window.location.origin)
 						} catch (e) {
-							console.warn('Failed to forward runOfficeJs to Excel taskpane:', e)
+							console.warn('Failed to forward ' + excelAction.type + ' to Excel taskpane:', e)
 						}
-						if (lastBlock.tool_execution) {
+						if (excelAction.type === 'runOfficeJs' && lastBlock.tool_execution) {
 							lastBlock.tool_execution.arguments_json = lastBlock.tool_execution.arguments_json || {}
 							const aj: any = lastBlock.tool_execution.arguments_json
 							if (excelAction.code && !aj.code) aj.code = excelAction.code
@@ -3561,18 +3563,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 							}))
 						} catch {}
 					}
-					// If write_to_excel completed, forward data to Excel taskpane via postMessage
-					if (payload.tool_name === 'write_to_excel' && payload.status === 'success' && payload.result_json?.excel_action && isExcel.value) {
-						try {
-							const action = payload.result_json.excel_action
-							window.parent.postMessage({
-								type: action.type,
-								data: JSON.stringify(action.data)
-							}, window.location.origin)
-						} catch (e) {
-							console.warn('Failed to forward write_to_excel data to Excel taskpane:', e)
-						}
-					}
+					// write_to_excel now dispatches applyToExcel on tool.partial and
+					// awaits the taskpane's ack (see the tool.partial handler above),
+					// so there is nothing to forward at tool.finished anymore.
 				}
 			}
 			break

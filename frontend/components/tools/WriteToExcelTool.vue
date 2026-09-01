@@ -16,7 +16,7 @@
       </span>
       <span v-else-if="succeeded" class="text-gray-700 dark:text-gray-300 flex items-center">
         <Icon name="heroicons-check" class="w-3 h-3 me-1 text-green-500" />
-        <span class="align-middle">Wrote {{ rowLabel }} to Excel</span>
+        <span class="align-middle">Wrote {{ rowLabel }} to Excel<template v-if="wroteTo"> at {{ wroteTo }}</template></span>
       </span>
       <span v-else class="text-red-500 flex items-center">
         <Icon name="heroicons-exclamation-circle" class="w-3 h-3 me-1" />
@@ -69,6 +69,8 @@ const succeeded = computed<boolean>(() => !isRunning.value && (rj.value?.success
 const errorMessage = computed<string>(() => rj.value?.error_message || rj.value?.error || props.toolExecution?.result_summary || '')
 
 const title = computed<string>(() => aj.value?.title || '')
+
+const wroteTo = computed<string>(() => rj.value?.wrote_to || '')
 
 const rowCount = computed<number>(() => {
   if (typeof rj.value?.row_count === 'number') return rj.value.row_count

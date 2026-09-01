@@ -18,6 +18,8 @@ class WriteToExcelInput(BaseModel):
 
 
 class WriteToExcelOutput(BaseModel):
-    success: bool = Field(..., description="Whether the data was successfully prepared for Excel.")
-    row_count: Optional[int] = Field(default=None, description="Number of rows sent.")
-    column_count: Optional[int] = Field(default=None, description="Number of columns sent.")
+    success: bool = Field(..., description="Whether the taskpane confirmed the data was written to the spreadsheet.")
+    row_count: Optional[int] = Field(default=None, description="Number of rows written.")
+    column_count: Optional[int] = Field(default=None, description="Number of columns written.")
+    wrote_to: Optional[str] = Field(default=None, description="Address of the range that was written (e.g. 'Sheet1!B5:C7').")
+    error: Optional[str] = Field(default=None, description="Error message when success=false.")

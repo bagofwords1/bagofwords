@@ -1333,7 +1333,11 @@ function onAvailableDataSources(val: any[]) {
 }
 
 const hasDataSourceOrFile = computed(() => {
-    return selectedDataSources.value.length > 0
+    // Inside the Excel add-in the live workbook itself is the data source —
+    // the excel read/write tools need no connected agent, so don't block a
+    // fresh workspace from asking about its own spreadsheet.
+    return isExcel.value
+        || selectedDataSources.value.length > 0
         || availableDataSources.value.length > 0
         || successfullyUploadedFiles.value.length > 0
 })

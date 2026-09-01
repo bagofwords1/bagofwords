@@ -6,9 +6,15 @@ let listenerInstalled = false // tracks whether the window postMessage listener 
 let heartbeatTimeout: ReturnType<typeof setTimeout> | null = null
 
 // Sticky mode: once we know we're in Excel via the ?excel=true query param,
-// stay in Excel mode for the life of the session regardless of postMessage
+// stay in Excel mode for the life of this TAB regardless of postMessage
 // heartbeat state. The query param is authoritative — it's set by the taskpane
 // on the iframe src URL and doesn't depend on postMessage timing or hydration.
+//
+// Stored in sessionStorage, NOT localStorage: sessionStorage is scoped to the
+// browsing context (the taskpane iframe keeps it across navigations/reloads),
+// while localStorage is shared origin-wide — with localStorage, one visit to a
+// ?excel=true URL put every ordinary browser tab into Excel mode forever, and
+// the excel tools then dispatched into a nonexistent taskpane and timed out.
 let isExcelSticky = false
 
 // How long to wait without a heartbeat before assuming we're no longer in Excel.
@@ -27,10 +33,17 @@ if (typeof window !== 'undefined') {
     const excelParam = params.get('excel')
     if (excelParam === 'true') {
       localStorage.setItem('excelStatus', JSON.stringify(true))
-      localStorage.setItem('excelSticky', '1')
+      sessionStorage.setItem('excelSticky', '1')
     } else if (excelParam === 'false') {
       // Explicit opt-out for local testing / debugging.
       localStorage.removeItem('excelStatus')
+      sessionStorage.removeItem('excelSticky')
+      // Also clear the pre-fix origin-wide sticky flag so ?excel=false remains
+      // the escape hatch for sessions stuck by the old localStorage behavior.
+      localStorage.removeItem('excelSticky')
+    } else {
+      // Migration: drop any origin-wide sticky flag written by the pre-fix
+      // build so ordinary tabs stop claiming Excel mode.
       localStorage.removeItem('excelSticky')
     }
   } catch {
@@ -120,6 +133,14 @@ function sliceSheetDataByAddress(sheetData: any[][], address: string): any[][] {
 let currentHandler: ((event: MessageEvent) => void) | null = null
 
 function handleExcelMessage(event: MessageEvent) {
+  // Only accept excel-mode / selection messages from the hosting taskpane
+  // (same-origin parent — the taskpane is served by the same BOW instance).
+  // Without this, any page able to frame or open the app could flip it into
+  // Excel mode or spoof `cellSelected` values that end up in the prompt.
+  // When unframed, window.parent === window, so same-page test harnesses and
+  // the ?excel=false/true flows keep working.
+  if (event.source !== window.parent) return
+  if (event.origin !== window.location.origin) return
   if (event.data?.type === 'excelInitialized') {
     globalIsExcel.value = true
     localStorage.setItem('excelStatus', JSON.stringify(true))
@@ -165,11 +186,12 @@ function ensureInitialized() {
   isInitialized = true
 
   try {
-    // 1) Sticky flag from localStorage (set either by the module-load query-param
-    //    check above, or by a previous session that saw ?excel=true). This is
+    // 1) Sticky flag from sessionStorage (set by the module-load query-param
+    //    check above; scoped to this tab / taskpane iframe). This is
     //    authoritative — survives the 12 s heartbeat and client-side nav that
-    //    may drop the query string from the URL.
-    if (localStorage.getItem('excelSticky') === '1') {
+    //    may drop the query string from the URL, but does NOT leak into other
+    //    tabs on the same origin.
+    if (sessionStorage.getItem('excelSticky') === '1') {
       isExcelSticky = true
       globalIsExcel.value = true
     } else {
@@ -207,7 +229,8 @@ export const useExcel = () => {
         localStorage.removeItem('excelStatus')
         // Clearing status also clears sticky — callers that want to force-exit
         // Excel mode (e.g. debug tools) should see a clean slate.
-        localStorage.removeItem('excelSticky')
+        sessionStorage.removeItem('excelSticky')
+        localStorage.removeItem('excelSticky') // pre-fix origin-wide flag
         isExcelSticky = false
       }
     }
