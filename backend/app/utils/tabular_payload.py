@@ -24,7 +24,12 @@ ENVELOPE_KEYS: Tuple[str, ...] = (
 )
 
 # How many envelope layers to look through, e.g. {"result": {"data": [...]}}.
-_MAX_DEPTH = 3
+# Six, not three: ERP-style BOD responses really do nest this deep —
+# {"ShowResponse": {"ShowResponse": {"DataArea": {"ProductionOrders": {...}}}}}
+# put the rows at level 5, and a 3-level cutoff classified the whole response
+# as opaque JSON. Descent below stays conservative (envelope keys or a sole
+# dict child), so extra depth doesn't make it grab incidental lists.
+_MAX_DEPTH = 6
 
 # Sibling values larger than this aren't pagination metadata — skip them
 # rather than inflate the observation the model has to read.
@@ -56,8 +61,26 @@ def find_table(payload: Any) -> Tuple[Optional[List[Any]], str]:
     rows, path = _descend(payload, depth=0, prefix="")
     if rows is not None:
         return rows, path
+    # The descent above recurses only through envelope keys or a SOLE dict
+    # child, so a multi-branch envelope (an ApplicationArea sitting beside the
+    # DataArea that holds the rows) hides its table from it. The candidate walk
+    # visits every dict child; take its winner when it wins outright — an
+    # equal-length tie is still a coin flip we refuse to call.
+    candidates = table_candidates(payload)
+    if candidates and (len(candidates) == 1 or candidates[0][1] > candidates[1][1]):
+        found = _rows_at(payload, candidates[0][0])
+        if found is not None:
+            return found, candidates[0][0]
     # Last resort: shapes that are tables without being a list of records.
     return _reshape(payload, prefix="")
+
+
+def _rows_at(payload: Any, path: str) -> Optional[List[Any]]:
+    """The list at a dotted `path` inside `payload`, or None."""
+    node: Any = payload
+    for part in path.split("."):
+        node = node.get(part) if isinstance(node, dict) else None
+    return node if isinstance(node, list) else None
 
 
 def table_candidates(payload: Any) -> List[Tuple[str, int]]:

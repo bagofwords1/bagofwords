@@ -72,6 +72,30 @@ def test_alternative_envelope_keys_and_nesting():
     assert find_table({"contacts_found": _contacts(2), "took_ms": 12})[1] == "contacts_found"
 
 
+def test_deep_bod_envelope_is_found():
+    """ERP-style BOD nesting — {"ShowResponse": {"ShowResponse": {"DataArea":
+    {...}}}} — put the rows at level 5; the old 3-level cutoff classified the
+    whole response as opaque JSON."""
+    payload = {"ShowResponse": {"ShowResponse": {"DataArea": {
+        "ProductionOrders": {"order": _contacts(4), "recordCount": 4},
+    }}}}
+    rows, path = find_table(payload)
+    assert path == "ShowResponse.ShowResponse.DataArea.ProductionOrders.order"
+    assert len(rows) == 4
+
+
+def test_multi_branch_envelope_is_found():
+    """The strict descent recurses only through a SOLE dict child, so an
+    ApplicationArea sitting beside the DataArea used to hide the table."""
+    payload = {"ShowResponse": {
+        "ApplicationArea": {"Sender": {"LogicalID": "lnapp"}, "CreationDateTime": "2026-09-01"},
+        "DataArea": {"Show": {"records": _contacts(3)}},
+    }}
+    rows, path = find_table(payload)
+    assert path == "ShowResponse.DataArea.Show.records"
+    assert len(rows) == 3
+
+
 def test_ambiguous_payload_is_left_as_json():
     """Two candidate tables of the SAME size — picking one would be a coin
     flip, so pick neither. (A candidate that wins on length is taken; see

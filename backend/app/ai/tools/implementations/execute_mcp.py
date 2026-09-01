@@ -114,6 +114,33 @@ def _fit_rows(rows: list, budget: int) -> tuple:
     return rows, False
 
 
+def _inline_preview(result_data: Any, table_rows: list, table_path: str, budget: int) -> tuple:
+    """What goes inline for a tabular result.
+
+    Returns (preview, preview_row_count, preview_truncated, is_full_payload).
+
+    When the rows were extracted from inside an envelope, the extraction used
+    to decide the inline copy too: everything outside the detected list — the
+    rest of a wide record, sibling objects, the envelope's own fields — never
+    reached the model even with 99% of the budget unspent, and a small sidecar
+    list could shadow the actual answer. The detector is advisory for the file
+    on disk; this makes it advisory inline as well: if the WHOLE payload fits
+    the budget, inline the whole payload, and only fall back to leading records
+    when it does not.
+    """
+    import json
+
+    if table_path and budget > 0:
+        try:
+            serialized = json.dumps(result_data, default=str)
+        except Exception:
+            serialized = None
+        if serialized is not None and len(serialized) <= budget:
+            return result_data, len(table_rows), False, True
+    fitted, truncated = _fit_rows(table_rows, budget)
+    return fitted, len(fitted), truncated, False
+
+
 def _register_same_turn(file: Any, runtime_ctx: dict, report: Any) -> None:
     """Make a just-written file visible to the tools that run after it.
 
@@ -269,6 +296,23 @@ def _result_summary(tool_name: str, content_type: str, output: Dict[str, Any]) -
                 " JSON, so a window may start mid-record — that is fine for"
                 " reading, not for parsing."
             )
+        elif output.get("preview_is_full_payload"):
+            summary += (
+                " The COMPLETE response is shown above — the record list plus"
+                " everything around it — so answer directly from it instead of"
+                " re-reading the file."
+            )
+        elif output.get("tabular_path"):
+            # Untruncated rows extracted from inside an envelope the budget
+            # could not hold whole: the list is complete, the response is not.
+            # Claiming "all shown" here is how a small sidecar list shadowing a
+            # large record turned into a wrong answer.
+            summary += (
+                f" All records of that list are shown above, but the response"
+                f" holds MORE outside '{output['tabular_path']}' that was NOT"
+                f" inlined — if the answer may live outside the list, use"
+                f" read_file(file_id='{file_id}') before answering."
+            )
         else:
             summary += (
                 " All of them are shown above — answer directly from them"
@@ -346,8 +390,11 @@ Returns the tool's output. EVERY successful call saves the FULL result to a file
 and returns its `file_id` — tabular results as CSV, everything else as JSON or
 text. As much of the result as fits the inline budget is returned in `preview`.
 Read `preview_truncated` before deciding what to do next:
-    - false → `preview` IS the complete result. Answer from it directly; do not
-      spend another call re-reading what you already have.
+    - false → every detected record is above; when `preview_is_full_payload` is
+      true the `preview` is the ENTIRE response verbatim. Answer from it
+      directly; do not spend another call re-reading what you already have.
+      (If `tabular_path` is set without `preview_is_full_payload`, the response
+      carried more OUTSIDE that list — read_file if the answer may live there.)
     - true → `preview` holds the first `preview_row_count` of `row_count`
       records. Never answer from a partial list, and never rebuild the data
       from it — get the rest first.
@@ -703,13 +750,17 @@ Do not use when:
             content_type = "tabular"
             output["content_type"] = content_type
             output["row_count"] = len(table_rows)
-            fitted, rows_truncated = _fit_rows(table_rows, inline_budget)
-            output["preview"] = fitted
-            output["preview_row_count"] = len(fitted)
+            preview, shown, rows_truncated, is_full = _inline_preview(
+                result_data, table_rows, table_path, inline_budget
+            )
+            output["preview"] = preview
+            output["preview_row_count"] = shown
             # State the cut explicitly. A silently-shortened list reads as the
             # complete result, and an agent that believes it has all 40 records
             # will answer from the 12 it can see.
             output["preview_truncated"] = rows_truncated
+            if is_full:
+                output["preview_is_full_payload"] = True
             if table_path:
                 output["tabular_path"] = table_path
                 # Keep the envelope's cursors/totals — they're how the agent
@@ -787,9 +838,11 @@ Do not use when:
             logger.warning(f"execute_mcp: {artifact_kind} materialization failed: {e}")
             output["media"] = "none"
             output["materialization_error"] = str(e)
-            if table_rows is not None:
+            if table_rows is not None and not output.get("preview_is_full_payload"):
                 # The inline copy is now the ONLY copy, so spend the full budget
-                # on it rather than the 10 rows this used to salvage.
+                # on it rather than the 10 rows this used to salvage. (A preview
+                # already holding the whole payload is left alone — re-fitting
+                # would swap the complete response for a subset of it.)
                 fitted, rows_truncated = _fit_rows(table_rows, inline_budget or _MAX_INLINE_CHARS)
                 output["preview"] = fitted
                 output["preview_row_count"] = len(fitted)
@@ -864,6 +917,9 @@ Do not use when:
                     # answer from the first 12 of 4,000.
                     "preview_truncated": output.get("preview_truncated"),
                     "preview_row_count": output.get("preview_row_count"),
+                    # True when `preview` is the response verbatim (envelope
+                    # included), not just the detected record list.
+                    "preview_is_full_payload": output.get("preview_is_full_payload"),
                     "row_count": output.get("row_count"),
                     "success": True,
                 },

@@ -119,11 +119,17 @@ class ObservationContextBuilder:
                 # re-open it; only the records themselves go.
                 if "preview" in prev_observation:
                     prev_preview = prev_observation["preview"]
-                    shown = (
-                        len(prev_preview) if isinstance(prev_preview, list)
-                        else len(prev_preview or "")
-                    )
-                    unit = "records" if isinstance(prev_preview, list) else "chars"
+                    if isinstance(prev_preview, list):
+                        shown, unit = len(prev_preview), "records"
+                    elif isinstance(prev_preview, (str, type(None))):
+                        shown, unit = len(prev_preview or ""), "chars"
+                    else:
+                        # A full-payload preview is the response dict verbatim.
+                        try:
+                            shown = len(json.dumps(prev_preview, default=str))
+                        except (TypeError, ValueError):
+                            shown = len(str(prev_preview))
+                        unit = "chars"
                     del prev_observation["preview"]
                     prev_observation["preview_compacted"] = (
                         f"{shown} {unit} (already returned — re-open the file "
