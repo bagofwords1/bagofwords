@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "Beschreibung konnte nicht gespeichert werden",
     "toastTablesReloaded": "Tabellen neu geladen",
     "toastToolsReloaded": "Werkzeuge neu geladen",
+    "connectionLinked": "Verbindung zum Agenten hinzugefügt",
+    "connectionLinkFailed": "Verbindung konnte dem Agenten nicht hinzugefügt werden",
     "toastUploaded": "{n} Datei(en) hochgeladen",
     "toastUploadFailed": "Hochladen fehlgeschlagen",
     "uploadTooLarge": "Die Datei überschreitet das Upload-Limit des Servers",

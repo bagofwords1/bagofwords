@@ -243,6 +243,8 @@
     "toastSaveDescFailed": "Failed to save description",
     "toastTablesReloaded": "Tables reloaded",
     "toastToolsReloaded": "Tools reloaded",
+    "connectionLinked": "Connection added to agent",
+    "connectionLinkFailed": "Failed to add connection to agent",
     "toastUploaded": "Uploaded {n} file(s)",
     "toastUploadFailed": "Upload failed",
     "uploadTooLarge": "File is too large for the server's upload limit",

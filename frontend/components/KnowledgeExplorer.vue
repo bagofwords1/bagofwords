@@ -2452,14 +2452,30 @@ const toolsRefreshKey = ref(0)
 const connTargetAgentId = ref<string | null>(null)
 const openAddMcp = (agentId: string) => { connTargetAgentId.value = agentId; showAddMCP.value = true }
 const openAddCustomApi = (agentId: string) => { connTargetAgentId.value = agentId; showAddCustomAPI.value = true }
-const mcpExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'mcp'))
-const customApiExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'custom_api'))
-// New connection created: link it to the target agent (if any) and refresh its tools.
-const onConnCreated = async (conn?: any) => {
+// Offer only connections not already linked to the target agent — picking a
+// linked one would be a guaranteed "already linked" error.
+const linkedConnIds = computed(() => new Set(
+  (((agents.value.find(a => a.id === connTargetAgentId.value) as any)?.connections) || []).map((c: any) => String(c.id))
+))
+const mcpExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'mcp' && !linkedConnIds.value.has(String(c.id))))
+const customApiExistingConnections = computed(() => connections.value.filter((c: any) => c.type === 'custom_api' && !linkedConnIds.value.has(String(c.id))))
+// New or existing connection picked: link it to the target agent (if any) and
+// refresh its tools. useMyFetch resolves (never throws) on HTTP errors, so the
+// link outcome must be read from response.error — a 403 here (e.g. the caller
+// lacks `create_data_sources` on the connection) would otherwise vanish.
+const onConnCreated = async (conn?: any, meta?: { existing?: boolean }) => {
   const aid = connTargetAgentId.value
   if (aid && conn?.id) {
-    try { await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' }) } catch {}
-    try { await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' }) } catch {}
+    const link = await useMyFetch(`/data_sources/${aid}/connections/${conn.id}`, { method: 'POST' })
+    if (link.error?.value) {
+      const err: any = link.error.value
+      toast.add({ title: t('agentsPage.connectionLinkFailed'), description: err?.data?.detail || err?.message, color: 'red' })
+    } else {
+      // The modal only toasts when it actually created/updated a connection;
+      // for the "use existing" path the link IS the action — report it.
+      if (meta?.existing) toast.add({ title: t('agentsPage.connectionLinked'), color: 'green' })
+      await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' })
+    }
   }
   showAddMCP.value = false; showAddCustomAPI.value = false; showAddConnection.value = false
   if (aid) { agentLoaded.value.delete(aid); await loadAgentMeta(aid); if (agentView.value?.agentId === aid) await refreshAgentDetail() }

@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "Échec de l’enregistrement de la description",
     "toastTablesReloaded": "Tables rechargées",
     "toastToolsReloaded": "Outils rechargés",
+    "connectionLinked": "Connexion ajoutée à l'agent",
+    "connectionLinkFailed": "Échec de l'ajout de la connexion à l'agent",
     "toastUploaded": "{n} fichier(s) téléversé(s)",
     "toastUploadFailed": "Échec du téléversement",
     "uploadTooLarge": "Le fichier dépasse la limite de téléversement du serveur",

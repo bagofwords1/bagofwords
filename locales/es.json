@@ -242,6 +242,8 @@
     "toastSaveDescFailed": "No se pudo guardar la descripción",
     "toastTablesReloaded": "Tablas recargadas",
     "toastToolsReloaded": "Herramientas recargadas",
+    "connectionLinked": "Conexión añadida al agente",
+    "connectionLinkFailed": "No se pudo añadir la conexión al agente",
     "toastUploaded": "{n} archivo(s) subido(s)",
     "toastUploadFailed": "Error al subir",
     "uploadTooLarge": "El archivo supera el límite de subida del servidor",
