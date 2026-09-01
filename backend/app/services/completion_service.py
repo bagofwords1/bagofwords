@@ -2865,8 +2865,23 @@ class CompletionService:
         current_user: User = None,
         organization: Organization = None,
     ):
-        """Resolve a pending Office.js tool call with the result posted from the taskpane."""
+        """Resolve a pending Office.js tool call with the result posted from the taskpane.
+
+        The durable ``officejs_pending_results`` row is the source of truth so
+        this works when the POST lands on a different uvicorn worker than the
+        one running the completion; the in-memory registry is only a
+        same-worker fast path. The row's user/completion binding is what
+        authorizes the responder — the system completion's ``user_id`` is NULL,
+        so the old completion-based check never applied here.
+        """
         from app.ai.tools.officejs_registry import pending_officejs_registry
+        from app.services.officejs_result_service import (
+            OfficeJsResultService,
+            RESOLVE_ALREADY,
+            RESOLVE_FORBIDDEN,
+            RESOLVE_NOT_FOUND,
+            RESOLVE_OK,
+        )
 
         completion = await db.execute(select(Completion).where(Completion.id == completion_id))
         completion = completion.scalars().first()
@@ -2879,13 +2894,6 @@ class CompletionService:
         if not report or (organization and str(report.organization_id) != str(organization.id)):
             raise HTTPException(status_code=404, detail="Completion not found")
 
-        # Only the user who initiated the Office.js tool call may resolve it.
-        # Prevents another org member from poisoning a pending execution by
-        # guessing the tool_call_id.
-        if current_user is not None and completion.user_id is not None and \
-                str(completion.user_id) != str(current_user.id):
-            raise HTTPException(status_code=403, detail="Not allowed to resolve this tool call")
-
         if not isinstance(body, dict):
             raise HTTPException(status_code=400, detail="Body must be an object")
 
@@ -2897,12 +2905,37 @@ class CompletionService:
             "ranges_touched": body.get("ranges_touched") or [],
         }
 
-        resolved = pending_officejs_registry.resolve(tool_call_id, result)
-        if not resolved:
+        service = OfficeJsResultService()
+        outcome = await service.resolve(
+            db,
+            tool_call_id=tool_call_id,
+            completion_id=completion_id,
+            user_id=str(current_user.id) if current_user is not None else None,
+            result=result,
+        )
+
+        if outcome == RESOLVE_FORBIDDEN:
+            raise HTTPException(status_code=403, detail="Not allowed to resolve this tool call")
+
+        # Same-worker fast path: wake the waiting tool immediately instead of
+        # on its next poll. Also the only path left when the durable row could
+        # not be persisted (create_pending degraded to memory-only).
+        resolved_in_memory = pending_officejs_registry.resolve(tool_call_id, result)
+
+        if outcome == RESOLVE_OK or resolved_in_memory:
+            if outcome == RESOLVE_OK and not resolved_in_memory:
+                logger.info(
+                    "officejs tool-result %s resolved via durable row only (POST landed "
+                    "on a worker other than the one running the completion).",
+                    tool_call_id,
+                )
+            return {"ok": True}
+
+        if outcome in (RESOLVE_NOT_FOUND, RESOLVE_ALREADY):
             logger.warning(
-                "officejs tool-result arrived for unknown/closed tool_call_id=%s (completion_id=%s, success=%s). "
+                "officejs tool-result arrived for unknown/closed tool_call_id=%s (completion_id=%s, success=%s, outcome=%s). "
                 "Likely the tool already timed out or was cancelled before the taskpane responded.",
-                tool_call_id, completion_id, result.get("success"),
+                tool_call_id, completion_id, result.get("success"), outcome,
             )
             raise HTTPException(
                 status_code=404,

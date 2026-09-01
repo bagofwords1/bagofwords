@@ -133,9 +133,12 @@ class WriteOfficeJsCodeTool(Tool):
             },
         )
 
+        user = runtime_ctx.get("user") or runtime_ctx.get("current_user")
         result, cancelled, timed_out = await await_result(
             tool_call_id=tool_call_id,
             sigkill_event=sigkill_event,
+            completion_id=completion_id,
+            user_id=str(user.id) if user is not None else None,
         )
 
         if cancelled or timed_out:

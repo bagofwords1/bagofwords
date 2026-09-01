@@ -1,9 +1,11 @@
 # Excel integration review — sandbox feedback loop findings
 
-Date: 2026-09-01. Review-only pass over the Excel add-in integration (AI tools,
+Date: 2026-09-01. Review pass over the Excel add-in integration (AI tools,
 Office.js bridge, taskpane, frontend plumbing), validated end-to-end in the
-local sandbox. **No fixes were applied** — this doc records what was verified
-working and the issues found, each with a reproduction.
+local sandbox. This doc records what was verified working and the issues
+found, each with a reproduction. **Update:** fixes for issues 1–4, 5 (dead
+page), and 6 have since been applied and re-verified in the same sandbox —
+see "Fixes applied and verified" at the end.
 
 ## Scope reviewed
 
@@ -231,3 +233,80 @@ values.
 2. Issues 2–4 — user-facing correctness/UX inside the add-in.
 3. Issue 6 — cheap authz hardening.
 4. Issues 5, 7, 8 — cleanup and hardening.
+
+## Fixes applied and verified (same day)
+
+### What changed
+
+- **Issue 1 + 6 — durable, bound bridge.** New `officejs_pending_results`
+  table (model `OfficeJsPendingResult`, migration `officejs01`, service
+  `OfficeJsResultService`) mirroring the `tool_confirmations` pattern: the
+  waiting tool registers a row (bound to the initiating `user_id` and the
+  run's system `completion_id`), keeps the in-memory future as a same-worker
+  fast path, and polls the row every 0.75s. `submit_tool_result` resolves the
+  row first (validating the completion binding → 404 on mismatch, the user
+  binding → 403 on mismatch, exactly-once → 404 on replay) and then pokes the
+  in-memory registry. Rows are deleted when the tool stops waiting, so late
+  POSTs 404 exactly as before. The result payload column uses `EncryptedJSON`
+  like `tool_executions.result_json`.
+- **Issue 2 — write_to_excel is now an acked round-trip.** The tool dispatches
+  an `applyToExcel` excel_action (with `id`/`completion_id`) on `tool.partial`
+  and awaits the taskpane's `officeJsResult` through the same bridge; the
+  taskpane's `appendDataToExcel` acks with `wrote_to` (the actual landing
+  address), which surfaces in the observation ("Wrote 1 rows x 2 columns to
+  Excel at Sheet1!A6:B7") and the tool card. Without a taskpane the tool now
+  fails with a clear timeout instead of reporting success. The report page
+  forwards `applyToExcel` from `tool.partial` (like `runOfficeJs`) and the
+  old `tool.finished` forward was removed; the taskpane still accepts legacy
+  id-less payloads (old "Add to Excel" buttons) fire-and-forget.
+- **Issue 3 — sticky Excel mode is tab-scoped.** `useExcel.ts` stores the
+  sticky flag in `sessionStorage` (scoped to the taskpane iframe / tab)
+  instead of `localStorage` (origin-wide); ordinary page loads also clean up
+  the pre-fix `localStorage` flag so previously-stuck browsers migrate out.
+  `handleExcelMessage` now requires `event.source === window.parent` and a
+  same-origin `event.origin`, closing the excel-mode/selection spoof.
+- **Issue 4 — gating.** `hasDataSourceOrFile` counts Excel mode as having a
+  data source (the live workbook), so a fresh workspace can prompt from the
+  add-in; ordinary web sessions still require a data source or file.
+- **Issue 5 — dead page removed.** `frontend/pages/excel/index.vue` and
+  `layouts/excel.vue` deleted (both unreachable behind the `/excel` proxy).
+  `ExcelAgent` is left in place as documented legacy behind the deprecated
+  file_service path.
+- Cross-worker resolutions log an INFO line ("resolved via durable row only")
+  for operational visibility.
+
+Deliberately not changed: issue 7 (cross-origin "Configure URL") beyond the
+origin checks above — cross-instance configuration remains unsupported; and
+issue 8's `completion_id` attribution for tool-persisted CSVs — the
+mark-images code in completion_service deliberately treats tool-created files
+as NULL-completion rows (claiming them displays them as user attachments), so
+matching `write_csv`'s existing behavior is correct for now. The 55s-vs-60s
+timeout margin is unchanged (it is what keeps the timeout inside the runner's
+hard limit).
+
+### Verification (sandbox, 2-worker uvicorn, stub LLM + taskpane emulator)
+
+- **Multi-worker bridge:** 6/6 full read+write+answer runs passed under
+  `--workers 2`; all 12 `/tool-results/` POSTs returned 200 (previously 404
+  on cross-worker routing). Backend log recorded **7 resolutions via the
+  durable row only** — POSTs that landed on the worker not running the
+  completion, i.e. exactly the case that used to fail. Pending rows are
+  cleaned up after every call (`officejs_pending_results` empty at rest).
+- **Acked write:** success path shows "Wrote 1 row × 2 cols to Excel at
+  Sheet1!A6:B7"; with no taskpane the tool fails after the bridge timeout
+  with "Timed out waiting for the Excel taskpane to confirm the write…" —
+  the false success from the review is gone.
+- **Sticky scoping:** with a pre-fix `localStorage.excelSticky=1` seeded, a
+  plain tab comes up non-Excel (flag migrated away, submit gated on data
+  sources as before); a `?excel=true` tab gets `sessionStorage` sticky and
+  Excel mode; a further plain tab opened afterwards does not inherit it.
+- **Gating:** in a workspace with zero data sources, the `?excel=true` tab
+  can submit a prompt (and the full excel tool loop runs datasource-free);
+  plain tabs still show "Connect data or upload a file".
+- **Authz binding:** unit tests (`tests/unit/test_officejs_result_service.py`,
+  5 passed) cover wrong-completion → not_found, wrong-user → forbidden,
+  exactly-once resolution, discard-then-late-POST → not_found, and the
+  cross-session resolve→poll path. Related suites
+  (`test_tool_confirmation_service.py`,
+  `test_message_context_tool_result_projection.py`,
+  `test_read_file_source_document.py`) still pass (53 tests).
