@@ -47,6 +47,7 @@ from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_NONE,
     GlobScopeError,
+    DocumentText,
     NamedBytes,
     globs_from_str,
     normalize_index_mode,
@@ -338,12 +339,20 @@ class S3Client(DataSourceClient):
             text, pages_total = _extract_pdf_pages_from_bytes(
                 data, key, page_range[0], page_range[1]
             )
+                # The bytes this read already downloaded, carried like
+                # DocumentText.raw does for whole-file reads. Without them the
+                # tool layer fetches the same object a second time just to keep
+                # the original for the viewer — 2N downloads for N page reads.
+                # `name` rides along because an opaque provider id carries no
+                # filename of its own, and the preview needs the extension.
             return {
                 "__doc_pages__": True,
                 "text": text,
                 "pages_total": pages_total,
                 "first": max(1, page_range[0]),
                 "last": min(page_range[1], pages_total),
+                "raw": data,
+                "name": key.rsplit("/", 1)[-1],
             }
 
         # Structured read — pull the whole object (size-capped).
@@ -355,7 +364,8 @@ class S3Client(DataSourceClient):
             # Near-empty extraction on a rich doc (scanned / image-based / CID
             # font) → return raw bytes so the tool can render it for vision.
             if doc_text_is_usable(text, ext):
-                return text
+                # Carry the bytes we already fetched — see DocumentText.
+                return DocumentText(text, raw=data, name=key)
             return NamedBytes(data, name=key)
 
         if ext == "csv":

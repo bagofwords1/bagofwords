@@ -21,7 +21,10 @@ from app.data_sources.clients._document_text import (
     doc_text_is_usable,
     extract_document_text_from_bytes,
 )
-from app.data_sources.clients._file_source_common import NamedBytes
+from app.data_sources.clients._file_source_common import (
+    DocumentText,
+    NamedBytes,
+)
 from app.data_sources.clients.base import Capability, DataSourceClient
 
 
@@ -285,7 +288,8 @@ class GoogleDriveClient(DataSourceClient):
         if ext in DOC_EXTS:
             text = extract_document_text_from_bytes(content, name)
             if doc_text_is_usable(text, ext):
-                return text
+                # Carry the bytes we already downloaded — see DocumentText.
+                return DocumentText(text, raw=content, name=name)
             return NamedBytes(content, name=name)
 
         from app.data_sources.clients.graph_drive_client import _trim_to_data

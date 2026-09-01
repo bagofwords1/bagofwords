@@ -50,6 +50,36 @@ class NamedBytes(bytes):
         return obj
 
 
+class DocumentText(str):
+    """Extracted document text that remembers the bytes it came from.
+
+    The sibling of :class:`NamedBytes`, for the opposite outcome: extraction
+    SUCCEEDED, so the model gets text — but the UI still needs the original
+    file to show the user the actual document (a .pdf in a viewer, opened at
+    the page that was read). Without carrying the bytes here, the tool layer
+    would have to fetch the same object a SECOND time, a full extra download
+    from S3/SharePoint purely to render a preview.
+
+    Only the clients that already hold the bytes in memory when they extract
+    (graph_drive, google_drive, s3) wrap their result. network_dir extracts
+    straight from a local path and has nothing in hand, so it keeps returning
+    a plain str — re-reading a local file costs nothing, and holding every
+    document in memory for it would be a pure waste.
+
+    Subclassing ``str`` keeps every consumer working unchanged: isinstance
+    checks, ``len``, ``encode``, equality. Slicing returns a plain ``str``, so
+    the bytes can never leak into tool output or the context window.
+    """
+
+    def __new__(cls, text, raw: Optional[bytes] = None,
+                name: Optional[str] = None, mime: Optional[str] = None):
+        obj = super().__new__(cls, text)
+        obj.raw = raw
+        obj.name = name or ""
+        obj.mime = mime or ""
+        return obj
+
+
 def payload_name(payload, fallback: str = "") -> str:
     """Best display/dispatch name for a read payload: the connector-supplied
     name when the bytes carry one, else the caller's fallback (usually the

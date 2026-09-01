@@ -626,7 +626,15 @@ class AgentV2:
                 if (getattr(f, 'content_type', '') or '').startswith('image/')
                 and not _is_connector(f)
             ]
-            self.analysis_files = [f for f in all_files if not (getattr(f, 'content_type', '') or '').startswith('image/')]
+            # "#source" rows are persist_source_document's viewer copies of
+            # original documents (the .pdf behind a .pdf.txt session file).
+            # They are linked to the report for the embed route, but they are
+            # not analyzable and must not rejoin the roster at init.
+            self.analysis_files = [
+                f for f in all_files
+                if not (getattr(f, 'content_type', '') or '').startswith('image/')
+                and not str(getattr(f, 'source_ref', '') or '').endswith('#source')
+            ]
         else:
             self.data_sources = []
             self.clients = {}

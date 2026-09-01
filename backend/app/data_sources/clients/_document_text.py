@@ -1,9 +1,10 @@
 """Best-effort plain-text extraction for rich document formats.
 
 Lets file sources make PDF / Word / PowerPoint content *searchable* and
-*readable* (not just opaque bytes). Dependency-light: PDF via pypdf, PPTX via
-python-pptx (both already project deps), DOCX by reading the OOXML zip directly
-(no python-docx needed).
+*readable* (not just opaque bytes). Dependency-light: PDF via PDFium
+(pypdfium2 — already used to rasterize pages, and the only extractor here that
+returns text in reading order rather than paint order; see _open_pdf), PPTX via
+python-pptx, DOCX by reading the OOXML zip directly (no python-docx needed).
 
 Every extractor is defensive — a corrupt/locked/oversized file or a missing
 optional lib yields "" rather than raising, so search over a mixed directory
@@ -13,15 +14,26 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import zipfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# pypdf is very chatty on real-world PDFs ("Ignoring wrong pointing object",
+# PDFium (the native library behind pypdfium2) is not thread-safe, and
+# pypdfium2 adds no locking of its own. Extraction here and rasterization in
+# _file_tool_common both run on asyncio worker threads, so two concurrent PDF
+# reads would otherwise race inside the same native state. EVERY pypdfium2
+# call sequence — open, per-page work, close — must run while holding this
+# lock. Serializing PDF work is the accepted cost; a race can corrupt PDFium
+# state or segfault the whole process.
+PDFIUM_LOCK = threading.Lock()
+
+# pypdf is chatty on real-world PDFs ("Ignoring wrong pointing object",
 # "FloatObject invalid", …) — harmless recovery warnings that flood the logs
-# when scanning a whole directory. Silence them; genuine errors still surface
-# via our own try/except below.
+# when scanning a whole directory. It no longer extracts text here, but other
+# modules still import it, so the filter stays. Genuine errors surface via our
+# own try/except below.
 logging.getLogger("pypdf").setLevel(logging.ERROR)
 
 # Extensions this module can turn into text. Callers gate on this set.
@@ -183,6 +195,47 @@ def extract_document_text_from_bytes(data: bytes, name: str,
                 pass
 
 
+def _open_pdf(path: str):
+    """Open a PDF with PDFium. Raises on an unreadable / password-locked file.
+
+    PDFium — the engine Chromium renders PDFs with — returns text in LOGICAL
+    order. pypdf's extract_text() returns it in VISUAL order: the order the
+    glyphs happen to be painted in. For Latin scripts the two coincide, so the
+    difference was invisible. For Hebrew and Arabic the visual order reverses
+    every word on the line:
+
+        pypdf   ".1ומכירותנח  אלבומים  סקירת"
+        pdfium  ".1 סקירת אלבומים ומכירות"
+
+    Nothing downstream could catch that. The characters are all valid Hebrew,
+    correctly encoded, so doc_text_looks_garbled (which hunts for mojibake)
+    never fires and the model receives fluent-looking gibberish as if it were a
+    faithful read.
+
+    pypdfium2 is already a dependency — render_pdf_pages_images rasterizes
+    pages with it — so this costs no new package.
+
+    Callers must hold PDFIUM_LOCK for the whole open→read→close sequence.
+    """
+    import pypdfium2 as pdfium
+
+    return pdfium.PdfDocument(path)
+
+
+def _pdf_page_text(pdf, index: int) -> str:
+    """Text of one page, normalized to \n newlines (PDFium emits \r\n)."""
+    page = pdf[index]
+    try:
+        textpage = page.get_textpage()
+        try:
+            raw = textpage.get_text_bounded() or ""
+        finally:
+            textpage.close()
+    finally:
+        page.close()
+    return raw.replace("\r\n", "\n").replace("\r", "\n")
+
+
 def extract_pdf_pages_text(path: str, first: int, last: int,
                            max_chars: int = DEFAULT_MAX_CHARS) -> tuple:
     """Extract text for an inclusive 1-based page range of a PDF.
@@ -193,54 +246,51 @@ def extract_pdf_pages_text(path: str, first: int, last: int,
     extract_document_text, a targeted page read failing silently would strand
     the model in a retry loop.
     """
-    from pypdf import PdfReader
-
-    reader = PdfReader(path)
-    if getattr(reader, "is_encrypted", False):
-        reader.decrypt("")
-    pages_total = len(reader.pages)
-    first = max(1, int(first))
-    last = min(pages_total, int(last))
-    parts: list[str] = []
-    total = 0
-    for i in range(first - 1, last):
+    with PDFIUM_LOCK:
+        pdf = _open_pdf(path)
         try:
-            t = reader.pages[i].extract_text() or ""
-        except Exception:
-            t = ""
-        parts.append(t)
-        total += len(t)
-        if total >= max_chars:
-            break
-    return sanitize_extracted_text("\n".join(parts)[:max_chars]), pages_total
+            pages_total = len(pdf)
+            first = max(1, int(first))
+            last = min(pages_total, int(last))
+            parts: list[str] = []
+            total = 0
+            for i in range(first - 1, last):
+                try:
+                    t = _pdf_page_text(pdf, i)
+                except Exception:
+                    t = ""
+                parts.append(t)
+                total += len(t)
+                if total >= max_chars:
+                    break
+            return sanitize_extracted_text("\n".join(parts)[:max_chars]), pages_total
+        finally:
+            pdf.close()
 
 
 def _pdf(path: str, max_chars: int) -> str:
-    from pypdf import PdfReader
-
-    reader = PdfReader(path)
-    # Encrypted PDFs: many use an empty owner password — try that before giving
-    # up so we can still read them. If it's genuinely locked, decrypt raises and
-    # the caller catches it (file skipped).
-    if getattr(reader, "is_encrypted", False):
+    # Search-oriented: a genuinely locked or corrupt file yields "" and is
+    # skipped, unlike extract_pdf_pages_text where the caller wants the error.
+    with PDFIUM_LOCK:
         try:
-            reader.decrypt("")
+            pdf = _open_pdf(path)
         except Exception:
             return ""
-    parts: list[str] = []
-    total = 0
-    for i, page in enumerate(reader.pages):
-        if i >= _PDF_MAX_PAGES:
-            break
         try:
-            t = page.extract_text() or ""
-        except Exception:
-            continue
-        parts.append(t)
-        total += len(t)
-        if total >= max_chars:
-            break
-    return "\n".join(parts)[:max_chars]
+            parts: list[str] = []
+            total = 0
+            for i in range(min(len(pdf), _PDF_MAX_PAGES)):
+                try:
+                    t = _pdf_page_text(pdf, i)
+                except Exception:
+                    continue
+                parts.append(t)
+                total += len(t)
+                if total >= max_chars:
+                    break
+            return "\n".join(parts)[:max_chars]
+        finally:
+            pdf.close()
 
 
 # Match the visible-text runs in an OOXML part: <w:t> (Word) / <a:t>

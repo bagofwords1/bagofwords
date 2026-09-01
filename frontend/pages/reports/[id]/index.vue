@@ -397,6 +397,8 @@
 													:data-sources="report?.data_sources"
 													:report-id="report_id"
 													:system-completion-id="m.system_completion_id || m.id"
+													:can-expand="!isMobile"
+													@openFilePreview="openFilePreview"
 													@addWidget="handleAddWidgetFromPreview"
 													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
@@ -910,6 +912,25 @@
 					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
 					{{ currentAgents.length > 1 ? $t('reportView.tabAgents') : (currentAgents[0]?.name || $t('reportView.tabAgent')) }}
 				</button>
+				<!-- Only while a file is open. Carries its own dismiss so there is
+				     an obvious way back to the dashboard. -->
+				<button
+					v-if="panelFile"
+					@click="rightPanelView = 'file'"
+					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
+					:class="rightPanelView === 'file'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
+						: 'text-gray-400 hover:text-gray-600'"
+				>
+					<Icon :name="panelFile.kind === 'image' ? 'heroicons:photo' : 'heroicons:document-text'" class="w-3.5 h-3.5 shrink-0" />
+					<span class="truncate">{{ panelFile.name || $t('filePreview.document') }}</span>
+					<Icon
+						name="heroicons:x-mark"
+						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"
+						:aria-label="$t('filePreview.closeFilePanel')"
+						@click.stop="closeFilePanel"
+					/>
+				</button>
 			</div>
 			<button
 				@click="toggleSplitScreen"
@@ -997,6 +1018,22 @@
 			<!-- Empty state for grid view -->
 			<div v-else-if="rightPanelView === 'grid' && reportLoaded && !(visualizations || []).length" class="p-4 text-center text-gray-500 dark:text-gray-400 h-full">
 				No dashboard items yet.
+			</div>
+
+			<!-- A document or image opened from a read_file card. Reuses the
+			     same viewer the card renders, at panel size. -->
+			<div v-else-if="rightPanelView === 'file' && panelFile" class="h-full overflow-auto p-3">
+				<FilePreview
+					:key="panelFile.fileId"
+					:kind="panelFile.kind"
+					:file-id="panelFile.fileId"
+					:image-file-ids="panelFile.imageFileIds"
+					:target-page="panelFile.targetPage"
+					:pages-total="panelFile.pagesTotal"
+					:name="panelFile.name"
+					:expanded="true"
+					@open="(fid: string) => openImagePreview({ id: fid, filename: panelFile?.name || '' })"
+				/>
 			</div>
 		</template>
 	</SplitScreenLayout>
@@ -2245,7 +2282,51 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary'>('artifact')
+const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+
+// A document/image opened from a read_file card into the side panel. Transient
+// by nature — it exists only while a file is selected, which is why it gets a
+// conditional tab rather than a permanent one. Switching tabs keeps it so the
+// user can come back; the tab's close button is what clears it.
+const panelFile = ref<{
+	fileId: string
+	kind: 'pdf' | 'image'
+	targetPage?: number | null
+	pagesTotal?: number | null
+	imageFileIds?: string[] | null
+	name?: string
+} | null>(null)
+
+function openFilePreview(payload: any) {
+	if (!payload?.fileId) return
+	panelFile.value = payload
+	// Mobile keeps the inline/modal behaviour — mobileView is a separate closed
+	// union and opening a second surface there is its own piece of work.
+	if (isMobile.value) return
+	if (!isSplitScreen.value) toggleSplitScreen()
+	rightPanelView.value = 'file'
+}
+
+// Chat pane width as a fraction of the window, per panel view. A document
+// viewer earns the most room: while a PDF is open, reading it IS the task.
+// 280 matches the floor the manual resizer enforces, so a narrow window can
+// never programmatically produce a pane the user could not drag back.
+const PANEL_LEFT_RATIO: Record<string, number> = {
+	summary: 0.55,
+	agent: 0.45,
+}
+const DEFAULT_LEFT_RATIO = 0.37
+const MIN_LEFT_PANEL_WIDTH = 280
+
+function leftWidthFor(view: string): number {
+	const ratio = PANEL_LEFT_RATIO[view] ?? DEFAULT_LEFT_RATIO
+	return Math.max(MIN_LEFT_PANEL_WIDTH, Math.round(window.innerWidth * ratio))
+}
+
+function closeFilePanel() {
+	panelFile.value = null
+	if (rightPanelView.value === 'file') rightPanelView.value = 'artifact'
+}
 
 // Mobile view mode (full-screen single section on narrow screens)
 const mobileView = ref<'chat' | 'summary' | 'dashboard' | 'agent'>('chat')
@@ -2648,16 +2729,9 @@ watch(() => isSplitScreen.value, () => {
 // Adjust left panel width based on active right panel tab
 watch(rightPanelView, (view) => {
     if (!isSplitScreen.value || isResizing.value) return
-    const windowWidth = window.innerWidth
-    if (view === 'summary') {
-        leftPanelWidth.value = Math.round(windowWidth * 0.55)
-    } else if (view === 'agent') {
-        leftPanelWidth.value = Math.round(windowWidth * 0.45)
-        collapseSidebar()
-    } else {
-        leftPanelWidth.value = Math.round(windowWidth * 0.37)
-        collapseSidebar()
-    }
+    leftPanelWidth.value = leftWidthFor(view)
+    // Summary keeps the sidebar; every other view wants the horizontal room.
+    if (view !== 'summary') collapseSidebar()
 })
 
 function goBack() {
@@ -4288,12 +4362,7 @@ function toggleSplitScreen() {
 	nextTick(() => {
 		isSplitScreen.value = !isSplitScreen.value
 		if (isSplitScreen.value) {
-			const windowWidth = window.innerWidth
-			leftPanelWidth.value = rightPanelView.value === 'summary'
-				? Math.round(windowWidth * 0.55)
-				: rightPanelView.value === 'agent'
-				? Math.round(windowWidth * 0.45)
-				: Math.round(windowWidth * 0.37)
+			leftPanelWidth.value = leftWidthFor(rightPanelView.value)
 			collapseSidebar()
 		}
         safeScrollToBottom()

@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 import os
 import uuid
-from typing import Any, AsyncIterator, Dict, List, Optional, Tuple, Type
+from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
 import aiofiles
 from pydantic import BaseModel
@@ -29,7 +29,11 @@ from app.data_sources.clients.base import Capability
 
 from app.data_sources.clients._file_source_common import GlobScopeError, storage_safe_name
 
-from ._file_tool_common import audit_file_access_denied, resolve_file_client
+from ._file_tool_common import (
+    audit_file_access_denied,
+    read_source_bytes,
+    resolve_file_client,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +92,7 @@ class AttachFileTool(Tool):
         results: List[AttachedFile] = []
         for fid in data.file_ids:
             try:
-                content, name, mime = await self._raw_bytes(client, fid)
+                content, name, mime = await read_source_bytes(client, fid)
                 session_file_id = await self._persist_durable(
                     runtime_ctx, filename=name, content=content, mime=mime,
                 )
@@ -128,27 +132,6 @@ class AttachFileTool(Tool):
             },
             "observation": {"summary": summary, "success": bool(ok)},
         })
-
-    async def _raw_bytes(self, client, file_id: str) -> Tuple[bytes, str, Optional[str]]:
-        """Prefer the client's raw-bytes reader (original file); otherwise
-        serialize whatever read_file returns so it still attaches."""
-        if hasattr(client, "read_raw_bytes"):
-            import asyncio
-            return await asyncio.to_thread(client.read_raw_bytes, file_id)
-        # Fallback: reparse via read_file and serialize.
-        import io
-        import json
-        import pandas as pd
-        payload = await client.aread_file(file_id)
-        base = str(file_id).split("/")[-1] or "file"
-        if isinstance(payload, pd.DataFrame):
-            buf = io.StringIO(); payload.to_csv(buf, index=False)
-            return buf.getvalue().encode("utf-8"), f"{base}.csv", "text/csv"
-        if isinstance(payload, (dict, list)):
-            return json.dumps(payload, default=str).encode("utf-8"), f"{base}.json", "application/json"
-        if isinstance(payload, (bytes, bytearray)):
-            return bytes(payload), base, None
-        return str(payload).encode("utf-8"), f"{base}.txt", "text/plain"
 
     async def _persist_durable(
         self, runtime_ctx: Dict[str, Any], *, filename: str, content: bytes, mime: Optional[str],

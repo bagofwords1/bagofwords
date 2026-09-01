@@ -169,6 +169,50 @@ class ReadFileInput(BaseModel):
     title: Optional[str] = _title_field()
 
 
+class ReadFilePreview(BaseModel):
+    """What the UI should render for this read — decided server-side.
+
+    The frontend cannot work this out on its own: the session file a read
+    produces is often a DERIVATIVE of the source (report.pdf → report.pdf.txt,
+    sales.xlsx → sales.csv), so neither `file_name` nor `content_type` says
+    which file id to fetch or how to display it. This states it outright.
+
+    A document always beats its page renders. When a scanned PDF is rasterized
+    so a vision model can read it, the USER is still shown the real PDF opened
+    at the page in question — not the PNG the model saw.
+    """
+
+    kind: Literal["pdf", "image", "table", "text", "none"] = Field(
+        default="none",
+        description=(
+            "How to render: 'pdf' in a document viewer, 'image' as a picture / "
+            "page gallery, 'table' from the returned csv, 'text' as plain text, "
+            "'none' when there is nothing to show."
+        ),
+    )
+    file_id: Optional[str] = Field(
+        default=None,
+        description="File id the viewer should load. Null for 'table'/'text'/'none', which render from this result's own csv/text.",
+    )
+    mime: Optional[str] = Field(
+        default=None,
+        description="Authoritative content type of `file_id` — never infer it from file_name, which names the SOURCE and not the stored copy.",
+    )
+    target_page: Optional[int] = Field(
+        default=None,
+        description="1-based page the viewer should open at (from page_range). 1 when the whole document was read.",
+    )
+    pages_total: Optional[int] = None
+    image_file_ids: Optional[List[str]] = Field(
+        default=None,
+        description="Page-ordered image ids for a gallery, when kind='image'.",
+    )
+    truncated: bool = Field(
+        default=False,
+        description="The preview shows less than the whole file — a capped page render, or a row-limited table.",
+    )
+
+
 class ReadFileOutput(BaseModel):
     success: bool
     connection_id: Optional[str] = ""
@@ -253,6 +297,15 @@ class ReadFileOutput(BaseModel):
     pages_shown: Optional[str] = Field(
         default=None,
         description="The 1-based inclusive page range actually read, e.g. '10-15'. Compare with pages_total to continue paging.",
+    )
+    preview: Optional[ReadFilePreview] = Field(
+        default=None,
+        description=(
+            "UI ONLY — how the user's screen should render this read. IGNORE "
+            "it: it is not an input to any tool, and its `file_id` must never "
+            "be passed to inspect_data / create_data / read_excel_as_csv. Use "
+            "`session_file_id` for that."
+        ),
     )
     error: Optional[str] = None
 
