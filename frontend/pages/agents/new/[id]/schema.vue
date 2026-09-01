@@ -45,6 +45,8 @@ import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
+const { t } = useI18n()
 const id = computed(() => String(route.params.id || ''))
 function onSaved() { router.replace(`/agents/new/${id.value}/context`) }
 
@@ -62,9 +64,24 @@ function openAddModal(type: 'mcp' | 'custom_api') {
   modalType.value = type
   showModal.value = true
 }
-function onConnectionChanged() {
+async function onConnectionChanged(conn?: any) {
   showModal.value = false
+  const wasEdit = !!editingConnection.value
   editingConnection.value = null
+  // A connection added from this page's Tools tab is created org-level by the
+  // modal — it still has to be linked to THIS agent, or it never shows up here.
+  // (Edits are already linked; re-linking would 400.)
+  if (!wasEdit && conn?.id) {
+    const link = await useMyFetch(`/data_sources/${id.value}/connections/${conn.id}`, { method: 'POST' })
+    if (link.error?.value) {
+      // useMyFetch resolves (never throws) on HTTP errors — surface the backend
+      // detail and skip the reload so the toast is actually seen.
+      const err: any = link.error.value
+      toast.add({ title: t('agentsPage.connectionLinkFailed'), description: err?.data?.detail || err?.message, color: 'red' })
+      return
+    }
+    await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' })
+  }
   // Full route refresh: the tools list, counts and policies all changed.
   router.go(0)
 }

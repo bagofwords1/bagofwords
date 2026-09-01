@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "Не удалось сохранить описание",
     "toastTablesReloaded": "Таблицы перезагружены",
     "toastToolsReloaded": "Инструменты перезагружены",
+    "connectionLinked": "Подключение добавлено к агенту",
+    "connectionLinkFailed": "Не удалось добавить подключение к агенту",
     "toastUploaded": "Загружено файлов: {n}",
     "toastUploadFailed": "Не удалось загрузить",
     "uploadTooLarge": "Файл превышает лимит загрузки на сервере",

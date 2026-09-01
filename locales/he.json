@@ -242,6 +242,8 @@
     "toastSaveDescFailed": "שמירת התיאור נכשלה",
     "toastTablesReloaded": "הטבלאות נטענו מחדש",
     "toastToolsReloaded": "הכלים נטענו מחדש",
+    "connectionLinked": "החיבור נוסף לסוכן",
+    "connectionLinkFailed": "הוספת החיבור לסוכן נכשלה",
     "toastUploaded": "הועלו {n} קבצים",
     "toastUploadFailed": "ההעלאה נכשלה",
     "uploadTooLarge": "הקובץ גדול ממגבלת ההעלאה של השרת",

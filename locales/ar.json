@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "تعذّر حفظ الوصف",
     "toastTablesReloaded": "تمت إعادة تحميل الجداول",
     "toastToolsReloaded": "تمت إعادة تحميل الأدوات",
+    "connectionLinked": "تمت إضافة الاتصال إلى الوكيل",
+    "connectionLinkFailed": "فشلت إضافة الاتصال إلى الوكيل",
     "toastUploaded": "تم رفع {n} ملف",
     "toastUploadFailed": "فشل الرفع",
     "uploadTooLarge": "الملف أكبر من حد الرفع المسموح به في الخادم",

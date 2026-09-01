@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "Falha ao salvar descrição",
     "toastTablesReloaded": "Tabelas recarregadas",
     "toastToolsReloaded": "Ferramentas recarregadas",
+    "connectionLinked": "Conexão adicionada ao agente",
+    "connectionLinkFailed": "Falha ao adicionar a conexão ao agente",
     "toastUploaded": "{n} arquivo(s) enviado(s)",
     "toastUploadFailed": "Falha no envio",
     "uploadTooLarge": "O arquivo excede o limite de upload do servidor",

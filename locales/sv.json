@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "Kunde inte spara beskrivning",
     "toastTablesReloaded": "Tabeller omladdade",
     "toastToolsReloaded": "Verktyg omladdade",
+    "connectionLinked": "Anslutningen lades till agenten",
+    "connectionLinkFailed": "Det gick inte att lägga till anslutningen till agenten",
     "toastUploaded": "Laddade upp {n} fil(er)",
     "toastUploadFailed": "Uppladdning misslyckades",
     "uploadTooLarge": "Filen överskrider serverns uppladdningsgräns",

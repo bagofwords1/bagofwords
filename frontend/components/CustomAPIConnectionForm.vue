@@ -359,7 +359,10 @@ const props = defineProps<{
   } | null
 }>()
 const emit = defineEmits<{
-  (e: 'saved', connection: any): void
+  // meta.existing marks the "use existing connection" path: nothing was created
+  // or updated here — the parent still has to link the connection and owns the
+  // outcome feedback.
+  (e: 'saved', connection: any, meta?: { existing?: boolean }): void
   (e: 'cancel'): void
 }>()
 
@@ -825,7 +828,7 @@ async function testConnection() {
 async function handleSubmit() {
   if (selectedExisting.value) {
     const conn = existingConnections.value.find((c: any) => c.id === selectedExisting.value.id)
-    if (conn) emit('saved', conn)
+    if (conn) emit('saved', conn, { existing: true })
     return
   }
 

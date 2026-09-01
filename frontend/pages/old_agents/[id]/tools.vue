@@ -97,13 +97,18 @@ const availableCustomApiConnections = computed(() => {
     return allOrgToolConnections.value.filter((c: any) => c.type === 'custom_api' && !linkedIds.has(String(c.id)))
 })
 
-async function onConnectionCreated(conn: any) {
-    try {
-        await useMyFetch(`/data_sources/${id.value}/connections/${conn.id}`, { method: 'POST' })
-    } catch { /* link endpoint may not exist yet */ }
-    try {
+// useMyFetch resolves (never throws) on HTTP errors, so the link outcome must
+// be read from response.error — a 403 (e.g. missing `create_data_sources` on
+// the connection) would otherwise vanish behind the modal's success toast.
+async function onConnectionCreated(conn: any, meta?: { existing?: boolean }) {
+    const link = await useMyFetch(`/data_sources/${id.value}/connections/${conn.id}`, { method: 'POST' })
+    if (link.error?.value) {
+        const err: any = link.error.value
+        toast.add({ title: 'Failed to add connection to agent', description: err?.data?.detail || err?.message, color: 'red' })
+    } else {
+        if (meta?.existing) toast.add({ title: 'Connection added to agent', color: 'green' })
         await useMyFetch(`/connections/${conn.id}/refresh-tools`, { method: 'POST' })
-    } catch {}
+    }
     await fetchIntegration()
     await fetchOrgToolConnections()
 }

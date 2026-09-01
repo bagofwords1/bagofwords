@@ -230,6 +230,8 @@
     "toastSaveDescFailed": "Impossibile salvare la descrizione",
     "toastTablesReloaded": "Tabelle ricaricate",
     "toastToolsReloaded": "Strumenti ricaricati",
+    "connectionLinked": "Connessione aggiunta all'agente",
+    "connectionLinkFailed": "Impossibile aggiungere la connessione all'agente",
     "toastUploaded": "Caricato/i {n} file",
     "toastUploadFailed": "Caricamento non riuscito",
     "uploadTooLarge": "Il file supera il limite di caricamento del server",

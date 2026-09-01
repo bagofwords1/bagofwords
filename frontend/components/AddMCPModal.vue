@@ -22,14 +22,20 @@ const props = defineProps<{
   editConnection?: any
   existingConnections?: any[]
 }>()
-const emit = defineEmits(['created'])
+const emit = defineEmits<{
+  (e: 'created', connection: any, meta?: { existing?: boolean }): void
+}>()
 
 const toast = useToast()
 const isEditMode = computed(() => !!props.editConnection)
 
-function handleSaved(connection: any) {
-  toast.add({ title: isEditMode.value ? t('settings.mcpModal.updated') : t('settings.mcpModal.connected'), color: 'green' })
+function handleSaved(connection: any, meta?: { existing?: boolean }) {
+  // "Use existing connection" saves nothing here — the parent links it to the
+  // agent and toasts the real outcome, so a success toast now would be a lie.
+  if (!meta?.existing) {
+    toast.add({ title: isEditMode.value ? t('settings.mcpModal.updated') : t('settings.mcpModal.connected'), color: 'green' })
+  }
   isOpen.value = false
-  emit('created', connection)
+  emit('created', connection, meta)
 }
 </script>
