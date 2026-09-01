@@ -61,6 +61,7 @@
                     </div>
                     <div v-else class="flex-1 min-h-0 overflow-y-auto overscroll-contain px-4 py-4 space-y-5">
                         <div v-for="(turn, i) in turns" :key="turn.completion_id || i"
+                             :data-completion-id="turn.completion_id || ''"
                              :class="['rounded-lg px-1.5 py-1.5 transition-colors', turn.completion_id === selectedCompletionId ? 'bg-blue-50/40 ring-1 ring-blue-100' : '']">
                             <!-- User bubble -->
                             <div class="flex justify-end mb-2">
@@ -874,6 +875,16 @@ const fetchConversation = async () => {
     } finally {
         isConvLoading.value = false
     }
+    // The conversation rail renders only after isConvLoading flips false, and it
+    // opens scrolled to the top — bring the preselected turn into view.
+    await scrollToSelectedTurn()
+}
+
+const scrollToSelectedTurn = async () => {
+    if (!selectedCompletionId.value) return
+    await nextTick()
+    const el = document.querySelector(`[data-completion-id="${selectedCompletionId.value}"]`)
+    el?.scrollIntoView({ block: 'center' })
 }
 
 const selectTurn = async (turn: ConversationTurn) => {
