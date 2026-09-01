@@ -101,7 +101,13 @@ const props = withDefaults(defineProps<{
   dataSources?: any[]
   /** Host page has a side panel to open documents into. */
   canExpand?: boolean
-}>(), { canExpand: false })
+  /** Anonymous/share view (`/c/[token]` passes true). PDF and image previews
+   *  authorize via `/embed_token` / `/content`, which require a signed-in
+   *  user — for guests they 401 and the card would show a permanent
+   *  "Preview unavailable" box. The inline CSV table carries its own data,
+   *  so it stays. */
+  readonly?: boolean
+}>(), { canExpand: false, readonly: false })
 
 // Only documents and images earn the panel — a ten-row table is already fully
 // readable in the card, and half a screen of it is just noise.
@@ -196,11 +202,13 @@ const previewText = computed(() => {
 // and content_type here cannot answer it. Older tool executions predate the
 // contract and simply get no visual preview.
 const preview = computed<any>(() => rj.value.preview || { kind: 'none' })
-const showVisualPreview = computed(() =>
-  status.value !== 'running'
-  && !errorMessage.value
-  && ['pdf', 'image', 'table'].includes(preview.value.kind),
-)
+const showVisualPreview = computed(() => {
+  if (status.value === 'running' || errorMessage.value) return false
+  // Token-backed viewers need an authenticated user; guests get the
+  // text-only card they had before previews existed.
+  if (props.readonly) return preview.value.kind === 'table'
+  return ['pdf', 'image', 'table'].includes(preview.value.kind)
+})
 
 const imageModal = ref<any>(null)
 function openImage(fileId: string) {
