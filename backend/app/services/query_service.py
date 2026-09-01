@@ -8,6 +8,7 @@ from sqlalchemy.orm import lazyload, selectinload
 from app.models.query import Query
 from app.models.widget import Widget
 from app.models.report import Report
+from app.models.data_source import DataSource
 from app.models.user import User
 from app.models.step import Step
 from app.schemas.query_schema import QueryCreate, QuerySchema, QueryRunRequest
@@ -23,6 +24,28 @@ from app.ai.code_execution.query_params import (
 )
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
+
+def _report_execution_loads():
+    """Loader options for the report graph a code run needs, eagerly.
+
+    Every caller builds ds_clients through
+    DataSourceService.construct_clients, which reads
+    `data_source.connections` (and skips the inactive ones) synchronously.
+    The top-level lazyload("*") that keeps this projection narrow also
+    cancels DataSource.connections' own lazy="selectin" default, so that
+    read becomes lazy IO inside a coroutine -> MissingGreenlet. Load the
+    connections here, columns only, the same way report_service does for
+    the rerun paths.
+    """
+    return (
+        lazyload("*"),
+        selectinload(Report.data_sources).options(
+            lazyload("*"),
+            selectinload(DataSource.connections).options(lazyload("*")),
+        ),
+        selectinload(Report.files).options(lazyload("*")),
+    )
+
 
 def _enrich_step_schema(step_orm, step_schema: StepSchema) -> StepSchema:
     """Enrich StepSchema with relationship data from ORM"""
@@ -493,11 +516,7 @@ class QueryService:
         # access on widget.report dies in async for freshly created widgets).
         report_stmt = (
             select(Report)
-            .options(
-                lazyload("*"),
-                selectinload(Report.data_sources).options(lazyload("*")),
-                selectinload(Report.files).options(lazyload("*")),
-            )
+            .options(*_report_execution_loads())
             .join(Widget, Widget.report_id == Report.id)
             .where(Widget.id == str(q.widget_id))
         )
@@ -708,11 +727,7 @@ class QueryService:
         # report graph explicitly — lazy attribute access dies in async.
         report_stmt = (
             select(Report)
-            .options(
-                lazyload("*"),
-                selectinload(Report.data_sources).options(lazyload("*")),
-                selectinload(Report.files).options(lazyload("*")),
-            )
+            .options(*_report_execution_loads())
             .join(Widget, Widget.report_id == Report.id)
             .where(Widget.id == str(step.widget_id))
         )
@@ -1061,11 +1076,7 @@ class QueryService:
             lazyload("*"),
             selectinload(Query.widget).options(
                 lazyload("*"),
-                selectinload(Widget.report).options(
-                    lazyload("*"),
-                    selectinload(Report.data_sources).options(lazyload("*")),
-                    selectinload(Report.files).options(lazyload("*")),
-                ),
+                selectinload(Widget.report).options(*_report_execution_loads()),
             ),
         ).where(Query.id == str(query_id))
         if organization_id:
