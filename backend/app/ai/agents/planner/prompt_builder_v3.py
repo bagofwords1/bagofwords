@@ -123,6 +123,9 @@ class PromptBuilderV3:
         if sc:
             preamble = preamble.split("<original_user_prompt>")[0].split("<user_prompt>")[0]
         ask = f"{preamble}<user_prompt>{planner_input.user_message}</user_prompt>"
+        hint = PromptBuilderV3._reuse_hint(planner_input)
+        if hint:
+            ask = f"{ask}\n{hint}"
         head = PromptBuilderV3._build_turn_head(planner_input)
 
         t = transcript_bridge.build_transcript(planner_input, static_context, ask)
@@ -673,6 +676,33 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         return "\n".join(parts)
 
     @staticmethod
+    def _reuse_hint(planner_input: PlannerInput) -> str:
+        """A one-line pointer placed right next to the ask when saved entities
+        matched this turn: their titles and parameter names. The full
+        <entities> block lives deep in the static prefix, after schemas and
+        tools, where a small model reliably reads it only when reminded; the
+        hint is the reminder, and it names the param keys the model must use."""
+        import re as _re
+        ctx = getattr(planner_input, "entities_context", None) or ""
+        if "<entity " not in ctx:
+            return ""
+        items: List[str] = []
+        for m in _re.finditer(r'<entity\b[^>]*\btitle="([^"]*)"[^>]*>(.*?)</entity>', ctx, _re.S):
+            title, body = m.group(1), m.group(2)
+            params = _re.findall(r'<param\b[^>]*\bname="([^"]*)"', body)
+            items.append(f'"{title}"' + (f" (params: {', '.join(params)})" if params else ""))
+            if len(items) >= 5:
+                break
+        if not items:
+            return ""
+        return (
+            "<saved_queries_hint>Saved queries on these agents that may already answer this "
+            f"ask: {'; '.join(items)}. If one does — as-is or with the user's values for its "
+            "params — call describe_entity(should_create=True, params={...}) with those exact "
+            "param names instead of create_data.</saved_queries_hint>"
+        )
+
+    @staticmethod
     def _reuse_blocks(planner_input: PlannerInput) -> List[str]:
         """The reuse surface: this turn's @mentions, the saved entities that
         matched it, and the report's prior steps — each with the guidance that
@@ -772,6 +802,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if user_memory_block:
             parts.append(user_memory_block)
         parts.append(PromptBuilder._format_user_prompt(planner_input))
+        hint = PromptBuilderV3._reuse_hint(planner_input)
+        if hint:
+            parts.append(hint)
         if images_context:
             parts.append(images_context)
         parts.append("<context>")

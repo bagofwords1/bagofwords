@@ -64,3 +64,21 @@ def test_reuse_surface_sits_in_the_cacheable_prefix_not_the_head():
     head = PromptBuilderV3._build_turn_head(pi)
     assert 'title="Albums by Genre"' in static and MENTIONS in static
     assert "Albums by Genre" not in head
+
+
+@pytest.mark.parametrize("use_transcript", [True, False])
+def test_matched_entities_are_named_next_to_the_ask(monkeypatch, use_transcript):
+    """A small model reads a block buried after schemas and tools only when
+    reminded: the hint sits by the ask and names the exact param keys."""
+    monkeypatch.setenv("BOW_PLANNER_TRANSCRIPT", "1" if use_transcript else "0")
+    built = PromptBuilderV3.build(_planner_input(use_transcript=use_transcript, entities_context=ENTITIES))
+    body = _flatten(built.messages)
+    ask_at = body.index("<user_prompt>")
+    hint_at = body.index("<saved_queries_hint>")
+    assert 0 < hint_at - ask_at < 400, "hint must sit right next to the ask"
+    assert '"Albums by Genre" (params: genre)' in body
+
+
+def test_no_hint_without_a_matched_entity():
+    assert PromptBuilderV3._reuse_hint(_planner_input()) == ""
+    assert PromptBuilderV3._reuse_hint(_planner_input(entities_context="<entities>No entities matched</entities>")) == ""
