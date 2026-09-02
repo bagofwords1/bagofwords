@@ -15,6 +15,8 @@ class FileSchema(FileBase):
     content_type: str
     path: str
     created_at: datetime
+    # "upload" | "connector" | "artifact" — see File.source_kind.
+    source_kind: str | None = None
 
     class Config:
         from_attributes = True

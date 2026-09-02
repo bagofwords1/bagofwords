@@ -54,7 +54,7 @@ def decide_file_tiers(
         if fid in forced_rich_ids:
             tiers[fid] = "full"
             budget -= _estimate_tokens(getattr(f, "description", None) or "")
-        elif fid in agent_file_ids or (getattr(f, "source_kind", "") or "") == "connector":
+        elif fid in agent_file_ids or (getattr(f, "source_kind", "") or "upload") != "upload":
             tiers[fid] = "index"
         else:
             user_files.append(f)
@@ -198,10 +198,11 @@ class FilesContextBuilder:
                     origin=(
                         "agent" if (
                             (fid or "") in agent_ids
-                            # Fetched by the agent from a connection, not
-                            # attached by the user — labelling it "upload"
-                            # tells the model a human put it there.
-                            or (getattr(f, "source_kind", "") or "") == "connector"
+                            # Fetched by the agent from a connection or
+                            # produced by a tool, not attached by the user —
+                            # labelling it "upload" tells the model a human
+                            # put it there.
+                            or (getattr(f, "source_kind", "") or "upload") != "upload"
                         )
                         else ("project" if (fid or "") in project_ids else "upload")
                     ),

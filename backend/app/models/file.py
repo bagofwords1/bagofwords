@@ -13,9 +13,18 @@ class File(BaseSchema):
     filename = Column(String, index=True)
     path = Column(String, index=True)
     content_type = Column(String, index=True)
-    # Where this file came from: "upload" (durable, user-attached) or "connector"
-    # (materialized from a connector download so the code sandbox — which has no
-    # network and no credentials — can read it from a local path).
+    # Where this file came from — the origin drives every surface the file
+    # shows on:
+    #   "upload"    a file the user attached. The only kind that is a pending
+    #               attachment in the prompt box until a message claims it.
+    #   "connector" a cache of a remote file the agent fetched through a
+    #               connection so the code sandbox — which has no network and no
+    #               credentials — can read it from a local path.
+    #   "artifact"  a file a tool PRODUCED (an execute_mcp response, a
+    #               write_csv result). Belongs to the tool card and to later
+    #               tools by file_id, never to the user's attachment chips.
+    # Anything other than "upload" is agent-owned (see
+    # file_service.is_agent_owned_file).
     source_kind = Column(String, nullable=False, default="upload", server_default="upload", index=True)
 
     # Cache key for connector files: which connection served it, and the
