@@ -1,35 +1,41 @@
-Bag of Words is an open core project. Bag of Words' core
-is permissively licensed.
-Certain parts of the periphery of Bag of Words are commercially
-licensed and governed by this Enterprise License.
-For the avoidance of doubt, this license does not apply
-to the core of Bag of Words as it is defined in its license in
-the directory "/LICENSE" (as opposed to this file "enterprise/LICENSE")
-which can be used and run without infringing the below license
-and its licensed materials.
+Bag of words is an open core project. Bag of words' core is licensed under the
+GNU Affero General Public License v3.0 (AGPL-3.0), as set out in the file
+"/LICENSE" at the root of this repository.
+
+Certain parts of the periphery of Bag of words are commercially licensed and
+governed by this Enterprise License. This Enterprise License covers the
+directory "frontend/ee/" and every file and subdirectory beneath it, unless
+a file is explicitly marked otherwise. The Enterprise Components in
+"backend/app/ee/" are governed by the identical license at
+"backend/app/ee/LICENSE".
+
+For the avoidance of doubt, this license does not apply to the core of Bag of
+words as it is defined in its license in the file "/LICENSE" (as opposed to
+this file "frontend/ee/LICENSE"), which can be used and run without
+infringing the below license and its licensed materials.
 
 ---
 
-Bag of Words Enterprise License (the "Enterprise License" or "EE License")
+BOW Enterprise License (the "Enterprise License" or "EE License")
 
-Copyright (c) 2024-2025 Bag of Words, Inc.
+Copyright (c) 2024-2026 Bag of words, Inc. ("BOW")
 
-With regard to the Bag of Words Enterprise Software:
+With regard to the BOW Enterprise Software:
 This software and associated documentation files (the "Software") may only be
 used, if you (and any entity that you represent) have agreed to,
-and are in compliance with, the applicable Bag of Words Terms of Service, available
+and are in compliance with, the applicable Bag of words Terms of Use, available
 at https://bagofwords.com/terms (the "Enterprise Terms"), or other
-agreement governing the use of the Software, as agreed by you and Bag of Words,
-and otherwise have a valid Bag of Words Enterprise License.
+agreement governing the use of the Software, as agreed by you and BOW,
+and otherwise have a valid BOW Enterprise License.
 
 Subject to the foregoing sentence, you are free to
-modify this Software and publish patches to the Software. You agree that Bag of Words
+modify this Software and publish patches to the Software. You agree that BOW
 and/or its licensors (as applicable) retain all right, title and interest in and
 to all such modifications and/or patches, and all such modifications and/or
 patches may only be used, copied, modified, displayed, distributed, or otherwise
-exploited with a valid Bag of Words Enterprise License. Notwithstanding the foregoing, you may copy and modify
+exploited with a valid BOW Enterprise License. Notwithstanding the foregoing, you may copy and modify
 the Software for development and testing purposes, without requiring a
-subscription. You agree that Bag of Words, Inc. and/or its licensors (as applicable) retain
+subscription. You agree that BOW and/or its licensors (as applicable) retain
 all right, title and interest in and to all such modifications. You are not
 granted any other rights beyond what is expressly stated herein. Subject to the
 foregoing, it is forbidden to copy, merge, publish, distribute, sublicense,
@@ -43,6 +49,6 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
-For all third party components incorporated into the Bag of Words Software, those
+For all third party components incorporated into the BOW Software, those
 components are licensed under the original license provided by the owner of the
 applicable component.

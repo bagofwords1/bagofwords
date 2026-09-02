@@ -1,5 +1,5 @@
 # OIDC Group Sync Service
-# Licensed under the Business Source License 1.1
+# Licensed under the BOW Enterprise License
 #
 # Syncs group memberships from OIDC token claims (e.g., Entra ID groups)
 # into BOW Groups + GroupMemberships on each user login.

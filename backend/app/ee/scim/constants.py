@@ -1,6 +1,6 @@
 # SCIM 2.0 Discovery Constants
-# Licensed under the Business Source License 1.1
-# See ENTERPRISE_LICENSE for details
+# Licensed under the BOW Enterprise License
+# See backend/app/ee/LICENSE for details
 
 SERVICE_PROVIDER_CONFIG = {
     "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],

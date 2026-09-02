@@ -1,5 +1,5 @@
 # Entra ID profile / job-info sync service.
-# Licensed under the Business Source License 1.1
+# Licensed under the BOW Enterprise License
 #
 # Fetches the signed-in user's Microsoft Graph /me profile (job title,
 # department, etc.) and persists the selected fields on their per-org

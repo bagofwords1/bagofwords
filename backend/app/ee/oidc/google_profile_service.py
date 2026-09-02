@@ -1,5 +1,5 @@
 # Google profile / job-info sync service.
-# Licensed under the Business Source License 1.1
+# Licensed under the BOW Enterprise License
 #
 # Fetches the signed-in user's Google profile and persists the selected fields
 # on their per-org Membership — the Google counterpart of the Entra sync in

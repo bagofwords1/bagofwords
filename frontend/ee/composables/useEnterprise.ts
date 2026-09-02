@@ -1,5 +1,5 @@
 // Enterprise License Composable
-// Licensed under the Business Source License 1.1
+// Licensed under the BOW Enterprise License
 
 export type LicenseInfo = {
   licensed: boolean
