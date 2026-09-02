@@ -37,6 +37,27 @@
                 <div>{{ errorMsg }}</div>
               </div>
               <EntityForm v-model="form" :show-status="canCreateEntities" />
+              <!-- Declared parameters travel with the saved query: show them so
+                   the author knows what anyone loading the entity can set. -->
+              <div v-if="declaredParams.length" class="max-w-2xl mx-auto mt-4" data-testid="entity-create-params">
+                <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityCreate.parametersHeading') }}</label>
+                <div class="text-[11px] text-gray-500 dark:text-gray-400 mb-2">{{ $t('entityCreate.parametersBody') }}</div>
+                <div class="flex flex-wrap gap-1.5">
+                  <span
+                    v-for="p in declaredParams"
+                    :key="p.name"
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 text-[11px] text-gray-700 dark:text-gray-200"
+                    :data-testid="`entity-create-param-${p.name}`"
+                  >
+                    <Icon name="heroicons:adjustments-horizontal" class="w-3 h-3 text-gray-400" />
+                    <span class="font-medium">{{ p.label || p.name }}</span>
+                    <span class="text-gray-400">{{ p.type || 'string' }}</span>
+                    <span v-if="p.source === 'identity'" class="text-indigo-600">{{ $t('entityCreate.paramIdentity') }}</span>
+                    <span v-else-if="p.default !== null && p.default !== undefined" class="text-gray-400">= {{ p.default }}</span>
+                    <span v-else class="text-gray-400">{{ $t('entityCreate.paramAll') }}</span>
+                  </span>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -80,6 +101,9 @@ interface Props {
   initialCode?: string
   editorLang?: string
   initialDataSourceIds?: string[]
+  // Declared ParamSpecs of the source query (carried onto the entity by the
+  // backend); shown read-only so the author sees what gets saved.
+  parameters?: any[] | null
 }
 
 const props = defineProps<Props>()
@@ -93,6 +117,8 @@ const open = computed({
 const errorMsg = ref('')
 const saving = ref(false)
 const viewType = computed(() => String((props.initialView && props.initialView.type) || ''))
+const declaredParams = computed<any[]>(() =>
+  (Array.isArray(props.parameters) ? props.parameters : []).filter((p: any) => p && p.name))
 
 const form = ref<{
   type: string

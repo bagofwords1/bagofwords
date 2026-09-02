@@ -22,6 +22,17 @@ class DescribeEntityInput(BaseModel):
         default=False,
         description="If True, re-execute the entity's code to get fresh data",
     )
+    params: Optional[Dict[str, Any]] = Field(
+        default=None,
+        description=(
+            "Parameter VALUES for a parameterized entity ({name: value}), using the "
+            "names listed under the entity's <parameters> in <entities>. The saved "
+            "code runs with these values — no code generation. Omit a parameter to "
+            "use its default; omit `params` entirely for an entity without "
+            "parameters. Identity-source parameters are resolved from the viewer "
+            "server-side and must not be set here."
+        ),
+    )
 
 
 class DescribeEntityOutput(BaseModel):
@@ -47,6 +58,12 @@ class DescribeEntityOutput(BaseModel):
     data_model: Optional[Dict[str, Any]] = Field(default=None, description="Visualization data model")
     view: Optional[Dict[str, Any]] = Field(default=None, description="View schema for rendering")
     
+    # Declared parameters (ParamSpec dicts) and the values this result was
+    # produced with — persisted onto the created query/step so the widget
+    # keeps its parameter controls and viewer runs re-bind them.
+    parameters: Optional[List[Dict[str, Any]]] = Field(default=None, description="Declared parameters of the entity")
+    applied_params: Optional[Dict[str, Any]] = Field(default=None, description="Resolved parameter values this data was produced with")
+
     # Execution info
     execution_log: Optional[str] = Field(default=None, description="Execution log if code was run")
     errors: List[str] = Field(default_factory=list, description="Errors encountered")

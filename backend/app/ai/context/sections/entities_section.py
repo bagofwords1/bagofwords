@@ -13,6 +13,9 @@ class EntityItem(BaseModel):
     code: Optional[str] = None
     data: Optional[Any] = None
     data_model: Optional[Any] = None
+    # Declared ParamSpec dicts — rendered so the planner can pass VALUES to
+    # describe_entity(params=...) instead of regenerating code.
+    parameters: Optional[List[Dict[str, Any]]] = None
 
 
 class EntitiesSection(ContextSection):
@@ -91,6 +94,41 @@ class EntitiesSection(ContextSection):
             {"row_count": str(profile.get("row_count", 0)), "column_count": str(profile.get("column_count", 0))},
         )
 
+    def _render_parameters(self, parameters: Optional[List[Dict[str, Any]]]) -> str:
+        """Render declared parameters (name, type, source, default, required,
+        static options) so the planner knows which values it may pass."""
+        if not parameters:
+            return ""
+        rows: List[str] = []
+        for p in parameters:
+            if not isinstance(p, dict) or not p.get("name"):
+                continue
+            attrs: Dict[str, str] = {
+                "name": str(p.get("name")),
+                "type": str(p.get("type") or "string"),
+                "source": str(p.get("source") or "input"),
+            }
+            if p.get("default") is not None:
+                attrs["default"] = str(p.get("default"))
+            if p.get("required"):
+                attrs["required"] = "true"
+            opts = p.get("options")
+            if isinstance(opts, list) and opts:
+                vals = [
+                    str(o.get("value")) if isinstance(o, dict) else str(o)
+                    for o in opts[:20]
+                ]
+                attrs["options"] = ",".join(vals)
+            label = p.get("label") or p.get("description")
+            attrs_str = "".join(f' {k}="{xml_escape(str(v))}"' for k, v in attrs.items())
+            rows.append(
+                f"<param{attrs_str}>{xml_escape(str(label))}</param>" if label
+                else f"<param{attrs_str}/>"
+            )
+        if not rows:
+            return ""
+        return xml_tag("parameters", "\n".join(rows))
+
     def render(self) -> str:
         if not self.items:
             return xml_tag(self.tag_name, "No entities matched")
@@ -113,6 +151,10 @@ class EntitiesSection(ContextSection):
                 inner_segments.append(xml_tag("description", xml_escape(desc)))
             
             # Note: Code is NOT included in prompt - use describe_entity tool to get code
+
+            params_xml = self._render_parameters(ent.parameters)
+            if params_xml:
+                inner_segments.append(params_xml)
             
             # Sample or Profile based on settings
             if ent.data is not None:

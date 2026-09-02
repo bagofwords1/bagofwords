@@ -9,6 +9,11 @@
                 class="text-[10px] px-1.5 py-0.5 rounded border"
                 :class="detail?.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
               >{{ (detail?.type || '').toUpperCase() }}</span>
+              <span
+                v-if="paramSpecs.length"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 inline-flex items-center gap-1"
+                data-testid="entity-parameterized-badge"
+              ><Icon name="heroicons:adjustments-horizontal" class="w-3 h-3" />{{ $t('queries.detail.parameterizedBadge') }}</span>
 
               <!-- Green check badge for approved/published entities -->
               <Icon
@@ -89,6 +94,54 @@
             <span v-if="refreshing">{{ $t('queries.detail.refreshingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.refreshAction') }}</span>
           </button>
+        </div>
+
+        <!-- Parameter bar: run the SAVED code with values as the viewer. The
+             result is a per-user slice (cached server-side); the shared
+             snapshot only changes through Refresh Data / the editor. -->
+        <div
+          v-if="paramSpecs.length"
+          class="mt-3 flex flex-wrap items-center gap-2 text-xs border border-gray-100 dark:border-gray-800 rounded bg-white dark:bg-gray-900 px-3 py-2"
+          data-testid="entity-param-bar"
+        >
+          <label v-for="spec in editableParamSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+            <span class="text-[11px]">{{ spec.label || spec.name }}</span>
+            <select
+              v-if="paramOptions[spec.name] && spec.type !== 'list'"
+              v-model="paramValues[spec.name]"
+              class="px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
+              :data-testid="`entity-param-${spec.name}`"
+            >
+              <option :value="null">{{ $t('queries.detail.paramAll') }}</option>
+              <option v-for="o in paramOptions[spec.name]" :key="String(o.value)" :value="o.value">{{ o.label }}</option>
+            </select>
+            <input
+              v-else
+              v-model="paramValues[spec.name]"
+              class="w-32 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
+              :placeholder="spec.type === 'list' ? $t('queries.detail.paramListPlaceholder') : (spec.default != null ? String(spec.default) : $t('queries.detail.paramAll'))"
+              :data-testid="`entity-param-${spec.name}`"
+              @keyup.enter="runWithParams"
+            />
+          </label>
+          <span
+            v-for="spec in identityParamSpecs"
+            :key="spec.name"
+            class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-[10px]"
+          >{{ spec.label || spec.name }}: {{ $t('queries.detail.paramScopedToYou') }}</span>
+          <button
+            v-if="editableParamSpecs.length"
+            class="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+            :disabled="paramRunLoading"
+            data-testid="entity-param-run"
+            @click="runWithParams"
+          >
+            <Icon name="heroicons-play" class="w-3 h-3" />{{ paramRunLoading ? $t('queries.detail.paramsRunning') : $t('queries.detail.paramsRun') }}
+          </button>
+          <span v-if="detail?.applied_params" class="text-[10px] text-gray-400" data-testid="entity-applied">
+            {{ $t('queries.detail.paramsRanWith', { values: formatAppliedParams(detail.applied_params) }) }}
+          </span>
+          <span v-if="paramRunError" class="text-[10px] text-red-500" data-testid="entity-param-error">{{ paramRunError }}</span>
         </div>
 
         <div class="mt-4">
@@ -220,6 +273,8 @@ type EntityDetail = {
   global_status?: string | null
   owner_id?: string
   reviewed_by?: any
+  parameters?: any[] | null
+  applied_params?: Record<string, any> | null
 }
 
 const route = useRoute()
@@ -425,6 +480,77 @@ async function load() {
   } catch {
   } finally {
     loading.value = false
+  }
+}
+
+// ── Parameters ──────────────────────────────────────────────────────────────
+// Declared ParamSpecs travel with the entity; identity-source params never
+// carry a client value (the server binds them to the viewer).
+const paramSpecs = computed<any[]>(() =>
+  (Array.isArray(detail.value?.parameters) ? detail.value!.parameters! : []).filter((p: any) => p && p.name))
+const editableParamSpecs = computed(() => paramSpecs.value.filter((s: any) => s.source !== 'identity'))
+const identityParamSpecs = computed(() => paramSpecs.value.filter((s: any) => s.source === 'identity'))
+const paramValues = ref<Record<string, any>>({})
+const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({})
+const paramRunLoading = ref(false)
+const paramRunError = ref<string | null>(null)
+
+function formatAppliedParams(applied: Record<string, any>): string {
+  return Object.entries(applied || {})
+    .map(([k, v]) => `${k} = ${v === null || v === undefined ? t('queries.detail.paramAll') : JSON.stringify(v)}`)
+    .join(', ')
+}
+
+// Seed the inputs from the values the shown rows were produced with, so the
+// controls never contradict the data under them.
+function seedParamValuesFromApplied() {
+  const applied = detail.value?.applied_params || {}
+  for (const s of editableParamSpecs.value) {
+    if (paramValues.value[s.name] !== undefined) continue
+    const v = (applied as any)[s.name]
+    paramValues.value[s.name] = v === undefined ? (s.default ?? null) : v
+  }
+}
+
+function resolveParamOptions() {
+  const out: Record<string, Array<{ value: any; label: string }>> = {}
+  for (const spec of editableParamSpecs.value) {
+    if (Array.isArray(spec.options) && spec.options.length) {
+      out[spec.name] = spec.options.map((v: any) =>
+        (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) })
+    }
+  }
+  paramOptions.value = out
+}
+
+watch(paramSpecs, () => { seedParamValuesFromApplied(); resolveParamOptions() }, { immediate: true })
+
+async function runWithParams() {
+  if (paramRunLoading.value) return
+  paramRunLoading.value = true
+  paramRunError.value = null
+  try {
+    const params: Record<string, any> = {}
+    for (const s of editableParamSpecs.value) {
+      let v = paramValues.value[s.name]
+      if (v === undefined || v === '' || v === null) continue
+      // list-typed params submit arrays; the input takes comma-separated text
+      if (s.type === 'list' && typeof v === 'string') {
+        const items = v.split(',').map((x: string) => x.trim()).filter(Boolean)
+        if (!items.length) continue
+        v = items
+      }
+      params[s.name] = v
+    }
+    // No values at all → the shared-snapshot refresh path.
+    if (!Object.keys(params).length) { await refreshEntity(); return }
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: { params } })
+    if (error.value) throw error.value
+    detail.value = data.value as any
+  } catch (e: any) {
+    paramRunError.value = e?.data?.detail || e?.message || t('queries.detail.errRunParams')
+  } finally {
+    paramRunLoading.value = false
   }
 }
 

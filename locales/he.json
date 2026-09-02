@@ -1533,7 +1533,11 @@
     "saveFailed": "שמירת הישות נכשלה",
     "stepRequired": "נדרש שלב כדי לשמור",
     "publishedToast": "השאילתה פורסמה לקטלוג",
-    "suggestedToast": "ההצעה נשלחה לבדיקה"
+    "suggestedToast": "ההצעה נשלחה לבדיקה",
+    "parametersHeading": "פרמטרים",
+    "parametersBody": "נשמרים יחד עם השאילתה. כל מי שטוען את הישות יכול להעביר ערכים משלו; פרמטרים של זהות תמיד נקשרים למשתמש הצופה.",
+    "paramIdentity": "לפי המשתמש הצופה",
+    "paramAll": "= הכל"
   },
   "mentionInput": {
     "placeholder": "הקלד {'@'} כדי לאזכר...",
@@ -3265,7 +3269,16 @@
       "errApproveEntity": "נכשל באישור הישות",
       "rejectSuccessBody": "הישות נדחתה",
       "errRejectEntity": "נכשל בדחיית הישות",
-      "savedSuccessBody": "הישות נשמרה בהצלחה"
+      "savedSuccessBody": "הישות נשמרה בהצלחה",
+      "parameterizedBadge": "עם פרמטרים",
+      "paramsRun": "הרץ",
+      "paramsRunning": "מריץ…",
+      "paramsRanWith": "הורץ עם {values}",
+      "paramScopedToYou": "מוגבל אליך",
+      "paramAll": "הכל",
+      "paramListPlaceholder": "a, b, … (ריק = הכל)",
+      "errRunParams": "ההרצה נכשלה",
+      "paramsCached": "מהמטמון"
     }
   },
   "scheduled": {

@@ -389,6 +389,7 @@
       :dataModel="effectiveStep?.data_model || null"
       :stepId="effectiveStep?.id || null"
       :initialDataSourceIds="reportDataSources"
+      :parameters="cardParamSpecs"
       @close="openEntityModal = false"
       @saved="handleEntitySaved"
     />
