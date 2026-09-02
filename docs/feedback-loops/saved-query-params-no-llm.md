@@ -86,3 +86,38 @@ Save Query modal; new-report load; entity run with a value).
 - Not in scope: dashboards already run parameterized queries through
   `/api/queries/{id}/run` (viewer mode); a query materialized from an entity
   via `describe_entity` follows that same path unchanged.
+
+## Loop C — entity attached to TWO agents (follow-up)
+
+Concern: a saved query that reads from several agents must run with values
+from the entity page and via `describe_entity`, building a client for every
+attached agent.
+
+Deterministic: `tests/e2e/rbac/test_entity_multi_agent_params.py` (3 PASS) —
+two sqlite agents, code addressing both `ds_clients["<agent>:<connection>"]`
+keys with `:year` bound in each query; run API and `describe_entity` return
+rows from both; a member needs access to BOTH agents before a values run
+succeeds.
+
+Live (Haiku, "Music Store" + a second agent "Music Store EU" over a modified
+copy of the demo DB, report scoped to both agents):
+
+| Step | Result |
+|------|--------|
+| *"Compare total invoice revenue by billing country between Music Store and Music Store EU for one year, side by side. Make the year a parameter, defaulting to 2023."* | `create_data` produced code reading `ds_clients["Music Store:…"]` and `ds_clients["Music Store EU:…"]`, both bound with `:year`. Save Query modal shows **Agents: Music Store, Music Store EU** and `Year · number · = 2023`; saved entity carries both agents + the parameter. |
+| New report (home page, single pinned agent): *"Load the saved query "…" for 2022."* | `describe_entity(should_create=True, params={year: 2022})`, no `create_data`; 40 rows, 20 per store. |
+| Entity page, Year = 2021 → Run | `POST /run {"params":{"year":"2021"}}` → 200, 44 rows, 22 per store, "ran with year = 2021". |
+
+Screenshots: `media/pr/saved-query-params/save-modal-two-agents.png`,
+`new-report-loads-two-agent-entity.png`, `entity-page-two-agents-run.png`.
+
+Sandbox notes (not feature bugs): an agent created through `POST
+/data_sources` has its tables inactive until activated
+(`PUT /data_sources/{id}/update_tables_status`), so the planner ignores it
+until then; and restarting the backend without `BOW_ENCRYPTION_KEY` makes
+previously stored credentials/snapshots unreadable — set the key explicitly.
+
+## UI wording
+
+The Save Query / Suggest Query / Edit entity form now labels the attachment
+picker **Agents** (was "Data Sources"), localized in en/es/he.
