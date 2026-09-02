@@ -121,3 +121,43 @@ previously stored credentials/snapshots unreadable — set the key explicitly.
 
 The Save Query / Suggest Query / Edit entity form now labels the attachment
 picker **Agents** (was "Data Sources"), localized in en/es/he.
+
+## Loop C — the planner never saw `<entities>` (found in production, fixed)
+
+A production report ("show me all rock albums" with a published, parameterized
+"Albums by Genre" entity on the same agent) went to `create_data`, and on the
+follow-up the agent said it saw no `<entities>` block. It was right.
+
+**Root cause.** Since the transcript prompt path became the default (PR #958),
+the v3 planner's context is assembled by `_build_static_context`, which
+omitted `mentions_context`, `entities_context` and their guidance. The legacy
+`_build_user_message` rendered them, but only runs with
+`BOW_PLANNER_TRANSCRIPT=0`. The entity block was still built — and reached the
+coder inside `create_data` — which is why `load_entity` reuse kept working and
+nothing errored. Two discovery gaps sat behind it: entities entered context
+only when a word of the ask matched the title/description (a parameter value
+like "rock" never does), and Auto (unattached) reports got no entities at all
+because discovery ran against the report's attachments instead of the run's
+agents.
+
+**Fix.** `PromptBuilderV3._reuse_blocks` renders mentions, entities and the
+guidance on both paths (in the cacheable prefix). `EntityContextBuilder` now
+discovers against the run's agents (`ContextHub._run_agent_ids`), and when the
+keyword match is empty it lists the most recently refreshed entities on those
+agents (bounded by `top_k`). Pinned by `tests/unit/test_entities_reach_prompt.py`
+(both paths) and `tests/e2e/test_entity_context_discovery.py`.
+
+**Before / after (sandbox, Haiku, same entity, prompt "show me all rock albums"):**
+
+| Report | Before: planner saw | Before: chose | After: planner saw | After: chose |
+|---|---|---|---|---|
+| attached to the agent | no `<entities>` tag at all | `create_data` "Rock Albums" | `<entities count="1">` with `<param name="genre">` | `describe_entity(params={genre: "Rock"})`, 117 rows, no codegen |
+| Auto (unattached) | no `<entities>` tag at all | `create_data` "Rock Albums" | `<entities count="1">` | `describe_entity(params={genre: "Rock"})`, 117 rows, no codegen |
+
+In both runs Haiku first guessed the column name (`GenreName`) as the parameter
+name, got the 400 back, and retried with `genre`. Two follow-ups shipped with
+the fix: the bad-value error now lists the declared parameter names, and a
+`describe_entity` run that failed no longer materializes an empty step/card
+in the chat while the planner retries.
+
+Screenshot: `media/pr/saved-query-params/rock-albums-auto-report-after.png`.

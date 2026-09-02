@@ -53,7 +53,13 @@ class EntityService:
         if run_user is not None and organization is not None:
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(db, run_user, str(organization.id))
-        return resolve_param_values(specs, request_values or None, identity)
+        try:
+            return resolve_param_values(specs, request_values or None, identity)
+        except ParamError as e:
+            # Name the declared parameters so a caller (a planner guessing a
+            # column name, a script with a typo) can correct itself in one go.
+            declared = ", ".join(s.name for s in specs)
+            raise ParamError(f"{e} (declared parameters: {declared})") from e
 
     async def _upsert_entity_user_result(
         self, db: AsyncSession, entity, user, resolved_params: dict, df: dict

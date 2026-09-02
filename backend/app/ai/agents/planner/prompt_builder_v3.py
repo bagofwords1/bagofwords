@@ -656,14 +656,53 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         for attr in (
             "project_context", "instructions", "agents_roster", "schemas_combined",
             "files_context", "resources_combined", "tools_context",
-            "available_steps_context", "scheduled_tasks_context",
         ):
             val = getattr(planner_input, attr, None)
             if val:
                 parts.append(f"  {val}")
+        # Mentions, saved entities and prior steps (with their guidance) are
+        # derived from THIS turn's ask and do not change between iterations,
+        # so they belong in the cacheable prefix — and they must be here at
+        # all: the planner cannot volunteer a saved query it was never shown.
+        # Shared with the legacy path so the two never drift apart again.
+        parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
+        if getattr(planner_input, "scheduled_tasks_context", None):
+            parts.append(f"  {planner_input.scheduled_tasks_context}")
         parts.append(f"  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}")
         parts.append("</context>")
         return "\n".join(parts)
+
+    @staticmethod
+    def _reuse_blocks(planner_input: PlannerInput) -> List[str]:
+        """The reuse surface: this turn's @mentions, the saved entities that
+        matched it, and the report's prior steps — each with the guidance that
+        tells the planner to reuse instead of rebuild. Rendered identically on
+        the transcript and legacy paths."""
+        parts: List[str] = []
+        parts.append(
+            f"  {planner_input.mentions_context if planner_input.mentions_context else '<mentions>No mentions for this turn</mentions>'}"
+        )
+        parts.append(
+            f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
+        )
+        if planner_input.entities_context and "<entity " in planner_input.entities_context:
+            parts.append(
+                "  <entities_guidance>Entities are saved, reviewed queries. When one already "
+                "answers the ask — as-is, or with different values for the parameters it lists — "
+                "call describe_entity with should_create=True (and params={name: value} for the "
+                "values the user named) instead of generating new code; omitted parameters keep "
+                "their defaults. Reach for create_data only when no entity fits or its rows must "
+                "be transformed or combined with other data.</entities_guidance>"
+            )
+        if getattr(planner_input, "available_steps_context", None):
+            parts.append(f"  {planner_input.available_steps_context}")
+            parts.append(
+                "  <reuse_guidance>When a prior step in <available_steps> already holds the data the "
+                "user wants (especially when they refer to it by name, or ask to extend/modify a "
+                "previous result), prefer create_data — it can load that step via load_step instead of "
+                "re-querying from scratch. Do not rebuild existing data with new SQL.</reuse_guidance>"
+            )
+        return parts
 
     @staticmethod
     def _build_turn_head(planner_input: PlannerInput) -> str:
@@ -780,29 +819,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(f"  {planner_input.resources_combined}")
         if getattr(planner_input, "tools_context", None):
             parts.append(f"  {planner_input.tools_context}")
-        parts.append(
-            f"  {planner_input.mentions_context if planner_input.mentions_context else '<mentions>No mentions for this turn</mentions>'}"
-        )
-        parts.append(
-            f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
-        )
-        if planner_input.entities_context and "<entity " in planner_input.entities_context:
-            parts.append(
-                "  <entities_guidance>Entities are saved, reviewed queries. When one already "
-                "answers the ask — as-is, or with different values for the parameters it lists — "
-                "call describe_entity with should_create=True (and params={name: value} for the "
-                "values the user named) instead of generating new code; omitted parameters keep "
-                "their defaults. Reach for create_data only when no entity fits or its rows must "
-                "be transformed or combined with other data.</entities_guidance>"
-            )
-        if getattr(planner_input, "available_steps_context", None):
-            parts.append(f"  {planner_input.available_steps_context}")
-            parts.append(
-                "  <reuse_guidance>When a prior step in <available_steps> already holds the data the "
-                "user wants (especially when they refer to it by name, or ask to extend/modify a "
-                "previous result), prefer create_data — it can load that step via load_step instead of "
-                "re-querying from scratch. Do not rebuild existing data with new SQL.</reuse_guidance>"
-            )
+        parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
         parts.append(
