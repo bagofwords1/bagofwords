@@ -46,7 +46,7 @@ date into the follow-up create_data prompt as a literal; describe the window
 relatively ("the latest day in the data") so the tracked step stays correct when
 re-executed later on refresh or a schedule.
 
-Note: if the data already exists in a prior step (see <available_steps>) or a published entity (see <entities>), you don't need to re-query to reuse it — create_data can load it directly via load_step/load_entity. Prefer that over rebuilding from scratch when the user refers to an existing result.
+Note: if the data already exists in a prior step (see <available_steps>), you don't need to re-query to reuse it — create_data can load it directly via load_step. If a published entity (see <entities>) already answers the ask, as-is or with other values for its parameters, call describe_entity(should_create=True, params={...}) instead of any code generation.
 
 Queries are subject to a per-connection timeout.
             """,

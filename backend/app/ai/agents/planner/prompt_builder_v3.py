@@ -687,12 +687,15 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         )
         if planner_input.entities_context and "<entity " in planner_input.entities_context:
             parts.append(
-                "  <entities_guidance>Entities are saved, reviewed queries. When one already "
-                "answers the ask — as-is, or with different values for the parameters it lists — "
-                "call describe_entity with should_create=True (and params={name: value} for the "
-                "values the user named) instead of generating new code; omitted parameters keep "
-                "their defaults. Reach for create_data only when no entity fits or its rows must "
-                "be transformed or combined with other data.</entities_guidance>"
+                "  <entities_guidance>Entities are saved, reviewed queries — the preferred way to "
+                "answer an ask they cover. Match on the QUESTION, not the wording: an ask that is "
+                "the entity's question narrowed to a specific value of one of its <parameters> "
+                "(a genre, a year, a region, a customer) IS a match. For a match call "
+                "describe_entity with should_create=True, passing the user's values as "
+                "params={name: value} where name is the param's name= attribute exactly (not a "
+                "column name); omitted parameters keep their defaults. Do not write new code for "
+                "data an entity already provides; reach for create_data only when no entity fits "
+                "or its rows must be transformed or combined with other data.</entities_guidance>"
             )
         if getattr(planner_input, "available_steps_context", None):
             parts.append(f"  {planner_input.available_steps_context}")
