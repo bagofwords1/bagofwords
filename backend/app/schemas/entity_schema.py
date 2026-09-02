@@ -158,6 +158,15 @@ class EntityRunPayload(BaseModel):
     code: Optional[str] = None
     view: Optional[ViewSchema] = None
     status: Optional[str] = None
+    # Parameter VALUES for this run ({name: value}). When present the run is
+    # viewer-mode: the entity's saved code executes with these values as the
+    # caller, the result is cached per (entity, user, values) and returned
+    # in `data`/`applied_params` — the shared snapshot is never rewritten.
+    # Identity-source params are server-resolved; client values for them
+    # are rejected.
+    params: Optional[Dict[str, Any]] = None
+    # Viewer-mode only: bypass the cached per-user result.
+    force_refresh: bool = False
 
 
 class EntityPreviewPayload(BaseModel):

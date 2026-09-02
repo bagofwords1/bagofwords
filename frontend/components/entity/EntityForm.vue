@@ -2,7 +2,7 @@
   <div class="max-w-2xl mx-auto space-y-4">
     <!-- Title -->
     <div>
-      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">Title</label>
+      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.title') }}</label>
       <input
         v-model="localForm.title"
         type="text"
@@ -13,7 +13,7 @@
 
     <!-- Description -->
     <div>
-      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">Description</label>
+      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.description') }}</label>
       <textarea
         v-model="localForm.description"
         rows="4"
@@ -22,9 +22,9 @@
       />
     </div>
 
-    <!-- Data Sources -->
-    <div>
-      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">Data Sources</label>
+    <!-- Agents (data sources) the entity is attached to -->
+    <div data-testid="entity-form-agents">
+      <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.agents') }}</label>
       <USelectMenu
         v-model="selectedDataSourceIds"
         :options="dataSourceOptions"
@@ -36,7 +36,7 @@
       >
         <template #label>
           <div class="flex items-center flex-wrap gap-1">
-            <span v-if="selectedDataSourceIds.length === 0" class="text-gray-500 dark:text-gray-400">Select data sources</span>
+            <span v-if="selectedDataSourceIds.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('entityForm.selectAgents') }}</span>
             <div v-else class="flex items-center flex-wrap gap-1">
               <span v-for="ds in selectedDataSourceObjects" :key="ds.id" class="flex items-center bg-blue-100 dark:bg-blue-900/50 text-blue-800 text-[10px] px-1.5 py-0.5 rounded">
                 <DataSourceIcon :type="ds.type" :icon="ds.icon" class="h-3 me-1" />
@@ -64,7 +64,7 @@
 
     <!-- Status -->
     <div v-if="showStatus">
-      <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 block">Status</label>
+      <label class="text-xs font-medium text-gray-600 dark:text-gray-400 mb-1.5 block">{{ $t('entityForm.status') }}</label>
       <USelectMenu
         size="xs"
         v-model="localForm.status"

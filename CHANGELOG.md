@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.553 (September 2, 2026)
+- Saved queries can be loaded with parameter values without LLM code generation: run API, entity page, and the agent's describe_entity
+- Entity save/edit form now says "Agents" instead of "Data Sources"
+
 ## Version 0.0.552 (September 2, 2026)
 - Files produced by tools (MCP responses, write_csv output) no longer appear as pending attachment chips in the report prompt box
 

@@ -786,6 +786,15 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         parts.append(
             f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
         )
+        if planner_input.entities_context and "<entity " in planner_input.entities_context:
+            parts.append(
+                "  <entities_guidance>Entities are saved, reviewed queries. When one already "
+                "answers the ask — as-is, or with different values for the parameters it lists — "
+                "call describe_entity with should_create=True (and params={name: value} for the "
+                "values the user named) instead of generating new code; omitted parameters keep "
+                "their defaults. Reach for create_data only when no entity fits or its rows must "
+                "be transformed or combined with other data.</entities_guidance>"
+            )
         if getattr(planner_input, "available_steps_context", None):
             parts.append(f"  {planner_input.available_steps_context}")
             parts.append(

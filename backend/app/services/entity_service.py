@@ -30,20 +30,30 @@ class EntityService:
     # ------------------------------------------------------------------
 
     async def _resolve_entity_params(
-        self, db: AsyncSession, entity, run_user, organization
+        self, db: AsyncSession, entity, run_user, organization,
+        request_values: Optional[dict] = None,
     ) -> dict:
-        """Resolve the entity's declared params: defaults + the run user's
-        identity bindings. {} when the entity declares none."""
+        """Resolve the entity's declared params: defaults <- request values <-
+        the run user's identity bindings. {} when the entity declares none.
+
+        `request_values` are caller-supplied VALUES ({name: value}). Unknown
+        names and client values for identity-locked params are rejected
+        (ParamError), exactly like a query viewer run."""
         from app.schemas.param_schema import parse_param_specs
-        from app.ai.code_execution.query_params import resolve_param_values
+        from app.ai.code_execution.query_params import ParamError, resolve_param_values
         specs = parse_param_specs(getattr(entity, "parameters", None))
         if not specs:
+            if request_values:
+                raise ParamError(
+                    "this entity declares no parameters; "
+                    f"unexpected: {', '.join(sorted(map(str, request_values)))}"
+                )
             return {}
         identity = None
         if run_user is not None and organization is not None:
             from app.services.rls_identity_service import resolve_identity
             identity = await resolve_identity(db, run_user, str(organization.id))
-        return resolve_param_values(specs, None, identity)
+        return resolve_param_values(specs, request_values or None, identity)
 
     async def _upsert_entity_user_result(
         self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
@@ -90,7 +100,7 @@ class EntityService:
         - Anonymous readers of identity-scoped entities: None (withheld).
         """
         from app.services.identity_taint import entity_identity_scope
-        has_identity, upstream_refresh = await entity_identity_scope(db, entity)
+        has_identity, _upstream = await entity_identity_scope(db, entity)
         owner_id = str(getattr(entity, "owner_id", "") or "")
         is_owner = user is not None and owner_id and str(user.id) == owner_id
         if not has_identity or is_owner:
@@ -100,10 +110,44 @@ class EntityService:
             return entity.data or {}
         if user is None:
             return None
+        result = await self.run_entity_for_user(db, entity, organization, user)
+        return result["data"]
 
-        from app.ai.code_execution.query_params import params_fingerprint
+    async def run_entity_for_user(
+        self,
+        db: AsyncSession,
+        entity,
+        organization,
+        user,
+        request_values: Optional[dict] = None,
+        *,
+        force_refresh: bool = False,
+    ) -> dict:
+        """Viewer-execute a saved entity with parameter VALUES, as `user`.
+
+        This is the no-LLM path for "load a saved query with parameters":
+        the entity's stored code runs with defaults <- `request_values` <-
+        the caller's identity bindings, and the result is cached per
+        (entity, user, values fingerprint) in entity_user_results — a repeat
+        request with the same values never re-executes until the shared
+        snapshot (or a loadable upstream) refreshes past it, or
+        `force_refresh` is set. The shared Entity.data snapshot is never
+        touched here.
+
+        Returns {"data": grid, "applied_params": resolved, "cached": bool}.
+        Raises ParamError for bad values and ValueError when no data-source
+        client can be built for the caller.
+        """
+        from app.ai.code_execution.query_params import ParamError, params_fingerprint
         from app.models.entity_user_result import EntityUserResult
-        resolved = await self._resolve_entity_params(db, entity, user, organization)
+        from app.services.identity_taint import entity_identity_scope
+
+        if user is None:
+            raise ParamError("running an entity with parameters requires an authenticated user")
+
+        resolved = await self._resolve_entity_params(
+            db, entity, user, organization, request_values
+        )
         fingerprint = params_fingerprint(resolved)
         row = (await db.execute(
             select(EntityUserResult).where(
@@ -114,17 +158,21 @@ class EntityService:
         )).scalars().first()
         # Stale once the entity OR any of its loadable upstreams refreshed
         # past the cached slice.
+        _has_identity, upstream_refresh = await entity_identity_scope(db, entity)
         refreshed_at = getattr(entity, "last_refreshed_at", None)
         if upstream_refresh is not None and (
             refreshed_at is None or upstream_refresh > refreshed_at
         ):
             refreshed_at = upstream_refresh
-        if row is not None and row.status == "success" and (
-            refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at
+        if (
+            not force_refresh
+            and row is not None and row.status == "success"
+            and (refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at)
         ):
-            return row.data or {}
+            return {"data": row.data or {}, "applied_params": resolved, "cached": True}
 
-        # Execute with the viewer's identity binding and cache the slice.
+        # Execute with the caller's credentials and identity binding, then
+        # cache the slice.
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
@@ -157,7 +205,7 @@ class EntityService:
         )
         df = executor.format_df_for_widget(exec_df)
         await self._upsert_entity_user_result(db, entity, user, resolved, df)
-        return df
+        return {"data": df, "applied_params": resolved, "cached": False}
 
 
     async def step_report_data_source_ids(
@@ -387,6 +435,10 @@ class EntityService:
             status=payload.status,
             published_at=payload.published_at,
             last_refreshed_at=payload.last_refreshed_at,
+            # Declared ParamSpecs + the values `data` was produced with; the
+            # schema already carried them, the row just never stored them.
+            parameters=list(payload.parameters or []) or None,
+            applied_params=dict(payload.applied_params or {}) or None,
         )
         db.add(entity)
         if payload.data_source_ids:
@@ -656,6 +708,22 @@ class EntityService:
         entity = result.scalar_one_or_none()
         if not entity:
             raise ValueError("Entity not found")
+
+        # Parameter VALUES make this a viewer-mode run: execute the SAVED code
+        # with those values as the caller, serve/cache per (entity, user,
+        # values), and hand back a detached copy carrying that slice. The
+        # shared snapshot (defaults + owner identity) is never rewritten by a
+        # values run — that is what keeps load_entity/describe_entity stable.
+        request_values = dict(getattr(payload, "params", None) or {}) if payload else {}
+        if request_values:
+            result = await self.run_entity_for_user(
+                db, entity, organization, current_user, request_values,
+                force_refresh=bool(getattr(payload, "force_refresh", False)),
+            )
+            db.expunge(entity)
+            entity.data = result["data"]
+            entity.applied_params = result["applied_params"]
+            return entity
 
         # Determine code to run (payload override or stored)
         code_to_run = (payload.code if (payload and getattr(payload, "code", None) is not None) else entity.code) or ""

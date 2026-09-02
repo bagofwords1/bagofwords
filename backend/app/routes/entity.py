@@ -67,15 +67,39 @@ async def _require_entity_run_access(db, entity_id: str, organization, user) -> 
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
     ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
-    if not ds_ids:
-        return
     if str(existing.owner_id) == str(user.id):
+        if ds_ids:
+            await _require_ds_access(db, user, organization, ds_ids)
+        return
+    if not ds_ids:
+        # DS-less (org-wide) entity: rewriting its shared snapshot stays an
+        # org-admin capability, mirroring publish for DS-less entities.
+        from app.core.permission_resolver import resolve_permissions
+        resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+        if not resolved.has_org_permission("manage_entities"):
+            raise HTTPException(
+                status_code=403,
+                detail="Refreshing this entity's shared data needs 'manage_entities'. "
+                       "Run it with parameter values instead to get your own result.",
+            )
+        return
+    await check_resource_permissions(
+        db, str(user.id), str(organization.id),
+        "data_source", ds_ids, "create_entities",
+    )
+
+
+async def _require_entity_view_access(db, entity_id: str, organization, user) -> None:
+    """Body check for viewer-mode (parameter VALUES) runs: the entity must be
+    visible to the caller and they need ACCESS to every attached data source
+    — the same bar as reading it. get_entity already applies the per-DS
+    access filter; the explicit check keeps the error precise."""
+    existing = await service.get_entity(db, entity_id, organization, user)
+    if not existing:
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    if ds_ids:
         await _require_ds_access(db, user, organization, ds_ids)
-    else:
-        await check_resource_permissions(
-            db, str(user.id), str(organization.id),
-            "data_source", ds_ids, "create_entities",
-        )
 
 
 @router.post("", response_model=EntitySchema)
@@ -328,7 +352,7 @@ async def create_entity_from_step(
 
 
 @router.post("/{entity_id}/run", response_model=EntitySchema)
-@requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
+@requires_permission('view_reports', model=Entity)
 async def run_entity(
     entity_id: str,
     payload: EntityRunPayload,
@@ -339,11 +363,24 @@ async def run_entity(
     """Run/refresh an entity. `create_entities` holders on all its agents, org
     admins, or the entity's owner (with DS access) — execution always uses the
     CALLER's credentials, and the service only persists the result when the
-    caller's identity may legitimately author the shared snapshot."""
-    await _require_entity_run_access(db, entity_id, organization, current_user)
+    caller's identity may legitimately author the shared snapshot.
+
+    A run carrying parameter VALUES (`params`) is viewer-mode: it never
+    rewrites the shared snapshot, so it needs only what reading the entity
+    needs — the entity visible to the caller and access to its data sources.
+    That is the "load a saved query with my values" path for every member."""
+    if payload.params:
+        await _require_entity_view_access(db, entity_id, organization, current_user)
+    else:
+        await _require_entity_run_access(db, entity_id, organization, current_user)
+    from app.ai.code_execution.query_params import ParamError
     try:
         entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)
         return EntitySchema.model_validate(entity)
+    except ParamError as e:
+        # Bad parameter VALUES (unknown name, identity-locked, required
+        # missing, wrong type) are a client error, not a missing entity.
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

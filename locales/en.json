@@ -1559,7 +1559,11 @@
     "saveFailed": "Failed to save entity",
     "stepRequired": "Step is required to save",
     "publishedToast": "Query published to the catalog",
-    "suggestedToast": "Suggestion submitted for review"
+    "suggestedToast": "Suggestion submitted for review",
+    "parametersHeading": "Parameters",
+    "parametersBody": "Saved with the query. Anyone loading this entity can pass their own values; identity parameters always bind to the viewer.",
+    "paramIdentity": "scoped to viewer",
+    "paramAll": "= All"
   },
   "mentionInput": {
     "placeholder": "Type {'@'} to mention...",
@@ -3333,7 +3337,16 @@
       "errApproveEntity": "Failed to approve entity",
       "rejectSuccessBody": "Entity rejected",
       "errRejectEntity": "Failed to reject entity",
-      "savedSuccessBody": "Entity saved successfully"
+      "savedSuccessBody": "Entity saved successfully",
+      "parameterizedBadge": "Parameterized",
+      "paramsRun": "Run",
+      "paramsRunning": "Running…",
+      "paramsRanWith": "ran with {values}",
+      "paramScopedToYou": "scoped to you",
+      "paramAll": "All",
+      "paramListPlaceholder": "a, b, … (empty = All)",
+      "errRunParams": "Run failed",
+      "paramsCached": "served from cache"
     }
   },
   "scheduled": {
@@ -4779,5 +4792,12 @@
     "showingRows": "Showing {n} of {total} rows",
     "openInPanel": "Open in side panel",
     "closeFilePanel": "Close file"
+  },
+  "entityForm": {
+    "title": "Title",
+    "description": "Description",
+    "agents": "Agents",
+    "selectAgents": "Select agents",
+    "status": "Status"
   }
 }

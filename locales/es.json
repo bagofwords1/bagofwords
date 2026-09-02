@@ -1533,7 +1533,11 @@
     "saveFailed": "No se pudo guardar la entidad",
     "stepRequired": "Se requiere un paso para guardar",
     "publishedToast": "Consulta publicada en el catálogo",
-    "suggestedToast": "Sugerencia enviada para revisión"
+    "suggestedToast": "Sugerencia enviada para revisión",
+    "parametersHeading": "Parámetros",
+    "parametersBody": "Se guardan con la consulta. Quien cargue esta entidad puede pasar sus propios valores; los parámetros de identidad siempre se vinculan al usuario que la ve.",
+    "paramIdentity": "según el usuario",
+    "paramAll": "= Todos"
   },
   "mentionInput": {
     "placeholder": "Escribe {'@'} para mencionar...",
@@ -3265,7 +3269,16 @@
       "errApproveEntity": "No se pudo aprobar la entidad",
       "rejectSuccessBody": "Entidad rechazada",
       "errRejectEntity": "No se pudo rechazar la entidad",
-      "savedSuccessBody": "Entidad guardada correctamente"
+      "savedSuccessBody": "Entidad guardada correctamente",
+      "parameterizedBadge": "Parametrizada",
+      "paramsRun": "Ejecutar",
+      "paramsRunning": "Ejecutando…",
+      "paramsRanWith": "ejecutada con {values}",
+      "paramScopedToYou": "limitado a ti",
+      "paramAll": "Todos",
+      "paramListPlaceholder": "a, b, … (vacío = Todos)",
+      "errRunParams": "La ejecución falló",
+      "paramsCached": "desde la caché"
     }
   },
   "scheduled": {
@@ -4773,5 +4786,12 @@
     "showingRows": "Mostrando {n} de {total} filas",
     "openInPanel": "Abrir en el panel lateral",
     "closeFilePanel": "Cerrar archivo"
+  },
+  "entityForm": {
+    "title": "Título",
+    "description": "Descripción",
+    "agents": "Agentes",
+    "selectAgents": "Selecciona agentes",
+    "status": "Estado"
   }
 }
