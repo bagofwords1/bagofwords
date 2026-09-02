@@ -337,7 +337,15 @@ class DescribeEntityTool(Tool):
             except Exception:
                 pass
 
+        # UI card keeps the compact column profile; the PLANNER gets the same
+        # budgeted preview create_data/read_query emit — small results (an
+        # options list, a lookup) come through whole instead of 5 head rows,
+        # so the planner never needs a second read_query to see them.
         data_profile = self._build_data_profile(entity_data, allow_llm_see_data)
+        from app.ai.data_preview import build_data_preview, clamp_stats, gate_stats_for_privacy
+        data_preview = build_data_preview(entity_data or {}, allow_llm_see_data=allow_llm_see_data)
+        _info = (entity_data or {}).get("info", {}) or {}
+        stats = clamp_stats(_info) if allow_llm_see_data else clamp_stats(gate_stats_for_privacy(_info))
 
         # If should_create, create step and visualization
         step_id = None
@@ -407,6 +415,8 @@ class DescribeEntityTool(Tool):
             description=entity.description,
             code=entity.code if allow_llm_see_data else "[code hidden]",
             data_profile=data_profile,
+            data_preview=data_preview,
+            stats=stats,
             step_id=step_id,
             data_model=data_model,
             view=view,
@@ -440,7 +450,8 @@ class DescribeEntityTool(Tool):
             "entity_type": entity.type,
             "title": entity.title,
             "description": entity.description[:200] if entity.description else None,
-            "data_profile": data_profile,
+            "data_preview": data_preview,
+            "stats": stats,
             "analysis_complete": False,
             "final_answer": None,
         }

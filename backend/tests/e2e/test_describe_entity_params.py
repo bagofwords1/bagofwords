@@ -80,6 +80,12 @@ def test_values_run_materializes_the_entity_for_those_values(test_client, admin)
     out, obs = payload["output"], payload["observation"]
     assert out["success"], out["errors"]
     assert [r["year"] for r in out["data"]["rows"]] == [year]
+    # The planner reads the same budgeted preview create_data emits: a small
+    # result comes through whole, with stats — no second read_query needed.
+    assert obs["data_preview"]["rows"] == out["data"]["rows"]
+    assert obs["data_preview"]["row_count"] == 1 and obs["data_preview"]["truncated"] is False
+    assert "stats" in obs and "data_profile" not in obs
+    assert out["data_preview"]["rows"] == out["data"]["rows"]
     # What the orchestrator persists onto the created query/step.
     assert out["code"].strip() == CODE.strip()
     assert [p["name"] for p in out["parameters"]] == ["year"]
