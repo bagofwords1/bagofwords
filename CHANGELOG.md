@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.552 (September 2, 2026)
+- Files produced by tools (MCP responses, write_csv output) no longer appear as pending attachment chips in the report prompt box
+
 ## Version 0.0.551 (September 1, 2026)
 - MCP tool results now reach the agent whole when they fit the inline budget, instead of being reduced to the first detected record list; deep envelopes are also detected (#1041)
 

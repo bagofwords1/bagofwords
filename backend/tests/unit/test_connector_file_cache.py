@@ -161,9 +161,10 @@ def test_connector_images_are_not_treated_as_user_vision_attachments():
     marker = "self.image_files = ["
     assert marker in src
     block = src.split(marker, 1)[1].split("]", 1)[0]
-    assert "connector" in block, (
-        "image_files must exclude connector files, or an agent-read picture "
-        "becomes a permanent user vision attachment"
+    assert "_is_agent_file" in block, (
+        "image_files must exclude agent-owned files (connector caches, tool "
+        "artifacts), or an agent-read picture becomes a permanent user vision "
+        "attachment"
     )
 
 

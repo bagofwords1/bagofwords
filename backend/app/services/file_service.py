@@ -30,22 +30,26 @@ logger = logging.getLogger(__name__)
 def is_agent_owned_file(file, inherited_ids: set) -> bool:
     """True when the AGENT put this file on the report, not the user.
 
-    Two ways that happens:
+    Three ways that happens:
       - it was snapshotted from one of the report's data sources (the agent's
         uploaded knowledge library — an association row exists);
       - the agent fetched it through a connection during a run (source_kind
         'connector'). Those deliberately carry NO data_source_file_association:
         that table backs the Agents panel's file list, so registering every
-        read there would fill it with duplicates of the same remote file.
+        read there would fill it with duplicates of the same remote file;
+      - a tool produced it (source_kind 'artifact': an execute_mcp response
+        saved to disk, a write_csv output).
+
+    The rule is "anything that is not an upload": a user attachment is the
+    only kind that is a pending chip in the prompt box, so a new tool origin
+    must never fall through to looking like one.
 
     Surfaces as `from_data_source`, which the chat prompt box filters on —
-    without this a background read pops up as an attachment chip the user
-    never added.
+    without this a background read or a tool's JSON output pops up as an
+    attachment chip the user never added.
     """
-    return (
-        str(getattr(file, 'id', '')) in inherited_ids
-        or (getattr(file, 'source_kind', '') or '') == 'connector'
-    )
+    kind = (getattr(file, 'source_kind', '') or '') or 'upload'
+    return str(getattr(file, 'id', '')) in inherited_ids or kind != 'upload'
 
 
 class FileService:

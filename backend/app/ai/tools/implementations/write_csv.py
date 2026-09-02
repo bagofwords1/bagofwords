@@ -350,6 +350,9 @@ Arguments:
             path=dest_path,
             content_type="text/csv",
             preview=preview,
+            # A tool product, not a user attachment: keeps it off the prompt
+            # box's pending-attachment chips (see File.source_kind).
+            source_kind="artifact",
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )

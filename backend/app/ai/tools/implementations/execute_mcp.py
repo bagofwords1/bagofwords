@@ -1357,6 +1357,9 @@ Do not use when:
             filename=f"{safe_name}.{extension}",
             path=path,
             content_type=content_type,
+            # A tool product, not a user attachment: keeps it off the prompt
+            # box's pending-attachment chips (see File.source_kind).
+            source_kind="artifact",
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )
@@ -1411,6 +1414,7 @@ Do not use when:
             filename=f"{safe_name}.json",
             path=path,
             content_type="application/json",
+            source_kind="artifact",
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
         )

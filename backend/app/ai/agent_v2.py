@@ -610,21 +610,22 @@ class AgentV2:
                 self.clients = {k: v for k, v in clients.items() if _client_is_live(k)}
             all_files = getattr(report, 'files', []) or []
             # Split files: images go to LLM vision, everything else goes through existing flow.
-            # Connector files are excluded from the vision set: they are agent
-            # fetches, and _load_images_as_input falls back to "most recent
-            # images on the report" when a turn uploads none — so a picture the
-            # agent happened to read once would ride along as a user attachment
-            # on every later turn. Tool-supplied images already reach the model
-            # through _collect_vision_images, bounded by
-            # _VISION_IMAGE_RETENTION_LOOPS. They stay in analysis_files, which
-            # is what the code sandbox reads by path.
-            def _is_connector(f) -> bool:
-                return (getattr(f, 'source_kind', '') or '') == 'connector'
+            # Only user uploads join the vision set. Connector caches and tool
+            # artifacts are agent files, and _load_images_as_input falls back
+            # to "most recent images on the report" when a turn uploads none —
+            # so a picture the agent happened to read or produce once would
+            # ride along as a user attachment on every later turn.
+            # Tool-supplied images already reach the model through
+            # _collect_vision_images, bounded by _VISION_IMAGE_RETENTION_LOOPS.
+            # They stay in analysis_files, which is what the code sandbox
+            # reads by path.
+            def _is_agent_file(f) -> bool:
+                return (getattr(f, 'source_kind', '') or 'upload') != 'upload'
 
             self.image_files = [
                 f for f in all_files
                 if (getattr(f, 'content_type', '') or '').startswith('image/')
-                and not _is_connector(f)
+                and not _is_agent_file(f)
             ]
             # "#source" rows are persist_source_document's viewer copies of
             # original documents (the .pdf behind a .pdf.txt session file).

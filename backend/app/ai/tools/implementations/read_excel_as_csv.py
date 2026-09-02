@@ -322,6 +322,9 @@ async def _persist_csv_as_file(
             path=dest_path,
             content_type="text/csv",
             preview=preview,
+            # Derived by a tool from an attachment — an artifact, not a new
+            # upload (see File.source_kind).
+            source_kind="artifact",
             user_id=str(user.id),
             organization_id=str(organization.id),
         )
