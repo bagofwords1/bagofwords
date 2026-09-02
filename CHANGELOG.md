@@ -1,7 +1,8 @@
 # Release Notes
 
 ## Version 0.0.553 (September 2, 2026)
-- Saved queries (entities) can now be loaded with parameter values without LLM code generation: `POST /api/entities/{id}/run` accepts `params` (per-user cached, shared snapshot untouched), the Save Query modal shows the parameters being saved, the entity page gets a parameter bar, and the agent materializes an existing entity with values via `describe_entity` instead of regenerating code
+- Saved queries can be loaded with parameter values without LLM code generation: run API, entity page, and the agent's describe_entity
+- Entity save/edit form now says "Agents" instead of "Data Sources"
 
 ## Version 0.0.552 (September 2, 2026)
 - Files produced by tools (MCP responses, write_csv output) no longer appear as pending attachment chips in the report prompt box
