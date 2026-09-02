@@ -1,47 +1,42 @@
-Bag of Words is an open core project. Bag of Words' core
-is permissively licensed.
-Certain parts of the periphery of Bag of Words are commercially
-licensed and governed by this Enterprise License.
-For the avoidance of doubt, this license does not apply
-to the core of Bag of Words as it is defined in its license in
-the directory "/LICENSE" (as opposed to this file "enterprise/LICENSE")
-which can be used and run without infringing the below license
-and its licensed materials.
+Bag of Words is an open-core project. Unless otherwise noted, the core is
+licensed under the GNU Affero General Public License v3.0 (AGPL-3.0), as
+described in the repository's root `LICENSE` file.
+
+This Enterprise License applies to all software and documentation in the
+`frontend/ee/` directory and its subdirectories, unless a file expressly
+identifies a different license. It does not apply to software governed by the
+AGPL-3.0 or another open-source license.
 
 ---
 
 Bag of Words Enterprise License (the "Enterprise License" or "EE License")
 
-Copyright (c) 2024-2025 Bag of Words, Inc.
+Copyright (c) 2024-2026 Bag of words, Inc., doing business as BOW ("BOW").
 
 With regard to the Bag of Words Enterprise Software:
 This software and associated documentation files (the "Software") may only be
 used, if you (and any entity that you represent) have agreed to,
-and are in compliance with, the applicable Bag of Words Terms of Service, available
+and are in compliance with, the applicable Bag of Words Self-Hosted Software Terms, available
 at https://bagofwords.com/terms (the "Enterprise Terms"), or other
-agreement governing the use of the Software, as agreed by you and Bag of Words,
+agreement governing the use of the Software, as agreed by you and BOW,
 and otherwise have a valid Bag of Words Enterprise License.
 
-Subject to the foregoing sentence, you are free to
-modify this Software and publish patches to the Software. You agree that Bag of Words
-and/or its licensors (as applicable) retain all right, title and interest in and
-to all such modifications and/or patches, and all such modifications and/or
-patches may only be used, copied, modified, displayed, distributed, or otherwise
-exploited with a valid Bag of Words Enterprise License. Notwithstanding the foregoing, you may copy and modify
-the Software for development and testing purposes, without requiring a
-subscription. You agree that Bag of Words, Inc. and/or its licensors (as applicable) retain
-all right, title and interest in and to all such modifications. You are not
-granted any other rights beyond what is expressly stated herein. Subject to the
-foregoing, it is forbidden to copy, merge, publish, distribute, sublicense,
-and/or sell the Software.
+You may copy and modify the Software without a subscription solely for
+non-production development and testing. You may submit patches or modifications
+privately and directly to BOW, but you may not publicly publish or distribute
+the Software or any modification without a valid Bag of Words Enterprise
+License. If you submit a patch or modification to BOW, you grant BOW and its
+affiliates a worldwide, perpetual, irrevocable, transferable, sublicensable,
+royalty-free license to use, reproduce, modify, distribute, commercialize, and
+otherwise exploit it. Production use requires a paid Order or another valid Bag
+of Words Enterprise License. You are not granted any other rights beyond what
+is expressly stated herein.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+EXCEPT AS EXPRESSLY PROVIDED IN THE APPLICABLE ENTERPRISE TERMS OR ORDER, THE
+SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. ANY LIABILITY ARISING FROM THE SOFTWARE
+IS SUBJECT TO THE APPLICABLE ENTERPRISE TERMS OR ORDER.
 
 For all third party components incorporated into the Bag of Words Software, those
 components are licensed under the original license provided by the owner of the
