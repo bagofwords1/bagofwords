@@ -344,7 +344,11 @@ class DescribeEntityTool(Tool):
         data_model = None
         view = None
 
-        if data.should_create:
+        # A run that failed (bad parameter values, no client, broken code)
+        # must not materialize: the orchestrator creates the query/step on
+        # the progress event below, and a step with no data would sit in the
+        # chat as an empty card while the planner retries.
+        if data.should_create and not errors:
             yield ToolProgressEvent(type="tool.progress", payload={"stage": "creating_visualization"})
 
             try:
@@ -413,7 +417,7 @@ class DescribeEntityTool(Tool):
         ).model_dump()
 
         # Add full data for step creation if should_create
-        if data.should_create:
+        if data.should_create and not errors:
             output["data"] = entity_data
             # The step persists the REAL code regardless of the LLM-facing
             # redaction below: the created query must be re-runnable.

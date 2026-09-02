@@ -123,6 +123,9 @@ class PromptBuilderV3:
         if sc:
             preamble = preamble.split("<original_user_prompt>")[0].split("<user_prompt>")[0]
         ask = f"{preamble}<user_prompt>{planner_input.user_message}</user_prompt>"
+        hint = PromptBuilderV3._reuse_hint(planner_input)
+        if hint:
+            ask = f"{ask}\n{hint}"
         head = PromptBuilderV3._build_turn_head(planner_input)
 
         t = transcript_bridge.build_transcript(planner_input, static_context, ask)
@@ -656,14 +659,83 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         for attr in (
             "project_context", "instructions", "agents_roster", "schemas_combined",
             "files_context", "resources_combined", "tools_context",
-            "available_steps_context", "scheduled_tasks_context",
         ):
             val = getattr(planner_input, attr, None)
             if val:
                 parts.append(f"  {val}")
+        # Mentions, saved entities and prior steps (with their guidance) are
+        # derived from THIS turn's ask and do not change between iterations,
+        # so they belong in the cacheable prefix — and they must be here at
+        # all: the planner cannot volunteer a saved query it was never shown.
+        # Shared with the legacy path so the two never drift apart again.
+        parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
+        if getattr(planner_input, "scheduled_tasks_context", None):
+            parts.append(f"  {planner_input.scheduled_tasks_context}")
         parts.append(f"  {PromptBuilder._render_current_artifact(planner_input.active_artifact)}")
         parts.append("</context>")
         return "\n".join(parts)
+
+    @staticmethod
+    def _reuse_hint(planner_input: PlannerInput) -> str:
+        """A one-line pointer placed right next to the ask when saved entities
+        matched this turn: their titles and parameter names. The full
+        <entities> block lives deep in the static prefix, after schemas and
+        tools, where a small model reliably reads it only when reminded; the
+        hint is the reminder, and it names the param keys the model must use."""
+        import re as _re
+        ctx = getattr(planner_input, "entities_context", None) or ""
+        if "<entity " not in ctx:
+            return ""
+        items: List[str] = []
+        for m in _re.finditer(r'<entity\b[^>]*\btitle="([^"]*)"[^>]*>(.*?)</entity>', ctx, _re.S):
+            title, body = m.group(1), m.group(2)
+            params = _re.findall(r'<param\b[^>]*\bname="([^"]*)"', body)
+            items.append(f'"{title}"' + (f" (params: {', '.join(params)})" if params else ""))
+            if len(items) >= 5:
+                break
+        if not items:
+            return ""
+        return (
+            "<saved_queries_hint>Saved queries on these agents that may already answer this "
+            f"ask: {'; '.join(items)}. If one does — as-is or with the user's values for its "
+            "params — call describe_entity(should_create=True, params={...}) with those exact "
+            "param names instead of create_data.</saved_queries_hint>"
+        )
+
+    @staticmethod
+    def _reuse_blocks(planner_input: PlannerInput) -> List[str]:
+        """The reuse surface: this turn's @mentions, the saved entities that
+        matched it, and the report's prior steps — each with the guidance that
+        tells the planner to reuse instead of rebuild. Rendered identically on
+        the transcript and legacy paths."""
+        parts: List[str] = []
+        parts.append(
+            f"  {planner_input.mentions_context if planner_input.mentions_context else '<mentions>No mentions for this turn</mentions>'}"
+        )
+        parts.append(
+            f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
+        )
+        if planner_input.entities_context and "<entity " in planner_input.entities_context:
+            parts.append(
+                "  <entities_guidance>Entities are saved, reviewed queries — the preferred way to "
+                "answer an ask they cover. Match on the QUESTION, not the wording: an ask that is "
+                "the entity's question narrowed to a specific value of one of its <parameters> "
+                "(a genre, a year, a region, a customer) IS a match. For a match call "
+                "describe_entity with should_create=True, passing the user's values as "
+                "params={name: value} where name is the param's name= attribute exactly (not a "
+                "column name); omitted parameters keep their defaults. Do not write new code for "
+                "data an entity already provides; reach for create_data only when no entity fits "
+                "or its rows must be transformed or combined with other data.</entities_guidance>"
+            )
+        if getattr(planner_input, "available_steps_context", None):
+            parts.append(f"  {planner_input.available_steps_context}")
+            parts.append(
+                "  <reuse_guidance>When a prior step in <available_steps> already holds the data the "
+                "user wants (especially when they refer to it by name, or ask to extend/modify a "
+                "previous result), prefer create_data — it can load that step via load_step instead of "
+                "re-querying from scratch. Do not rebuild existing data with new SQL.</reuse_guidance>"
+            )
+        return parts
 
     @staticmethod
     def _build_turn_head(planner_input: PlannerInput) -> str:
@@ -730,6 +802,9 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
         if user_memory_block:
             parts.append(user_memory_block)
         parts.append(PromptBuilder._format_user_prompt(planner_input))
+        hint = PromptBuilderV3._reuse_hint(planner_input)
+        if hint:
+            parts.append(hint)
         if images_context:
             parts.append(images_context)
         parts.append("<context>")
@@ -780,29 +855,7 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
             parts.append(f"  {planner_input.resources_combined}")
         if getattr(planner_input, "tools_context", None):
             parts.append(f"  {planner_input.tools_context}")
-        parts.append(
-            f"  {planner_input.mentions_context if planner_input.mentions_context else '<mentions>No mentions for this turn</mentions>'}"
-        )
-        parts.append(
-            f"  {planner_input.entities_context if planner_input.entities_context else '<entities>No entities matched</entities>'}"
-        )
-        if planner_input.entities_context and "<entity " in planner_input.entities_context:
-            parts.append(
-                "  <entities_guidance>Entities are saved, reviewed queries. When one already "
-                "answers the ask — as-is, or with different values for the parameters it lists — "
-                "call describe_entity with should_create=True (and params={name: value} for the "
-                "values the user named) instead of generating new code; omitted parameters keep "
-                "their defaults. Reach for create_data only when no entity fits or its rows must "
-                "be transformed or combined with other data.</entities_guidance>"
-            )
-        if getattr(planner_input, "available_steps_context", None):
-            parts.append(f"  {planner_input.available_steps_context}")
-            parts.append(
-                "  <reuse_guidance>When a prior step in <available_steps> already holds the data the "
-                "user wants (especially when they refer to it by name, or ask to extend/modify a "
-                "previous result), prefer create_data — it can load that step via load_step instead of "
-                "re-querying from scratch. Do not rebuild existing data with new SQL.</reuse_guidance>"
-            )
+        parts.extend(PromptBuilderV3._reuse_blocks(planner_input))
         if getattr(planner_input, "scheduled_tasks_context", None):
             parts.append(f"  {planner_input.scheduled_tasks_context}")
         parts.append(

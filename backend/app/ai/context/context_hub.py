@@ -4,7 +4,7 @@ ContextHub - Main orchestrator for all agent context.
 import json
 import logging
 import time
-from typing import Optional, Dict, Any, Tuple
+from typing import Optional, Dict, Any, Tuple, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
 _hub_logger = logging.getLogger(__name__)
@@ -531,6 +531,7 @@ class ContextHub:
                     keywords=(getattr(ent_cfg, 'keywords', None) if ent_cfg else None),
                     user_text=(self.prompt_content.get("content") if isinstance(self.prompt_content, dict) else str(self.prompt_content or "")),
                     allow_llm_see_data=allow_llm_see_data,
+                    data_source_ids=self._run_agent_ids(),
                 )
                 if ent_section:
                     context.entities_context = ent_section.render()
@@ -673,6 +674,17 @@ class ContextHub:
         except Exception as e:
             _hub_logger.warning(f"[context_hub] _instruction_query failed: {e}")
             return query
+
+    def _run_agent_ids(self) -> Optional[List[str]]:
+        """Ids of the agents this run executes against. Entities are
+        discovered against THIS set, not the report's attachments: an Auto
+        (unattached) report has no attachments yet resolves to the user's
+        accessible agents at run time, and its saved queries live on those."""
+        try:
+            ids = [str(ds.id) for ds in (self.data_sources or []) if getattr(ds, "id", None)]
+        except Exception:
+            ids = []
+        return ids or None
 
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
@@ -824,6 +836,7 @@ class ContextHub:
                 require_source_assoc=True,
                 user_text=user_text,
                 allow_llm_see_data=allow_llm_see_data,
+                data_source_ids=self._run_agent_ids(),
             )),
             return_exceptions=True,
         )
