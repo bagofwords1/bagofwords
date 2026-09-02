@@ -4786,5 +4786,12 @@
     "showingRows": "Mostrando {n} de {total} filas",
     "openInPanel": "Abrir en el panel lateral",
     "closeFilePanel": "Cerrar archivo"
+  },
+  "entityForm": {
+    "title": "Título",
+    "description": "Descripción",
+    "agents": "Agentes",
+    "selectAgents": "Selecciona agentes",
+    "status": "Estado"
   }
 }

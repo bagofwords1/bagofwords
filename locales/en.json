@@ -4792,5 +4792,12 @@
     "showingRows": "Showing {n} of {total} rows",
     "openInPanel": "Open in side panel",
     "closeFilePanel": "Close file"
+  },
+  "entityForm": {
+    "title": "Title",
+    "description": "Description",
+    "agents": "Agents",
+    "selectAgents": "Select agents",
+    "status": "Status"
   }
 }

@@ -4786,5 +4786,12 @@
     "showingRows": "מוצגות {n} מתוך {total} שורות",
     "openInPanel": "פתיחה בפאנל הצדדי",
     "closeFilePanel": "סגירת הקובץ"
+  },
+  "entityForm": {
+    "title": "כותרת",
+    "description": "תיאור",
+    "agents": "סוכנים",
+    "selectAgents": "בחר סוכנים",
+    "status": "סטטוס"
   }
 }
