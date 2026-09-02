@@ -96,6 +96,63 @@ def _is_postgres_session(db: AsyncSession) -> bool:
         return False
 
 
+def _digest_data_result(rj: dict, allow_llm_see_data: bool, *, applied_params: dict | None = None) -> str:
+    """One history digest for every tool whose result carries a
+    ``data_preview`` (create_data, describe_entity): shape, column names,
+    chart type, viz id, the top row when data may be shown, and — for
+    parameterized results — the values it ran with, so a later turn can reuse
+    the result instead of reading or rebuilding it."""
+    if not isinstance(rj, dict):
+        return ""
+    preview = rj.get('data_preview') or {}
+    stats = rj.get('stats') or {}
+    data_obj = rj.get('data') or {}
+    columns = preview.get('columns') or data_obj.get('columns', []) or []
+    rows = data_obj.get('rows', []) or []
+    preview_rows = preview.get('rows') or []
+    col_names = [
+        (c.get('field') or c.get('headerName'))
+        for c in columns
+        if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
+    ]
+    row_count = (
+        stats.get('total_rows')
+        or preview.get('row_count')
+        or len(rows)
+        or len(preview_rows)
+    )
+    parts = [f"{row_count} rows × {len(col_names)} cols"]
+    if col_names:
+        head_cols = ", ".join(col_names[:10])
+        parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
+    if applied_params:
+        try:
+            parts.append("params: " + ", ".join(f"{k}={v!r}" for k, v in applied_params.items()))
+        except Exception:
+            pass
+    try:
+        dm = rj.get('data_model') or {}
+        dm_type = str(dm.get('type') or '').strip()
+        if dm_type and dm_type != 'table':
+            parts.append(f"chart: {dm_type}")
+    except Exception:
+        pass
+    try:
+        viz_ids = rj.get('created_visualization_ids') or []
+        if viz_ids:
+            parts.append(f"viz_id: {viz_ids[0]}")
+    except Exception:
+        pass
+    if allow_llm_see_data:
+        sample_row = preview_rows[0] if preview_rows else (rows[0] if rows else None)
+        if sample_row:
+            try:
+                parts.append(f"top row: {json.dumps(sample_row)}")
+            except Exception:
+                pass
+    return "; ".join(parts)
+
+
 def _digest_read_query(tool_execution) -> str:
     """Render referenceable read_query metadata without its full data rows.
 
@@ -1539,69 +1596,19 @@ class MessageContextBuilder:
                                     tool_info += " - " + "; ".join(digest_parts)
                                 # Digest for create_data results (same style as create_widget)
                                 elif tool_execution.tool_name == 'create_data' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    preview = rj.get('data_preview') or {}
-                                    stats = rj.get('stats') or {}
-                                    data_obj = rj.get('data') or {}
-                                    columns = preview.get('columns') or data_obj.get('columns', []) or []
-                                    rows = data_obj.get('rows', []) or []
-                                    preview_rows = preview.get('rows') or []
-                                    col_names = [
-                                        (c.get('field') or c.get('headerName'))
-                                        for c in columns
-                                        if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
-                                    ]
-                                    row_count = (
-                                        stats.get('total_rows')
-                                        or preview.get('row_count')
-                                        or len(rows)
-                                        or len(preview_rows)
-                                    )
-                                    sample_row = None
-                                    if allow_llm_see_data:
-                                        if preview_rows:
-                                            sample_row = preview_rows[0]
-                                        elif rows:
-                                            sample_row = rows[0]
-                                    digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
-                                    if col_names:
-                                        head_cols = ", ".join(col_names[:10])
-                                        digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
-                                    # If a non-table viz was inferred, surface it concisely
-                                    try:
-                                        dm = rj.get('data_model') or {}
-                                        dm_type = str(dm.get('type') or '').strip()
-                                        if dm_type and dm_type != 'table':
-                                            digest_parts.append(f"chart: {dm_type}")
-                                    except Exception:
-                                        pass
-                                    # Surface visualization_id if available (added by orchestrator)
-                                    try:
-                                        viz_ids = rj.get('created_visualization_ids') or []
-                                        if viz_ids:
-                                            digest_parts.append(f"viz_id: {viz_ids[0]}")
-                                    except Exception:
-                                        pass
-                                    if sample_row:
-                                        try:
-                                            digest_parts.append(f"top row: {json.dumps(sample_row)}")
-                                        except Exception:
-                                            pass
-                                    tool_info += " - " + "; ".join(digest_parts)
-                                # Digest for describe_entity results
+                                    digest = _digest_data_result(tool_execution.result_json or {}, allow_llm_see_data)
+                                    if digest:
+                                        tool_info += " - " + digest
+                                # Digest for describe_entity results: the entity plus the
+                                # same shape/values digest create_data gets.
                                 elif tool_execution.tool_name == 'describe_entity' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     digest_parts = []
-                                    entity_title = rj.get('title')
-                                    if entity_title:
-                                        digest_parts.append(f"entity: {entity_title}")
-                                    # Surface visualization_id if created
-                                    try:
-                                        viz_ids = rj.get('created_visualization_ids') or []
-                                        if viz_ids:
-                                            digest_parts.append(f"viz_id: {viz_ids[0]}")
-                                    except Exception:
-                                        pass
+                                    if rj.get('title'):
+                                        digest_parts.append(f"entity: {rj.get('title')}")
+                                    digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                    if digest:
+                                        digest_parts.append(digest)
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'read_query' and tool_execution.result_json:
@@ -2344,65 +2351,19 @@ class MessageContextBuilder:
                                             pass
                                 tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'create_data' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                preview = rj.get('data_preview') or {}
-                                stats = rj.get('stats') or {}
-                                data_obj = rj.get('data') or {}
-                                columns = preview.get('columns') or data_obj.get('columns', []) or []
-                                rows = data_obj.get('rows', []) or []
-                                preview_rows = preview.get('rows') or []
-                                col_names = [
-                                    (c.get('field') or c.get('headerName'))
-                                    for c in columns
-                                    if isinstance(c, dict) and (c.get('field') or c.get('headerName'))
-                                ]
-                                row_count = (
-                                    stats.get('total_rows')
-                                    or preview.get('row_count')
-                                    or len(rows)
-                                    or len(preview_rows)
-                                )
-                                digest_parts = [f"{row_count} rows × {len(col_names)} cols"]
-                                if col_names:
-                                    head_cols = ", ".join(col_names[:10])
-                                    digest_parts.append(f"cols: {head_cols}{'…' if len(col_names) > 10 else ''}")
-                                if allow_llm_see_data:
-                                    sample_row = preview_rows[0] if preview_rows else (rows[0] if rows else None)
-                                    if sample_row:
-                                        try:
-                                            digest_parts.append(f"top row: {json.dumps(sample_row)}")
-                                        except Exception:
-                                            pass
-                                # If a non-table viz was inferred, surface it concisely
-                                try:
-                                    dm = rj.get('data_model') or {}
-                                    dm_type = str(dm.get('type') or '').strip()
-                                    if dm_type and dm_type != 'table':
-                                        digest_parts.append(f"chart: {dm_type}")
-                                except Exception:
-                                    pass
-                                # Surface visualization_id if available (added by orchestrator)
-                                try:
-                                    viz_ids = rj.get('created_visualization_ids') or []
-                                    if viz_ids:
-                                        digest_parts.append(f"viz_id: {viz_ids[0]}")
-                                except Exception:
-                                    pass
-                                tool_info += " - " + "; ".join(digest_parts)
+                                digest = _digest_data_result(tool_execution.result_json or {}, allow_llm_see_data)
+                                if digest:
+                                    tool_info += " - " + digest
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'describe_entity' and tool_execution.result_json:
-                                # Digest for describe_entity results
+                                # Digest for describe_entity results: the entity plus the
+                                # same shape/values digest create_data gets.
                                 rj = tool_execution.result_json or {}
                                 digest_parts = []
-                                entity_title = rj.get('title')
-                                if entity_title:
-                                    digest_parts.append(f"entity: {entity_title}")
-                                # Surface visualization_id if created
-                                try:
-                                    viz_ids = rj.get('created_visualization_ids') or []
-                                    if viz_ids:
-                                        digest_parts.append(f"viz_id: {viz_ids[0]}")
-                                except Exception:
-                                    pass
+                                if rj.get('title'):
+                                    digest_parts.append(f"entity: {rj.get('title')}")
+                                digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                if digest:
+                                    digest_parts.append(digest)
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.status == 'success' and tool_execution.tool_name == 'read_query' and tool_execution.result_json:

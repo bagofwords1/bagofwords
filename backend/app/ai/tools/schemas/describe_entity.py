@@ -52,6 +52,11 @@ class DescribeEntityOutput(BaseModel):
         default=None,
         description="Data profile with row_count, column_count, columns stats, and optional sample rows",
     )
+    # The budgeted preview the planner reads — the same shape create_data and
+    # read_query produce (build_data_preview), so history digests, result
+    # projections and observation compaction treat all three alike.
+    data_preview: Optional[Dict[str, Any]] = Field(default=None, description="Budgeted, self-describing preview of the entity rows")
+    stats: Optional[Dict[str, Any]] = Field(default=None, description="Per-column stats of the entity rows")
     
     # Created artifact info (when should_create=True)
     step_id: Optional[str] = Field(default=None, description="Created step ID if should_create=True")
