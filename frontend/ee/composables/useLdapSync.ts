@@ -1,5 +1,5 @@
 // LDAP Sync Management Composable
-// Licensed under the Business Source License 1.1
+// Licensed under the Bag of Words Enterprise License
 
 export type SyncResult = {
   groups_created: number

@@ -1,6 +1,6 @@
 # Audit Log Schemas
-# Licensed under the Business Source License 1.1
-# See ENTERPRISE_LICENSE for details
+# Licensed under the Bag of Words Enterprise License
+# See backend/app/ee/LICENSE for details
 
 from pydantic import BaseModel
 from typing import Optional, List, Any

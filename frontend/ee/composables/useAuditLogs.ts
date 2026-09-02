@@ -1,5 +1,5 @@
 // Audit Logs Composable
-// Licensed under the Business Source License 1.1
+// Licensed under the Bag of Words Enterprise License
 
 export type AuditLog = {
   id: string

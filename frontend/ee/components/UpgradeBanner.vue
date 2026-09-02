@@ -1,6 +1,6 @@
 <script setup lang="ts">
 // Enterprise Upgrade Banner
-// Licensed under the Business Source License 1.1
+// Licensed under the Bag of Words Enterprise License
 
 defineProps<{
   feature?: string
