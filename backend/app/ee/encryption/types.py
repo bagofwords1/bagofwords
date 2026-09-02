@@ -1,5 +1,5 @@
 # Enterprise payload encryption
-# Licensed under the Bag of Words Enterprise License
+# Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 """``EncryptedJSON`` — a drop-in replacement for ``Column(JSON)`` that stores its
 value as ciphertext.

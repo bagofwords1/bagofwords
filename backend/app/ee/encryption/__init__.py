@@ -1,5 +1,5 @@
 # Enterprise payload encryption
-# Licensed under the Bag of Words Enterprise License
+# Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 """Application-level encryption for row-heavy analytical payloads.
 

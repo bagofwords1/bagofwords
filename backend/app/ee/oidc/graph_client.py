@@ -1,5 +1,5 @@
 # Microsoft Graph API helper for OIDC group sync
-# Licensed under the Bag of Words Enterprise License
+# Licensed under the BOW Enterprise License
 
 import logging
 from typing import Dict, List, Optional

@@ -1,4 +1,4 @@
-Copyright (c) 2026 Bag of Words
+Copyright (c) 2026 Bag of words, Inc. ("BOW")
 
 This repository contains code under multiple licenses.
 
@@ -17,7 +17,7 @@ otherwise:
   - `frontend/ee/`
 
 Enterprise Components are not licensed under AGPL-3.0. They are licensed under
-the Bag of Words Enterprise License. The full license text appears in
+the BOW Enterprise License. The full license text appears in
 `backend/app/ee/LICENSE` and `frontend/ee/LICENSE` (the two files are
 identical).
 

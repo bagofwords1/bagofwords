@@ -1,5 +1,5 @@
 # Enterprise features for Bag of Words
-# Licensed under the Bag of Words Enterprise License
+# Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 
 from app.ee.license import (

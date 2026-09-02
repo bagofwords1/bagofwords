@@ -1,5 +1,5 @@
 # SCIM 2.0 Schemas
-# Licensed under the Bag of Words Enterprise License
+# Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 
 from typing import Optional, List, Any

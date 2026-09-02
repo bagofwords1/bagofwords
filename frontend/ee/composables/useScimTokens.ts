@@ -1,5 +1,5 @@
 // SCIM Token Management Composable
-// Licensed under the Bag of Words Enterprise License
+// Licensed under the BOW Enterprise License
 
 export type ScimToken = {
   id: string

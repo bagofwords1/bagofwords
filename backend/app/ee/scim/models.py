@@ -1,5 +1,5 @@
 # SCIM Token Model
-# Licensed under the Bag of Words Enterprise License
+# Licensed under the BOW Enterprise License
 # See backend/app/ee/LICENSE for details
 
 from sqlalchemy import Column, String, DateTime, ForeignKey, Index
