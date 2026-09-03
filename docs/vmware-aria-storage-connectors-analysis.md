@@ -527,6 +527,38 @@ vendors. Ask which the customer has before choosing.
 
 ---
 
+## 6b. Test targets — what we can actually run the sandbox loop against
+
+None of the five ships a Docker image; the vendor SaaS routes are either
+terminated (Aria) or excluded (on-prem customer). Our precedent for this
+situation is the AppDynamics connector: a doc-shaped mock in `tools/`
+(`tools/appdynamics/mock_controller.py`, run from `docker-compose.yaml`)
+driven from `integrations.json`, plus a one-off live confirmation against a
+real instance. The same split applies here, with better raw material for
+some vendors than others.
+
+| Vendor | Real instance we could get | Container / simulator | Spec or recorded fixtures for a mock | CI plan |
+|---|---|---|---|---|
+| **Aria Ops** | OVA only; download needs an **entitled Broadcom support account** (VCF/VVF). Once you have it: 60-day eval (8.x) / 90-day (9.0). Needs ESXi or nested ESXi; Extra Small node = 2 vCPU / 8 GB. Aria SaaS **terminated Dec 2024**. ISV route = Broadcom TAP (NFR licences). Hands-on Labs are free but console-only (no external API reach). | none | **Official OpenAPI 3 spec, Apache-2.0**: `vmware/vcf-api-specs` → `specifications/vcf-operations/vcf-operations-openapi.json` (also served unauthenticated by any appliance at `/suite-api/doc/openapi/v3/public-api.json`). Recorded responses: `vmware-archive/vrops-export/src/test/resources/` (resources, stats, props, statkeys), `imtrinity94/VMware-REST` (full `/adapterkinds`). No public storage-pack captures. | Seeded FastAPI mock like AppDynamics (needs stateful relationships + deterministic series, which a spec-only Prism mock cannot give); validate shapes against the official spec. Live confirmation: TAP NFR + nested ESXi, or the customer's own instance. |
+| **NetApp ONTAP** | **Simulate ONTAP (vsim)** — the real ONTAP image as an OVA + licence file, versions to 9.18.1. Needs a **customer or partner support login** (guest accounts blocked). Officially VMware Workstation/Fusion; community `tcler/ontap-simulator-in-kvm` runs it under KVM (≥16 GB RAM). 6 GB RAM / 40 GB disk per node. ONTAP Select 90-day eval and Lab on Demand also exist (support login). | vsim under KVM is the closest thing to a container; no Docker image. | Full OpenAPI spec public in `NetAppDocs/ontap-restapi` (`swagger-ui/index.html`, inline JSON) and on-cluster at `/docs/api/swagger.yaml`. Fixtures: `ansible-collections/netapp.ontap` unit tests (hundreds of canned REST responses), `NetApp/harvest` `cmd/collectors/rest/testdata/`. | Prism/Mockoon from the official spec for CI; vsim on a KVM runner for the live leg. **Best-served vendor.** |
+| **Hitachi** | Nothing self-service for VSP. Ops Center installers are behind the support portal and **need a real array behind them**. VSP One SDS Block has a free trial / AWS PayGo, but its REST surface (`/ConfigurationManager/simple/…`) differs from the VSP / Configuration Manager API. HALO labs are partner-only. | none | No OpenAPI spec; only the public HTML/PDF reference guides (MK-99CFM000, MK-99ANA003). No recorded fixtures in the Ansible/Terraform repos. | Hand-built mock from the docs; live leg only via the customer or a Hitachi partner lab. **Highest test-cost vendor.** |
+| **Infinidat** | Nothing. `infinisdk`'s own tests use an internal simulator (`infinisim`, not on PyPI, not on GitHub). InfiniMetrics needs an InfiniBox. | none public | No spec. Response shapes are encoded in `infinisdk` source (binders/fields), which is enough to hand-build a mock. | Mock from `infinisdk` shapes; ask Infinidat/Lenovo partner program for `infinisim`; live leg via the customer. |
+| **IBM Virtualize** | **IBM Storage Virtualize for Public Cloud — 60-day free trial on AWS/Azure Marketplace** (v8.6.0.2, same code base, pay for the VMs, 2-node pairs). IBM confirms no on-prem simulator. Spectrum Control has a 90-day POC OVA but needs real storage. | none | On-box REST Explorer is OpenAPI-based but the spec (`cfrest.schema.yaml`) is not published; `IBM/IBMStorageVirtualizeRestAPI` is generated client code without the source spec. Fixtures: `ansible-collections/ibm.storage_virtualize` unit tests (44+ canned `ls*` responses). | Mock from the Ansible fixtures; live leg = a short AWS/Azure trial run (or record it with MockServer and replay). |
+
+Cross-cutting: for spec-backed vendors (Aria, NetApp) run a Prism contract
+mock in CI as a `CONTAINER_REGISTRY` entry (`stoplight/prism` image) to
+catch shape drift, and keep the seeded FastAPI mock for the agent-facing
+scenarios (relationship graph, incident window) that a random-data mock
+cannot express. For vendors without a spec (Hitachi, Infinidat, IBM), record
+one live session (customer instance or cloud trial) with MockServer /
+WireMock and replay it.
+
+**Recommended first step for the sandbox loop:** build the Aria mock from the
+official spec plus the `vrops-export` captures, seeded with a vSphere
+estate and one synthetic storage adapter kind (resource kinds and stat keys
+modelled on the Hitachi pack's object list), so the "VM latency → datastore
+→ LDEV → pool" RCA path is exercisable end to end without any licence.
+
 ## 7. Open questions for the customer
 
 - Which Aria management packs are installed? (One `GET /adapterkinds` call.)
@@ -576,6 +608,21 @@ against a live system.
 - https://www.ibm.com/docs/en/spectrum-connect/3.11.0?topic=requirements-supported-storage-systems
 - https://github.com/vmware-skills/VMware-Aria ; https://vrabbi.cloud/post/bringing-the-power-of-mcps-to-the-vi-admins/ (community MCPs)
 - https://endoflife.date/vmware-cloud-foundation (community lifecycle)
+
+### Test targets (§6b)
+- https://github.com/vmware/vcf-api-specs ; https://github.com/vmware-archive/vrops-export ; https://github.com/imtrinity94/VMware-REST
+- https://knowledge.broadcom.com/external/article/369262/vmware-aria-operations-818-sizing-guidel.html
+- https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-operations/8-18/vmware-aria-operations-configuration-guide-8-18/about-vmware-aria-operation-licenses.html (eval mode)
+- https://knowledge.broadcom.com/external/article/309138/vmware-end-of-availability-of-perpetual.html (Aria SaaS EoA)
+- https://tap.broadcom.com/ ; https://labs.hol.vmware.com/HOL/catalog/lab/26851
+- https://kb.netapp.com/Support/NSS/Support_Site/Who_can_access_or_download_ONTAP_Simulator ; https://github.com/tcler/ontap-simulator-in-kvm
+- https://github.com/NetAppDocs/ontap-restapi/tree/main/swagger-ui ; https://github.com/ansible-collections/netapp.ontap/tree/main/tests/unit/plugins/modules ; https://github.com/NetApp/harvest/tree/main/cmd/collectors/rest/testdata
+- https://github.com/NetAppDocs/ontap-select/blob/main/access-evaluation-software.adoc
+- https://github.com/Infinidat/infinisdk/blob/master/doc/events.rst.doctest_context (infinisim usage)
+- https://www.hitachivantara.com/en-us/gated-forms/free-trial-of-vsp-one-software-defined-storage ; https://aws.amazon.com/marketplace/pp/prodview-zkfpafpjrns7e
+- https://community.ibm.com/community/user/discussion/ibm-svc-trial (no simulator) ; https://marketplace.microsoft.com/en-us/product/ibm-alliance-usa-ny-armonk-hq-ibmstorage-6201192.ibm-svpc-trial-azure?tab=overview ; https://aws.amazon.com/marketplace/reviews/reviews-list/prodview-dolkptipf2ovk
+- https://github.com/ansible-collections/ibm.storage_virtualize/tree/develop/tests/unit/plugins/modules ; https://www.ibm.com/support/pages/support-free-90-day-trial-ibm-spectrum-control
+- https://stoplight.io/open-source/prism ; https://mockoon.com/cli/ ; https://www.mock-server.com/where/docker.html
 
 ### NetApp
 - https://docs.netapp.com/us-en/ontap-automation/workflows/prepare_workflows.html
