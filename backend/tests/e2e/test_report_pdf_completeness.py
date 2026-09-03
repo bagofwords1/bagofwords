@@ -39,6 +39,7 @@ import pytest
 
 from app.dependencies import async_session_maker
 from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 from app.models.file import File
 from app.models.organization import Organization
 from app.models.query import Query
@@ -204,12 +205,11 @@ async def _seed(mode: str = "page", code: str = DASHBOARD_CODE, files=None):
         if files is not None:
             content["files"] = files
 
-        artifact = ArtifactVersion(
+        artifact = await seed_artifact(
+            db,
             report_id=report.id, user_id=user.id, organization_id=org.id,
-            title="Dashboard", mode=mode, content=content,
+            mode=mode, title="Dashboard", content=content,
         )
-        db.add(artifact)
-        await db.flush()
         await db.commit()
         return str(report.id), str(artifact.id), org, user
 

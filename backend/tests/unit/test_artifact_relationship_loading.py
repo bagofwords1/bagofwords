@@ -31,6 +31,7 @@ from app.models.completion import Completion
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
+from tests.fixtures.artifact import seed_artifact
 from app.models.step import Step
 from app.models.user import User
 from app.models.visualization import Visualization
@@ -152,27 +153,24 @@ async def artifact_context():
         )
         db.add_all([requested_visualization, sibling_visualization])
 
-        dashboard = ArtifactVersion(
+        dashboard = await seed_artifact(
+            db,
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
-            title="Requested dashboard",
             mode="page",
-            version=3,
-            status="completed",
+            title="Requested dashboard",
             content={"code": "function App() { return null }", "visualization_ids": []},
         )
-        document = ArtifactVersion(
+        document = await seed_artifact(
+            db,
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
-            title="Requested document",
             mode="doc",
-            version=1,
-            status="completed",
+            title="Requested document",
             content={"markdown": "# Exact document text", "visualization_ids": []},
         )
-        db.add_all([dashboard, document])
         db.add(
             Completion(
                 report_id=str(report.id),
@@ -184,17 +182,14 @@ async def artifact_context():
             )
         )
         for index in range(4):
-            db.add(
-                ArtifactVersion(
-                    report_id=str(report.id),
-                    user_id=str(user.id),
-                    organization_id=str(organization.id),
-                    title=f"Unrelated artifact {index}",
-                    mode="page",
-                    version=index + 1,
-                    status="completed",
-                    content={"code": "x" * 2_000, "visualization_ids": []},
-                )
+            await seed_artifact(
+                db,
+                report_id=str(report.id),
+                user_id=str(user.id),
+                organization_id=str(organization.id),
+                mode="page",
+                title=f"Unrelated artifact {index}",
+                content={"code": "x" * 2_000, "visualization_ids": []},
             )
         await db.commit()
 

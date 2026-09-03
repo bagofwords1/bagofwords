@@ -25,6 +25,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors
 from app.models.artifact import ArtifactVersion
+from app.services.artifact_service import new_version
 
 logger = logging.getLogger(__name__)
 
@@ -272,32 +273,31 @@ class EditArtifactTool(Tool):
 
         # Persist as the next version (stored rows are never rewritten).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
-        new_version = artifact.version + 1
         ops_summary = "; ".join(
             (op.find[:60].replace("\n", " ") + " → " + op.replace[:60].replace("\n", " ")) for op in data.edits[:5]
         )
         prev_spec = artifact.generation_prompt or ""
-        accumulated_spec = f"{prev_spec}\n+ Edit (v{new_version}): [mechanical] {ops_summary}".strip()
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if content.get("files"):
             new_content["files"] = content.get("files")
-        new_artifact = ArtifactVersion(
-            report_id=artifact.report_id,
-            user_id=str(user.id) if user else artifact.user_id,
-            organization_id=artifact.organization_id,
-            title=data.title or artifact.title,
-            mode=artifact.mode,
+        new_artifact = await new_version(
+            db,
+            artifact,
+            user_id=str(user.id) if user else None,
+            title=data.title or None,
             content=new_content,
-            generation_prompt=accumulated_spec,
-            version=new_version,
-            status="completed",
+        )
+        # The accumulated spec names the version that was actually minted —
+        # the factory owns the number, so it is read back, never predicted.
+        version_number = new_artifact.version
+        new_artifact.generation_prompt = (
+            f"{prev_spec}\n+ Edit (v{version_number}): [mechanical] {ops_summary}".strip()
         )
         if screenshot_b64 or render_errors:
             new_artifact.screenshot_base64 = screenshot_b64
             new_artifact.render_errors = render_errors or None
         db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
 
         # Slides: move the validated deck under the new version's id and
         # render previews (a preview failure only costs the preview).
@@ -337,7 +337,7 @@ class EditArtifactTool(Tool):
                 },
                 "observation": {
                     "summary": (
-                        f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{new_version}. "
+                        f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified and render validated. No further verification needed."
                     ),
                     "artifact_id": str(new_artifact.id),

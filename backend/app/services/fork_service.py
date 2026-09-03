@@ -22,7 +22,8 @@ from app.models.widget import Widget
 from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
 from app.models.user import User
-from app.services.artifact_service import ArtifactService
+# aliased: the local variable `new_artifact` below is the row, not the factory
+from app.services.artifact_service import ArtifactService, new_artifact as new_artifact_row
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -348,19 +349,16 @@ class ForkService:
                 viz_id_map.get(vid, vid) for vid in old_viz_ids
             ]
 
-        new_artifact = ArtifactVersion(
+        new_artifact = await new_artifact_row(
+            db,
             report_id=str(new_report.id),
             user_id=str(user.id),
             organization_id=str(new_report.organization_id),
-            title=latest.title,
             mode=latest.mode,
+            title=latest.title,
             content=new_content,
             generation_prompt=latest.generation_prompt,
-            version=1,
-            status="completed",
         )
-        db.add(new_artifact)
-        await db.flush()
 
         # Copy thumbnail if exists
         if latest.thumbnail_path:

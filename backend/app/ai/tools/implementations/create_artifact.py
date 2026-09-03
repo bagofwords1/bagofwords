@@ -1200,20 +1200,18 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             pass
 
         # Create artifact early with pending status so frontend can show it
-        artifact = ArtifactVersion(
+        artifact = await new_artifact(
+            db,
             report_id=str(report.id) if report else None,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
-            title=data.title or "Untitled Artifact",
             mode=data.mode,
+            title=data.title or "Untitled Artifact",
             content={},  # Empty content initially
             generation_prompt=data.prompt,
-            version=1,
             status="pending",
         )
-        db.add(artifact)
         await db.commit()
-        await db.refresh(artifact)
 
         # Notify frontend that artifact is created (pending)
         yield ToolProgressEvent(

@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Any, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import defer, lazyload, load_only
@@ -9,6 +9,121 @@ from app.schemas.artifact_schema import (
     ArtifactCreate,
     ArtifactUpdate,
 )
+
+
+# ---------------------------------------------------------------------------
+# Version factory
+#
+# Every code path that inserts an artifact row goes through one of these two
+# functions — the AI tools, the MCP tools, the REST routes, forking, seeding
+# and the test fixtures. They are the only place that decides what `version`
+# a row gets, so the numbering rule lives here and nowhere else.
+#
+# Both flush + refresh and deliberately do NOT commit: callers own their
+# transaction (fork_service builds a whole report in one; the tools commit
+# once after the row and its side effects are in place).
+# ---------------------------------------------------------------------------
+
+
+def _id(value: Any) -> Optional[str]:
+    """Stringify an id (uuid / str) without turning None into "None"."""
+    return str(value) if value is not None else None
+
+
+async def new_artifact(
+    db: AsyncSession,
+    *,
+    report_id: str,
+    organization_id: str,
+    user_id: str,
+    mode: str,
+    title: Optional[str],
+    content: dict,
+    generation_prompt: Optional[str] = None,
+    completion_id: Optional[str] = None,
+    status: str = "completed",
+    **version_fields: Any,
+) -> ArtifactVersion:
+    """Start a brand-new artifact (dashboard / deck / doc) at version 1.
+
+    Extra keyword arguments (thumbnail_path, screenshot_base64, created_at,
+    ...) are set on the version row as-is.
+    """
+    version = ArtifactVersion(
+        report_id=_id(report_id),
+        user_id=_id(user_id),
+        organization_id=_id(organization_id),
+        title=title,
+        mode=mode,
+        content=content,
+        generation_prompt=generation_prompt,
+        completion_id=completion_id,
+        status=status,
+        version=1,
+        **version_fields,
+    )
+    db.add(version)
+    await db.flush()
+    await db.refresh(version)
+    return version
+
+
+async def next_version_number(db: AsyncSession, source: ArtifactVersion) -> int:
+    """The number the next version after ``source`` gets.
+
+    max(version) over the artifact ``source`` belongs to, plus one. Until a
+    lineage column exists the closest approximation of "the same artifact"
+    is every live row of the same report AND the same mode — a doc's numbers
+    stay out of a dashboard's. Never derived from ``source.version + 1``:
+    editing an older version would otherwise mint a number that already
+    exists further up the chain.
+    """
+    max_version = (await db.execute(
+        select(func.max(ArtifactVersion.version)).where(
+            ArtifactVersion.report_id == str(source.report_id),
+            ArtifactVersion.organization_id == str(source.organization_id),
+            ArtifactVersion.mode == source.mode,
+            ArtifactVersion.deleted_at.is_(None),
+        )
+    )).scalar() or 0
+    return max_version + 1
+
+
+async def new_version(
+    db: AsyncSession,
+    source: ArtifactVersion,
+    *,
+    content: dict,
+    user_id: Optional[str] = None,
+    generation_prompt: Optional[str] = None,
+    completion_id: Optional[str] = None,
+    status: str = "completed",
+    title: Optional[str] = None,
+    **version_fields: Any,
+) -> ArtifactVersion:
+    """Append the next version to the artifact ``source`` belongs to.
+
+    report / organization / mode are inherited from ``source`` — a version
+    can never move between artifacts. ``title`` defaults to the source's;
+    ``user_id`` (the author of this version) defaults to the source's too.
+    """
+    version = ArtifactVersion(
+        report_id=_id(source.report_id),
+        user_id=_id(user_id) or _id(source.user_id),
+        organization_id=_id(source.organization_id),
+        title=title if title is not None else source.title,
+        mode=source.mode,
+        content=content,
+        generation_prompt=generation_prompt,
+        completion_id=completion_id,
+        status=status,
+        version=await next_version_number(db, source),
+        **version_fields,
+    )
+    db.add(version)
+    await db.flush()
+    await db.refresh(version)
+    return version
 
 
 class ArtifactService:
@@ -22,20 +137,18 @@ class ArtifactService:
         organization_id: str,
     ) -> ArtifactVersion:
         """Create a new artifact."""
-        artifact = ArtifactVersion(
+        artifact = await new_artifact(
+            db,
             report_id=str(payload.report_id),
-            user_id=str(user_id),
             organization_id=str(organization_id),
-            title=payload.title,
+            user_id=str(user_id),
             mode=payload.mode,
+            title=payload.title,
             content=payload.content,
             generation_prompt=payload.generation_prompt,
             completion_id=payload.completion_id,
-            version=1,
         )
-        db.add(artifact)
         await db.commit()
-        await db.refresh(artifact)
         return artifact
 
     async def create_doc_version(
@@ -95,20 +208,14 @@ class ArtifactService:
         if problems:
             raise HTTPException(status_code=400, detail="Invalid visualization placeholders: " + "; ".join(problems))
 
-        new_artifact = ArtifactVersion(
-            report_id=str(artifact.report_id),
+        new_artifact = await new_version(
+            db,
+            artifact,
             user_id=str(user_id),
-            organization_id=str(organization_id),
-            title=title or artifact.title,
-            mode="doc",
+            title=title or None,
             content={"markdown": markdown, "visualization_ids": valid_viz_ids},
-            generation_prompt=None,
-            version=(artifact.version or 1) + 1,
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
         return new_artifact
 
     async def get(self, db: AsyncSession, artifact_id: str) -> Optional[ArtifactVersion]:
@@ -207,8 +314,9 @@ class ArtifactService:
         if patch.title is not None:
             artifact.title = patch.title
         if patch.content is not None:
+            # In-place edit of THIS row. Version numbers are minted only by
+            # new_version(); bumping here would collide with the next row.
             artifact.content = patch.content
-            artifact.version += 1  # Increment version on content change
         if patch.generation_prompt is not None:
             artifact.generation_prompt = patch.generation_prompt
 
@@ -229,36 +337,6 @@ class ArtifactService:
         await db.commit()
         return True
 
-    async def create_new_version(
-        self,
-        db: AsyncSession,
-        artifact_id: str,
-        new_content: dict,
-        user_id: str,
-        generation_prompt: Optional[str] = None,
-        completion_id: Optional[str] = None,
-    ) -> Optional[ArtifactVersion]:
-        """Create a new version of an artifact by copying and updating content."""
-        original = await self.get(db, artifact_id)
-        if not original:
-            return None
-
-        new_artifact = ArtifactVersion(
-            report_id=original.report_id,
-            user_id=str(user_id),
-            organization_id=original.organization_id,
-            title=original.title,
-            mode=original.mode,
-            content=new_content,
-            generation_prompt=generation_prompt,
-            completion_id=completion_id,
-            version=original.version + 1,
-        )
-        db.add(new_artifact)
-        await db.commit()
-        await db.refresh(new_artifact)
-        return new_artifact
-
     async def duplicate(
         self,
         db: AsyncSession,
@@ -275,42 +353,15 @@ class ArtifactService:
         if not original:
             return None
 
-        # Next version number, scoped to the artifact's own KIND.
-        #
-        # This used to take max(version) over every artifact of the report, so
-        # a revert borrowed its number from an unrelated deliverable: a doc at
-        # v1/v2 reverted alongside a dashboard chain that had reached v7 came
-        # back as v8. Scoping to `mode` keeps a doc's numbering out of a
-        # dashboard's and vice versa.
-        #
-        # It is still a superset of the true version chain when one report
-        # holds two artifacts of the same mode (two dashboards) — there is no
-        # lineage column to scope by yet. That only ever overshoots, never
-        # collides: the result is greater than every version in the chain
-        # being reverted.
-        max_version = (await db.execute(
-            select(func.max(ArtifactVersion.version)).where(
-                ArtifactVersion.report_id == str(original.report_id),
-                ArtifactVersion.organization_id == str(original.organization_id),
-                ArtifactVersion.mode == original.mode,
-                ArtifactVersion.deleted_at.is_(None),
-            )
-        )).scalar() or 0
-
-        new_artifact = ArtifactVersion(
-            report_id=original.report_id,
+        new_artifact = await new_version(
+            db,
+            original,
             user_id=str(user_id),
-            organization_id=original.organization_id,
-            title=original.title,
-            mode=original.mode,
             content=original.content,
             generation_prompt=original.generation_prompt,
             completion_id=original.completion_id,
-            version=max_version + 1,
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
 
         # Copy thumbnail from original artifact if it exists, otherwise regenerate
         import asyncio

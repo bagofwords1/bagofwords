@@ -21,6 +21,7 @@ from app.ai.tools.schemas.events import (
     ToolStartEvent,
 )
 from app.models.artifact import ArtifactVersion
+from app.services.artifact_service import new_version
 
 from ._doc_markdown import (
     MAX_DOC_CHARS,
@@ -172,28 +173,20 @@ class EditDocTool(Tool):
             owned = {str(r) for r in rows.scalars().all()}
             valid_file_ids = [f for f in file_ids if f in owned]
 
-        new_version = (artifact.version or 1) + 1
         new_title = data.title or artifact.title
-        new_artifact = ArtifactVersion(
-            report_id=str(artifact.report_id),
-            user_id=str(user.id) if user else (str(artifact.user_id) if artifact.user_id else None),
-            organization_id=str(organization.id) if organization else (
-                str(artifact.organization_id) if artifact.organization_id else None
-            ),
+        new_artifact = await new_version(
+            db,
+            artifact,
+            user_id=str(user.id) if user else None,
             title=new_title,
-            mode="doc",
             content={
                 "markdown": new_markdown,
                 "visualization_ids": valid_viz_ids,
                 "file_ids": valid_file_ids,
             },
-            generation_prompt=None,
-            version=new_version,
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
+        version_number = new_artifact.version
 
         yield ToolProgressEvent(
             type="tool.progress",
@@ -205,13 +198,13 @@ class EditDocTool(Tool):
             "success": True,
             "doc_id": str(new_artifact.id),
             "title": new_title,
-            "version": new_version,
+            "version": version_number,
             "visualization_ids": valid_viz_ids,
             "diff_applied": diff_applied,
         }
         observation: Dict[str, Any] = {
             "summary": (
-                f"Edited document '{new_title or 'Untitled'}' (v{new_version}, doc_id: {new_artifact.id}) "
+                f"Edited document '{new_title or 'Untitled'}' (v{version_number}, doc_id: {new_artifact.id}) "
                 f"via {'surgical edits' if diff_applied else 'full rewrite'}. "
                 f"{len(valid_viz_ids)} embedded visualization(s)."
             ),
@@ -220,7 +213,7 @@ class EditDocTool(Tool):
             "previous_doc_id": str(artifact.id),
             "mode": "doc",
             "title": new_title,
-            "version": new_version,
+            "version": version_number,
             "visualization_ids": valid_viz_ids,
             "diff_applied": diff_applied,
             "outline": outline,

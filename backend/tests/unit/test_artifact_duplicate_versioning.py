@@ -32,6 +32,7 @@ from app.models.organization import Organization
 from app.models.report import Report
 from app.models.user import User
 from app.services.artifact_service import ArtifactService
+from tests.fixtures.artifact import seed_artifact
 
 
 @pytest_asyncio.fixture
@@ -58,29 +59,30 @@ async def report_context():
         db.add(report)
         await db.flush()
 
-        def _artifact(title: str, mode: str, version: int, body: str) -> ArtifactVersion:
-            return ArtifactVersion(
+        def _body(mode: str, body: str) -> dict:
+            return {"markdown": body} if mode == "doc" else {"code": body, "visualization_ids": []}
+
+        async def _seed(title: str, mode: str, bodies: list[str]):
+            return await seed_artifact(
+                db,
                 report_id=str(report.id),
                 user_id=str(user.id),
                 organization_id=str(organization.id),
-                title=title,
                 mode=mode,
-                version=version,
-                status="completed",
+                title=title,
+                contents=[_body(mode, b) for b in bodies],
                 # A path whose file does not exist: copy_thumbnail returns None
                 # and duplicate() skips the background regeneration task, so the
                 # test stays on the numbering and off the screenshot pipeline.
                 thumbnail_path=f"thumbnails/{uuid.uuid4()}.png",
-                content={"markdown": body} if mode == "doc" else {"code": body, "visualization_ids": []},
             )
 
         # A dashboard edited seven times...
-        for version in range(1, 8):
-            db.add(_artifact("Revenue by artist", "page", version, f"page v{version}"))
+        await _seed("Revenue by artist", "page", [f"page v{v}" for v in range(1, 8)])
         # ...and a document that has only ever been edited once.
-        doc_v1 = _artifact("Performance report", "doc", 1, "doc v1")
-        db.add(doc_v1)
-        db.add(_artifact("Performance report", "doc", 2, "doc v2"))
+        await _seed("Performance report", "doc", ["doc v1", "doc v2"])
+        versions = await ArtifactService().list_by_report(db, str(report.id))
+        doc_v1 = next(a for a in versions if a.mode == "doc" and a.version == 1)
         await db.commit()
 
         yield db, str(doc_v1.id), str(report.id), str(user.id)

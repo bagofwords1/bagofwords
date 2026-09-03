@@ -14,6 +14,7 @@ from app.ai.llm import LLM
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.artifact import ArtifactVersion
+from app.services.artifact_service import new_version
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.schemas.mcp import MCPEditArtifactInput, MCPEditArtifactOutput
@@ -276,25 +277,19 @@ class EditArtifactMCPTool(MCPTool):
         # Create a NEW artifact record (preserves version history for frontend dropdown)
         new_title = input_data.title or artifact.title
         included_viz_ids = [v["id"] for v in visualizations]
-        new_version = artifact.version + 1
-
-        new_artifact = ArtifactVersion(
-            report_id=artifact.report_id,
+        new_artifact = await new_version(
+            db,
+            artifact,
             user_id=str(user.id),
-            organization_id=str(organization.id),
             title=new_title,
-            mode=artifact.mode,
             content={"code": new_code, "visualization_ids": included_viz_ids},
             generation_prompt=input_data.edit_instruction,
-            version=new_version,
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
+        version_number = new_artifact.version
 
         # Finish tracking
-        summary = f"Edited artifact '{new_title}' (v{new_version})"
+        summary = f"Edited artifact '{new_title}' (v{version_number})"
         if diff_applied:
             summary += f" — applied {num_blocks} surgical edit(s)"
         else:
@@ -303,7 +298,7 @@ class EditArtifactMCPTool(MCPTool):
         await self._finish_tracking(
             db, tracking, success=True,
             summary=summary,
-            result_json={"artifact_id": str(new_artifact.id), "version": new_version},
+            result_json={"artifact_id": str(new_artifact.id), "version": version_number},
             created_visualization_ids=included_viz_ids,
         )
 
@@ -316,7 +311,7 @@ class EditArtifactMCPTool(MCPTool):
             report_id=str(report.id),
             artifact_id=str(new_artifact.id),
             success=True,
-            version=new_version,
+            version=version_number,
             diff_applied=diff_applied,
             url=url,
         ).model_dump()
