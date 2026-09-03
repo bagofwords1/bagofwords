@@ -187,3 +187,21 @@ async def test_proxy_aexecute_query_returns_dataframe():
     out = await c.aexecute_query("select count(*) c from lego_sets")
     assert list(out["c"]) == [7]
     assert c._tunnel.calls[0][0] == "execute_query"
+
+
+# ── remote-error translation (design B3) ─────────────────────────────────────
+
+
+def test_translate_query_timeout_becomes_QueryTimeoutError():
+    from app.services.tunnel_errors import translate_remote_error
+    from app.ai.code_execution.code_execution import QueryTimeoutError
+    err = {"code": -32001, "message": "query exceeded 30s",
+           "data": {"kind": "query_timeout", "timeout_s": 30, "sql": "select 1"}}
+    exc = translate_remote_error(err, "execute_query")
+    assert isinstance(exc, QueryTimeoutError)
+
+
+def test_translate_generic_error_is_remote_error():
+    from app.services.tunnel_errors import translate_remote_error, RemoteError
+    exc = translate_remote_error({"code": -32000, "message": "boom", "data": {}}, "get_schema")
+    assert isinstance(exc, RemoteError) and "boom" in str(exc)

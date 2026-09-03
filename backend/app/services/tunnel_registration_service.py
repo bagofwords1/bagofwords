@@ -15,7 +15,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.dependencies import async_session_maker
 from app.models.connection import Connection
@@ -163,6 +163,73 @@ async def register_advertisement(org_id: str, payload: dict) -> None:
 
 def _outcome(conn: dict) -> dict:
     return {"name": conn.get("name"), "type": conn.get("type"), "label": conn.get("label")}
+
+
+async def record_heartbeat(org_id: str, edge_agent_id: str) -> None:
+    """Update an agent's liveness from a heartbeat (design A10).
+
+    Only touches last_heartbeat_at + status; a returning agent's connections are
+    reactivated by its next advertisement, not here. No-op if the agent has not
+    advertised yet (there is no row to update).
+    """
+    now = datetime.utcnow()
+    async with async_session_maker() as db:
+        agent = (
+            await db.execute(
+                select(DataEdgeAgent).filter(
+                    DataEdgeAgent.organization_id == org_id,
+                    DataEdgeAgent.edge_agent_id == edge_agent_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if agent is None:
+            return
+        agent.last_heartbeat_at = now
+        if agent.status != "online":
+            agent.status = "online"
+        await db.commit()
+
+
+async def sweep_stale_agents(stale_after_s: int = 45, offline_after_s: int = 120) -> None:
+    """Flip agent status by heartbeat age, and deactivate an offline agent's
+    connections (design A10/B4).
+
+    is_active is a cached reachability flag, so writing it from a missed
+    heartbeat is consistent with what the column already means. A returning
+    agent's advertisement reactivates it. Leader-gated by the caller.
+    """
+    now = datetime.utcnow()
+    async with async_session_maker() as db:
+        agents = (await db.execute(select(DataEdgeAgent))).scalars().all()
+        for a in agents:
+            last = a.last_heartbeat_at or a.last_advertised_at
+            if last is None:
+                continue
+            age = (now - last).total_seconds()
+            if age > offline_after_s:
+                if a.status != "offline":
+                    a.status = "offline"
+                    await db.execute(
+                        update(Connection)
+                        .where(
+                            Connection.organization_id == a.organization_id,
+                            Connection.tunnel_mode.is_(True),
+                            Connection.edge_agent_id == a.edge_agent_id,
+                        )
+                        .values(is_active=False)
+                    )
+                    logger.info(
+                        "tunnel.agent.offline",
+                        extra={"org_id": a.organization_id, "edge_agent_id": a.edge_agent_id},
+                    )
+            elif age > stale_after_s:
+                if a.status == "online":
+                    a.status = "stale"
+                    logger.info(
+                        "tunnel.agent.stale",
+                        extra={"org_id": a.organization_id, "edge_agent_id": a.edge_agent_id},
+                    )
+        await db.commit()
 
 
 class TunnelRegistrationService:

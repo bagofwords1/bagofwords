@@ -66,6 +66,9 @@ async def run(config: AgentConfig) -> None:
     # this agent now, then keep re-publishing (see advertise_forever).
     await tunnel.advertise()
     advertiser = asyncio.create_task(tunnel.advertise_forever(stop))
+    # Heartbeat for UI liveness (A10): a missed window flips the agent's status
+    # and deactivates its connections on the control plane.
+    heartbeater = asyncio.create_task(tunnel.heartbeat_forever(stop))
 
     logger.info(
         "edge_agent.started",
@@ -80,6 +83,7 @@ async def run(config: AgentConfig) -> None:
     await stop.wait()
     logger.info("edge_agent.stopping")
     advertiser.cancel()
+    heartbeater.cancel()
     await tunnel.close()
     logger.info("edge_agent.stopped")
 

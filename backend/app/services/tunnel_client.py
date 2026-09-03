@@ -46,6 +46,8 @@ _INBOX_PREFIX = "_INBOX.bow"
 # never the payload, because core NATS gives a subscriber no publisher identity
 # and the broker only attests the subject (design A10).
 _ADVERTISEMENT_SUBJECT = "tunnel.*.advertisements"
+# Per-agent liveness: tunnel.<org>.<edge_agent_id>.heartbeat (A10).
+_HEARTBEAT_SUBJECT = "tunnel.*.*.heartbeat"
 
 # Leave room for the JSON envelope around a request when checking it against the
 # broker's max_payload (design A6/B3).
@@ -59,6 +61,7 @@ class TunnelClient:
         self._nc: Optional[NATSClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._ad_sub = None
+        self._hb_sub = None
 
     @property
     def is_connected(self) -> bool:
@@ -100,6 +103,26 @@ class TunnelClient:
             _ADVERTISEMENT_SUBJECT, cb=self._on_advertisement
         )
         logger.info("tunnel.advertisement.listening", extra={"subject": _ADVERTISEMENT_SUBJECT})
+
+    async def start_heartbeat_listener(self) -> None:
+        """Subscribe to agent heartbeats and record liveness. Leader-gated by
+        the caller (a plain subscribe fans to every worker; B4)."""
+        if self._nc is None:
+            raise RuntimeError("connect() must be called before start_heartbeat_listener()")
+        self._hb_sub = await self._nc.subscribe(_HEARTBEAT_SUBJECT, cb=self._on_heartbeat)
+        logger.info("tunnel.heartbeat.listening", extra={"subject": _HEARTBEAT_SUBJECT})
+
+    async def _on_heartbeat(self, msg: Msg) -> None:
+        # tunnel.<org_id>.<edge_agent_id>.heartbeat
+        parts = msg.subject.split(".")
+        if len(parts) < 4:
+            return
+        org_id, edge_agent_id = parts[1], parts[2]
+        try:
+            from app.services.tunnel_registration_service import record_heartbeat
+            await record_heartbeat(org_id, edge_agent_id)
+        except Exception:
+            logger.debug("tunnel.heartbeat.record_failed", exc_info=True)
 
     async def _on_advertisement(self, msg: Msg) -> None:
         # org_id is the second subject token: tunnel.<org_id>.advertisements.
@@ -216,14 +239,46 @@ class TunnelClient:
                     logger.debug("tunnel.progress.bad_frame", exc_info=True)
 
             sub = await self._nc.subscribe(f"{base}.progress.{ref_id}", cb=_on_progress)
+
+        watcher = None
+        if cancel_check is not None:
+            watcher = asyncio.create_task(self._watch_cancel(base, ref_id, cancel_check))
         try:
             return await self.invoke(
                 connection, operation, kwargs, ref_id=ref_id, timeout=timeout,
                 user_credentials=user_credentials,
             )
         finally:
+            if watcher is not None:
+                watcher.cancel()
             if sub is not None:
                 await sub.unsubscribe()
+
+    async def _watch_cancel(self, base, ref_id, cancel_check, interval=1.0):
+        """Bridge a local cancel_check callable to a remote cancel (A9).
+
+        cancel_check is a plain callable on this side (indexing passes a
+        threading.Event's is_set); the edge agent cannot read it. Poll it and
+        publish one cancel to the control subject when it first returns true —
+        without this the UI reports cancelled while the operation runs to
+        completion on the source.
+        """
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                fired = cancel_check()
+            except Exception:
+                return
+            if fired:
+                try:
+                    await self._nc.publish(
+                        f"{base}.control",
+                        json.dumps({"method": "cancel",
+                                    "params": {"ref_id": ref_id}}).encode(),
+                    )
+                except Exception:
+                    logger.debug("tunnel.cancel.publish_failed", exc_info=True)
+                return
 
     def _unwrap(self, msg: Msg, connection, operation):
         body = json.loads(msg.data)
@@ -260,6 +315,7 @@ class TunnelClient:
         finally:
             self._nc = None
             self._ad_sub = None
+            self._hb_sub = None
 
     async def _on_error(self, e: Exception) -> None:
         logger.error("tunnel.nats.error", extra={"error": str(e)})

@@ -810,6 +810,19 @@ async def startup_event():
             await tunnel_client.connect(settings.NATS_URL, settings.NATS_TOKEN)
             if is_scheduler_leader:
                 await tunnel_client.start_advertisement_listener()
+                await tunnel_client.start_heartbeat_listener()
+                # Sweep agent liveness: flip status stale/offline and deactivate
+                # an offline agent's connections (design A10/B4). Leader-gated.
+                from app.services.tunnel_registration_service import sweep_stale_agents
+                scheduler.add_job(
+                    sweep_stale_agents,
+                    trigger="interval",
+                    seconds=30,
+                    id="tunnel_agent_liveness_sweep",
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                )
         except Exception:
             logger.exception("Tunnel unavailable; tunneled connections will fail")
     else:
