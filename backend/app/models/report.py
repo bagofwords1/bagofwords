@@ -137,7 +137,7 @@ class Report(BaseSchema):
     )
     queries = relationship("Query", back_populates="report", lazy="selectin")
     visualizations = relationship("Visualization", back_populates="report", lazy="selectin")
-    artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
+    artifacts = relationship("ArtifactVersion", back_populates="report", lazy="selectin")
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")
     stars = relationship("ReportStar", back_populates="report", lazy="selectin")

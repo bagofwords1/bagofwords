@@ -144,15 +144,15 @@ class ThumbnailService:
         Returns the number of artifacts cleared.
         """
         from app.dependencies import async_session_maker
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         from sqlalchemy import select, update
 
         cleared = 0
         async with async_session_maker() as db:
             rows = (await db.execute(
-                select(Artifact.id).where(
-                    Artifact.report_id == str(report_id),
-                    Artifact.thumbnail_path.is_not(None),
+                select(ArtifactVersion.id).where(
+                    ArtifactVersion.report_id == str(report_id),
+                    ArtifactVersion.thumbnail_path.is_not(None),
                 )
             )).all()
             for (artifact_id,) in rows:
@@ -163,8 +163,8 @@ class ThumbnailService:
                 cleared += 1
             if cleared:
                 await db.execute(
-                    update(Artifact)
-                    .where(Artifact.report_id == str(report_id))
+                    update(ArtifactVersion)
+                    .where(ArtifactVersion.report_id == str(report_id))
                     .values(thumbnail_path=None)
                 )
                 await db.commit()
@@ -196,7 +196,7 @@ class ThumbnailService:
         """
         try:
             from app.dependencies import async_session_maker
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
             from app.models.report import Report
             from app.models.visualization import Visualization
             from app.models.query import Query
@@ -219,14 +219,14 @@ class ThumbnailService:
 
                 # Get the latest artifact for this report
                 stmt = (
-                    select(Artifact)
+                    select(ArtifactVersion)
                     .where(
-                        Artifact.report_id == report_id,
-                        Artifact.deleted_at.is_(None),
+                        ArtifactVersion.report_id == report_id,
+                        ArtifactVersion.deleted_at.is_(None),
                         # Report thumbnails render the dashboard, not docs
-                        Artifact.mode.in_(("page", "slides")),
+                        ArtifactVersion.mode.in_(("page", "slides")),
                     )
-                    .order_by(Artifact.created_at.desc())
+                    .order_by(ArtifactVersion.created_at.desc())
                     .limit(1)
                 )
                 result = await db.execute(stmt)
@@ -301,7 +301,7 @@ class ThumbnailService:
 
                 if thumbnail_path:
                     # Update artifact with new thumbnail path
-                    stmt = update(Artifact).where(Artifact.id == artifact.id).values(thumbnail_path=thumbnail_path)
+                    stmt = update(ArtifactVersion).where(ArtifactVersion.id == artifact.id).values(thumbnail_path=thumbnail_path)
                     await db.execute(stmt)
                     await db.commit()
 

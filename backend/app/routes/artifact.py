@@ -19,7 +19,7 @@ from app.errors import AppError, ErrorCode
 
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.artifact import Artifact as ArtifactModel
+from app.models.artifact import ArtifactVersion as ArtifactModel
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.report import Report as ReportModel

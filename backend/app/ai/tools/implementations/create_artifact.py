@@ -28,7 +28,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArtifactOutput
 from app.ai.llm import LLM
 from app.ai.llm.types import ImageInput, Message, TextDeltaEvent
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 from app.services.thumbnail_service import ThumbnailService
@@ -194,8 +194,8 @@ class CreateArtifactTool(Tool):
                 # Use a fresh database session for the background update
                 async with async_session_maker() as db:
                     from sqlalchemy import update
-                    from app.models.artifact import Artifact
-                    stmt = update(Artifact).where(Artifact.id == artifact_id).values(thumbnail_path=thumbnail_path)
+                    from app.models.artifact import ArtifactVersion
+                    stmt = update(ArtifactVersion).where(ArtifactVersion.id == artifact_id).values(thumbnail_path=thumbnail_path)
                     await db.execute(stmt)
                     await db.commit()
         except Exception as e:
@@ -1200,7 +1200,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             pass
 
         # Create artifact early with pending status so frontend can show it
-        artifact = Artifact(
+        artifact = ArtifactVersion(
             report_id=str(report.id) if report else None,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
@@ -1243,14 +1243,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if data.mode == "page" and report is not None:
             try:
                 _prev_res = await db.execute(
-                    select(Artifact)
+                    select(ArtifactVersion)
                     .where(
-                        Artifact.report_id == str(report.id),
-                        Artifact.mode == "page",
-                        Artifact.status == "completed",
-                        Artifact.id != artifact.id,
+                        ArtifactVersion.report_id == str(report.id),
+                        ArtifactVersion.mode == "page",
+                        ArtifactVersion.status == "completed",
+                        ArtifactVersion.id != artifact.id,
                     )
-                    .order_by(Artifact.created_at.desc())
+                    .order_by(ArtifactVersion.created_at.desc())
                     .limit(1)
                 )
                 _prev = _prev_res.scalar_one_or_none()

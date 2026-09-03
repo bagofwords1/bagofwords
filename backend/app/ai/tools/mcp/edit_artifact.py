@@ -13,7 +13,7 @@ from app.ai.tools.mcp.context import build_rich_context
 from app.ai.llm import LLM
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.schemas.mcp import MCPEditArtifactInput, MCPEditArtifactOutput
@@ -69,9 +69,9 @@ class EditArtifactMCPTool(MCPTool):
         # Load the existing artifact
         try:
             result = await db.execute(
-                select(Artifact).where(
-                    Artifact.id == input_data.artifact_id,
-                    Artifact.organization_id == str(organization.id),
+                select(ArtifactVersion).where(
+                    ArtifactVersion.id == input_data.artifact_id,
+                    ArtifactVersion.organization_id == str(organization.id),
                 )
             )
             artifact = result.scalar_one_or_none()
@@ -278,7 +278,7 @@ class EditArtifactMCPTool(MCPTool):
         included_viz_ids = [v["id"] for v in visualizations]
         new_version = artifact.version + 1
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=artifact.report_id,
             user_id=str(user.id),
             organization_id=str(organization.id),

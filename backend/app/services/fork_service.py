@@ -19,7 +19,7 @@ from app.models.completion import Completion
 from app.models.query import Query
 from app.models.visualization import Visualization
 from app.models.widget import Widget
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.services.artifact_service import ArtifactService
@@ -43,7 +43,7 @@ class DuplicatedAssets(NamedTuple):
     widget_id_map: Dict[str, str]
     query_id_map: Dict[str, str]
     viz_id_map: Dict[str, str]
-    artifact: Optional[Artifact]
+    artifact: Optional[ArtifactVersion]
 
 
 class ForkService:
@@ -333,7 +333,7 @@ class ForkService:
         new_report: Report,
         user: User,
         viz_id_map: Dict[str, str],
-    ) -> Optional[Artifact]:
+    ) -> Optional[ArtifactVersion]:
         """Duplicate the latest artifact with remapped visualization_ids."""
         latest = await artifact_service.get_latest_by_report(db, str(original.id))
         if not latest:
@@ -348,7 +348,7 @@ class ForkService:
                 viz_id_map.get(vid, vid) for vid in old_viz_ids
             ]
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=str(new_report.id),
             user_id=str(user.id),
             organization_id=str(new_report.organization_id),
@@ -385,7 +385,7 @@ class ForkService:
         user: User,
         query_id_map: Dict[str, str],
         viz_id_map: Dict[str, str],
-        new_artifact: Optional[Artifact],
+        new_artifact: Optional[ArtifactVersion],
     ):
         """Create a summary completion with asset references for the forked report."""
         # Build asset refs list using NEW IDs

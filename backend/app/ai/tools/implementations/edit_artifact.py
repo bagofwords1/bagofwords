@@ -24,7 +24,7 @@ from app.ai.tools.schemas import (
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
 from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 
 logger = logging.getLogger(__name__)
 
@@ -100,7 +100,7 @@ class EditArtifactTool(Tool):
         report = runtime_ctx.get("report")
         user = runtime_ctx.get("user")
 
-        artifact = await db.get(Artifact, str(data.artifact_id))
+        artifact = await db.get(ArtifactVersion, str(data.artifact_id))
         if artifact is None or (report is not None and str(artifact.report_id) != str(report.id)):
             yield self._fail(None, "not_found", f"Artifact {data.artifact_id} not found in this report.")
             return
@@ -281,7 +281,7 @@ class EditArtifactTool(Tool):
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if content.get("files"):
             new_content["files"] = content.get("files")
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=artifact.report_id,
             user_id=str(user.id) if user else artifact.user_id,
             organization_id=artifact.organization_id,

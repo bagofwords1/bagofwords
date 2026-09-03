@@ -20,7 +20,7 @@ from app.ai.tools.schemas.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 
 from ._doc_markdown import (
     MAX_DOC_CHARS,
@@ -98,9 +98,9 @@ class EditDocTool(Tool):
         report_id = str(report.id) if report else None
 
         result = await db.execute(
-            select(Artifact).where(
-                Artifact.id == data.doc_id,
-                Artifact.deleted_at.is_(None),
+            select(ArtifactVersion).where(
+                ArtifactVersion.id == data.doc_id,
+                ArtifactVersion.deleted_at.is_(None),
             )
         )
         artifact = result.scalar_one_or_none()
@@ -174,7 +174,7 @@ class EditDocTool(Tool):
 
         new_version = (artifact.version or 1) + 1
         new_title = data.title or artifact.title
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=str(artifact.report_id),
             user_id=str(user.id) if user else (str(artifact.user_id) if artifact.user_id else None),
             organization_id=str(organization.id) if organization else (

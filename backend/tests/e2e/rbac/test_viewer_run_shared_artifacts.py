@@ -24,7 +24,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
@@ -117,7 +117,7 @@ async def _seed_artifact_graph(report_id: str, n_queries: int = 1):
             viz_ids.append(str(viz.id))
             step_ids.append(str(step.id))
 
-        db.add(Artifact(
+        db.add(ArtifactVersion(
             report_id=report_id,
             user_id=user_id,
             organization_id=org_id,
@@ -796,7 +796,7 @@ async def _set_artifact_thumbnail(report_id: str) -> str:
     from sqlalchemy import select
     async with async_session_maker() as db:
         art = (await db.execute(
-            select(Artifact).where(Artifact.report_id == str(report_id))
+            select(ArtifactVersion).where(ArtifactVersion.report_id == str(report_id))
         )).scalars().first()
         art.thumbnail_path = f"thumbnails/{art.id}.png"
         await db.commit()
@@ -823,7 +823,7 @@ def test_strict_mode_drops_artifact_thumbnail(
         from sqlalchemy import select
         async with async_session_maker() as db:
             art = (await db.execute(
-                select(Artifact).where(Artifact.report_id == str(report["id"]))
+                select(ArtifactVersion).where(ArtifactVersion.report_id == str(report["id"]))
             )).scalars().first()
             return art.thumbnail_path
     assert _run(_thumb()) is None
@@ -841,7 +841,7 @@ def test_strict_mode_drops_artifact_thumbnail(
         from sqlalchemy import select
         async with async_session_maker() as db:
             art = (await db.execute(
-                select(Artifact).where(Artifact.report_id == str(plain["id"]))
+                select(ArtifactVersion).where(ArtifactVersion.report_id == str(plain["id"]))
             )).scalars().first()
             return art.thumbnail_path
     assert _run(_thumb2()) is not None

@@ -770,7 +770,7 @@ class ProjectService:
         # Dashboard count mirrors the project page's dashboards section
         # (reports with any artifact — same subquery as get_reports'
         # has_artifacts filter); automations = scheduled tasks + refreshes.
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         from app.models.scheduled_prompt import ScheduledPrompt
         dc = await db.execute(
             select(func.count(Report.id)).where(
@@ -778,7 +778,7 @@ class ProjectService:
                 Report.status != "archived",
                 Report.deleted_at.is_(None),
                 Report.id.in_(
-                    select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                    select(ArtifactVersion.report_id).where(ArtifactVersion.report_id.isnot(None))
                 ),
             )
         )

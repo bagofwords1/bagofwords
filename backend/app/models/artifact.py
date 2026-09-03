@@ -3,7 +3,7 @@ from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
 
 
-class Artifact(BaseSchema):
+class ArtifactVersion(BaseSchema):
     """
     Stores AI-generated artifacts (React code) for dashboards.
 

@@ -28,7 +28,7 @@ import uuid
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
@@ -85,7 +85,7 @@ async def _seed_artifact_step(report_id: str, step_code: str):
         db.add(viz)
         await db.flush()
 
-        db.add(Artifact(report_id=report_id, user_id=user_id, organization_id=org_id,
+        db.add(ArtifactVersion(report_id=report_id, user_id=user_id, organization_id=org_id,
                         title="Dashboard", mode="page", version=1, status="completed",
                         content={"code": "function App() {}",
                                  "visualization_ids": [str(viz.id)]}))

@@ -42,7 +42,7 @@ from app.ai.tools.implementations._artifact_images import load_image_bytes
 from app.ai.code_execution.pptx_executor import PptxPreviewService
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
@@ -802,11 +802,11 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "loading_artifact"})
         try:
             result = await db.execute(
-                select(Artifact)
+                select(ArtifactVersion)
                 .options(lazyload("*"))
                 .where(
-                    Artifact.id == data.artifact_id,
-                    Artifact.organization_id == str(organization.id),
+                    ArtifactVersion.id == data.artifact_id,
+                    ArtifactVersion.organization_id == str(organization.id),
                 )
             )
             artifact = result.scalar_one_or_none()
@@ -1543,7 +1543,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         prev_spec = artifact.generation_prompt or ""
         accumulated_spec = f"{prev_spec}\n+ Edit (v{new_version}): {data.edit_prompt}".strip()
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=artifact.report_id,
             user_id=str(user.id) if user else artifact.user_id,
             organization_id=artifact.organization_id,

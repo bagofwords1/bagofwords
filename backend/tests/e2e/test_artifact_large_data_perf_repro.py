@@ -63,7 +63,7 @@ from app.models.widget import Widget
 from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 
 
 ROWS_PER_STEP = int(os.environ.get("BOW_REPRO_ROWS", "15000"))
@@ -210,7 +210,7 @@ async def _seed(rows_per_step: int):
         # a realistic generated dashboard: ~100 kB of JSX per artifact version
         fake_code = "function Dashboard() {\n" + ("  // chart section filler line of jsx code\n" * 2500) + "}\n"
         for vi in range(N_ARTIFACT_VERSIONS):
-            db.add(Artifact(
+            db.add(ArtifactVersion(
                 report_id=report.id,
                 user_id=user.id,
                 organization_id=org.id,

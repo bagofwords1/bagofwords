@@ -741,7 +741,7 @@ class ReportService:
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
         # version's data via Query.steps' selectin cascade.
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         qc_result = await db.execute(
             select(func.count(Query.id)).where(
                 Query.report_id == report.id,
@@ -750,9 +750,9 @@ class ReportService:
         )
         report_schema.query_count = qc_result.scalar() or 0
         ac_result = await db.execute(
-            select(func.count(Artifact.id)).where(
-                Artifact.report_id == report.id,
-                Artifact.deleted_at.is_(None),
+            select(func.count(ArtifactVersion.id)).where(
+                ArtifactVersion.report_id == report.id,
+                ArtifactVersion.deleted_at.is_(None),
             )
         )
         report_schema.artifact_count = ac_result.scalar() or 0
@@ -1206,23 +1206,23 @@ class ReportService:
         collecting across all of them would rerun queries the dashboard no
         longer shows. (Dashboard-layout visualization blocks are deprecated
         and no longer consulted.)"""
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifact_stmt = (
-            select(Artifact.content)
+            select(ArtifactVersion.content)
             .where(
-                Artifact.report_id == str(report_id),
-                Artifact.deleted_at.is_(None),
+                ArtifactVersion.report_id == str(report_id),
+                ArtifactVersion.deleted_at.is_(None),
             )
-            .order_by(Artifact.created_at.desc())
+            .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
         )
         if artifact_id:
             # Explicit target may be any mode — docs refresh their embedded vizs too.
-            artifact_stmt = artifact_stmt.where(Artifact.id == str(artifact_id))
+            artifact_stmt = artifact_stmt.where(ArtifactVersion.id == str(artifact_id))
         else:
             # Default rerun follows the latest DASHBOARD; a newer doc must not
             # silently change which queries a report rerun refreshes.
-            artifact_stmt = artifact_stmt.where(Artifact.mode.in_(("page", "slides")))
+            artifact_stmt = artifact_stmt.where(ArtifactVersion.mode.in_(("page", "slides")))
         artifact_row = (await db.execute(artifact_stmt)).first()
         content = artifact_row[0] if artifact_row else None
         viz_ids = list(dict.fromkeys(
@@ -2087,12 +2087,12 @@ class ReportService:
         # If artifact_id provided, filter to only queries used by that artifact
         query_ids_filter = None
         if artifact_id:
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
             artifact_result = await db.execute(
-                select(Artifact).options(lazyload("*")).where(
-                    Artifact.id == artifact_id,
-                    Artifact.report_id == report_id,
-                    Artifact.deleted_at.is_(None)
+                select(ArtifactVersion).options(lazyload("*")).where(
+                    ArtifactVersion.id == artifact_id,
+                    ArtifactVersion.report_id == report_id,
+                    ArtifactVersion.deleted_at.is_(None)
                 )
             )
             artifact = artifact_result.scalar_one_or_none()
@@ -2225,11 +2225,11 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch artifacts for this report
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifacts_result = await db.execute(
-            select(Artifact).options(lazyload("*"))
-            .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
-            .order_by(Artifact.created_at.desc())
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None))
+            .order_by(ArtifactVersion.created_at.desc())
         )
         artifacts = artifacts_result.scalars().all()
 
@@ -2249,12 +2249,12 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch the artifact and verify it belongs to this report
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
-            select(Artifact).options(lazyload("*")).where(
-                Artifact.id == artifact_id,
-                Artifact.report_id == report_id,
-                Artifact.deleted_at.is_(None)
+            select(ArtifactVersion).options(lazyload("*")).where(
+                ArtifactVersion.id == artifact_id,
+                ArtifactVersion.report_id == report_id,
+                ArtifactVersion.deleted_at.is_(None)
             )
         )
         artifact = artifact_result.scalar_one_or_none()
@@ -2423,28 +2423,28 @@ class ReportService:
 
             # Optional filter by artifact presence
             if has_artifacts == 'yes':
-                from app.models.artifact import Artifact
+                from app.models.artifact import ArtifactVersion
                 base_conditions.append(
                     Report.id.in_(
-                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                        select(ArtifactVersion.report_id).where(ArtifactVersion.report_id.isnot(None))
                     )
                 )
             elif has_artifacts == 'no':
-                from app.models.artifact import Artifact
+                from app.models.artifact import ArtifactVersion
                 base_conditions.append(
                     ~Report.id.in_(
-                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                        select(ArtifactVersion.report_id).where(ArtifactVersion.report_id.isnot(None))
                     )
                 )
 
             # Optional filter by artifact mode ('page' / 'slides' / 'doc')
             if artifact_mode in ("page", "slides", "doc"):
-                from app.models.artifact import Artifact
+                from app.models.artifact import ArtifactVersion
                 base_conditions.append(
                     Report.id.in_(
-                        select(Artifact.report_id).where(
-                            Artifact.mode == artifact_mode,
-                            Artifact.deleted_at.is_(None),
+                        select(ArtifactVersion.report_id).where(
+                            ArtifactVersion.mode == artifact_mode,
+                            ArtifactVersion.deleted_at.is_(None),
                         )
                     )
                 )
@@ -2479,7 +2479,7 @@ class ReportService:
             # relationship except `user`, and derives artifact_modes from one
             # batched query, so it never touches that graph.
             if view == "minimal":
-                from app.models.artifact import Artifact
+                from app.models.artifact import ArtifactVersion
                 from app.schemas.report_schema import PaginationMeta, ReportListResponse
                 m_query = (
                     base_query.options(noload("*"), selectinload(Report.user))
@@ -2520,9 +2520,9 @@ class ReportService:
                         )).all()
                     }
                     for rid, am_mode in (await db.execute(
-                        select(Artifact.report_id, Artifact.mode).where(
-                            Artifact.report_id.in_(report_ids),
-                            Artifact.mode.isnot(None),
+                        select(ArtifactVersion.report_id, ArtifactVersion.mode).where(
+                            ArtifactVersion.report_id.in_(report_ids),
+                            ArtifactVersion.mode.isnot(None),
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)

@@ -25,7 +25,7 @@ _env_src = (Path(__file__).resolve().parents[2] / "alembic" / "env.py").read_tex
 for _stmt in re.findall(r"^from app\.models\S* import \([^)]*\)|^from app\.models[^\n]+", _env_src, re.M):
     exec(_stmt)  # noqa: S102 — test-only, mirrors alembic/env.py
 
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.base import Base
 from app.models.completion import Completion
 from app.models.organization import Organization
@@ -58,8 +58,8 @@ async def report_context():
         db.add(report)
         await db.flush()
 
-        def _artifact(title: str, mode: str, version: int, body: str) -> Artifact:
-            return Artifact(
+        def _artifact(title: str, mode: str, version: int, body: str) -> ArtifactVersion:
+            return ArtifactVersion(
                 report_id=str(report.id),
                 user_id=str(user.id),
                 organization_id=str(organization.id),
