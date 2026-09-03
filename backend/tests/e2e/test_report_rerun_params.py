@@ -39,7 +39,7 @@ import pytest
 from sqlalchemy import select
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
@@ -147,7 +147,7 @@ async def _seed(report_id, specs_and_code, applied_params_per_query):
             viz_ids.append(str(viz.id))
             step_ids.append(str(step.id))
 
-        db.add(Artifact(
+        db.add(ArtifactVersion(
             report_id=report_id, user_id=user_id, organization_id=org_id,
             title="Dashboard", mode="page", version=1, status="completed",
             content={"code": "function App() {}", "visualization_ids": viz_ids},

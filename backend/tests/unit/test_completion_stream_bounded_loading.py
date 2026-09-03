@@ -24,7 +24,7 @@ for _stmt in re.findall(r"^from app\.models\S* import \([^)]*\)|^from app\.model
     exec(_stmt)  # noqa: S102 -- test-only, mirrors alembic/env.py
 
 from app.ai.context.builders.files_context_builder import FilesContextBuilder
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.base import Base
 from app.models.completion import Completion
 from app.models.file import File
@@ -84,7 +84,7 @@ async def report_with_unrelated_graph():
             organization_id=str(organization.id),
             user_id=str(owner.id),
         ))
-        db.add(Artifact(
+        db.add(ArtifactVersion(
             report_id=str(report.id),
             user_id=str(owner.id),
             organization_id=str(organization.id),

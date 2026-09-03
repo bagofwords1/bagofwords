@@ -56,7 +56,7 @@ from app.dependencies import async_session_maker
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.report import Report
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
@@ -177,7 +177,7 @@ async def _seed():
         # The artifact's contract: an ORDERED list of exactly its two vizs.
         ordered_viz_ids = [str(viz_txn.id), str(viz_revenue.id)]
 
-        artifact = Artifact(
+        artifact = ArtifactVersion(
             report_id=report.id,
             user_id=user.id,
             organization_id=org.id,

@@ -18,7 +18,7 @@ from app.models.organization import Organization
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.step import Step
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.membership import Membership
 
 logger = logging.getLogger(__name__)
@@ -169,9 +169,9 @@ class GetArtifactDataMCPTool(MCPTool):
 
         # Fetch artifact with report relationship
         result = await db.execute(
-            select(Artifact)
-            .options(selectinload(Artifact.report))
-            .where(Artifact.id == artifact_id)
+            select(ArtifactVersion)
+            .options(selectinload(ArtifactVersion.report))
+            .where(ArtifactVersion.id == artifact_id)
         )
         artifact = result.scalar_one_or_none()
 

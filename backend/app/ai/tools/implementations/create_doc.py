@@ -21,7 +21,7 @@ from app.ai.tools.schemas.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 
 from ._doc_markdown import (
@@ -205,7 +205,7 @@ class CreateDocTool(Tool):
             owned = {str(r) for r in rows.scalars().all()}
             valid_file_ids = [f for f in file_ids if f in owned]
 
-        artifact = Artifact(
+        artifact = ArtifactVersion(
             report_id=report_id,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,

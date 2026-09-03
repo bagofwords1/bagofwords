@@ -22,7 +22,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
@@ -241,7 +241,7 @@ async def _seed_authored_artifact(report_id, viz_id, mode="page"):
     the section and must stub it."""
     async with async_session_maker() as db:
         report = await db.get(Report, report_id)
-        artifact = Artifact(
+        artifact = ArtifactVersion(
             report_id=report_id,
             user_id=report.user_id,
             organization_id=report.organization_id,

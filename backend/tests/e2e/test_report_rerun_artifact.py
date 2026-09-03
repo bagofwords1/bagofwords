@@ -39,7 +39,7 @@ from app.models.widget import Widget
 from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 
 
 def _run(coro):
@@ -180,7 +180,7 @@ async def _seed_artifact_graph(
             query_ids.append(str(query.id))
             viz_ids.append(str(viz.id))
 
-        db.add(Artifact(
+        db.add(ArtifactVersion(
             report_id=report_id,
             user_id=user_id,
             organization_id=org_id,

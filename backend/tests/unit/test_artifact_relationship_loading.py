@@ -25,7 +25,7 @@ from app.ai.agent_v2 import AgentV2
 from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool
 from app.ai.tools.implementations.read_artifact import ReadArtifactTool
 from app.ai.tools.implementations.read_query import ReadQueryTool
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.base import Base
 from app.models.completion import Completion
 from app.models.organization import Organization
@@ -152,7 +152,7 @@ async def artifact_context():
         )
         db.add_all([requested_visualization, sibling_visualization])
 
-        dashboard = Artifact(
+        dashboard = ArtifactVersion(
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
@@ -162,7 +162,7 @@ async def artifact_context():
             status="completed",
             content={"code": "function App() { return null }", "visualization_ids": []},
         )
-        document = Artifact(
+        document = ArtifactVersion(
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
@@ -185,7 +185,7 @@ async def artifact_context():
         )
         for index in range(4):
             db.add(
-                Artifact(
+                ArtifactVersion(
                     report_id=str(report.id),
                     user_id=str(user.id),
                     organization_id=str(organization.id),
@@ -234,7 +234,7 @@ async def _record_sql_and_graph_loads(db, operation):
     loaded: dict[str, set[str]] = {}
 
     def _capture_load(_session, instance):
-        if isinstance(instance, (Report, Artifact, Completion, Query, Step, Visualization, Widget)):
+        if isinstance(instance, (Report, ArtifactVersion, Completion, Query, Step, Visualization, Widget)):
             loaded.setdefault(type(instance).__name__, set()).add(str(instance.id))
 
     event.listen(db.sync_session, "loaded_as_persistent", _capture_load)

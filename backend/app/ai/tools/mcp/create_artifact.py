@@ -13,7 +13,7 @@ from app.ai.tools.mcp.context import build_rich_context
 from app.ai.llm import LLM
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.ai.tools.implementations._sandbox_context import ARTIFACT_RUNTIME_VERSION
 from app.models.visualization import Visualization
 from app.models.query import Query
@@ -181,7 +181,7 @@ class CreateArtifactMCPTool(MCPTool):
         included_viz_ids = [v["id"] for v in visualizations]
 
         # Create Artifact record
-        artifact = Artifact(
+        artifact = ArtifactVersion(
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),

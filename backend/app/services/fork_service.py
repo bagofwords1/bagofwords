@@ -20,7 +20,7 @@ from app.models.completion import Completion
 from app.models.query import Query
 from app.models.visualization import Visualization
 from app.models.widget import Widget
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
 from app.models.user import User
 from app.services.artifact_service import ArtifactService
@@ -60,7 +60,7 @@ class DuplicatedAssets(NamedTuple):
     widget_id_map: Dict[str, str]
     query_id_map: Dict[str, str]
     viz_id_map: Dict[str, str]
-    artifact: Optional[Artifact]
+    artifact: Optional[ArtifactVersion]
     # {new_step_id: source code} for steps whose code was deliberately NOT
     # written into the fork (delegated sources). The hydration pass runs each
     # under the forker's own credentials and writes the code back only where
@@ -841,7 +841,7 @@ class ForkService:
         viz_id_map: Dict[str, str],
         strict_source: bool = False,
         user_scoped: bool = False,
-    ) -> Tuple[Optional[Artifact], bool]:
+    ) -> Tuple[Optional[ArtifactVersion], bool]:
         """Duplicate the latest artifact with remapped visualization_ids.
 
         Returns the new artifact and whether the fork must draw its own
@@ -885,7 +885,7 @@ class ForkService:
         else:
             new_content = dict(old_content)
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=str(new_report.id),
             user_id=str(user.id),
             organization_id=str(new_report.organization_id),
@@ -947,7 +947,7 @@ class ForkService:
         user: User,
         query_id_map: Dict[str, str],
         viz_id_map: Dict[str, str],
-        new_artifact: Optional[Artifact],
+        new_artifact: Optional[ArtifactVersion],
     ):
         """Create a summary completion with asset references for the forked report."""
         # Build asset refs list using NEW IDs

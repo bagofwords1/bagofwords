@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import defer, lazyload, load_only
 
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.report import Report
 from app.schemas.artifact_schema import (
     ArtifactCreate,
@@ -20,9 +20,9 @@ class ArtifactService:
         payload: ArtifactCreate,
         user_id: str,
         organization_id: str,
-    ) -> Artifact:
+    ) -> ArtifactVersion:
         """Create a new artifact."""
-        artifact = Artifact(
+        artifact = ArtifactVersion(
             report_id=str(payload.report_id),
             user_id=str(user_id),
             organization_id=str(organization_id),
@@ -46,7 +46,7 @@ class ArtifactService:
         title: Optional[str],
         user_id: str,
         organization_id: str,
-    ) -> Artifact:
+    ) -> ArtifactVersion:
         """Persist a user-edited version of a doc artifact (mode='doc').
 
         Mirrors the edit_doc tool's contract: validates {{viz:...}} placeholders,
@@ -95,7 +95,7 @@ class ArtifactService:
         if problems:
             raise HTTPException(status_code=400, detail="Invalid visualization placeholders: " + "; ".join(problems))
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=str(artifact.report_id),
             user_id=str(user_id),
             organization_id=str(organization_id),
@@ -111,20 +111,20 @@ class ArtifactService:
         await db.refresh(new_artifact)
         return new_artifact
 
-    async def get(self, db: AsyncSession, artifact_id: str) -> Optional[Artifact]:
+    async def get(self, db: AsyncSession, artifact_id: str) -> Optional[ArtifactVersion]:
         """Get an artifact by ID.
 
         lazyload("*"): consumers only use the artifact's own columns;
         Artifact.report would otherwise selectin-cascade the entire report
         graph (every step version's data JSON) on each fetch.
         """
-        stmt = select(Artifact).options(
+        stmt = select(ArtifactVersion).options(
             lazyload("*"),
-            defer(Artifact.screenshot_base64),
-            defer(Artifact.render_errors),
+            defer(ArtifactVersion.screenshot_base64),
+            defer(ArtifactVersion.render_errors),
         ).where(
-            Artifact.id == str(artifact_id),
-            Artifact.deleted_at.is_(None),
+            ArtifactVersion.id == str(artifact_id),
+            ArtifactVersion.deleted_at.is_(None),
         )
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
@@ -134,7 +134,7 @@ class ArtifactService:
         db: AsyncSession,
         report_id: str,
         organization_id: Optional[str] = None,
-    ) -> List[Artifact]:
+    ) -> List[ArtifactVersion]:
         """List all artifacts for a report, scoped to the caller's organization.
 
         When ``organization_id`` is provided the read is constrained to that
@@ -143,34 +143,34 @@ class ArtifactService:
         this binding).
         """
         stmt = (
-            select(Artifact)
+            select(ArtifactVersion)
             .options(
                 lazyload("*"),
                 load_only(
-                    Artifact.id,
-                    Artifact.report_id,
-                    Artifact.title,
-                    Artifact.mode,
-                    Artifact.version,
-                    Artifact.status,
-                    Artifact.created_at,
-                    Artifact.updated_at,
+                    ArtifactVersion.id,
+                    ArtifactVersion.report_id,
+                    ArtifactVersion.title,
+                    ArtifactVersion.mode,
+                    ArtifactVersion.version,
+                    ArtifactVersion.status,
+                    ArtifactVersion.created_at,
+                    ArtifactVersion.updated_at,
                 ),
             )
             .where(
-                Artifact.report_id == str(report_id),
-                Artifact.deleted_at.is_(None),
+                ArtifactVersion.report_id == str(report_id),
+                ArtifactVersion.deleted_at.is_(None),
             )
-            .order_by(Artifact.created_at.desc())
+            .order_by(ArtifactVersion.created_at.desc())
         )
         if organization_id:
-            stmt = stmt.where(Artifact.organization_id == str(organization_id))
+            stmt = stmt.where(ArtifactVersion.organization_id == str(organization_id))
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
     async def get_latest_by_report(
         self, db: AsyncSession, report_id: str, include_docs: bool = False
-    ) -> Optional[Artifact]:
+    ) -> Optional[ArtifactVersion]:
         """Get the most recent artifact for a report.
 
         By default docs (mode='doc') are excluded: every existing consumer of
@@ -178,27 +178,27 @@ class ArtifactService:
         Pass include_docs=True to consider docs too.
         """
         stmt = (
-            select(Artifact)
+            select(ArtifactVersion)
             .options(
                 lazyload("*"),
-                defer(Artifact.screenshot_base64),
-                defer(Artifact.render_errors),
+                defer(ArtifactVersion.screenshot_base64),
+                defer(ArtifactVersion.render_errors),
             )
             .where(
-                Artifact.report_id == str(report_id),
-                Artifact.deleted_at.is_(None),
+                ArtifactVersion.report_id == str(report_id),
+                ArtifactVersion.deleted_at.is_(None),
             )
-            .order_by(Artifact.created_at.desc())
+            .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
         )
         if not include_docs:
-            stmt = stmt.where(Artifact.mode.in_(("page", "slides")))
+            stmt = stmt.where(ArtifactVersion.mode.in_(("page", "slides")))
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
     async def update(
         self, db: AsyncSession, artifact_id: str, patch: ArtifactUpdate
-    ) -> Optional[Artifact]:
+    ) -> Optional[ArtifactVersion]:
         """Update an existing artifact."""
         artifact = await self.get(db, artifact_id)
         if not artifact:
@@ -237,13 +237,13 @@ class ArtifactService:
         user_id: str,
         generation_prompt: Optional[str] = None,
         completion_id: Optional[str] = None,
-    ) -> Optional[Artifact]:
+    ) -> Optional[ArtifactVersion]:
         """Create a new version of an artifact by copying and updating content."""
         original = await self.get(db, artifact_id)
         if not original:
             return None
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=original.report_id,
             user_id=str(user_id),
             organization_id=original.organization_id,
@@ -264,7 +264,7 @@ class ArtifactService:
         db: AsyncSession,
         artifact_id: str,
         user_id: str,
-    ) -> Optional[Artifact]:
+    ) -> Optional[ArtifactVersion]:
         """Duplicate an artifact to make it the latest version.
 
         This creates a copy of the artifact with a new timestamp,
@@ -289,15 +289,15 @@ class ArtifactService:
         # collides: the result is greater than every version in the chain
         # being reverted.
         max_version = (await db.execute(
-            select(func.max(Artifact.version)).where(
-                Artifact.report_id == str(original.report_id),
-                Artifact.organization_id == str(original.organization_id),
-                Artifact.mode == original.mode,
-                Artifact.deleted_at.is_(None),
+            select(func.max(ArtifactVersion.version)).where(
+                ArtifactVersion.report_id == str(original.report_id),
+                ArtifactVersion.organization_id == str(original.organization_id),
+                ArtifactVersion.mode == original.mode,
+                ArtifactVersion.deleted_at.is_(None),
             )
         )).scalar() or 0
 
-        new_artifact = Artifact(
+        new_artifact = ArtifactVersion(
             report_id=original.report_id,
             user_id=str(user_id),
             organization_id=original.organization_id,
