@@ -1,6 +1,10 @@
 # VMware Aria Operations 8.18 + Storage (Hitachi, NetApp, Infinidat, IBM) — Connector Research
 
-Research only — nothing is implemented. Requested by an RCA (root-cause analysis)
+**Status: the Aria Operations connector (§6e) is implemented** —
+`backend/app/data_sources/clients/aria_operations_client.py`, mock in
+`tools/aria_operations/`, verified loop in
+`docs/feedback-loops/aria-operations-connector.md`. The storage connectors
+(§4) remain research. Requested by an RCA (root-cause analysis)
 customer running **VMware Aria Operations 8.18.0** with **Hitachi, NetApp,
 Infinidat and IBM** storage behind it. **Everything is on-premises** — no
 vendor SaaS (Storage Insights, InfiniVerse, Clear Sight, BlueXP/DII) is in

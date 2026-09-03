@@ -39,6 +39,8 @@ from app.schemas.data_sources.configs import (
     ZabbixUserPassCredentials,
     AppDynamicsConfig,
     AppDynamicsUserPassCredentials,
+    AriaOperationsConfig,
+    AriaOperationsUserPassCredentials,
     AppDynamicsApiClientCredentials,
     ElasticsearchConfig,
     ElasticsearchApiKeyCredentials,
@@ -710,6 +712,24 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=ZabbixUserPassCredentials, scopes=["system", "user"]),
         }),
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
+        requires_license="enterprise",
+    ),
+    "aria_operations": DataSourceRegistryEntry(
+        type="aria_operations",
+        category="infra",
+        title="VMware Aria Operations",
+        description="VMware Aria Operations (vRealize Operations / VCF Operations). Query the vSphere estate and every installed management pack (storage arrays, NSX …): inventory, topology, metrics with history and dynamic thresholds, alerts and symptoms via the Suite API — for infrastructure RCA.",
+        config_schema=AriaOperationsConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            # The Suite API has no API keys: a local or LDAP/AD user acquires a
+            # 6-hour session token. Per-user scope = each analyst's own Aria
+            # login, so Aria's own RBAC applies.
+            "userpass": AuthVariant(title="Username + Password", schema=AriaOperationsUserPassCredentials, scopes=["system", "user"]),
+        }),
+        # Explicit path: dynamic resolution would derive "AriaOperationsClient"
+        # correctly today, but the explicit path is the contract.
+        client_path="app.data_sources.clients.aria_operations_client.AriaOperationsClient",
+        version="beta",
         requires_license="enterprise",
     ),
     "elasticsearch": DataSourceRegistryEntry(

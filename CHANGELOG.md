@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.554 (September 3, 2026)
+- Added VMware Aria Operations (vRealize / VCF Operations) as an infrastructure connector for RCA: inventory, topology, metrics with dynamic thresholds, alerts and symptoms, plus per-object-type metric tables for installed management packs (enterprise)
+
 ## Version 0.0.553 (September 2, 2026)
 - Saved queries can be loaded with parameter values without LLM code generation: run API, entity page, and the agent's describe_entity
 - Entity save/edit form now says "Agents" instead of "Data Sources"
