@@ -2426,6 +2426,14 @@
           "name": "Frühere Schritte wiederverwenden (load_step)",
           "description": "Erlaubt erzeugtem Code, die Ergebnisse eines früheren Schritts in diesem Bericht über load_step wiederzuverwenden, statt erneut abzufragen. Ist die Option aus, wird load_step dem Agenten weder angeboten noch zur Laufzeit bereitgestellt."
         },
+        "enable_ml_training": {
+          "name": "Maschinelles Lernen (scikit-learn)",
+          "description": "Erlaubt generiertem Code, scikit-learn-Modelle (Klassifikation, Regression, Clustering, Feature-Importance) auf Abfrageergebnissen und hochgeladenen Dateien zu trainieren. Das Training läuft im Serverprozess; deaktivieren, um generierten Code auf pandas/numpy-Analysen zu beschränken."
+        },
+        "ml_training_row_limit": {
+          "name": "Zeilenlimit für ML-Training",
+          "description": "Maximale Anzahl Zeilen, auf denen generierter Code ein Modell trainieren soll. Größere Quellen werden vor dem Training auf diese Größe gesampelt. Mindestens 1000."
+        },
         "enable_custom_queries": {
           "name": "Benutzerdefinierte Abfragen (Beta)",
           "description": "Erlaubt Verbindungsadministratoren, SQL zu definieren, das BOW nach Zeitplan in eine verschlüsselte lokale Kopie materialisiert, sodass Agenten aus dem zwischengespeicherten Ergebnis antworten, statt die Quelle in jeder Runde abzufragen. Beta: standardmäßig aus."

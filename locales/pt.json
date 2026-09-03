@@ -2426,6 +2426,14 @@
           "name": "Reutilizar etapas anteriores (load_step)",
           "description": "Permite que o código gerado reutilize os resultados de uma etapa anterior deste relatório via load_step em vez de consultar novamente. Quando desativado, load_step não é oferecido ao agente nem fica disponível em tempo de execução."
         },
+        "enable_ml_training": {
+          "name": "Aprendizado de máquina (scikit-learn)",
+          "description": "Permite que o código gerado treine modelos scikit-learn (classificação, regressão, clustering, importância de variáveis) sobre resultados de consultas e arquivos enviados. O treinamento roda no processo do servidor; desative para limitar o código gerado a análises com pandas/numpy."
+        },
+        "ml_training_row_limit": {
+          "name": "Limite de linhas para treino de ML",
+          "description": "Número máximo de linhas com as quais o código gerado deve treinar um modelo. Fontes maiores são amostradas até esse tamanho antes do treino. Mínimo 1000."
+        },
         "enable_custom_queries": {
           "name": "Consultas personalizadas (beta)",
           "description": "Permite que administradores de conexão definam SQL que o BOW materializa em uma cópia local criptografada conforme uma programação, de modo que os agentes respondam a partir do resultado armazenado em vez de consultar a fonte a cada turno. Beta: desativado por padrão."

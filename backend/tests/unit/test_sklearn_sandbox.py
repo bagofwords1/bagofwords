@@ -123,3 +123,103 @@ def test_ml_rules_tell_the_coder_what_the_executor_enforces():
     # Sandbox idioms that sklearn code otherwise trips over.
     assert "type(model).__name__" in rules
     assert "joblib" in rules
+
+
+# ---------------------------------------------------------------------------
+# Org-level gate: `enable_ml_training` / `ml_training_row_limit`
+# ---------------------------------------------------------------------------
+from app.ai.code_execution.code_execution import (  # noqa: E402
+    ML_TRAINING_MODULES,
+    ML_TRAINING_ROW_LIMIT_DEFAULT,
+    ML_TRAINING_ROW_LIMIT_MIN,
+    ml_training_settings,
+)
+from app.schemas.organization_settings_schema import OrganizationSettingsConfig  # noqa: E402
+
+
+class _FakeSettings:
+    """Minimal stand-in for OrganizationSettings.get_config."""
+
+    def __init__(self, **values):
+        self._values = values
+
+    def get_config(self, key):
+        if key in self._values:
+            return type("Cfg", (), {"value": self._values[key]})()
+        return None
+
+
+def test_ml_settings_default_on_with_50k_row_limit():
+    cfg = OrganizationSettingsConfig()
+    assert cfg.enable_ml_training.value is True
+    assert cfg.ml_training_row_limit.value == ML_TRAINING_ROW_LIMIT_DEFAULT
+    assert ml_training_settings(None) == (True, ML_TRAINING_ROW_LIMIT_DEFAULT)
+
+
+def test_ml_settings_read_from_org_and_floor_the_row_limit():
+    assert ml_training_settings(_FakeSettings(enable_ml_training=False, ml_training_row_limit=20000)) == (False, 20000)
+    # An edited value below the floor can't make every fit degenerate.
+    assert ml_training_settings(_FakeSettings(ml_training_row_limit=5)) == (True, ML_TRAINING_ROW_LIMIT_MIN)
+    # Garbage falls back to defaults rather than raising.
+    assert ml_training_settings(_FakeSettings(ml_training_row_limit="lots")) == (True, ML_TRAINING_ROW_LIMIT_DEFAULT)
+
+
+def test_sklearn_rejected_at_validation_when_training_disabled():
+    executor = StreamingCodeExecutor(
+        organization_settings=_FakeSettings(enable_ml_training=False), logger=None
+    )
+    with pytest.raises(UnsafePythonError, match="machine-learning training .* is disabled"):
+        executor.execute_code(code=_SKLEARN_CODE, ds_clients={}, excel_files=[])
+    # Same gate, called directly.
+    with pytest.raises(UnsafePythonError, match="Forbidden import: 'from scipy.stats'"):
+        validate_python_code(
+            "def generate_df(ds_clients, excel_files):\n    from scipy.stats import zscore\n    return None\n",
+            extra_forbidden_modules=ML_TRAINING_MODULES,
+        )
+
+
+def test_sklearn_runs_when_training_enabled_by_org():
+    executor = StreamingCodeExecutor(
+        organization_settings=_FakeSettings(enable_ml_training=True), logger=None
+    )
+    df, _, _ = executor.execute_code(code=_SKLEARN_CODE, ds_clients={}, excel_files=[])
+    assert len(df) == 4
+
+
+def test_disabling_ml_does_not_widen_the_static_denylist():
+    # pandas-only code is unaffected by the gate, and sklearn/scipy are not in
+    # the security denylist — they are gated, not forbidden.
+    validate_python_code(
+        "def generate_df(ds_clients, excel_files):\n    import numpy as np\n    return None\n",
+        extra_forbidden_modules=ML_TRAINING_MODULES,
+    )
+    assert not (ML_TRAINING_MODULES & FORBIDDEN_MODULES)
+
+
+def test_ml_rules_follow_the_toggle_and_row_limit():
+    on = _ml_rules_section(True, 20_000)
+    assert "scikit-learn IS available" in on
+    assert "20,000 rows (organization limit)" in on
+    assert "df.sample(n=20000, random_state=42)" in on
+    off = _ml_rules_section(False, 20_000)
+    assert "DISABLED for this organization" in off
+    assert "scikit-learn IS available" not in off
+    assert "pandas/numpy" in off
+
+
+def test_planner_prompt_follows_the_ml_toggle():
+    """The planner must not promise (or claim) a trained model when the org
+    has training off — the sandbox would reject the imports and the coder
+    would otherwise be pushed to fake a model in numpy."""
+    from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
+    from app.schemas.ai.planner import PlannerInput
+
+    on = PromptBuilderV3._build_system(PlannerInput(user_message="train a churn model", ml_training_enabled=True))
+    off = PromptBuilderV3._build_system(PlannerInput(user_message="train a churn model", ml_training_enabled=False))
+    assert "scikit-learn is enabled for this org" in on
+    assert "model_type" in on
+    assert "Model training is DISABLED for this org" in off
+    assert "never ask the coder to hand-roll one with numpy" in off
+    assert "scikit-learn is enabled for this org" not in off
+    # Default mirrors the org default (on).
+    assert PlannerInput(user_message="x").ml_training_enabled is True

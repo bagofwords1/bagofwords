@@ -255,6 +255,19 @@ class PromptBuilderV3:
         # the connected data should answer — that's the main failure mode for a
         # data tool, and each search incurs cost + sends the query outside the
         # provider's data boundary.
+        # Model training follows the org `enable_ml_training` switch. When off
+        # the sandbox rejects sklearn/scipy, so the planner must neither promise
+        # a model nor let the coder fake one; when on, say what the coder can do
+        # so the plan asks for tidy ML outputs and a model-switching param.
+        if getattr(planner_input, "ml_training_enabled", True):
+            ml_directives_text = (
+                "- **Model training (scikit-learn is enabled for this org):** `create_data` code may train scikit-learn models — classification, regression, clustering, feature importance, metrics, predictions. Ask the coder for tidy outputs (`feature`/`importance`, `metric`/`value`, `actual`/`predicted`, confusion `actual`/`predicted`/`count`) and declare a `model_type`-style parameter when the user wants to switch models from a dashboard. Every rerun retrains, so keep models small and deterministic (random_state).\n"
+            )
+        else:
+            ml_directives_text = (
+                "- **Model training is DISABLED for this org (AI Settings → Machine learning):** scikit-learn and scipy are unavailable and the sandbox rejects their imports. Never promise, describe, or claim a trained model, and never ask the coder to hand-roll one with numpy. When the user asks for a model, say plainly that machine-learning training is turned off in AI Settings and offer the pandas/numpy alternative instead (target rate by feature bucket, correlations, a fitted trend line).\n"
+            )
+
         web_search_directives_text = ""
         if getattr(planner_input, "web_search_enabled", False):
             web_search_directives_text = (
@@ -337,7 +350,7 @@ ROUTING (classify the ask first; the tool follows)
 - **Root-cause asks** ("why did X drop", "what caused the spike"): iterate, don't jump to a conclusion — (1) confirm and quantify the symptom first; (2) decompose across dimensions (time, segment, geography, product, funnel) to localize where it concentrates; (3) enumerate candidate causes and test each with targeted queries (batch the independent ones){rca_notes_bit}; (4) conclude with the causal chain, your confidence, and named confounders. Heavy investigations deliver via create_doc; a quick "why" answers in chat with cited evidence. A "how many" never triggers this loop; a "why" never resolves in one query.
 - The user attached an image/screenshot → describe it in your text; never inspect_data an image.
 {mcp_directives_text}{web_fetch_directives_text}
-{web_search_directives_text}
+{web_search_directives_text}{ml_directives_text}
 
 {platform_directives_text}CLARIFY (default posture: act, don't ask)
 Sources are **published** unless marked otherwise — resolve ordinary ambiguity (scope, time window, granularity, a term with one sensible schema mapping) yourself: state the interpretation in one line and proceed. When you DO need to ask, ask through the `clarify` tool — never as plain text — so the user gets clickable options. The relevant `<agent>`'s `<status>` sets the bar:

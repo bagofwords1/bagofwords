@@ -178,6 +178,9 @@ class PlannerInput(BaseModel):
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False
+    # Org `enable_ml_training` (default on). Off: the code sandbox rejects
+    # sklearn/scipy imports, so the planner must not promise or claim a model.
+    ml_training_enabled: bool = True
     # Agent notes (per-report scratchpad). When enabled, the <notes> block is
     # injected and the create_note/edit_note tools are available.
     notes_enabled: bool = False

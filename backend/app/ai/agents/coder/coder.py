@@ -31,7 +31,7 @@ from app.ai.agents.planner.clock import current_time_str
 from app.ai.schemas.codegen import CodeGenContext
 from app.services.usage_policy_service import UsageLimitContext
 from app.core.otel import get_tracer
-from app.ai.code_execution.code_execution import FORBIDDEN_BUILTINS, FORBIDDEN_MODULES
+from app.ai.code_execution.code_execution import FORBIDDEN_BUILTINS, FORBIDDEN_MODULES, ml_training_settings
 
 tracer = get_tracer(__name__)
 
@@ -50,7 +50,7 @@ def _sandbox_rules_section() -> str:
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
 
-def _ml_rules_section() -> str:
+def _ml_rules_section(enabled: bool = True, row_limit: int = 50_000) -> str:
     """Guidance for generated code that trains a model with scikit-learn.
 
     The sandbox is a denylist, so `import sklearn` was never *rejected* — it
@@ -63,7 +63,9 @@ def _ml_rules_section() -> str:
     timeout (so it must be cheap). Shared by the codegen prompts so the
     contract cannot drift between them.
     """
-    return """**Machine learning — scikit-learn IS available (also numpy, scipy):**
+    if not enabled:
+        return """**Machine learning — DISABLED for this organization:** scikit-learn and scipy are not available and their imports are rejected by the sandbox. Do not train models; answer statistical asks with pandas/numpy (groupby, describe, corr, rolling, np.polyfit for a trend line)."""
+    return f"""**Machine learning — scikit-learn IS available (also numpy, scipy):**
         - Import inside the function, e.g. `from sklearn.ensemble import RandomForestClassifier`. NOT installed (never import): statsmodels, prophet, xgboost, lightgbm, catboost, shap, torch, tensorflow.
         - Fit the model inside `generate_df` and return the RESULT as a tidy DataFrame of primitives — the estimator object is never returned, saved or passed between steps; a step that needs the model retrains it. Typical outputs (one shape per step, pick the one the prompt asks for):
           * feature importance: one row per feature — `feature`, `importance`, `importance_share` (importance / sum), `rank`; sorted by importance descending.
@@ -72,7 +74,7 @@ def _ml_rules_section() -> str:
           * confusion matrix: one row per (actual, predicted) pair — `actual`, `predicted`, `count`.
           * A single "model report" step may combine these long-form with a `section` column when the prompt asks for everything at once.
         - Deterministic: this code is re-executed verbatim on refresh — pass `random_state=42` to every estimator, `train_test_split`, `KFold`, and `permutation_importance` so charts do not change between reruns.
-        - Cheap: the whole function shares a small worker pool and is killed by a hard tool timeout (~5 min). Use `n_jobs=1` (never -1), keep `n_estimators` ≤ 300 and tree `max_depth` bounded, avoid `GridSearchCV`/`RandomizedSearchCV` beyond a handful of candidates, and train on at most ~50,000 rows — `df.sample(n=50000, random_state=42)` when the source is larger.
+        - Cheap: the whole function shares a small worker pool and is killed by a hard tool timeout (~5 min). Use `n_jobs=1` (never -1), keep `n_estimators` ≤ 300 and tree `max_depth` bounded, avoid `GridSearchCV`/`RandomizedSearchCV` beyond a handful of candidates, and train on at most {row_limit:,} rows (organization limit) — `df.sample(n={row_limit}, random_state=42)` when the source is larger.
         - Feature importance: prefer `sklearn.inspection.permutation_importance(model, X_test, y_test, n_repeats=5, random_state=42, n_jobs=1).importances_mean` (model-agnostic, measured on held-out data). Use `feature_importances_` (trees) or `abs(coef_)` (linear) only when the prompt names that method or the data is too small to hold out.
         - Preprocessing: drop or impute NaNs before fitting; one-hot encode categoricals with `pd.get_dummies(..., drop_first=False)` or `OneHotEncoder(handle_unknown="ignore")` inside a `Pipeline`/`ColumnTransformer`.
         - Feature names in the output must be human-readable: build the `ColumnTransformer` with `verbose_feature_names_out=False` (otherwise `get_feature_names_out()` yields `numeric__tenure_months` / `categorical__contract_type_month-to-month`) and render one-hot columns as `"<column>=<value>"` (e.g. `contract_type=month-to-month`). A viewer should never see transformer prefixes in a chart label.
@@ -835,7 +837,7 @@ class Coder:
 
             {_sandbox_rules_section()}
 
-            {_ml_rules_section()}
+            {_ml_rules_section(*ml_training_settings(self.organization_settings))}
 
             {_time_filter_rules()}
 
@@ -1046,7 +1048,7 @@ class Coder:
 
         {_sandbox_rules_section()}
 
-        {_ml_rules_section()}
+        {_ml_rules_section(*ml_training_settings(self.organization_settings))}
 
         **File Access**:
         {file_access_rules}
