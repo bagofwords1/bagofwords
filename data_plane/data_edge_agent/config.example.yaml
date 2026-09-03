@@ -64,7 +64,20 @@ connections:
     query_timeout_seconds: 300
 
 # --- local -------------------------------------------------------------
-admin_port: 9191                     # reserved for the local admin UI
+# --- local admin UI (design C4) ----------------------------------------
+# Loopback-only web UI for configuring connections and their credentials, and
+# for watching tunnel/connection health. Bound to admin_host on purpose — the
+# credential-entry surface must never be reachable from off the box.
+admin_enabled: true
+admin_host: 127.0.0.1                 # keep on loopback; there is no auth
+admin_port: 9191
+# Where UI edits persist (connections + Fernet-encrypted credentials). Default
+# is edge-agent-store.json beside this config file.
+# store_path: /var/lib/bow/edge-agent-store.json
+# Base64 Fernet key for the store. Prefer BOW_EDGE_AGENT_STORE_KEY from your own
+# secret management; if unset, a key file is generated beside the store.
+# store_key: ...
+
 log_level: INFO                      # DEBUG logs request bodies (credentials redacted)
 
 # --- budgets ------------------------------------------------------------

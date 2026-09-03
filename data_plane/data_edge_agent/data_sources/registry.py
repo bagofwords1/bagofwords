@@ -157,6 +157,17 @@ def construct_client(type_name: str, params: dict[str, Any]) -> Any:
     return cls(**allowed)
 
 
+def known_types() -> list[str]:
+    """Every type the agent can name a client for — the admin UI's type list.
+
+    This is the union of the embedded client-path map and the bundled
+    fallbacks. It names what a client *could* be resolved for; whether the
+    driver is actually installed is only known when a client is constructed
+    (that is the intended per-type gating — a missing driver surfaces on Test).
+    """
+    return sorted(set(_CLIENT_PATHS) | set(_FALLBACK))
+
+
 def supported_types() -> list[str]:
     # Best-effort: the bundled fallbacks plus, when the backend registry is
     # importable, everything it lists.

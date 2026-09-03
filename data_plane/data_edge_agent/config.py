@@ -28,6 +28,10 @@ _ENV_OVERRIDES = {
     "edge_agent_id": "EDGE_AGENT_ID",
     "edge_agent_name": "EDGE_AGENT_NAME",
     "admin_port": "ADMIN_PORT",
+    "admin_host": "ADMIN_HOST",
+    "admin_enabled": "ADMIN_ENABLED",
+    "store_path": "STORE_PATH",
+    "store_key": "STORE_KEY",
     "log_level": "LOG_LEVEL",
     "default_query_timeout_seconds": "QUERY_TIMEOUT_SECONDS",
     "index_timeout_seconds": "INDEX_TIMEOUT_SECONDS",
@@ -97,7 +101,23 @@ class AgentConfig(BaseModel):
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
 
+    # Local admin UI (design C4). Bound to loopback by design: the credential
+    # entry surface must never be reachable from off the box. `admin_enabled`
+    # turns it off entirely for a headless deployment configured only by file.
     admin_port: int = 9191
+    admin_host: str = "127.0.0.1"
+    admin_enabled: bool = True
+
+    # Where admin-UI edits persist. Connections added or edited through the UI
+    # are written here (credentials encrypted at rest, see store.py) and merged
+    # over the file-defined connections at start-up. None keeps the store beside
+    # the config file, or in the CWD when the config itself is env-only.
+    store_path: Optional[str] = None
+    # Base64 Fernet key for the credential store. Absent, the store generates
+    # one and writes it next to itself — convenient, but real deployments should
+    # supply BOW_EDGE_AGENT_STORE_KEY from their own secret management.
+    store_key: Optional[str] = None
+
     log_level: str = "INFO"
 
     # Budgets the control plane sizes its own waits against (A5). The query
@@ -161,8 +181,15 @@ _INT_FIELDS = {
 }
 
 
+_BOOL_FIELDS = {"admin_enabled"}
+
+
 def _coerce(field: str, raw: str) -> Any:
-    return int(raw) if field in _INT_FIELDS else raw
+    if field in _INT_FIELDS:
+        return int(raw)
+    if field in _BOOL_FIELDS:
+        return raw.strip().lower() in ("1", "true", "yes", "on")
+    return raw
 
 
 def load_config(path: str | Path | None = None) -> AgentConfig:
