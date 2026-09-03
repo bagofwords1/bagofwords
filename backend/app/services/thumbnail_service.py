@@ -196,7 +196,7 @@ class ThumbnailService:
         """
         try:
             from app.dependencies import async_session_maker
-            from app.models.artifact import ArtifactVersion
+            from app.models.artifact import Artifact, ArtifactVersion
             from app.models.report import Report
             from app.models.visualization import Visualization
             from app.models.query import Query
@@ -220,11 +220,13 @@ class ThumbnailService:
                 # Get the latest artifact for this report
                 stmt = (
                     select(ArtifactVersion)
+                    # Mode lives on the parent Artifact — explicit join.
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                     .where(
                         ArtifactVersion.report_id == report_id,
                         ArtifactVersion.deleted_at.is_(None),
                         # Report thumbnails render the dashboard, not docs
-                        ArtifactVersion.mode.in_(("page", "slides")),
+                        Artifact.mode.in_(("page", "slides")),
                     )
                     .order_by(ArtifactVersion.created_at.desc())
                     .limit(1)

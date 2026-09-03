@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
 from sqlalchemy.orm import defer, lazyload, load_only
 
-from app.models.artifact import ArtifactVersion
+from app.models.artifact import Artifact, ArtifactVersion
 from app.models.report import Report
 from app.schemas.artifact_schema import (
     ArtifactCreate,
@@ -49,12 +49,20 @@ async def new_artifact(
     Extra keyword arguments (thumbnail_path, screenshot_base64, created_at,
     ...) are set on the version row as-is.
     """
+    parent = Artifact(
+        report_id=_id(report_id),
+        organization_id=_id(organization_id),
+        created_by=_id(user_id),
+        mode=mode,
+        title=title,
+    )
+    db.add(parent)
+    await db.flush()
     version = ArtifactVersion(
+        artifact_id=str(parent.id),
         report_id=_id(report_id),
         user_id=_id(user_id),
         organization_id=_id(organization_id),
-        title=title,
-        mode=mode,
         content=content,
         generation_prompt=generation_prompt,
         completion_id=completion_id,
@@ -64,6 +72,7 @@ async def new_artifact(
     )
     db.add(version)
     await db.flush()
+    # refresh also resolves the title/mode read-throughs from the parent
     await db.refresh(version)
     return version
 
@@ -71,19 +80,15 @@ async def new_artifact(
 async def next_version_number(db: AsyncSession, source: ArtifactVersion) -> int:
     """The number the next version after ``source`` gets.
 
-    max(version) over the artifact ``source`` belongs to, plus one. Until a
-    lineage column exists the closest approximation of "the same artifact"
-    is every live row of the same report AND the same mode — a doc's numbers
-    stay out of a dashboard's. Never derived from ``source.version + 1``:
-    editing an older version would otherwise mint a number that already
-    exists further up the chain.
+    max(version) over the parent artifact's rows, plus one. Soft-deleted
+    rows count too: uq_artifact_versions_artifact_version spans them, so a
+    number a deleted row still holds must never be reissued. Never derived
+    from ``source.version + 1``: editing an older version would otherwise
+    mint a number that already exists further up the chain.
     """
     max_version = (await db.execute(
         select(func.max(ArtifactVersion.version)).where(
-            ArtifactVersion.report_id == str(source.report_id),
-            ArtifactVersion.organization_id == str(source.organization_id),
-            ArtifactVersion.mode == source.mode,
-            ArtifactVersion.deleted_at.is_(None),
+            ArtifactVersion.artifact_id == str(source.artifact_id),
         )
     )).scalar() or 0
     return max_version + 1
@@ -103,16 +108,16 @@ async def new_version(
 ) -> ArtifactVersion:
     """Append the next version to the artifact ``source`` belongs to.
 
-    report / organization / mode are inherited from ``source`` — a version
-    can never move between artifacts. ``title`` defaults to the source's;
-    ``user_id`` (the author of this version) defaults to the source's too.
+    The new row joins ``source``'s parent artifact — a version can never
+    move between artifacts, and mode is fixed there. ``user_id`` (the author
+    of this version) defaults to the source's. Passing ``title`` RENAMES the
+    parent, i.e. every version of this artifact at once.
     """
     version = ArtifactVersion(
+        artifact_id=str(source.artifact_id),
         report_id=_id(source.report_id),
         user_id=_id(user_id) or _id(source.user_id),
         organization_id=_id(source.organization_id),
-        title=title if title is not None else source.title,
-        mode=source.mode,
         content=content,
         generation_prompt=generation_prompt,
         completion_id=completion_id,
@@ -121,7 +126,13 @@ async def new_version(
         **version_fields,
     )
     db.add(version)
+    if title is not None and title != source.title:
+        parent = await db.get(Artifact, str(source.artifact_id))
+        if parent is not None:
+            parent.title = title
+            db.add(parent)
     await db.flush()
+    # refresh also resolves the title/mode read-throughs from the parent
     await db.refresh(version)
     return version
 
@@ -255,6 +266,7 @@ class ArtifactService:
                 lazyload("*"),
                 load_only(
                     ArtifactVersion.id,
+                    ArtifactVersion.artifact_id,
                     ArtifactVersion.report_id,
                     ArtifactVersion.title,
                     ArtifactVersion.mode,
@@ -299,7 +311,11 @@ class ArtifactService:
             .limit(1)
         )
         if not include_docs:
-            stmt = stmt.where(ArtifactVersion.mode.in_(("page", "slides")))
+            # Explicit join beats the column_property's correlated subquery
+            # on this hot path.
+            stmt = stmt.join(
+                Artifact, Artifact.id == ArtifactVersion.artifact_id
+            ).where(Artifact.mode.in_(("page", "slides")))
         res = await db.execute(stmt)
         return res.scalar_one_or_none()
 
@@ -312,7 +328,12 @@ class ArtifactService:
             return None
 
         if patch.title is not None:
-            artifact.title = patch.title
+            # Writes to version.title are silent no-ops (column_property):
+            # a rename targets the parent — the whole artifact, on purpose.
+            parent = await db.get(Artifact, str(artifact.artifact_id))
+            if parent is not None:
+                parent.title = patch.title
+                db.add(parent)
         if patch.content is not None:
             # In-place edit of THIS row. Version numbers are minted only by
             # new_version(); bumping here would collide with the next row.
