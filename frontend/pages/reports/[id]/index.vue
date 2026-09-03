@@ -1046,7 +1046,7 @@
 
 			<!-- A document or image opened from a read_file card. Reuses the
 			     same viewer the card renders, at panel size. -->
-			<div v-else-if="rightPanelView === 'file' && panelFile" class="h-full overflow-auto p-3">
+			<div v-else-if="rightPanelView === 'file' && panelFile" class="h-full min-h-0 p-3 flex flex-col overflow-hidden">
 				<FilePreview
 					:key="panelFile.fileId"
 					:kind="panelFile.kind"

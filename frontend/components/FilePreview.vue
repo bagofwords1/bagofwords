@@ -1,5 +1,8 @@
 <template>
-  <div ref="rootEl" class="w-full relative group/preview">
+  <!-- In the side panel the preview owns the pane's height: a flex column so
+       the document frame / picture takes whatever the page strip leaves,
+       instead of a fixed viewport fraction with dead space beneath it. -->
+  <div ref="rootEl" class="w-full relative group/preview" :class="{ 'h-full min-h-0 flex flex-col': expanded }">
     <!-- Opens the same file in the side panel. Hidden where no panel exists
          (the share view), so the card never offers an action that does
          nothing — `canExpand` is opt-in per host page. -->
@@ -24,7 +27,8 @@
       <div
         v-if="!embedUrl && (pending || !visible)"
         class="flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50"
-        :style="{ height: frameHeight }"
+        :class="{ 'flex-1 min-h-0': expanded }"
+        :style="expanded ? undefined : { height: frameHeight }"
       >
         <Spinner class="w-4 h-4 text-gray-400" />
       </div>
@@ -33,13 +37,14 @@
         :src="frameSrc"
         :title="name || $t('filePreview.document')"
         class="w-full rounded-lg border border-gray-200 dark:border-gray-700 bg-white"
-        :style="{ height: frameHeight }"
+        :class="{ 'flex-1 min-h-0': expanded }"
+        :style="expanded ? undefined : { height: frameHeight }"
       />
     </template>
 
     <!-- Pictures, and page renders of a document we could not show natively. -->
     <template v-else-if="kind === 'image'">
-      <div class="flex flex-col gap-1.5">
+      <div class="flex flex-col gap-1.5" :class="{ 'h-full min-h-0': expanded }">
         <AuthenticatedImage
           v-if="visible && activeImageId"
           :key="activeImageId"
@@ -47,7 +52,7 @@
           :alt="name || ''"
           :img-class="[
             'rounded-lg border border-gray-200 dark:border-gray-700 object-contain cursor-zoom-in bg-white',
-            expanded ? 'max-h-[70vh] w-auto' : 'max-h-60 w-auto',
+            expanded ? 'flex-1 min-h-0 max-w-full w-auto self-start object-left-top' : 'max-h-60 w-auto',
           ].join(' ')"
           @click="$emit('open', activeImageId)"
         />
@@ -128,7 +133,8 @@ const images = computed<string[]>(() => props.imageFileIds || (props.fileId ? [p
 const activeIndex = ref(0)
 const activeImageId = computed(() => images.value[activeIndex.value] || images.value[0] || '')
 
-const frameHeight = computed(() => (props.expanded ? '70vh' : '260px'))
+// Inline card height. Expanded (side panel) sizing is flex-driven instead.
+const frameHeight = computed(() => '260px')
 // PDF Open Parameters, read by the browser's built-in viewer:
 //   page      open at the page the model actually read
 //   view=FitH fit the page WIDTH to the frame, not a zoomed-in corner
