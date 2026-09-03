@@ -16,12 +16,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import time
 from typing import Any, Optional
 
 from nats.aio.client import Client as NATSClient
 from nats.aio.msg import Msg
 
 from . import __version__
+from .audit import AuditLog
 from .config import AgentConfig, ConnectionConfig
 from .data_sources.registry import construct_client
 
@@ -65,8 +67,11 @@ _CONNECT_TIMEOUT = 5.0
 class EdgeAgentTunnel:
     """Owns the agent's NATS connection and its subscriptions."""
 
-    def __init__(self, config: AgentConfig) -> None:
+    def __init__(self, config: AgentConfig, audit: Optional[AuditLog] = None) -> None:
         self._config = config
+        # Local audit trail (C4/C5). Defaults to an in-memory-only log so the
+        # tunnel is usable without one; main wires a file-backed one.
+        self._audit = audit if audit is not None else AuditLog(None)
         self._nc: Optional[NATSClient] = None
         self._subscriptions: list[Any] = []
         # Per-connection subscription, keyed by name, so the admin UI can
@@ -218,11 +223,17 @@ class EdgeAgentTunnel:
         """
         request_id: Any = None
         operation = "<unparsed>"
+        started = time.monotonic()
+        # Filled by _dispatch (e.g. row_count) so the audit line can report it.
+        audit_meta: dict[str, Any] = {}
+        sql: Optional[str] = None
         try:
             payload = json.loads(msg.data)
             request_id = payload.get("id")
             params = payload.get("params") or {}
             operation = params.get("operation", "<missing>")
+            if operation == "execute_query":
+                sql = (params.get("kwargs") or {}).get("sql")
 
             logger.info(
                 "edge_agent.request.received",
@@ -240,18 +251,24 @@ class EdgeAgentTunnel:
                 # so the body goes to DEBUG and credentials are stripped.
                 extra={"params": _redact(params)},
             )
-            result = await self._dispatch(connection_name, operation, params)
+            result = await self._dispatch(connection_name, operation, params, audit_meta)
         except json.JSONDecodeError as e:
             logger.warning(
                 "edge_agent.request.malformed",
                 extra={"subject": msg.subject, "error": str(e), "bytes": len(msg.data)},
             )
+            self._audit_record(connection_name, operation, started, "error",
+                               request_id, error="malformed request")
             await self._respond_error(msg, request_id, operation, "malformed request")
             return
         except _NotImplemented:
+            self._audit_record(connection_name, operation, started, "not_implemented",
+                               request_id)
             await self._respond_not_implemented(msg, request_id, operation)
             return
         except _QueryTimeout as e:
+            self._audit_record(connection_name, operation, started, "timeout",
+                               request_id, error=str(e), sql=sql)
             await self._respond_error(
                 msg, request_id, operation, str(e),
                 code=_QUERY_TIMEOUT,
@@ -263,10 +280,28 @@ class EdgeAgentTunnel:
                 "edge_agent.request.failed",
                 extra={"connection": connection_name, "operation": operation, "error": str(e)},
             )
+            self._audit_record(connection_name, operation, started, "error",
+                               request_id, error=str(e), sql=sql)
             await self._respond_error(msg, request_id, operation, str(e))
             return
 
+        self._audit_record(connection_name, operation, started, "ok", request_id,
+                           row_count=audit_meta.get("row_count"), sql=sql)
         await self._respond_result(msg, request_id, operation, result)
+
+    def _audit_record(self, connection: str, operation: str, started: float,
+                      outcome: str, request_id: Any, *, row_count: Optional[int] = None,
+                      error: Optional[str] = None, sql: Optional[str] = None) -> None:
+        self._audit.record(
+            connection=connection,
+            operation=operation,
+            outcome=outcome,
+            duration_ms=int((time.monotonic() - started) * 1000),
+            row_count=row_count,
+            request_id=request_id,
+            error=error,
+            sql=sql,
+        )
 
     # -- operation dispatch --------------------------------------------------
 
@@ -291,13 +326,19 @@ class EdgeAgentTunnel:
             self._clients[connection_name] = client
         return client
 
-    async def _dispatch(self, connection_name: str, operation: str, params: dict):
+    async def _dispatch(self, connection_name: str, operation: str, params: dict,
+                        audit_meta: Optional[dict] = None):
         """Run one operation against the real client and return its result value.
 
         Blocking work (connect, query, schema crawl) goes through the client's
         async wrappers, which use asyncio.to_thread — never on this loop, which
         also serves the control subject and NATS keepalives.
+
+        `audit_meta`, when given, is filled with countable outcomes (row_count)
+        for the audit trail — it is an out-parameter, not an input.
         """
+        if audit_meta is None:
+            audit_meta = {}
         if operation not in _SUPPORTED_OPERATIONS:
             raise _NotImplemented(operation)
 
@@ -318,6 +359,7 @@ class EdgeAgentTunnel:
 
         if operation == "get_schemas":
             tables = await asyncio.wait_for(client.aget_schemas(), budget)
+            audit_meta["row_count"] = len(tables)  # tables discovered
             # Shape matches TunneledClient._invoke_streaming: {value, index_stats}.
             return {
                 "value": [t.model_dump() for t in tables],
@@ -325,6 +367,7 @@ class EdgeAgentTunnel:
             }
         if operation == "get_schema":
             tables = await asyncio.wait_for(client.aget_schemas(), budget)
+            audit_meta["row_count"] = len(tables)
             return [t.model_dump() for t in tables]
         if operation == "test_connection":
             return await asyncio.wait_for(client.atest_connection(), budget)
@@ -380,6 +423,7 @@ class EdgeAgentTunnel:
             finally:
                 if ref_id is not None:
                     self._in_flight.pop(ref_id, None)
+            audit_meta["row_count"] = len(df)  # rows returned
             buf = _io.BytesIO()
             df.to_parquet(buf, index=False)
             return {"dataframe_b64": _b64.b64encode(buf.getvalue()).decode()}
@@ -563,6 +607,10 @@ class EdgeAgentTunnel:
             await self.heartbeat()
 
     # -- admin-UI connection lifecycle (design C4) ---------------------------
+
+    @property
+    def audit(self) -> AuditLog:
+        return self._audit
 
     def get_connection(self, name: str) -> Optional[ConnectionConfig]:
         return next((c for c in self._config.connections if c.name == name), None)

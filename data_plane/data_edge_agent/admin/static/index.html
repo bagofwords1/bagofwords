@@ -58,6 +58,23 @@
   .empty, .loading { color: var(--muted); text-align: center; padding: 40px 0; }
   .result { font-size: 12.5px; margin-top: 4px; }
   .result.ok { color: var(--ok); } .result.err { color: var(--err); }
+  /* tabs */
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 18px; }
+  .tab { padding: 8px 14px; cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; margin-bottom: -1px; }
+  .tab.active { color: var(--text); border-bottom-color: var(--accent); }
+  /* audit table */
+  .audit-wrap { overflow-x: auto; border: 1px solid var(--border); border-radius: 11px; background: var(--panel); }
+  table.audit { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  table.audit th { text-align: left; color: var(--muted); font-weight: 500; padding: 10px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.audit td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.audit tr:last-child td { border-bottom: none; }
+  table.audit td.sql { max-width: 340px; overflow: hidden; text-overflow: ellipsis; color: var(--muted); font-family: ui-monospace, Menlo, monospace; }
+  .badge { display: inline-block; border-radius: 999px; padding: 1px 9px; font-size: 11px; }
+  .badge.ok { background: rgba(53,196,106,.14); color: var(--ok); }
+  .badge.error { background: rgba(229,72,77,.14); color: var(--err); }
+  .badge.timeout { background: rgba(224,161,58,.14); color: var(--warn); }
+  .badge.not_implemented { background: var(--chip); color: var(--muted); }
+  .num { font-variant-numeric: tabular-nums; }
   /* form */
   .backdrop {
     position: fixed; inset: 0; background: rgba(0,0,0,.55);
@@ -98,11 +115,34 @@
 </header>
 
 <main>
-  <div class="row">
-    <h2>Connections</h2>
-    <button class="primary" id="addBtn">+ Add connection</button>
+  <div class="tabs">
+    <div class="tab active" id="tabConnections" data-panel="connections">Connections</div>
+    <div class="tab" id="tabAudit" data-panel="audit">Audit log</div>
   </div>
-  <div id="list" class="cards"><div class="loading">Loading…</div></div>
+
+  <section id="panelConnections">
+    <div class="row">
+      <h2>Connections</h2>
+      <button class="primary" id="addBtn">+ Add connection</button>
+    </div>
+    <div id="list" class="cards"><div class="loading">Loading…</div></div>
+  </section>
+
+  <section id="panelAudit" hidden>
+    <div class="row">
+      <h2>Audit log</h2>
+      <button id="auditRefresh">Refresh</button>
+    </div>
+    <div class="audit-wrap">
+      <table class="audit">
+        <thead><tr>
+          <th>Time</th><th>Connection</th><th>Operation</th>
+          <th class="num">Rows</th><th class="num">Duration</th><th>Outcome</th><th>SQL / error</th>
+        </tr></thead>
+        <tbody id="auditRows"><tr><td colspan="7" class="loading">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </section>
 </main>
 
 <div id="modalHost"></div>
@@ -292,6 +332,43 @@ async function submitForm(isEdit, testOnly) {
   }
 }
 
+// ---- audit log ------------------------------------------------------------
+async function refreshAudit() {
+  const body = $("auditRows");
+  try {
+    const { entries } = await api("GET", "/audit?limit=200");
+    if (!entries.length) { body.innerHTML = '<tr><td colspan="7" class="empty">No operations recorded yet.</td></tr>'; return; }
+    body.innerHTML = entries.map(e => {
+      const rows = e.row_count != null ? e.row_count : "—";
+      const dur = e.duration_ms != null ? e.duration_ms + " ms" : "—";
+      const detail = e.error ? '<span class="result err">' + escapeHtml(e.error) + '</span>' : (e.sql ? escapeHtml(e.sql) : "");
+      return '<tr>' +
+        '<td title="' + escapeAttr(e.ts) + '">' + escapeHtml(fmtTime(e.ts)) + '</td>' +
+        '<td>' + escapeHtml(e.connection || "—") + '</td>' +
+        '<td>' + escapeHtml(e.operation) + '</td>' +
+        '<td class="num">' + escapeHtml(rows) + '</td>' +
+        '<td class="num">' + escapeHtml(dur) + '</td>' +
+        '<td><span class="badge ' + escapeHtml(e.outcome) + '">' + escapeHtml(e.outcome) + '</span></td>' +
+        '<td class="sql" title="' + escapeAttr(e.error || e.sql || "") + '">' + detail + '</td>' +
+      '</tr>';
+    }).join("");
+  } catch (e) {
+    body.innerHTML = '<tr><td colspan="7" class="empty">Failed to load: ' + escapeHtml(e.message) + '</td></tr>';
+  }
+}
+
+function fmtTime(iso) {
+  try { const d = new Date(iso); return d.toLocaleString(undefined, { hour12: false }); }
+  catch (e) { return iso; }
+}
+
+function showPanel(name) {
+  for (const t of document.querySelectorAll(".tab")) t.classList.toggle("active", t.dataset.panel === name);
+  $("panelConnections").hidden = name !== "connections";
+  $("panelAudit").hidden = name !== "audit";
+  if (name === "audit") refreshAudit();
+}
+
 // ---- utils ----------------------------------------------------------------
 function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
 function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
@@ -300,6 +377,8 @@ async function refreshAll() { await Promise.all([refreshStatus(), refreshList()]
 
 (async function init() {
   $("addBtn").onclick = () => openForm(null);
+  $("auditRefresh").onclick = refreshAudit;
+  for (const t of document.querySelectorAll(".tab")) t.onclick = () => showPanel(t.dataset.panel);
   try { TYPES = (await api("GET", "/types")).types; } catch (e) { TYPES = ["postgresql", "mysql"]; }
   await refreshAll();
   setInterval(refreshStatus, 5000);

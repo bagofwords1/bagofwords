@@ -78,6 +78,14 @@ admin_port: 9191
 # secret management; if unset, a key file is generated beside the store.
 # store_key: ...
 
+# --- local audit trail (design C4/C5) ----------------------------------
+# Every operation (timestamp, connection, operation, duration, row count,
+# outcome) is appended to a JSONL file on this box and shown in the admin UI.
+# Default is edge-agent-audit.jsonl beside this config; audit_retain bounds the
+# in-memory tail the UI reads.
+# audit_path: /var/log/bow/edge-agent-audit.jsonl
+audit_retain: 2000
+
 log_level: INFO                      # DEBUG logs request bodies (credentials redacted)
 
 # --- budgets ------------------------------------------------------------

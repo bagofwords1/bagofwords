@@ -80,6 +80,7 @@ class AdminServer:
             web.delete("/api/connections/{name}", self._delete_connection),
             web.post("/api/connections/{name}/test", self._test_saved),
             web.post("/api/test", self._test_unsaved),
+            web.get("/api/audit", self._audit),
             web.get("/", self._index),
             web.get("/index.html", self._index),
         ])
@@ -208,6 +209,15 @@ class AdminServer:
         conn = await self._parse_connection(request)
         result = await self._tunnel.test_connection_config(conn)
         return web.json_response(result)
+
+    async def _audit(self, request: web.Request) -> web.Response:
+        """Recent audit entries, newest first (design C4/C5)."""
+        try:
+            limit = int(request.query.get("limit", "100"))
+        except ValueError:
+            limit = 100
+        limit = max(1, min(limit, 1000))
+        return web.json_response({"entries": self._tunnel.audit.recent(limit)})
 
     # -- persistence + apply ---------------------------------------------
 
