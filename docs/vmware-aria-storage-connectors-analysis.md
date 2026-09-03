@@ -2,9 +2,11 @@
 
 Research only — nothing is implemented. Requested by an RCA (root-cause analysis)
 customer running **VMware Aria Operations 8.18.0** with **Hitachi, NetApp,
-Infinidat and IBM** storage behind it. This doc answers: what APIs exist, what
-each would let the agent see, how they map onto our infra-connector pattern,
-and what to build first.
+Infinidat and IBM** storage behind it. **Everything is on-premises** — no
+vendor SaaS (Storage Insights, InfiniVerse, Clear Sight, BlueXP/DII) is in
+play, and Bag of Words itself will run inside the customer's network. This
+doc answers: what APIs exist, what each would let the agent see, how they map
+onto our infra-connector pattern, and what to build first.
 
 Date: 2026-09-03. Companion docs with the same shape:
 `docs/priority-erp-connector-analysis.md`, `docs/sap-connector-analysis.md`.
@@ -34,11 +36,14 @@ Date: 2026-09-03. Companion docs with the same shape:
    - **NetApp ONTAP** — best API of the four: HAL JSON, basic/OAuth2 auth,
      `/api/storage/volumes/{uuid}/metrics` keeps ~1 year of downsampled history
      on-box, EMS events endpoint, official read-only role recipe. Build second.
-   - **IBM** — two good routes: **IBM Storage Insights** (SaaS, official REST
-     with `duration=` history, alerts, and an *official read-only MCP server*)
-     for fleet/history, and **Storage Virtualize REST** (`:7443/rest/v1/ls*`,
-     a POST-only mirror of the CLI) for live on-box detail. On-box history is
-     only 16 XML stats files per node. See §4.4.
+   - **IBM** — on-prem only, so the SaaS route (Storage Insights, which has
+     the history and the official read-only MCP server) is **out**. What is
+     left: **Storage Virtualize REST** on the FlashSystem/SVC cluster
+     (`:7443/rest/v1/ls*`, a POST-only mirror of the CLI, monitor role) for
+     inventory, event log and *current* stats, and **IBM Spectrum Control** if
+     the customer runs it (on-prem, multi-vendor, has per-volume performance
+     history via REST). Without Spectrum Control, IBM history is limited to
+     16 XML stats files per node. See §4.4.
    - **Hitachi VSP** — inventory + alerts via the Configuration Manager REST
      API (public docs, also embedded on the array); **performance history
      lives only in Ops Center Analyzer** (paid, capacity-licensed), whose REST
@@ -54,12 +59,18 @@ Date: 2026-09-03. Companion docs with the same shape:
    `custom_api` tool-provider connection (any of these REST APIs can be
    declared endpoint-by-endpoint today, no code). Neither replaces a native
    connector for agent quality, but both unblock a pilot.
-5. **MCP presets are a real pilot option for two vendors:** IBM
-   (`IBM/ibm-storageinsights-mcpserver`, official, 13 read-only tools over
-   Storage Insights) and NetApp (`NetApp/ontap-mcp`, official, but its read
-   tools are a thin generic `ontap_get`). Hitachi and Infinidat ship nothing.
-   Neither replaces a native connector for agent quality (no catalog, no
-   DataFrame results), but IBM's is good enough to demo with today.
+5. **MCP presets are not a shortcut here.** The one good official storage
+   MCP (IBM's) fronts the SaaS Storage Insights, which this customer does not
+   use. NetApp's `ontap-mcp` is self-hostable but its read tools are a thin
+   generic `ontap_get`. Hitachi and Infinidat ship nothing. Native connectors
+   (or `custom_api` for a pilot) are the path.
+6. **On-prem deployment constraints that shape every connector:** private-CA
+   or self-signed TLS everywhere (every config needs `verify_ssl`, like
+   AppDynamics/Zabbix), LDAP/AD-backed service accounts rather than API keys
+   (Aria `authSource`, Hitachi Common Services OIDC, ONTAP basic/cert), and
+   the app must be deployable with network reach to management networks
+   (Aria on 443, Virtualize on 7443, Hitachi CM on 23451 / Analyzer on 22016,
+   ONTAP on 443). See §1b.
 
 ---
 
@@ -84,6 +95,44 @@ Aria Operations is the only system in the list that already *has* the
 cross-layer relationship graph (its storage packs create datastore↔LUN
 relationships). That is the single strongest argument for building it first:
 the array APIs each see only their own box.
+
+### 1b. On-prem consequences
+
+Everything is on-premises, which rules some routes out and adds requirements
+to the rest:
+
+| Vendor | Ruled out (cloud) | On-prem path that remains |
+|---|---|---|
+| VMware | — (Aria 8.18 is on-prem by definition) | Suite API on the appliance |
+| NetApp | BlueXP / Data Infrastructure Insights, Active IQ Digital Advisor | ONTAP REST per cluster; AIQUM (on-prem VM) for fleet; Harvest → Prometheus |
+| Hitachi | VSP 360 Clear Sight | Configuration Manager (on-prem server or on-array) + Ops Center Analyzer (on-prem) |
+| Infinidat | InfiniVerse | InfiniBox REST on-array + InfiniMetrics (on-prem VM) for history |
+| IBM | **Storage Insights (SaaS)** — and its MCP server | Storage Virtualize REST on-array + **Spectrum Control** (on-prem) for history |
+
+Cross-cutting requirements for the connectors:
+- **TLS:** management interfaces almost always carry private-CA or
+  self-signed certs. Every config needs `verify_ssl` (AppDynamics/Zabbix
+  already do this) and ideally an optional CA bundle path, since disabling
+  verification wholesale is a hard sell to a security team.
+- **Identity:** no vendor here issues UI-minted API keys for on-prem use.
+  Expect LDAP/AD service accounts (Aria `authSource`, ONTAP `-authentication-
+  method password` users, Virtualize *monitor* role, Hitachi Analyzer via
+  Basic or Common Services OIDC, InfiniBox `read_only` role). Per-user
+  credential scope (`scopes=["system","user"]`) is useful: each analyst's own
+  Aria/ONTAP login enforces the vendor's RBAC.
+- **Network reach:** BOW must be deployed where it can reach management
+  VLANs: Aria 443, ONTAP 443, Virtualize 7443, Hitachi CM 23451 / Analyzer
+  22016 / detail view 8443, InfiniBox 443, Spectrum Control 9569. Worth
+  listing in the connector help text and the deployment guide.
+- **Air-gap:** no outbound calls from any of these connectors (already true
+  of our infra connectors); all Python deps are plain `requests`, so the
+  air-gapped compose bundle (`docs/feedback-loops/airgap-docker-compose-bundle.md`)
+  needs no change.
+- **History retention is the customer's problem, not a SaaS's.** ONTAP keeps
+  ~1 year on-box; Hitachi/IBM/Infinidat history exists only if the on-prem
+  analytics product (Analyzer, Spectrum Control, InfiniMetrics) is deployed.
+  Aria itself retains metrics per its own policy (default 6 months) and is
+  the fallback history store for any vendor whose pack is installed.
 
 ---
 
@@ -366,7 +415,7 @@ Verdict: a native connector answers *inventory, capacity, events, and
 last Tuesday") needs InfiniMetrics or the Aria pack. Lowest priority of the
 four.
 
-### 4.4 IBM — Storage Insights for history, Virtualize REST for live detail
+### 4.4 IBM — Virtualize REST on-array; Spectrum Control for history (Storage Insights is SaaS, excluded)
 
 **Which IBM product:** in a VMware shop this is almost always FlashSystem /
 SAN Volume Controller running **IBM Storage Virtualize** (9.1.x is the current
@@ -396,7 +445,8 @@ headers to the research agent; items marked (snippet) need re-verification.
   a REST download path). Parsing those is a project; not for v1.
 - 8.6.1 removed CIM/SMI-S — REST is the only supported programmatic path.
 
-**Route 2 — IBM Storage Insights (SaaS, official, fleet-wide):**
+**Route 2 — IBM Storage Insights (SaaS, official, fleet-wide) — ruled out
+for this customer (on-prem only); documented for completeness:**
 - `https://insights.ibm.com/restapi/v1/tenants/{tenant}/…`. Admin mints an API
   key (1 day–2 years, ≤5 per user); `POST …/token` with `x-api-key` → token
   in `x-api-token`, **15-minute expiry, not configurable** → cache + refresh
@@ -417,13 +467,16 @@ headers to the research agent; items marked (snippet) need re-verification.
   `IBM/ibm-flashsystems-mcpserver` is a *management* server — creates
   volumes/hosts — not suitable.)
 
-**Route 3 — IBM Spectrum Control (on-prem, official, public):** still
-"Spectrum Control" 5.4.13.1 (Jun 2025). `https://<host>:9569/srm/REST/api/v1/`
-with **form login** `POST /srm/j_security_check` + session cookie;
-`StorageSystems`, `…/Volumes`, `Volumes/{id}/Performance?granularity=sample&startTime=&endTime=`,
+**Route 3 — IBM Spectrum Control (on-prem, official, public) — the on-prem
+history source:** still "Spectrum Control" 5.4.13.1 (Jun 2025).
+`https://<host>:9569/srm/REST/api/v1/` with **form login**
+`POST /srm/j_security_check` + session cookie; `StorageSystems`,
+`…/Volumes`, `Volumes/{id}/Performance?granularity=sample&startTime=&endTime=`,
 `Switches`, `Servers`. Multi-vendor (Pure, NetApp, Dell, Hitachi per the
-supported-products page — snippet, verify). If the customer has it, it is a
-single fleet source covering *several* of the four vendors.
+supported-products page — snippet, verify). **If the customer has it, it is a
+single on-prem fleet source that may cover several of the four vendors** —
+ask before building anything IBM-specific. Note the form-login + cookie auth
+is a custom flow (not basic/bearer), so `custom_api` cannot front it today.
 
 **SDKs:** `ibm.storage_virtualize` Ansible collection (REST-based, quarterly,
 Jul 2026) shows the current call shapes; `ibm-svc-rest-client` (OpenAPI
@@ -433,10 +486,11 @@ generated, requires 9.1.3.0) is too new to depend on; `pysvc` is SSH and dead
 Proposed catalog (Virtualize): `system, nodes, pools (lsmdiskgrp), mdisks,
 volumes (lsvdisk), hosts, drives, enclosures, fc_ports, event_log,
 system_stats, node_stats`. Config: cluster URL/port 7443, `verify_ssl`; creds:
-`userpass` (monitor role). Storage Insights would be a *second* connection type
-(`ibm_storage_insights`: tenant id + API key) with `storage_systems, volumes,
-metrics (system id + types + duration), alerts, notifications`. Ask which the
-customer has before choosing.
+`userpass` (monitor role). If Spectrum Control is present, a separate
+`ibm_spectrum_control` type (`storage_systems, volumes, ports, performance
+(volume/system id + granularity + time range), servers, switches`) is the
+better first IBM build because it carries history and possibly other
+vendors. Ask which the customer has before choosing.
 
 ---
 
@@ -444,11 +498,11 @@ customer has before choosing.
 
 | Option | Aria Ops | NetApp | Hitachi | Infinidat | IBM |
 |---|---|---|---|---|---|
-| A. Native connector | ✅ build first | ✅ second | ✅ if customer owns Analyzer (RCA graph + history); CMREST alone = inventory/alerts only | ⚠️ live-only perf | ✅ Storage Insights (history) / Virtualize (live) |
+| A. Native connector | ✅ build first | ✅ second | ✅ if customer owns Analyzer (RCA graph + history); CMREST alone = inventory/alerts only | ⚠️ live-only perf | ✅ Virtualize (live, on-array); Spectrum Control for history if deployed |
 | B. Through Aria packs | — | ⚠️ pack EOL Oct 2024 | ✅ vendor-maintained, 8.18 OK | ⚠️ 8.16 listed, 8.18 unconfirmed | ⚠️ Broadcom pack EOL Dec 2023; IBM pack stale (2023) |
 | C. `prometheus` connector via exporter | n/a | ✅ Harvest (official) | community exporters only | community (Zabbix/graphite scripts) | IBM `spectrum-virtualize-exporter` + Storage Insights exporter (official-ish, small) |
-| D. `custom_api` declared endpoints | possible but token flow needs custom login | ✅ basic auth, plain JSON | ✅ basic/session | ✅ basic | ⚠️ Virtualize: POST-only + custom token header; Storage Insights: 15-min token → both awkward |
-| E. MCP preset | community only | `ontap-mcp` (official, thin) | none | none | ✅ `ibm-storageinsights-mcpserver` (official, read-only) |
+| D. `custom_api` declared endpoints | possible but token flow needs custom login | ✅ basic auth, plain JSON | ✅ basic/session | ✅ basic | ⚠️ Virtualize: POST-only + custom token header; Spectrum Control: form login + cookie → both unsupported today |
+| E. MCP preset | community only | `ontap-mcp` (official, self-hosted, thin) | none | none | ❌ the official one fronts SaaS Storage Insights |
 
 ---
 
@@ -462,10 +516,11 @@ customer has before choosing.
    while wave 2 is built; confirm installed packs and whether they run
    AIQUM / Harvest / InfiniMetrics / Storage Insights.
 3. **`netapp_ontap` connector** (per-cluster REST, optional AIQUM mode).
-4. **Hitachi (`hitachi_ops_center`) or IBM (`ibm_storage_insights` /
-   `ibm_storage_virtualize`)** next, in the order the customer's actual estate
-   dictates — Hitachi first if they own Analyzer (its E2E endpoint is the
-   closest thing to Aria's relationship graph among the array vendors).
+4. **Hitachi (`hitachi_ops_center`) or IBM (`ibm_storage_virtualize`, plus
+   `ibm_spectrum_control` if deployed)** next, in the order the customer's
+   actual estate dictates — Hitachi first if they own Analyzer (its E2E
+   endpoint is the closest thing to Aria's relationship graph among the array
+   vendors).
 5. **Infinidat** last: inventory/events/capacity connector is cheap, but
    historical performance needs InfiniMetrics and its community-documented
    API.
@@ -482,8 +537,13 @@ customer has before choosing.
   VSP models (on-box REST needs E/G/F/5000/One Block; older arrays need the
   CMREST server)? Is the Hitachi Aria pack installed (implies Analyzer)?
 - Infinidat: InfiniMetrics deployed? InfiniBox software version?
-- IBM: FlashSystem/SVC code level, Storage Insights (free vs Pro) tenant?,
-  Spectrum Control on-prem?
+- IBM: FlashSystem/SVC code level (REST needs ≥8.1.3; `/rest/v1` ≥8.4.2)?
+  **Is Spectrum Control deployed** (and does it also monitor the Hitachi /
+  NetApp arrays)? Is the 16-file on-box stats retention acceptable, or is
+  history expected?
+- Deployment: which management networks/ports can the BOW host reach; are
+  the management certs private-CA (so we can ship a CA bundle option rather
+  than `verify_ssl=false`)?
 
 ---
 
