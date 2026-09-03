@@ -57,6 +57,23 @@ reachable — acceptable for v1 (its main read is NATS status), worth revisiting
 Real deployments keep the design's `admin_port: 9191`; only the rig moves it to
 9192 to avoid the upload server.
 
+**C4 items still NOT built** (this pass did connection CRUD + test + dashboard +
+live re-advertise; C4 lists more):
+- ⛔ **Setup wizard** — NATS URL/token on first launch. NATS config is still
+  file/env only, and the UI can't set it. Note the chicken-and-egg: the server
+  only comes up after NATS connects, so a wizard to *fix* a bad NATS URL needs
+  the server to start before connect.
+- ⛔ **Per-connection security constraints** — `allowed_schemas` / `denied_tables`
+  (C4/C5). Not in the form, not in `ConnectionConfig`, and — the bigger half —
+  not enforced on either side. A real posture gap, not just a missing input.
+- ⛔ **Local audit log** — every operation with timestamp, duration, row counts
+  (C4 + C5 "full local audit trail"). Nothing is recorded today.
+- 🟡 **Agent-level timeout defaults not editable in the UI** — `default_query_
+  timeout_seconds` / `index_timeout_seconds` load from config and ARE advertised
+  (build_advertisement carries index_timeout; per-conn query_timeout via
+  `advertised()`), but the UI can only set the per-connection override, not the
+  agent defaults.
+
 ---
 
 ## 2026-09-03 (cont.) — edge agent multi–data-source support (reuse backend clients) + MySQL proof
