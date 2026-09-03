@@ -559,6 +559,176 @@ estate and one synthetic storage adapter kind (resource kinds and stat keys
 modelled on the Hitachi pack's object list), so the "VM latency → datastore
 → LDEV → pool" RCA path is exercisable end to end without any licence.
 
+## 6c. Connector design — `get_schemas`, `execute_query`, and tools
+
+The customer's ITOM system of record is **ServiceNow**, which we already
+connect (`servicenow_client.py`: Table API, JSON query spec, curated
+`incident / change_request / problem / cmdb_ci …` catalog, extensible via the
+`tables` config). So the RCA loop the planner runs is:
+
+```
+ServiceNow incident (what/when/which CI)
+  → ServiceNow change_request + em_alert in the window (what changed / what fired)
+  → Aria: resource for that CI → relationships → metrics + alerts across layers
+  → array connector: the LUN/LDEV/pool behind the datastore, its own events
+  → create_doc: symptom → hypotheses → evidence → root cause
+```
+
+Every connector below is a `DataSourceClient` with `capabilities = {QUERY}`,
+like all existing infra connectors. Results are DataFrames, so the agent
+joins across connections in pandas and feeds `create_data` / `create_doc`.
+The *tool provider* shape (`custom_api`/MCP via `execute_mcp`) is the wrong
+fit: its results are materialised blobs, not frames, and the planner is told
+tool providers do not answer `execute_query`.
+
+### 6c.1 `get_schemas()` — the catalog the planner sees
+
+Follow the AppDynamics/Zabbix pattern: a catalog declared in code, enriched
+at index time with what the instance actually contains. Two kinds of table:
+
+- **Fixed core tables** (always present, stable columns).
+- **Discovered metric tables**, one per *populated* resource kind, named with
+  the Splunk `dashboard::app/name` convention so the agent can tell them
+  apart: `metrics::<AdapterKind>/<ResourceKind>`. Their columns are the stat
+  keys from `/statkeys` (unit + description in the column description). Only
+  kinds with ≥1 resource are emitted; admins activate the ones they want in
+  the Tables selector. This is the Prometheus connector's "each metric is a
+  table" idea, one level up.
+
+**Aria Operations**
+
+| Table | Source | Columns (pk / fks) |
+|---|---|---|
+| `adapter_kinds` | `/adapterkinds` | key (pk), name, description, resource_kind_count |
+| `resource_kinds` | `/adapterkinds/{ak}/resourcekinds` | adapter_kind (fk), key (pk), name, resource_count |
+| `stat_keys` | `/adapterkinds/{ak}/resourcekinds/{rk}/statkeys` | adapter_kind, resource_kind, key, name, unit, rollup_type, description |
+| `resources` | `/resources` | id (pk), name, adapter_kind, resource_kind, health, status, state, identifiers (json) |
+| `properties` | `/resources/{id}/properties` | resource_id (fk→resources), name, value |
+| `relationships` | `/resources/{id}/relationships` | parent_id (fk→resources), child_id (fk→resources), parent_kind, child_kind |
+| `metrics` | `POST /resources/stats/query` | resource_id (fk), resource_name, resource_kind, stat_key, timestamp (epoch ms), value |
+| `metrics_latest` | `/resources/stats/latest` | resource_id, stat_key, timestamp, value |
+| `alerts` | `POST /alerts/query` | alert_id (pk), resource_id (fk), definition_id (fk→alert_definitions), level, status, start_utc, update_utc, cancel_utc, impact |
+| `symptoms` | `/symptoms` | id, resource_id (fk), definition_id, criticality, message, start_utc, cancel_utc |
+| `alert_definitions` | `/alertdefinitions` | id (pk), name, description, adapter_kind, resource_kind, wait_cycles, cancel_cycles |
+| `recommendations` | `/recommendations` | id, description |
+| `metrics::<AK>/<RK>` (discovered) | stats/query scoped to one kind | resource_id, resource_name, timestamp, + one column per stat key |
+
+Catalog descriptions embed the discovered estate (installed adapter kinds,
+resource counts per kind, top-N resource kinds) the same way AppDynamics
+embeds application names and flow edges — so the planner knows on read that
+"HitachiStorage/Pool" exists before it queries anything.
+
+**NetApp ONTAP** — `clusters, nodes, svms, aggregates, volumes, luns,
+qtrees, ip_interfaces, fc_ports, ems_events, counter_tables` plus
+`metrics` (object_type + uuid/name + interval → iops/latency/throughput
+series). Columns come straight from the REST field names (`space.size`,
+`space.used`, `state`, `svm.name`, …) — flatten dotted fields.
+
+**Hitachi** — CMREST: `storage_systems, ldevs, pools, ports, host_groups,
+parity_groups, alerts`. Analyzer (present only if configured):
+`performance` (object type + metric type + time range), `events`,
+`e2e_topology` (edge list from `E2EView/actions/getTopologyData`).
+
+**Infinidat** — `system, capacity, pools, volumes, filesystems, hosts,
+host_clusters, replicas, components, events, metrics_live` (collector
+create/poll/delete under the hood), and `infinimetrics_series` only if an
+InfiniMetrics URL is configured.
+
+**IBM Virtualize** — `system, nodes, pools, mdisks, volumes, hosts, drives,
+enclosures, fc_ports, event_log, system_stats, node_stats`. Spectrum
+Control (separate type if present): `storage_systems, volumes, ports,
+performance (id + granularity + time range), servers, switches`.
+
+**ServiceNow (already exists — configuration, not code)** — add to the
+connection's `tables`: `cmdb_rel_ci` (CI topology), `cmdb_ci_vmware_instance`,
+`cmdb_ci_esx_server`, `cmdb_ci_vcenter_datastore`, `cmdb_ci_storage_server`,
+`cmdb_ci_storage_pool`, `cmdb_ci_storage_volume`, `em_alert`, `em_event`
+(ITOM Event Management), `sys_journal_field` (work notes). The client's
+`discover_all` mode already walks the `cmdb_ci` hierarchy.
+
+### 6c.2 `execute_query(query)` — the JSON spec
+
+One spec shape per connector, documented in `system_prompt()` exactly as
+AppDynamics does, with epoch-millisecond timestamps and a `duration_in_mins`
+/ `start_time` / `end_time` window. Aria examples for the RCA path:
+
+```python
+# 1. Find the CI from the ServiceNow incident (existing connector)
+inc = sn.execute_query('{"table": "incident", "query": "number=INC0012345", "fields": ["cmdb_ci", "opened_at", "short_description"]}')
+
+# 2. Resolve it in Aria and pull its neighbourhood
+vm  = aria.execute_query('{"table": "resources", "name": "prod-db-01", "resource_kind": "VirtualMachine"}')
+rel = aria.execute_query('{"table": "relationships", "resource_id": "<vm-id>", "relationship_type": "ALL", "depth": 2}')
+
+# 3. Time-aligned metrics across layers, incident window ±30 min
+m = aria.execute_query('{"table": "metrics", "resource_id": ["<vm-id>", "<datastore-id>", "<hitachi-ldev-id>"],
+                        "stat_key": ["virtualDisk|totalLatency", "datastore|totalLatency", "response_time"],
+                        "start_time": 1756860000000, "end_time": 1756863600000, "rollup": "AVG", "interval": "MINUTES", "interval_quantifier": 1}')
+
+# 4. What fired, and what the operators' own thresholds say
+a = aria.execute_query('{"table": "alerts", "resource_id": ["<datastore-id>"], "active_only": false, "start_time": ..., "end_time": ...}')
+d = aria.execute_query('{"table": "alert_definitions", "adapter_kind": "HitachiStorage"}')
+
+# 5. Discovered metric table — one row per timestamp, stat keys as columns
+p = aria.execute_query('{"table": "metrics::HitachiStorage/Pool", "name": "Pool-07", "duration_in_mins": 120}')
+
+# 6. What changed (existing ServiceNow connector)
+chg = sn.execute_query('{"table": "change_request", "query": "start_date>=…^end_date<=…^cmdb_ciIN<ids>", "limit": 50}')
+```
+
+Spec rules that matter for RCA quality (all learned from the existing infra
+connectors):
+- **Window is mandatory on activity tables** (`metrics`, `alerts`,
+  `symptoms`, `events`); default to the last 60 min, never unbounded.
+- **Batch, don't loop**: `resource_id` and `stat_key` accept lists; the
+  client chunks at the API's 1000-resource cap.
+- **Name or id everywhere** (`resource_id` *or* `name` + `resource_kind`) —
+  the agent usually holds a name from ServiceNow, not an Aria id.
+- Hard caps: `MAX_ROWS` (50k) and `DEFAULT_LIMIT` (500) as in AppDynamics.
+- Same shape for the arrays, e.g. ONTAP
+  `{"table": "metrics", "object": "volumes", "name": "vol_prod_db", "interval": "1d"}`,
+  Virtualize `{"table": "event_log", "filtervalue": "status=alert", "limit": 200}`,
+  InfiniBox `{"table": "events", "filter": {"level": "in:(ERROR,CRITICAL)", "timestamp": "ge:…"}}`.
+
+### 6c.3 Tools — what is beyond `execute_query`
+
+**File, mail, note and browser capabilities do not apply** to any of these
+sources: none of them is a folder of documents, and the planner reasons
+worse when a metrics API is dressed up as files (the exact lesson recorded
+in `base.py` for mail/notes). Keep `{QUERY}`. What *is* worth adding sits in
+three places:
+
+1. **Catalog-level "tribal knowledge" tables (no new tool)** — the Splunk /
+   Elasticsearch move: `alert_definitions` (operator thresholds), Aria
+   **custom groups** and **dashboards/views** (`/dashboards` on 8.x — verify
+   on the appliance swagger before promising) become tables whose
+   descriptions carry the definition, so the agent replays the operator's
+   investigation instead of inventing one. Same for ServiceNow
+   `kb_knowledge` runbooks (already a table) and Hitachi Analyzer's E2E
+   bottleneck endpoint.
+2. **Correlation keys in `system_prompt()` (no new tool)** — the joins across
+   connections are the whole RCA. Each prompt must name them:
+   - ServiceNow `cmdb_ci_vmware_instance.vm_inst_id` / `morid` ↔ Aria VM
+     properties `config|instanceUuid` / `summary|MOID`; VM name as fallback.
+   - ServiceNow `cmdb_ci_vcenter_datastore.name` ↔ Aria Datastore name ↔
+     array LUN/LDEV via the storage pack relationship or, natively, via the
+     datastore's backing NAA id (`summary|datastore|...`) ↔ ONTAP LUN
+     `serial_number`, Virtualize `vdisk_UID`, Hitachi LDEV `naaId`, InfiniBox
+     volume `serial`.
+   - Array serial number ↔ ServiceNow `cmdb_ci_storage_server.serial_number`.
+   - Time: ServiceNow `opened_at` is UTC; Aria/ONTAP/Virtualize timestamps
+     are epoch ms / ISO / epoch s respectively — state the conversion.
+3. **ServiceNow, adjacent and cheap** — two additions to the *existing*
+   connector would sharpen RCA more than any storage tool: `READ_FILE` over
+   `sys_attachment` on the incident (logs and screenshots attached by the
+   operator) and journal fields (`sys_journal_field`) as a table, so work
+   notes are readable. Both are Table/Attachment API calls; the
+   ServiceNow client today is `{QUERY}` only.
+
+Not recommended: a bespoke "topology" or "rca" tool. The `relationships`
+table plus pandas already gives the graph, and a single-purpose tool would
+bypass the tracked-query path that `create_data` and dashboards depend on.
+
 ## 7. Open questions for the customer
 
 - Which Aria management packs are installed? (One `GET /adapterkinds` call.)
