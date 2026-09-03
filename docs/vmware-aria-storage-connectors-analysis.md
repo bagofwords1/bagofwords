@@ -39,9 +39,12 @@ Date: 2026-09-03. Companion docs with the same shape:
      for fleet/history, and **Storage Virtualize REST** (`:7443/rest/v1/ls*`,
      a POST-only mirror of the CLI) for live on-box detail. On-box history is
      only 16 XML stats files per node. See §4.4.
-   - **Hitachi VSP** — inventory via Configuration Manager REST is public and
-     fine; **performance history lives in Ops Center Analyzer**, whose REST API
-     is behind the support portal. See §4.2.
+   - **Hitachi VSP** — inventory + alerts via the Configuration Manager REST
+     API (public docs, also embedded on the array); **performance history
+     lives only in Ops Center Analyzer** (paid, capacity-licensed), whose REST
+     API *is* publicly documented and even exposes an E2E topology/bottleneck
+     endpoint. Good connector if the customer owns Analyzer — and the Aria
+     pack is fed by Analyzer, so if the pack works, Analyzer is there. See §4.2.
    - **Infinidat InfiniBox** — inventory/events/capacity easy; performance is a
      *live sampling* collector API (create → poll → delete) with **no history on
      the array**; history is in the separate InfiniMetrics appliance whose API is
@@ -262,7 +265,70 @@ config mode for AIQUM (`/api/v2` + gateway proxy) would give fleet-wide
 inventory in one connection — decide after asking whether the customer runs
 AIQUM.
 
-### 4.2 Hitachi (VSP) — *pending research agent; filled in §4.2 below*
+### 4.2 Hitachi (VSP) — Configuration Manager for inventory, Analyzer for RCA
+
+Caveat: several Hitachi guides (VSP One Block Administrator REST, Ops Center
+Administrator, Protector, Analyzer viewpoint) return 401 without a support
+login. The two guides that matter here — Configuration Manager REST
+(MK-99CFM000) and Analyzer REST (MK-99ANA003) — are public.
+
+**Three APIs, and which does what:**
+
+| API | Base | Gives | Auth | Docs |
+|---|---|---|---|---|
+| **Ops Center API Configuration Manager** ("CMREST"), also embedded on VSP E/G/F/5000/One Block controllers | `https://<cm>:23451/ConfigurationManager/v1/objects/storages/{storageDeviceId}/…` (on-array: `https://<svp-or-ctl>/ConfigurationManager/v1/…`) | Inventory (`storages`, `ldevs`, `pools`, `ports`, `host-groups`, `parity-groups`, `journals`) and **alerts** (`…/alerts?type=CTL1\|CTL2\|DKC&start=&count=`). **No performance time series.** | `POST …/storages/{id}/sessions` (Basic) → `Authorization: Session <token>`; Basic also accepted on GETs | public |
+| **Ops Center Analyzer REST** | `https://<analyzer>:22016/Analytics/v1/…` | Performance metrics with history, events/alerts, **E2E topology and bottleneck analysis** | `Basic`, `HSSO <token>` (1000 s), or `Bearer <OIDC token>` from Ops Center Common Services (300 s) | public |
+| **Analyzer detail view** (ex-Data Center Analytics) | `https://<dv>:8443/dbapi.do?action=query…` with an MQL body and `startTime`/`endTime` | Raw time series, alerts | Basic | public at TOC level |
+
+CMREST details: `ldevs` returns 100 by default, up to 16 384 via `count`,
+walk further with `headLdevId`; `detailInfoType=qos|externalVolume` adds
+detail. Older arrays (G200–G800, G1000/G1500) have no on-box REST and need
+the CMREST server, which is a free download. Read-only role: "Storage
+Administrator (View Only)".
+
+Analyzer REST details (the RCA-relevant part):
+- Filtering with HQL: `?$query=instanceID in [1000,1001] and status eq
+  'Warning'`; paging via `page`/`pageSize`.
+- Metrics: `GET /Analytics/v1/objects/PerformanceVolume` (also
+  `PerformanceNode`, `PerformanceVirtualMachine`) with `$query=MetricType eq
+  'RAID_VOLUME_RAIDLDEV_TOTALIOPS'`, `basePointNodeID`, `pointTimeRange`,
+  `conflict=peak|average` → peak/average per interval.
+- Events: `GET /Analytics/v1/objects/Events` (`level`, `category`
+  PERFORMANCE/EVENT/SETTING, `deviceName`, `thresholdValue`).
+- **E2E view:** `GET /Analytics/v1/services/E2EView/actions/getTopologyData`
+  plus related-resource operations used by Analyzer's own "Analyze
+  Bottleneck" — this is the vendor's RCA graph (VM → host → port → LDEV →
+  pool → parity group), directly usable by our planner's root-cause loop.
+- Raw records: `GET /Analytics/RAIDAgent/v1/objects/RAID_PI_LDS|RAID_PI_PRCS|
+  RAID_PI_CLPS…` (LDEV, MP, cache records; Basic auth only) — what
+  xormon/hds2graphite consume.
+- Licensing: Analyzer is a **paid, capacity-tiered licence per array**. If
+  the customer does not own it, performance history is only reachable via
+  the legacy Export Tool 2 CSV dumps (1–15 min samples, a CLI, not an API) —
+  not a connector we should build.
+
+Other facts:
+- Hitachi's Aria pack (02.11.0, Feb 2025) **collects all its metrics from
+  Analyzer**, so "the Aria pack works" implies Analyzer exists — a useful
+  tell when qualifying the customer.
+- No official Python SDK (`vsp360sdk` is an empty README). The Ansible
+  collection `hitachivantara.vspone_block` (v4.8.2, 183 modules) wraps CMREST
+  and shows current call shapes; it has alert facts but no performance
+  modules. Community `pascalhubacher/HitachiBlockAPI` wraps CMREST. Raw
+  `requests` again.
+- No Hitachi MCP server for storage. VSP 360 Clear Sight (SaaS AIOps) has no
+  customer-facing API.
+- Ops Center Administrator (ex-Storage Advisor) has its own token API
+  (`POST /v1/security/tokens` → `X-Auth-Token`) but is a provisioning UI;
+  not needed.
+
+Proposed shape: one `hitachi_ops_center` connector with two optional
+endpoints in config — Configuration Manager URL (+ storageDeviceId list) for
+inventory/alerts, Analyzer URL for metrics/events/E2E — each with its own
+credential pair; the catalog only includes Analyzer tables when that URL is
+set. Catalog: `storage_systems, ldevs, pools, ports, host_groups,
+parity_groups, alerts` (CMREST) + `performance (object type + metric type +
+time range), events, e2e_topology` (Analyzer).
 
 ### 4.3 Infinidat (InfiniBox) — easy inventory, awkward performance
 
@@ -378,7 +444,7 @@ customer has before choosing.
 
 | Option | Aria Ops | NetApp | Hitachi | Infinidat | IBM |
 |---|---|---|---|---|---|
-| A. Native connector | ✅ build first | ✅ second | see §4.2 | ⚠️ live-only perf | ✅ Storage Insights (history) / Virtualize (live) |
+| A. Native connector | ✅ build first | ✅ second | ✅ if customer owns Analyzer (RCA graph + history); CMREST alone = inventory/alerts only | ⚠️ live-only perf | ✅ Storage Insights (history) / Virtualize (live) |
 | B. Through Aria packs | — | ⚠️ pack EOL Oct 2024 | ✅ vendor-maintained, 8.18 OK | ⚠️ 8.16 listed, 8.18 unconfirmed | ⚠️ Broadcom pack EOL Dec 2023; IBM pack stale (2023) |
 | C. `prometheus` connector via exporter | n/a | ✅ Harvest (official) | community exporters only | community (Zabbix/graphite scripts) | IBM `spectrum-virtualize-exporter` + Storage Insights exporter (official-ish, small) |
 | D. `custom_api` declared endpoints | possible but token flow needs custom login | ✅ basic auth, plain JSON | ✅ basic/session | ✅ basic | ⚠️ Virtualize: POST-only + custom token header; Storage Insights: 15-min token → both awkward |
@@ -396,8 +462,13 @@ customer has before choosing.
    while wave 2 is built; confirm installed packs and whether they run
    AIQUM / Harvest / InfiniMetrics / Storage Insights.
 3. **`netapp_ontap` connector** (per-cluster REST, optional AIQUM mode).
-4. **Hitachi / IBM / Infinidat** in the order the customer's actual estate
-   dictates, using the findings in §4.
+4. **Hitachi (`hitachi_ops_center`) or IBM (`ibm_storage_insights` /
+   `ibm_storage_virtualize`)** next, in the order the customer's actual estate
+   dictates — Hitachi first if they own Analyzer (its E2E endpoint is the
+   closest thing to Aria's relationship graph among the array vendors).
+5. **Infinidat** last: inventory/events/capacity connector is cheap, but
+   historical performance needs InfiniMetrics and its community-documented
+   API.
 
 ---
 
@@ -407,8 +478,9 @@ customer has before choosing.
 - Which `authSource` names exist; can they create a local/LDAP read-only
   service account? Any plan to upgrade to VCF Operations 9.x?
 - NetApp: ONTAP version(s), AIQUM present?, Harvest/Prometheus present?
-- Hitachi: which Ops Center components are deployed (Analyzer? Configuration
-  Manager? Administrator?), and which VSP models?
+- Hitachi: do they own **Ops Center Analyzer** (licensed per array)? Which
+  VSP models (on-box REST needs E/G/F/5000/One Block; older arrays need the
+  CMREST server)? Is the Hitachi Aria pack installed (implies Analyzer)?
 - Infinidat: InfiniMetrics deployed? InfiniBox software version?
 - IBM: FlashSystem/SVC code level, Storage Insights (free vs Pro) tenant?,
   Spectrum Control on-prem?
@@ -474,6 +546,25 @@ against a live system.
 - https://www.infinidat.com/en/products-technology/infinimetrics ; https://www.infinidat.com/en/products-technology/infiniverse
 - https://github.com/viawest/infinibox-graphite ; https://github.com/vkostr/InfiniBox-Zabbix-integration (community InfiniMetrics API usage)
 - https://news.lenovo.com/pressroom/press-releases/lenovo-completes-acquisition-of-infinidat-expanding-enterprise-storage-portfolio-enhancing-ai-driven-data-infrastructure/
+
+### Hitachi
+- https://docs.hitachivantara.com/r/en-us/mk-99cfm000/latest (Configuration Manager REST, public)
+- https://docs.hitachivantara.com/r/en-us/ops-center-analyzer/10.8.x/mk-99ana003 (Analyzer REST, public)
+- https://docs.hitachivantara.com/r/en-us/mk-99ana003/latest/overview/common-specifications-of-the-api-functions/security-and-authentication
+- https://docs.hitachivantara.com/r/en-us/mk-99ana003/latest/overview/common-specifications-of-the-api-functions/hql-syntax-relationships-and-operators
+- https://docs.hitachivantara.com/r/en-us/mk-99ana003/latest/getting-a-list-of-metrics/getting-a-list-of-metrics-for-volumes
+- https://docs.hitachivantara.com/r/en-us/mk-99ana003/latest/performing-operations-related-to-event-information/getting-a-list-of-events
+- https://knowledge.hitachivantara.com/Documents/Management_Software/Ops_Center/Analyzer/10.5.x/Ops_Center_Analyzer_REST_API_resources/06_Performing_operations_related_to_resource_information_in_E2E_View
+- https://knowledge.hitachivantara.com/Documents/Management_Software/Ops_Center/10.8.x/Analyzer/10.2.x/Ops_Center_Analyzer_REST_API_resources/36_Accessing_RAID_Agent
+- https://knowledge.hitachivantara.com/Documents/Management_Software/Ops_Center/API_Configuration_Manager/10.0.x/REST_API_Reference_Guide/18_Monitoring_storage_systems (alerts)
+- https://knowledge.hitachivantara.com/Documents/Management_Software/Ops_Center/API_Configuration_Manager/10.2.x/REST_API_Reference_Guide/Volume_allocation/04_Getting_volume_information (ldevs paging)
+- https://docs.hitachivantara.com/r/en-us/mk-99ana004/latest (Analyzer detail view REST)
+- https://docs.hitachivantara.com/r/en-us/ops-center-api-configuration-manager/11.0.x/mk-99cfm000/running-vsp-one-block-administrator-rest-api-requests-for-vsp-one-b20-storage-systems
+- https://github.com/hitachi-vantara/vspone-block-ansible ; https://github.com/pascalhubacher/HitachiBlockAPI
+- https://download.hitachivantara.com/download/epcra/adptr0825.pdf (Hitachi MP for VMware Operations user guide)
+- https://knowledge.hitachivantara.com/Documents/Storage/VSP_E_Series/93-06-0x/System_Management_Using_Embedded_Interfaces/07_Exporting_storage_system_performance_information (Export Tool)
+- https://stor2rrd.com/Hitachi-VSPG-REST_API.php ; https://xormon.com/storage/monitoring/Hitachi/Hitachi-VSPG-VSP-HUS-AMS-HNAS-monitoring.php (community)
+- https://docs.hitachivantara.com/r/en-us/mk-99cls000/latest/clear-sight-overview
 
 ### IBM
 - https://www.ibm.com/docs/en/STKMQV_8.1.3/com.ibm.storage.vflashsystem9000.8.1.3.doc/Spectrum_Virtualize_API_8.1.3.pdf
