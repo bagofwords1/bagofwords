@@ -24,6 +24,11 @@ dependencies = [
     "psycopg2-binary>=2.9.12,<2.10",
     "pandas>=2.0,<3",
     "pyarrow>=18.1.0,<19",   # Parquet serialization of query results over the tunnel
+    # Reuse the backend's data-source clients over the tunnel (design B1, Step 5):
+    # the client classes live in backend/app/data_sources/clients and are imported
+    # via PYTHONPATH, so the edge agent needs their shared deps + drivers.
+    "pydantic-settings>=2.0,<3",   # backend data_source_registry imports it
+    "pymysql>=1.1,<2",             # MySQL / MariaDB driver
 ]
 
 [project.optional-dependencies]

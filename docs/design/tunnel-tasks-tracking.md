@@ -8,6 +8,47 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-03 (cont.) — edge agent multi–data-source support (reuse backend clients) + MySQL proof
+
+Scope: make the edge agent serve any on-prem data source Bow supports, not just
+PostgreSQL, and prove it end to end with a second engine (MySQL). Chosen
+strategy: **reuse the control plane's real clients** (`backend/app/data_sources/
+clients/*.py` on `PYTHONPATH`) rather than reimplement per-type clients in
+`data_plane` (design B1, Step 5).
+
+- ✅ **Reuse registry** (`data_plane/data_edge_agent/data_sources/registry.py`) —
+  `resolve_client_class` imports the real backend client class for a type via an
+  embedded `type → "module.Class"` map (67 entries, mirroring
+  `data_source_registry.py`). Imports the client **module directly** rather than
+  the backend registry, which transitively pulls in `app.settings`
+  (fastapi_mail / pydantic-settings) — the "no client import drags in app config"
+  check. Bundled `PostgresqlClient` remains a fallback for a stripped image.
+- ✅ **`construct_client` narrows kwargs** to the client constructor's signature,
+  so a connection can carry agent-side keys the client doesn't know.
+- ✅ **`PYTHONPATH=$ROOT/backend`** exported in `boot_data_edge_agent.sh`; the
+  agent's `pyproject.toml` gained `pydantic-settings` + `pymysql`.
+- ✅ **`_on_connect` compatibility fix** (`data_plane/.../tunnel.py`) — the
+  source-side statement-cancel hook (A9/C3) is postgres-specific; the dispatch
+  now passes `_on_connect` only when the client's `execute_query` accepts it.
+  Reused backend clients (MysqlClient, …) that lack it still get
+  cancel-on-timeout by abandoning the wait — just no source-side statement kill.
+- ✅ **MySQL end-to-end proof** — deployed a `mysql:8.4` Deployment/Service in
+  the rig (demo DB: `products`, `orders`), added a `demo-mysql` tunneled
+  connection. Verified from the **control plane** over NATS: advertisement
+  persisted (registered=2), `test_connection` ok via the status sweep,
+  `TunneledClient.aget_schemas` → 2 tables, `aexecute_query` (GROUP BY) → correct
+  result via parquet round-trip, all served by the backend's own `MysqlClient`.
+- ✅ **Resolution coverage** — postgres/mysql/mariadb resolve to real backend
+  classes; clickhouse/mongodb miss only for absent drivers (add the driver to
+  `data_plane` to enable), which is the intended per-type gating.
+
+Gap: `config.yaml` (repo) and the `boot_data_edge_agent.sh` default heredoc both
+carry the `demo-mysql` entry now, but the live rig config (`/tmp/bow-agent/
+edge-agent.yaml`) is hand-pinned to the real org UUID — the generated default
+uses the `cust-b` placeholder org, which won't match a seeded backend org.
+
+---
+
 ## 2026-09-03 (cont.) — production-hardening: heartbeat, cancel, error translation
 
 The three control-plane items that make a single postgres source production-solid.
