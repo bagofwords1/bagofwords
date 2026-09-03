@@ -1,6 +1,6 @@
 from typing import Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import defer, lazyload, load_only
 
 from app.models.artifact import Artifact
@@ -275,11 +275,27 @@ class ArtifactService:
         if not original:
             return None
 
-        # Get the highest version for this report
-        existing = await self.list_by_report(
-            db, original.report_id, organization_id=original.organization_id
-        )
-        max_version = max((a.version for a in existing), default=0)
+        # Next version number, scoped to the artifact's own KIND.
+        #
+        # This used to take max(version) over every artifact of the report, so
+        # a revert borrowed its number from an unrelated deliverable: a doc at
+        # v1/v2 reverted alongside a dashboard chain that had reached v7 came
+        # back as v8. Scoping to `mode` keeps a doc's numbering out of a
+        # dashboard's and vice versa.
+        #
+        # It is still a superset of the true version chain when one report
+        # holds two artifacts of the same mode (two dashboards) — there is no
+        # lineage column to scope by yet. That only ever overshoots, never
+        # collides: the result is greater than every version in the chain
+        # being reverted.
+        max_version = (await db.execute(
+            select(func.max(Artifact.version)).where(
+                Artifact.report_id == str(original.report_id),
+                Artifact.organization_id == str(original.organization_id),
+                Artifact.mode == original.mode,
+                Artifact.deleted_at.is_(None),
+            )
+        )).scalar() or 0
 
         new_artifact = Artifact(
             report_id=original.report_id,
