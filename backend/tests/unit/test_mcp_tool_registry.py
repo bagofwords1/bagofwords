@@ -225,8 +225,11 @@ def test_settings_garbage_values_fall_back_to_defaults():
 def test_real_org_settings_defaults_are_adaptive():
     """The shipped defaults, read through the real settings object.
 
-    An org that has never touched the setting gets the adaptive behavior: the
-    generic path for a small catalog, native registration once it grows.
+    Native registration ships as a lab feature that is OFF: an org that has
+    never touched the setting stays on the generic execute_mcp path whatever
+    its catalog size. Switching it on (a full FeatureConfig dict, as the
+    settings UI writes) gives the adaptive behavior: the generic path for a
+    small catalog, native registration once it reaches the threshold.
     """
     import app.models  # noqa: F401  (register every mapper before instantiating)
     from app.models.organization_settings import OrganizationSettings
@@ -234,8 +237,18 @@ def test_real_org_settings_defaults_are_adaptive():
     s = OrganizationSettings(organization_id="org", config={})
     assert native_tools_threshold(s) == 12
     assert native_tools_budget(s) == 60
-    assert native_tools_enabled(s, 11) is False
-    assert native_tools_enabled(s, 12) is True
+    assert native_tools_enabled(s) is False
+    assert native_tools_enabled(s, 12) is False
+
+    on = OrganizationSettings(organization_id="org", config={"ai_features": {
+        "enable_mcp_native_tools": {
+            "name": "Native MCP tool registration", "description": "d", "value": True,
+        }
+    }})
+    assert native_tools_threshold(on) == 12
+    assert native_tools_budget(on) == 60
+    assert native_tools_enabled(on, 11) is False
+    assert native_tools_enabled(on, 12) is True
 
 
 def test_admin_can_switch_it_off_from_settings():

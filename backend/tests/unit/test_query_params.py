@@ -45,6 +45,47 @@ def test_render_backslash_dialect():
     assert out == "SELECT * FROM t WHERE a = 'a\\\\''b'"
 
 
+def test_render_mssql_non_ascii_gets_nvarchar_prefix():
+    # SQL_Latin1_General_* databases turn a plain 'מטה' into '???' at parse
+    # time; only N'…' survives. Reproduces the "Run with a value returns 0
+    # rows" report on an MSSQL source.
+    out = render_sql_with_params(
+        "WHERE cat = :c", {"c": "מטה"}, client_type_name="MSSQLClient"
+    )
+    assert out == "WHERE cat = N'מטה'"
+    out = render_sql_with_params(
+        "WHERE cat = :c", {"c": "מטה"}, client_type_name="MsFabricClient"
+    )
+    assert out == "WHERE cat = N'מטה'"
+
+
+def test_render_mssql_ascii_stays_plain():
+    out = render_sql_with_params(
+        "WHERE cat = :c AND n = :n", {"c": "Admin", "n": 3}, client_type_name="MSSQLClient"
+    )
+    assert out == "WHERE cat = 'Admin' AND n = 3"
+
+
+def test_render_mssql_list_prefixes_each_non_ascii_item():
+    out = render_sql_with_params(
+        "WHERE cat IN :c", {"c": ["מטה", "Admin", "יצרן"]}, client_type_name="MSSQLClient"
+    )
+    assert out == "WHERE cat IN (N'מטה', 'Admin', N'יצרן')"
+
+
+def test_render_mssql_non_ascii_still_escapes_quotes():
+    out = render_sql_with_params(
+        "WHERE cat = :c", {"c": "מט'ה"}, client_type_name="MSSQLClient"
+    )
+    assert out == "WHERE cat = N'מט''ה'"
+
+
+def test_render_non_tsql_clients_never_prefix():
+    for name in ("SqliteClient", "PostgresqlClient", "MysqlClient", ""):
+        out = render_sql_with_params("WHERE cat = :c", {"c": "מטה"}, client_type_name=name)
+        assert out == "WHERE cat = 'מטה'", name
+
+
 def test_render_number_and_null_and_bool():
     out = render_sql_with_params(
         "WHERE n = :n AND m = :m AND b = :b", {"n": 5, "m": None, "b": True}
