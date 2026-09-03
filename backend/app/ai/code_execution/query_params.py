@@ -196,10 +196,20 @@ def resolve_param_values(
 # default; both ' and \ must be escaped there.
 _BACKSLASH_DIALECT_CLIENTS = {"MysqlClient", "MariadbClient", "MariaDBClient"}
 
+# T-SQL clients: a plain 'literal' is a varchar in the database's default
+# collation, so any character outside that code page is silently replaced by
+# '?' at parse time (a Hebrew value on a SQL_Latin1_General database becomes
+# '???' and matches nothing). Non-ASCII strings must be N'literal' (nvarchar)
+# there. ASCII stays plain so comparisons against varchar columns keep their
+# type and index behaviour.
+_UNICODE_PREFIX_CLIENTS = {"MSSQLClient", "MsFabricClient"}
+
 _PLACEHOLDER_RE = re.compile(r"(?<![:\w]):([a-zA-Z_][a-zA-Z0-9_]*)")
 
 
-def _render_literal(value: Any, *, backslash_dialect: bool) -> str:
+def _render_literal(
+    value: Any, *, backslash_dialect: bool, unicode_prefix: bool = False
+) -> str:
     if value is None:
         return "NULL"
     if isinstance(value, bool):
@@ -218,7 +228,10 @@ def _render_literal(value: Any, *, backslash_dialect: bool) -> str:
             # never-matching list instead so "no groups" means no rows.
             return "(NULL)"
         return "(" + ", ".join(
-            _render_literal(v, backslash_dialect=backslash_dialect) for v in items
+            _render_literal(
+                v, backslash_dialect=backslash_dialect, unicode_prefix=unicode_prefix
+            )
+            for v in items
         ) + ")"
     if isinstance(value, dict):
         raise ParamError("object values cannot be rendered into SQL directly")
@@ -226,7 +239,8 @@ def _render_literal(value: Any, *, backslash_dialect: bool) -> str:
     s = s.replace("'", "''")
     if backslash_dialect:
         s = s.replace("\\", "\\\\")
-    return "'" + s + "'"
+    prefix = "N" if (unicode_prefix and not s.isascii()) else ""
+    return prefix + "'" + s + "'"
 
 
 def render_sql_with_params(
@@ -244,6 +258,7 @@ def render_sql_with_params(
     wherever it appears as `:name`.
     """
     backslash = client_type_name in _BACKSLASH_DIALECT_CLIENTS
+    unicode_prefix = client_type_name in _UNICODE_PREFIX_CLIENTS
 
     missing: List[str] = []
 
@@ -252,7 +267,9 @@ def render_sql_with_params(
         if name not in values:
             missing.append(name)
             return m.group(0)
-        return _render_literal(values[name], backslash_dialect=backslash)
+        return _render_literal(
+            values[name], backslash_dialect=backslash, unicode_prefix=unicode_prefix
+        )
 
     rendered = _PLACEHOLDER_RE.sub(_sub, sql)
     if missing:
