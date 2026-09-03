@@ -143,6 +143,10 @@ async def test_notify_prefers_verified_teams_over_email():
 
     adapter = MagicMock()
     adapter.send_dm = AsyncMock(return_value=True)
+    # _try_chat probes `has_dm_space` when the adapter exposes it (Google Chat
+    # can't open a DM the user never started); a bare MagicMock "has" it but
+    # isn't awaitable, which reads as unreachable and falls through to email.
+    adapter.has_dm_space = AsyncMock(return_value=True)
 
     with patch("app.services.inbox_service.inbox_service.notify_users", new=AsyncMock()), \
          patch("app.services.external_platform_service.ExternalPlatformService.get_platform_by_type", new=_platform_by_type), \

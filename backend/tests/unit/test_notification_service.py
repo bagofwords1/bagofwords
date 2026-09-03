@@ -10,6 +10,10 @@ from app.schemas.notification_schema import (
     NotificationChannel,
 )
 from app.services.notification_service import NotificationService
+from app.services.email_renderer import (
+    render_notification_email,
+    render_scheduled_prompt_email,
+)
 
 
 # ---- Schema validation tests ----
@@ -136,47 +140,49 @@ class TestNotificationServiceDispatch:
         assert len(result.errors) == 1
         assert "SMTP" in result.errors[0].error
 
-    def test_build_subject_share_dashboard(self):
-        svc = NotificationService()
-        subject = svc._build_subject(NotificationType.SHARE_DASHBOARD, "My Report")
+    # Subject/HTML construction lives in email_renderer (locale-aware Jinja
+    # templates); dispatch() delegates to render_notification_email.
+    def test_render_subject_share_dashboard(self):
+        subject, _ = render_notification_email(
+            NotificationType.SHARE_DASHBOARD, "en",
+            share_url="https://example.com/r/123", report_title="My Report", sender_name="Alice",
+        )
         assert "My Report" in subject
         assert "shared" in subject.lower()
 
-    def test_build_subject_schedule_report(self):
-        svc = NotificationService()
-        subject = svc._build_subject(NotificationType.SCHEDULE_REPORT, "Weekly KPIs")
+    def test_render_subject_schedule_report(self):
+        subject, _ = render_notification_email(
+            NotificationType.SCHEDULE_REPORT, "en",
+            share_url="https://example.com/r/123", report_title="Weekly KPIs", sender_name="Alice",
+        )
         assert "Weekly KPIs" in subject
 
-    def test_build_html_contains_url(self):
-        svc = NotificationService()
-        html = svc._build_html({
-            "notification_type": NotificationType.SHARE_DASHBOARD,
-            "share_url": "https://example.com/r/123",
-            "report_title": "Test",
-            "sender_name": "Alice",
-            "message": None,
-        })
+    def test_render_html_contains_url(self):
+        _, html = render_notification_email(
+            NotificationType.SHARE_DASHBOARD, "en",
+            share_url="https://example.com/r/123", report_title="Test", sender_name="Alice",
+            message=None,
+        )
         assert "https://example.com/r/123" in html
         assert "Alice" in html
 
-    def test_build_html_escapes_message(self):
-        svc = NotificationService()
-        html = svc._build_html({
-            "notification_type": NotificationType.SHARE_DASHBOARD,
-            "share_url": "https://example.com",
-            "report_title": "Test",
-            "sender_name": "Alice",
-            "message": "<script>alert('xss')</script>",
-        })
+    def test_render_html_escapes_message(self):
+        _, html = render_notification_email(
+            NotificationType.SHARE_DASHBOARD, "en",
+            share_url="https://example.com", report_title="Test", sender_name="Alice",
+            message="<script>alert('xss')</script>",
+        )
         assert "<script>" not in html
         assert "&lt;script&gt;" in html
 
-    def test_build_results_html_contains_url(self):
-        svc = NotificationService()
-        html = svc._build_results_html("My Report", "https://example.com/r/1")
+    def test_render_results_html_contains_url(self):
+        subject, html = render_scheduled_prompt_email(
+            "en", report_title="My Report", report_url="https://example.com/r/1",
+        )
         assert "https://example.com/r/1" in html
         assert "My Report" in html
-        assert "Scheduled report completed" in html
+        assert "My Report" in subject
+        assert "finished running" in html
 
 
 class TestSendScheduledReportResults:
@@ -240,4 +246,5 @@ class TestSendScheduledReportResults:
             mock_fm.send_message.assert_called_once()
             call_args = mock_fm.send_message.call_args
             msg = call_args[0][0]
-            assert "notify@example.com" in msg.recipients
+            # fastapi-mail >= 1.6 parses recipients into NameEmail objects.
+            assert "notify@example.com" in [str(getattr(r, "email", r)) for r in msg.recipients]

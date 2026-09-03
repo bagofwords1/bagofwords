@@ -47,6 +47,11 @@ def _install_route_stubs():
             return {"success": True, "action": "message_processed"}
 
     epm_mod.ExternalPlatformManager = ExternalPlatformManager
+    # Keep a handle on the stub class: when the real module was already
+    # imported by an earlier test in the same process, setdefault leaves it in
+    # place and the route binds the REAL manager — the fixture below swaps the
+    # route's instance for this stub regardless.
+    _install_route_stubs.manager_cls = ExternalPlatformManager
     sys.modules.setdefault("app.services", types.ModuleType("app.services"))
     sys.modules.setdefault("app.services.external_platform_manager", epm_mod)
 
@@ -81,6 +86,7 @@ def _install_route_stubs():
 
 
 _ExternalPlatform = _install_route_stubs()
+_StubManager = _install_route_stubs.manager_cls
 
 # Now load the route module directly from file
 import importlib.util
@@ -120,6 +126,9 @@ def app(monkeypatch, platform):
         return [platform]
 
     monkeypatch.setattr(wh, "_list_whatsapp_platforms", _fake_list)
+
+    # Always dispatch to the stub manager, never the real one.
+    monkeypatch.setattr(wh, "platform_manager", _StubManager())
 
     # Patch the GET-handshake DB scan so no real DB is touched
     class _Scalars:
@@ -266,7 +275,7 @@ def test_post_invalid_signature_rejected(client):
 
 
 def test_post_valid_text_message_dispatches(client):
-    from app.services.external_platform_manager import ExternalPlatformManager  # stubbed
+    ExternalPlatformManager = _StubManager
 
     ExternalPlatformManager.last_call = None
     body = json.dumps(_inbound_text_payload()).encode()
@@ -285,7 +294,7 @@ def test_post_valid_text_message_dispatches(client):
 
 
 def test_post_status_only_payload_is_noop(client):
-    from app.services.external_platform_manager import ExternalPlatformManager  # stubbed
+    ExternalPlatformManager = _StubManager
 
     ExternalPlatformManager.last_call = None
     payload = {
@@ -318,7 +327,7 @@ def test_post_status_only_payload_is_noop(client):
 
 
 def test_post_non_text_message_is_noop(client):
-    from app.services.external_platform_manager import ExternalPlatformManager  # stubbed
+    ExternalPlatformManager = _StubManager
 
     ExternalPlatformManager.last_call = None
     body = json.dumps(_inbound_text_payload(msg_type="image")).encode()
@@ -331,8 +340,8 @@ def test_post_non_text_message_is_noop(client):
     assert ExternalPlatformManager.last_call is None
 
 
-def test_post_deduplication(client):
-    from app.services.external_platform_manager import ExternalPlatformManager  # stubbed
+def test_post_deduplication(client, monkeypatch):
+    ExternalPlatformManager = _StubManager
 
     calls = []
 
@@ -340,7 +349,7 @@ def test_post_deduplication(client):
         calls.append(ev["entry"][0]["changes"][0]["value"]["messages"][0]["id"])
         return {"success": True}
 
-    ExternalPlatformManager.handle_incoming_message = _tracking  # type: ignore
+    monkeypatch.setattr(ExternalPlatformManager, "handle_incoming_message", _tracking)
 
     body = json.dumps(_inbound_text_payload(msg_id="wamid.DEDUP")).encode()
     headers = {"x-hub-signature-256": _sign(body)}

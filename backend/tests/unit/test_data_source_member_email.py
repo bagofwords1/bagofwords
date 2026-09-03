@@ -120,7 +120,8 @@ class TestSendMemberAddedEmail:
 
         fm.send_message.assert_awaited_once()
         message = fm.send_message.call_args.args[0]
-        assert message.recipients == ["member@example.com"]
+        # fastapi-mail >= 1.6 parses recipients into NameEmail objects.
+        assert [str(getattr(r, "email", r)) for r in message.recipients] == ["member@example.com"]
 
     def test_skips_when_membership_removed(self):
         """The mistake-undo path: membership gone before the delay elapsed."""

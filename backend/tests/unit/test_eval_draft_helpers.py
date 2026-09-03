@@ -67,7 +67,7 @@ async def test_classify_duplicate_parses_clean_json():
         '{"duplicate": true, "matched_id": "case-123", "reason": "same metric"}'
     )
 
-    with patch("app.services.completion_feedback_service.LLMService") as LLMServiceMock, \
+    with patch("app.services.llm_service.LLMService") as LLMServiceMock, \
          patch("app.ai.llm.LLM") as LLMClassMock:
         LLMServiceMock.return_value.get_default_model = MagicMock()
         async def _gd(*args, **kwargs):
@@ -99,7 +99,7 @@ async def test_classify_duplicate_handles_markdown_fence():
         "```"
     )
 
-    with patch("app.services.completion_feedback_service.LLMService") as LLMServiceMock, \
+    with patch("app.services.llm_service.LLMService") as LLMServiceMock, \
          patch("app.ai.llm.LLM") as LLMClassMock:
         async def _gd(*args, **kwargs):
             return MagicMock()
@@ -123,7 +123,7 @@ async def test_classify_duplicate_handles_garbage_response():
     fake_llm = MagicMock()
     fake_llm.inference.return_value = "I don't know, sorry"
 
-    with patch("app.services.completion_feedback_service.LLMService") as LLMServiceMock, \
+    with patch("app.services.llm_service.LLMService") as LLMServiceMock, \
          patch("app.ai.llm.LLM") as LLMClassMock:
         async def _gd(*args, **kwargs):
             return MagicMock()
