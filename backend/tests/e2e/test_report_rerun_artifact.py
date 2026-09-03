@@ -40,6 +40,7 @@ from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 
 
 def _run(coro):
@@ -180,16 +181,15 @@ async def _seed_artifact_graph(
             query_ids.append(str(query.id))
             viz_ids.append(str(viz.id))
 
-        db.add(ArtifactVersion(
+        await seed_artifact(
+            db,
             report_id=report_id,
             user_id=user_id,
             organization_id=org_id,
-            title="Dashboard",
             mode="page",
-            version=1,
+            title="Dashboard",
             content={"code": "function App() {}", "visualization_ids": viz_ids},
-            status="completed",
-        ))
+        )
         await db.commit()
 
     return {"query_ids": query_ids, "viz_ids": viz_ids, "default_step_ids": default_step_ids}

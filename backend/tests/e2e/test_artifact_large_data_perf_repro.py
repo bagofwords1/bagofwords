@@ -64,6 +64,7 @@ from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
 from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 
 
 ROWS_PER_STEP = int(os.environ.get("BOW_REPRO_ROWS", "15000"))
@@ -209,17 +210,15 @@ async def _seed(rows_per_step: int):
 
         # a realistic generated dashboard: ~100 kB of JSX per artifact version
         fake_code = "function Dashboard() {\n" + ("  // chart section filler line of jsx code\n" * 2500) + "}\n"
-        for vi in range(N_ARTIFACT_VERSIONS):
-            db.add(ArtifactVersion(
-                report_id=report.id,
-                user_id=user.id,
-                organization_id=org.id,
-                title="Dashboard",
-                mode="page",
-                version=vi + 1,
-                content={"code": fake_code, "visualization_ids": viz_ids},
-                status="completed",
-            ))
+        await seed_artifact(
+            db,
+            report_id=report.id,
+            user_id=user.id,
+            organization_id=org.id,
+            mode="page",
+            title="Dashboard",
+            contents=[{"code": fake_code, "visualization_ids": viz_ids}] * N_ARTIFACT_VERSIONS,
+        )
 
         await db.commit()
 

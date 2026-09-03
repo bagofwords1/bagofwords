@@ -23,7 +23,8 @@ from app.models.widget import Widget
 from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
 from app.models.user import User
-from app.services.artifact_service import ArtifactService
+# aliased: the local variable `new_artifact` below is the row, not the factory
+from app.services.artifact_service import ArtifactService, new_artifact as new_artifact_row
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -885,12 +886,13 @@ class ForkService:
         else:
             new_content = dict(old_content)
 
-        new_artifact = ArtifactVersion(
+        new_artifact = await new_artifact_row(
+            db,
             report_id=str(new_report.id),
             user_id=str(user.id),
             organization_id=str(new_report.organization_id),
-            title=latest.title,
             mode=latest.mode,
+            title=latest.title,
             content=new_content,
             # Authored against the CREATOR's result set, and it states facts
             # about it in prose — real examples carry "the data source has only
@@ -901,11 +903,7 @@ class ForkService:
             # bakes in creator-derived values at generation time"); dropped
             # here rather than carried into the fork.
             generation_prompt=None if strict_source else latest.generation_prompt,
-            version=1,
-            status="completed",
         )
-        db.add(new_artifact)
-        await db.flush()
 
         # The thumbnail is a rendered screenshot of the dashboard — the
         # creator's actual numbers, baked into a PNG. copy_thumbnail is a raw

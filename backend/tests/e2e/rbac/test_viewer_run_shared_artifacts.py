@@ -25,6 +25,7 @@ import pytest
 
 from app.dependencies import async_session_maker
 from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
@@ -117,16 +118,15 @@ async def _seed_artifact_graph(report_id: str, n_queries: int = 1):
             viz_ids.append(str(viz.id))
             step_ids.append(str(step.id))
 
-        db.add(ArtifactVersion(
+        await seed_artifact(
+            db,
             report_id=report_id,
             user_id=user_id,
             organization_id=org_id,
-            title="Dashboard",
             mode="page",
-            version=1,
+            title="Dashboard",
             content={"code": "function App() {}", "visualization_ids": viz_ids},
-            status="completed",
-        ))
+        )
         await db.commit()
 
     return {"query_ids": query_ids, "viz_ids": viz_ids, "step_ids": step_ids}

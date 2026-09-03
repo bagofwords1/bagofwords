@@ -15,6 +15,7 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.artifact import ArtifactVersion
 from app.ai.tools.implementations._sandbox_context import ARTIFACT_RUNTIME_VERSION
+from app.services.artifact_service import new_artifact
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.schemas.mcp import MCPCreateArtifactInput, MCPCreateArtifactOutput
@@ -181,21 +182,18 @@ class CreateArtifactMCPTool(MCPTool):
         included_viz_ids = [v["id"] for v in visualizations]
 
         # Create Artifact record
-        artifact = ArtifactVersion(
+        artifact = await new_artifact(
+            db,
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
-            title=input_data.title or "Dashboard",
             mode=input_data.mode,
+            title=input_data.title or "Dashboard",
             content={"code": code, "visualization_ids": included_viz_ids,
                      **({"runtime_version": ARTIFACT_RUNTIME_VERSION} if input_data.mode == "page" else {})},
             generation_prompt=input_data.prompt,
-            version=1,
-            status="completed",
         )
-        db.add(artifact)
         await db.commit()
-        await db.refresh(artifact)
 
         # Finish tracking
         await self._finish_tracking(

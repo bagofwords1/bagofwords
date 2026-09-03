@@ -43,6 +43,7 @@ from app.ai.code_execution.pptx_executor import PptxPreviewService
 from app.ai.llm import LLM
 from app.ai.llm.types import Message, TextDeltaEvent
 from app.models.artifact import ArtifactVersion
+from app.services.artifact_service import new_version
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
@@ -1537,27 +1538,28 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
         included_viz_ids = [v["id"] for v in visualizations]
-        new_version = artifact.version + 1
 
         # Accumulate generation_prompt: merge previous spec with current edit
         prev_spec = artifact.generation_prompt or ""
-        accumulated_spec = f"{prev_spec}\n+ Edit (v{new_version}): {data.edit_prompt}".strip()
 
-        new_artifact = ArtifactVersion(
-            report_id=artifact.report_id,
-            user_id=str(user.id) if user else artifact.user_id,
-            organization_id=artifact.organization_id,
+        new_artifact = await new_version(
+            db,
+            artifact,
+            user_id=str(user.id) if user else None,
             title=new_title,
-            mode=artifact.mode,
             content=(
                 {"code": new_code, "visualization_ids": included_viz_ids, "files": merged_files}
                 if merged_files
                 else {"code": new_code, "visualization_ids": included_viz_ids}
             ),
-            generation_prompt=accumulated_spec,
-            version=new_version,
-            status="completed",
         )
+        # The accumulated spec names the version that was actually minted —
+        # the factory owns the number, so it is read back, never predicted.
+        version_number = new_artifact.version
+        new_artifact.generation_prompt = (
+            f"{prev_spec}\n+ Edit (v{version_number}): {data.edit_prompt}".strip()
+        )
+        db.add(new_artifact)
         # Page mode reached here only with a validated render — persist the
         # screenshot and (non-fatal) console errors captured during validation.
         if screenshot_base64 or render_errors:
@@ -1613,7 +1615,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             code=new_code,
             mode=new_artifact.mode,
             title=new_title,
-            version=new_version,
+            version=version_number,
             diff_applied=diff_applied,
         ).model_dump()
 
@@ -1623,7 +1625,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             "artifact_id": str(new_artifact.id),
             "title": new_title or "Untitled",
             "mode": new_artifact.mode,
-            "version": new_version,
+            "version": version_number,
             "code_stats": {
                 "chars": len(new_code),
                 "lines": code_lines,
@@ -1639,7 +1641,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         }
 
         # Build observation
-        summary_msg = f"Edited artifact '{new_title or 'Untitled'}' (v{new_version})"
+        summary_msg = f"Edited artifact '{new_title or 'Untitled'}' (v{version_number})"
         if diff_applied:
             summary_msg += f" — applied {num_blocks} surgical edit(s)"
             if diff_retry_used:
@@ -1684,7 +1686,7 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
             "summary": summary_msg,
             "artifact_id": str(new_artifact.id),
             "mode": new_artifact.mode,
-            "version": new_version,
+            "version": version_number,
             "diff_applied": diff_applied,
             "visualization_count": len(visualizations),
             "visualization_ids": included_viz_ids,
