@@ -137,7 +137,11 @@ class Report(BaseSchema):
     )
     queries = relationship("Query", back_populates="report", lazy="selectin")
     visualizations = relationship("Visualization", back_populates="report", lazy="selectin")
-    artifacts = relationship("ArtifactVersion", back_populates="report", lazy="selectin")
+    # Parent Artifact rows (identity: mode + title), NOT versions — cheap to
+    # selectin-load. Version rows hang off `artifact_versions` and are only
+    # loaded on explicit request (their content JSON can be ~100kB each).
+    artifacts = relationship("Artifact", back_populates="report", lazy="selectin")
+    artifact_versions = relationship("ArtifactVersion", back_populates="report", lazy="select")
     scheduled_prompts = relationship("ScheduledPrompt", back_populates="report", lazy="selectin")
     shares = relationship("ReportShare", back_populates="report", lazy="selectin")
     stars = relationship("ReportStar", back_populates="report", lazy="selectin")

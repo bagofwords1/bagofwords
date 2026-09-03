@@ -28,7 +28,7 @@ from app.ai.tools.schemas import (
 from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArtifactOutput
 from app.ai.llm import LLM
 from app.ai.llm.types import ImageInput, Message, TextDeltaEvent
-from app.models.artifact import ArtifactVersion
+from app.models.artifact import Artifact, ArtifactVersion
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 from app.services.thumbnail_service import ThumbnailService
@@ -1242,9 +1242,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             try:
                 _prev_res = await db.execute(
                     select(ArtifactVersion)
+                    # Mode lives on the parent Artifact — explicit join.
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                     .where(
                         ArtifactVersion.report_id == str(report.id),
-                        ArtifactVersion.mode == "page",
+                        Artifact.mode == "page",
                         ArtifactVersion.status == "completed",
                         ArtifactVersion.id != artifact.id,
                     )

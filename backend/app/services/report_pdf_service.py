@@ -731,7 +731,7 @@ class ReportPdfService:
         """
         try:
             from app.dependencies import async_session_maker
-            from app.models.artifact import ArtifactVersion
+            from app.models.artifact import Artifact, ArtifactVersion
             from app.services.viewer_data_policy import report_snapshot_withheld
             from sqlalchemy import select
 
@@ -757,10 +757,12 @@ class ReportPdfService:
                 for wanted_mode in ("page", "slides", "doc"):
                     stmt = (
                         select(ArtifactVersion)
+                        # Mode lives on the parent Artifact — explicit join.
+                        .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                         .where(
                             ArtifactVersion.report_id == report_id,
                             ArtifactVersion.deleted_at.is_(None),
-                            ArtifactVersion.mode == wanted_mode,
+                            Artifact.mode == wanted_mode,
                         )
                         .order_by(ArtifactVersion.created_at.desc())
                         .limit(1)

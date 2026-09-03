@@ -260,14 +260,14 @@ async def test_artifact_list_selects_only_list_columns(artifact_context):
     )
 
     assert len(artifacts) == 6
-    artifact_selects = [statement for statement in statements if "from artifacts" in statement]
+    artifact_selects = [statement for statement in statements if "from artifact_versions" in statement]
     assert len(artifact_selects) == 1
-    selected = artifact_selects[0].split("from artifacts", 1)[0]
+    selected = artifact_selects[0].split("from artifact_versions", 1)[0]
     for heavy_column in (
-        "artifacts.content",
-        "artifacts.generation_prompt",
-        "artifacts.screenshot_base64",
-        "artifacts.render_errors",
+        "artifact_versions.content",
+        "artifact_versions.generation_prompt",
+        "artifact_versions.screenshot_base64",
+        "artifact_versions.render_errors",
     ):
         assert heavy_column not in selected
 
@@ -366,7 +366,8 @@ async def test_read_query_loads_only_requested_query_graph(artifact_context, loo
     assert loaded.get("Visualization", set()) == {ids["visualization"]}
     assert loaded.get("Report", set()) == set()
     assert loaded.get("Artifact", set()) == set()
+    assert loaded.get("ArtifactVersion", set()) == set()
     assert loaded.get("Completion", set()) == set()
     assert loaded.get("Widget", set()) == set()
-    for unrelated_table in ("reports", "artifacts", "completions"):
+    for unrelated_table in ("reports", "artifacts", "artifact_versions", "completions"):
         assert not any(f"from {unrelated_table}" in statement for statement in statements)
