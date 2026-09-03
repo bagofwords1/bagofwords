@@ -338,8 +338,24 @@ class EdgeAgentTunnel:
                 # loop thread while the query runs in the worker thread.
                 cancel_box["cancel"] = raw.cancel
 
+            # `_on_connect` is the source-side statement-cancel hook (A9/C3).
+            # Only the edge agent's own clients implement it; a reused backend
+            # client (MysqlClient, …) has no such parameter and would reject it.
+            # When it's unsupported we still get cancel-on-timeout by abandoning
+            # the wait below — we just can't stop the statement on the source.
+            import inspect as _inspect
+            try:
+                _params = _inspect.signature(client.execute_query).parameters
+                _accepts_on_connect = "_on_connect" in _params or any(
+                    p.kind is _inspect.Parameter.VAR_KEYWORD for p in _params.values()
+                )
+            except (TypeError, ValueError):
+                _accepts_on_connect = False
+
             def _run():
-                return client.execute_query(sql, _on_connect=_on_connect, **qkwargs)
+                if _accepts_on_connect:
+                    return client.execute_query(sql, _on_connect=_on_connect, **qkwargs)
+                return client.execute_query(sql, **qkwargs)
 
             def _cancel():
                 fn = cancel_box.get("cancel")

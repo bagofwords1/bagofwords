@@ -45,11 +45,15 @@ if [ "$PORT_FORWARD" = "1" ]; then
   NATS_PORT="$NATS_LOCAL_PORT"
   PG_HOST="localhost"
   PG_PORT="$PG_LOCAL_PORT"
+  MYSQL_HOST="localhost"
+  MYSQL_PORT="${MYSQL_LOCAL_PORT:-13306}"
 else
   NATS_HOST="nats.$NAMESPACE.svc.cluster.local"
   NATS_PORT="9443"
   PG_HOST="postgresql.$NAMESPACE.svc.cluster.local"
   PG_PORT="5432"
+  MYSQL_HOST="mysql.$NAMESPACE.svc.cluster.local"
+  MYSQL_PORT="3306"
 fi
 
 # Everything this script starts, so --stop and --status stay in step with it.
@@ -205,6 +209,20 @@ connections:
       user: lego
       password: lego
 
+  # A second on-prem source, served by the backend's own MysqlClient over
+  # PYTHONPATH (the reuse path — no per-type client code in the agent).
+  # Deployed by the mysql Deployment in the bow-test rig (demo/demo/demo).
+  - name: demo-mysql
+    type: mysql
+    label: Demo MySQL
+    config:
+      host: $MYSQL_HOST
+      port: $MYSQL_PORT
+      database: demo
+    credentials:
+      user: demo
+      password: demo
+
 log_level: INFO
 EOF
   echo "wrote default config $CONFIG"
@@ -256,6 +274,11 @@ write_default_config
 # The token is passed through the environment, never the config file. Its
 # default matches deploy-nats.sh, so the rig works with no extra setup.
 export BOW_EDGE_AGENT_NATS_TOKEN="${BOW_EDGE_AGENT_NATS_TOKEN:-bow-test-token}"
+
+# Reuse the backend's data-source clients over the tunnel (design B1/Step 5):
+# put backend/ on PYTHONPATH so the agent's registry can import
+# app.data_sources.clients.* for any on-prem type.
+export PYTHONPATH="$ROOT/backend:${PYTHONPATH:-}"
 
 start_bg edge-agent uv run python -m data_edge_agent --config "$CONFIG"
 wait_for_log edge-agent "edge_agent.started" "edge agent" 60
