@@ -291,6 +291,8 @@ app.include_router(trigger.router, prefix="/api")
 app.include_router(webhook_receiver.router)
 app.include_router(step.router, prefix="/api")
 app.include_router(instruction.router, prefix="/api")
+from app.routes import knowledge_graph as knowledge_graph_routes
+app.include_router(knowledge_graph_routes.router, prefix="/api")
 app.include_router(build.router, prefix="/api")
 app.include_router(console.router, prefix="/api")
 app.include_router(agent_execution.router, prefix="/api")

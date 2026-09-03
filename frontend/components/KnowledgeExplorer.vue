@@ -476,6 +476,17 @@
               <button type="button" class="inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-gray-100 dark:hover:bg-gray-800/70 hover:text-gray-700 dark:hover:text-gray-300 transition-colors" @click="openAgentSection('instructions', agentView.agentId)"><UIcon name="i-heroicons-document-text" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.countInstructions', { n: agentCount(agentView.agentId) }, statChoice(agentCount(agentView.agentId))) }}</button>
             </div>
 
+            <!-- Knowledge map: this agent's tables (FK joins) + the instructions that reference them -->
+            <div class="mb-6">
+              <div class="flex items-center gap-2 mb-2">
+                <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{{ $t('knowledgeGraph.titleAgent') }}</span>
+                <button class="text-[10px] text-blue-600 hover:underline" @click="showAgentMap = !showAgentMap">{{ showAgentMap ? $t('knowledgeGraph.hideMap') : $t('knowledgeGraph.showMap') }}</button>
+              </div>
+              <div v-if="showAgentMap" class="h-[480px] rounded-xl ring-1 ring-gray-200 dark:ring-gray-800 overflow-hidden">
+                <KnowledgeGraph :key="agentView.agentId" scope="agent" :agent-id="agentView.agentId" @open-agent="openAgent" @open-instruction="onGraphOpenInstruction" @open-table="(aid: string) => openAgentSection('tables', aid)" />
+              </div>
+            </div>
+
             <!-- Primary instruction (inline, clean editor) -->
             <div v-if="creatingPrimary || editingPrimary">
               <div class="flex items-center justify-between gap-2 mb-2">
@@ -955,6 +966,9 @@
           </div>
         </template>
 
+        <div v-else-if="agents.length" class="flex-1 min-h-0 p-3">
+          <KnowledgeGraph scope="org" :show-all="showAllAgents" class="h-full" @open-agent="openAgent" @open-instruction="onGraphOpenInstruction" />
+        </div>
         <div v-else class="flex-1 flex items-center justify-center px-6">
           <div class="relative w-full max-w-lg h-72 overflow-hidden">
             <img src="/assets/empty-states/empty-integrations.png" alt="" class="absolute inset-x-0 bottom-8 w-full opacity-80 select-none pointer-events-none dark:hidden" />
@@ -1139,6 +1153,7 @@ import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
+import KnowledgeGraph from '~/components/KnowledgeGraph.vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
@@ -2536,6 +2551,14 @@ const backToTree = () => {
 // editable panel (which also expands the tree node); Instructions has no
 // right-pane panel, so we expand its tree node instead. On mobile the tree is
 // hidden behind the detail pane, so for Instructions we fall back to it.
+// Knowledge map → open an instruction by id. The map only knows ids, so seed
+// the pane from the loaded light row when we have it; openInstruction fetches
+// the body either way.
+const showAgentMap = ref(true)
+const onGraphOpenInstruction = (id: string) => {
+  const row = allInstructions.value.find((i: any) => String(i.id) === String(id))
+  openInstruction((row || { id, title: '' }) as any)
+}
 const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
   expand('agent:' + agentId, true)
   if (kind === 'instructions') {
