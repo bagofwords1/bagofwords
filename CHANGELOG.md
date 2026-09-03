@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.554 (September 3, 2026)
+- Query results (create_data, read_query, write_csv, describe_entity) can now be opened in the side panel like a dashboard or document: full-width chart/table/code with the same edit, download, Add to Dashboard and Save Query controls
+- Result cards now report the true row total while only the inline preview has loaded, with a loading indicator until the full set arrives
+
 ## Version 0.0.553 (September 2, 2026)
 - Saved queries can be loaded with parameter values without LLM code generation: run API, entity page, and the agent's describe_entity
 - Entity save/edit form now says "Agents" instead of "Data Sources"

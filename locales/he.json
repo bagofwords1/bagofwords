@@ -1290,7 +1290,11 @@
       "copyIdTooltip": "העתק את מזהה השאילתה",
       "copied": "הועתק",
       "copiedDesc": "מזהה השאילתה הועתק ללוח",
-      "copyFailed": "ההעתקה נכשלה"
+      "copyFailed": "ההעתקה נכשלה",
+      "openInPanel": "פתיחה בפאנל הצדדי",
+      "closeDataPanel": "סגירת תצוגת הנתונים",
+      "dataTab": "נתונים",
+      "loadingRows": "טוען את כל השורות…"
     },
     "generic": {
       "running": "פועל...",

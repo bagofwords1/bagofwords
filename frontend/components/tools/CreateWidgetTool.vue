@@ -133,7 +133,7 @@
 
         <!-- Results (shown only on success) -->
         <div class="mt-1" v-if="hasPreview">
-          <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
+          <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" :can-expand="canExpand" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" @openDataPanel="$emit('openDataPanel', $event)" />
         </div>
 
         <!-- Final status summary -->
@@ -195,9 +195,9 @@ interface Props {
   }
 }
 
-const props = defineProps<Props & { readonly?: boolean }>()
+const props = defineProps<Props & { readonly?: boolean; canExpand?: boolean }>()
 
-const emit = defineEmits(['addWidget', 'refreshDashboard', 'toggleSplitScreen', 'editQuery'])
+const emit = defineEmits(['addWidget', 'refreshDashboard', 'toggleSplitScreen', 'editQuery', 'openDataPanel'])
 // Per-section collapsed state
 const dmCollapsed = ref(false)
 const codeCollapsed = ref(false)

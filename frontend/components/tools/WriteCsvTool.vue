@@ -50,8 +50,10 @@
       <ToolWidgetPreview
         :tool-execution="enhancedToolExecution"
         :readonly="readonly"
+        :can-expand="canExpand"
         @toggleSplitScreen="$emit('toggleSplitScreen')"
         @editQuery="$emit('editQuery', $event)"
+        @openDataPanel="$emit('openDataPanel', $event)"
       />
     </div>
   </div>
@@ -80,8 +82,9 @@ interface ToolExecution {
 const props = defineProps<{
   toolExecution: ToolExecution
   readonly?: boolean
+  canExpand?: boolean
 }>()
-defineEmits(['toggleSplitScreen', 'editQuery'])
+defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
 const detailsCollapsed = ref(true)
 const codeCollapsed = ref(true)
