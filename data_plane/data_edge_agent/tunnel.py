@@ -23,12 +23,25 @@ from nats.aio.msg import Msg
 
 from . import __version__
 from .config import AgentConfig
+from .data_sources.registry import construct_client
 
 logger = logging.getLogger(__name__)
 
 # JSON-RPC: -32601 is "method not found". Phase 1 answers every operation with
 # it, which is honest — the operation exists in the protocol, not yet here.
 _NOT_IMPLEMENTED = -32601
+_RPC_ERROR = -32000
+
+# Operations the edge agent executes against the real client. Others still get
+# a JSON-RPC "not implemented" so a caller sees an error, not a timeout.
+_SUPPORTED_OPERATIONS = frozenset({
+    "get_schemas", "get_schema", "test_connection", "prompt_schema", "execute_query",
+})
+
+
+class _NotImplemented(Exception):
+    """Raised for an operation the agent does not execute; becomes a JSON-RPC
+    'not implemented' rather than a generic error."""
 
 # Shutdown must complete even if the transport will not cooperate.
 _SHUTDOWN_TIMEOUT = 5.0
@@ -43,6 +56,9 @@ class EdgeAgentTunnel:
         self._config = config
         self._nc: Optional[NATSClient] = None
         self._subscriptions: list[Any] = []
+        # Real data-source clients, one per connection (system credentials).
+        # Building a client opens a pool, so it is cached and reused.
+        self._clients: dict[str, Any] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -203,13 +219,134 @@ class EdgeAgentTunnel:
                 # so the body goes to DEBUG and credentials are stripped.
                 extra={"params": _redact(params)},
             )
+            result = await self._dispatch(connection_name, operation, params)
         except json.JSONDecodeError as e:
             logger.warning(
                 "edge_agent.request.malformed",
                 extra={"subject": msg.subject, "error": str(e), "bytes": len(msg.data)},
             )
+            await self._respond_error(msg, request_id, operation, "malformed request")
+            return
+        except _NotImplemented:
+            await self._respond_not_implemented(msg, request_id, operation)
+            return
+        except Exception as e:  # any failure becomes a JSON-RPC error, never a timeout
+            logger.warning(
+                "edge_agent.request.failed",
+                extra={"connection": connection_name, "operation": operation, "error": str(e)},
+            )
+            await self._respond_error(msg, request_id, operation, str(e))
+            return
 
-        await self._respond_not_implemented(msg, request_id, operation)
+        await self._respond_result(msg, request_id, operation, result)
+
+    # -- operation dispatch --------------------------------------------------
+
+    def _get_client(self, connection_name: str, user_credentials: dict | None):
+        """Build (and cache) the real data-source client for a connection.
+
+        System-credential clients are cached — constructing one opens a pool.
+        Per-user credentials are ephemeral: never cached, never stored.
+        """
+        conn = next(
+            (c for c in self._config.connections if c.name == connection_name), None
+        )
+        if conn is None:
+            raise _NotImplemented(f"unknown connection {connection_name!r}")
+
+        if user_credentials:
+            return construct_client(conn.type, {**conn.config, **user_credentials})
+
+        client = self._clients.get(connection_name)
+        if client is None:
+            client = construct_client(conn.type, conn.client_params())
+            self._clients[connection_name] = client
+        return client
+
+    async def _dispatch(self, connection_name: str, operation: str, params: dict):
+        """Run one operation against the real client and return its result value.
+
+        Blocking work (connect, query, schema crawl) goes through the client's
+        async wrappers, which use asyncio.to_thread — never on this loop, which
+        also serves the control subject and NATS keepalives.
+        """
+        if operation not in _SUPPORTED_OPERATIONS:
+            raise _NotImplemented(operation)
+
+        client = await asyncio.to_thread(
+            self._get_client, connection_name, params.get("user_credentials")
+        )
+        kwargs = params.get("kwargs") or {}
+
+        # Budget: caller's timeout_ms may lower the agent's own budget, never
+        # raise it. get_schemas gets the index budget; everything else the query
+        # budget (A5/C3).
+        if operation in ("get_schemas", "warm_all"):
+            effective = self._config.index_timeout_seconds
+        else:
+            effective = self._config.default_query_timeout_seconds
+        asked_ms = params.get("timeout_ms")
+        budget = min(asked_ms / 1000, effective) if asked_ms else effective
+
+        if operation == "get_schemas":
+            tables = await asyncio.wait_for(client.aget_schemas(), budget)
+            # Shape matches TunneledClient._invoke_streaming: {value, index_stats}.
+            return {
+                "value": [t.model_dump() for t in tables],
+                "index_stats": {},
+            }
+        if operation == "get_schema":
+            tables = await asyncio.wait_for(client.aget_schemas(), budget)
+            return [t.model_dump() for t in tables]
+        if operation == "test_connection":
+            return await asyncio.wait_for(client.atest_connection(), budget)
+        if operation == "prompt_schema":
+            return await asyncio.wait_for(client.aprompt_schema(), budget)
+        if operation == "execute_query":
+            import base64 as _b64
+            import io as _io
+            df = await asyncio.wait_for(
+                client.aexecute_query(kwargs.get("sql"), **{
+                    k: v for k, v in kwargs.items() if k != "sql"
+                }),
+                budget,
+            )
+            buf = _io.BytesIO()
+            df.to_parquet(buf, index=False)
+            return {"dataframe_b64": _b64.b64encode(buf.getvalue()).decode()}
+        raise _NotImplemented(operation)  # unreachable: guarded above
+
+    async def _respond_result(self, msg: Msg, request_id: Any, operation: str, result) -> None:
+        if not msg.reply:
+            return
+        body = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "edge_agent_id": self._config.edge_agent_id,
+            "result": result,
+        }
+        try:
+            await msg.respond(json.dumps(body).encode())
+            logger.info(
+                "edge_agent.response.sent",
+                extra={"operation": operation, "request_id": request_id},
+            )
+        except Exception as e:  # pragma: no cover
+            logger.error("edge_agent.response.failed", extra={"error": str(e)})
+
+    async def _respond_error(self, msg: Msg, request_id: Any, operation: str, message: str) -> None:
+        if not msg.reply:
+            return
+        body = {
+            "jsonrpc": "2.0",
+            "id": request_id,
+            "edge_agent_id": self._config.edge_agent_id,
+            "error": {"code": _RPC_ERROR, "message": message, "data": {"operation": operation}},
+        }
+        try:
+            await msg.respond(json.dumps(body).encode())
+        except Exception as e:  # pragma: no cover
+            logger.error("edge_agent.response.failed", extra={"error": str(e)})
 
     async def _handle_control(self, msg: Msg) -> None:
         try:

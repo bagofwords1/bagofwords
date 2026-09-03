@@ -14,13 +14,24 @@ the loop a caller later targets (B3, "Loop ownership").
 from __future__ import annotations
 
 import asyncio
+import base64
+import io
 import json
 import logging
+import uuid
 from typing import Optional
 
 import nats
 from nats.aio.client import Client as NATSClient
 from nats.aio.msg import Msg
+
+from app.services.tunnel_errors import (
+    RemoteError,
+    TunnelNotConnectedError,
+    TunnelOwnershipError,
+    TunnelPayloadTooLarge,
+    translate_remote_error,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +46,10 @@ _INBOX_PREFIX = "_INBOX.bow"
 # never the payload, because core NATS gives a subscriber no publisher identity
 # and the broker only attests the subject (design A10).
 _ADVERTISEMENT_SUBJECT = "tunnel.*.advertisements"
+
+# Leave room for the JSON envelope around a request when checking it against the
+# broker's max_payload (design A6/B3).
+_ENVELOPE_HEADROOM = 4096
 
 
 class TunnelClient:
@@ -138,6 +153,95 @@ class TunnelClient:
                 "tunnel.advertisement.persist_failed",
                 extra={"org_id": org_id, "edge_agent_id": edge_agent_id},
             )
+
+    # -- request/reply transport (design B3) ---------------------------------
+
+    def _conn_subject(self, connection) -> str:
+        return (
+            f"tunnel.{connection.organization_id}."
+            f"{connection.edge_agent_id}.conn.{connection.name}"
+        )
+
+    async def invoke(self, connection, operation, kwargs, *, ref_id=None,
+                     timeout=60.0, user_credentials=None):
+        """One request/reply to the edge agent for `connection`.
+
+        Runs on the loop that owns the NATS connection. Callers on another loop
+        (the sandbox pool thread, the indexing runner) must bridge to
+        `self._loop` via run_coroutine_threadsafe — TunneledClient does this.
+        """
+        if self._nc is None:
+            raise TunnelNotConnectedError("tunnel is not connected")
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": ref_id or str(uuid.uuid4()),
+            "method": "invoke",
+            "params": {
+                "connection_name": connection.name,
+                "operation": operation,
+                "kwargs": kwargs,
+                "timeout_ms": int(timeout * 1000),
+            },
+        }
+        if user_credentials:
+            payload["params"]["user_credentials"] = user_credentials
+
+        encoded = json.dumps(payload).encode()
+        if len(encoded) > self._nc.max_payload - _ENVELOPE_HEADROOM:
+            raise TunnelPayloadTooLarge(len(encoded), self._nc.max_payload, operation)
+
+        # The control-plane wait is a backstop above the edge agent's own budget
+        # (design C3): it fires only when the agent is unreachable.
+        msg = await self._nc.request(self._conn_subject(connection), encoded,
+                                     timeout=timeout + 5)
+        return self._unwrap(msg, connection, operation)
+
+    async def invoke_streaming(self, connection, operation, kwargs, *, timeout,
+                               progress_callback=None, cancel_check=None,
+                               user_credentials=None):
+        """Long operations (get_schemas, warm_all): progress flows back on a
+        per-request subject; the final reply is the return value."""
+        ref_id = str(uuid.uuid4())
+        base = f"tunnel.{connection.organization_id}.{connection.edge_agent_id}"
+
+        sub = None
+        if progress_callback is not None:
+            # Subscribe before publishing so the first notifications don't race.
+            async def _on_progress(msg: Msg) -> None:
+                try:
+                    params = json.loads(msg.data).get("params", {})
+                    progress_callback(**params)
+                except Exception:  # a bad progress frame must not kill the op
+                    logger.debug("tunnel.progress.bad_frame", exc_info=True)
+
+            sub = await self._nc.subscribe(f"{base}.progress.{ref_id}", cb=_on_progress)
+        try:
+            return await self.invoke(
+                connection, operation, kwargs, ref_id=ref_id, timeout=timeout,
+                user_credentials=user_credentials,
+            )
+        finally:
+            if sub is not None:
+                await sub.unsubscribe()
+
+    def _unwrap(self, msg: Msg, connection, operation):
+        body = json.loads(msg.data)
+
+        # A3 runtime guard: the responder must be the expected owner.
+        if body.get("edge_agent_id") != connection.edge_agent_id:
+            raise TunnelOwnershipError(
+                f"{connection.name} answered by {body.get('edge_agent_id')!r}, "
+                f"expected {connection.edge_agent_id!r}"
+            )
+        if "error" in body:
+            raise translate_remote_error(body["error"], operation)
+
+        result = body.get("result")
+        if isinstance(result, dict) and "dataframe_b64" in result:
+            import pandas as pd  # local import: keep pandas off the hot import path
+            return pd.read_parquet(io.BytesIO(base64.b64decode(result["dataframe_b64"])))
+        return result
 
     async def drain(self) -> None:
         """Finish in-flight replies, then close. Safe to call unconnected."""

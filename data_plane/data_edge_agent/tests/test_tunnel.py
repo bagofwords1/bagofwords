@@ -67,7 +67,10 @@ async def test_request_gets_a_reply_not_silence(tunnel):
     body = json.loads(msg.responses[0])
     assert body["id"] == "q_1"
     assert body["edge_agent_id"] == "nyc-01"
-    assert body["error"]["code"] == -32601
+    # The operation is dispatched now; with no reachable database it fails to
+    # build/connect the client, which surfaces as a JSON-RPC error (-32000) —
+    # still a reply, never silence.
+    assert body["error"]["code"] == -32000
     assert body["error"]["data"]["operation"] == "execute_query"
 
 
@@ -84,7 +87,7 @@ async def test_malformed_request_still_answers(tunnel):
     assert len(msg.responses) == 1
     body = json.loads(msg.responses[0])
     assert body["id"] is None
-    assert body["error"]["code"] == -32601
+    assert body["error"]["code"] == -32000
 
 
 @pytest.mark.asyncio
@@ -207,3 +210,15 @@ async def test_reconnect_re_advertises(tunnel):
 
     assert len(tunnel._nc.published) == 1
     assert tunnel._nc.published[0][0] == "tunnel.cust-b.advertisements"
+
+
+@pytest.mark.asyncio
+async def test_unsupported_operation_still_not_implemented(tunnel):
+    # An operation the agent does not execute still answers with a JSON-RPC
+    # "not implemented" (-32601), not a timeout.
+    msg = StubMsg(_request(operation="write_file"))
+    await tunnel._handle_request(msg, "prod-pg")
+
+    body = json.loads(msg.responses[0])
+    assert body["error"]["code"] == -32601
+    assert body["error"]["data"]["operation"] == "write_file"
