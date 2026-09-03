@@ -101,9 +101,21 @@ class PostgresqlClient(DataSourceClient):
         finally:
             conn.close()
 
-    def execute_query(self, sql: str, **kwargs) -> pd.DataFrame:
-        """Execute SQL and return the result as a DataFrame."""
+    def execute_query(self, sql: str, _on_connect=None, **kwargs) -> pd.DataFrame:
+        """Execute SQL and return the result as a DataFrame.
+
+        `_on_connect`, when given, is called with the raw psycopg2 connection
+        before the query runs. Its `.cancel()` is thread-safe, so the edge agent
+        registers it and can cancel a running statement on timeout or on a
+        user-initiated cancel (A9/C3) — abandoning the wait frees Bow, cancel
+        stops the query on the source.
+        """
         with self.connect() as conn:
+            if _on_connect is not None:
+                try:
+                    _on_connect(conn.connection.dbapi_connection)
+                except Exception:
+                    pass
             return pd.read_sql(text(sql), conn)
 
     def test_connection(self) -> dict[str, Any]:

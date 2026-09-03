@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # it, which is honest — the operation exists in the protocol, not yet here.
 _NOT_IMPLEMENTED = -32601
 _RPC_ERROR = -32000
+# A query that exceeded its budget. The control plane translates this back into
+# QueryTimeoutError so the codegen retry loop behaves as in direct mode (B3).
+_QUERY_TIMEOUT = -32001
 
 # Operations the edge agent executes against the real client. Others still get
 # a JSON-RPC "not implemented" so a caller sees an error, not a timeout.
@@ -42,6 +45,16 @@ _SUPPORTED_OPERATIONS = frozenset({
 class _NotImplemented(Exception):
     """Raised for an operation the agent does not execute; becomes a JSON-RPC
     'not implemented' rather than a generic error."""
+
+
+class _QueryTimeout(Exception):
+    """execute_query exceeded its budget; carries the budget and SQL so the
+    control plane can rebuild QueryTimeoutError."""
+
+    def __init__(self, timeout_s: float, sql: str | None):
+        super().__init__(f"query exceeded {timeout_s}s")
+        self.timeout_s = timeout_s
+        self.sql = sql
 
 # Shutdown must complete even if the transport will not cooperate.
 _SHUTDOWN_TIMEOUT = 5.0
@@ -59,6 +72,9 @@ class EdgeAgentTunnel:
         # Real data-source clients, one per connection (system credentials).
         # Building a client opens a pool, so it is cached and reused.
         self._clients: dict[str, Any] = {}
+        # In-flight cancellable operations, keyed by request id: a callable that
+        # cancels the running statement (A9/C3).
+        self._in_flight: dict[Any, Any] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -230,6 +246,13 @@ class EdgeAgentTunnel:
         except _NotImplemented:
             await self._respond_not_implemented(msg, request_id, operation)
             return
+        except _QueryTimeout as e:
+            await self._respond_error(
+                msg, request_id, operation, str(e),
+                code=_QUERY_TIMEOUT,
+                data={"kind": "query_timeout", "timeout_s": e.timeout_s, "sql": e.sql},
+            )
+            return
         except Exception as e:  # any failure becomes a JSON-RPC error, never a timeout
             logger.warning(
                 "edge_agent.request.failed",
@@ -305,12 +328,37 @@ class EdgeAgentTunnel:
         if operation == "execute_query":
             import base64 as _b64
             import io as _io
-            df = await asyncio.wait_for(
-                client.aexecute_query(kwargs.get("sql"), **{
-                    k: v for k, v in kwargs.items() if k != "sql"
-                }),
-                budget,
-            )
+            ref_id = params.get("id") or params.get("ref_id")
+            sql = kwargs.get("sql")
+            qkwargs = {k: v for k, v in kwargs.items() if k != "sql"}
+            cancel_box: dict = {}
+
+            def _on_connect(raw):
+                # psycopg2 connection.cancel() is thread-safe: callable from the
+                # loop thread while the query runs in the worker thread.
+                cancel_box["cancel"] = raw.cancel
+
+            def _run():
+                return client.execute_query(sql, _on_connect=_on_connect, **qkwargs)
+
+            def _cancel():
+                fn = cancel_box.get("cancel")
+                if fn:
+                    try:
+                        fn()
+                    except Exception:
+                        pass
+
+            if ref_id is not None:
+                self._in_flight[ref_id] = _cancel
+            try:
+                df = await asyncio.wait_for(asyncio.to_thread(_run), budget)
+            except asyncio.TimeoutError:
+                _cancel()  # abandon the wait AND stop the statement on the source
+                raise _QueryTimeout(budget, sql)
+            finally:
+                if ref_id is not None:
+                    self._in_flight.pop(ref_id, None)
             buf = _io.BytesIO()
             df.to_parquet(buf, index=False)
             return {"dataframe_b64": _b64.b64encode(buf.getvalue()).decode()}
@@ -334,14 +382,18 @@ class EdgeAgentTunnel:
         except Exception as e:  # pragma: no cover
             logger.error("edge_agent.response.failed", extra={"error": str(e)})
 
-    async def _respond_error(self, msg: Msg, request_id: Any, operation: str, message: str) -> None:
+    async def _respond_error(self, msg: Msg, request_id: Any, operation: str, message: str,
+                             code: int = _RPC_ERROR, data: dict | None = None) -> None:
         if not msg.reply:
             return
+        err_data = {"operation": operation}
+        if data:
+            err_data.update(data)
         body = {
             "jsonrpc": "2.0",
             "id": request_id,
             "edge_agent_id": self._config.edge_agent_id,
-            "error": {"code": _RPC_ERROR, "message": message, "data": {"operation": operation}},
+            "error": {"code": code, "message": message, "data": err_data},
         }
         try:
             await msg.respond(json.dumps(body).encode())
@@ -359,6 +411,12 @@ class EdgeAgentTunnel:
                     "params": cmd.get("params"),
                 },
             )
+            if cmd.get("method") == "cancel":
+                ref_id = (cmd.get("params") or {}).get("ref_id")
+                cancel = self._in_flight.get(ref_id)
+                if cancel is not None:
+                    cancel()
+                    logger.info("edge_agent.control.cancelled", extra={"ref_id": ref_id})
         except json.JSONDecodeError as e:
             logger.warning(
                 "edge_agent.control.malformed",
@@ -464,6 +522,24 @@ class EdgeAgentTunnel:
         interval = self._config.advertise_interval_seconds
         while not await _sleep_or_stop(stop, interval):
             await self.advertise()
+
+    async def heartbeat(self) -> None:
+        """Publish a liveness ping. Fire-and-forget: a missed one just delays
+        the control plane's next status update, healed by the following tick."""
+        if self._nc is None:
+            return
+        subject = self._config.heartbeat_subject
+        payload = {"edge_agent_id": self._config.edge_agent_id, "version": __version__}
+        try:
+            await self._nc.publish(subject, json.dumps(payload).encode())
+        except Exception as e:
+            logger.debug("edge_agent.heartbeat.failed", extra={"error": str(e)})
+
+    async def heartbeat_forever(self, stop: asyncio.Event) -> None:
+        """Publish a heartbeat on a timer until asked to stop."""
+        interval = self._config.heartbeat_interval_seconds
+        while not await _sleep_or_stop(stop, interval):
+            await self.heartbeat()
 
     async def close(self) -> None:
         """Drain if connected, close either way.

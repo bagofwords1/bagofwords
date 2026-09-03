@@ -138,3 +138,41 @@ async def test_missing_edge_agent_id_is_ignored():
 async def test_unknown_org_is_ignored():
     # Subject named an org that does not exist here — nothing to attach to.
     await register_advertisement(str(uuid.uuid4()), _ad())  # must not raise
+
+
+@pytest.mark.asyncio
+async def test_record_heartbeat_updates_liveness():
+    from app.services.tunnel_registration_service import record_heartbeat
+    from app.models.data_edge_agent import DataEdgeAgent
+    org_id = await _org()
+    await register_advertisement(org_id, _ad())
+    # force stale, then heartbeat brings it back online
+    async with async_session_maker() as db:
+        a = (await db.execute(select(DataEdgeAgent).filter(DataEdgeAgent.organization_id == org_id))).scalar_one()
+        a.status = "stale"; await db.commit()
+    await record_heartbeat(org_id, "nyc-01")
+    async with async_session_maker() as db:
+        a = (await db.execute(select(DataEdgeAgent).filter(DataEdgeAgent.organization_id == org_id))).scalar_one()
+        assert a.status == "online"
+        assert a.last_heartbeat_at is not None
+
+
+@pytest.mark.asyncio
+async def test_sweep_marks_offline_and_deactivates_connections():
+    import datetime
+    from app.services.tunnel_registration_service import sweep_stale_agents
+    from app.models.data_edge_agent import DataEdgeAgent
+    org_id = await _org()
+    await register_advertisement(org_id, _ad(name_types=(("lego-pg", "postgresql"),)))
+    # age the heartbeat well past the offline window
+    async with async_session_maker() as db:
+        a = (await db.execute(select(DataEdgeAgent).filter(DataEdgeAgent.organization_id == org_id))).scalar_one()
+        a.last_heartbeat_at = datetime.datetime.utcnow() - datetime.timedelta(seconds=999)
+        a.last_advertised_at = a.last_heartbeat_at
+        await db.commit()
+    await sweep_stale_agents(stale_after_s=45, offline_after_s=120)
+    conns = await _connections(org_id)
+    async with async_session_maker() as db:
+        a = (await db.execute(select(DataEdgeAgent).filter(DataEdgeAgent.organization_id == org_id))).scalar_one()
+        assert a.status == "offline"
+    assert conns["lego-pg"].is_active is False

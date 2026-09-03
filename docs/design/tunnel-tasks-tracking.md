@@ -8,6 +8,33 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-03 (cont.) — production-hardening: heartbeat, cancel, error translation
+
+The three control-plane items that make a single postgres source production-solid.
+
+- ✅ **Heartbeat / status & connection deactivation (B4/A10) — verified live.**
+  Edge agent publishes to `tunnel.<org>.<agent>.heartbeat` every 15s
+  (`heartbeat_forever`). Control plane: leader-gated `start_heartbeat_listener`
+  → `record_heartbeat` (updates `last_heartbeat_at`, status→online) + a
+  leader-gated 30s scheduler job `sweep_stale_agents` that flips status to
+  `stale` (>45s) / `offline` (>120s) and sets `Connection.is_active=False` on
+  offline. Verified in-cluster: stopping the agent walked online→stale (t+90s)→
+  offline+is_active=0 (t+150s). Unit-tested (record + sweep).
+- ✅ **Remote-error translation (B3) — done, unit-tested.** Edge agent reports a
+  query timeout as JSON-RPC `-32001` with `{kind:query_timeout, timeout_s, sql}`;
+  `translate_remote_error` rebuilds `QueryTimeoutError` so the codegen retry loop
+  behaves as in direct mode.
+- 🟡 **Cancellation (A9/C3) — implemented, not live-verified.** Control plane
+  `_watch_cancel` polls the caller's `cancel_check` and publishes a cancel to the
+  control subject. Edge agent keeps an `_in_flight` registry and, for
+  execute_query, runs in a tracked thread that registers psycopg2
+  `connection.cancel()`; the control handler cancels by `ref_id`, and a timeout
+  now **abandons the wait AND cancels the statement on the source**. Unit-adjacent
+  only; a live mid-query cancel was not driven.
+- Tests: 21 backend + 20 agent = 41 pass.
+
+---
+
 ## 2026-09-03 (cont.) — single tunneled postgres source, functionally complete
 
 Scope: make one tunneled PostgreSQL source fully usable (discover schema + run
@@ -146,15 +173,38 @@ queries). Postgres-only; file/MCP operations are out of scope for this type.
 
 ---
 
-## Known gaps / follow-ups
+## Known gaps / follow-ups (control-plane, bow-app side)
 
+Assessed 2026-09-03 against the architecture doc. Registration, the Data Tunnels
+tab, schema discovery, and query execution are done; the items below are not.
+
+### Makes a single postgres source production-solid
+- ✅ **Heartbeat / status transitions (B4, A10)** — done and verified live.
+- ✅ **Remote-error translation (B3)** — done (query timeout → QueryTimeoutError).
+- 🟡 **Cancellation (A9)** — implemented (control-plane cancel publish + edge-agent
+  statement cancel via psycopg2); not live-verified.
+- ⛔ **D1 read-only enforcement in the API (B2)** — the read-only rule for tunneled
+  connections is UI-only; not enforced in `connection_schema.py`/route, and
+  `register_advertisement` sets `credentials=None` but does not assert-and-refuse
+  a tunnel row that has credentials.
+
+### Needed only beyond one postgres source
+- ⛔ **Remaining A5 operations on `TunneledClient` (B1)** — file ops
+  (`read_file`/`list_files`/`search_files`/`grep_files`/`file_version`/
+  `write_file`/`read_raw_bytes`) and MCP ops are unimplemented.
+- ⛔ **`TunneledToolProviderClient` (B1)** — second proxy for tunneled MCP tool
+  providers; not present.
+- 🟡 **Streaming progress (A8)** — `invoke_streaming` subscribes to the progress
+  subject but the agent never publishes; long indexes show no live progress.
+
+### Posture / infra
+- 🟡 **Per-user credentials for `user_required` tunneled connections (A7)** —
+  `_resolve_tunnel_user_credentials` handles `system_only` (returns None,
+  correct); the per-user forwarding path is thin.
+- ⛔ **A11 scoped NATS users** — single shared token, so per-agent subject scoping
+  / tenancy is not broker-enforced.
+- 🟡 **Loop-ownership sync bridge (B3)** — uses `run_coroutine_threadsafe` rather
+  than the design's exact `invoke_sync` + stashed-loop; works on the verified
+  path.
 - ⛔ **Advertisement requires a matching `Organization`** — an advertisement whose
-  `org_id` (subject token) has no `Organization.id` in the DB is logged as
-  `unknown_org` and dropped. Edge agents must be configured with a real org id.
-- ⛔ **Heartbeat / status sweeper (A10/D2)** — `DataEdgeAgent.status` is set to
-  `online` on advertisement but nothing flips it to `stale`/`offline` yet.
-- 🟡 **TunneledClient / query transport (B1/B2/B3)** — `get_schemas` (schema
-  discovery / list tables) works end to end; remaining A5 operations, the two
-  other construct sites, streaming progress/cancel, and unit tests are pending.
-- ⛔ **A11 scoped NATS users** — the rig uses a single shared token, so subject
-  scoping / per-agent tenancy enforcement is not in effect.
+  `org_id` has no `Organization.id` is logged `unknown_org` and dropped.

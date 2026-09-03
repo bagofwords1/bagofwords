@@ -113,6 +113,11 @@ class AgentConfig(BaseModel):
     # gone, and only the next cycle heals it.
     advertise_interval_seconds: int = 60
 
+    # UI liveness (A10). NATS already detects a dead connection; this heartbeat
+    # is what lets the control plane show an agent online/stale/offline and
+    # deactivate its connections when it goes away.
+    heartbeat_interval_seconds: int = 15
+
     @field_validator("org_id", "edge_agent_id")
     @classmethod
     def _subject_safe(cls, v: str) -> str:
@@ -142,12 +147,17 @@ class AgentConfig(BaseModel):
         # subject because core NATS gives a subscriber no publisher identity.
         return f"tunnel.{self.org_id}.advertisements"
 
+    @property
+    def heartbeat_subject(self) -> str:
+        return f"{self.subject_base}.heartbeat"
+
 
 _INT_FIELDS = {
     "admin_port",
     "default_query_timeout_seconds",
     "index_timeout_seconds",
     "advertise_interval_seconds",
+    "heartbeat_interval_seconds",
 }
 
 
