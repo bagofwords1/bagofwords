@@ -137,8 +137,9 @@
           </button>
         </UTooltip>
 
-        <!-- Open in new tab (if published) -->
-        <UTooltip :text="$t('artifactFrame.openInNewTab')" v-if="report?.status === 'published'">
+        <!-- Open in new tab. Always shown: /r/{id} itself enforces access —
+             an unshared report is still viewable there by its owner -->
+        <UTooltip :text="$t('artifactFrame.openInNewTab')" v-if="report">
           <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
             <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
           </a>
