@@ -802,6 +802,147 @@ rather than code.
 
 ### Cross-source RCA scenario (what "done" looks like)
 "prod-db-01 slow since 02:10" → ServiceNow incident + CI chain → Aria relationships and a single time-aligned metrics frame across VM, datastore and array pool → the array connector's own event log for that pool → ServiceNow change requests on any CI in the chain → `create_doc`: symptom chart, hypotheses (change, noisy neighbour, array event, capacity), evidence per hypothesis with citations, root cause, confidence, and the operators' own thresholds from `alert_definitions` as the yardstick.
+## 6e. Aria Operations — the build plan (verified against the spec)
+
+### What was read, and what changed
+
+Primary sources read directly for this section (not via summaries):
+- Broadcom **8.18 API Programming Guide** pages: *Acquire an Authentication
+  Token* (confirms `POST /suite-api/api/auth/token/acquire`, body
+  `username/password/authSource`, response `token/validity/expiresAt/roles`,
+  headers `Authorization: OpsToken <token>` with `vRealizeOpsToken` still
+  accepted, six-hour expiry, `authSource` default `LOCAL`), *Generate a List
+  of All Metrics* (confirms `GET /adapterkinds/{ak}/resourcekinds/{rk}/statkeys`
+  → `resourceTypeAttributes[{key,name,description,unit,rollupType,
+  instanceType,dataType2,defaultMonitored}]`, `Accept: application/json`),
+  and *Using the API* (swagger at `/suite-api/doc/swagger-ui.html`).
+- The **official OpenAPI 3.0.1 spec** `vmware/vcf-api-specs` →
+  `vcf-operations-openapi.json` (VCF Operations 9.1.0.0, 343 paths, same
+  Suite API; saved as a scratch copy during research). Every endpoint,
+  parameter and schema below is taken from it.
+
+Two corrections to §6c:
+1. **There is no event *read* API.** `/api/events` and `/api/events/bulk` are
+   `POST` only ("Push a single Event into the system"). Drop the `events`
+   table; alerts + symptoms are the timeline.
+2. **No `/api/dashboards` in the public API.** Drop the dashboards table.
+   The replayable operator knowledge that *does* exist: `alertdefinitions`,
+   `symptomdefinitions`, custom groups (`/api/resources/groups`), and
+   dynamic thresholds (below).
+
+Two additions the spec makes obvious for RCA:
+- **Dynamic thresholds**: `stats/query` takes `"dt": true` and the response
+  `stat-list.stat[]` then carries `minThresholdData[]` / `maxThresholdData[]`
+  / `dtTimestamps[]` beside `timestamps[]` / `data[]` — i.e. Aria's own
+  "normal band" per metric. "Was this abnormal?" becomes a column, not a
+  judgement call. (`GET /resources/{id}/stats/dt` is the single-resource form.)
+- **Top-N**: `GET /resources/stats/topn?topN=&groupBy=RESOURCE|STATKEY&
+  sortOrder=&resourceId[]&statKey[]&begin&end&rollUpType` → "which 10
+  datastores had the worst latency in the window" in one call.
+
+### Endpoint → table map (final)
+
+| Table | Call | Request (from spec) | Rows produced |
+|---|---|---|---|
+| `adapter_kinds` | `GET /adapterkinds?retrieveResourceKindInfos=true` | — | `adapter-kind[]`: key, name, description, adapterKindType, resourceKinds[] |
+| `resource_kinds` | `GET /adapterkinds/{key}/resourcekinds` (page/pageSize 1000) | `resourceKindType` filter | `resource-kind[]`: key, name, adapterKind, resourceKindType |
+| `stat_keys` | `GET /adapterkinds/{ak}/resourcekinds/{rk}/statkeys?statOnly=true` | — | `resourceTypeAttributes[]`: key, name, unit, rollupType, instanceType, dataType2, description |
+| `resources` | `POST /resources/query` (page/pageSize) | `resource-query`: name[], regex[], adapterKind[], resourceKind[], parentId[], resourceId[], resourceHealth[], resourceState[], resourceStatus[], propertyConditions{conditions[{key,operator EQ/LIKE/REGEX/…,stringValue}]} | `resourceList[]` flattened: identifier, resourceKey.name, adapterKindKey, resourceKindKey, resourceHealth, resourceHealthValue, resourceStatusStates, badges, creationTime |
+| `properties` | `GET /resources/{id}/properties` or `POST /resources/properties/latest/query` `{resourceIds[], propertyKeys[]}` | — | resourceId, name, value |
+| `relationships` | `GET /resources/{id}/relationships?relationshipType=PARENT|CHILD|ALL` | client-side BFS to `depth` | parent_id, child_id, + both resourceKeys |
+| `metrics` | `POST /resources/stats/query` | `{resourceId[], statKey[], begin, end (epoch ms), rollUpType, intervalType, intervalQuantifier, dt}` | one row per (resourceId, statKey, timestamp): value, and when `dt`: dt_min, dt_max |
+| `metrics_latest` | `POST /resources/stats/latest/query` | `{resourceId[], statKey[], maxSamples}` | resourceId, statKey, timestamp, value |
+| `metrics_topn` | `GET /resources/stats/topn` | topN, groupBy, sortOrder, resourceId[], statKey[], begin, end, rollUpType | rank, resourceId, statKey, value |
+| `alerts` | `POST /alerts/query` | `{activeOnly, alertCriticality[], alertStatus[], alertDefinitionId[], startTimeRange{startTime,endTime}, cancelTimeRange, resource-query{…}, includeChildrenResources}` | alertId, resourceId, alertDefinitionId, alertDefinitionName, alertLevel, status, controlState, alertImpact, startTimeUTC, updateTimeUTC, cancelTimeUTC, statKey |
+| `contributing_symptoms` | `GET /alerts/contributingsymptoms?id[]` | — | alertId, symptom rows |
+| `symptoms` | `POST /symptoms/query` | `{activeOnly, alarmCriticality[], cancelTimeRange, resource-query{…}}` | id, resourceId, symptomDefinitionId, symptomCriticality, message, kpi, statKey, startTimeUTC, cancelTimeUTC |
+| `alert_definitions` | `POST /alertdefinitions/query` | `{adapterKinds[], resourceKinds[], ids[]}` | id, name, description, adapterKindKey, resourceKindKey, type, subType, waitCycles, cancelCycles |
+| `custom_groups` | `GET /resources/groups` + `/groups/{id}/members` | — | group id, name, member resourceId |
+| `metrics::<AK>/<RK>` (discovered) | resources by kind → stats/query | window + optional name/regex | one row per (resource, timestamp), stat keys as columns |
+
+Response conventions the client must handle: pagination via
+`pageInfo.totalCount` + `page`/`pageSize` (max 1000); `stat-list.stat[]`
+carries parallel arrays `timestamps[]`/`data[]` (plus `values[]` for string
+stats); all times epoch **ms**; enums as above (`alertLevel`
+INFORMATION/WARNING/IMMEDIATE/CRITICAL, `resourceHealth` GREEN…GREY).
+
+Endpoints the 9.1 spec has that must be **confirmed on the customer's 8.18
+swagger** before we rely on them (all existed in 7.x/8.x per community
+usage, but the 8.18 guide does not enumerate them): `POST /resources/query`,
+`POST /symptoms/query`, `POST /alertdefinitions/query`, `stats/topn`,
+`stats/dt`, `/resources/groups`. Fallbacks exist for each (`GET /resources`
+with query params, `GET /symptoms`, `GET /alertdefinitions`).
+
+### Phases
+
+**Phase 0 — customer inputs (no code).** Ask for: the `GET /adapterkinds`
+JSON from their instance (tells us which packs are live and gives real
+adapter/resource kind keys for the mock), the `authSource` names, a
+read-only local or LDAP account, and `GET /suite-api/doc/v2/api-docs?group=Public%20APIs`
+(their exact 8.18 OAS2) to diff against the 9.1 spec.
+
+**Phase 1 — mock Suite API** (`tools/aria_operations/mock_suite_api.py`,
+FastAPI, `docker-compose.yaml` on port 8443, same conventions as
+`tools/appdynamics/mock_controller.py`):
+- Implements exactly the table-map endpoints above, shapes from the spec.
+- Faithfulness rules enforced on purpose: `Authorization: OpsToken|vRealizeOpsToken`
+  required (401 otherwise); tokens expire (`ARIA_MOCK_TOKEN_TTL`, default
+  21600 s) so refresh-on-401 is observable; without `Accept: application/json`
+  answer XML; `pageSize` capped at 1000; `stats/latest` rejects >1000 ids;
+  all timestamps epoch ms.
+- Seeded estate: `VMWARE` adapter (vCenter → Datacenter → Cluster → Host →
+  VM, Datastore) plus one synthetic storage adapter modelled on the Hitachi
+  pack (`HitachiStorage`: StorageSystem → Pool → LDEV, LDEV ↔ Datastore
+  relationship), ~40 resources, stat keys with units, and an **incident
+  scenario**: pool response time rises at T0, datastore latency at T0+2 min,
+  VM disk latency at T0+3 min; a CRITICAL alert on the pool and a WARNING
+  symptom on the datastore with matching `startTimeUTC`; dynamic-threshold
+  bands that the spike exits. This is the RCA the sandbox loop must solve.
+
+**Phase 2 — client** (`backend/app/data_sources/clients/aria_operations_client.py`):
+- Config `AriaOperationsConfig`: `url`, `auth_source` (default `LOCAL`),
+  `verify_ssl`, `ca_bundle` (optional path), `history_window_days` (default 7,
+  as Zabbix), `max_metric_tables` (cap on discovered `metrics::` tables).
+  Credentials `AriaOperationsUserPassCredentials` (`username`, `password`),
+  `scopes=["system","user"]`.
+- `_token()` cached with `expiresAt`, refresh on 401; `_get/_post` with
+  `Accept: application/json`, page loop, `HTTP_TIMEOUT`.
+- `test_connection()` = token acquire + `GET /adapterkinds` → "Connected.
+  Found N adapter kinds."
+- `get_schemas()` = fixed tables + discovered `metrics::` tables, with the
+  estate summary in the catalog descriptions; `progress_callback` supported
+  (one call per populated resource kind).
+- `execute_query(spec)` dispatch per the table map; `name`/`regex`+`resource_kind`
+  resolved through `/resources/query`; ids chunked at 1000; `dt` flag;
+  `depth` BFS for relationships; DataFrame out; `MAX_ROWS`/`DEFAULT_LIMIT`.
+- `system_prompt()`: spec examples for the RCA path (§6c.2), epoch-ms note,
+  correlation keys (`config|instanceUuid`, `summary|MOID`, datastore name,
+  NAA id property), and "prefer `dt: true` to decide abnormal vs normal".
+- Registry: `category="infra"`, explicit `client_path`, `version="beta"`,
+  `requires_license="enterprise"` (as zabbix/splunk). Icon + `DataSourceIcon.vue`.
+- No new dependency (`requests` only).
+
+**Phase 3 — tests.** `tests/unit/test_aria_operations_client.py` mocking the
+`requests` boundary (token refresh on 401, pagination, stat-list flattening,
+dt columns, chunking at 1000, XML-without-Accept failure); `ds_clients.py`
+remote-mode entry pointing at the mock; `tests/e2e/test_data_source.py` and
+`test_connection.py` still green.
+
+**Phase 4 — sandbox feedback loop** (skill `sandbox-feedback-loop`): boot
+stack + mock + real LLM; prompts: (a) "map the storage behind VM prod-db-01",
+(b) "why did prod-db-01 disk latency spike at T0?" — expected: agent walks
+relationships, pulls one `metrics` frame with `dt: true` across the three
+layers, finds the pool alert, writes the doc naming the pool; (c) "top 5
+datastores by latency last 24 h" via `metrics_topn`. Record as
+`docs/feedback-loops/aria-operations-connector.md` with screenshots.
+
+**Phase 5 — live validation** on the customer's 8.18: run the connection
+test, the schema index, and prompt (b) against a real past incident; diff
+their OAS2 against our assumptions; confirm the six "verify" endpoints.
+
+**Deliverable split:** PR 1 = mock + client + schemas + registry + unit
+tests; PR 2 = feedback loop, docs site page, changelog. Rough size: client
+~800 lines (AppDynamics is 760), mock ~500 (AppDynamics mock is 526).
 
 ## 7. Open questions for the customer
 
@@ -859,6 +1000,7 @@ against a live system.
 - https://techdocs.broadcom.com/us/en/vmware-cis/aria/aria-operations/8-18/vmware-aria-operations-configuration-guide-8-18/about-vmware-aria-operation-licenses.html (eval mode)
 - https://knowledge.broadcom.com/external/article/309138/vmware-end-of-availability-of-perpetual.html (Aria SaaS EoA)
 - https://tap.broadcom.com/ ; https://labs.hol.vmware.com/HOL/catalog/lab/26851
+- https://raw.githubusercontent.com/vmware/vcf-api-specs/main/specifications/vcf-operations/vcf-operations-openapi.json (read directly for §6e)
 - https://kb.netapp.com/Support/NSS/Support_Site/Who_can_access_or_download_ONTAP_Simulator ; https://github.com/tcler/ontap-simulator-in-kvm
 - https://github.com/NetAppDocs/ontap-restapi/tree/main/swagger-ui ; https://github.com/ansible-collections/netapp.ontap/tree/main/tests/unit/plugins/modules ; https://github.com/NetApp/harvest/tree/main/cmd/collectors/rest/testdata
 - https://github.com/NetAppDocs/ontap-select/blob/main/access-evaluation-software.adoc
