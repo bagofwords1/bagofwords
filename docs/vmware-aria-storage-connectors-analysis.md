@@ -728,6 +728,80 @@ three places:
 Not recommended: a bespoke "topology" or "rca" tool. The `relationships`
 table plus pandas already gives the graph, and a single-purpose tool would
 bypass the tracked-query path that `create_data` and dashboards depend on.
+## 6d. Source cards — one page per new connector
+
+Consolidates §3–§6c. ServiceNow is included because it is the ITOM system of
+record and the entry point of every RCA, even though it needs configuration
+rather than code.
+
+### ServiceNow (exists — configure, extend later)
+- **Provides:** incidents, problems, changes, CMDB CIs and relationships, ITOM alerts/events, runbooks, work notes, attachments.
+- **Integration:** Table API, JSON spec per table (`servicenow_client.py`).
+- **Auth:** existing variants (basic / OAuth).
+- **Difficulty:** none for the RCA tables — add `cmdb_rel_ci`, `cmdb_ci_vmware_instance`, `cmdb_ci_esx_server`, `cmdb_ci_vcenter_datastore`, `cmdb_ci_storage_server`, `cmdb_ci_storage_pool`, `cmdb_ci_storage_volume`, `em_alert`, `em_event`, `sys_journal_field` to the connection's `tables`. Low for the two extensions below.
+- **Test target:** ServiceNow Personal Developer Instance (free) — already how the connector is tested.
+- **get_schemas:** curated + `discover_all` over the `task` and `cmdb_ci` hierarchies (exists).
+- **execute_query:** `{"table": "incident", "query": "number=INC0012345", "fields": [...]}`; `{"table": "change_request", "query": "start_date>=…^cmdb_ciIN…"}`; `{"table": "em_alert", "query": "initial_remote_time>=…"}`.
+- **Tools:** QUERY today. Add `READ_FILE` over `sys_attachment` (incident logs/screenshots) and expose `sys_journal_field` (work notes) — the two highest-value RCA additions across the whole set.
+- **RCA use case:** "INC0012345: DB latency on prod-db-01 since 02:10." → incident row gives CI, window, priority; `change_request` in ±4 h on the CI or its parents gives the change hypothesis; `em_alert` gives what ITOM already correlated; `cmdb_rel_ci` gives the VM → host → datastore → storage volume chain to hand to Aria and the array connector.
+
+### VMware Aria Operations 8.18 (`aria_operations`, build first)
+- **Provides:** VM/host/cluster/datastore inventory, metrics with history (default 6 months), alerts, symptoms, alert definitions, the cross-layer relationship graph, and everything installed management packs collect (Hitachi pack alive; NetApp/IBM packs EOL but may still run).
+- **Integration:** REST Suite API `/suite-api/api`: `adapterkinds → resourcekinds → statkeys`, `resources`, `relationships`, `properties`, `POST resources/stats/query`, `stats/latest`, `POST alerts/query`, `symptoms`, `alertdefinitions`. JSON via `Accept`.
+- **Auth:** `POST auth/token/acquire` (username, password, `authSource` LOCAL or LDAP/AD source name) → `Authorization: OpsToken`, 6 h sliding, cached, refresh on 401. `userpass` variant only, per-user scope allowed.
+- **Difficulty:** low — AppDynamics shape, plain `requests`, no SDK.
+- **Test target:** no container, SaaS terminated. Seeded FastAPI mock in `tools/aria_operations/` built from the official OpenAPI spec (`vmware/vcf-api-specs`) + recorded responses (`vmware-archive/vrops-export`); live leg via the customer or Broadcom TAP NFR on nested ESXi.
+- **get_schemas:** core tables (`adapter_kinds, resource_kinds, stat_keys, resources, properties, relationships, metrics, metrics_latest, alerts, symptoms, alert_definitions, recommendations`) + discovered `metrics::<AdapterKind>/<ResourceKind>` tables with stat keys as columns; catalog description lists installed adapter kinds and resource counts.
+- **execute_query:** `{"table": "metrics", "resource_id": [...] | "name"+"resource_kind", "stat_key": [...], "start_time"/"end_time" epoch ms or "duration_in_mins", "rollup": "AVG", "interval": "MINUTES"}`; `{"table": "relationships", "resource_id": "...", "relationship_type": "ALL", "depth": 2}`; `{"table": "alerts", "resource_id": [...], "active_only": false, ...window}`; `{"table": "metrics::HitachiStorage/Pool", "name": "Pool-07", "duration_in_mins": 120}`.
+- **Tools:** QUERY. Tribal-knowledge tables: `alert_definitions`, custom groups, dashboards/views (verify `/dashboards` on the appliance swagger). Prompt carries correlation keys: `config|instanceUuid` / `summary|MOID` ↔ ServiceNow `vm_inst_id` / `morid`; datastore name; datastore backing NAA id.
+- **RCA use case:** from the ServiceNow CI name → `resources` → `relationships` depth 2 (VM → datastore → LUN/LDEV → pool → array, when a pack is installed) → one `metrics` call for VM disk latency, datastore latency, and pool response time over the incident window → `alerts`/`symptoms` in the same window → the layer where the spike starts first is the suspect; `alert_definitions` says what threshold the operators consider abnormal.
+
+### NetApp ONTAP (`netapp_ontap`, build second)
+- **Provides:** clusters, nodes, SVMs, aggregates, volumes, LUNs, capacity, ~1 year on-box metric history, EMS events, raw counters.
+- **Integration:** REST per cluster `https://<cluster>/api/` (HAL JSON, `fields`, filters, `_links.next`); `/storage/{volumes|aggregates|luns}/{uuid}/metrics?interval=1h|1d|1w|1m|1y`; `/support/ems/events`; `/cluster/counter/tables`. Optional AIQUM (`/api/v2`) for fleet + gateway proxy.
+- **Auth:** basic with a read-only REST role; OAuth2 bearer (external IdP, 9.14+); optional client cert. Cap concurrency ≤20 per User-Agent.
+- **Difficulty:** low.
+- **Test target:** Simulate ONTAP (real image, OVA + licence, partner/customer login) on Workstation or KVM; public OpenAPI spec for a Prism contract mock; Ansible/Harvest fixtures.
+- **get_schemas:** `clusters, nodes, svms, aggregates, volumes, luns, qtrees, ip_interfaces, fc_ports, ems_events, counter_tables, metrics`; columns from REST field names (flattened `space.size`, `space.used`, `state`, `svm.name`).
+- **execute_query:** `{"table": "volumes", "filter": {"svm.name": "svm_prod", "state": "online"}, "fields": [...]}`; `{"table": "metrics", "object": "volumes", "name": "vol_prod_db", "interval": "1d"}`; `{"table": "ems_events", "filter": {"message.severity": "alert|error", "time": ">=2026-09-02T02:00:00Z"}}`.
+- **Tools:** QUERY. Prompt carries: LUN `serial_number` ↔ datastore NAA id; `volume.name`/`svm.name` ↔ ServiceNow storage volume CI; EMS `time` is ISO-8601 with offset.
+- **RCA use case:** datastore `ds_prod_01` sits on LUN `/vol/vol_prod_db/lun0` → `metrics` for that volume and its aggregate at 5-min granularity over the day → `ems_events` in the window (e.g. `wafl.vol.full`, `nvmf.*`, disk errors) → is the latency on the volume only (noisy neighbour on the aggregate?) or on the node (`cluster/metrics`)? Pair with ServiceNow `change_request` on the storage CI.
+
+### Hitachi VSP (`hitachi_ops_center`)
+- **Provides:** Configuration Manager — storage systems, LDEVs, pools, ports, host groups, parity groups, alerts. Analyzer (if licensed) — performance history, events, E2E topology / bottleneck analysis.
+- **Integration:** CMREST `:23451/ConfigurationManager/v1/objects/storages/{id}/…` (or embedded on the array); Analyzer `:22016/Analytics/v1/objects/{PerformanceVolume|PerformanceNode|Events}` with HQL `$query`, and `services/E2EView/actions/getTopologyData`.
+- **Auth:** CMREST session token from basic (`Authorization: Session`); Analyzer basic / HSSO token / OIDC bearer from Common Services.
+- **Difficulty:** medium — two endpoints, two auth schemes, Analyzer optional.
+- **Test target:** none public; hand-built mock from the public MK-99CFM000 / MK-99ANA003 guides; live leg via the customer or a Hitachi partner lab (HALO).
+- **get_schemas:** `storage_systems, ldevs, pools, ports, host_groups, parity_groups, alerts` (+ `performance, events, e2e_topology` when an Analyzer URL is configured).
+- **execute_query:** `{"table": "ldevs", "storage_device_id": "900000012345", "filter": {"poolId": 7}, "count": 1000}`; `{"table": "performance", "object": "PerformanceVolume", "metric_type": "RAID_VOLUME_RAIDLDEV_TOTALIOPS", "base_point_node_id": "...", "time_range": "..."}`; `{"table": "e2e_topology", "base_point": "<ldev-id>"}`.
+- **Tools:** QUERY. Tribal knowledge: Analyzer's E2E view is the vendor's own RCA graph — expose as a table, not a tool. Prompt carries: LDEV `naaId` ↔ datastore NAA id; array `serialNumber` ↔ ServiceNow storage server CI.
+- **RCA use case:** datastore NAA → LDEV → pool → parity group; `performance` for LDEV response time and MP busy over the window; `alerts` (DKC/CTL) in the window; `e2e_topology` from the LDEV to see which hosts share the same port/pool and whether one of them ramped up at 02:10.
+
+### Infinidat InfiniBox (`infinidat_infinibox`, last)
+- **Provides:** system, capacity, pools, volumes, filesystems, hosts, replicas, components, events; live performance sampling; history only via InfiniMetrics.
+- **Integration:** REST `/api/rest/…` with `field=op:value` filters, `page/page_size` (≤1000); metrics via `POST metrics/collectors` → poll `collectors/data` → `DELETE`; optional InfiniMetrics `/api/rest/systems/{serial}/monitored_entities/{id}/data/` (community-documented).
+- **Auth:** session login (`users/login`, JSESSIONID) or basic; `read_only` role.
+- **Difficulty:** low for inventory/events, high for history.
+- **Test target:** none public (`infinisim` is internal); mock from `infinisdk` source shapes; ask the Lenovo partner program.
+- **get_schemas:** `system, capacity, pools, volumes, filesystems, hosts, host_clusters, replicas, components, events, metrics_live` (+ `infinimetrics_series` if configured).
+- **execute_query:** `{"table": "volumes", "filter": {"pool_id": "eq:3", "type": "eq:MASTER"}, "fields": [...]}`; `{"table": "events", "filter": {"level": "in:(ERROR,CRITICAL)", "timestamp": "ge:2026-09-02T02:00:00Z"}}`; `{"table": "metrics_live", "protocol": "SAN", "fields": ["ops", "throughput", "external_latency_wout_err"], "seconds": 30}`.
+- **Tools:** QUERY. Prompt carries: volume `serial` ↔ datastore NAA id; `system.serial_number` ↔ ServiceNow CI; collector semantics (live only) so the agent does not promise history it cannot get.
+- **RCA use case:** capacity/events-led — `events` in the window (pool threshold, node failover, drive errors), `pools` physical vs virtual capacity, `replicas` state (a sync replica catching up during the incident?), and `metrics_live` to confirm whether the problem is still ongoing now; historical latency comes from Aria's pack or InfiniMetrics.
+
+### IBM FlashSystem / SVC (`ibm_storage_virtualize`; `ibm_spectrum_control` if deployed)
+- **Provides:** system, nodes, pools, mdisks, volumes, hosts, drives, enclosures, FC ports, event log, current stats. History: Spectrum Control (on-prem) — per-volume performance with `granularity`, multi-vendor.
+- **Integration:** `POST https://<cluster>:7443/rest/v1/{lssystem, lsvdisk, lsmdiskgrp, lshost, lsnode, lsdrive, lseventlog, lssystemstats, lsnodestats}` (POST-only, `filtervalue`/`limit` in the body). Spectrum Control `:9569/srm/REST/api/v1/…` with `Volumes/{id}/Performance?granularity=sample&startTime=&endTime=`.
+- **Auth:** Virtualize `POST /rest/v1/auth` with `X-Auth-Username`/`X-Auth-Password` → `X-Auth-Token` (1 h, 403 on expiry, monitor role). Spectrum Control form login `j_security_check` + cookie.
+- **Difficulty:** medium.
+- **Test target:** IBM Storage Virtualize for Public Cloud 60-day trial (AWS/Azure, real code base) for one recorded session; mock from `ibm.storage_virtualize` Ansible fixtures.
+- **get_schemas:** `system, nodes, pools, mdisks, volumes, hosts, drives, enclosures, fc_ports, event_log, system_stats, node_stats`; Spectrum Control: `storage_systems, volumes, ports, performance, servers, switches`.
+- **execute_query:** `{"table": "volumes", "filtervalue": "mdisk_grp_name=Pool0", "limit": 500}`; `{"table": "event_log", "filtervalue": "status=alert", "limit": 200}`; `{"table": "system_stats", "history": true}`; Spectrum Control `{"table": "performance", "volume_id": 1234, "granularity": "sample", "start_time": ..., "end_time": ...}`.
+- **Tools:** QUERY. Prompt carries: `vdisk_UID` ↔ datastore NAA id; `lssystem.id`/name ↔ ServiceNow CI; on-box history limit (16 files) so the agent prefers Spectrum Control or Aria for the timeline.
+- **RCA use case:** datastore NAA → `volumes` (`vdisk_UID`) → pool (`mdisk_grp_name`) → `event_log` alerts in the window (e.g. `1920` mirror sync, `1370` drive failure, cache/battery events) → `node_stats` now vs baseline; timeline from Spectrum Control `performance` if present, else from Aria's pack.
+
+### Cross-source RCA scenario (what "done" looks like)
+"prod-db-01 slow since 02:10" → ServiceNow incident + CI chain → Aria relationships and a single time-aligned metrics frame across VM, datastore and array pool → the array connector's own event log for that pool → ServiceNow change requests on any CI in the chain → `create_doc`: symptom chart, hypotheses (change, noisy neighbour, array event, capacity), evidence per hypothesis with citations, root cause, confidence, and the operators' own thresholds from `alert_definitions` as the yardstick.
 
 ## 7. Open questions for the customer
 
