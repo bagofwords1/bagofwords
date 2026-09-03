@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Optional
 
 from .admin.server import AdminServer
+from .audit import AuditLog
 from .config import AgentConfig, load_config
 from .logging_setup import configure_logging
 from .store import ConnectionStore
@@ -26,6 +27,7 @@ from .tunnel import EdgeAgentTunnel
 logger = logging.getLogger(__name__)
 
 _DEFAULT_STORE_NAME = "edge-agent-store.json"
+_DEFAULT_AUDIT_NAME = "edge-agent-audit.jsonl"
 
 
 def _resolve_store_path(config: AgentConfig, config_path: Optional[str]) -> Path:
@@ -40,6 +42,15 @@ def _resolve_store_path(config: AgentConfig, config_path: Optional[str]) -> Path
     if config_path:
         return Path(config_path).resolve().parent / _DEFAULT_STORE_NAME
     return Path.cwd() / _DEFAULT_STORE_NAME
+
+
+def _resolve_audit_path(config: AgentConfig, config_path: Optional[str]) -> Path:
+    """Where the audit trail (JSONL) lives — same rule as the store."""
+    if config.audit_path:
+        return Path(config.audit_path)
+    if config_path:
+        return Path(config_path).resolve().parent / _DEFAULT_AUDIT_NAME
+    return Path.cwd() / _DEFAULT_AUDIT_NAME
 
 
 def _merge_store_connections(config: AgentConfig, store: ConnectionStore) -> None:
@@ -70,9 +81,10 @@ def _parse_args(argv: Optional[list[str]] = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-async def run(config: AgentConfig, store: Optional[ConnectionStore] = None) -> None:
+async def run(config: AgentConfig, store: Optional[ConnectionStore] = None,
+              audit: Optional[AuditLog] = None) -> None:
     """Connect, subscribe, and stay up until asked to stop."""
-    tunnel = EdgeAgentTunnel(config)
+    tunnel = EdgeAgentTunnel(config, audit=audit)
     stop = asyncio.Event()
 
     loop = asyncio.get_running_loop()
@@ -160,9 +172,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     # so admin-UI-managed sources are served on this boot too. A store failure
     # (e.g. a wrong key) is fatal: serving a connection with silently-missing
     # credentials is worse than refusing to start.
+    config_path = args.config or os.environ.get("BOW_EDGE_AGENT_CONFIG")
+
+    # Local audit trail (C4/C5): always on — it is a security feature, not a
+    # convenience. File-backed so it survives restarts; a write failure never
+    # breaks a request (AuditLog swallows it).
+    audit = AuditLog(_resolve_audit_path(config, config_path), config.audit_retain)
+
     store: Optional[ConnectionStore] = None
     if config.admin_enabled:
-        config_path = args.config or os.environ.get("BOW_EDGE_AGENT_CONFIG")
         try:
             store = ConnectionStore(_resolve_store_path(config, config_path), config.store_key)
             _merge_store_connections(config, store)
@@ -171,7 +189,7 @@ def main(argv: Optional[list[str]] = None) -> int:
             return 1
 
     try:
-        asyncio.run(run(config, store))
+        asyncio.run(run(config, store, audit))
     except KeyboardInterrupt:  # pragma: no cover
         return 130
     except Exception:

@@ -32,6 +32,7 @@ _ENV_OVERRIDES = {
     "admin_enabled": "ADMIN_ENABLED",
     "store_path": "STORE_PATH",
     "store_key": "STORE_KEY",
+    "audit_path": "AUDIT_PATH",
     "log_level": "LOG_LEVEL",
     "default_query_timeout_seconds": "QUERY_TIMEOUT_SECONDS",
     "index_timeout_seconds": "INDEX_TIMEOUT_SECONDS",
@@ -118,6 +119,12 @@ class AgentConfig(BaseModel):
     # supply BOW_EDGE_AGENT_STORE_KEY from their own secret management.
     store_key: Optional[str] = None
 
+    # Local audit trail (design C4/C5): every operation with timestamp, duration,
+    # row count and outcome, kept on this box. None keeps the JSONL file beside
+    # the config; `audit_retain` bounds the in-memory tail the admin UI reads.
+    audit_path: Optional[str] = None
+    audit_retain: int = 2000
+
     log_level: str = "INFO"
 
     # Budgets the control plane sizes its own waits against (A5). The query
@@ -174,6 +181,7 @@ class AgentConfig(BaseModel):
 
 _INT_FIELDS = {
     "admin_port",
+    "audit_retain",
     "default_query_timeout_seconds",
     "index_timeout_seconds",
     "advertise_interval_seconds",

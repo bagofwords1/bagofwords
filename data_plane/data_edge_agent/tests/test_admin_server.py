@@ -14,6 +14,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from cryptography.fernet import Fernet
 
 from ..admin.server import AdminServer
+from ..audit import AuditLog
 from ..config import ConnectionConfig
 from ..store import ConnectionStore
 
@@ -29,6 +30,7 @@ class FakeTunnel:
         self.removed: list[str] = []
         self.tested: list[str] = []
         self.test_result = {"success": True, "message": "Connected"}
+        self.audit = AuditLog(None)
 
     def status_snapshot(self):
         return {"edge_agent_id": "nyc-01", "version": "9.9",
@@ -161,3 +163,13 @@ async def test_index_served(client):
     assert r.status == 200
     assert "text/html" in r.headers["Content-Type"]
     assert "Data Edge Agent" in await r.text()
+
+
+async def test_audit_endpoint_returns_recent_entries(client):
+    client.tunnel.audit.record(connection="lego-pg", operation="execute_query",
+                               outcome="ok", duration_ms=9, row_count=3)
+    r = await client.get("/api/audit?limit=50")
+    assert r.status == 200
+    entries = (await r.json())["entries"]
+    assert len(entries) == 1
+    assert entries[0]["operation"] == "execute_query" and entries[0]["row_count"] == 3
