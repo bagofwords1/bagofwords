@@ -15,6 +15,10 @@ from typing import List, Optional
 # Unicode "word" = 2+ letters (any script), no digits/punctuation. `\w` minus
 # digits/underscore via a negated class keeps Hebrew, accented Latin, etc.
 _WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+# Filename/path tokens additionally keep digit runs: an id-like name
+# (`6044534/appendix.pdf`) is exactly what people search for. Bodies
+# stay letters-only so numeric tables don't flood the keyword list.
+_NAME_RE = re.compile(r"[^\W_]{2,}", re.UNICODE)
 
 # Small, high-frequency stopword set. English + common Hebrew function words —
 # deliberately short (recall over precision; distinctive terms survive anyway).
@@ -51,7 +55,7 @@ def extract_keywords(
             keywords.append(tok)
 
     # Filename tokens first — always searchable.
-    for tok in _WORD_RE.findall((filename or "").lower()):
+    for tok in _NAME_RE.findall((filename or "").lower()):
         _add(tok)
         if len(keywords) >= max_keywords:
             return keywords[:max_keywords]

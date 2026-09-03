@@ -2,11 +2,13 @@
   <div ref="rootEl" class="w-full relative group/preview">
     <!-- Opens the same file in the side panel. Hidden where no panel exists
          (the share view), so the card never offers an action that does
-         nothing — `canExpand` is opt-in per host page. -->
+         nothing — `canExpand` is opt-in per host page. Always visible: the
+         inline frame hides the viewer's toolbar, so this is the one
+         affordance for reading the document at full size. -->
     <button
       v-if="canExpand && !expanded"
       type="button"
-      class="absolute top-2 end-2 z-10 p-1 rounded-md bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 opacity-0 group-hover/preview:opacity-100 focus:opacity-100 transition-opacity hover:text-gray-700 dark:hover:text-gray-200"
+      class="absolute top-2 end-2 z-10 p-1 rounded-md bg-white/90 dark:bg-gray-800/90 border border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 shadow-sm transition-colors hover:text-gray-700 dark:hover:text-gray-200"
       :title="$t('filePreview.openInPanel')"
       :aria-label="$t('filePreview.openInPanel')"
       @click="$emit('expand')"
@@ -128,7 +130,9 @@ const images = computed<string[]>(() => props.imageFileIds || (props.fileId ? [p
 const activeIndex = ref(0)
 const activeImageId = computed(() => images.value[activeIndex.value] || images.value[0] || '')
 
-const frameHeight = computed(() => (props.expanded ? '70vh' : '260px'))
+// Inline (card) frames are a compact glance at the document; the side
+// panel (`expanded`) is where it is actually read.
+const frameHeight = computed(() => (props.expanded ? '70vh' : '200px'))
 // PDF Open Parameters, read by the browser's built-in viewer:
 //   page      open at the page the model actually read
 //   view=FitH fit the page WIDTH to the frame, not a zoomed-in corner
@@ -136,9 +140,13 @@ const frameHeight = computed(() => (props.expanded ? '70vh' : '260px'))
 //             half a panel-sized frame, squeezing the document into what is
 //             left. Useless for the single-page documents this mostly shows,
 //             and the toolbar already carries page navigation.
+//   toolbar=0 (inline only) the card is a glance, not a reader — the zoom /
+//             rotate / summarize bar dominates a 200px frame. The side panel
+//             keeps it. Chromium honors this; other viewers ignore it.
 const frameSrc = computed(() =>
   embedUrl.value
     ? `${embedUrl.value}#page=${props.targetPage || 1}&view=FitH&navpanes=0`
+      + (props.expanded ? '' : '&toolbar=0')
     : ''
 )
 

@@ -308,6 +308,63 @@ async def test_list_files_glob_filter():
 
 
 @pytest.mark.asyncio
+async def test_list_files_glob_matches_relative_path():
+    """Live listings carry name=basename and path=folder/basename. A glob
+    naming the FOLDER (a case number) must match through the path, as
+    grep_files already does — the files' own names carry no case number."""
+    client = MagicMock()
+    client.cheap_live_listing = True
+    client.alist_files = AsyncMock(return_value=[
+        {"id": "6044534/appendix.pdf", "name": "appendix.pdf", "path": "6044534/appendix.pdf"},
+        {"id": "6044534/deed.pdf", "name": "deed.pdf", "path": "6044534/deed.pdf"},
+        {"id": "7000001/appendix.pdf", "name": "appendix.pdf", "path": "7000001/appendix.pdf"},
+        {"id": "6044534", "name": "6044534", "path": "6044534", "is_folder": True},
+    ])
+    with patch("app.ai.tools.implementations.list_files.resolve_file_client",
+               new=AsyncMock(return_value=(client, None))):
+        tool = ListFilesTool()
+        events = await _collect(tool.run_stream(
+            {"connection_id": "C1", "name_pattern": "*6044534*", "recursive": True}, {}
+        ))
+    out = events[-1].payload["output"]
+    assert out["success"] is True
+    assert {f["id"] for f in out["files"]} == {"6044534/appendix.pdf", "6044534/deed.pdf"}
+    # Plain filename globs keep working.
+    with patch("app.ai.tools.implementations.list_files.resolve_file_client",
+               new=AsyncMock(return_value=(client, None))):
+        events = await _collect(ListFilesTool().run_stream(
+            {"connection_id": "C1", "name_pattern": "deed.*"}, {}
+        ))
+    assert [f["id"] for f in events[-1].payload["output"]["files"]] == ["6044534/deed.pdf"]
+
+
+@pytest.mark.asyncio
+async def test_list_files_cache_scopes_folder_id():
+    """The cached catalog is flat; folder_id must still scope it (it was
+    silently ignored, returning the whole share)."""
+    ds = MagicMock(); ds.id = "DS1"
+    cached = _mock_cached_tables(
+        {"id": "1", "name": "6044534/appendix.pdf"},
+        {"id": "2", "name": "6044534/sub/deed.pdf"},
+        {"id": "3", "name": "7000001/appendix.pdf"},
+        {"id": "4", "name": "README.md"},
+    )
+    async def _run(inp):
+        with patch("app.ai.tools.implementations.list_files.resolve_file_data_source",
+                   new=AsyncMock(return_value=(ds, None))), \
+             patch("app.services.data_source_service.DataSourceService.get_data_source_schema",
+                   new=AsyncMock(return_value=cached)):
+            events = await _collect(ListFilesTool().run_stream({"connection_id": "DS1", **inp}, {}))
+        return {f["name"] for f in events[-1].payload["output"]["files"]}
+    assert await _run({"folder_id": "6044534", "recursive": True}) == {"6044534/appendix.pdf", "6044534/sub/deed.pdf"}
+    assert await _run({"folder_id": "6044534"}) == {"6044534/appendix.pdf"}
+    assert await _run({"folder_id": "/6044534/", "recursive": True, "name_pattern": "*deed*"}) == {"6044534/sub/deed.pdf"}
+    assert len(await _run({})) == 4
+    # Opaque (non-path) folder ids leave the listing unscoped rather than empty.
+    assert len(await _run({"folder_id": "01ABCDEF!123", "recursive": True})) == 4
+
+
+@pytest.mark.asyncio
 async def test_list_files_reads_from_cached_schema():
     """list_files no longer hits the upstream client — it reads cached
     DataSourceTable rows. metadata_json.graph carries the file_id."""

@@ -822,7 +822,9 @@ class NetworkDirClient(DataSourceClient):
                     try:
                         path = root / f["id"]
                         text = self._file_text(path)
-                        meta["keywords"] = extract_keywords(text, f["name"], self.max_keywords)
+                        # Index the RELATIVE PATH, not just the basename: a case
+                        # folder (`6044534/…`) is how people find these files.
+                        meta["keywords"] = extract_keywords(text, name, self.max_keywords)
                         meta["content_hash"] = hashlib.sha1(
                             (text or "").encode("utf-8", "ignore")
                         ).hexdigest() if text else None
