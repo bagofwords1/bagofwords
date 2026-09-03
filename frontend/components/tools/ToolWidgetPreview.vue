@@ -7,7 +7,7 @@
           <Icon :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
           <h3 class="widget-title">{{ widgetTitle }}</h3>
           <button
-            v-if="queryId && canEditCode && !readonly"
+            v-if="queryId && canEditCode && (canEdit || !readonly)"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             :title="$t('tools.widgetPreview.editQueryCode')"
@@ -64,8 +64,12 @@
               <span class="text-xs truncate">{{ item.label }}</span>
             </template>
           </UDropdown>
+          <!-- Extra header controls from the host (e.g. the Data modal's remove) -->
+          <slot name="header-actions" />
         </div>
       </div>
+      <!-- Second header line from the host (e.g. last-run status + error) -->
+      <slot name="header-subtitle" />
     </div>
 
     <!-- Collapsible content -->
@@ -239,7 +243,7 @@
 
                     <!-- Edit button -->
                     <button
-                      v-if="queryId && canEditCode && !readonly"
+                      v-if="queryId && canEditCode && (canEdit || !readonly)"
                       @click="onEditClick"
                       class="text-xs px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
                       :title="$t('tools.widgetPreview.editCode')"
@@ -430,6 +434,9 @@ const props = defineProps<{
   toolExecution: ToolExecution
   readonly?: boolean
   initialCollapsed?: boolean
+  // Show the Edit button even in readonly mode (readonly hides the whole
+  // bottom action bar; hosts like the Data modal want edit without the bar)
+  canEdit?: boolean
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery'])
 

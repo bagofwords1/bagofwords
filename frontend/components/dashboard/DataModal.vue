@@ -1,7 +1,7 @@
 <template>
   <UTooltip :text="$t('artifactFrame.viewData')">
     <button @click="openModal" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
-      <Icon name="heroicons:table-cells" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+      <Icon name="heroicons:circle-stack" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
     </button>
   </UTooltip>
 
@@ -57,42 +57,20 @@
         <div v-else-if="dashboardQueries.length === 0" class="flex items-center justify-center h-full text-gray-400">
           <p>{{ $t('artifactFrame.dataEmpty') }}</p>
         </div>
-        <div v-else class="space-y-2">
-          <div
+        <div v-else>
+          <!-- ToolWidgetPreview is the whole row: its own header is the single
+               collapse level; remove rides in header-actions, and last-run
+               status + usage in the header-subtitle line -->
+          <ToolWidgetPreview
             v-for="q in dashboardQueries"
             :key="q.id"
-            class="border border-gray-200 dark:border-gray-700 rounded-lg bg-white dark:bg-gray-800"
+            :tool-execution="toToolExecution(q)"
+            :readonly="true"
+            :initial-collapsed="true"
+            :can-edit="canManage"
+            @editQuery="openQueryEditor"
           >
-            <!-- Row header -->
-            <div
-              class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none"
-              @click="toggleExpanded(q.id)"
-            >
-              <Icon
-                :name="expandedIds[q.id] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'"
-                class="w-3.5 h-3.5 text-gray-400 shrink-0 rtl-flip"
-              />
-              <span class="text-sm font-medium text-gray-700 dark:text-gray-200 truncate">
-                {{ q.title || $t('artifactFrame.dataUntitledQuery') }}
-              </span>
-
-              <!-- Last run status -->
-              <span class="flex items-center gap-1.5 ms-auto shrink-0">
-                <template v-if="q.last_run">
-                  <span
-                    class="w-2 h-2 rounded-full shrink-0"
-                    :class="q.last_run.status === 'error' ? 'bg-red-500' : 'bg-green-500'"
-                  />
-                  <span class="text-[11px] text-gray-400 whitespace-nowrap">
-                    {{ relativeTime(q.last_run.ran_at) }}
-                  </span>
-                </template>
-                <template v-else>
-                  <span class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0" />
-                  <span class="text-[11px] text-gray-400 whitespace-nowrap">{{ $t('artifactFrame.dataNeverRun') }}</span>
-                </template>
-              </span>
-
+            <template #header-actions>
               <!-- Remove from dashboard -->
               <UTooltip v-if="canManage" :text="$t('artifactFrame.dataRemove')">
                 <button
@@ -104,27 +82,51 @@
                   <Icon v-else name="heroicons:trash" class="w-3.5 h-3.5" />
                 </button>
               </UTooltip>
-            </div>
+            </template>
 
-            <!-- Error reason -->
-            <div
-              v-if="q.last_run && q.last_run.status === 'error' && q.last_run.status_reason"
-              class="px-3 pb-2 ps-9 text-[11px] text-red-500 break-words"
-            >
-              {{ q.last_run.status_reason }}
-            </div>
+            <!-- Second line: last-run status, error reason, artifact usage -->
+            <template #header-subtitle>
+              <div class="mt-1 ps-5 flex items-center gap-2 text-[11px] text-gray-400 min-w-0">
+                <template v-if="q.last_run">
+                  <span
+                    class="w-2 h-2 rounded-full shrink-0"
+                    :class="q.last_run.status === 'error' ? 'bg-red-500' : 'bg-green-500'"
+                  />
+                  <span class="whitespace-nowrap shrink-0">
+                    {{ $t('artifactFrame.dataLastRun', { time: relativeTime(q.last_run.ran_at) }) }}
+                  </span>
+                  <span
+                    v-if="q.last_run.status === 'error' && q.last_run.status_reason"
+                    class="text-red-500 truncate min-w-0"
+                    :title="q.last_run.status_reason"
+                  >
+                    {{ q.last_run.status_reason }}
+                  </span>
+                </template>
+                <template v-else>
+                  <span class="w-2 h-2 rounded-full bg-gray-300 dark:bg-gray-600 shrink-0" />
+                  <span class="whitespace-nowrap shrink-0">{{ $t('artifactFrame.dataNeverRun') }}</span>
+                </template>
 
-            <!-- Expanded: data preview -->
-            <div v-if="expandedIds[q.id]" class="border-t border-gray-100 dark:border-gray-700 p-2">
-              <ToolWidgetPreview
-                v-if="q.default_step"
-                :tool-execution="toToolExecution(q)"
-                :readonly="true"
-                :initial-collapsed="false"
-              />
-              <p v-else class="text-xs text-gray-400 px-2 py-3">{{ $t('artifactFrame.dataNoResult') }}</p>
-            </div>
-          </div>
+                <!-- In use / not used: whether the artifact code renders this viz.
+                     Hidden until the artifact's usage set has loaded. -->
+                <UTooltip
+                  v-if="usedVizIds !== null"
+                  :text="isInUse(q) ? $t('artifactFrame.dataInUseHint') : $t('artifactFrame.dataNotUsedHint')"
+                  class="ms-auto shrink-0"
+                >
+                  <span
+                    class="px-1.5 py-0.5 rounded text-[10px] font-medium"
+                    :class="isInUse(q)
+                      ? 'bg-green-50 text-green-600 dark:bg-green-900/30 dark:text-green-400'
+                      : 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'"
+                  >
+                    {{ isInUse(q) ? $t('artifactFrame.dataInUse') : $t('artifactFrame.dataNotUsed') }}
+                  </span>
+                </UTooltip>
+              </div>
+            </template>
+          </ToolWidgetPreview>
         </div>
       </div>
     </div>
@@ -159,12 +161,27 @@
       </div>
     </div>
   </UModal>
+
+  <!-- Query code editor: saving runs the code on the SAME query and promotes
+       the result to its default step — no new query/viz, so the artifact's
+       vizById() binding keeps working and tiles refresh via the
+       query:default_step_changed broadcast the editor emits. -->
+  <QueryCodeEditorModal
+    :visible="showQueryEditor"
+    :query-id="queryEditorProps.queryId"
+    :step-id="queryEditorProps.stepId"
+    :initial-code="queryEditorProps.initialCode"
+    :title="queryEditorProps.title"
+    @close="showQueryEditor = false"
+    @stepCreated="onEditorStepCreated"
+  />
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, computed } from 'vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
+import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import Spinner from '~/components/Spinner.vue'
 
 const props = defineProps<{
@@ -182,7 +199,6 @@ const isOpen = ref(false)
 const isLoading = ref(false)
 const isMutating = ref(false)
 const allQueries = ref<any[]>([])
-const expandedIds = reactive<Record<string, boolean>>({})
 const removingIds = reactive<Record<string, boolean>>({})
 // Query pending removal — set by the trash button, cleared by the dialog
 const confirmTarget = ref<any | null>(null)
@@ -190,6 +206,19 @@ const confirmTarget = ref<any | null>(null)
 // parent's props only catch up after it refetches.
 const currentArtifactId = ref<string | null>(null)
 const currentVizIds = ref<string[]>([])
+// Which viz ids the artifact code actually renders (used_visualization_ids,
+// computed server-side from content.code). null = not loaded yet, so the
+// in-use badges stay hidden instead of guessing.
+const usedVizIds = ref<string[] | null>(null)
+
+// Query code editor state
+const showQueryEditor = ref(false)
+const queryEditorProps = ref<{
+  queryId: string | null
+  stepId: string | null
+  initialCode: string
+  title: string
+}>({ queryId: null, stepId: null, initialCode: '', title: '' })
 
 // Only page dashboards support add/remove (docs hold markdown, slides only
 // render slide sections) — the modal is read-only elsewhere
@@ -198,8 +227,32 @@ const canManage = computed(() => !props.artifactMode || props.artifactMode === '
 function openModal() {
   currentArtifactId.value = props.artifactId || null
   currentVizIds.value = [...(props.artifactVizIds || [])]
+  usedVizIds.value = null
   isOpen.value = true
   loadQueries()
+  loadArtifactUsage()
+}
+
+// Fetch the artifact to learn which viz ids its code actually renders. Also
+// refreshes membership — the server copy beats possibly-stale props.
+async function loadArtifactUsage() {
+  if (!currentArtifactId.value) {
+    usedVizIds.value = []
+    return
+  }
+  const { data, error } = await useMyFetch(`/api/artifacts/${currentArtifactId.value}`)
+  if (error.value || !data.value) return
+  const artifact = data.value as any
+  usedVizIds.value = [...(artifact.used_visualization_ids || [])]
+  const vizIds = (artifact.content || {}).visualization_ids
+  if (Array.isArray(vizIds)) currentVizIds.value = [...vizIds]
+}
+
+// "In use" = at least one of the query's on-dashboard visualizations is
+// actually referenced by the artifact code
+function isInUse(q: any): boolean {
+  const used = new Set(usedVizIds.value || [])
+  return (q.visualizations || []).some((v: any) => used.has(v.id))
 }
 
 async function loadQueries() {
@@ -243,14 +296,12 @@ const availableOptions = computed(() => {
     })
 })
 
-function toggleExpanded(id: string) {
-  expandedIds[id] = !expandedIds[id]
-}
-
 // ToolWidgetPreview expects a tool-execution shape; wrap the query's default
-// step so it renders as the Chart/Table/Code card.
+// step so it renders as the Chart/Table/Code card. A never-run query has no
+// default_step — the stub still carries query_id so the card can hydrate a
+// fresh step from the server when expanded.
 function toToolExecution(q: any) {
-  const step = q.default_step
+  const step = q.default_step || {}
   return {
     id: q.id,
     tool_name: 'query',
@@ -258,7 +309,7 @@ function toToolExecution(q: any) {
     created_step: {
       id: step.id,
       query_id: q.id,
-      title: q.title,
+      title: q.title || t('artifactFrame.dataUntitledQuery'),
       data: step.data || {},
       data_model: step.data_model || { type: 'table' },
       code: step.code || ''
@@ -279,6 +330,7 @@ function toToolExecution(q: any) {
 function adoptArtifact(artifact: any) {
   currentArtifactId.value = artifact.id
   currentVizIds.value = [...((artifact.content || {}).visualization_ids || [])]
+  usedVizIds.value = [...(artifact.used_visualization_ids || [])]
   window.dispatchEvent(new CustomEvent('artifact:created', { detail: { report_id: props.reportId, artifact_id: artifact.id } }))
   window.dispatchEvent(new CustomEvent('artifact:open', { detail: { artifact_id: artifact.id } }))
 }
@@ -309,6 +361,22 @@ async function addQuery(vizId: string) {
   } finally {
     isMutating.value = false
   }
+}
+
+function openQueryEditor(payload: { queryId: string; stepId: string | null; initialCode: string; title: string }) {
+  queryEditorProps.value = {
+    queryId: payload.queryId,
+    stepId: payload.stepId,
+    initialCode: payload.initialCode,
+    title: payload.title,
+  }
+  showQueryEditor.value = true
+}
+
+// The editor already broadcasts query:default_step_changed (each card
+// refreshes itself); reload the list so last_run catches up too.
+async function onEditorStepCreated() {
+  await loadQueries()
 }
 
 function onConfirmRemove() {
