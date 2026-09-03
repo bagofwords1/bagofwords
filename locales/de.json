@@ -3284,6 +3284,18 @@
     "polishDashboard": "Dashboard verfeinern"
   },
   "artifactFrame": {
+    "dataAddQuery": "Abfrage hinzufügen",
+    "dataNoQueriesToAdd": "Keine Abfragen zum Hinzufügen",
+    "dataAddFailed": "Abfrage konnte dem Dashboard nicht hinzugefügt werden",
+    "dataUntitledQuery": "Unbenannte Abfrage",
+    "dataNeverRun": "Nie ausgeführt",
+    "dataRemove": "Vom Dashboard entfernen",
+    "dataRemoveConfirm": "Diese Abfrage vom Dashboard entfernen? Die Abfrage bleibt im Bericht und kann später wieder hinzugefügt werden.",
+    "dataRemoveFailed": "Abfrage konnte nicht entfernt werden",
+    "dataNoResult": "Noch keine Ergebnisse — führen Sie die Abfrage aus, um Daten zu sehen",
+    "viewData": "Daten anzeigen",
+    "dataTitle": "Daten",
+    "dataEmpty": "Keine Daten verfügbar",
     "loading": "Lädt …",
     "loadingArtifact": "Artefakt wird geladen …",
     "refreshed": "Dashboard aktualisiert",

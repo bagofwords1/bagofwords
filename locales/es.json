@@ -3375,6 +3375,18 @@
     "polishDashboard": "Pulir panel"
   },
   "artifactFrame": {
+    "dataAddQuery": "Añadir consulta",
+    "dataNoQueriesToAdd": "No hay consultas para añadir",
+    "dataAddFailed": "No se pudo añadir la consulta al panel",
+    "dataUntitledQuery": "Consulta sin título",
+    "dataNeverRun": "Nunca ejecutada",
+    "dataRemove": "Quitar del panel",
+    "dataRemoveConfirm": "¿Quitar esta consulta del panel? La consulta permanece en el informe y se puede volver a añadir.",
+    "dataRemoveFailed": "No se pudo eliminar la consulta",
+    "dataNoResult": "Aún no hay resultados: ejecuta la consulta para ver datos",
+    "viewData": "Ver datos",
+    "dataTitle": "Datos",
+    "dataEmpty": "No hay datos disponibles",
     "loading": "Cargando…",
     "loadingArtifact": "Cargando artefacto…",
     "refreshed": "Panel actualizado",

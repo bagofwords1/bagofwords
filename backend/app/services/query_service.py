@@ -2,8 +2,9 @@ from typing import Optional, List, Tuple
 from types import SimpleNamespace
 import copy
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import lazyload, selectinload
+from datetime import datetime
 
 from app.models.query import Query
 from app.models.widget import Widget
@@ -309,6 +310,7 @@ class QueryService:
                 ),
             )
             .where(Query.id == str(query_id))
+            .where(Query.deleted_at.is_(None))
         )
         if organization_id:
             stmt = stmt.where(Query.organization_id == str(organization_id))
@@ -332,7 +334,7 @@ class QueryService:
                 lazyload("*"),
                 selectinload(Step.created_entity).options(lazyload("*")),
             ),
-        )
+        ).where(Query.deleted_at.is_(None))
         if report_id:
             stmt = stmt.where(Query.report_id == str(report_id))
         if organization_id:
@@ -369,6 +371,73 @@ class QueryService:
 
         res = await db.execute(stmt)
         return res.scalars().all()
+
+    async def get_last_runs(
+        self,
+        db: AsyncSession,
+        query_ids: List[str],
+    ) -> dict:
+        """Latest executed step (success or error) per query, as
+        ``{query_id: {status, status_reason, ran_at}}``.
+
+        ``default_step`` cannot answer "when did this last run and did it
+        work" — it only repoints on success, so a failing latest run stays
+        hidden behind the last good one. Order by ``updated_at`` because a
+        rerun mutates the existing step row in place instead of creating a
+        new one. Draft steps never executed, so they are excluded.
+        """
+        if not query_ids:
+            return {}
+        rn = func.row_number().over(
+            partition_by=Step.query_id,
+            order_by=Step.updated_at.desc(),
+        ).label("rn")
+        sub = (
+            select(
+                Step.query_id,
+                Step.status,
+                Step.status_reason,
+                Step.updated_at,
+                rn,
+            )
+            .where(
+                Step.query_id.in_([str(qid) for qid in query_ids]),
+                Step.deleted_at.is_(None),
+                Step.status.in_(("success", "error")),
+            )
+            .subquery()
+        )
+        rows = (await db.execute(select(sub).where(sub.c.rn == 1))).all()
+        return {
+            str(row.query_id): {
+                "status": row.status,
+                "status_reason": row.status_reason,
+                "ran_at": row.updated_at,
+            }
+            for row in rows
+        }
+
+    async def delete_query(
+        self,
+        db: AsyncSession,
+        query_id: str,
+        organization_id: Optional[str] = None,
+    ) -> bool:
+        """Soft-delete a query and its visualizations.
+
+        The artifact's ``content.visualization_ids`` is left untouched:
+        list_queries resolves ids through live visualizations, so the
+        deleted query's data simply stops appearing.
+        """
+        q = await self.get_query(db, query_id, organization_id=organization_id)
+        if not q:
+            return False
+        now = datetime.utcnow()
+        q.deleted_at = now
+        for viz in (q.visualizations or []):
+            viz.deleted_at = now
+        await db.commit()
+        return True
 
     async def run_existing_step(
         self,

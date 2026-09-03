@@ -3443,6 +3443,18 @@
     "polishDashboard": "Polish Dashboard"
   },
   "artifactFrame": {
+    "dataAddQuery": "Add query",
+    "dataNoQueriesToAdd": "No queries to add",
+    "dataAddFailed": "Failed to add query to the dashboard",
+    "dataUntitledQuery": "Untitled query",
+    "dataNeverRun": "Never ran",
+    "dataRemove": "Remove from dashboard",
+    "dataRemoveConfirm": "Remove this query from the dashboard? The query stays in the report and can be added back later.",
+    "dataRemoveFailed": "Failed to remove query",
+    "dataNoResult": "No results yet — run the query to see data",
+    "viewData": "View data",
+    "dataTitle": "Data",
+    "dataEmpty": "No data available",
     "loading": "Loading…",
     "loadingArtifact": "Loading artifact…",
     "refreshed": "Dashboard refreshed",

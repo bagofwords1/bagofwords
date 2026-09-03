@@ -3284,6 +3284,18 @@
     "polishDashboard": "Putsa instrumentpanel"
   },
   "artifactFrame": {
+    "dataAddQuery": "Lägg till fråga",
+    "dataNoQueriesToAdd": "Inga frågor att lägga till",
+    "dataAddFailed": "Det gick inte att lägga till frågan på instrumentpanelen",
+    "dataUntitledQuery": "Namnlös fråga",
+    "dataNeverRun": "Aldrig körd",
+    "dataRemove": "Ta bort från instrumentpanelen",
+    "dataRemoveConfirm": "Ta bort denna fråga från instrumentpanelen? Frågan finns kvar i rapporten och kan läggas till igen.",
+    "dataRemoveFailed": "Det gick inte att ta bort frågan",
+    "dataNoResult": "Inga resultat ännu — kör frågan för att se data",
+    "viewData": "Visa data",
+    "dataTitle": "Data",
+    "dataEmpty": "Ingen data tillgänglig",
     "loading": "Laddar…",
     "loadingArtifact": "Laddar artefakt…",
     "refreshed": "Instrumentpanelen uppdaterad",

@@ -14,6 +14,17 @@ class QueryCreate(BaseModel):
     user_id: Optional[str] = None
 
 
+class QueryLastRunSchema(BaseModel):
+    """The most recent executed step (success OR error) for a query.
+
+    Distinct from `default_step`, which only repoints on success and so
+    hides a failing latest run behind the last good one.
+    """
+    status: str
+    status_reason: Optional[str] = None
+    ran_at: Optional[datetime] = None
+
+
 class QuerySchema(BaseModel):
     id: str
     title: str
@@ -32,6 +43,9 @@ class QuerySchema(BaseModel):
     # runs authenticate per user, so a View-as preview swaps identity params
     # only — source-level rows still come back under the caller's credentials.
     credential_scoped: Optional[bool] = None
+    # Populated by the queries routes (not from_attributes): latest executed
+    # step regardless of outcome, for "last run" status displays.
+    last_run: Optional[QueryLastRunSchema] = None
 
     class Config:
         from_attributes = True

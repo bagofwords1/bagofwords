@@ -3284,6 +3284,18 @@
     "polishDashboard": "Rifinisci dashboard"
   },
   "artifactFrame": {
+    "dataAddQuery": "Aggiungi query",
+    "dataNoQueriesToAdd": "Nessuna query da aggiungere",
+    "dataAddFailed": "Impossibile aggiungere la query alla dashboard",
+    "dataUntitledQuery": "Query senza titolo",
+    "dataNeverRun": "Mai eseguita",
+    "dataRemove": "Rimuovi dalla dashboard",
+    "dataRemoveConfirm": "Rimuovere questa query dalla dashboard? La query resta nel report e può essere riaggiunta.",
+    "dataRemoveFailed": "Impossibile rimuovere la query",
+    "dataNoResult": "Ancora nessun risultato — esegui la query per vedere i dati",
+    "viewData": "Visualizza dati",
+    "dataTitle": "Dati",
+    "dataEmpty": "Nessun dato disponibile",
     "loading": "Caricamento…",
     "loadingArtifact": "Caricamento dell'artefatto…",
     "refreshed": "Dashboard aggiornata",

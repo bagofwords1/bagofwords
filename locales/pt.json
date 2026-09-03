@@ -3284,6 +3284,18 @@
     "polishDashboard": "Aprimorar painel"
   },
   "artifactFrame": {
+    "dataAddQuery": "Adicionar consulta",
+    "dataNoQueriesToAdd": "Sem consultas para adicionar",
+    "dataAddFailed": "Falha ao adicionar a consulta ao painel",
+    "dataUntitledQuery": "Consulta sem título",
+    "dataNeverRun": "Nunca executada",
+    "dataRemove": "Remover do painel",
+    "dataRemoveConfirm": "Remover esta consulta do painel? A consulta permanece no relatório e pode ser adicionada novamente.",
+    "dataRemoveFailed": "Falha ao remover a consulta",
+    "dataNoResult": "Ainda sem resultados — execute a consulta para ver os dados",
+    "viewData": "Ver dados",
+    "dataTitle": "Dados",
+    "dataEmpty": "Nenhum dado disponível",
     "loading": "Carregando…",
     "loadingArtifact": "Carregando artefato…",
     "refreshed": "Painel atualizado",

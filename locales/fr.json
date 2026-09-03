@@ -3284,6 +3284,18 @@
     "polishDashboard": "Peaufiner le tableau de bord"
   },
   "artifactFrame": {
+    "dataAddQuery": "Ajouter une requête",
+    "dataNoQueriesToAdd": "Aucune requête à ajouter",
+    "dataAddFailed": "Échec de l'ajout de la requête au tableau de bord",
+    "dataUntitledQuery": "Requête sans titre",
+    "dataNeverRun": "Jamais exécutée",
+    "dataRemove": "Retirer du tableau de bord",
+    "dataRemoveConfirm": "Retirer cette requête du tableau de bord ? La requête reste dans le rapport et peut être rajoutée plus tard.",
+    "dataRemoveFailed": "Échec de la suppression de la requête",
+    "dataNoResult": "Pas encore de résultats — exécutez la requête pour voir les données",
+    "viewData": "Voir les données",
+    "dataTitle": "Données",
+    "dataEmpty": "Aucune donnée disponible",
     "loading": "Chargement…",
     "loadingArtifact": "Chargement de l'artefact…",
     "refreshed": "Tableau de bord actualisé",
