@@ -29,6 +29,12 @@ cd frontend && yarn install && yarn dev   # background; ready when /users/sign-u
 Caveats:
 - The backend runs uvicorn with `--reload` watching the repo; running pytest in parallel creates `db/test_*.db` files that trigger restarts. Fine for a sandbox, but don't be surprised by restart noise in the log.
 - In Claude Code remote env, TLS/proxy env vars (`SSL_CERT_FILE`, `HTTPS_PROXY`, `REQUESTS_CA_BUNDLE`) are pre-set and inherited — Anthropic API calls from the backend just work. The API key is in `$ANTHROPIC_KEY`.
+- **Pin `BOW_ENCRYPTION_KEY`** (any Fernet key: `python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"`) in the env you start the backend with. Unset, the key is invented per process — every restart/reload makes stored LLM-provider credentials undecryptable ("Agent failed:" with `Failed to decrypt stored payload` in the log) and invalidates every JWT (the auth secret is the same key), so Playwright `storageState` stops working.
+- **Set `BOW_CHROMIUM_EXECUTABLE=/opt/pw-browsers/chromium`.** The backend's Playwright expects its own headless-shell download, which isn't in the container; without this the artifact render-validation and thumbnail steps fail silently (`BrowserType.launch: Executable doesn't exist`) and a syntactically broken artifact is persisted as "completed".
+- **Run `bash scripts/download-vendor-libs.sh frontend/public/libs` once.** The artifact sandbox loads React/Babel/ECharts/Tailwind from `/libs/*.js`, which the Docker build downloads but a fresh checkout lacks — artifacts stay on "Loading..." with `React is not defined` in the iframe.
+- Start the backend from `backend/` with an absolute-or-correct cwd (a relative `sqlite:///db/app.db` is resolved against the process cwd — a backgrounded start from the repo root silently creates a second, empty database).
+- Never delete `db/app.db-wal`/`-shm` after a `kill -9`: the WAL holds un-checkpointed rows (users, providers, reports). Kill the whole process tree (uvicorn spawns `multiprocessing` helpers that keep the DB and port 8000 alive: `fuser -k 8000/tcp`), then restart — SQLite replays the WAL itself.
+- Nuxt dev pages compile on first hit and `networkidle` never settles (HMR socket); wait on a selector with a long timeout instead. The LLM settings page button is "Add Provider"; provider tiles are `img[alt="<provider> logo"]`; model checkboxes are identified by walking up to the text containing `Model ID:`.
 
 ## 2. Seed a user + org + LLM (one-time per fresh DB)
 

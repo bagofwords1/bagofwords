@@ -348,6 +348,10 @@ FORBIDDEN_MODULES = frozenset({
     'tempfile', 'pathlib', 'glob', 'fnmatch',
     'signal', 'resource', 'sysconfig', 'platform',
     'webbrowser', 'antigravity', 'this',
+    # joblib.dump/load serialize straight to a filesystem path (and unpickle on
+    # load), which would sidestep the `open`/`pickle` bans. scikit-learn's own
+    # internal joblib use is unaffected — the AST check only sees model code.
+    'joblib',
 })
 
 # Built-in functions that should never be called

@@ -50,6 +50,36 @@ def _sandbox_rules_section() -> str:
         - SQL strings must be read-only — no INSERT / UPDATE / DELETE / DROP / CREATE / ALTER / TRUNCATE / GRANT."""
 
 
+def _ml_rules_section() -> str:
+    """Guidance for generated code that trains a model with scikit-learn.
+
+    The sandbox is a denylist, so `import sklearn` was never *rejected* — it
+    simply wasn't installed. Now that it is, the model needs to know (a) it is
+    there, (b) which neighbours are NOT (statsmodels/prophet/xgboost/shap), and
+    (c) the constraints the executor imposes on training code: the result must
+    be a tidy DataFrame (the estimator object is never persisted — every rerun
+    retrains), the code re-executes verbatim on refresh (so it must be
+    deterministic), and it shares a small worker pool with a hard tool
+    timeout (so it must be cheap). Shared by the codegen prompts so the
+    contract cannot drift between them.
+    """
+    return """**Machine learning — scikit-learn IS available (also numpy, scipy):**
+        - Import inside the function, e.g. `from sklearn.ensemble import RandomForestClassifier`. NOT installed (never import): statsmodels, prophet, xgboost, lightgbm, catboost, shap, torch, tensorflow.
+        - Fit the model inside `generate_df` and return the RESULT as a tidy DataFrame of primitives — the estimator object is never returned, saved or passed between steps; a step that needs the model retrains it. Typical outputs (one shape per step, pick the one the prompt asks for):
+          * feature importance: one row per feature — `feature`, `importance`, `importance_share` (importance / sum), `rank`; sorted by importance descending.
+          * metrics: one row per metric — `metric`, `value` (accuracy, precision, recall, f1, roc_auc, r2, mae, rmse…).
+          * predictions / residuals: one row per held-out record — the id/key columns, `actual`, `predicted`, and `residual` or `probability`.
+          * confusion matrix: one row per (actual, predicted) pair — `actual`, `predicted`, `count`.
+          * A single "model report" step may combine these long-form with a `section` column when the prompt asks for everything at once.
+        - Deterministic: this code is re-executed verbatim on refresh — pass `random_state=42` to every estimator, `train_test_split`, `KFold`, and `permutation_importance` so charts do not change between reruns.
+        - Cheap: the whole function shares a small worker pool and is killed by a hard tool timeout (~5 min). Use `n_jobs=1` (never -1), keep `n_estimators` ≤ 300 and tree `max_depth` bounded, avoid `GridSearchCV`/`RandomizedSearchCV` beyond a handful of candidates, and train on at most ~50,000 rows — `df.sample(n=50000, random_state=42)` when the source is larger.
+        - Feature importance: prefer `sklearn.inspection.permutation_importance(model, X_test, y_test, n_repeats=5, random_state=42, n_jobs=1).importances_mean` (model-agnostic, measured on held-out data). Use `feature_importances_` (trees) or `abs(coef_)` (linear) only when the prompt names that method or the data is too small to hold out.
+        - Preprocessing: drop or impute NaNs before fitting; one-hot encode categoricals with `pd.get_dummies(..., drop_first=False)` or `OneHotEncoder(handle_unknown="ignore")` inside a `Pipeline`/`ColumnTransformer`.
+        - Feature names in the output must be human-readable: build the `ColumnTransformer` with `verbose_feature_names_out=False` (otherwise `get_feature_names_out()` yields `numeric__tenure_months` / `categorical__contract_type_month-to-month`) and render one-hot columns as `"<column>=<value>"` (e.g. `contract_type=month-to-month`). A viewer should never see transformer prefixes in a chart label.
+        - Sandbox-compatible idioms: `type(model).__name__` (never `model.__class__.__name__`); branch on estimator kind with `isinstance` or try/except (never `hasattr`/`getattr`); never `import pickle` or `joblib` — models are not serialized.
+        - If the step declares a parameter such as `model_type` or `target`, read it via `params.get("model_type", "random_forest")` and branch on it so the viewer can switch models from the dashboard; keep the output columns identical across branches."""
+
+
 def _time_filter_rules() -> str:
     """Policy for date/time filters in generated code.
 
@@ -805,6 +835,8 @@ class Coder:
 
             {_sandbox_rules_section()}
 
+            {_ml_rules_section()}
+
             {_time_filter_rules()}
 
             **Guidelines and Requirements**:
@@ -1013,6 +1045,8 @@ class Coder:
         </code_and_error_messages>
 
         {_sandbox_rules_section()}
+
+        {_ml_rules_section()}
 
         **File Access**:
         {file_access_rules}
