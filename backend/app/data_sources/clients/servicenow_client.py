@@ -42,6 +42,11 @@ DEFAULT_TABLES = [
     "sys_user_group",
     "cmdb_ci",
     "kb_knowledge",
+    # Attachment metadata for every record's files (file_name, content_type,
+    # size, and the table_name/table_sys_id it hangs off). Exposed so the agent
+    # can go from any record to its files: query here for the attachment's
+    # sys_id, then read_file(sys_id) for the bytes — no per-table wiring needed.
+    "sys_attachment",
 ]
 
 # Roots whose descendants count as "business" tables in discover_all mode.
@@ -905,6 +910,12 @@ class ServiceNowClient(DataSourceClient):
                 "        - search_files(query) matches attachment file names.\n"
                 "        The article BODY is the kb_knowledge.text column (HTML) via execute_query;\n"
                 "        the attachments are separate files on the article.\n"
+                "        To read a file on ANY record (incident, alert, ...) — not just the\n"
+                "        attachment tables above — you need the attachment's sys_id, then call\n"
+                "        read_file(sys_id). Get the id by querying the `sys_attachment` table,\n"
+                "        filtered by table_name + table_sys_id (never query it unfiltered):\n"
+                '        execute_query(\'{"table": "sys_attachment", "query": "table_name=incident^table_sys_id=<record sys_id>", "fields": ["sys_id", "file_name", "content_type", "size_bytes"]}\')\n'
+                "        then read_file(<sys_id from that result>).\n"
             )
         return text
 
