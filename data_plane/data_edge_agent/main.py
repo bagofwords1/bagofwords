@@ -96,30 +96,11 @@ async def run(config: AgentConfig, store: Optional[ConnectionStore] = None,
         except NotImplementedError:  # pragma: no cover - Windows
             signal.signal(sig, lambda *_: stop.set())
 
-    # connect() owns its own retry loop and takes the stop event, so shutting
-    # down while the broker is unreachable needs no task cancellation — see
-    # EdgeAgentTunnel.connect for why cancelling one is the thing to avoid.
-    await tunnel.connect(stop=stop)
-
-    if stop.is_set():
-        logger.info("edge_agent.stopping", extra={"during": "connect"})
-        await tunnel.close()
-        logger.info("edge_agent.stopped")
-        return
-
-    await tunnel.subscribe()
-
-    # Advertise immediately so a control plane that is already up registers
-    # this agent now, then keep re-publishing (see advertise_forever).
-    await tunnel.advertise()
-    advertiser = asyncio.create_task(tunnel.advertise_forever(stop))
-    # Heartbeat for UI liveness (A10): a missed window flips the agent's status
-    # and deactivates its connections on the control plane.
-    heartbeater = asyncio.create_task(tunnel.heartbeat_forever(stop))
-
-    # Local admin UI (design C4). Only started when both enabled and given a
-    # store to persist edits to; loopback-bound, so it is the operator's own
-    # window onto this agent and never a remote surface.
+    # Local admin UI (design C4). Started BEFORE the connect loop on purpose:
+    # loopback-bound, it is the operator's window onto this agent, and it has to
+    # be reachable precisely when NATS is down — that is when someone needs to
+    # fix a connection or read the status. It also gives the container a real
+    # liveness probe (the process is up) independent of broker connectivity.
     admin: Optional[AdminServer] = None
     if config.admin_enabled and store is not None:
         admin = AdminServer(tunnel, store, config.admin_host, config.admin_port)
@@ -133,6 +114,29 @@ async def run(config: AgentConfig, store: Optional[ConnectionStore] = None,
                 extra={"host": config.admin_host, "port": config.admin_port, "error": str(e)},
             )
             admin = None
+
+    # connect() owns its own retry loop and takes the stop event, so shutting
+    # down while the broker is unreachable needs no task cancellation — see
+    # EdgeAgentTunnel.connect for why cancelling one is the thing to avoid.
+    await tunnel.connect(stop=stop)
+
+    if stop.is_set():
+        logger.info("edge_agent.stopping", extra={"during": "connect"})
+        if admin is not None:
+            await admin.stop()
+        await tunnel.close()
+        logger.info("edge_agent.stopped")
+        return
+
+    await tunnel.subscribe()
+
+    # Advertise immediately so a control plane that is already up registers
+    # this agent now, then keep re-publishing (see advertise_forever).
+    await tunnel.advertise()
+    advertiser = asyncio.create_task(tunnel.advertise_forever(stop))
+    # Heartbeat for UI liveness (A10): a missed window flips the agent's status
+    # and deactivates its connections on the control plane.
+    heartbeater = asyncio.create_task(tunnel.heartbeat_forever(stop))
 
     logger.info(
         "edge_agent.started",

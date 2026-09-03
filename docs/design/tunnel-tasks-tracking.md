@@ -8,6 +8,39 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-03 (cont.) — production Docker image + entrypoint (design Step 9 / E1)
+
+- ✅ **`data_plane/Dockerfile`** — multi-stage, built from the repo root so the
+  image carries `backend/app/` on `PYTHONPATH` (the reuse path, Step 9). uv
+  installs the locked venv (`--frozen --no-dev --no-install-project`); runtime is
+  `python:3.12-slim` + libpq5 + tini. Non-root (uid/gid 10001), `EXPOSE 9191`,
+  `HEALTHCHECK` hitting the admin `/api/status` via the venv Python (no curl).
+- ✅ **`data_plane/docker-entrypoint.sh`** — production entrypoint: bridges the
+  design's env names (`AGENT_ID`/`AGENT_NAME`/`SECRET_KEY`) to the code's
+  (`EDGE_AGENT_ID`/`EDGE_AGENT_NAME`/`STORE_KEY`); points the store + audit trail
+  at a persistent `/data`; fails fast on missing required config (or accepts a
+  mounted config file); warns (non-fatal) on missing NATS token / store key;
+  `exec`s the agent so tini(PID 1)→python gets SIGTERM for a clean drain.
+- ✅ **Admin server now starts BEFORE the NATS connect loop** (`main.py`) — so it
+  is reachable during a broker outage (the moment an operator needs it) and the
+  container healthcheck reflects process liveness, not broker connectivity. This
+  closes the earlier "UI unreachable while NATS is down" follow-up.
+- ✅ **`data_plane/docker-compose.yaml`** — customer-site deployment example:
+  loopback-published admin UI, named volume for `/data`, `cap_drop: ALL`,
+  `no-new-privileges`, required-env guards.
+- ✅ **Built + run-verified** — `docker build` OK (764 MB). Container: entrypoint
+  bridged `AGENT_ID`→`EDGE_AGENT_ID`; admin UI listened **before** NATS connect;
+  `/api/status` + `/api/types` (67) answered from the host with NATS down; inside
+  the image postgres/mysql/mariadb resolved to the real backend clients and
+  `app.ai.prompt_formatters.Table` imported; runs as uid 10001 with tini as PID 1;
+  `docker stop` drained cleanly (exit 0, ~1s); HEALTHCHECK went `healthy`.
+- Note: image is 764 MB (pandas/pyarrow/sqlalchemy + `backend/app` source); fine
+  for v1, trimmable later (slimmer wheels, or pruning `backend/app` to the client
+  subtree once those clients are extracted into a shared package — Step 9's tidy
+  end state).
+
+---
+
 ## 2026-09-03 (cont.) — agent-local admin UI (design C4)
 
 Scope: the localhost-only admin UI the design calls for (C4) — the operator's

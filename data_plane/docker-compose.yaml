@@ -1,0 +1,50 @@
+# Bow Data Edge Agent — customer-site deployment example.
+#
+# The agent runs inside the customer's own network and connects OUT to Bow's
+# NATS endpoint; there is no inbound exposure. Copy this file, fill the values
+# (ideally via a .env file next to it), and `docker compose up -d`.
+#
+#   docker compose build      # first time, or after an agent upgrade
+#   docker compose up -d
+#   docker compose logs -f
+#
+# The admin UI is published to the host's loopback only (127.0.0.1:9191). Reach
+# it over an SSH tunnel or from the host itself — never bind it to a public
+# interface; it is the credential-entry surface and has no auth by design.
+
+services:
+  edge-agent:
+    build:
+      context: ..                       # repo root — the image carries backend/app too
+      dockerfile: data_plane/Dockerfile
+    image: bow/data-edge-agent:latest
+    restart: unless-stopped
+    environment:
+      # --- identity (must match the org + agent provisioned on Bow's broker) --
+      BOW_EDGE_AGENT_ORG_ID:        ${BOW_ORG_ID:?set BOW_ORG_ID}
+      BOW_EDGE_AGENT_EDGE_AGENT_ID: ${BOW_EDGE_AGENT_ID:?set BOW_EDGE_AGENT_ID}
+      BOW_EDGE_AGENT_EDGE_AGENT_NAME: ${BOW_EDGE_AGENT_NAME:-}
+      # --- broker ------------------------------------------------------------
+      # Production terminates TLS at Bow's ingress: wss://tunnel.<your-bow-host>.
+      BOW_EDGE_AGENT_NATS_URL:      ${BOW_NATS_URL:?set BOW_NATS_URL}
+      BOW_EDGE_AGENT_NATS_TOKEN:    ${BOW_NATS_TOKEN:?set BOW_NATS_TOKEN}
+      # --- credential store encryption --------------------------------------
+      # Supply from your secret manager. Losing this key makes stored data-source
+      # credentials unrecoverable; changing it invalidates them.
+      BOW_EDGE_AGENT_STORE_KEY:     ${BOW_STORE_KEY:?set BOW_STORE_KEY (base64 Fernet key)}
+      # Admin UI binds all interfaces INSIDE the container; the port mapping
+      # below is what keeps it on the host's loopback.
+      BOW_EDGE_AGENT_ADMIN_HOST:    0.0.0.0
+    ports:
+      - "127.0.0.1:9191:9191"           # admin UI — host loopback only
+    volumes:
+      - edge-data:/data                 # persists the store, its key file, and the audit trail
+    # Drop privileges further: the agent needs no capabilities and never writes
+    # outside /data (a named volume) and its own read-only source.
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+volumes:
+  edge-data:
