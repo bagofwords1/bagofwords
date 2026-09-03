@@ -29,6 +29,13 @@ dependencies = [
     # via PYTHONPATH, so the edge agent needs their shared deps + drivers.
     "pydantic-settings>=2.0,<3",   # backend data_source_registry imports it
     "pymysql>=1.1,<2",             # MySQL / MariaDB driver
+    # Local admin UI (design C4): a localhost-only HTTP server for configuring
+    # connections and their credentials on the customer's own network. aiohttp
+    # is already present transitively (nats-py[aiohttp]); pinned here so the
+    # server does not depend on the transport extra keeping it. cryptography
+    # gives Fernet for encrypting stored credentials at rest.
+    "aiohttp>=3.10,<4",
+    "cryptography>=43,<47",
 ]
 
 [project.optional-dependencies]

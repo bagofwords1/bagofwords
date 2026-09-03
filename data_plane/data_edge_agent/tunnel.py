@@ -22,7 +22,7 @@ from nats.aio.client import Client as NATSClient
 from nats.aio.msg import Msg
 
 from . import __version__
-from .config import AgentConfig
+from .config import AgentConfig, ConnectionConfig
 from .data_sources.registry import construct_client
 
 logger = logging.getLogger(__name__)
@@ -69,6 +69,10 @@ class EdgeAgentTunnel:
         self._config = config
         self._nc: Optional[NATSClient] = None
         self._subscriptions: list[Any] = []
+        # Per-connection subscription, keyed by name, so the admin UI can
+        # unsubscribe exactly one connection when it is deleted (C4) without
+        # tearing down the rest.
+        self._conn_subs: dict[str, Any] = {}
         # Real data-source clients, one per connection (system credentials).
         # Building a client opens a pool, so it is cached and reused.
         self._clients: dict[str, Any] = {}
@@ -183,6 +187,7 @@ class EdgeAgentTunnel:
                 cb=self._make_request_handler(conn.name),
             )
             self._subscriptions.append(sub)
+            self._conn_subs[conn.name] = sub
             logger.info(
                 "edge_agent.nats.subscribed",
                 extra={"subject": subject, "connection": conn.name, "type": conn.type},
@@ -557,6 +562,107 @@ class EdgeAgentTunnel:
         while not await _sleep_or_stop(stop, interval):
             await self.heartbeat()
 
+    # -- admin-UI connection lifecycle (design C4) ---------------------------
+
+    def get_connection(self, name: str) -> Optional[ConnectionConfig]:
+        return next((c for c in self._config.connections if c.name == name), None)
+
+    def list_connections(self) -> list[ConnectionConfig]:
+        return list(self._config.connections)
+
+    async def apply_connection(self, conn: ConnectionConfig) -> None:
+        """Add or replace a served connection at runtime, then re-advertise.
+
+        Called by the admin UI after a save. Subject membership follows the
+        connection name: a new name gets its own subscription; editing an
+        existing one keeps the subject and just drops the cached client so the
+        next request rebuilds it with the new config/credentials.
+        """
+        existing = self.get_connection(conn.name)
+        if existing is not None:
+            self._config.connections.remove(existing)
+        self._config.connections.append(conn)
+
+        # Any pooled client for this name is now stale (host/creds may differ).
+        self._clients.pop(conn.name, None)
+
+        if self._nc is not None and conn.name not in self._conn_subs:
+            subject = self._config.connection_subject(conn.name)
+            sub = await self._nc.subscribe(
+                subject, cb=self._make_request_handler(conn.name)
+            )
+            self._subscriptions.append(sub)
+            self._conn_subs[conn.name] = sub
+            logger.info(
+                "edge_agent.nats.subscribed",
+                extra={"subject": subject, "connection": conn.name, "type": conn.type},
+            )
+        logger.info(
+            "edge_agent.connection.applied",
+            extra={"connection": conn.name, "type": conn.type,
+                   "action": "updated" if existing is not None else "added"},
+        )
+        await self.advertise()
+
+    async def remove_connection(self, name: str) -> bool:
+        """Stop serving a connection at runtime, then re-advertise its absence.
+
+        The control plane deactivates a connection it stops seeing in the
+        advertisement (register_advertisement withdraws it), so re-advertising
+        after the drop is what tells Bow the source is gone.
+        """
+        existing = self.get_connection(name)
+        if existing is None:
+            return False
+        self._config.connections.remove(existing)
+        self._clients.pop(name, None)
+
+        sub = self._conn_subs.pop(name, None)
+        if sub is not None:
+            self._subscriptions = [s for s in self._subscriptions if s is not sub]
+            try:
+                await sub.unsubscribe()
+            except Exception as e:  # pragma: no cover - best effort
+                logger.debug("edge_agent.unsubscribe.failed",
+                             extra={"connection": name, "error": str(e)})
+        logger.info("edge_agent.connection.removed", extra={"connection": name})
+        await self.advertise()
+        return True
+
+    async def test_connection_config(self, conn: ConnectionConfig) -> dict[str, Any]:
+        """Build a throwaway client and run its test_connection off the loop.
+
+        Used by the admin UI's Test button, including for a connection that has
+        not been saved yet, so it takes a ConnectionConfig rather than a name
+        and never touches the client cache.
+        """
+        def _run() -> dict[str, Any]:
+            client = construct_client(conn.type, conn.client_params())
+            return client.test_connection()
+
+        try:
+            return await asyncio.to_thread(_run)
+        except Exception as e:
+            return {"success": False, "message": str(e)}
+
+    def status_snapshot(self) -> dict[str, Any]:
+        """A point-in-time view of the agent for the admin dashboard."""
+        cfg = self._config
+        return {
+            "edge_agent_id": cfg.edge_agent_id,
+            "edge_agent_name": cfg.edge_agent_name,
+            "org_id": cfg.org_id,
+            "version": __version__,
+            "nats": {
+                "connected": self.is_connected,
+                "url": cfg.nats_url,
+            },
+            "connections_served": len(cfg.connections),
+            "in_flight": len(self._in_flight),
+            "advertise_interval_seconds": cfg.advertise_interval_seconds,
+            "heartbeat_interval_seconds": cfg.heartbeat_interval_seconds,
+        }
+
     async def close(self) -> None:
         """Drain if connected, close either way.
 
@@ -588,6 +694,7 @@ class EdgeAgentTunnel:
         finally:
             self._nc = None
             self._subscriptions.clear()
+            self._conn_subs.clear()
 
     # -- connection lifecycle callbacks --------------------------------------
 

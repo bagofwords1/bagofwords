@@ -8,6 +8,57 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-03 (cont.) — agent-local admin UI (design C4)
+
+Scope: the localhost-only admin UI the design calls for (C4) — the operator's
+window onto the agent on the customer's own network, and the one place system
+credentials are entered (they never cross the tunnel). Previously `admin_port`
+was a reserved config value with nothing behind it.
+
+- ✅ **Encrypted connection store** (`store.py`) — JSON on disk; per-connection
+  `credentials` Fernet-encrypted at rest, config kept clear so an operator can
+  read what's configured. Key from `BOW_EDGE_AGENT_STORE_KEY`, else a generated
+  `<store>.key` (0600). Atomic writes; a wrong key is a loud error, never silent
+  credential loss.
+- ✅ **aiohttp admin server** (`admin/server.py`) — bound to `admin_host`
+  (127.0.0.1 by default; loopback is the security boundary, no auth). JSON API:
+  `GET /api/status`, `GET /api/types` (67), `GET/POST/PUT/DELETE
+  /api/connections[/{name}]`, `POST /api/connections/{name}/test` + `POST
+  /api/test` (unsaved). Credential *values* never leave the process — a
+  connection reports only which credential keys are set. Body capped at 256 KiB.
+- ✅ **Self-contained SPA** (`admin/static/index.html`) — dashboard (agent
+  identity, live NATS status, served/in-flight counts, version) + connection
+  cards with Test/Edit/Delete + an add/edit form (type dropdown, host/port/
+  database/schema/user/password, advanced-JSON config, per-connection timeout).
+  Vanilla JS, no build step. Blank credential fields keep the stored value.
+- ✅ **Dynamic connection lifecycle** (`tunnel.py`) — `apply_connection` /
+  `remove_connection` add or drop a served connection at runtime (per-connection
+  subscription tracking) and re-advertise, so a UI save takes effect with **no
+  restart**; `test_connection_config` runs a throwaway client off the loop;
+  `status_snapshot` feeds the dashboard.
+- ✅ **Wiring** (`main.py`, `config.py`) — store connections merge over the YAML
+  config at start-up (store wins by name); admin server starts after subscribe,
+  and a busy admin port degrades to "no UI" rather than taking the agent down.
+  New config: `admin_enabled`, `admin_host`, `store_path`, `store_key`.
+- ✅ **Tests** (`test_store.py` 7, `test_admin_server.py` 10) — encryption at
+  rest, wrong-key error, blank-keeps-existing, CRUD, credential hygiene, test
+  saved/unsaved. Full data_plane suite: 37 passed.
+- ✅ **Verified live in the rig** — served on `127.0.0.1:9192` (9191 is the pod's
+  upload server). API + page load; created a `demo-mysql-2` connection through
+  the UI → agent logged `connection.applied` and re-advertised 3 connections
+  with no restart, control plane persisted `registered=3`, store row carried a
+  Fernet `credentials_enc` (no cleartext); Test succeeded for saved + unsaved;
+  Delete dropped it back to 2 and re-advertised. Browser screenshots of the
+  dashboard and the edit form (credentials shown as `•••• (set)`) confirmed.
+
+Notes / follow-ups: no auth (loopback-only by design); the admin server starts
+after the NATS connect succeeds, so while the broker is down the UI is not yet
+reachable — acceptable for v1 (its main read is NATS status), worth revisiting.
+Real deployments keep the design's `admin_port: 9191`; only the rig moves it to
+9192 to avoid the upload server.
+
+---
+
 ## 2026-09-03 (cont.) — edge agent multi–data-source support (reuse backend clients) + MySQL proof
 
 Scope: make the edge agent serve any on-prem data source Bow supports, not just

@@ -1,0 +1,309 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bow Data Edge Agent</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e9ef; --muted: #8b93a7; --accent: #5b8cff; --accent2: #3a63c4;
+    --ok: #35c46a; --warn: #e0a13a; --err: #e5484d; --chip: #232836;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  }
+  a { color: var(--accent); }
+  header {
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+    padding: 14px 22px; background: var(--panel); border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 5;
+  }
+  header .brand { font-weight: 650; font-size: 15px; letter-spacing: .2px; }
+  header .brand small { color: var(--muted); font-weight: 400; margin-left: 8px; }
+  .spacer { flex: 1; }
+  .stat { color: var(--muted); font-size: 12.5px; }
+  .stat b { color: var(--text); font-weight: 600; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 3px rgba(53,196,106,.15); }
+  .dot.err { background: var(--err); box-shadow: 0 0 0 3px rgba(229,72,77,.15); }
+  main { max-width: 940px; margin: 26px auto; padding: 0 20px; }
+  .row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  h2 { font-size: 16px; margin: 0; }
+  button {
+    font: inherit; cursor: pointer; border-radius: 8px; border: 1px solid var(--border);
+    background: var(--panel2); color: var(--text); padding: 7px 13px;
+  }
+  button:hover { border-color: #3a4150; }
+  button.primary { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  button.primary:hover { background: var(--accent); border-color: var(--accent); }
+  button.danger { color: var(--err); }
+  button:disabled { opacity: .5; cursor: default; }
+  .cards { display: flex; flex-direction: column; gap: 10px; }
+  .card {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 11px;
+    padding: 14px 16px; display: flex; align-items: center; gap: 14px;
+  }
+  .card .id { flex: 1; min-width: 0; }
+  .card .id .nm { font-weight: 600; }
+  .card .id .sub { color: var(--muted); font-size: 12.5px; margin-top: 2px; }
+  .chip {
+    display: inline-block; background: var(--chip); border: 1px solid var(--border);
+    border-radius: 999px; padding: 1px 9px; font-size: 11.5px; color: var(--muted);
+  }
+  .chip.type { color: #a9c1ff; }
+  .card .acts { display: flex; gap: 7px; }
+  .empty, .loading { color: var(--muted); text-align: center; padding: 40px 0; }
+  .result { font-size: 12.5px; margin-top: 4px; }
+  .result.ok { color: var(--ok); } .result.err { color: var(--err); }
+  /* form */
+  .backdrop {
+    position: fixed; inset: 0; background: rgba(0,0,0,.55);
+    display: flex; align-items: flex-start; justify-content: center; padding: 40px 16px; z-index: 20;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+    width: 560px; max-width: 100%; padding: 22px 24px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
+  }
+  .modal h3 { margin: 0 0 4px; font-size: 16px; }
+  .modal .hint { color: var(--muted); font-size: 12.5px; margin-bottom: 16px; }
+  label { display: block; font-size: 12.5px; color: var(--muted); margin: 12px 0 5px; }
+  input, select, textarea {
+    width: 100%; font: inherit; color: var(--text); background: var(--panel2);
+    border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px;
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
+  input:disabled { opacity: .6; }
+  textarea { resize: vertical; min-height: 62px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
+  .grid3 { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: 0 14px; }
+  details { margin-top: 10px; } summary { cursor: pointer; color: var(--muted); font-size: 12.5px; }
+  .foot { display: flex; align-items: center; gap: 10px; margin-top: 20px; }
+  .foot .spacer { flex: 1; }
+  .banner { padding: 8px 11px; border-radius: 8px; font-size: 12.5px; margin-top: 12px; display: none; }
+  .banner.ok { display: block; background: rgba(53,196,106,.12); color: var(--ok); }
+  .banner.err { display: block; background: rgba(229,72,77,.12); color: var(--err); }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">Bow Data Edge Agent<small id="agentId">—</small></div>
+  <div class="spacer"></div>
+  <div class="stat"><span id="natsDot" class="dot err"></span>NATS <b id="natsState">…</b></div>
+  <div class="stat">Serving <b id="servedCount">0</b></div>
+  <div class="stat">In-flight <b id="inflight">0</b></div>
+  <div class="stat">v<b id="version">—</b></div>
+</header>
+
+<main>
+  <div class="row">
+    <h2>Connections</h2>
+    <button class="primary" id="addBtn">+ Add connection</button>
+  </div>
+  <div id="list" class="cards"><div class="loading">Loading…</div></div>
+</main>
+
+<div id="modalHost"></div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let TYPES = [];
+
+async function api(method, path, body) {
+  const opt = { method, headers: {} };
+  if (body !== undefined) { opt.headers["Content-Type"] = "application/json"; opt.body = JSON.stringify(body); }
+  const r = await fetch("/api" + path, opt);
+  let data = null;
+  try { data = await r.json(); } catch (e) { /* empty */ }
+  if (!r.ok) throw new Error((data && (data.error || data.reason)) || r.statusText || ("HTTP " + r.status));
+  return data;
+}
+
+// ---- status header --------------------------------------------------------
+async function refreshStatus() {
+  try {
+    const s = await api("GET", "/status");
+    $("agentId").textContent = (s.edge_agent_name ? s.edge_agent_name + " · " : "") + s.edge_agent_id;
+    $("version").textContent = s.version || "—";
+    $("servedCount").textContent = s.connections_served;
+    $("inflight").textContent = s.in_flight;
+    const up = s.nats && s.nats.connected;
+    $("natsDot").className = "dot " + (up ? "ok" : "err");
+    $("natsState").textContent = up ? "connected" : "disconnected";
+    $("natsState").title = s.nats ? s.nats.url : "";
+  } catch (e) {
+    $("natsDot").className = "dot err"; $("natsState").textContent = "unreachable";
+  }
+}
+
+// ---- connection list ------------------------------------------------------
+async function refreshList() {
+  const host = $("list");
+  try {
+    const { connections } = await api("GET", "/connections");
+    if (!connections.length) { host.innerHTML = '<div class="empty">No connections yet. Add one to start serving it over the tunnel.</div>'; return; }
+    host.innerHTML = "";
+    for (const c of connections) host.appendChild(cardFor(c));
+  } catch (e) {
+    host.innerHTML = '<div class="empty">Failed to load: ' + escapeHtml(e.message) + '</div>';
+  }
+}
+
+function cardFor(c) {
+  const el = document.createElement("div");
+  el.className = "card";
+  const host = c.config && c.config.host ? c.config.host : "";
+  const db = c.config && c.config.database ? c.config.database : "";
+  const sub = [host, db].filter(Boolean).join(" / ");
+  const credNote = c.credential_keys.length ? c.credential_keys.join(", ") + " set" : "no credentials";
+  el.innerHTML =
+    '<div class="id"><div class="nm">' + escapeHtml(c.label || c.name) +
+      ' <span class="chip type">' + escapeHtml(c.type) + '</span></div>' +
+      '<div class="sub">' + escapeHtml(c.name) + (sub ? ' · ' + escapeHtml(sub) : '') +
+      ' · <span class="chip">' + escapeHtml(credNote) + '</span></div>' +
+      '<div class="result" data-result></div></div>' +
+    '<div class="acts">' +
+      '<button data-test>Test</button>' +
+      '<button data-edit>Edit</button>' +
+      '<button class="danger" data-del>Delete</button>' +
+    '</div>';
+  el.querySelector("[data-test]").onclick = (ev) => testSaved(c.name, el.querySelector("[data-result]"), ev.target);
+  el.querySelector("[data-edit]").onclick = () => openForm(c);
+  el.querySelector("[data-del]").onclick = () => delConn(c);
+  return el;
+}
+
+async function testSaved(name, out, btn) {
+  out.textContent = "Testing…"; out.className = "result";
+  btn.disabled = true;
+  try {
+    const r = await api("POST", "/connections/" + encodeURIComponent(name) + "/test");
+    out.className = "result " + (r.success ? "ok" : "err");
+    out.textContent = (r.success ? "✓ " : "✗ ") + (r.message || (r.success ? "ok" : "failed"));
+  } catch (e) { out.className = "result err"; out.textContent = "✗ " + e.message; }
+  finally { btn.disabled = false; }
+}
+
+async function delConn(c) {
+  if (!confirm("Delete connection “" + (c.label || c.name) + "”?\nBow will stop seeing it over the tunnel.")) return;
+  try { await api("DELETE", "/connections/" + encodeURIComponent(c.name)); await refreshAll(); }
+  catch (e) { alert("Delete failed: " + e.message); }
+}
+
+// ---- add / edit form ------------------------------------------------------
+const COMMON = ["host", "port", "database", "schema"];
+
+function openForm(existing) {
+  const isEdit = !!existing;
+  const cfg = (existing && existing.config) || {};
+  const advCfg = {}; Object.keys(cfg).forEach(k => { if (!COMMON.includes(k)) advCfg[k] = cfg[k]; });
+  const credsSet = (existing && existing.credential_keys) || [];
+  const typeOpts = TYPES.map(t => '<option' + (existing && existing.type === t ? ' selected' : '') + '>' + escapeHtml(t) + '</option>').join("");
+
+  $("modalHost").innerHTML =
+    '<div class="backdrop"><div class="modal">' +
+    '<h3>' + (isEdit ? "Edit connection" : "Add connection") + '</h3>' +
+    '<div class="hint">Credentials are stored encrypted on this agent and never sent to Bow.</div>' +
+    '<div class="grid2">' +
+      '<div><label>Name</label><input id="f_name" ' + (isEdit ? 'disabled' : 'placeholder="lego-pg"') + ' value="' + escapeAttr(existing ? existing.name : "") + '"></div>' +
+      '<div><label>Type</label><select id="f_type">' + typeOpts + '</select></div>' +
+    '</div>' +
+    '<label>Label <span style="opacity:.6">(optional)</span></label><input id="f_label" value="' + escapeAttr(existing ? (existing.label || "") : "") + '">' +
+    '<div class="grid3">' +
+      '<div><label>Host</label><input id="f_host" value="' + escapeAttr(cfg.host || "") + '"></div>' +
+      '<div><label>Port</label><input id="f_port" value="' + escapeAttr(cfg.port != null ? cfg.port : "") + '"></div>' +
+      '<div><label>Timeout (s)</label><input id="f_to" value="' + escapeAttr(existing && existing.query_timeout_seconds != null ? existing.query_timeout_seconds : "") + '"></div>' +
+    '</div>' +
+    '<div class="grid2">' +
+      '<div><label>Database</label><input id="f_db" value="' + escapeAttr(cfg.database || "") + '"></div>' +
+      '<div><label>Schema <span style="opacity:.6">(optional)</span></label><input id="f_schema" value="' + escapeAttr(cfg.schema || "") + '"></div>' +
+    '</div>' +
+    '<div class="grid2">' +
+      '<div><label>User</label><input id="f_user" autocomplete="off" placeholder="' + (credsSet.includes("user") ? "•••• (set)" : "") + '"></div>' +
+      '<div><label>Password</label><input id="f_pass" type="password" autocomplete="new-password" placeholder="' + (credsSet.includes("password") ? "•••• (set)" : "") + '"></div>' +
+    '</div>' +
+    '<details><summary>Advanced — extra config as JSON</summary>' +
+      '<textarea id="f_adv" placeholder="{}">' + escapeHtml(Object.keys(advCfg).length ? JSON.stringify(advCfg, null, 2) : "") + '</textarea>' +
+      '<div class="hint" style="margin-top:6px">Merged into config alongside the fields above. For non-relational types, put driver-specific keys here.</div>' +
+    '</details>' +
+    '<div class="banner" id="f_banner"></div>' +
+    '<div class="foot">' +
+      '<button id="f_test">Test</button><div class="spacer"></div>' +
+      '<button id="f_cancel">Cancel</button>' +
+      '<button class="primary" id="f_save">' + (isEdit ? "Save" : "Create") + '</button>' +
+    '</div>' +
+    '</div></div>';
+
+  $("f_cancel").onclick = closeForm;
+  $("f_test").onclick = () => submitForm(isEdit, true);
+  $("f_save").onclick = () => submitForm(isEdit, false);
+}
+function closeForm() { $("modalHost").innerHTML = ""; }
+
+function collectForm(isEdit) {
+  const config = {};
+  const host = $("f_host").value.trim(); if (host) config.host = host;
+  const port = $("f_port").value.trim(); if (port) config.port = /^\d+$/.test(port) ? parseInt(port, 10) : port;
+  const db = $("f_db").value.trim(); if (db) config.database = db;
+  const schema = $("f_schema").value.trim(); if (schema) config.schema = schema;
+  const adv = $("f_adv").value.trim();
+  if (adv) { const extra = JSON.parse(adv); Object.assign(config, extra); }  // throws on bad JSON
+
+  const credentials = {};
+  const user = $("f_user").value; if (user) credentials.user = user;
+  const pass = $("f_pass").value; if (pass) credentials.password = pass;
+
+  const to = $("f_to").value.trim();
+  return {
+    name: $("f_name").value.trim(),
+    type: $("f_type").value,
+    label: $("f_label").value.trim() || null,
+    config,
+    credentials,
+    query_timeout_seconds: to ? parseInt(to, 10) : null,
+  };
+}
+
+async function submitForm(isEdit, testOnly) {
+  const banner = $("f_banner"); banner.className = "banner";
+  let payload;
+  try { payload = collectForm(isEdit); }
+  catch (e) { banner.className = "banner err"; banner.textContent = "Advanced config is not valid JSON: " + e.message; return; }
+  if (!payload.name) { banner.className = "banner err"; banner.textContent = "Name is required."; return; }
+
+  const testBtn = $("f_test"), saveBtn = $("f_save");
+  testBtn.disabled = saveBtn.disabled = true;
+  try {
+    if (testOnly) {
+      const r = await api("POST", "/test", payload);
+      banner.className = "banner " + (r.success ? "ok" : "err");
+      banner.textContent = (r.success ? "✓ " : "✗ ") + (r.message || (r.success ? "Connection ok" : "Test failed"));
+    } else {
+      if (isEdit) await api("PUT", "/connections/" + encodeURIComponent(payload.name), payload);
+      else await api("POST", "/connections", payload);
+      closeForm(); await refreshAll();
+    }
+  } catch (e) {
+    banner.className = "banner err"; banner.textContent = e.message;
+  } finally {
+    testBtn.disabled = saveBtn.disabled = false;
+  }
+}
+
+// ---- utils ----------------------------------------------------------------
+function escapeHtml(s) { return String(s == null ? "" : s).replace(/[&<>]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;" }[c])); }
+function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+async function refreshAll() { await Promise.all([refreshStatus(), refreshList()]); }
+
+(async function init() {
+  $("addBtn").onclick = () => openForm(null);
+  try { TYPES = (await api("GET", "/types")).types; } catch (e) { TYPES = ["postgresql", "mysql"]; }
+  await refreshAll();
+  setInterval(refreshStatus, 5000);
+})();
+</script>
+</body>
+</html>

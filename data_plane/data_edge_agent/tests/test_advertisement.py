@@ -86,8 +86,11 @@ def test_registry_resolves_postgresql():
     assert resolve_client_class("postgresql") is PostgresqlClient
 
 
-def test_unknown_type_names_what_is_supported():
-    with pytest.raises(ValueError, match="postgresql"):
+def test_unknown_type_raises_naming_the_type():
+    # 'oracle' is not a key in the reuse map (the real types are 'oracledb' /
+    # 'oracle_bi'), so with no backend on PYTHONPATH and no bundled fallback it
+    # cannot resolve — and the error names the offending type.
+    with pytest.raises(ValueError, match="oracle"):
         resolve_client_class("oracle")
 
 
