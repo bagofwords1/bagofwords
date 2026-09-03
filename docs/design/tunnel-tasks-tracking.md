@@ -8,6 +8,69 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-03 (cont.) — single tunneled postgres source, functionally complete
+
+Scope: make one tunneled PostgreSQL source fully usable (discover schema + run
+queries). Postgres-only; file/MCP operations are out of scope for this type.
+
+- ✅ **B2 branch at both `DataSourceService` sites** — `construct_clients`
+  (sandbox `ds_clients`, site 3) and the deprecated `construct_client` (site 2)
+  now return a `TunneledClient` for `tunnel_mode` connections, before any
+  credential resolution. Quota + stored-table metadata still attach. With this
+  the AI-agent/sandbox query path builds a tunneled proxy.
+- ✅ **`execute_query` over the tunnel — verified with real data.**
+  `select count(*) from lego_sets` → **11673** through
+  TunneledClient/agent/postgres; a bad SQL query returns postgres's own error,
+  correctly propagated. Needed **pyarrow** added to the edge agent
+  (`data_plane/pyproject.toml`) — the query ran but parquet serialization failed
+  without it.
+- ✅ **warm_all/index_stats** — for postgres both are base no-ops on both sides,
+  so `TunneledClient` correctly inherits the no-op `awarm_all` (identical to
+  direct mode); no round trip added. (A real warm_all would need proxying for
+  source types that implement it.)
+- ✅ **Unit tests** — `test_tunneled_client.py` (8): invoke subject/payload,
+  ownership guard, remote-error translation, parquet unwrap, payload-too-large;
+  proxy instantiable/no-creds, aget_schemas→Tables+stats, aexecute_query→df.
+  Backend tunnel tests now 23; agent tests 20.
+- 🟡 **Sandbox query path not yet exercised end to end** — needs lego-pg attached
+  to a DataSource and a query run through the AI agent; the transport itself is
+  proven (execute_query returns real rows) and the construct sites are unit
+  covered.
+- ⛔ Still out of scope (not needed for one postgres source): file/MCP
+  operations, streaming progress/cancel for long indexes, A11 scoped NATS users.
+
+### Query transport — schema discovery over the tunnel (B1/B2/B3, C3)
+- ✅ **`TunnelClient.invoke` / `invoke_streaming`** (`tunnel_client.py`, B3) —
+  request/reply over `tunnel.<org>.<agent>.conn.<name>`, payload-ceiling check,
+  ownership guard, parquet unwrap, per-request progress subject. Errors typed in
+  `tunnel_errors.py`.
+- ✅ **`TunneledClient`** (`backend/app/data_sources/clients/tunneled_client.py`,
+  B1) — `DataSourceClient` proxy holding no credentials; `aget_schemas` +
+  sync/async surface; bridges every call onto the tunnel's captured loop
+  (`run_coroutine_threadsafe`) since callers run on the indexing/sandbox loops.
+- ✅ **B2 branch** at `ConnectionService.construct_client` — `tunnel_mode`
+  returns a `TunneledClient`; `_resolve_tunnel_user_credentials` never fetches a
+  system credential (isolation is structural).
+- ✅ **Edge agent dispatch** (`data_plane/.../tunnel.py`, C3) — real client
+  factory (cached per connection), executes `get_schemas` / `test_connection` /
+  `execute_query` / `prompt_schema` against the local `PostgresqlClient`,
+  serializes `Table` objects; unsupported ops still answer JSON-RPC "not
+  implemented".
+- ✅ **Verified in-cluster, end to end** — `POST /api/connections/<lego-pg>/refresh`
+  → construct_client (tunnel branch) → `aget_schemas` → NATS → edge agent →
+  real postgres → **8 lego tables** discovered and upserted as `ConnectionTable`
+  rows; indexing status `completed, table_count: 8`. Edge log shows
+  `request.received` → `response.sent [get_schemas]`.
+- 🟡 Only `get_schemas`/`test_connection`/`execute_query`/`prompt_schema` are
+  implemented on the agent; the other A5 operations (files, MCP, warm_all
+  streaming progress, cancel) are not yet. B2 branch added at site 1 only
+  (`ConnectionService.construct_client`); the two `DataSourceService` sites
+  (sandbox `ds_clients`, deprecated) still need the branch for query-time use.
+- ⛔ Tests for `TunnelClient.invoke` / `TunneledClient` not yet written (verified
+  live only); edge-agent dispatch tests updated (20 pass).
+
+---
+
 ## 2026-09-02
 
 ### Control plane — `TunnelClient` and advertisement persistence
@@ -90,8 +153,8 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
   `unknown_org` and dropped. Edge agents must be configured with a real org id.
 - ⛔ **Heartbeat / status sweeper (A10/D2)** — `DataEdgeAgent.status` is set to
   `online` on advertisement but nothing flips it to `stale`/`offline` yet.
-- ⛔ **TunneledClient / query transport (B2/B3)** — the read side that actually
-  routes queries over the tunnel is not built; this work covers registration and
-  visibility only.
+- 🟡 **TunneledClient / query transport (B1/B2/B3)** — `get_schemas` (schema
+  discovery / list tables) works end to end; remaining A5 operations, the two
+  other construct sites, streaming progress/cancel, and unit tests are pending.
 - ⛔ **A11 scoped NATS users** — the rig uses a single shared token, so subject
   scoping / per-agent tenancy enforcement is not in effect.

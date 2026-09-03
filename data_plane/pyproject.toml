@@ -23,6 +23,7 @@ dependencies = [
     "sqlalchemy>=2.0.51,<2.1",
     "psycopg2-binary>=2.9.12,<2.10",
     "pandas>=2.0,<3",
+    "pyarrow>=18.1.0,<19",   # Parquet serialization of query results over the tunnel
 ]
 
 [project.optional-dependencies]

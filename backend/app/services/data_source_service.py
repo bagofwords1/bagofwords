@@ -2720,6 +2720,23 @@ class DataSourceService:
 
         # Resolve client class from registry (no model dependency)
         ClientClass = resolve_client_class(conn.type)
+
+        # Secure data tunnel (design B2): proxy tunnel_mode connections.
+        if getattr(conn, "tunnel_mode", False):
+            from app.services.tunnel_client import get_tunnel_client
+            from app.data_sources.clients.tunneled_client import TunneledClient
+            from app.services.connection_service import ConnectionService
+            tunnel = get_tunnel_client()
+            if tunnel is None:
+                raise RuntimeError(
+                    f"Tunnel not connected; cannot reach the edge agent for "
+                    f"connection '{conn.name}'"
+                )
+            user_creds = await ConnectionService()._resolve_tunnel_user_credentials(
+                db, conn, current_user,
+            )
+            return TunneledClient(conn, ClientClass, tunnel, user_credentials=user_creds)
+
         # Merge config and creds
         config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
         creds = await self.resolve_credentials(db=db, data_source=data_source, current_user=current_user)
@@ -3014,36 +3031,58 @@ class DataSourceService:
                 # Resolve client class from registry
                 ClientClass = resolve_client_class(conn.type)
 
-                # Merge config and creds
-                config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
-
-                # Resolve credentials for this specific connection
-                creds = await self.resolve_credentials_for_connection(
-                    db=db,
-                    connection=conn,
-                    data_source=data_source,
-                    current_user=current_user
-                )
-
-                params = {**(config or {}), **(creds or {})}
-                params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
-
-                # Narrow to constructor signature (VAR_KEYWORD-aware; see
-                # ConnectionService.construct_client for the reasoning).
-                try:
-                    sig = inspect.signature(ClientClass.__init__)
-                    accepts_var_kwargs = any(
-                        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                if getattr(conn, "tunnel_mode", False):
+                    # Secure data tunnel (design B2): a tunnel_mode connection
+                    # is served by a remote edge agent. Build a credential-less
+                    # proxy and skip the local credential/config path entirely.
+                    # Quota and stored-table metadata still attach and work
+                    # unchanged (they are control-plane).
+                    from app.services.tunnel_client import get_tunnel_client
+                    from app.data_sources.clients.tunneled_client import TunneledClient
+                    from app.services.connection_service import ConnectionService
+                    tunnel = get_tunnel_client()
+                    if tunnel is None:
+                        logger.warning(
+                            "construct_clients: tunnel not connected, skipping tunneled "
+                            "connection %s", conn.name,
+                        )
+                        continue
+                    user_creds = await ConnectionService()._resolve_tunnel_user_credentials(
+                        db, conn, current_user,
                     )
-                    if accepts_var_kwargs:
-                        allowed = params
-                    else:
-                        allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-                except Exception:
-                    allowed = params
+                    client = TunneledClient(conn, ClientClass, tunnel, user_credentials=user_creds)
+                else:
+                    # Merge config and creds
+                    config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
 
-                await _acheck_connection_destination(conn.type, params)
-                client = ClientClass(**allowed)
+                    # Resolve credentials for this specific connection
+                    creds = await self.resolve_credentials_for_connection(
+                        db=db,
+                        connection=conn,
+                        data_source=data_source,
+                        current_user=current_user
+                    )
+
+                    params = {**(config or {}), **(creds or {})}
+                    params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+
+                    # Narrow to constructor signature (VAR_KEYWORD-aware; see
+                    # ConnectionService.construct_client for the reasoning).
+                    try:
+                        sig = inspect.signature(ClientClass.__init__)
+                        accepts_var_kwargs = any(
+                            p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                        )
+                        if accepts_var_kwargs:
+                            allowed = params
+                        else:
+                            allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+                    except Exception:
+                        allowed = params
+
+                    await _acheck_connection_destination(conn.type, params)
+                    client = ClientClass(**allowed)
+
                 self._attach_client_quota_metadata(client, data_source, conn, key)
                 await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
                 built[key] = client
