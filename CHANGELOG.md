@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.554 (September 3, 2026)
+- Added a side panel view for query results with a full-width preview (#1054)
+- Added scikit-learn support with ML training constraints (#1055)
+- Added VMware Aria Operations connector for infrastructure RCA (#1056)
+- ServiceNow connector can now fetch record attachments as files (#1057)
+- Dashboard queries can now be managed from the artifact panel's Data modal (#1052)
+
 ## Version 0.0.553 (September 2, 2026)
 - Saved queries can be loaded with parameter values without LLM code generation: run API, entity page, and the agent's describe_entity
 - Entity save/edit form now says "Agents" instead of "Data Sources"
