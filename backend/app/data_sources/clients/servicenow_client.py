@@ -9,15 +9,22 @@ Schema discovery reads ServiceNow's own metadata tables in bulk
 full snapshot — custom `u_*`/`x_*` tables included — is a handful of requests,
 not one per table. Reference-type fields become foreign keys.
 """
+import io
 import json
 import re
 from contextlib import contextmanager
-from typing import Generator, List, Optional
+from typing import Generator, List, Optional, Tuple
 
 import pandas as pd
 import requests
 
-from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients._document_text import (
+    DOC_EXTS,
+    doc_text_is_usable,
+    extract_document_text_from_bytes,
+)
+from app.data_sources.clients._file_source_common import DocumentText, NamedBytes
+from app.data_sources.clients.base import Capability, DataSourceClient
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn, ServiceFormatter
 
 
@@ -160,7 +167,43 @@ def _reconcile_dtype(dtypes: List[str]) -> str:
     return "str"
 
 
+# Attachment API base path. Metadata queries and binary downloads both live
+# here — the raw sys_attachment_doc chunk table is never touched (the binary
+# is stored gzipped in base64 chunks; the API reassembles it server-side).
+ATTACHMENT_API = "/api/now/attachment"
+
+# Default table whose attachments are exposed via the file tools.
+DEFAULT_ATTACHMENT_TABLES = "kb_knowledge"
+
+# Max attachments returned by one list_files/search_files call.
+ATTACHMENT_LIST_LIMIT = 500
+
+_RE_SYS_ID = re.compile(r"^[0-9a-f]{32}$")
+
+# Extensions parsed as tabular / plain text in read_file. Anything else that
+# isn't a DOC_EXTS document comes back as NamedBytes for the vision fallback.
+_TABULAR_EXTS = {"csv", "tsv", "xlsx", "xls"}
+_TEXT_EXTS = {"txt", "md", "html", "htm", "log", "yaml", "yml", "xml"}
+
+
 class ServiceNowClient(DataSourceClient):
+    # Hybrid connector: tabular Table API queries plus record attachments as
+    # files (KB articles by default). The class advertises the file
+    # capabilities so the tools appear in the agent catalog; an instance with
+    # enable_attachments=False narrows itself back to QUERY-only below, so
+    # runtime resolution rejects file calls (the network_dir WRITE_FILE
+    # pattern).
+    capabilities = {
+        Capability.QUERY,
+        Capability.LIST_FILES,
+        Capability.READ_FILE,
+        Capability.SEARCH_FILES,
+    }
+
+    # Listing attachments is one Attachment API call — cheap enough to serve
+    # list_files live from this connection instead of the shared catalog cache
+    # (attachments are deliberately never indexed into the catalog).
+    cheap_live_listing = True
 
     def __init__(
         self,
@@ -173,6 +216,8 @@ class ServiceNowClient(DataSourceClient):
         display_values: bool = True,
         verify_ssl: bool = True,
         infer_schema_from_data: bool = False,
+        enable_attachments: bool = True,
+        attachment_tables: Optional[str] = None,
     ):
         self.instance_url = (instance_url or "").rstrip("/")
         self.username = username
@@ -190,6 +235,13 @@ class ServiceNowClient(DataSourceClient):
         # For users granted read on the business tables but not on ServiceNow's
         # metadata tables (a common ACL posture for scoped integration accounts).
         self.infer_schema_from_data = bool(infer_schema_from_data)
+        self.enable_attachments = bool(enable_attachments)
+        self.attachment_tables = [
+            t.strip() for t in (attachment_tables or DEFAULT_ATTACHMENT_TABLES).split(",")
+            if t.strip()
+        ]
+        if not self.enable_attachments:
+            self.capabilities = {Capability.QUERY}
 
     # ── connection ──────────────────────────────────────────────────────────
 
@@ -600,6 +652,201 @@ class ServiceNowClient(DataSourceClient):
             raise ValueError('ServiceNow query spec must include a "table" key.')
         return spec
 
+    # ── attachments (file capabilities) ─────────────────────────────────────
+    #
+    # Record attachments exposed as files. Metadata lives in sys_attachment
+    # (file_name, content_type, size_bytes, table_name + table_sys_id pointing
+    # at the owning record); binaries are served reassembled by the Attachment
+    # API. Inline images embedded in article HTML are stored under a
+    # "ZZ_YY"-prefixed table_name, so filtering by the real table names also
+    # keeps that noise out of listings.
+
+    def _require_attachments(self):
+        if not self.enable_attachments:
+            raise RuntimeError(
+                "Attachments are disabled on this ServiceNow connection "
+                "(enable_attachments=false)."
+            )
+
+    def _attachment_scope_query(self, folder_id: Optional[str]) -> str:
+        """Encoded query for a listing scope.
+
+        Folder conventions (mirrors the path-shaped ids the entries carry):
+          None                      → all configured attachment tables
+          "kb_knowledge"            → one table
+          "kb_knowledge/<sys_id>"   → one record's attachments
+        """
+        if folder_id:
+            scope = str(folder_id).strip().strip("/")
+            if "/" in scope:
+                table, record = scope.split("/", 1)
+                return f"table_name={table}^table_sys_id={record.split('/', 1)[0]}"
+            return f"table_name={scope}"
+        return "table_nameIN" + ",".join(self.attachment_tables)
+
+    def _attachment_entry(self, row: dict) -> dict:
+        table = _scalar(row.get("table_name")) or ""
+        record = _scalar(row.get("table_sys_id")) or ""
+        name = _scalar(row.get("file_name")) or _scalar(row.get("sys_id"))
+        size = _scalar(row.get("size_bytes"))
+        try:
+            size = int(size)
+        except (TypeError, ValueError):
+            size = None
+        return {
+            "id": _scalar(row.get("sys_id")),
+            "name": name,
+            "path": f"{table}/{record}/{name}",
+            "mime_type": _scalar(row.get("content_type")),
+            "size": size,
+            "modified_at": _scalar(row.get("sys_updated_on")),
+            "is_folder": False,
+            "web_url": f"{self.instance_url}/sys_attachment.do?sys_id={_scalar(row.get('sys_id'))}",
+        }
+
+    _ATTACHMENT_FIELDS = "sys_id,file_name,content_type,size_bytes,table_name,table_sys_id,sys_updated_on"
+
+    def _list_attachments(self, session: requests.Session, query: str, limit: int) -> List[dict]:
+        page = self._get(
+            session,
+            ATTACHMENT_API,
+            {
+                "sysparm_query": query,
+                "sysparm_limit": min(int(limit or ATTACHMENT_LIST_LIMIT), ATTACHMENT_LIST_LIMIT),
+                "sysparm_fields": self._ATTACHMENT_FIELDS,
+            },
+        )
+        return [self._attachment_entry(r) for r in page.get("result", [])]
+
+    def list_files(self, folder_id: Optional[str] = None, recursive: bool = False,
+                   limit: Optional[int] = None) -> List[dict]:
+        self._require_attachments()
+        with self.connect() as session:
+            return self._list_attachments(
+                session, self._attachment_scope_query(folder_id), limit or ATTACHMENT_LIST_LIMIT
+            )
+
+    def search_files(self, query: str, **_) -> List[dict]:
+        self._require_attachments()
+        safe = str(query or "").strip()
+        if not safe:
+            return []
+        scope = "table_nameIN" + ",".join(self.attachment_tables)
+        with self.connect() as session:
+            return self._list_attachments(
+                session, f"file_nameLIKE{safe}^{scope}", ATTACHMENT_LIST_LIMIT
+            )
+
+    def _attachment_meta(self, session: requests.Session, file_id: str) -> dict:
+        """Resolve a file id to its sys_attachment metadata row.
+
+        Accepts the attachment sys_id (the canonical id), the path-shaped id
+        the listings hand out (table/record_sys_id/file_name), or a bare file
+        name searched across the configured attachment tables — the model
+        frequently passes the readable name it saw.
+        """
+        fid = str(file_id or "").strip().strip("/")
+        if _RE_SYS_ID.match(fid):
+            data = self._get(session, f"{ATTACHMENT_API}/{fid}", {})
+            meta = data.get("result")
+            if meta:
+                return meta
+            raise ValueError(f"ServiceNow attachment '{fid}' not found.")
+        if "/" in fid:
+            table, rest = fid.split("/", 1)
+            record, _, name = rest.partition("/")
+            query = f"table_name={table}^table_sys_id={record}"
+            if name:
+                query += f"^file_name={name}"
+        else:
+            scope = "table_nameIN" + ",".join(self.attachment_tables)
+            query = f"file_name={fid}^{scope}"
+        page = self._get(
+            session, ATTACHMENT_API,
+            {"sysparm_query": query, "sysparm_limit": 1},
+        )
+        rows = page.get("result", [])
+        if not rows:
+            raise ValueError(
+                f"ServiceNow attachment '{file_id}' not found — pass the attachment "
+                "sys_id or the table/record/file_name path from list_files."
+            )
+        return rows[0]
+
+    def _download_attachment(self, session: requests.Session, sys_id: str) -> bytes:
+        response = session.get(
+            f"{self.instance_url}{ATTACHMENT_API}/{sys_id}/file",
+            headers={"Accept": "*/*"},
+            timeout=120,
+        )
+        if response.status_code != 200:
+            raise RuntimeError(
+                f"ServiceNow attachment download failed ({response.status_code}) for {sys_id}."
+            )
+        return response.content
+
+    def read_file(self, file_id: str, max_bytes: Optional[int] = None, **_ignored):
+        """Read one attachment. Same contract as the drive clients:
+        tabular → DataFrame, text → str, documents → extracted text
+        (DocumentText carrying the original bytes), everything else →
+        NamedBytes so the tool layer keeps its vision/preview fallbacks
+        (attachment sys_ids are opaque — the payload must carry the name)."""
+        self._require_attachments()
+        with self.connect() as session:
+            meta = self._attachment_meta(session, file_id)
+            name = _scalar(meta.get("file_name")) or str(file_id)
+            mime = _scalar(meta.get("content_type")) or ""
+            content = self._download_attachment(session, _scalar(meta.get("sys_id")))
+        if max_bytes and len(content) > int(max_bytes):
+            content = content[: int(max_bytes)]
+
+        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+        if ext in DOC_EXTS:
+            text = extract_document_text_from_bytes(content, name)
+            if doc_text_is_usable(text, ext):
+                return DocumentText(text, raw=content, name=name, mime=mime)
+            return NamedBytes(content, name=name, mime=mime)
+        if ext in _TABULAR_EXTS:
+            try:
+                if ext == "csv":
+                    return pd.read_csv(io.BytesIO(content))
+                if ext == "tsv":
+                    return pd.read_csv(io.BytesIO(content), sep="\t")
+                return pd.read_excel(io.BytesIO(content))
+            except Exception:
+                return NamedBytes(content, name=name, mime=mime)
+        if ext == "json":
+            try:
+                return json.loads(content.decode("utf-8", errors="replace"))
+            except Exception:
+                return content.decode("utf-8", errors="replace")
+        if ext in _TEXT_EXTS or mime.startswith("text/"):
+            return content.decode("utf-8", errors="replace")
+        return NamedBytes(content, name=name, mime=mime)
+
+    def read_raw_bytes(self, file_id: str) -> Tuple[bytes, str, Optional[str]]:
+        """Original bytes + name + mime, unparsed — for the viewer/attach paths."""
+        self._require_attachments()
+        with self.connect() as session:
+            meta = self._attachment_meta(session, file_id)
+            content = self._download_attachment(session, _scalar(meta.get("sys_id")))
+            return (
+                content,
+                _scalar(meta.get("file_name")) or str(file_id),
+                _scalar(meta.get("content_type")) or None,
+            )
+
+    def file_version(self, file_id: str) -> Optional[str]:
+        """Cheap staleness token (metadata only, no download): updated_on + size."""
+        if not self.enable_attachments:
+            return None
+        try:
+            with self.connect() as session:
+                meta = self._attachment_meta(session, file_id)
+            return f"{_scalar(meta.get('sys_updated_on'))}|{_scalar(meta.get('size_bytes'))}"
+        except Exception:
+            return None
+
     # ── prompts ─────────────────────────────────────────────────────────────
 
     def prompt_schema(self):
@@ -646,6 +893,19 @@ class ServiceNowClient(DataSourceClient):
         df = client.execute_query('{"table": "sys_user", "query": "active=true", "fields": ["name", "email", "department"], "limit": 500}')
         ```
         """
+        if self.enable_attachments:
+            text += (
+                "\n        ### Attachments (Knowledge Base files etc.)\n"
+                "        Record attachments are FILES — use the file tools, not execute_query:\n"
+                f"        - list_files(folder_id=None) lists attachments on: {', '.join(self.attachment_tables)}.\n"
+                "          folder_id can scope to a table ('kb_knowledge') or one record\n"
+                "          ('kb_knowledge/<sys_id>' — take sys_id from a query result).\n"
+                "        - read_file(file_id=<attachment id from list_files>) downloads and reads it\n"
+                "          (documents return extracted text; images/PDFs render for viewing).\n"
+                "        - search_files(query) matches attachment file names.\n"
+                "        The article BODY is the kb_knowledge.text column (HTML) via execute_query;\n"
+                "        the attachments are separate files on the article.\n"
+            )
         return text
 
     @property
