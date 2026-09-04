@@ -44,9 +44,32 @@
             :view="viz.view"
           />
         </div>
-        <!-- Table (default) — RenderTable/AgGrid is h-full, so the container
-             MUST have an explicit height or the grid collapses to 0px. -->
-        <div :style="{ height: tableHeight }">
+        <!-- Table (default). `v-else`: a chart and a count card ARE the
+             rendering of their data — without it every chart in the document
+             also carried a redundant grid of its own rows underneath. -->
+        <!-- On paper the grid is the wrong renderer: AG Grid virtualizes rows
+             inside a fixed-height scroller, so a print would carry only the
+             handful of rows that happened to be mounted. Lay every row out as
+             a real table and let it break across pages. -->
+        <table v-else-if="paper" class="doc-viz-paper-table">
+          <thead>
+            <tr>
+              <th v-for="col in paperColumns" :key="col.field" :class="{ 'is-num': col.numeric }">
+                {{ col.label }}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="(row, ri) in paperRows" :key="ri">
+              <td v-for="col in paperColumns" :key="col.field" :class="{ 'is-num': col.numeric }">
+                {{ formatCell(row[col.field]) }}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+        <!-- RenderTable/AgGrid is h-full, so the container MUST have an
+             explicit height or the grid collapses to 0px. -->
+        <div v-else :style="{ height: tableHeight }">
           <RenderTable :widget="widgetShim" :step="tableStepShim" />
         </div>
       </div>
@@ -75,7 +98,12 @@ interface DocViz {
   stepStatus?: string
 }
 
-const props = defineProps<{ viz: DocViz | null; caption?: string }>()
+const props = defineProps<{
+  viz: DocViz | null
+  caption?: string
+  /** Rendering onto paper (PDF export): no scrollers, no virtualization. */
+  paper?: boolean
+}>()
 
 const renderFailed = ref(false)
 // A single broken chart must never take down the document.
@@ -109,6 +137,30 @@ const tableStepShim = computed(() => ({
   data_model: { ...(props.viz?.dataModel || {}), type: 'table' },
 }))
 
+// ---- Paper table -----------------------------------------------------------
+// Columns come from the step's own column list; a column whose values are
+// numeric is right-aligned, the one bit of formatting a data table cannot do
+// without and still read as one.
+const paperRows = computed(() => props.viz?.rows || [])
+
+const paperColumns = computed(() => {
+  const columns = props.viz?.columns || []
+  const fields = columns.length
+    ? columns.map((c: any) => ({ field: c.field, label: c.headerName || c.field }))
+    : Object.keys(paperRows.value[0] || {}).map(f => ({ field: f, label: f }))
+  return fields.map(f => ({
+    ...f,
+    numeric: paperRows.value.some(r => typeof r?.[f.field] === 'number'),
+  }))
+})
+
+function formatCell(value: any): string {
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'number') return value.toLocaleString()
+  if (typeof value === 'object') return JSON.stringify(value)
+  return String(value)
+}
+
 // Explicit height for the table container (AgGrid needs a sized parent).
 // header (~44px) + rows * ~34px, clamped so small tables stay compact and
 // large ones scroll internally instead of dominating the document.
@@ -118,3 +170,34 @@ const tableHeight = computed(() => {
   return `${px}px`
 })
 </script>
+
+<style scoped>
+/* Paper rendering of a table visualization. Mirrors the document's own table
+   styling (DocViewer) so an embedded query result and a markdown table read as
+   one document, and repeats the header on every page it spills onto. */
+.doc-viz-paper-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9em;
+}
+.doc-viz-paper-table thead { display: table-header-group; }
+.doc-viz-paper-table tr { break-inside: avoid; }
+.doc-viz-paper-table th {
+  text-align: start;
+  font-weight: 600;
+  color: rgb(55 65 81);
+  padding: 0.4em 0.6em;
+  border-bottom: 1.5px solid rgb(209 213 219);
+  white-space: nowrap;
+}
+.doc-viz-paper-table td {
+  padding: 0.35em 0.6em;
+  border-bottom: 1px solid rgb(243 244 246);
+  vertical-align: top;
+}
+.doc-viz-paper-table th.is-num,
+.doc-viz-paper-table td.is-num {
+  text-align: end;
+  font-variant-numeric: tabular-nums;
+}
+</style>

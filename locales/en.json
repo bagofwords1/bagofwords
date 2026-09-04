@@ -4687,7 +4687,8 @@
     "cancel": "Cancel",
     "saved": "Document saved",
     "saveFailed": "Failed to save document",
-    "editDiagramSource": "Click to edit diagram source"
+    "editDiagramSource": "Click to edit diagram source",
+    "unsavedForExport": "Save the document before exporting it as PDF"
   },
   "notes": {
     "heading": "Notes",

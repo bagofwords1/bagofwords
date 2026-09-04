@@ -4636,7 +4636,8 @@
     "cancel": "ביטול",
     "saved": "המסמך נשמר",
     "saveFailed": "שמירת המסמך נכשלה",
-    "editDiagramSource": "לחצו לעריכת מקור התרשים"
+    "editDiagramSource": "לחצו לעריכת מקור התרשים",
+    "unsavedForExport": "שמרו את המסמך לפני ייצואו כ-PDF"
   },
   "notes": {
     "heading": "הערות",

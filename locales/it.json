@@ -4526,7 +4526,8 @@
     "cancel": "Annulla",
     "saved": "Documento salvato",
     "saveFailed": "Impossibile salvare il documento",
-    "editDiagramSource": "Fai clic per modificare il codice del diagramma"
+    "editDiagramSource": "Fai clic per modificare il codice del diagramma",
+    "unsavedForExport": "Salva il documento prima di esportarlo in PDF"
   },
   "notes": {
     "heading": "Note",

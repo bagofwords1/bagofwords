@@ -19,7 +19,8 @@ These tests pin the behaviour that fixes it:
     one sheet gets one sheet;
   * embedded files reach the renderer as data URIs (the headless browser
     cannot authenticate against /files/{id}/content);
-  * artifact modes with no HTML to render fail instead of attaching a blank PDF.
+  * a document renders through the frontend's own paper page (it has no HTML
+    of its own), and an empty one is refused rather than attached blank.
 
 The heavy cases need Playwright plus the vendored JS libs (downloaded at Docker
 build time by scripts/download-vendor-libs.sh) and skip when either is absent.
@@ -314,13 +315,45 @@ async def test_embedded_files_are_inlined_for_the_headless_render(monkeypatch, t
 
 
 @pytest.mark.asyncio
-async def test_doc_artifact_is_refused_rather_than_exported_blank():
-    """A doc's body is markdown rendered client-side; the HTML renderer has no
-    code to run for it and would emit an empty page."""
+async def test_doc_artifact_renders_through_the_paper_page(monkeypatch, tmp_path):
+    """A doc has no HTML to run — its renderer is the frontend's DocViewer, so
+    the export prints the app's standalone paper page with the document's data
+    injected. What the branch must hand over is the markdown and the same
+    visualizations a dashboard export would collect."""
     _, artifact_id, _, _ = await _seed(mode="doc", code="")
     async with async_session_maker() as db:
         artifact = await db.get(Artifact, artifact_id)
-        artifact.content = {"markdown": "# Title\n\nBody", "visualization_ids": []}
+        artifact.content = {
+            "markdown": "# Title\n\nBody\n\n{{viz:%s}}" % artifact.content["visualization_ids"][0],
+            "visualization_ids": artifact.content["visualization_ids"],
+        }
+        await db.commit()
+
+    captured = {}
+
+    async def fake_generate_doc_pdf(self, aid, doc):
+        captured["doc"] = doc
+        return f"pdfs/{aid}.pdf"
+
+    monkeypatch.setattr(ReportPdfService, "generate_doc_pdf", fake_generate_doc_pdf)
+
+    service = ReportPdfService()
+    service.UPLOADS_DIR = tmp_path
+    assert await service.generate_for_artifact(artifact_id)
+
+    doc = captured["doc"]
+    assert doc["markdown"].startswith("# Title")
+    assert doc["visualizations"], "a {{viz:...}} placeholder has nothing to bind to"
+    assert "rows" in doc["visualizations"][0]
+
+
+@pytest.mark.asyncio
+async def test_doc_artifact_without_markdown_is_refused():
+    """An empty document would print a blank sheet; refuse instead."""
+    _, artifact_id, _, _ = await _seed(mode="doc", code="")
+    async with async_session_maker() as db:
+        artifact = await db.get(Artifact, artifact_id)
+        artifact.content = {"markdown": "   ", "visualization_ids": []}
         await db.commit()
 
     assert await ReportPdfService().generate_for_artifact(artifact_id) is None

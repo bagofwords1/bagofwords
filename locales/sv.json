@@ -4526,7 +4526,8 @@
     "cancel": "Avbryt",
     "saved": "Dokument sparat",
     "saveFailed": "Det gick inte att spara dokumentet",
-    "editDiagramSource": "Klicka för att redigera diagrammets källkod"
+    "editDiagramSource": "Klicka för att redigera diagrammets källkod",
+    "unsavedForExport": "Spara dokumentet innan du exporterar det som PDF"
   },
   "notes": {
     "heading": "Anteckningar",

@@ -4526,7 +4526,8 @@
     "cancel": "إلغاء",
     "saved": "تم حفظ المستند",
     "saveFailed": "فشل حفظ المستند",
-    "editDiagramSource": "انقر لتحرير مصدر المخطط"
+    "editDiagramSource": "انقر لتحرير مصدر المخطط",
+    "unsavedForExport": "احفظ المستند قبل تصديره بصيغة PDF"
   },
   "notes": {
     "heading": "ملاحظات",

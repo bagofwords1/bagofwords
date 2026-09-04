@@ -4526,7 +4526,8 @@
     "cancel": "Annuler",
     "saved": "Document enregistré",
     "saveFailed": "Échec de l'enregistrement du document",
-    "editDiagramSource": "Cliquez pour modifier la source du diagramme"
+    "editDiagramSource": "Cliquez pour modifier la source du diagramme",
+    "unsavedForExport": "Enregistrez le document avant de l'exporter en PDF"
   },
   "notes": {
     "heading": "Notes",
