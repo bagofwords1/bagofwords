@@ -2,4 +2,12 @@
 __pycache__/
 .pytest_cache/
 config.yaml
+config-*.yaml
 *.db
+
+# Local admin-UI runtime state (contains an encryption key + credentials) —
+# never commit. Generated when the agent runs from this directory.
+edge-agent-store.json
+edge-agent-store.json.key
+edge-agent-audit.jsonl
+.env
