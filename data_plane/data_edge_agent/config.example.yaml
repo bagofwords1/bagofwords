@@ -23,7 +23,7 @@ edge_agent_name: NYC Office          # display label only; safe to rename
 # Local compose has no terminator, so plain ws:// against the NATS port.
 # Pointing wss:// at a no_tls listener fails the handshake with an error that
 # looks like a certificate problem and is not one.
-nats_url: ws://localhost:9443
+tunnel_endpoint_url: ws://localhost:9443
 
 # Leave unset here. Set BOW_EDGE_AGENT_NATS_TOKEN instead.
 # nats_token: ...

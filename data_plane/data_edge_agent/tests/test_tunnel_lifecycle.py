@@ -120,7 +120,7 @@ async def test_status_snapshot_reports_identity_and_nats():
     t._nc = StubNC()
     s = t.status_snapshot()
     assert s["edge_agent_id"] == "nyc-01"
-    assert s["nats"] == {"connected": True, "url": t._config.nats_url}
+    assert s["nats"] == {"connected": True, "url": t._config.tunnel_endpoint_url}
     assert s["connections_served"] == 1
     assert s["in_flight"] == 0
 
