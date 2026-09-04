@@ -36,6 +36,8 @@ from ..tunnel import EdgeAgentTunnel
 logger = logging.getLogger(__name__)
 
 _STATIC_DIR = Path(__file__).parent / "static"
+_ICONS_DIR = _STATIC_DIR / "data_sources_icons"
+_ICON_MANIFEST = _STATIC_DIR / "type_icons.json"
 # Credential entry never has a legitimate reason to be large; cap the body so a
 # loopback client can't wedge the agent with a giant payload.
 _MAX_BODY_BYTES = 256 * 1024
@@ -75,6 +77,7 @@ class AdminServer:
             web.get("/api/types", self._types),
             web.get("/api/catalog", self._catalog),
             web.get("/api/catalog/{type}", self._catalog_type),
+            web.get("/api/icons", self._icons),
             web.get("/api/connections", self._list_connections),
             web.post("/api/connections", self._create_connection),
             web.get("/api/connections/{name}", self._get_connection),
@@ -86,6 +89,11 @@ class AdminServer:
             web.get("/", self._index),
             web.get("/index.html", self._index),
         ])
+        # Brand icons for the type picker + connection cards (bundled). Guarded:
+        # a stripped image without the icons still serves the UI (monogram
+        # fallback), rather than failing app setup.
+        if _ICONS_DIR.is_dir():
+            app.router.add_static("/data_sources_icons/", path=str(_ICONS_DIR))
         return app
 
     async def start(self) -> None:
@@ -177,6 +185,14 @@ class AdminServer:
         if spec is None:
             raise web.HTTPNotFound(reason="no spec for that type")
         return web.json_response(spec)
+
+    async def _icons(self, request: web.Request) -> web.Response:
+        """{type: icon_filename} for the bundled brand icons; {} if none."""
+        try:
+            manifest = json.loads(_ICON_MANIFEST.read_text())
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+        return web.json_response({"icons": manifest})
 
     async def _list_connections(self, request: web.Request) -> web.Response:
         return web.json_response(

@@ -43,9 +43,14 @@ a type-picker grid → a form rendered from the type's JSON-Schema field spec.
   validation caught a missing MySQL port; a MySQL Test over the tunnel returned
   "Successfully connected to MySQL"; Edit prefilled config and showed credential
   placeholders. Screenshots captured.
-- Note: icons are monogram tiles (first letters), not the brand SVGs the Bow
-  frontend ships — replicating 65 brand assets in the standalone SPA was out of
-  scope; the tiles carry the title + category so the grid reads clearly.
+- ✅ **Brand icons** — `tools/agent/bundle_edge_type_icons.py` copies each
+  catalog type's icon from the frontend (resolving via the same normalizeType +
+  overrides as DataSourceIcon.vue) into the agent's static dir with a
+  `{type: file}` manifest; the admin server serves `/data_sources_icons/*` and
+  `GET /api/icons`, and the SPA renders the real icon on the picker tiles and the
+  connection cards, falling back to a monogram if an asset ever fails to load.
+  Verified live: PostgreSQL/MySQL/etc. show their brand logos in the grid and
+  the connection list.
 
 ---
 
