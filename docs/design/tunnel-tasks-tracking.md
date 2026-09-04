@@ -8,6 +8,25 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-04 (cont.) — hide SaaS types from the picker
+
+The type picker offered all 65 non-MCP types, including managed-cloud sources
+(S3, Snowflake, BigQuery, Salesforce, …) the control plane reaches directly —
+no reason to tunnel them through an on-site agent.
+
+- ✅ `type_specs._SAAS_TYPES` — an editable denylist (25 types: cloud
+  warehouses/object stores, cloud BI, SaaS apps, cloud file stores). `catalog()`
+  filters them, so the picker shows only the 40 tunnelable on-prem sources; the
+  on-prem BI variants (Power BI Report Server, Qlik Sense on-prem) stay. It's a
+  denylist, not baked out of the bundle, so `get_spec()` still resolves a SaaS
+  type for editing an existing connection, and self-hosted cases (e.g. MinIO)
+  can be re-enabled by removing an entry.
+- ✅ Tests updated (on-prem shown / SaaS hidden). Suite: 84.
+- ✅ Verified live: picker Databases section shows only on-prem engines (no S3 /
+  Snowflake / BigQuery / Redshift / Athena / Databricks).
+
+---
+
 ## 2026-09-04 — admin UI: type-specific Add Connection form (C4)
 
 The Add Connection form had one fixed field set (host/port/db/user/pass); each

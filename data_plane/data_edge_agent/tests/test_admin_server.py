@@ -158,12 +158,13 @@ async def test_status_and_types(client):
     assert "postgresql" in t["types"] and "mysql" in t["types"]
 
 
-async def test_catalog_lists_types_for_the_picker(client):
+async def test_catalog_lists_onprem_and_hides_saas(client):
     r = await client.get("/api/catalog")
     assert r.status == 200
     cat = (await r.json())["catalog"]
     types = {row["type"] for row in cat}
     assert "postgresql" in types and "mysql" in types
+    assert "s3" not in types and "snowflake" not in types  # SaaS hidden
     assert all({"type", "title", "category"} == set(row) for row in cat)
 
 

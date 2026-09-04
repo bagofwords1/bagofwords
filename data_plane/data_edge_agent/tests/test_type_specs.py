@@ -15,6 +15,20 @@ def test_catalog_is_nonempty_and_sorted_by_category_then_title():
         assert set(r) == {"type", "title", "category"}
 
 
+def test_catalog_shows_onprem_hides_saas():
+    types = {r["type"] for r in type_specs.catalog()}
+    # tunnelable on-prem sources are offered
+    for t in ["postgresql", "mysql", "MSSQL", "oracledb", "mongodb", "clickhouse",
+              "qvd", "csv", "powerbi_report_server", "qlik_sense_onprem"]:
+        assert t in types, f"{t} should be offered"
+    # SaaS / managed-cloud sources are hidden
+    for t in ["s3", "snowflake", "bigquery", "aws_redshift", "salesforce",
+              "servicenow", "gmail_mail", "google_drive", "powerbi", "qlik_sense"]:
+        assert t not in types, f"{t} should be hidden"
+    # the spec is still resolvable by type (edit fallback), just not in the picker
+    assert type_specs.get_spec("s3") is not None
+
+
 def test_postgresql_spec_has_expected_config_and_credentials():
     spec = type_specs.get_spec("postgresql")
     assert spec is not None

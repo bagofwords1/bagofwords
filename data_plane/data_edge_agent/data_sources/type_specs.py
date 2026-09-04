@@ -24,6 +24,27 @@ logger = logging.getLogger(__name__)
 
 _BUNDLE_PATH = Path(__file__).parent / "type_specs.json"
 
+# SaaS / managed-cloud sources the control plane reaches directly over the
+# internet — there is no reason to tunnel them through an on-site edge agent, so
+# they are hidden from the Add Connection picker. This is guidance, not a hard
+# gate (tunnel_mode is per-connection), so it lives here as an editable denylist
+# rather than being baked out of the bundle: an operator with, say, a self-hosted
+# MinIO can still be enabled by removing an entry. A type NOT listed here is
+# treated as tunnelable — the right default, since most new connectors are
+# classical databases that run on the customer's own infrastructure.
+_SAAS_TYPES = frozenset({
+    # cloud warehouses / lakehouses / object stores
+    "s3", "snowflake", "bigquery", "aws_athena", "aws_redshift", "aws_cost",
+    "azure_data_explorer", "databricks_sql", "ms_fabric",
+    # cloud BI (the on-prem variants — powerbi_report_server, qlik_sense_onprem — stay)
+    "powerbi", "qlik_sense", "sap_datasphere",
+    # SaaS apps
+    "salesforce", "servicenow", "netsuite", "monday", "posthog", "browser",
+    "gmail_mail", "outlook_mail", "onenote",
+    # cloud file / document stores
+    "google_drive", "onedrive", "sharepoint", "sharepoint_lists",
+})
+
 
 @functools.lru_cache(maxsize=1)
 def _bundle() -> dict[str, Any]:
@@ -35,13 +56,15 @@ def _bundle() -> dict[str, Any]:
 
 
 def catalog() -> list[dict[str, str]]:
-    """Grid metadata for the type picker: one row per type, sorted by category
-    then title. Just what the picker needs — the full field spec is fetched per
-    type when one is chosen."""
+    """Grid metadata for the type picker: one row per *tunnelable* type, sorted
+    by category then title. SaaS / managed-cloud types are excluded (see
+    `_SAAS_TYPES`) — they're reachable directly and don't belong on an on-site
+    agent. The full field spec is fetched per type when one is chosen."""
     types = _bundle().get("types", {})
     rows = [
         {"type": t, "title": s.get("title", t), "category": s.get("category", "databases")}
         for t, s in types.items()
+        if t not in _SAAS_TYPES
     ]
     return sorted(rows, key=lambda r: (r["category"], r["title"].lower()))
 
