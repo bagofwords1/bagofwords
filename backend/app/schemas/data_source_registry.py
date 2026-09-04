@@ -788,7 +788,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             # the user's UPN is derived from their login identity unless overridden.
             "kerberos_delegated": AuthVariant(title="Kerberos SSO (per-user delegation)", schema=MssqlKerberosDelegatedCredentials, scopes=["user"]),
         }),
-        client_path=None,
+        client_path="app.data_sources.clients.mssql_client.MSSQLClient",
     ),
     "clickhouse": DataSourceRegistryEntry(
         type="clickhouse",
