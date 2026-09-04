@@ -122,6 +122,24 @@
   const smtpEnabled = ref(false)
   const isSubmitting = ref(false)
   const localOverride = computed(() => route.query.local === 'true')
+  // How many ways there are to sign in. When there is exactly one there is
+  // nothing for the user to choose, so we can start it for them.
+  const ssoProviderCount = computed(() => oidcProviders.value.length + (googleSignIn.value ? 1 : 0))
+  // Set by an embedding app that already knows whose session it is opening.
+  // Forwarded to the provider so a browser holding several accounts doesn't
+  // stop on a chooser.
+  const loginHint = computed(() => {
+    const direct = (route.query.login_hint as string) || ''
+    if (direct) return direct
+    // The global auth middleware bounces an unauthenticated /authorize here
+    // before that page's own code can run, and it forwards only the original
+    // path — so on the flow that matters the hint arrives nested inside
+    // `redirect` rather than beside it.
+    const target = safeRedirectTarget(route.query.redirect)
+    const query = target?.slice(target.indexOf('?') + 1)
+    if (!target || !target.includes('?') || !query) return ''
+    return new URLSearchParams(query).get('login_hint') || ''
+  })
 
   definePageMeta({
   auth: {
@@ -203,6 +221,32 @@
       }
       return
     }
+
+    // Single-provider SSO: the button would be the only thing on the page, so
+    // press it. This is what lets an embedding app open BOW with no visible
+    // sign-in step when the user already has a live session at the provider.
+    //
+    // The guards are what keep it from becoming a redirect loop: a failed
+    // round trip comes back with ?error and must be able to show it, and
+    // ?local=true stays an escape hatch to the password form when the
+    // provider is unreachable.
+    if (
+      authMode.value === 'sso_only'
+      && !localOverride.value
+      && !inviteError
+      && ssoProviderCount.value === 1
+    ) {
+      const provider = oidcProviders.value[0]
+      await (provider ? signInWithProvider(provider.name) : signInWithGoogle())
+      // Both helpers swallow their own errors and clear loadingProvider when
+      // the authorize call failed; on success the browser is already leaving,
+      // so staying unloaded keeps the form from flashing up mid-redirect.
+      if (loadingProvider.value === null) {
+        pageLoaded.value = true
+      }
+      return
+    }
+
     pageLoaded.value = true
   })
 
@@ -287,7 +331,10 @@
     try {
       loadingProvider.value = name
       persistRedirectForOAuth()
-      const response = await $fetch(`/api/auth/${name}/authorize`, { method: 'GET' })
+      const response = await $fetch(`/api/auth/${name}/authorize`, {
+        method: 'GET',
+        query: loginHint.value ? { login_hint: loginHint.value } : undefined,
+      })
       if ((response as any)?.authorization_url) {
         window.location.href = (response as any).authorization_url
       }
