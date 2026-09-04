@@ -2279,13 +2279,36 @@
     "dataTunnelsTab": "Data Tunnels",
     "dataTunnels": {
       "title": "Data Tunnels",
-      "subtitle": "Data sources advertised by connected edge agents",
+      "subtitle": "Reach data sources in your private network through an edge agent — no credentials on Bow.",
       "loading": "Loading advertised data sources…",
       "empty": "No edge agents have advertised any data sources yet.",
       "noConnections": "This agent is connected but advertises no data sources.",
       "lastSeen": "last seen",
       "registered": "Registered",
-      "conflict": "Name conflict"
+      "conflict": "Name conflict",
+      "sectionConnect": "Connect new Data Edge Agent",
+      "sectionAgents": "Registered Data Edge Agents",
+      "agentsTitle": "Registered Data Edge Agents",
+      "agentsSubtitle": "Edge agents connected to this organization and the data sources they advertise.",
+      "connect": {
+        "title": "Connect a new Data Edge Agent",
+        "subtitle": "Generate the agent's config, deploy it on a host inside your network, and it will register here automatically.",
+        "step1": "1. Name the agent",
+        "step2": "2. Save the config file",
+        "step3": "3. Start the agent",
+        "agentId": "Edge agent ID",
+        "agentIdHint": "A stable identifier used in the tunnel routing (no dots, spaces, '*' or '>'). e.g. nyc-01",
+        "agentIdError": "Use letters, digits, '-' or '_' only — no dots, spaces, '*' or '>'.",
+        "agentName": "Edge agent name",
+        "agentNameHint": "A human-readable label shown here. e.g. NYC Office",
+        "configHint": "Copy this and save it as config.yaml on the host where you'll run the agent.",
+        "dockerHint": "Then start the agent in Docker. The command mounts your config.yaml into the container and publishes the local admin UI to loopback.",
+        "dockerNote": "Replace the NATS URL, token and store key with the values for your Bow instance. Keep the /data volume so credentials and the audit trail persist across restarts.",
+        "copy": "Copy",
+        "copied": "Copied to clipboard",
+        "copyManual": "Couldn't copy — select and copy manually",
+        "waiting": "After it starts, the agent appears under Registered Data Edge Agents once it connects."
+      }
     },
     "identityProvider": {
       "scimTitle": "SCIM Provisioning",

@@ -8,6 +8,32 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-04 (cont.) — control-plane Data Tunnels: split into Connect + Registered
+
+Extended the Bow app's `settings/data-tunnels` into two sections via an in-page
+sub-nav (mirroring `settings/integrations`' two-pane pattern — no child routes,
+so the exact-match tab highlight keeps working):
+
+- ✅ **Connect new Data Edge Agent** — a generator: the operator enters an edge
+  agent id (validated as a NATS subject token) + name, and a `config.yaml` is
+  produced live with the real `org_id` (from `useOrganization`),
+  `edge_agent_id`, `edge_agent_name`, and a `nats_url` placeholder. Copy buttons
+  (secure-context clipboard + plain-http fallback) for the config and for the
+  `docker run` startup command, which mounts `config.yaml` into the container at
+  `/etc/bow/edge-agent.yaml` and publishes the admin UI to loopback.
+- ✅ **Registered Data Edge Agents** — the previous data-tunnels view, reused
+  as-is (agents + advertised sources with status/icons).
+- ✅ **Entrypoint config-file loading re-enabled** (`docker-entrypoint.sh`) — the
+  Connect flow's `docker run` mounts a config file, so the entrypoint must pass
+  `--config` to the agent again (the earlier env-only edit is reverted).
+- ✅ i18n keys under `settings.dataTunnels.*`; NATS URL isn't exposed to the
+  frontend anywhere, so it's a placeholder the operator edits.
+- ✅ **Verified live in the browser** — both sub-sections render; the config
+  updates live as the id/name are typed (org_id auto-filled); the Registered
+  section shows the live nyc-01 agent + lego-pg/demo-mysql.
+
+---
+
 ## 2026-09-04 (cont.) — hide SaaS types from the picker
 
 The type picker offered all 65 non-MCP types, including managed-cloud sources
