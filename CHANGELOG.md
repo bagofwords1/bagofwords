@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.555 (September 4, 2026)
+- Queries moved from their own page into the agents knowledge tree: each query now hangs under the agents it reads, with a lifecycle badge, and /queries redirects there
+- Unpublished queries (drafts, suggestions, archived) are no longer served to members who can reach the agent but don't own or manage the query
+
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
 - Added scikit-learn support with ML training constraints (#1055)

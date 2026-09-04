@@ -651,7 +651,6 @@
   import Spinner from '~/components/Spinner.vue'
   import McpIcon from '~/components/icons/McpIcon.vue'
   import GithubIcon from '~/components/icons/GithubIcon.vue'
-  import LibraryIcon from '~/components/icons/LibraryIcon.vue'
   import ActivityIcon from '~/components/icons/ActivityIcon.vue'
   import SidebarIcon from '~/components/icons/SidebarIcon.vue'
   import McpModal from '~/components/McpModal.vue'
@@ -752,7 +751,6 @@
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
     { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
-    { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
     // Monitoring is no longer admin-only: an agent manager gets the same console
     // scoped to the agents they manage (see useCanAccessMonitoring).
     { href: '/monitoring', component: ActivityIcon, label: 'nav.monitoring', canView: useCanAccessMonitoring },
