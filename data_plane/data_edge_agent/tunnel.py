@@ -110,7 +110,7 @@ class EdgeAgentTunnel:
             logger.info(
                 "edge_agent.nats.connecting",
                 extra={
-                    "url": cfg.nats_url,
+                    "url": cfg.tunnel_endpoint_url,
                     "edge_agent_id": cfg.edge_agent_id,
                     "attempt": attempt,
                 },
@@ -118,7 +118,7 @@ class EdgeAgentTunnel:
             client = NATSClient()
             try:
                 await client.connect(
-                    servers=[cfg.nats_url],
+                    servers=[cfg.tunnel_endpoint_url],
                     token=cfg.nats_token,
                     reconnect_time_wait=_RECONNECT_SECONDS,
                     # Bounded on purpose. With -1 the library retries the
@@ -141,7 +141,7 @@ class EdgeAgentTunnel:
                 logger.error(
                     "edge_agent.nats.connect_failed",
                     extra={
-                        "url": cfg.nats_url,
+                        "url": cfg.tunnel_endpoint_url,
                         "attempt": attempt,
                         "retry_in": _RECONNECT_SECONDS,
                         "error": str(e),
@@ -164,7 +164,7 @@ class EdgeAgentTunnel:
             logger.info(
                 "edge_agent.nats.connected",
                 extra={
-                    "url": cfg.nats_url,
+                    "url": cfg.tunnel_endpoint_url,
                     "max_payload": client.max_payload,
                     "edge_agent_id": cfg.edge_agent_id,
                 },
@@ -703,7 +703,7 @@ class EdgeAgentTunnel:
             "version": __version__,
             "nats": {
                 "connected": self.is_connected,
-                "url": cfg.nats_url,
+                "url": cfg.tunnel_endpoint_url,
             },
             "connections_served": len(cfg.connections),
             "in_flight": len(self._in_flight),

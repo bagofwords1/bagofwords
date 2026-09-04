@@ -194,7 +194,7 @@ edge_agent_name: Local Test Agent
 
 # ws:// not wss://: the chart deploys the websocket listener with no_tls, and
 # wss:// against it fails with what looks like a certificate error and is not.
-nats_url: ws://$NATS_HOST:$NATS_PORT
+tunnel_endpoint_url: ws://$NATS_HOST:$NATS_PORT
 
 connections:
   - name: lego-pg

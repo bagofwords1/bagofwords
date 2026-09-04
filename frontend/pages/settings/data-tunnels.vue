@@ -239,9 +239,9 @@ const configYaml = computed(() => {
     // quote the name: it can contain spaces
     `edge_agent_name: ${JSON.stringify(name)}`,
     '',
-    "# The NATS endpoint your Bow instance exposes to edge agents (wss:// in",
+    "# The tunnel endpoint your Bow instance exposes to edge agents (wss:// in",
     "# production, TLS terminated at the ingress). Replace with your host:",
-    'nats_url: wss://tunnel.example.com',
+    'tunnel_endpoint_url: wss://tunnel.example.com',
   ].join('\n')
 })
 

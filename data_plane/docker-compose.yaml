@@ -26,7 +26,7 @@ services:
       BOW_EDGE_AGENT_EDGE_AGENT_NAME: ${BOW_EDGE_AGENT_NAME:-}
       # --- broker ------------------------------------------------------------
       # Production terminates TLS at Bow's ingress: wss://tunnel.<your-bow-host>.
-      BOW_EDGE_AGENT_NATS_URL:      ${BOW_NATS_URL:?set BOW_NATS_URL}
+      BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL: ${BOW_TUNNEL_ENDPOINT_URL:?set BOW_TUNNEL_ENDPOINT_URL}
       BOW_EDGE_AGENT_NATS_TOKEN:    ${BOW_NATS_TOKEN:?set BOW_NATS_TOKEN}
       # --- credential store encryption --------------------------------------
       # Supply from your secret manager. Losing this key makes stored data-source

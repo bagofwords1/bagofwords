@@ -29,6 +29,8 @@ bridge() { # old_suffix new_suffix
 bridge AGENT_ID   EDGE_AGENT_ID
 bridge AGENT_NAME EDGE_AGENT_NAME
 bridge SECRET_KEY STORE_KEY
+# nats_url was renamed to tunnel_endpoint_url; accept the old env var too.
+bridge NATS_URL   TUNNEL_ENDPOINT_URL
 
 # ── data directory: persist the store, its key, and the audit trail ──────────
 DATA_DIR="${BOW_EDGE_AGENT_DATA_DIR:-/data}"
@@ -53,7 +55,7 @@ if [ -n "$CONFIG_FILE" ]; then
   log "config file: $CONFIG_FILE (env overrides still apply)"
 else
   # No file — identity and broker must come from the environment.
-  : "${BOW_EDGE_AGENT_NATS_URL:?set BOW_EDGE_AGENT_NATS_URL (e.g. wss://tunnel.bow.com)}"
+  : "${BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL:?set BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL (e.g. wss://tunnel.bow.com)}"
   : "${BOW_EDGE_AGENT_ORG_ID:?set BOW_EDGE_AGENT_ORG_ID}"
   : "${BOW_EDGE_AGENT_EDGE_AGENT_ID:?set BOW_EDGE_AGENT_EDGE_AGENT_ID (or BOW_EDGE_AGENT_AGENT_ID)}"
   log "config from environment (no config file)"
@@ -67,7 +69,7 @@ if [ -z "${BOW_EDGE_AGENT_STORE_KEY:-}" ]; then
   log "WARNING: BOW_EDGE_AGENT_STORE_KEY is unset — a key file will be generated under $DATA_DIR. Supply the key from your own secret management, and keep $DATA_DIR on a persistent volume, or stored credentials will be lost on redeploy."
 fi
 
-log "starting edge agent: org=${BOW_EDGE_AGENT_ORG_ID:-<file>} id=${BOW_EDGE_AGENT_EDGE_AGENT_ID:-<file>} nats=${BOW_EDGE_AGENT_NATS_URL:-<file>} admin=${BOW_EDGE_AGENT_ADMIN_HOST:-127.0.0.1}:${BOW_EDGE_AGENT_ADMIN_PORT:-9191} data_dir=$DATA_DIR"
+log "starting edge agent: org=${BOW_EDGE_AGENT_ORG_ID:-<file>} id=${BOW_EDGE_AGENT_EDGE_AGENT_ID:-<file>} tunnel=${BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL:-<file>} admin=${BOW_EDGE_AGENT_ADMIN_HOST:-127.0.0.1}:${BOW_EDGE_AGENT_ADMIN_PORT:-9191} data_dir=$DATA_DIR"
 
 # exec: replace the shell so the Python process is tini's direct child and owns
 # the signal handling (main.py installs SIGTERM/SIGINT handlers for a clean drain).

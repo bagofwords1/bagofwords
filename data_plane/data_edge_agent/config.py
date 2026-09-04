@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, field_validator
 _ENV_PREFIX = "BOW_EDGE_AGENT_"
 
 _ENV_OVERRIDES = {
-    "nats_url": "NATS_URL",
+    "tunnel_endpoint_url": "TUNNEL_ENDPOINT_URL",
     "nats_token": "NATS_TOKEN",
     "org_id": "ORG_ID",
     "edge_agent_id": "EDGE_AGENT_ID",
@@ -97,7 +97,7 @@ class AgentConfig(BaseModel):
     edge_agent_id: str
     edge_agent_name: Optional[str] = None
 
-    nats_url: str = "ws://localhost:9443"
+    tunnel_endpoint_url: str = "ws://localhost:9443"
     nats_token: Optional[str] = None
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
