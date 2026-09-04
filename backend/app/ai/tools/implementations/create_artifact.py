@@ -2308,7 +2308,7 @@ AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
   - Dark: `className="bg-slate-900 border-slate-700 text-white" titleClassName="text-slate-400"`
   - Colored: `className="bg-indigo-50 border-indigo-200 text-indigo-900" titleClassName="text-indigo-600"`
 - `<SectionCard title="" subtitle="" className="" titleClassName="" subtitleClassName="" style={{{{}}}}>...children...</SectionCard>` — same theming: `className` replaces defaults, `titleClassName`/`subtitleClassName` for text. Theme to match.
-- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} searchable={{bool}} className="" style={{{{}}}} />` — multi-select dropdown (portaled). Built-in search at 8+ options. `className` replaces default theme (bg-white border-slate-200 text-slate-900) — pass e.g. `className="bg-slate-900 border-slate-700 text-slate-100"` for dark.
+- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} single={{bool}} searchable={{bool}} className="" style={{{{}}}} />` — dropdown (portaled). Multi-select by default: `onChange` receives the full ARRAY of selected `option.value`s. Pass `single` for a one-value choice (radio list, picking replaces the selection and closes the dropdown, no "Clear all"): `onChange` then receives `[value]`. Built-in search at 8+ options. `className` replaces default theme (bg-white border-slate-200 text-slate-900) — pass e.g. `className="bg-slate-900 border-slate-700 text-slate-100"` for dark.
 - `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." className="" style={{{{}}}} />` — text search. `className` replaces default theme.
 - `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" className="" style={{{{}}}} />` — date range picker. `className` replaces default theme.
 - `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
@@ -2570,7 +2570,12 @@ Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data; bind 
                 "from the rows that control filters, or selecting a value collapses the list to "
                 "the current selection. Bind option.value into setParam — never the label. "
                 "A list-typed param renders as a MULTI-select (or checkable list) that submits "
-                "an ARRAY of option.value entries; empty selection = null (All).\n"
+                "an ARRAY of option.value entries; empty selection = null (All). "
+                "Every OTHER param type (string/number/date/id) holds ONE value and MUST use a "
+                "single-choice control — `<FilterSelect single selected={[values.name]} "
+                "onChange={arr => setParam('name', arr[0] ?? null)} />` — never a multi-select "
+                "read through `selected[0]`: with the default multi-select, picking a second "
+                "option only appends a checkbox and the param never changes.\n"
             )
 
         language_directive = build_language_directive(organization_settings)

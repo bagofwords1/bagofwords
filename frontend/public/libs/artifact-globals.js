@@ -1133,6 +1133,11 @@
     });
     var selected = (props.selected || []).map(String);
     var onChange = props.onChange || function() {};
+    // Single-select mode (`single` / `multiple={false}`): picking an option
+    // REPLACES the selection and closes the dropdown, and there is no "Clear
+    // all". Without it a scalar server-side param (e.g. model_type) wired to
+    // this control accumulated checkboxes and `selected[0]` never changed.
+    var single = props.single === true || props.multiple === false;
     // Theme: className OR-replaces defaults (bg/border/text color); structural classes always applied.
     var theme = props.className || 'bg-white border-slate-200 text-slate-900 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-100';
     var searchable = props.searchable !== undefined ? props.searchable : opts.length >= 8;
@@ -1186,6 +1191,11 @@
     function handleToggle() { setOpen(!open); }
 
     function toggle(val) {
+      if (single) {
+        onChange([val]);
+        setOpen(false);
+        return;
+      }
       var idx = selected.indexOf(val);
       onChange(idx >= 0 ? selected.filter(function(v) { return v !== val; }) : selected.concat([val]));
     }
@@ -1210,7 +1220,7 @@
         })
       ]));
     }
-    if (selected.length > 0) {
+    if (selected.length > 0 && !single) {
       ddChildren.push(h('button', {
         key: 'clr', type: 'button',
         className: 'w-full text-left px-3 py-1.5 text-xs font-medium opacity-50 hover:opacity-100',
@@ -1224,9 +1234,9 @@
         className: 'flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-black/5 dark:hover:bg-white/10'
       }, [
         h('input', {
-          key: 'cb', type: 'checkbox', checked: isSelected,
+          key: 'cb', type: single ? 'radio' : 'checkbox', checked: isSelected,
           onChange: function() { toggle(o.val); },
-          className: 'rounded border-slate-300 dark:border-slate-600 accent-blue-500'
+          className: (single ? '' : 'rounded ') + 'border-slate-300 dark:border-slate-600 accent-blue-500'
         }),
         h('span', { key: 'v', className: 'truncate' }, o.lbl)
       ]));

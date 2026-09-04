@@ -1,0 +1,24 @@
+# Mock VMware Aria Operations Suite API (8.18 shapes) — see mock_suite_api.py.
+# A real appliance can't run here (OVA, needs ESXi + a Broadcom entitlement),
+# so this serves the exact API surface AriaOperationsClient touches.
+#
+#   docker compose up -d
+#   curl -s -X POST http://localhost:8443/suite-api/api/auth/token/acquire \
+#        -H 'Content-Type: application/json' -H 'Accept: application/json' \
+#        -d '{"username":"admin","password":"Aria!2024"}'
+#   curl -s 'http://localhost:8443/suite-api/api/adapterkinds' \
+#        -H 'Accept: application/json' -H 'Authorization: OpsToken <token>'
+services:
+  aria-operations-mock:
+    image: python:3.12-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_suite_api.py:/srv/mock_suite_api.py:ro
+    command: sh -c "pip install --quiet fastapi uvicorn && python mock_suite_api.py"
+    environment:
+      ARIA_MOCK_PORT: "8443"
+      # Shrink to make refresh-on-401 observable: ARIA_MOCK_TOKEN_TTL: "10"
+      # Pin the incident start (epoch ms) for deterministic tests:
+      # ARIA_MOCK_INCIDENT_START: "1756865400000"
+    ports:
+      - "8443:8443"

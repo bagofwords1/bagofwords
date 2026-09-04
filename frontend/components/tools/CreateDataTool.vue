@@ -145,7 +145,7 @@
          Small table results stay hidden until the user expands the tool via
          the existing header chevron; charts and larger tables always render. -->
     <div class="mt-2" v-if="hasPreview && status !== 'error' && (!autoCollapsePreview || !createDataCollapsed)">
-      <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" />
+      <ToolWidgetPreview :tool-execution="toolExecution" :readonly="readonly" :can-expand="canExpand" @addWidget="onAddWidget" @toggleSplitScreen="$emit('toggleSplitScreen')" @editQuery="$emit('editQuery', $event)" @openDataPanel="$emit('openDataPanel', $event)" />
     </div>
   </div>
   <QueryCodeEditorModal
@@ -203,8 +203,8 @@ interface Props {
   }
 }
 
-const props = defineProps<Props & { readonly?: boolean; dataSources?: DataSource[] }>()
-const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
+const props = defineProps<Props & { readonly?: boolean; dataSources?: DataSource[]; canExpand?: boolean }>()
+const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
 const codeCollapsed = ref(true)
 const createDataCollapsed = ref(true) // Collapsed by default

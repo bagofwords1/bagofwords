@@ -413,3 +413,71 @@ def inject_section_into_code(
     )
 
     return existing_code[:script_close_pos] + addition + existing_code[script_close_pos:]
+
+
+def _removed_stub(visualization_id: str) -> str:
+    """The empty-data stand-in a removed viz's references are rewritten to.
+
+    Runtime viz objects carry ``rows``/``columns`` at TOP level (see
+    ArtifactFrame's vizData and artifact-globals.js consumers); ``data.rows``
+    is kept too for code that reads the step-shaped form. Single source of
+    truth: the restore pattern is derived from this exact string, so the two
+    can never drift apart.
+    """
+    return (
+        '({ rows: [], columns: [], data: { rows: [], columns: [] }, '
+        'view: null, title: "" } '
+        f'/* removed:{visualization_id} */)'
+    )
+
+
+def stub_out_viz_references(code: str, visualization_id: str) -> str:
+    """Replace every ``vizById("<id>")`` with an empty-data stub TAGGED with
+    the id, so the section keeps rendering (empty) instead of crashing the
+    page — and so a later re-add can find the stub and restore the original
+    binding in place (see ``restore_removed_viz_references``)."""
+    stub = _removed_stub(visualization_id)
+    return re.sub(
+        r"vizById\(\s*['\"]" + re.escape(str(visualization_id)) + r"['\"]\s*\)",
+        lambda _m: stub,
+        code,
+    )
+
+
+def restore_removed_viz_references(code: str, visualization_id: str):
+    """Inverse of ``stub_out_viz_references``: swap the tagged stubs back to
+    ``vizById("<id>")``. Returns the new code, or None when the code carries
+    no tagged stub for this id (i.e. there is nothing to restore and the
+    caller should fall back to injecting a fresh section)."""
+    pattern = re.compile(re.escape(_removed_stub(visualization_id)))
+    new_code, count = pattern.subn(f'vizById("{visualization_id}")', code)
+    return new_code if count else None
+
+
+# The terminator is anchored to the _obs.observe line that closes every
+# injected block. A bare non-greedy `\}\)\(\);` would stop at the FIRST
+# `})();` — which chart-type blocks contain internally in their
+# `var _opt = (() => {...})();` line — truncating the match and leaving
+# syntactically broken code behind.
+_INJECTED_BLOCK_RE = re.compile(
+    r"\n*// --- Programmatically added visualization ---\n"
+    r"\(function\(\) \{.*?_obs\.observe\([^\n]*\);\n\}\)\(\);\n",
+    re.DOTALL,
+)
+
+
+def remove_injected_section(code: str, visualization_id: str) -> str:
+    """Strip the programmatically injected block that renders ``visualization_id``.
+
+    Only matches the exact IIFE template ``inject_section_into_code`` appends,
+    and only when the block references the given id (callers migrate
+    positional refs to ``vizById("<uuid>")`` first, so the id is present as a
+    quoted literal). LLM-authored sections are left alone — they cannot be
+    removed statically.
+    """
+    quoted = re.compile(r"['\"]" + re.escape(str(visualization_id)) + r"['\"]")
+
+    def _repl(m: "re.Match[str]") -> str:
+        return "\n" if quoted.search(m.group(0)) else m.group(0)
+
+    return _INJECTED_BLOCK_RE.sub(_repl, code)

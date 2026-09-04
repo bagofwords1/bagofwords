@@ -59,6 +59,16 @@ class TestIndexSearch:
         hits = _index_search(rows, "acme", 10)
         assert hits[0]["path"] == "notes/acme.md"
 
+    def test_numeric_query_matches_path(self):
+        # A case number lives only in the folder segment of the path; the
+        # query tokenizer must keep digit runs so it scores against it.
+        rows = [
+            _row("6044534/appendix.pdf", ["appendix", "guarantee"]),
+            _row("7000001/appendix.pdf", ["appendix", "guarantee"]),
+        ]
+        hits = _index_search(rows, "case 6044534", 10)
+        assert [h["path"] for h in hits] == ["6044534/appendix.pdf"]
+
     def test_empty_when_not_indexed(self):
         # rows carry NO keywords -> not indexed -> [] (caller falls back to live)
         rows = [_row("a.csv"), _row("b.csv")]

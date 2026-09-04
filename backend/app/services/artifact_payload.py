@@ -53,7 +53,12 @@ async def collect_visualizations(db, artifact) -> list[dict[str, Any]]:
     viz_stmt = (
         select(Visualization)
         .options(selectinload(Visualization.query))
-        .where(Visualization.report_id == artifact.report_id)
+        .where(
+            Visualization.report_id == artifact.report_id,
+            # Soft-deleted queries take their visualizations with them —
+            # exports and thumbnails must not keep serving deleted data
+            Visualization.deleted_at.is_(None),
+        )
     )
     viz_result = await db.execute(viz_stmt)
     visualizations = _ordered_visualizations(artifact, list(viz_result.scalars().all()))

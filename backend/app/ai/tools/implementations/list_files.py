@@ -50,7 +50,8 @@ class ListFilesTool(Tool):
                 "this reads the source directly (always current); otherwise it "
                 "reads the fast cached catalog. Returns up to 500 files. Only "
                 "files matching the connection's configured patterns are "
-                "visible. Filter by filename with name_pattern (glob: '*.xlsx')."
+                "visible. Filter with name_pattern (glob, matched against the filename "
+                "and the relative path: '*.xlsx', '*6044534*')."
             ),
             category="research",
             input_schema=ListFilesInput.model_json_schema(),
@@ -128,9 +129,16 @@ class ListFilesTool(Tool):
 
     def _apply(self, raw: List[dict], name_pattern) -> tuple:
         files = []
+        pat = (name_pattern or "").lower()
         for f in raw:
             name = f.get("name") or f.get("path") or f.get("id")
-            if name_pattern and not fnmatch.fnmatch(str(name).lower(), name_pattern.lower()):
+            # Match the bare filename OR the source-relative path, mirroring
+            # grep_files. A case folder named `6044534` holds files whose
+            # names carry no case number — `*6044534*` must still find them.
+            if pat and not (
+                fnmatch.fnmatch(str(name).lower(), pat)
+                or fnmatch.fnmatch(str(f.get("path") or name).lower(), pat)
+            ):
                 continue
             files.append({
                 "id": f.get("id") or f.get("file_id") or name,
@@ -229,8 +237,23 @@ class ListFilesTool(Tool):
             yield self._fail(data.connection_id, f"Failed to read cached catalog: {e}")
             return
 
+        # The catalog is flat (name == source-relative path), so scope
+        # folder_id / recursive here — the live path gets them from the client.
+        # Only when the id is a path the catalog knows: an opaque provider
+        # folder id (Graph/Drive) matches nothing, and blanking the listing
+        # for it would be worse than the unscoped list it always returned.
+        folder = (data.folder_id or "").strip().strip("/")
+        prefix = f"{folder}/" if folder else ""
+        if prefix and not any(str(t.name or "").startswith(prefix) for t in (tables or [])):
+            prefix = ""
         raw = []
         for t in (tables or []):
+            rel = str(t.name or "")
+            if prefix:
+                if not rel.startswith(prefix):
+                    continue
+                if not data.recursive and "/" in rel[len(prefix):]:
+                    continue
             meta_json = getattr(t, "metadata_json", None) or {}
             sub = next((meta_json.get(k) for k in _FILE_METADATA_KEYS if meta_json.get(k)), {}) or {}
             raw.append({

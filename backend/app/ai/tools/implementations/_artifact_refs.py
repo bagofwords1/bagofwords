@@ -126,6 +126,30 @@ def migrate_positional_viz_refs(code: str, viz_ids: List[str]) -> Tuple[str, int
     return new_code, count
 
 
+def referenced_viz_ids(code: str, viz_ids: List[str]) -> List[str]:
+    """Subset of ``viz_ids`` the code actually binds (renders), in list order.
+
+    The coverage rule shared with ``viz_reference_errors``: whole-list
+    iteration binds every viz; otherwise a viz is bound when its id appears
+    quoted (``vizById()`` or any other id-keyed lookup) or an in-range
+    positional ``viz[N]`` points at it.
+    """
+    src = code or ""
+    ids = [str(v) for v in viz_ids or []]
+    if not ids or not src.strip():
+        return []
+    if VIZ_ITERATION_RE.search(src):
+        return ids
+    referenced = set(VIZ_BY_ID_RE.findall(src)) & set(ids)
+    referenced |= _quoted_id_refs(src, ids)
+    positional = {int(m) for m in VIZ_POSITIONAL_RE.findall(src)}
+    positional |= {int(m) for m in DATA_VIZ_POSITIONAL_RE.findall(src)}
+    for idx in positional:
+        if 0 <= idx < len(ids):
+            referenced.add(ids[idx])
+    return [vid for vid in ids if vid in referenced]
+
+
 def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     """Contract check: viz references in code must match the data payload.
 
@@ -167,14 +191,8 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
     # map/forEach satisfies it; otherwise every id must be named (by id or
     # in-range index). A non-empty payload with NO references at all is the
     # worst case — a chartless page — and is always an error.
-    if ids and src.strip() and not VIZ_ITERATION_RE.search(src):
-        referenced = set()
-        referenced |= id_refs & known
-        # Any binding style counts, not just vizById() — see _quoted_id_refs.
-        referenced |= _quoted_id_refs(src, ids)
-        for idx in positional_idxs:
-            if idx < len(ids):
-                referenced.add(ids[idx])
+    if ids and src.strip():
+        referenced = set(referenced_viz_ids(src, ids))
         missing = [vid for vid in ids if vid not in referenced]
         if missing:
             names = ", ".join(f"\"{titles.get(vid, 'Untitled')}\" (vizById(\"{vid}\"))" for vid in missing)

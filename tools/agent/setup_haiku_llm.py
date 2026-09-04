@@ -54,9 +54,8 @@ print("provider test_connection:", t.status_code, t.text[:200])
 models = c.get("/api/llm/models", headers=H).json()
 existing = next((m for m in models if m.get("model_id") == MODEL_ID), None)
 if existing:
-    c.patch(f"/api/llm/models/{existing['id']}",
-            json={"is_default": True, "is_small_default": True, "is_enabled": True}, headers=H)
-    print("reused + defaulted model", existing["id"])
+    mid = existing["id"]
+    print("reusing model", mid)
 else:
     r = c.post("/api/llm/models", json={
         "provider_id": pid, "name": "Claude Haiku 4.5", "model_id": MODEL_ID,
@@ -65,6 +64,17 @@ else:
     }, headers=H)
     if r.status_code not in (200, 201):
         sys.exit(f"create model failed: {r.status_code} {r.text}")
-    print("created default model", r.json().get("id"))
+    mid = r.json().get("id")
+    print("created model", mid)
+
+# is_default is not a PATCH-able field (LLMModelUpdate has no such member);
+# the dedicated endpoint is what flips the org default.
+for small in (False, True):
+    r = c.post(f"/api/llm/models/{mid}/set_default", params={"small": str(small).lower()}, headers=H)
+    if r.status_code != 200:
+        sys.exit(f"set_default(small={small}) failed: {r.status_code} {r.text}")
+defaults = [m for m in c.get("/api/llm/models", headers=H).json() if m.get("is_default")]
+assert [m["model_id"] for m in defaults] == [MODEL_ID], defaults
+print("default model:", MODEL_ID)
 
 print("HAIKU LLM CONFIGURED")

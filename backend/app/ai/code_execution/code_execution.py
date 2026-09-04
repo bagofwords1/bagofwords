@@ -15,7 +15,7 @@ import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import redirect_stdout
-from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine
+from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
 
@@ -348,6 +348,10 @@ FORBIDDEN_MODULES = frozenset({
     'tempfile', 'pathlib', 'glob', 'fnmatch',
     'signal', 'resource', 'sysconfig', 'platform',
     'webbrowser', 'antigravity', 'this',
+    # joblib.dump/load serialize straight to a filesystem path (and unpickle on
+    # load), which would sidestep the `open`/`pickle` bans. scikit-learn's own
+    # internal joblib use is unaffected — the AST check only sees model code.
+    'joblib',
 })
 
 # Built-in functions that should never be called
@@ -387,24 +391,74 @@ FORBIDDEN_ATTRIBUTES = frozenset({
 })
 
 
+# Modules that exist only to train models. They are not a security risk, so
+# they are NOT in FORBIDDEN_MODULES; they are gated by the organization's
+# `enable_ml_training` setting instead (see ml_training_settings) and
+# rejected at validation time when that is off, so a disabled workspace fails
+# fast with a clear reason rather than mid-execution.
+ML_TRAINING_MODULES = frozenset({'sklearn', 'scipy'})
+
+# Default and floor for `ml_training_row_limit` — the row count the coder
+# prompt tells generated code to sample down to before fitting.
+ML_TRAINING_ROW_LIMIT_DEFAULT = 50_000
+ML_TRAINING_ROW_LIMIT_MIN = 1_000
+
+
+def ml_training_settings(organization_settings) -> Tuple[bool, int]:
+    """Return ``(enabled, row_limit)`` for scikit-learn use in generated code.
+
+    Both come from org settings (`enable_ml_training`, default on;
+    `ml_training_row_limit`, default 50,000, floored at 1,000 so an edited
+    value can't make every fit degenerate). ``None`` settings — unit tests,
+    legacy callers — get the defaults.
+    """
+    enabled, row_limit = True, ML_TRAINING_ROW_LIMIT_DEFAULT
+    if organization_settings is None:
+        return enabled, row_limit
+    try:
+        cfg = organization_settings.get_config("enable_ml_training")
+        if cfg is not None:
+            enabled = bool(getattr(cfg, "value", True))
+    except Exception:
+        pass
+    try:
+        cfg = organization_settings.get_config("ml_training_row_limit")
+        val = int(getattr(cfg, "value", row_limit) or row_limit)
+        row_limit = max(ML_TRAINING_ROW_LIMIT_MIN, val)
+    except Exception:
+        pass
+    return enabled, row_limit
+
+
 class CodeSecurityVisitor(ast.NodeVisitor):
     """AST visitor that checks for dangerous code patterns."""
 
-    def __init__(self):
+    def __init__(self, extra_forbidden_modules: FrozenSet[str] = frozenset()):
         self.errors: List[str] = []
+        # Org-gated modules (ML_TRAINING_MODULES when training is off) join
+        # the static denylist for this validation only.
+        self.forbidden_modules = FORBIDDEN_MODULES | frozenset(extra_forbidden_modules)
+        self._gated = frozenset(extra_forbidden_modules)
+
+    def _import_error(self, shown: str, module_name: str) -> str:
+        if module_name in self._gated:
+            return (f"Forbidden import: '{shown}' — machine-learning training "
+                    "(scikit-learn/scipy) is disabled for this organization; "
+                    "use pandas/numpy instead")
+        return f"Forbidden import: '{shown}'"
 
     def visit_Import(self, node: ast.Import):
         for alias in node.names:
             module_name = alias.name.split('.')[0]
-            if module_name in FORBIDDEN_MODULES:
-                self.errors.append(f"Forbidden import: '{alias.name}'")
+            if module_name in self.forbidden_modules:
+                self.errors.append(self._import_error(alias.name, module_name))
         self.generic_visit(node)
 
     def visit_ImportFrom(self, node: ast.ImportFrom):
         if node.module:
             module_name = node.module.split('.')[0]
-            if module_name in FORBIDDEN_MODULES:
-                self.errors.append(f"Forbidden import: 'from {node.module}'")
+            if module_name in self.forbidden_modules:
+                self.errors.append(self._import_error(f"from {node.module}", module_name))
         self.generic_visit(node)
 
     def visit_Call(self, node: ast.Call):
@@ -478,9 +532,12 @@ class CodeSecurityVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
 
-def validate_python_code(code: str) -> None:
+def validate_python_code(code: str, extra_forbidden_modules: FrozenSet[str] = frozenset()) -> None:
     """
     Validate Python code for security issues using AST analysis.
+
+    ``extra_forbidden_modules`` adds org-gated modules (e.g. ML_TRAINING_MODULES
+    when `enable_ml_training` is off) to the static denylist for this call.
 
     Raises:
         UnsafePythonError: If the code contains dangerous constructs.
@@ -492,7 +549,7 @@ def validate_python_code(code: str) -> None:
         # with a more descriptive error
         return
 
-    visitor = CodeSecurityVisitor()
+    visitor = CodeSecurityVisitor(extra_forbidden_modules=extra_forbidden_modules)
     visitor.visit(tree)
 
     if visitor.errors:
@@ -1091,8 +1148,14 @@ class StreamingCodeExecutor:
             span.set_attribute("code_execution.clients", len(ds_clients or {}))
             span.set_attribute("code_execution.excel_files", len(excel_files or []))
 
-            # Security: Validate Python code and SQL strings before execution
-            validate_python_code(code)
+            # Security: Validate Python code and SQL strings before execution.
+            # sklearn/scipy are org-gated: when training is off they are
+            # rejected here, with a reason, instead of failing mid-run.
+            _ml_enabled, _ = ml_training_settings(self.organization_settings)
+            validate_python_code(
+                code,
+                extra_forbidden_modules=frozenset() if _ml_enabled else ML_TRAINING_MODULES,
+            )
             # Param values must never travel through string formatting — the
             # rendering wrapper is the only place values meet SQL.
             from app.ai.code_execution.query_params import check_params_not_formatted

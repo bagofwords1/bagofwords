@@ -355,6 +355,7 @@ def _resolve_reasoning_effort(
     return "off"
 
 
+from app.ai.code_execution.code_execution import ml_training_settings
 from app.ai.agents.planner import PlannerV2, PlannerV3
 from app.ai.agents.notes_context import build_notes_context
 from app.ai.run_control import (
@@ -4479,6 +4480,7 @@ class AgentV2:
                             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+                            ml_training_enabled=ml_training_settings(self.organization_settings)[0],
                             notes_enabled=getattr(self, "_notes_enabled", False),
                             notes_context=(await build_notes_context(self.db, str(self.report_id)) if getattr(self, "_notes_enabled", False) and self.report else None),
                             project_context=(await self._build_project_context()),
@@ -6845,6 +6847,7 @@ class AgentV2:
             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
+            ml_training_enabled=ml_training_settings(self.organization_settings)[0],
             notes_enabled=_notes_on,
             notes_context=(await build_notes_context(self.db, str(self.report_id)) if _notes_on and self.report else None),
             project_context=(await self._build_project_context()),

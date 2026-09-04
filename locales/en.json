@@ -1364,7 +1364,11 @@
       "copyIdTooltip": "Copy query ID",
       "copied": "Copied",
       "copiedDesc": "Query ID copied to clipboard",
-      "copyFailed": "Failed to copy"
+      "copyFailed": "Failed to copy",
+      "openInPanel": "Open in side panel",
+      "closeDataPanel": "Close data view",
+      "dataTab": "Data",
+      "loadingRows": "Loading all rows…"
     },
     "generic": {
       "running": "Running...",
@@ -2590,6 +2594,14 @@
           "name": "Reuse prior steps (load_step)",
           "description": "Let generated code reuse a prior step's results in this report via load_step instead of re-querying. When off, load_step is neither advertised to the agent nor available at runtime."
         },
+        "enable_ml_training": {
+          "name": "Machine learning (scikit-learn)",
+          "description": "Let generated code train scikit-learn models (classification, regression, clustering, feature importance) on query results and uploaded files. Training runs in-process on the server; turn off to keep generated code to pandas/numpy analysis only."
+        },
+        "ml_training_row_limit": {
+          "name": "ML training row limit",
+          "description": "Maximum number of rows generated code should train a model on. Larger sources are sampled down to this size before fitting. Minimum 1000."
+        },
         "enable_custom_queries": {
           "name": "Custom queries (beta)",
           "description": "Let connection admins define SQL that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
@@ -3443,6 +3455,23 @@
     "polishDashboard": "Polish Dashboard"
   },
   "artifactFrame": {
+    "dataAddQuery": "Add query",
+    "dataNoQueriesToAdd": "No queries to add",
+    "dataAddFailed": "Failed to add query to the dashboard",
+    "dataUntitledQuery": "Untitled query",
+    "dataNeverRun": "Never ran",
+    "dataRemove": "Remove from dashboard",
+    "dataRemoveConfirm": "Remove this query from the dashboard? The query stays in the report and can be added back later.",
+    "dataRemoveFailed": "Failed to remove query",
+    "dataNoResult": "No results yet — run the query to see data",
+    "dataLastRun": "Last run {time}",
+    "dataInUse": "In use",
+    "dataNotUsed": "Not used",
+    "dataInUseHint": "Rendered by the dashboard code",
+    "dataNotUsedHint": "On the dashboard, but not rendered by its code",
+    "viewData": "View data",
+    "dataTitle": "Data",
+    "dataEmpty": "No data available",
     "loading": "Loading…",
     "loadingArtifact": "Loading artifact…",
     "refreshed": "Dashboard refreshed",

@@ -103,6 +103,8 @@
             :tool-execution="te"
             :readonly="true"
             :initial-collapsed="true"
+            :can-expand="canExpand"
+            @openDataPanel="$emit('openDataPanel', $event)"
           />
         </div>
       </section>
@@ -199,6 +201,8 @@ import WebhookConfigModal from '~/components/report/WebhookConfigModal.vue'
 import NoteDetailsModal from '~/components/report/NoteDetailsModal.vue'
 
 const props = defineProps<{
+  /** Host page has a side panel the query cards can open into. */
+  canExpand?: boolean
   scheduledPrompts: any[]
   artifactList: any[]
   queryList: any[]
@@ -312,6 +316,7 @@ const artifactIconClass = (mode: string): string =>
 const emit = defineEmits([
   'editScheduledPrompt',
   'openArtifact',
+  'openDataPanel',
   'scrollToMessage',
   'close',
 ])

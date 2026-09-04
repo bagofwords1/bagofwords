@@ -2426,6 +2426,14 @@
           "name": "Riutilizza i passi precedenti (load_step)",
           "description": "Consente al codice generato di riutilizzare i risultati di un passo precedente di questo report tramite load_step invece di rieseguire la query. Quando è disattivato, load_step non viene proposto all'agente né è disponibile in fase di esecuzione."
         },
+        "enable_ml_training": {
+          "name": "Machine learning (scikit-learn)",
+          "description": "Consente al codice generato di addestrare modelli scikit-learn (classificazione, regressione, clustering, importanza delle variabili) su risultati di query e file caricati. L'addestramento gira nel processo del server; disattiva per limitare il codice generato all'analisi con pandas/numpy."
+        },
+        "ml_training_row_limit": {
+          "name": "Limite di righe per l'addestramento ML",
+          "description": "Numero massimo di righe su cui il codice generato deve addestrare un modello. Le sorgenti più grandi vengono campionate a questa dimensione prima dell'addestramento. Minimo 1000."
+        },
         "enable_custom_queries": {
           "name": "Query personalizzate (beta)",
           "description": "Consente agli amministratori delle connessioni di definire SQL che BOW materializza in una copia locale cifrata secondo una pianificazione, così gli agenti rispondono dal risultato memorizzato anziché interrogare la sorgente a ogni turno. Beta: disattivato per impostazione predefinita."
@@ -3284,6 +3292,23 @@
     "polishDashboard": "Rifinisci dashboard"
   },
   "artifactFrame": {
+    "dataAddQuery": "Aggiungi query",
+    "dataNoQueriesToAdd": "Nessuna query da aggiungere",
+    "dataAddFailed": "Impossibile aggiungere la query alla dashboard",
+    "dataUntitledQuery": "Query senza titolo",
+    "dataNeverRun": "Mai eseguita",
+    "dataRemove": "Rimuovi dalla dashboard",
+    "dataRemoveConfirm": "Rimuovere questa query dalla dashboard? La query resta nel report e può essere riaggiunta.",
+    "dataRemoveFailed": "Impossibile rimuovere la query",
+    "dataNoResult": "Ancora nessun risultato — esegui la query per vedere i dati",
+    "dataLastRun": "Ultima esecuzione {time}",
+    "dataInUse": "In uso",
+    "dataNotUsed": "Non usato",
+    "dataInUseHint": "Renderizzato dal codice della dashboard",
+    "dataNotUsedHint": "È nella dashboard, ma il codice non lo renderizza",
+    "viewData": "Visualizza dati",
+    "dataTitle": "Dati",
+    "dataEmpty": "Nessun dato disponibile",
     "loading": "Caricamento…",
     "loadingArtifact": "Caricamento dell'artefatto…",
     "refreshed": "Dashboard aggiornata",

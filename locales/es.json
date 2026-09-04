@@ -1290,7 +1290,11 @@
       "copyIdTooltip": "Copiar ID de la consulta",
       "copied": "Copiado",
       "copiedDesc": "ID de la consulta copiado al portapapeles",
-      "copyFailed": "Error al copiar"
+      "copyFailed": "Error al copiar",
+      "openInPanel": "Abrir en el panel lateral",
+      "closeDataPanel": "Cerrar vista de datos",
+      "dataTab": "Datos",
+      "loadingRows": "Cargando todas las filas…"
     },
     "generic": {
       "running": "Ejecutando...",
@@ -2510,6 +2514,14 @@
           "name": "Reutilizar pasos anteriores (load_step)",
           "description": "Permite que el código generado reutilice los resultados de un paso anterior de este informe mediante load_step en lugar de volver a consultar. Cuando está desactivado, load_step no se ofrece al agente ni está disponible en tiempo de ejecución."
         },
+        "enable_ml_training": {
+          "name": "Aprendizaje automático (scikit-learn)",
+          "description": "Permite que el código generado entrene modelos de scikit-learn (clasificación, regresión, clustering, importancia de variables) sobre resultados de consultas y archivos subidos. El entrenamiento se ejecuta en el propio servidor; desactívalo para limitar el código generado a análisis con pandas/numpy."
+        },
+        "ml_training_row_limit": {
+          "name": "Límite de filas para entrenamiento ML",
+          "description": "Número máximo de filas con las que el código generado debe entrenar un modelo. Las fuentes más grandes se muestrean hasta este tamaño antes de ajustar. Mínimo 1000."
+        },
         "enable_custom_queries": {
           "name": "Consultas personalizadas (beta)",
           "description": "Permite a los administradores de conexiones definir SQL que BOW materializa en una copia local cifrada según una programación, de modo que los agentes respondan desde el resultado almacenado en lugar de consultar la fuente en cada turno. Beta: desactivado por defecto."
@@ -3375,6 +3387,23 @@
     "polishDashboard": "Pulir panel"
   },
   "artifactFrame": {
+    "dataAddQuery": "Añadir consulta",
+    "dataNoQueriesToAdd": "No hay consultas para añadir",
+    "dataAddFailed": "No se pudo añadir la consulta al panel",
+    "dataUntitledQuery": "Consulta sin título",
+    "dataNeverRun": "Nunca ejecutada",
+    "dataRemove": "Quitar del panel",
+    "dataRemoveConfirm": "¿Quitar esta consulta del panel? La consulta permanece en el informe y se puede volver a añadir.",
+    "dataRemoveFailed": "No se pudo eliminar la consulta",
+    "dataNoResult": "Aún no hay resultados: ejecuta la consulta para ver datos",
+    "dataLastRun": "Última ejecución {time}",
+    "dataInUse": "En uso",
+    "dataNotUsed": "Sin usar",
+    "dataInUseHint": "Renderizado por el código del panel",
+    "dataNotUsedHint": "Está en el panel, pero su código no lo renderiza",
+    "viewData": "Ver datos",
+    "dataTitle": "Datos",
+    "dataEmpty": "No hay datos disponibles",
     "loading": "Cargando…",
     "loadingArtifact": "Cargando artefacto…",
     "refreshed": "Panel actualizado",

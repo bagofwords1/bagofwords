@@ -2115,7 +2115,11 @@ class ReportService:
                 lazyload("*"),
                 selectinload(Query.visualizations).options(lazyload("*")),
             )
-            .where(Query.report_id == report_id, Step.status == 'success')
+            .where(
+                Query.report_id == report_id,
+                Query.deleted_at.is_(None),
+                Step.status == 'success',
+            )
         )
 
         # Apply artifact filter if present

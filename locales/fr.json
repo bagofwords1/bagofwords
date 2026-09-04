@@ -2426,6 +2426,14 @@
           "name": "Réutiliser les étapes précédentes (load_step)",
           "description": "Permet au code généré de réutiliser les résultats d'une étape antérieure de ce rapport via load_step au lieu de relancer la requête. Lorsque l'option est désactivée, load_step n'est ni proposé à l'agent ni disponible à l'exécution."
         },
+        "enable_ml_training": {
+          "name": "Apprentissage automatique (scikit-learn)",
+          "description": "Autorise le code généré à entraîner des modèles scikit-learn (classification, régression, clustering, importance des variables) sur les résultats de requêtes et les fichiers importés. L'entraînement s'exécute dans le processus du serveur ; désactivez pour limiter le code généré à l'analyse pandas/numpy."
+        },
+        "ml_training_row_limit": {
+          "name": "Limite de lignes pour l'entraînement ML",
+          "description": "Nombre maximal de lignes sur lesquelles le code généré doit entraîner un modèle. Les sources plus volumineuses sont échantillonnées à cette taille avant l'entraînement. Minimum 1000."
+        },
         "enable_custom_queries": {
           "name": "Requêtes personnalisées (bêta)",
           "description": "Permet aux administrateurs de connexion de définir du SQL que BOW matérialise dans une copie locale chiffrée selon une planification, afin que les agents répondent à partir du résultat mis en cache plutôt que d'interroger la source à chaque tour. Bêta : désactivé par défaut."
@@ -3284,6 +3292,23 @@
     "polishDashboard": "Peaufiner le tableau de bord"
   },
   "artifactFrame": {
+    "dataAddQuery": "Ajouter une requête",
+    "dataNoQueriesToAdd": "Aucune requête à ajouter",
+    "dataAddFailed": "Échec de l'ajout de la requête au tableau de bord",
+    "dataUntitledQuery": "Requête sans titre",
+    "dataNeverRun": "Jamais exécutée",
+    "dataRemove": "Retirer du tableau de bord",
+    "dataRemoveConfirm": "Retirer cette requête du tableau de bord ? La requête reste dans le rapport et peut être rajoutée plus tard.",
+    "dataRemoveFailed": "Échec de la suppression de la requête",
+    "dataNoResult": "Pas encore de résultats — exécutez la requête pour voir les données",
+    "dataLastRun": "Dernière exécution {time}",
+    "dataInUse": "Utilisé",
+    "dataNotUsed": "Non utilisé",
+    "dataInUseHint": "Rendu par le code du tableau de bord",
+    "dataNotUsedHint": "Présent sur le tableau de bord, mais son code ne l'affiche pas",
+    "viewData": "Voir les données",
+    "dataTitle": "Données",
+    "dataEmpty": "Aucune donnée disponible",
     "loading": "Chargement…",
     "loadingArtifact": "Chargement de l'artefact…",
     "refreshed": "Tableau de bord actualisé",

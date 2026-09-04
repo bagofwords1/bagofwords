@@ -29,7 +29,9 @@ from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
 _FILE_METADATA_KEYS = ("network_dir", "graph", "google_drive", "s3")
-_WORD_RE = re.compile(r"[^\W\d_]{2,}", re.UNICODE)
+# Query tokens keep digit runs (case numbers, IDs) — unlike the indexer's
+# body tokenizer — so "6044534" scores against a name/path that carries it.
+_WORD_RE = re.compile(r"[^\W_]{2,}", re.UNICODE)
 
 
 def _index_search(tables, query: str, max_results: int) -> List[Dict[str, Any]]:

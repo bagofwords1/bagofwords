@@ -399,6 +399,7 @@
 													:system-completion-id="m.system_completion_id || m.id"
 													:can-expand="!isMobile"
 													@openFilePreview="openFilePreview"
+													@openDataPanel="openDataPanel"
 													@addWidget="handleAddWidgetFromPreview"
 													@refreshDashboard="refreshDashboardFast"
 													@toggleSplitScreen="toggleSplitScreen"
@@ -425,7 +426,7 @@
 											
 											<!-- Tool widget preview -->
 											<div class="mt-1" v-if="shouldShowToolWidgetPreview(block.tool_execution) && block.tool_execution">
-												<ToolWidgetPreview :tool-execution="block.tool_execution" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" />
+												<ToolWidgetPreview :tool-execution="block.tool_execution" :can-expand="!isMobile" @addWidget="handleAddWidgetFromPreview" @toggleSplitScreen="toggleSplitScreen" @editQuery="handleEditQuery" @openDataPanel="openDataPanel" />
 											</div>
 											</div>
 
@@ -912,6 +913,27 @@
 					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
 					{{ currentAgents.length > 1 ? $t('reportView.tabAgents') : (currentAgents[0]?.name || $t('reportView.tabAgent')) }}
 				</button>
+				<!-- Only while a query result is open in the pane. Transient, with
+				     its own dismiss; closing returns to the view that was open. -->
+				<button
+					v-if="panelData"
+					@click="rightPanelView = 'data'"
+					class="flex items-center gap-1.5 ps-3 pe-2 py-1.5 text-xs font-medium rounded-lg transition-colors max-w-[220px]"
+					:class="rightPanelView === 'data'
+						? 'text-gray-900 dark:text-white bg-gray-100 dark:bg-gray-800'
+						: 'text-gray-400 hover:text-gray-600'"
+					data-testid="data-panel-tab"
+				>
+					<Icon :name="panelData.visual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 shrink-0" />
+					<span class="truncate">{{ panelData.title || $t('tools.widgetPreview.dataTab') }}</span>
+					<Icon
+						name="heroicons:x-mark"
+						class="w-3 h-3 shrink-0 hover:text-gray-700 dark:hover:text-gray-200"
+						:aria-label="$t('tools.widgetPreview.closeDataPanel')"
+						data-testid="data-panel-close"
+						@click.stop="closeDataPanel"
+					/>
+				</button>
 				<!-- Only while a file is open. Carries its own dismiss so there is
 				     an obvious way back to the dashboard. -->
 				<button
@@ -958,9 +980,11 @@
 						@discardTrainingBuild="onDiscardTrainingBuild"
 						@discardTrainingInstruction="onDiscardTrainingInstruction"
 						:showClose="true"
+						:can-expand="!isMobile"
 						@close="toggleSplitScreen"
 						@editScheduledPrompt="editScheduledPrompt"
 						@openArtifact="handleOpenArtifact"
+						@openDataPanel="openDataPanel"
 						@scrollToMessage="scrollToMessage"
 					/>
 				</div>
@@ -1022,7 +1046,7 @@
 
 			<!-- A document or image opened from a read_file card. Reuses the
 			     same viewer the card renders, at panel size. -->
-			<div v-else-if="rightPanelView === 'file' && panelFile" class="h-full overflow-auto p-3">
+			<div v-else-if="rightPanelView === 'file' && panelFile" class="h-full min-h-0 p-3 flex flex-col overflow-hidden">
 				<FilePreview
 					:key="panelFile.fileId"
 					:kind="panelFile.kind"
@@ -1033,6 +1057,20 @@
 					:name="panelFile.name"
 					:expanded="true"
 					@open="(fid: string) => openImagePreview({ id: fid, filename: panelFile?.name || '' })"
+				/>
+			</div>
+
+			<!-- A query result opened from a tool card. Reuses the same preview
+			     the card renders, in its side-panel mode: full width, full
+			     height, and every edit/download/dashboard control. -->
+			<div v-else-if="rightPanelView === 'data' && panelData" class="h-full overflow-auto p-3">
+				<ToolWidgetPreview
+					:key="panelData.key"
+					:tool-execution="panelData.toolExecution"
+					:expanded="true"
+					@addWidget="handleAddWidgetFromPreview"
+					@toggleSplitScreen="toggleSplitScreen"
+					@editQuery="handleEditQuery"
 				/>
 			</div>
 		</template>
@@ -2282,7 +2320,7 @@ const prefillText = ref('')
 watch(() => report.value?.mode, (m) => { if (m) currentPromptMode.value = m === 'training' ? 'training' : 'chat' }, { immediate: true })
 
 // Right panel view mode
-const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+const rightPanelView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file' | 'data'>('artifact')
 
 // A document/image opened from a read_file card into the side panel. Transient
 // by nature — it exists only while a file is selected, which is why it gets a
@@ -2326,6 +2364,43 @@ function leftWidthFor(view: string): number {
 function closeFilePanel() {
 	panelFile.value = null
 	if (rightPanelView.value === 'file') rightPanelView.value = 'artifact'
+}
+
+// A query result (create_data / read_query / …) opened from its inline card
+// into the side panel, the way a document opens from a read_file card. The
+// tool execution object is the same one the timeline renders, so the panel
+// tracks the card (new default step, visualization edits) for free.
+const panelData = ref<{
+	toolExecution: any
+	title: string
+	visual: boolean
+	key: string
+} | null>(null)
+// The view that was showing when the data pane opened, so closing it goes
+// back there (dashboard, agent, summary…) rather than always to the dashboard.
+const dataPanelReturnView = ref<'grid' | 'artifact' | 'agent' | 'summary' | 'file'>('artifact')
+
+function openDataPanel(payload: { toolExecution: any; title?: string; visual?: boolean }) {
+	const te = payload?.toolExecution
+	if (!te) return
+	panelData.value = {
+		toolExecution: te,
+		title: payload.title || te?.created_widget?.title || te?.created_step?.title || '',
+		visual: !!payload.visual,
+		key: String(te.id || te.created_step_id || Date.now()),
+	}
+	if (isMobile.value) return
+	if (rightPanelView.value !== 'data') dataPanelReturnView.value = rightPanelView.value
+	if (!isSplitScreen.value) toggleSplitScreen()
+	rightPanelView.value = 'data'
+}
+
+function closeDataPanel() {
+	panelData.value = null
+	if (rightPanelView.value !== 'data') return
+	// A file view only exists while its file is open.
+	const back = dataPanelReturnView.value
+	rightPanelView.value = back === 'file' && !panelFile.value ? 'artifact' : back
 }
 
 // Mobile view mode (full-screen single section on narrow screens)

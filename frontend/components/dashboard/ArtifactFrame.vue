@@ -80,6 +80,17 @@
       <div class="flex items-center gap-2">
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
+        <!-- Query manager: the dashboard's queries with last-run status;
+             attach/detach report queries (each creates a new version and
+             broadcasts artifact:created/open, which refreshes this frame) -->
+        <DataModal
+          v-if="report"
+          :report-id="reportId"
+          :artifact-id="selectedArtifact?.id"
+          :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
+          :artifact-mode="selectedArtifact?.mode"
+        />
+
         <!-- Refresh Dashboard (rerun + refresh).
              Disabled while previewing as someone else: neither refresh
              endpoint takes run_as_user_id, so the rerun would resolve
@@ -475,6 +486,7 @@ import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
 import { useMyFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
+import DataModal from './DataModal.vue';
 import ShareModal from '../ShareModal.vue';
 import Spinner from '../Spinner.vue';
 import SlideViewer from './SlideViewer.vue';
