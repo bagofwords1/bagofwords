@@ -29,7 +29,7 @@ from typing import Any, Optional
 from aiohttp import web
 
 from ..config import ConnectionConfig
-from ..data_sources import registry
+from ..data_sources import registry, type_specs
 from ..store import ConnectionStore, StoreError
 from ..tunnel import EdgeAgentTunnel
 
@@ -73,6 +73,8 @@ class AdminServer:
         app.add_routes([
             web.get("/api/status", self._status),
             web.get("/api/types", self._types),
+            web.get("/api/catalog", self._catalog),
+            web.get("/api/catalog/{type}", self._catalog_type),
             web.get("/api/connections", self._list_connections),
             web.post("/api/connections", self._create_connection),
             web.get("/api/connections/{name}", self._get_connection),
@@ -163,6 +165,18 @@ class AdminServer:
 
     async def _types(self, request: web.Request) -> web.Response:
         return web.json_response({"types": registry.known_types()})
+
+    async def _catalog(self, request: web.Request) -> web.Response:
+        """Type-picker grid metadata (type, title, category), grouped-ready."""
+        return web.json_response({"catalog": type_specs.catalog()})
+
+    async def _catalog_type(self, request: web.Request) -> web.Response:
+        """Full field spec for one type — config + credentials JSON-schema and
+        auth options — so the form can render type-specific inputs."""
+        spec = type_specs.get_spec(request.match_info["type"])
+        if spec is None:
+            raise web.HTTPNotFound(reason="no spec for that type")
+        return web.json_response(spec)
 
     async def _list_connections(self, request: web.Request) -> web.Response:
         return web.json_response(

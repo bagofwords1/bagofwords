@@ -8,6 +8,47 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-04 — admin UI: type-specific Add Connection form (C4)
+
+The Add Connection form had one fixed field set (host/port/db/user/pass); each
+type needs its own (QVD takes file-path globs, BigQuery a service-account JSON,
+MSSQL an ODBC-driver select + Kerberos auth). Rebuilt it to mirror the Bow app:
+a type-picker grid → a form rendered from the type's JSON-Schema field spec.
+
+- ✅ **Spec source** — the field definitions are the backend's own Pydantic
+  config/credentials classes (`app/schemas/data_sources/configs.py`, dependency-
+  light) surfaced as `model_json_schema()` with `ui:type` hints — the same source
+  Bow's ConnectForm.vue renders from. The type→classes+metadata mapping lives in
+  the settings-coupled registry, which the edge agent can't import, so the specs
+  are **snapshotted to a self-contained JSON bundle** and shipped with the agent.
+- ✅ **`tools/agent/generate_edge_type_specs.py`** — run in the backend venv,
+  dumps `data_sources/type_specs.json` (65 types; excludes the `custom` category
+  = MCP/CustomAPI). Regenerate after changing configs.py or the registry.
+- ✅ **`data_sources/type_specs.py`** — loads the bundle; `catalog()` (picker
+  grid metadata) + `get_spec(type)` (full config/credentials JSON-Schema + auth).
+- ✅ **Admin API** — `GET /api/catalog` (grid) + `GET /api/catalog/{type}` (spec).
+- ✅ **SPA rebuilt** (`admin/static/index.html`) — Add Connection now opens a
+  **type-picker grid** (categories Databases & warehouses / BI & analytics /
+  Infrastructure / Services / Files & object store, search, monogram tiles) →
+  a **dynamic form** rendered from the spec. Field renderer covers the full
+  `ui:type` vocabulary (string / password / number / boolean / textarea / select
+  / keyvalue / json / stringlist), splits `oauth_` fields into an optional group,
+  offers an auth-variant selector when a type has more than one, validates
+  required fields, and prefills on edit (credentials shown as `•••• (set)`).
+- ✅ **Tests** — `test_type_specs.py` (6) + 3 catalog endpoint tests. Suite: 81.
+- ✅ **Verified live in the rig (browser)** — picker grid renders 65 types;
+  PostgreSQL shows Database/Host/Port(=5432)/Schema + User/Password; MySQL shows
+  Database/Host/Port + User/Password (no schema); MSSQL shows the keyvalue,
+  Encrypt checkbox, ODBC-driver select(=18) and Port(=1433); required-field
+  validation caught a missing MySQL port; a MySQL Test over the tunnel returned
+  "Successfully connected to MySQL"; Edit prefilled config and showed credential
+  placeholders. Screenshots captured.
+- Note: icons are monogram tiles (first letters), not the brand SVGs the Bow
+  frontend ships — replicating 65 brand assets in the standalone SPA was out of
+  scope; the tiles carry the title + category so the grid reads clearly.
+
+---
+
 ## 2026-09-03 (cont.) — production Docker image + entrypoint (design Step 9 / E1)
 
 - ✅ **`data_plane/Dockerfile`** — multi-stage, built from the repo root so the

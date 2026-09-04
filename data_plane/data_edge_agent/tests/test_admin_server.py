@@ -158,6 +158,28 @@ async def test_status_and_types(client):
     assert "postgresql" in t["types"] and "mysql" in t["types"]
 
 
+async def test_catalog_lists_types_for_the_picker(client):
+    r = await client.get("/api/catalog")
+    assert r.status == 200
+    cat = (await r.json())["catalog"]
+    types = {row["type"] for row in cat}
+    assert "postgresql" in types and "mysql" in types
+    assert all({"type", "title", "category"} == set(row) for row in cat)
+
+
+async def test_catalog_type_returns_field_spec(client):
+    r = await client.get("/api/catalog/postgresql")
+    assert r.status == 200
+    spec = await r.json()
+    assert "host" in spec["config"]["properties"]
+    assert spec["credentials_by_auth"][spec["auth"]["default"]]["properties"]["password"]["ui:type"] == "password"
+
+
+async def test_catalog_unknown_type_404(client):
+    r = await client.get("/api/catalog/nope")
+    assert r.status == 404
+
+
 async def test_index_served(client):
     r = await client.get("/")
     assert r.status == 200
