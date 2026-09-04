@@ -13,9 +13,9 @@ export interface ExportOption {
  * Which export formats an artifact can actually produce.
  *
  * Availability is a property of the artifact, not of the screen showing it:
- * a deck is python-pptx source, a page-mode dashboard is the only thing with
- * a React runtime a standalone HTML file could stand up, and a doc renders in
- * Vue so it has neither — the browser's print dialog is its export path.
+ * a deck is python-pptx source, and a page-mode dashboard is the only thing
+ * with a React runtime a standalone HTML file could stand up. A doc exports as
+ * PDF like the rest — the renderer prints the app's own paper page for it.
  *
  * Both the in-app viewer and the public share page read this one list, so a
  * gate added here (a withheld snapshot, a new mode) can never be applied to
@@ -49,9 +49,10 @@ export function useArtifactExports(
         const mode = value.mode || 'page'
         const options: ExportOption[] = []
 
-        // Dashboards only. A deck's download is the deck itself (PPTX), so PDF
-        // is not offered for slides even though the renderer can produce one.
-        if (mode === 'page') {
+        // Dashboards and documents. A deck's download is the deck itself
+        // (PPTX), so PDF is not offered for slides even though the renderer
+        // can produce one.
+        if (mode === 'page' || mode === 'doc') {
             options.push({
                 format: 'pdf',
                 label: t('exports.pdf'),

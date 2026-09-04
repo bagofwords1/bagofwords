@@ -15,7 +15,12 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue'
 
-const props = defineProps<{ fileId: string; alt?: string }>()
+const props = defineProps<{
+  fileId: string
+  alt?: string
+  /** Pre-resolved bytes (headless renders have no session to fetch with). */
+  dataUri?: string
+}>()
 
 const src = ref('')
 const loading = ref(true)
@@ -24,6 +29,11 @@ const { getImageUrl } = useAuthenticatedImage()
 // The file endpoint needs a bearer token, so <img src> can't fetch it directly;
 // the composable pulls the bytes and hands back a blob URL.
 async function load() {
+  if (props.dataUri) {
+    src.value = props.dataUri
+    loading.value = false
+    return
+  }
   loading.value = true
   try {
     src.value = await getImageUrl(props.fileId)

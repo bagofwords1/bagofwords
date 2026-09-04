@@ -4636,7 +4636,8 @@
     "cancel": "Cancelar",
     "saved": "Documento guardado",
     "saveFailed": "No se pudo guardar el documento",
-    "editDiagramSource": "Haz clic para editar el código del diagrama"
+    "editDiagramSource": "Haz clic para editar el código del diagrama",
+    "unsavedForExport": "Guarda el documento antes de exportarlo como PDF"
   },
   "notes": {
     "heading": "Notas",

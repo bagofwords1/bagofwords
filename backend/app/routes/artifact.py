@@ -596,13 +596,14 @@ async def export_artifact_pdf(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Export a dashboard or deck as PDF.
+    """Export a dashboard, deck or document as PDF.
 
     Same renderer the emailed dashboard share already uses
     (ReportPdfService.generate_for_artifact -> headless Chromium over the
     shared snapshot); this only exposes it to the owner in-app, alongside the
-    PPTX and HTML exports above. Docs are excluded: they render in Vue, and
-    the browser's own print dialog is their export path.
+    PPTX and HTML exports above. A document takes the same route: the renderer
+    prints the app's own standalone paper page for it (/print/doc), so a doc
+    exports as a document rather than through the browser's print dialog.
     """
     import os
     from fastapi.responses import FileResponse
@@ -613,12 +614,6 @@ async def export_artifact_pdf(
     artifact = await service.get(db, artifact_id)
     if not artifact:
         raise AppError.not_found(ErrorCode.ARTIFACT_NOT_FOUND, "Artifact not found")
-
-    if (artifact.mode or "page") == "doc":
-        raise HTTPException(
-            status_code=400,
-            detail="Documents cannot be exported as PDF",
-        )
 
     # The render bakes in the shared Step snapshot, exactly as the PPTX and
     # HTML exports do, so it is gated by the same viewer policy.
