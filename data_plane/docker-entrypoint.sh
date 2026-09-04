@@ -47,25 +47,25 @@ CONFIG_FILE="${BOW_EDGE_AGENT_CONFIG:-}"
 if [ -z "$CONFIG_FILE" ] && [ -f /etc/bow/edge-agent.yaml ]; then
   CONFIG_FILE=/etc/bow/edge-agent.yaml
 fi
-#if [ -n "$CONFIG_FILE" ]; then
-#  [ -f "$CONFIG_FILE" ] || die "config file '$CONFIG_FILE' not found"
-#  CONFIG_ARGS=(--config "$CONFIG_FILE")
-#  log "config file: $CONFIG_FILE (env overrides still apply)"
-#else
-#  # No file — identity and broker must come from the environment.
-#  : "${BOW_EDGE_AGENT_NATS_URL:?set BOW_EDGE_AGENT_NATS_URL (e.g. wss://tunnel.bow.com)}"
-#  : "${BOW_EDGE_AGENT_ORG_ID:?set BOW_EDGE_AGENT_ORG_ID}"
-#  : "${BOW_EDGE_AGENT_EDGE_AGENT_ID:?set BOW_EDGE_AGENT_EDGE_AGENT_ID (or BOW_EDGE_AGENT_AGENT_ID)}"
-#  log "config from environment (no config file)"
-#fi
+if [ -n "$CONFIG_FILE" ]; then
+  [ -f "$CONFIG_FILE" ] || die "config file '$CONFIG_FILE' not found"
+  CONFIG_ARGS=(--config "$CONFIG_FILE")
+  log "config file: $CONFIG_FILE (env overrides still apply)"
+else
+  # No file — identity and broker must come from the environment.
+  : "${BOW_EDGE_AGENT_NATS_URL:?set BOW_EDGE_AGENT_NATS_URL (e.g. wss://tunnel.bow.com)}"
+  : "${BOW_EDGE_AGENT_ORG_ID:?set BOW_EDGE_AGENT_ORG_ID}"
+  : "${BOW_EDGE_AGENT_EDGE_AGENT_ID:?set BOW_EDGE_AGENT_EDGE_AGENT_ID (or BOW_EDGE_AGENT_AGENT_ID)}"
+  log "config from environment (no config file)"
+fi
 
 # ── advisories (non-fatal) ───────────────────────────────────────────────────
-#if [ -z "${BOW_EDGE_AGENT_NATS_TOKEN:-}" ]; then
-#  log "WARNING: BOW_EDGE_AGENT_NATS_TOKEN is unset — the broker will reject the connection unless it allows anonymous access."
-#fi
-#if [ -z "${BOW_EDGE_AGENT_STORE_KEY:-}" ]; then
-#  log "WARNING: BOW_EDGE_AGENT_STORE_KEY is unset — a key file will be generated under $DATA_DIR. Supply the key from your own secret management, and keep $DATA_DIR on a persistent volume, or stored credentials will be lost on redeploy."
-#fi
+if [ -z "${BOW_EDGE_AGENT_NATS_TOKEN:-}" ]; then
+  log "WARNING: BOW_EDGE_AGENT_NATS_TOKEN is unset — the broker will reject the connection unless it allows anonymous access."
+fi
+if [ -z "${BOW_EDGE_AGENT_STORE_KEY:-}" ]; then
+  log "WARNING: BOW_EDGE_AGENT_STORE_KEY is unset — a key file will be generated under $DATA_DIR. Supply the key from your own secret management, and keep $DATA_DIR on a persistent volume, or stored credentials will be lost on redeploy."
+fi
 
 log "starting edge agent: org=${BOW_EDGE_AGENT_ORG_ID:-<file>} id=${BOW_EDGE_AGENT_EDGE_AGENT_ID:-<file>} nats=${BOW_EDGE_AGENT_NATS_URL:-<file>} admin=${BOW_EDGE_AGENT_ADMIN_HOST:-127.0.0.1}:${BOW_EDGE_AGENT_ADMIN_PORT:-9191} data_dir=$DATA_DIR"
 
