@@ -6,6 +6,7 @@
 - Added VMware Aria Operations connector for infrastructure RCA (#1056)
 - ServiceNow connector can now fetch record attachments as files (#1057)
 - Dashboard queries can now be managed from the artifact panel's Data modal (#1052)
+- Files are now found by their containing folder, and the read_file PDF card is calmer and more compact (#1059)
 
 ## Version 0.0.553 (September 2, 2026)
 - Saved queries can be loaded with parameter values without LLM code generation: run API, entity page, and the agent's describe_entity

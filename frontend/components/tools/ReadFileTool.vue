@@ -29,9 +29,11 @@
     </Transition>
 
     <!-- Visual previews render on success without being asked, the way a
-         chart does in create_data; only plain text waits behind the chevron.
-         Exception: page-render galleries of a document (preview.derived) are
-         a lossy stand-in, so they wait behind an explicit click. -->
+         chart does in create_data — and the chevron opens by default to say
+         so, since everything below the title row is under it. Plain-text
+         reads stay collapsed. Exception: page-render galleries of a document
+         (preview.derived) are a lossy stand-in, so they wait behind an
+         explicit click. -->
     <button
       v-if="derivedGalleryCollapsed"
       type="button"
@@ -42,7 +44,8 @@
       {{ $t('tools.readFile.showPagePreviews', { n: (preview.image_file_ids || []).length }) }}
     </button>
     <Transition name="fade" appear>
-      <div v-if="showVisualPreview" class="mb-2">
+      <div v-if="showVisualPreview && expanded" class="mb-2">
+        <!-- Inline frame stays compact; the side panel is the full-size view. -->
         <FilePreview
           v-if="preview.kind === 'pdf' || preview.kind === 'image'"
           :kind="preview.kind"
@@ -52,7 +55,6 @@
           :pages-total="preview.pages_total"
           :truncated="preview.truncated"
           :name="rj.file_name"
-          :expanded="expanded"
           :can-expand="canExpand"
           @open="openImage"
           @expand="emitOpenPanel"
@@ -74,7 +76,8 @@
           <span class="text-gray-400 dark:text-gray-500">{{ $t('tools.readFile.pathLabel') }}</span>
           <code class="ms-1 px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 break-all" dir="ltr">{{ filePath }}</code>
         </div>
-        <pre v-if="hasContent && preview.kind !== 'table'" class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
+        <!-- The document/picture IS the content — don't repeat it as a text dump. -->
+        <pre v-if="hasContent && !showVisualPreview" class="text-[11px] bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded p-2 max-h-64 overflow-auto whitespace-pre-wrap">{{ previewText }}</pre>
         <div v-if="sessionFileId" class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
           <Icon name="heroicons-paper-clip" class="w-3 h-3 inline align-text-bottom me-0.5" />
           {{ $t('tools.readFile.attachedAsSessionFile') }}
@@ -242,7 +245,15 @@ function openImage(fileId: string) {
   imageModal.value?.open({ id: fileId, filename: rj.value.file_name || '' })
 }
 
-const expanded = ref(false)
+// Open by default when there is something visual to show (the preview lives
+// under the chevron, so a closed chevron over a visible document would lie);
+// closed for text-only reads, whose 4000-char dump is opt-in. The first click
+// takes over.
+const manualExpanded = ref<boolean | null>(null)
+const expanded = computed<boolean>({
+  get: () => (manualExpanded.value ?? showVisualPreview.value),
+  set: (v) => { manualExpanded.value = v },
+})
 </script>
 
 <style scoped>
