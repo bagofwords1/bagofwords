@@ -1,5 +1,11 @@
 # Release Notes
 
+## Unreleased
+- **Prometheus connector promoted out of `dev_only`** — now in the connector catalog for every environment, shipping as `beta`.
+- **Histogram/summary metrics are typed correctly** — `_bucket`/`_sum`/`_count` series resolve their metadata from the base metric, so `_bucket` is typed `histogram (use histogram_quantile)` and `_sum`/`_count` as counters. Previously ~20% of a stock instance's metrics indexed as `unknown` and nothing was ever typed `histogram`, silently dropping the rate()/histogram_quantile hints the agent plans from.
+- **Bounded Prometheus schema discovery** — `/api/v1/series` is queried over a recent window (default 1h, configurable) with a result limit, instead of scanning the full retention period and materialising every series ever seen.
+- **Prometheus request timeout and discovery lookback are configurable** on the connection; blank numeric fields fall back to defaults instead of failing schema indexing.
+
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
 - Added scikit-learn support with ML training constraints (#1055)

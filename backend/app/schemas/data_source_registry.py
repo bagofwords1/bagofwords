@@ -1004,7 +1004,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.prometheus_client.PrometheusClient",
-        dev_only=True,
+        version="beta",
     ),
     "jaeger": DataSourceRegistryEntry(
         type="jaeger",
