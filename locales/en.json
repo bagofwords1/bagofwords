@@ -2303,7 +2303,7 @@
         "agentNameHint": "A human-readable label shown here. e.g. NYC Office",
         "configHint": "Copy this and save it as config.yaml on the host where you'll run the agent.",
         "dockerHint": "Then start the agent in Docker. The command mounts your config.yaml into the container and publishes the local admin UI to loopback.",
-        "dockerNote": "Replace the tunnel endpoint URL and NATS token with the values for your Bow instance. Keep the /data volume so admin-UI connections and the audit trail persist across restarts.",
+        "dockerNote": "Replace the tunnel endpoint URL and token with the values for your Bow instance. Keep the /data volume so admin-UI connections and the audit trail persist across restarts.",
         "copy": "Copy",
         "copied": "Copied to clipboard",
         "copyManual": "Couldn't copy — select and copy manually",

@@ -23,7 +23,7 @@ _ENV_PREFIX = "BOW_EDGE_AGENT_"
 
 _ENV_OVERRIDES = {
     "tunnel_endpoint_url": "TUNNEL_ENDPOINT_URL",
-    "nats_token": "NATS_TOKEN",
+    "tunnel_token": "TUNNEL_TOKEN",
     "org_id": "ORG_ID",
     "edge_agent_id": "EDGE_AGENT_ID",
     "edge_agent_name": "EDGE_AGENT_NAME",
@@ -97,7 +97,7 @@ class AgentConfig(BaseModel):
     edge_agent_name: Optional[str] = None
 
     tunnel_endpoint_url: str = "ws://localhost:9443"
-    nats_token: Optional[str] = None
+    tunnel_token: Optional[str] = None
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
 

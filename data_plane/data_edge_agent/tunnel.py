@@ -119,7 +119,7 @@ class EdgeAgentTunnel:
             try:
                 await client.connect(
                     servers=[cfg.tunnel_endpoint_url],
-                    token=cfg.nats_token,
+                    token=cfg.tunnel_token,
                     reconnect_time_wait=_RECONNECT_SECONDS,
                     # Bounded on purpose. With -1 the library retries the
                     # *initial* connect internally and never returns, so this
