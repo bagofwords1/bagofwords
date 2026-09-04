@@ -25,8 +25,8 @@ edge_agent_name: NYC Office          # display label only; safe to rename
 # looks like a certificate problem and is not one.
 tunnel_endpoint_url: ws://localhost:9443
 
-# Leave unset here. Set BOW_EDGE_AGENT_NATS_TOKEN instead.
-# nats_token: ...
+# Leave unset here. Set BOW_EDGE_AGENT_TUNNEL_TOKEN instead.
+# tunnel_token: ...
 
 # --- served connections -------------------------------------------------
 # One NATS subject per entry: tunnel.<org_id>.<edge_agent_id>.conn.<name>

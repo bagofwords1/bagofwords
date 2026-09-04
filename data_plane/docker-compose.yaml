@@ -27,7 +27,7 @@ services:
       # --- broker ------------------------------------------------------------
       # Production terminates TLS at Bow's ingress: wss://tunnel.<your-bow-host>.
       BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL: ${BOW_TUNNEL_ENDPOINT_URL:?set BOW_TUNNEL_ENDPOINT_URL}
-      BOW_EDGE_AGENT_NATS_TOKEN:    ${BOW_NATS_TOKEN:?set BOW_NATS_TOKEN}
+      BOW_EDGE_AGENT_TUNNEL_TOKEN:  ${BOW_TUNNEL_TOKEN:?set BOW_TUNNEL_TOKEN}
       # Admin UI binds all interfaces INSIDE the container; the port mapping
       # below is what keeps it on the host's loopback.
       BOW_EDGE_AGENT_ADMIN_HOST:    0.0.0.0
