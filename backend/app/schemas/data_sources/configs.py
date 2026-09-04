@@ -636,6 +636,27 @@ class ServiceNowConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "boolean"}
     )
+    enable_attachments: bool = Field(
+        True,
+        title="Enable Attachments",
+        description=(
+            "Expose record attachments (e.g. Knowledge Base article files) through the "
+            "file tools (list/read/search). Downloads go through the Attachment API "
+            "(/api/now/attachment) and respect the instance's ACLs for the "
+            "authenticated identity."
+        ),
+        json_schema_extra={"ui:type": "boolean"}
+    )
+    attachment_tables: Optional[str] = Field(
+        "kb_knowledge",
+        title="Attachment Tables",
+        description=(
+            "Comma-separated list of tables whose attachments are exposed. Defaults to "
+            "kb_knowledge (Knowledge Base articles). Add e.g. incident,change_request "
+            "to expose those records' attachments too."
+        ),
+        json_schema_extra={"ui:type": "string"}
+    )
 
 
 # Priority ERP (Priority Software) — OData v4 REST API, cloud and on-premise.

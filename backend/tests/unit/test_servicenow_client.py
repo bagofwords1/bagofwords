@@ -329,3 +329,237 @@ def test_http_errors_surface_with_status(client):
     c, _ = client(lambda path, params: FakeResponse({}, status_code=403))
     with pytest.raises(RuntimeError, match="403"):
         c.execute_query('{"table": "incident"}')
+
+
+# ── attachments (file capabilities) ──────────────────────────────────────────
+#
+# Metadata lives in sys_attachment (served via the Attachment API); the binary
+# comes back from /api/now/attachment/{sys_id}/file. The fake session here
+# accepts the `headers` kwarg the binary download passes, which the metadata-
+# only FakeSession above does not.
+
+import pytest as _pytest  # noqa: E402  (kept local to this section)
+
+
+class AttachmentSession:
+    """Serves Attachment API metadata + binary, records requests."""
+
+    def __init__(self, meta_rows, binary=b"%PDF-1.4 fake"):
+        self.meta_rows = meta_rows
+        self.binary = binary
+        self.requests = []
+        self.auth = None
+        self.headers = {}
+
+    def get(self, url, params=None, timeout=None, headers=None):
+        path = urlparse(url).path
+        self.requests.append((path, params or {}))
+
+        class _Resp:
+            def __init__(self, payload=None, content=None, status_code=200):
+                self._payload = payload
+                self.content = content if content is not None else b""
+                self.status_code = status_code
+                self.text = json.dumps(payload) if payload is not None else ""
+
+            def json(self):
+                return self._payload
+
+        if path.endswith("/file"):
+            return _Resp(content=self.binary)
+        # /api/now/attachment/{sys_id}  (single) vs  /api/now/attachment (list)
+        tail = path.rsplit("/api/now/attachment", 1)[-1].strip("/")
+        if tail and "/" not in tail:
+            match = next((r for r in self.meta_rows if r["sys_id"] == tail), None)
+            return _Resp({"result": match})
+        # list/query
+        q = (params or {}).get("sysparm_query", "")
+        rows = self.meta_rows
+        if "file_nameLIKE" in q:
+            needle = q.split("file_nameLIKE", 1)[1].split("^", 1)[0]
+            rows = [r for r in rows if needle.lower() in r["file_name"].lower()]
+        if "table_sys_id=" in q:
+            rec = q.split("table_sys_id=", 1)[1].split("^", 1)[0]
+            rows = [r for r in rows if r["table_sys_id"] == rec]
+        if "file_name=" in q and "file_nameLIKE" not in q:
+            fn = q.split("file_name=", 1)[1].split("^", 1)[0]
+            rows = [r for r in rows if r["file_name"] == fn]
+        return _Resp({"result": rows})
+
+    def close(self):
+        pass
+
+
+PDF_ROW = {
+    "sys_id": "a" * 32,
+    "file_name": "vpn_setup_guide.pdf",
+    "content_type": "application/pdf",
+    "size_bytes": "973",
+    "table_name": "kb_knowledge",
+    "table_sys_id": "rec123",
+    "sys_updated_on": "2026-09-03 18:00:00",
+}
+TXT_ROW = {
+    "sys_id": "b" * 32,
+    "file_name": "notes.txt",
+    "content_type": "text/plain",
+    "size_bytes": "12",
+    "table_name": "kb_knowledge",
+    "table_sys_id": "rec123",
+    "sys_updated_on": "2026-09-03 18:05:00",
+}
+
+
+@_pytest.fixture
+def attach_client(monkeypatch):
+    def make(meta_rows, binary=b"%PDF-1.4 fake", **kwargs):
+        c = ServiceNowClient(
+            instance_url="https://example.service-now.com",
+            username="u", password="p", **kwargs,
+        )
+        session = AttachmentSession(meta_rows, binary=binary)
+        monkeypatch.setattr(
+            "app.data_sources.clients.servicenow_client.requests.Session",
+            lambda: session,
+        )
+        return c, session
+    return make
+
+
+def test_capabilities_include_file_tools_when_enabled():
+    from app.data_sources.clients.base import Capability
+    c = ServiceNowClient(instance_url="https://x", username="u", password="p")
+    assert Capability.LIST_FILES in c.capabilities
+    assert Capability.READ_FILE in c.capabilities
+    assert Capability.SEARCH_FILES in c.capabilities
+    assert c.cheap_live_listing is True
+
+
+def test_capabilities_query_only_when_attachments_disabled():
+    from app.data_sources.clients.base import Capability
+    c = ServiceNowClient(instance_url="https://x", username="u", password="p",
+                         enable_attachments=False)
+    assert c.capabilities == {Capability.QUERY}
+
+
+def test_list_files_returns_attachment_entries(attach_client):
+    c, _ = attach_client([PDF_ROW, TXT_ROW])
+    files = c.list_files()
+    names = {f["name"] for f in files}
+    assert names == {"vpn_setup_guide.pdf", "notes.txt"}
+    pdf = next(f for f in files if f["name"] == "vpn_setup_guide.pdf")
+    assert pdf["id"] == "a" * 32
+    assert pdf["mime_type"] == "application/pdf"
+    assert pdf["size"] == 973
+    assert pdf["path"] == "kb_knowledge/rec123/vpn_setup_guide.pdf"
+    assert pdf["is_folder"] is False
+
+
+def test_list_files_scopes_to_configured_tables(attach_client):
+    c, session = attach_client([PDF_ROW])
+    c.list_files()
+    _, params = session.requests[-1]
+    assert params["sysparm_query"] == "table_nameINkb_knowledge"
+
+
+def test_list_files_record_scope(attach_client):
+    c, session = attach_client([PDF_ROW])
+    c.list_files(folder_id="kb_knowledge/rec123")
+    _, params = session.requests[-1]
+    assert "table_name=kb_knowledge" in params["sysparm_query"]
+    assert "table_sys_id=rec123" in params["sysparm_query"]
+
+
+def test_list_files_disabled_raises(attach_client):
+    c, _ = attach_client([PDF_ROW], enable_attachments=False)
+    with pytest.raises(RuntimeError, match="disabled"):
+        c.list_files()
+
+
+def test_read_file_pdf_returns_extracted_text(attach_client, monkeypatch):
+    # Stub the document extractor so the test doesn't depend on a real PDF.
+    monkeypatch.setattr(
+        "app.data_sources.clients.servicenow_client.extract_document_text_from_bytes",
+        lambda content, name: "Corporate VPN Setup Guide\nInstall the client.",
+    )
+    monkeypatch.setattr(
+        "app.data_sources.clients.servicenow_client.doc_text_is_usable",
+        lambda text, ext: True,
+    )
+    c, _ = attach_client([PDF_ROW], binary=b"%PDF-1.4 realbytes")
+    payload = c.read_file("a" * 32)
+    assert isinstance(payload, str)
+    assert "Corporate VPN Setup Guide" in payload
+    # DocumentText carries the original name + bytes for the viewer/vision path.
+    assert payload.name == "vpn_setup_guide.pdf"
+    assert payload.raw == b"%PDF-1.4 realbytes"
+
+
+def test_read_file_scanned_pdf_falls_back_to_named_bytes(attach_client, monkeypatch):
+    monkeypatch.setattr(
+        "app.data_sources.clients.servicenow_client.extract_document_text_from_bytes",
+        lambda content, name: "",
+    )
+    monkeypatch.setattr(
+        "app.data_sources.clients.servicenow_client.doc_text_is_usable",
+        lambda text, ext: False,
+    )
+    c, _ = attach_client([PDF_ROW], binary=b"%PDF-1.4 scan")
+    payload = c.read_file("a" * 32)
+    assert isinstance(payload, bytes)
+    assert payload.name == "vpn_setup_guide.pdf"
+    assert payload.mime == "application/pdf"
+
+
+def test_read_file_text(attach_client):
+    c, _ = attach_client([TXT_ROW], binary=b"hello ticket")
+    payload = c.read_file("b" * 32)
+    assert payload == "hello ticket"
+
+
+def test_read_file_resolves_bare_name(attach_client):
+    c, _ = attach_client([TXT_ROW], binary=b"hello ticket")
+    payload = c.read_file("notes.txt")
+    assert payload == "hello ticket"
+
+
+def test_read_file_resolves_path_id(attach_client, monkeypatch):
+    monkeypatch.setattr(
+        "app.data_sources.clients.servicenow_client.extract_document_text_from_bytes",
+        lambda content, name: "text",
+    )
+    monkeypatch.setattr(
+        "app.data_sources.clients.servicenow_client.doc_text_is_usable",
+        lambda text, ext: True,
+    )
+    c, _ = attach_client([PDF_ROW], binary=b"x")
+    payload = c.read_file("kb_knowledge/rec123/vpn_setup_guide.pdf")
+    assert payload.name == "vpn_setup_guide.pdf"
+
+
+def test_read_raw_bytes(attach_client):
+    c, _ = attach_client([PDF_ROW], binary=b"%PDF-1.4 raw")
+    content, name, mime = c.read_raw_bytes("a" * 32)
+    assert content == b"%PDF-1.4 raw"
+    assert name == "vpn_setup_guide.pdf"
+    assert mime == "application/pdf"
+
+
+def test_search_files_matches_filename(attach_client):
+    c, session = attach_client([PDF_ROW, TXT_ROW])
+    hits = c.search_files("vpn")
+    assert [h["name"] for h in hits] == ["vpn_setup_guide.pdf"]
+    _, params = session.requests[-1]
+    assert "file_nameLIKEvpn" in params["sysparm_query"]
+    assert "table_nameINkb_knowledge" in params["sysparm_query"]
+
+
+def test_file_version_from_metadata(attach_client):
+    c, _ = attach_client([PDF_ROW])
+    assert c.file_version("a" * 32) == "2026-09-03 18:00:00|973"
+
+
+def test_missing_attachment_raises(attach_client):
+    c, _ = attach_client([PDF_ROW])
+    with pytest.raises(ValueError, match="not found"):
+        c.read_file("c" * 32)

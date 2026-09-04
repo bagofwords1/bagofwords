@@ -35,6 +35,12 @@ logger = logging.getLogger(__name__)
 FILE_SOURCE_TYPES = {
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
     "network_dir", "s3", "onenote",
+    # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record
+    # attachments (KB files by default) live via its Attachment API; its
+    # tabular catalog is untouched, so it must NOT be added to the type sets
+    # that strip file rows from Tables views (schema_context_builder,
+    # data_source_service) — it has no file catalog rows to strip.
+    "servicenow",
 }
 
 
