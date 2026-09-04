@@ -2426,6 +2426,14 @@
           "name": "Återanvänd tidigare steg (load_step)",
           "description": "Låter genererad kod återanvända resultatet från ett tidigare steg i den här rapporten via load_step i stället för att fråga på nytt. När det är avstängt erbjuds load_step varken till agenten eller är tillgängligt vid körning."
         },
+        "enable_ml_training": {
+          "name": "Maskininlärning (scikit-learn)",
+          "description": "Låt genererad kod träna scikit-learn-modeller (klassificering, regression, klustring, variabelvikt) på frågeresultat och uppladdade filer. Träningen körs i serverprocessen; stäng av för att begränsa genererad kod till pandas/numpy-analys."
+        },
+        "ml_training_row_limit": {
+          "name": "Radgräns för ML-träning",
+          "description": "Högsta antal rader som genererad kod ska träna en modell på. Större källor samplas ner till den här storleken före träning. Minst 1000."
+        },
         "enable_custom_queries": {
           "name": "Egna frågor (beta)",
           "description": "Låter anslutningsadministratörer definiera SQL som BOW materialiserar till en krypterad lokal kopia enligt ett schema, så att agenter svarar utifrån det cachade resultatet i stället för att fråga källan vid varje tur. Beta: avstängt som standard."
