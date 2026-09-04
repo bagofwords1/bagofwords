@@ -452,6 +452,7 @@
     "signInWithProvider": "Войти через {provider}",
     "continueWithProvider": "Продолжить через {provider}",
     "invalidCredentials": "Неверные учётные данные",
+    "signInFailed": "Не удалось войти. Пожалуйста, попробуйте снова.",
     "registrationError": "При регистрации произошла ошибка.",
     "googleInitError": "Не удалось инициализировать вход через Google",
     "providerInitError": "Не удалось инициализировать вход через {provider}",

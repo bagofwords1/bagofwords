@@ -1,5 +1,9 @@
 # Release Notes
 
+## Unreleased
+- Session tokens are now revocable: logging out, changing or resetting a password, and the new admin force-signout all invalidate every session token already issued to that user. Previously logout only cleared the browser's copy, so a token taken from a session stayed valid for its full 7-day lifetime even after the user logged out and back in. **Upgrading signs every user out once** — existing tokens predate the check and are rejected.
+- SSO sign-in no longer returns the session token in the redirect URL. The callback now redirects with a single-use code (60s) that the app trades for the token over POST, keeping the credential out of browser history, `Referer` headers, and reverse-proxy access logs.
+
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
 - Added scikit-learn support with ML training constraints (#1055)
