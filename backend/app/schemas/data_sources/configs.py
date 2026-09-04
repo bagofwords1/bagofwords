@@ -852,6 +852,60 @@ class ZabbixConfig(BaseModel):
     )
 
 
+# VMware Aria Operations (vRealize Operations / VCF Operations)
+class AriaOperationsUserPassCredentials(BaseModel):
+    username: str = Field(
+        ...,
+        title="Username",
+        description="A local or LDAP/AD user with at least the ReadOnly role. Basic auth is disabled on 8.18; a session token is acquired automatically.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
+
+
+class AriaOperationsConfig(BaseModel):
+    url: str = Field(
+        ...,
+        title="Aria Operations URL",
+        description="The appliance URL, e.g. https://aria-ops.acme.local (the /suite-api/api path is appended automatically).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    auth_source: str = Field(
+        "LOCAL",
+        title="Auth Source",
+        description="LOCAL for local users, or the name of the LDAP/AD/vIDM source as configured under Administration → Authentication Sources.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the appliance's TLS certificate. Disable only for self-signed certificates on trusted networks; prefer a CA bundle.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    ca_bundle: Optional[str] = Field(
+        None,
+        title="CA Bundle Path (optional)",
+        description="Path on the server to a PEM bundle for a private CA, so TLS verification can stay on.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    history_window_days: int = Field(
+        7,
+        ge=1,
+        le=180,
+        title="History Window (days)",
+        description="Default lookback window for alerts/symptoms when a query gives no explicit time range.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_metric_tables: int = Field(
+        40,
+        ge=0,
+        le=500,
+        title="Max Discovered Metric Tables",
+        description="How many per-object-type wide metric tables (metrics::<Adapter>/<Kind>) to discover, largest kinds first. 0 disables discovery.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Service Demo
 class ServiceDemoCredentials(BaseModel):
     access_key: str = Field(..., title="Access Key", description="", json_schema_extra={"ui:type": "string"})

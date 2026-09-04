@@ -47,6 +47,14 @@ DATA_SOURCES = [
     #                    "account_name": "customer1", "username": "admin",
     #                    "password": "Secret123!"}}
     "appdynamics",
+    # Remote mode: no Aria Operations appliance can run in CI (OVA, needs ESXi
+    # + a Broadcom entitlement), so integrations.json points at either a live
+    # appliance or the spec-shaped simulator:
+    # `tools/aria_operations/docker-compose.yaml` (mock_suite_api.py) —
+    #   {"aria_operations": {"enabled": true, "url": "http://localhost:8443",
+    #                        "auth_source": "LOCAL", "username": "admin",
+    #                        "password": "Aria!2024"}}
+    "aria_operations",
     # Remote mode: `tools/elastic/docker-compose.yaml` + `seed_elastic.py` stand
     # up a local Elasticsearch 8 with an API key. Not a bundled testcontainer to
     # avoid pulling in elasticsearch-py's strict server-version handshake.
