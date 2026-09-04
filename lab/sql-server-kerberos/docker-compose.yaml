@@ -1,0 +1,110 @@
+# Self-contained Kerberos constrained-delegation lab for the BoW SQL Server
+# connector. Brings up a Samba AD DC (KDC), SQL Server 2022 joined to
+# it, and a runner that exercises the production S4U2Self/S4U2Proxy code.
+#
+#   ./up.sh          # build + start, wait for the DC, run the test suite
+#   ./down.sh        # tear everything down
+#
+# The DC exports keytabs + krb5.conf into the shared `keytabs` volume that the
+# SQL servers and runner consume.
+
+networks:
+  bowlab:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/24
+
+volumes:
+  keytabs:
+  dc-data:
+  dc-config:
+
+services:
+  dc:
+    platform: ${BOWLAB_AUX_PLATFORM:-linux/amd64}
+    build:
+      context: ./samba-dc
+      args:
+        BASE_IMAGE: ${BOWLAB_BASE_IMAGE:-ubuntu:24.04}
+    image: bowlab-dc
+    hostname: dc
+    privileged: true               # Samba AD DC needs broad caps for the KDC
+    networks:
+      bowlab:
+        ipv4_address: 172.28.0.10
+    dns:
+      - 127.0.0.1
+    environment:
+      DC_IP: 172.28.0.10
+      SQL2022_IP: 172.28.0.22
+      BOWLAB_ADMIN_PASS: ${BOWLAB_ADMIN_PASS:?run via up.sh}
+      BOWLAB_USER_PASS: ${BOWLAB_USER_PASS:?run via up.sh}
+      BOWLAB_SVC_PASS: ${BOWLAB_SVC_PASS:?run via up.sh}
+    volumes:
+      - keytabs:/keytabs
+      - dc-data:/var/lib/samba
+      - dc-config:/etc/samba
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /keytabs/svc-bow.keytab && test -f /keytabs/krb5.conf && host -W 1 -t A dc.bowlab.local 127.0.0.1 >/dev/null && timeout 1 bash -c '</dev/tcp/127.0.0.1/88'"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+
+  sql2022:
+    platform: linux/amd64
+    build:
+      context: ./mssql
+      args:
+        MSSQL_TAG: 2022-latest
+    image: bowlab-sql:2022
+    hostname: sql2022
+    privileged: true               # mssql-conf + amd64 emulation setup
+    user: root                     # setup installs keytab, then drops to mssql
+    networks:
+      bowlab:
+        ipv4_address: 172.28.0.22
+    dns:
+      - 172.28.0.10
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: ${BOWLAB_SA_PASSWORD:?run via up.sh}
+      SA_PASSWORD: ${BOWLAB_SA_PASSWORD:?run via up.sh}
+      BOWLAB_ADMIN_PASS: ${BOWLAB_ADMIN_PASS:?run via up.sh}
+      MSSQL_FQDN: sql2022.bowlab.local
+      MSSQL_KEYTAB: /keytabs/mssql2022.keytab
+      MSSQL_AD_ACCOUNT: mssql2022
+    volumes:
+      - ${BOWLAB_SQL_DATA_DIR:-./.state/mssql}:/var/opt/mssql
+      - keytabs:/keytabs
+      - ./mssql/setup-ad-auth.sh:/setup-ad-auth.sh:ro
+      - ./mssql/init.sql:/init.sql:ro
+    entrypoint: ["/bin/bash", "/setup-ad-auth.sh"]
+    depends_on:
+      dc:
+        condition: service_healthy
+
+  runner:
+    platform: ${BOWLAB_AUX_PLATFORM:-linux/amd64}
+    build:
+      context: ./runner
+      args:
+        BASE_IMAGE: ${BOWLAB_BASE_IMAGE:-ubuntu:24.04}
+        INSTALL_ODBC: ${BOWLAB_INSTALL_ODBC:-1}
+    image: bowlab-runner
+    hostname: runner
+    networks:
+      bowlab:
+        ipv4_address: 172.28.0.100
+    dns:
+      - 172.28.0.10
+    volumes:
+      - keytabs:/keytabs
+      - ../../backend/app:/app/app:ro           # production code under test
+      - ./runner/test_delegation.py:/lab/test_delegation.py:ro
+    depends_on:
+      dc:
+        condition: service_healthy
+    # Not started by default with `up -d`; run explicitly via up.sh so the SQL
+    # servers have time to come online for Tier B.
+    profiles: ["manual"]

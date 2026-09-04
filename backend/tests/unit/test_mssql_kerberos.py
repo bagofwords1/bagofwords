@@ -14,7 +14,9 @@ domain available.
 """
 from __future__ import annotations
 
+import asyncio
 import sys
+import threading
 import types
 from urllib.parse import parse_qs, unquote_plus, urlsplit
 
@@ -108,6 +110,16 @@ def test_kerberos_principals_normalized():
     assert client.kerberos_impersonate == "jdoe@CORP.EXAMPLE.COM"
 
 
+@pytest.mark.parametrize("driver", [17, 18])
+@pytest.mark.parametrize("encrypt,expected", [(True, "yes"), (False, "no")])
+def test_encrypt_setting_is_explicit_for_every_supported_driver(driver, encrypt, expected):
+    client = MSSQLClient(
+        "db.corp.example.com", 1433, "dwh", "svc", "secret",
+        odbc_driver=driver, encrypt=encrypt,
+    )
+    assert _odbc_params(client)["encrypt"] == expected
+
+
 # ---------- registry / schemas ---------- #
 
 
@@ -121,6 +133,7 @@ def test_registry_exposes_kerberos_auth_variants():
     assert by_auth["kerberos_delegated"].scopes == ["user"]
     # default UX unchanged
     assert entry.credentials_auth.default == "userpass"
+    assert entry.client_path == "app.data_sources.clients.mssql_client.MSSQLClient"
 
 
 def test_kerberos_credentials_schema_validation():
@@ -276,6 +289,43 @@ def test_activate_sets_and_restores_krb5ccname(tmp_path, monkeypatch):
         assert "KRB5CCNAME" not in os.environ
 
 
+def test_default_ccache_activation_serializes_with_delegated_activation(tmp_path):
+    """A service-account handshake must not observe another user's KRB5CCNAME."""
+    import app.data_sources.kerberos as kerberos
+
+    mgr = kerberos.KerberosTicketManager(ccache_dir=str(tmp_path))
+    attempted = threading.Event()
+    entered = threading.Event()
+
+    def activate_default():
+        attempted.set()
+        with mgr.activate(None):
+            entered.set()
+
+    kerberos._ENV_LOCK.acquire()
+    try:
+        worker = threading.Thread(target=activate_default)
+        worker.start()
+        assert attempted.wait(timeout=1)
+        worker.join(timeout=0.2)
+        assert not entered.is_set()
+    finally:
+        kerberos._ENV_LOCK.release()
+    worker.join(timeout=1)
+    assert entered.is_set()
+
+
+def test_ccache_paths_are_private_to_each_manager(tmp_path):
+    """Separate worker managers must never overwrite the same ccache file."""
+    from app.data_sources.kerberos import KerberosTicketManager
+
+    first = KerberosTicketManager(ccache_dir=str(tmp_path))
+    second = KerberosTicketManager(ccache_dir=str(tmp_path))
+    assert first._ccache_path_for("user:alice@CORP.EXAMPLE.COM") != second._ccache_path_for(
+        "user:alice@CORP.EXAMPLE.COM"
+    )
+
+
 # ---------- resolve_credentials helper ---------- #
 
 
@@ -359,3 +409,27 @@ def test_resolve_kerberos_principal_precedence():
     # a non-kerberos row is ignored for principal derivation → falls back to email
     other = _FakeRow("userpass", {"kerberos_impersonate": "should-be-ignored@x"})
     assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), other) == "jdoe@corp.example.com"
+
+
+def test_failed_kerberos_recheck_is_not_reported_as_success():
+    from datetime import datetime
+
+    from app.services.connection_identity import build_kerberos_sso_status
+
+    marker = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "jdoe@corp.example.com"})
+    marker.last_used_at = datetime.utcnow()
+    marker.metadata_json = {"last_error": "KDC unreachable"}
+    marker.is_primary = True
+    marker.id = "marker-1"
+
+    class _Index:
+        def connection_row(self, _connection_id):
+            return marker
+
+    connection = _FakeConnection(["kerberos_delegated"])
+    connection.id = "connection-1"
+    status = asyncio.run(build_kerberos_sso_status(
+        None, connection, _FakeUser("jdoe@corp.example.com"), None, None,
+        cred_index=_Index(),
+    ))
+    assert status.connection == "offline"

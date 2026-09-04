@@ -344,13 +344,14 @@ async def build_kerberos_sso_status(
             last_checked_at=last_checked,
         )
 
-    verified = bool(marker and marker.last_used_at)
+    last_error = (getattr(marker, "metadata_json", None) or {}).get("last_error") if marker else None
+    verified = bool(marker and marker.last_used_at and not last_error)
     return DataSourceUserStatus(
         has_user_credentials=True,
         auth_mode=KERBEROS_SSO_MODE,
         is_primary=bool(getattr(marker, "is_primary", True)) if marker else True,
         last_used_at=getattr(marker, "last_used_at", None),
-        connection="success" if verified else "unknown",
+        connection="success" if verified else ("offline" if last_error else "unknown"),
         effective_auth="user",
         credentials_id=str(marker.id) if marker and getattr(marker, "id", None) else None,
         last_checked_at=getattr(marker, "last_used_at", None) or last_checked,
