@@ -1290,7 +1290,11 @@
       "copyIdTooltip": "Copiar ID de la consulta",
       "copied": "Copiado",
       "copiedDesc": "ID de la consulta copiado al portapapeles",
-      "copyFailed": "Error al copiar"
+      "copyFailed": "Error al copiar",
+      "openInPanel": "Abrir en el panel lateral",
+      "closeDataPanel": "Cerrar vista de datos",
+      "dataTab": "Datos",
+      "loadingRows": "Cargando todas las filas…"
     },
     "generic": {
       "running": "Ejecutando...",

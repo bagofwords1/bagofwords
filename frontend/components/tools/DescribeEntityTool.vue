@@ -108,9 +108,11 @@
       <ToolWidgetPreview
         :tool-execution="enhancedToolExecution"
         :readonly="readonly"
+        :can-expand="canExpand"
         @addWidget="onAddWidget"
         @toggleSplitScreen="$emit('toggleSplitScreen')"
         @editQuery="$emit('editQuery', $event)"
+        @openDataPanel="$emit('openDataPanel', $event)"
       />
     </div>
   </div>
@@ -139,8 +141,8 @@ interface Props {
   toolExecution: ToolExecution
 }
 
-const props = defineProps<Props & { readonly?: boolean }>()
-const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery'])
+const props = defineProps<Props & { readonly?: boolean; canExpand?: boolean }>()
+const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
 // Collapsed state
 const detailsCollapsed = ref(true)

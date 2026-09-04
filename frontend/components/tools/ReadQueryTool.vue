@@ -24,6 +24,9 @@
             v-if="hasResultData(result)"
             :tool-execution="buildEnhancedExecution(result)"
             :readonly="readonly"
+            :can-expand="canExpand"
+            @editQuery="$emit('editQuery', $event)"
+            @openDataPanel="$emit('openDataPanel', $event)"
           />
           <div v-else-if="result.error" class="ms-4 text-xs text-red-500">
             {{ result.error }}
@@ -62,9 +65,11 @@ interface ToolExecution {
 interface Props {
   toolExecution: ToolExecution
   readonly?: boolean
+  canExpand?: boolean
 }
 
 const props = defineProps<Props>()
+defineEmits(['editQuery', 'openDataPanel'])
 
 // Always collapsed by default
 const detailsCollapsed = ref(true)
