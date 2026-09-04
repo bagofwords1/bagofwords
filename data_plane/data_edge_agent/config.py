@@ -31,7 +31,6 @@ _ENV_OVERRIDES = {
     "admin_host": "ADMIN_HOST",
     "admin_enabled": "ADMIN_ENABLED",
     "store_path": "STORE_PATH",
-    "store_key": "STORE_KEY",
     "audit_path": "AUDIT_PATH",
     "log_level": "LOG_LEVEL",
     "default_query_timeout_seconds": "QUERY_TIMEOUT_SECONDS",
@@ -114,10 +113,6 @@ class AgentConfig(BaseModel):
     # over the file-defined connections at start-up. None keeps the store beside
     # the config file, or in the CWD when the config itself is env-only.
     store_path: Optional[str] = None
-    # Base64 Fernet key for the credential store. Absent, the store generates
-    # one and writes it next to itself — convenient, but real deployments should
-    # supply BOW_EDGE_AGENT_STORE_KEY from their own secret management.
-    store_key: Optional[str] = None
 
     # Local audit trail (design C4/C5): every operation with timestamp, duration,
     # row count and outcome, kept on this box. None keeps the JSONL file beside

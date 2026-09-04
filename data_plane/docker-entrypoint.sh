@@ -16,10 +16,11 @@ die() { echo "[entrypoint] ERROR: $*" >&2; exit 1; }
 
 P=BOW_EDGE_AGENT   # env prefix the agent reads (config.py _ENV_OVERRIDES)
 
-# ── compatibility: design doc (E1) names → implementation names ──────────────
-# The design wrote BOW_EDGE_AGENT_AGENT_ID / _AGENT_NAME / _SECRET_KEY; the code
-# reads EDGE_AGENT_ID / EDGE_AGENT_NAME / STORE_KEY. Bridge them so either works,
-# without ever overwriting a value the operator set explicitly.
+# ── compatibility: old / design-doc env names → implementation names ─────────
+# The design wrote BOW_EDGE_AGENT_AGENT_ID / _AGENT_NAME, and an earlier version
+# used _NATS_URL; the code reads EDGE_AGENT_ID / EDGE_AGENT_NAME /
+# TUNNEL_ENDPOINT_URL. Bridge them so either works, without ever overwriting a
+# value the operator set explicitly.
 bridge() { # old_suffix new_suffix
   local old="${P}_$1" new="${P}_$2"
   if [ -n "${!old:-}" ] && [ -z "${!new:-}" ]; then
@@ -28,7 +29,6 @@ bridge() { # old_suffix new_suffix
 }
 bridge AGENT_ID   EDGE_AGENT_ID
 bridge AGENT_NAME EDGE_AGENT_NAME
-bridge SECRET_KEY STORE_KEY
 # nats_url was renamed to tunnel_endpoint_url; accept the old env var too.
 bridge NATS_URL   TUNNEL_ENDPOINT_URL
 
@@ -64,9 +64,6 @@ fi
 # ── advisories (non-fatal) ───────────────────────────────────────────────────
 if [ -z "${BOW_EDGE_AGENT_NATS_TOKEN:-}" ]; then
   log "WARNING: BOW_EDGE_AGENT_NATS_TOKEN is unset — the broker will reject the connection unless it allows anonymous access."
-fi
-if [ -z "${BOW_EDGE_AGENT_STORE_KEY:-}" ]; then
-  log "WARNING: BOW_EDGE_AGENT_STORE_KEY is unset — a key file will be generated under $DATA_DIR. Supply the key from your own secret management, and keep $DATA_DIR on a persistent volume, or stored credentials will be lost on redeploy."
 fi
 
 log "starting edge agent: org=${BOW_EDGE_AGENT_ORG_ID:-<file>} id=${BOW_EDGE_AGENT_EDGE_AGENT_ID:-<file>} tunnel=${BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL:-<file>} admin=${BOW_EDGE_AGENT_ADMIN_HOST:-127.0.0.1}:${BOW_EDGE_AGENT_ADMIN_PORT:-9191} data_dir=$DATA_DIR"

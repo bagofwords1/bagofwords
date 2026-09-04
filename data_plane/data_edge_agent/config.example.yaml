@@ -71,12 +71,10 @@ connections:
 admin_enabled: true
 admin_host: 127.0.0.1                 # keep on loopback; there is no auth
 admin_port: 9191
-# Where UI edits persist (connections + Fernet-encrypted credentials). Default
-# is edge-agent-store.json beside this config file.
+# Where UI edits persist (connections + credentials, stored in cleartext).
+# Default is edge-agent-store.json beside this config file. There is no at-rest
+# encryption — secure the file and the host it runs on.
 # store_path: /var/lib/bow/edge-agent-store.json
-# Base64 Fernet key for the store. Prefer BOW_EDGE_AGENT_STORE_KEY from your own
-# secret management; if unset, a key file is generated beside the store.
-# store_key: ...
 
 # --- local audit trail (design C4/C5) ----------------------------------
 # Every operation (timestamp, connection, operation, duration, row count,

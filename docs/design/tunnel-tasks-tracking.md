@@ -8,6 +8,26 @@ Status: ✅ done & verified · 🟡 done, not fully verified · ⛔ not started 
 
 ---
 
+## 2026-09-04 (cont.) — drop at-rest credential encryption + BOW_EDGE_AGENT_STORE_KEY
+
+Per site-owner request: the connection store no longer encrypts credentials at
+rest — securing the file and host is the operator's responsibility.
+
+- ✅ `store.py` rewritten: credentials persisted in cleartext (`credentials`,
+  not `credentials_enc`); removed Fernet, the key resolution and the generated
+  `.key` file. File still written 0600 under the data dir (hygiene, not a
+  boundary).
+- ✅ Removed the `store_key` config field + `BOW_EDGE_AGENT_STORE_KEY` env, the
+  entrypoint's SECRET_KEY bridge and store-key warning, the compose/.env/UI
+  docker-command references, and the `cryptography` dependency (uv re-locked).
+- ✅ Tests updated (cleartext round-trip, 0600 mode, corrupt-file StoreError).
+  Suite: 85.
+- ✅ Verified live: agent boots with cryptography absent from the venv; a
+  connection added via the admin API is stored with cleartext credentials
+  (no credentials_enc).
+
+---
+
 ## 2026-09-04 (cont.) — control-plane Data Tunnels: split into Connect + Registered
 
 Extended the Bow app's `settings/data-tunnels` into two sections via an in-page
