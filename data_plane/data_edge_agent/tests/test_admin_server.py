@@ -180,6 +180,22 @@ async def test_catalog_unknown_type_404(client):
     assert r.status == 404
 
 
+async def test_icons_manifest_maps_types_to_files(client):
+    r = await client.get("/api/icons")
+    assert r.status == 200
+    icons = (await r.json())["icons"]
+    # bundled manifest maps the common types to image files
+    assert icons.get("postgresql", "").endswith(".png")
+    assert "mysql" in icons
+
+
+async def test_icon_asset_is_served(client):
+    icons = (await (await client.get("/api/icons")).json())["icons"]
+    r = await client.get("/data_sources_icons/" + icons["postgresql"])
+    assert r.status == 200
+    assert r.headers["Content-Type"].startswith("image/")
+
+
 async def test_index_served(client):
     r = await client.get("/")
     assert r.status == 200

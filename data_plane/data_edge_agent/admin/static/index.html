@@ -124,11 +124,12 @@
     padding: 16px 10px; border-radius: 11px; background: var(--panel2); border: 1px solid var(--border);
   }
   .pick-tile:hover { border-color: var(--accent); }
-  .pick-mono {
-    width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
-    background: var(--chip); color: #a9c1ff; font-weight: 650; font-size: 14px; letter-spacing: .5px;
-  }
   .pick-title { font-size: 12.5px; color: var(--text); line-height: 1.3; }
+  /* type icons (img) + monogram fallback (span.mono), shared by tiles + cards */
+  .pick-ico { width: 40px; height: 40px; border-radius: 9px; object-fit: contain; background: #fff; padding: 6px; }
+  .pick-ico.mono { display: flex; align-items: center; justify-content: center; background: var(--chip); color: #a9c1ff; font-weight: 650; font-size: 14px; letter-spacing: .5px; padding: 0; }
+  .card-ico { width: 30px; height: 30px; border-radius: 7px; object-fit: contain; background: #fff; padding: 4px; flex-shrink: 0; }
+  .card-ico.mono { display: flex; align-items: center; justify-content: center; background: var(--chip); color: #a9c1ff; font-weight: 650; font-size: 11.5px; padding: 0; }
 </style>
 </head>
 <body>
@@ -225,6 +226,7 @@ function cardFor(c) {
   const sub = [host, db].filter(Boolean).join(" / ");
   const credNote = c.credential_keys.length ? c.credential_keys.join(", ") + " set" : "no credentials";
   el.innerHTML =
+    iconHtml(c.type, c.label || c.name, "card-ico") +
     '<div class="id"><div class="nm">' + escapeHtml(c.label || c.name) +
       ' <span class="chip type">' + escapeHtml(c.type) + '</span></div>' +
       '<div class="sub">' + escapeHtml(c.name) + (sub ? ' · ' + escapeHtml(sub) : '') +
@@ -235,6 +237,7 @@ function cardFor(c) {
       '<button data-edit>Edit</button>' +
       '<button class="danger" data-del>Delete</button>' +
     '</div>';
+  wireIcons(el);
   el.querySelector("[data-test]").onclick = (ev) => testSaved(c.name, el.querySelector("[data-result]"), ev.target);
   el.querySelector("[data-edit]").onclick = () => openForm(c.type, c);
   el.querySelector("[data-del]").onclick = () => delConn(c);
@@ -267,10 +270,33 @@ let CUR_REQUIRED = { config: [], credentials: [] };
 const CAT_LABELS = { databases: "Databases & warehouses", bi: "BI & analytics", infra: "Infrastructure", services: "Services", files: "Files & object store" };
 const CAT_ORDER = ["databases", "bi", "infra", "services", "files"];
 
+let ICONS = {};   // { type: icon_filename }, from /api/icons
+
 function monogram(title) {
   const words = String(title).replace(/[^A-Za-z0-9 ]/g, "").trim().split(/\s+/);
   if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
   return String(title).replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?";
+}
+
+// The brand icon for a type as an <img>, or a monogram span when there's no
+// bundled asset. The img carries data-mono so wireIcons() can swap it for a
+// monogram if it ever fails to load — nothing renders broken.
+function iconHtml(type, title, cls) {
+  const file = ICONS[type];
+  const mono = monogram(title);
+  if (file) return '<img class="' + cls + '" data-mono="' + escapeAttr(mono) + '" alt="" src="/data_sources_icons/' + encodeURIComponent(file) + '">';
+  return '<span class="' + cls + ' mono">' + escapeHtml(mono) + '</span>';
+}
+
+function wireIcons(root) {
+  for (const img of (root || document).querySelectorAll("img[data-mono]")) {
+    img.onerror = () => {
+      const s = document.createElement("span");
+      s.className = img.className + " mono";
+      s.textContent = img.dataset.mono || "?";
+      img.replaceWith(s);
+    };
+  }
 }
 
 async function openPicker() {
@@ -288,7 +314,7 @@ function renderPicker(q) {
     body += '<div class="pick-cat">' + escapeHtml(CAT_LABELS[cat] || cat) + '</div><div class="pick-grid">';
     for (const t of group) {
       body += '<button class="pick-tile" data-type="' + escapeAttr(t.type) + '">' +
-        '<span class="pick-mono">' + escapeHtml(monogram(t.title)) + '</span>' +
+        iconHtml(t.type, t.title, "pick-ico") +
         '<span class="pick-title">' + escapeHtml(t.title) + '</span></button>';
     }
     body += '</div>';
@@ -301,6 +327,7 @@ function renderPicker(q) {
     '<input id="p_search" placeholder="Search data sources…" value="' + escapeAttr(q) + '">' +
     '<div class="pick-scroll">' + body + '</div>' +
     '</div></div>';
+  wireIcons($("modalHost"));
   $("p_close").onclick = closeForm;
   const s = $("p_search"); s.oninput = () => renderPicker(s.value); s.focus();
   for (const b of document.querySelectorAll(".pick-tile")) b.onclick = () => openForm(b.dataset.type, null);
@@ -537,6 +564,7 @@ async function refreshAll() { await Promise.all([refreshStatus(), refreshList()]
   $("addBtn").onclick = openPicker;
   $("auditRefresh").onclick = refreshAudit;
   for (const t of document.querySelectorAll(".tab")) t.onclick = () => showPanel(t.dataset.panel);
+  try { ICONS = (await api("GET", "/icons")).icons || {}; } catch (e) { ICONS = {}; }
   await refreshAll();
   setInterval(refreshStatus, 5000);
 })();
