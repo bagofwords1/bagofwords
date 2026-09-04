@@ -102,6 +102,33 @@
   .banner { padding: 8px 11px; border-radius: 8px; font-size: 12.5px; margin-top: 12px; display: none; }
   .banner.ok { display: block; background: rgba(53,196,106,.12); color: var(--ok); }
   .banner.err { display: block; background: rgba(229,72,77,.12); color: var(--err); }
+  /* dynamic form fields */
+  .fld { margin-bottom: 2px; }
+  .fld > label { margin-top: 12px; }
+  .fld .fhint { color: var(--muted); font-size: 11.5px; margin: 4px 0 2px; }
+  .fld label.chk { display: flex; align-items: center; gap: 8px; color: var(--text); margin-top: 14px; cursor: pointer; }
+  .fld label.chk input { width: auto; }
+  .opt { opacity: .6; }
+  .sec { margin: 20px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+  details.oauth { margin-top: 12px; }
+  /* type picker */
+  .modal.modal-lg { width: 760px; }
+  .modal-lg .row h3 { margin: 0; }
+  .modal-lg #p_close { padding: 4px 10px; }
+  .pick-scroll { max-height: 60vh; overflow-y: auto; margin-top: 14px; }
+  .pick-cat { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--muted); margin: 16px 0 8px; }
+  .pick-cat:first-child { margin-top: 4px; }
+  .pick-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+  .pick-tile {
+    display: flex; flex-direction: column; align-items: center; gap: 9px; text-align: center;
+    padding: 16px 10px; border-radius: 11px; background: var(--panel2); border: 1px solid var(--border);
+  }
+  .pick-tile:hover { border-color: var(--accent); }
+  .pick-mono {
+    width: 38px; height: 38px; border-radius: 9px; display: flex; align-items: center; justify-content: center;
+    background: var(--chip); color: #a9c1ff; font-weight: 650; font-size: 14px; letter-spacing: .5px;
+  }
+  .pick-title { font-size: 12.5px; color: var(--text); line-height: 1.3; }
 </style>
 </head>
 <body>
@@ -149,7 +176,6 @@
 
 <script>
 const $ = (id) => document.getElementById(id);
-let TYPES = [];
 
 async function api(method, path, body) {
   const opt = { method, headers: {} };
@@ -210,7 +236,7 @@ function cardFor(c) {
       '<button class="danger" data-del>Delete</button>' +
     '</div>';
   el.querySelector("[data-test]").onclick = (ev) => testSaved(c.name, el.querySelector("[data-result]"), ev.target);
-  el.querySelector("[data-edit]").onclick = () => openForm(c);
+  el.querySelector("[data-edit]").onclick = () => openForm(c.type, c);
   el.querySelector("[data-del]").onclick = () => delConn(c);
   return el;
 }
@@ -233,41 +259,170 @@ async function delConn(c) {
 }
 
 // ---- add / edit form ------------------------------------------------------
-const COMMON = ["host", "port", "database", "schema"];
+// ---- Add Connection: type picker → type-specific dynamic form -------------
+let CATALOG = null;          // [{type,title,category}]
+let CUR_TYPE = null;         // type being added/edited
+let CUR_SPEC = null;         // its full field spec
+let CUR_REQUIRED = { config: [], credentials: [] };
+const CAT_LABELS = { databases: "Databases & warehouses", bi: "BI & analytics", infra: "Infrastructure", services: "Services", files: "Files & object store" };
+const CAT_ORDER = ["databases", "bi", "infra", "services", "files"];
 
-function openForm(existing) {
+function monogram(title) {
+  const words = String(title).replace(/[^A-Za-z0-9 ]/g, "").trim().split(/\s+/);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return String(title).replace(/[^A-Za-z0-9]/g, "").slice(0, 2).toUpperCase() || "?";
+}
+
+async function openPicker() {
+  if (!CATALOG) { try { CATALOG = (await api("GET", "/catalog")).catalog; } catch (e) { CATALOG = []; } }
+  renderPicker("");
+}
+
+function renderPicker(q) {
+  const ql = q.trim().toLowerCase();
+  const tiles = CATALOG.filter(t => !ql || t.title.toLowerCase().includes(ql) || t.type.toLowerCase().includes(ql));
+  let body = "";
+  for (const cat of CAT_ORDER) {
+    const group = tiles.filter(t => t.category === cat);
+    if (!group.length) continue;
+    body += '<div class="pick-cat">' + escapeHtml(CAT_LABELS[cat] || cat) + '</div><div class="pick-grid">';
+    for (const t of group) {
+      body += '<button class="pick-tile" data-type="' + escapeAttr(t.type) + '">' +
+        '<span class="pick-mono">' + escapeHtml(monogram(t.title)) + '</span>' +
+        '<span class="pick-title">' + escapeHtml(t.title) + '</span></button>';
+    }
+    body += '</div>';
+  }
+  if (!body) body = '<div class="empty">No data sources match “' + escapeHtml(q) + '”.</div>';
+  $("modalHost").innerHTML =
+    '<div class="backdrop"><div class="modal modal-lg">' +
+    '<div class="row"><h3>Add connection</h3><button id="p_close">✕</button></div>' +
+    '<div class="hint">Select a data source type. Credentials are stored encrypted on this agent and never sent to Bow.</div>' +
+    '<input id="p_search" placeholder="Search data sources…" value="' + escapeAttr(q) + '">' +
+    '<div class="pick-scroll">' + body + '</div>' +
+    '</div></div>';
+  $("p_close").onclick = closeForm;
+  const s = $("p_search"); s.oninput = () => renderPicker(s.value); s.focus();
+  for (const b of document.querySelectorAll(".pick-tile")) b.onclick = () => openForm(b.dataset.type, null);
+}
+
+// Minimal fallback spec for a type with no bundled schema (e.g. editing an
+// older connection whose type predates the catalog): the classic SQL fields.
+function genericSpec(type) {
+  return {
+    type, title: type, category: "databases", auth: { default: "userpass", by_auth: { userpass: { title: "Username & password", scopes: ["system"] } } },
+    config: { properties: { host: { title: "Host", "ui:type": "string" }, port: { title: "Port", "ui:type": "number" }, database: { title: "Database", "ui:type": "string" }, schema: { title: "Schema", "ui:type": "string" } }, required: ["host", "database"] },
+    credentials_by_auth: { userpass: { properties: { user: { title: "User", "ui:type": "string" }, password: { title: "Password", "ui:type": "password" } }, required: [] } },
+  };
+}
+
+async function openForm(type, existing) {
+  let spec;
+  try { spec = await api("GET", "/catalog/" + encodeURIComponent(type)); }
+  catch (e) { spec = genericSpec(type); }
+  CUR_TYPE = type; CUR_SPEC = spec;
+  const mode = (spec.auth && spec.auth.default) || Object.keys((spec.credentials_by_auth || {}))[0] || null;
+  renderForm(spec, existing, mode);
+}
+
+function fieldKind(p) {
+  const ui = p["ui:type"] || p.uiType || p.ui_type;
+  if (ui) return ui;
+  if (p.type === "integer" || p.type === "number") return "number";
+  if (p.type === "boolean") return "boolean";
+  if (p.type === "object") return "json";
+  if (p.type === "array") return "stringlist";
+  return "string";
+}
+
+function renderField(name, p, section, existing, credSet) {
+  if (p["ui:hidden"] === true) return "";
+  const kind = fieldKind(p);
+  const title = p.title || name;
+  const attrs = 'data-field="' + escapeAttr(name) + '" data-section="' + section + '" data-kind="' + kind + '"';
+  // Config values prefill on edit; credential values never leave the agent, so
+  // they only show a "set" placeholder.
+  const cfgVal = (section === "config" && existing && existing.config && existing.config[name] != null) ? existing.config[name]
+    : (existing ? null : p.default);
+  const setPh = (section === "credentials" && credSet && credSet.includes(name)) ? "•••• (set)" : "";
+  const desc = p.description ? '<div class="fhint">' + escapeHtml(p.description) + '</div>' : "";
+  let input;
+  switch (kind) {
+    case "password":
+      input = '<input type="password" autocomplete="new-password" ' + attrs + ' placeholder="' + escapeAttr(setPh) + '">'; break;
+    case "number":
+      input = '<input type="number" ' + attrs + (p.minimum != null ? ' min="' + p.minimum + '"' : "") + (p.maximum != null ? ' max="' + p.maximum + '"' : "") +
+        ' value="' + (cfgVal != null ? escapeAttr(cfgVal) : "") + '">'; break;
+    case "boolean":
+      return '<div class="fld"><label class="chk"><input type="checkbox" ' + attrs + (cfgVal ? " checked" : "") + '> ' + escapeHtml(title) + '</label>' + desc + '</div>';
+    case "textarea":
+      input = '<textarea rows="3" ' + attrs + ' placeholder="' + escapeAttr(setPh) + '">' + (cfgVal != null && section === "config" ? escapeHtml(cfgVal) : "") + '</textarea>'; break;
+    case "select": {
+      const opts = p["ui:options"] || p.enum || [];
+      const labels = p["ui:enumLabels"] || {};
+      input = '<select ' + attrs + '>' + opts.map(o =>
+        '<option value="' + escapeAttr(o) + '"' + (String(cfgVal) === String(o) ? " selected" : "") + '>' + escapeHtml(labels[o] != null ? labels[o] : o) + '</option>').join("") + '</select>';
+      break;
+    }
+    case "keyvalue":
+      input = '<textarea rows="2" ' + attrs + ' placeholder="key=value (one per line)">' +
+        (cfgVal && typeof cfgVal === "object" ? escapeHtml(Object.entries(cfgVal).map(([k, v]) => k + "=" + v).join("\n")) : "") + '</textarea>'; break;
+    case "json":
+      input = '<textarea rows="3" ' + attrs + ' placeholder="{ }">' + (cfgVal != null ? escapeHtml(JSON.stringify(cfgVal, null, 1)) : "") + '</textarea>'; break;
+    case "stringlist":
+      input = '<textarea rows="2" ' + attrs + ' placeholder="one per line">' + (Array.isArray(cfgVal) ? escapeHtml(cfgVal.join("\n")) : "") + '</textarea>'; break;
+    default:
+      input = '<input type="text" ' + attrs + ' placeholder="' + escapeAttr(setPh) + '" value="' + (cfgVal != null && section === "config" ? escapeAttr(cfgVal) : "") + '">';
+  }
+  return '<div class="fld"><label>' + escapeHtml(title) + '</label>' + input + desc + '</div>';
+}
+
+function renderSection(schema, section, existing, credSet) {
+  const props = (schema && schema.properties) || {};
+  const html = Object.keys(props).map(n => renderField(n, props[n], section, existing, credSet)).join("");
+  return html || '<div class="fhint">No fields.</div>';
+}
+
+function credsHtml(spec, mode, existing, credSet) {
+  const cs = (spec.credentials_by_auth || {})[mode] || { properties: {} };
+  const names = Object.keys(cs.properties || {});
+  const core = {}, oauth = {};
+  for (const n of names) { (n.startsWith("oauth_") ? oauth : core)[n] = cs.properties[n]; }
+  let html = renderSection({ properties: core }, "credentials", existing, credSet);
+  if (Object.keys(oauth).length) {
+    html += '<details class="oauth"><summary>OAuth (optional)</summary>' +
+      renderSection({ properties: oauth }, "credentials", existing, credSet) + '</details>';
+  }
+  if (!names.length) html = '<div class="fhint">This source needs no credentials.</div>';
+  CUR_REQUIRED.credentials = cs.required || [];
+  return html;
+}
+
+function renderForm(spec, existing, mode) {
   const isEdit = !!existing;
-  const cfg = (existing && existing.config) || {};
-  const advCfg = {}; Object.keys(cfg).forEach(k => { if (!COMMON.includes(k)) advCfg[k] = cfg[k]; });
-  const credsSet = (existing && existing.credential_keys) || [];
-  const typeOpts = TYPES.map(t => '<option' + (existing && existing.type === t ? ' selected' : '') + '>' + escapeHtml(t) + '</option>').join("");
+  const credSet = (existing && existing.credential_keys) || [];
+  CUR_REQUIRED = { config: (spec.config && spec.config.required) || [], credentials: [] };
+  const modes = Object.keys(spec.credentials_by_auth || {});
+  const authSel = modes.length > 1
+    ? '<div class="fld"><label>Authentication</label><select id="f_auth">' +
+        modes.map(m => '<option value="' + escapeAttr(m) + '"' + (m === mode ? " selected" : "") + '>' +
+          escapeHtml((spec.auth && spec.auth.by_auth && spec.auth.by_auth[m] && spec.auth.by_auth[m].title) || m) + '</option>').join("") +
+      '</select></div>'
+    : "";
 
   $("modalHost").innerHTML =
     '<div class="backdrop"><div class="modal">' +
-    '<h3>' + (isEdit ? "Edit connection" : "Add connection") + '</h3>' +
+    '<div class="row"><h3>' + (isEdit ? "Edit" : "Add") + " " + escapeHtml(spec.title || spec.type) + '</h3><button id="f_back">' + (isEdit ? "✕" : "‹ Back") + '</button></div>' +
     '<div class="hint">Credentials are stored encrypted on this agent and never sent to Bow.</div>' +
     '<div class="grid2">' +
-      '<div><label>Name</label><input id="f_name" ' + (isEdit ? 'disabled' : 'placeholder="lego-pg"') + ' value="' + escapeAttr(existing ? existing.name : "") + '"></div>' +
-      '<div><label>Type</label><select id="f_type">' + typeOpts + '</select></div>' +
+      '<div class="fld"><label>Name</label><input id="f_name" ' + (isEdit ? "disabled" : 'placeholder="e.g. prod-pg"') + ' value="' + escapeAttr(existing ? existing.name : "") + '"></div>' +
+      '<div class="fld"><label>Label <span class="opt">(optional)</span></label><input id="f_label" value="' + escapeAttr(existing ? (existing.label || "") : "") + '"></div>' +
     '</div>' +
-    '<label>Label <span style="opacity:.6">(optional)</span></label><input id="f_label" value="' + escapeAttr(existing ? (existing.label || "") : "") + '">' +
-    '<div class="grid3">' +
-      '<div><label>Host</label><input id="f_host" value="' + escapeAttr(cfg.host || "") + '"></div>' +
-      '<div><label>Port</label><input id="f_port" value="' + escapeAttr(cfg.port != null ? cfg.port : "") + '"></div>' +
-      '<div><label>Timeout (s)</label><input id="f_to" value="' + escapeAttr(existing && existing.query_timeout_seconds != null ? existing.query_timeout_seconds : "") + '"></div>' +
-    '</div>' +
-    '<div class="grid2">' +
-      '<div><label>Database</label><input id="f_db" value="' + escapeAttr(cfg.database || "") + '"></div>' +
-      '<div><label>Schema <span style="opacity:.6">(optional)</span></label><input id="f_schema" value="' + escapeAttr(cfg.schema || "") + '"></div>' +
-    '</div>' +
-    '<div class="grid2">' +
-      '<div><label>User</label><input id="f_user" autocomplete="off" placeholder="' + (credsSet.includes("user") ? "•••• (set)" : "") + '"></div>' +
-      '<div><label>Password</label><input id="f_pass" type="password" autocomplete="new-password" placeholder="' + (credsSet.includes("password") ? "•••• (set)" : "") + '"></div>' +
-    '</div>' +
-    '<details><summary>Advanced — extra config as JSON</summary>' +
-      '<textarea id="f_adv" placeholder="{}">' + escapeHtml(Object.keys(advCfg).length ? JSON.stringify(advCfg, null, 2) : "") + '</textarea>' +
-      '<div class="hint" style="margin-top:6px">Merged into config alongside the fields above. For non-relational types, put driver-specific keys here.</div>' +
-    '</details>' +
+    '<div class="sec">Configuration</div>' +
+    renderSection(spec.config, "config", existing, credSet) +
+    '<div class="sec">Credentials</div>' + authSel +
+    '<div id="credsHost">' + credsHtml(spec, mode, existing, credSet) + '</div>' +
+    '<div class="fld"><label>Query timeout <span class="opt">(seconds, optional)</span></label><input id="f_to" type="number" value="' + escapeAttr(existing && existing.query_timeout_seconds != null ? existing.query_timeout_seconds : "") + '"></div>' +
     '<div class="banner" id="f_banner"></div>' +
     '<div class="foot">' +
       '<button id="f_test">Test</button><div class="spacer"></div>' +
@@ -276,42 +431,45 @@ function openForm(existing) {
     '</div>' +
     '</div></div>';
 
+  $("f_back").onclick = isEdit ? closeForm : openPicker;
   $("f_cancel").onclick = closeForm;
   $("f_test").onclick = () => submitForm(isEdit, true);
   $("f_save").onclick = () => submitForm(isEdit, false);
+  const auth = $("f_auth");
+  if (auth) auth.onchange = () => { $("credsHost").innerHTML = credsHtml(spec, auth.value, existing, credSet); };
 }
+
 function closeForm() { $("modalHost").innerHTML = ""; }
 
-function collectForm(isEdit) {
-  const config = {};
-  const host = $("f_host").value.trim(); if (host) config.host = host;
-  const port = $("f_port").value.trim(); if (port) config.port = /^\d+$/.test(port) ? parseInt(port, 10) : port;
-  const db = $("f_db").value.trim(); if (db) config.database = db;
-  const schema = $("f_schema").value.trim(); if (schema) config.schema = schema;
-  const adv = $("f_adv").value.trim();
-  if (adv) { const extra = JSON.parse(adv); Object.assign(config, extra); }  // throws on bad JSON
-
-  const credentials = {};
-  const user = $("f_user").value; if (user) credentials.user = user;
-  const pass = $("f_pass").value; if (pass) credentials.password = pass;
-
-  const to = $("f_to").value.trim();
-  return {
-    name: $("f_name").value.trim(),
-    type: $("f_type").value,
-    label: $("f_label").value.trim() || null,
-    config,
-    credentials,
-    query_timeout_seconds: to ? parseInt(to, 10) : null,
-  };
+function collectDynamic() {
+  const config = {}, credentials = {};
+  for (const el of document.querySelectorAll("[data-field]")) {
+    const name = el.dataset.field, kind = el.dataset.kind;
+    const target = el.dataset.section === "config" ? config : credentials;
+    if (kind === "boolean") { target[name] = el.checked; continue; }
+    const raw = el.value;
+    if (kind === "number") { const s = String(raw).trim(); if (s === "") continue; const n = Number(s); if (!isNaN(n)) target[name] = n; continue; }
+    if (kind === "select") { if (raw === "") continue; target[name] = /^-?\d+$/.test(raw) ? parseInt(raw, 10) : raw; continue; }
+    if (kind === "keyvalue") { const o = {}; String(raw).split("\n").forEach(l => { const i = l.indexOf("="); if (i > 0) o[l.slice(0, i).trim()] = l.slice(i + 1).trim(); }); if (Object.keys(o).length) target[name] = o; continue; }
+    if (kind === "json") { const s = String(raw).trim(); if (s === "") continue; target[name] = JSON.parse(s); continue; }
+    if (kind === "stringlist") { const arr = String(raw).split("\n").map(x => x.trim()).filter(Boolean); if (arr.length) target[name] = arr; continue; }
+    const s = String(raw); if (s.trim() === "") continue; target[name] = s;   // string / password / textarea
+  }
+  return { config, credentials };
 }
 
 async function submitForm(isEdit, testOnly) {
   const banner = $("f_banner"); banner.className = "banner";
-  let payload;
-  try { payload = collectForm(isEdit); }
-  catch (e) { banner.className = "banner err"; banner.textContent = "Advanced config is not valid JSON: " + e.message; return; }
-  if (!payload.name) { banner.className = "banner err"; banner.textContent = "Name is required."; return; }
+  let dyn;
+  try { dyn = collectDynamic(); }
+  catch (e) { banner.className = "banner err"; banner.textContent = "A JSON field is not valid: " + e.message; return; }
+  const name = $("f_name").value.trim();
+  if (!name) { banner.className = "banner err"; banner.textContent = "Name is required."; return; }
+  const missing = (CUR_REQUIRED.config || []).filter(n => dyn.config[n] == null || dyn.config[n] === "");
+  if (missing.length) { banner.className = "banner err"; banner.textContent = "Required: " + missing.join(", "); return; }
+
+  const to = $("f_to").value.trim();
+  const payload = { name, type: CUR_TYPE, label: ($("f_label").value.trim() || null), config: dyn.config, credentials: dyn.credentials, query_timeout_seconds: to ? parseInt(to, 10) : null };
 
   const testBtn = $("f_test"), saveBtn = $("f_save");
   testBtn.disabled = saveBtn.disabled = true;
@@ -376,10 +534,9 @@ function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
 async function refreshAll() { await Promise.all([refreshStatus(), refreshList()]); }
 
 (async function init() {
-  $("addBtn").onclick = () => openForm(null);
+  $("addBtn").onclick = openPicker;
   $("auditRefresh").onclick = refreshAudit;
   for (const t of document.querySelectorAll(".tab")) t.onclick = () => showPanel(t.dataset.panel);
-  try { TYPES = (await api("GET", "/types")).types; } catch (e) { TYPES = ["postgresql", "mysql"]; }
   await refreshAll();
   setInterval(refreshStatus, 5000);
 })();
