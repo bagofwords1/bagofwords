@@ -452,6 +452,7 @@
     "signInWithProvider": "Entrar com {provider}",
     "continueWithProvider": "Continuar com {provider}",
     "invalidCredentials": "Credenciais inválidas",
+    "signInFailed": "Falha ao iniciar sessão. Tente novamente.",
     "registrationError": "Ocorreu um erro durante o cadastro.",
     "googleInitError": "Falha ao inicializar o login com Google",
     "providerInitError": "Falha ao inicializar o login com {provider}",

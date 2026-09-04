@@ -452,6 +452,7 @@
     "signInWithProvider": "Logga in med {provider}",
     "continueWithProvider": "Fortsätt med {provider}",
     "invalidCredentials": "Ogiltiga inloggningsuppgifter",
+    "signInFailed": "Inloggningen misslyckades. Försök igen.",
     "registrationError": "Ett fel uppstod under registreringen.",
     "googleInitError": "Det gick inte att initiera Google-inloggning",
     "providerInitError": "Det gick inte att initiera {provider}-inloggning",
