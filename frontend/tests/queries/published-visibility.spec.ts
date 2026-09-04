@@ -1,11 +1,12 @@
 import { test, expect } from '../fixtures/feature-test';
 
-// Regression: a published (global/approved) query must render as a leaf under
-// every agent it reads. The catalog moved from the standalone /queries page
-// into the /agents tree, so the failure this guards against moved with it —
-// previously the page's empty state hid a populated list; now the risk is the
-// Queries group drawing its badge but never listing the rows behind it.
-test('a published query renders under its agent in the tree', async ({ page }) => {
+// Regression: a published (global/approved) query must be listed for every
+// agent it reads. The catalog moved from the standalone /queries page into the
+// agent's Queries panel in the /agents tree, so the failure this guards against
+// moved with it — previously the page's empty state hid a populated list; now
+// the risk is the row drawing its badge but the panel never listing the rows
+// behind it.
+test('a published query is listed under its agent', async ({ page }) => {
   const AGENT_ID = 'ds-visible-1';
   const published = {
     id: 'reg-published-1',
@@ -52,8 +53,10 @@ test('a published query renders under its agent in the tree', async ({ page }) =
   await page.goto('/agents', { waitUntil: 'commit' });
 
   await page.getByText('Visible Agent', { exact: true }).first().click();
+  // The row opens the agent's list in the right pane; it does not expand.
   await page.getByText('Queries', { exact: true }).first().click();
 
+  await expect(page.getByTestId('agent-query-row')).toHaveCount(1, { timeout: 15000 });
   await expect(page.getByText('Regression Published Entity', { exact: true }))
     .toBeVisible({ timeout: 15000 });
 });

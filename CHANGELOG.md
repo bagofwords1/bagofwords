@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.555 (September 4, 2026)
-- Queries moved from their own page into the agents knowledge tree: each query now hangs under the agents it reads, with a lifecycle badge, and /queries redirects there
+- Queries moved from their own page into the agents knowledge tree: each agent has a Queries row that opens its saved queries in the side panel, with a lifecycle badge on each, and /queries redirects there
 - Unpublished queries (drafts, suggestions, archived) are no longer served to members who can reach the agent but don't own or manage the query
 
 ## Version 0.0.554 (September 3, 2026)

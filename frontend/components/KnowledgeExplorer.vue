@@ -273,17 +273,18 @@
                 </template>
               </TreeGroup>
 
-              <!-- Queries (catalog entities). An entity is m:n with agents, so
-                   one query attached to two agents renders under both — the same
-                   way an instruction does. Flat: no folders, and no org-wide
-                   node, because an agent-less query has no agent to hang under. -->
-              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.queries')" icon="i-heroicons-rectangle-stack" :count="queryTree[agent.id]?.loaded ? listForQueries(agent.id).length : (queryCounts[agent.id] || undefined)" :indent="1" reloadable :open="isOpen('queries:' + agent.id)" @toggle="onQueriesRowClick(agent.id)" @reload="loadQueries(agent.id, { force: true })">
-                <div v-if="queryTree[agent.id]?.loading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
-                <template v-else>
-                  <QueryLeaf v-for="q in listForQueries(agent.id)" :key="q.id" :entity="q" :agent-id="agent.id" :indent="2" />
-                  <EmptyHint v-if="queryTree[agent.id]?.loaded && listForQueries(agent.id).length === 0" :text="$t('agentsPage.noQueries')" :pad="48" />
-                </template>
-              </TreeGroup>
+              <!-- Queries (catalog entities). A leaf row, not a group: clicking
+                   it opens the agent's list in the right pane rather than
+                   expanding, because a query is a document with a body and reads
+                   better as a list than as truncated titles in the tree. An
+                   entity is m:n with agents, so one attached to two agents is
+                   listed under both. -->
+              <button v-if="!needsSignIn(agent)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'queries' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openQueriesPanel(agent.id)">
+                <span class="w-3 shrink-0"></span>
+                <LibraryIcon class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                <span class="flex-1 text-start truncate">{{ $t('agentsPage.queries') }}</span>
+                <span v-if="queryCounts[agent.id]" class="text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500">{{ queryCounts[agent.id] }}</span>
+              </button>
 
               <!-- Evals: the chevron expands the suite tree, the LABEL still opens
                    the runs/self-learning panel, so the existing entry point is
@@ -542,35 +543,6 @@
           </div>
         </template>
 
-        <!-- A query opens in the pane, like an instruction or a test case: the
-             tree stays put so you can click down a list of them. Same component
-             the /queries/<id> deep link renders, so there is one detail view. -->
-        <template v-else-if="queryView">
-          <div class="flex items-center gap-2 px-6 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
-            <!-- A query reached by deep link may have no agent attached (nothing
-                 in the tree points at it). Drop the agent crumb rather than
-                 inventing one — "Agent >" would read as an agent by that name. -->
-            <template v-if="queryAgent">
-              <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipOpenAgent')" @click="openAgent(queryView.agentId)">
-                <DataSourceIcon :type="queryAgent?.type" :connector-key="queryAgent?.connector_key" :icon="queryAgent?.icon" class="w-[18px] h-[18px] shrink-0" />
-                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ queryAgent.name }}</span>
-              </button>
-              <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
-            </template>
-            <UIcon v-else name="i-heroicons-rectangle-stack" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
-            <span class="text-[13px] text-gray-500 dark:text-gray-400 shrink-0">{{ $t('agentsPage.queries') }}</span>
-            <button class="ms-auto h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" :title="$t('common.close')" data-testid="query-panel-close" @click="closeQuery"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
-          </div>
-          <div class="flex-1 overflow-auto">
-            <EntityDetailPanel
-              :key="'query-' + queryView.entityId"
-              :entity-id="queryView.entityId"
-              @changed="onQueryChanged"
-              @deleted="onQueryDeleted"
-            />
-          </div>
-        </template>
-
         <!-- Tables / Tools editable panel -->
         <!-- A test case opens HERE, in the pane, rather than in a dialog: the
              tree stays visible so you can click through cases the way you click
@@ -601,6 +573,41 @@
           </div>
         </template>
 
+        <!-- One query. Sits ahead of the panel branch so it renders over the
+             agent's list (Back returns to it) AND on its own for a query with
+             no agent attached, which has no list to sit over. -->
+        <template v-else-if="queryView">
+          <div class="flex items-center gap-2 px-6 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
+            <!-- The back control IS the breadcrumb: it names where it goes, so
+                 there is no second "Back" stacked under the mobile layout's own
+                 back-to-tree bar. Without an agent there is no list to go back
+                 to, so it renders as a plain label. -->
+            <component
+              :is="queryView.agentId ? 'button' : 'div'"
+              :type="queryView.agentId ? 'button' : undefined"
+              class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1"
+              :class="queryView.agentId ? 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer' : ''"
+              :data-testid="queryView.agentId ? 'query-back' : 'query-crumb'"
+              @click="queryView.agentId && closeQuery()"
+            >
+              <UIcon v-if="queryView.agentId" name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
+              <LibraryIcon v-else class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+              <span class="text-[13px] text-gray-500 dark:text-gray-400 truncate">{{ queryAgent ? `${queryAgent.name} · ${$t('agentsPage.queries')}` : $t('agentsPage.queries') }}</span>
+            </component>
+            <button class="ms-auto h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" :title="$t('common.close')" data-testid="query-panel-close" @click="closeQueryPane">
+              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto">
+            <EntityDetailPanel
+              :key="'query-' + queryView.entityId"
+              :entity-id="queryView.entityId"
+              @changed="onQueryChanged"
+              @deleted="onQueryDeleted"
+            />
+          </div>
+        </template>
+
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
@@ -622,7 +629,13 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
-            <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
+            <AgentQueriesPanel
+              v-if="panelView.kind === 'queries'"
+              :key="'queries-' + panelView.agentId"
+              :ds-id="panelView.agentId"
+              @select="openQuery(panelView.agentId, $event)"
+            />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global :initial-run-id="pendingRunId" />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
@@ -1181,6 +1194,8 @@ import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import EntityDetailPanel from '~/components/entity/EntityDetailPanel.vue'
+import AgentQueriesPanel from '~/components/entity/AgentQueriesPanel.vue'
+import LibraryIcon from '~/components/icons/LibraryIcon.vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
@@ -1562,38 +1577,15 @@ const rootDropzoneAttrs = (scope: string) => ({
 })
 
 // ── Queries (catalog entities) ────────────────────────────
-// An Entity is m:n with agents, exactly like an instruction, so the tree asks
-// per agent and a query attached to two agents appears under both. There is no
-// folder level (entities have no directory model) and no org-wide node: an
-// agent-less entity has no agent to hang under, and it stays reachable by
-// deep link and by the search box rather than getting a home it doesn't fit.
-type QueryEntity = {
-  id: string; title?: string; slug?: string; type?: string
-  status?: string; private_status?: string | null; global_status?: string | null
-  data_sources?: { id: string; name?: string }[]
-  updated_at?: string
-}
-const queryTree = ref<Record<string, { items: QueryEntity[]; loaded: boolean; loading: boolean }>>({})
-// Per-agent badge counts (GET /api/entities/counts): one cheap grouped query,
-// same visibility rules as the list, so the badge can't disagree with the rows.
+// The tree row opens AgentQueriesPanel in the right pane rather than expanding
+// (see the row's comment); selecting a query there swaps the panel for its
+// detail, one Back away. The explorer owns that selection because it is what
+// the URL reflects, and because a delete has to fall back to the list.
+//
+// The only per-agent state the tree itself keeps is the badge count, from
+// GET /entities/counts — one grouped query with the same visibility rules as
+// the list, so the badge cannot disagree with the rows behind it.
 const queryCounts = ref<Record<string, number>>({})
-
-// Archived rows are hidden here and excluded from the server's counts, so the
-// two always agree. Everything else is ordered newest-first by the API.
-const isArchivedQuery = (q: QueryEntity) =>
-  q.status === 'archived' || q.private_status === 'archived'
-const listForQueries = (agentId: string) =>
-  (queryTree.value[agentId]?.items || []).filter(q => !isArchivedQuery(q))
-
-// The lifecycle badge on a leaf, mirroring the tabs the standalone page used to
-// draw: a published catalog row gets none, everything else says what it is.
-const queryBadge = (q: QueryEntity): { text: string; class: string } | null => {
-  if (isArchivedQuery(q)) return { text: t('queries.archivedBadge'), class: 'bg-red-50 text-red-700 dark:bg-red-500/10 dark:text-red-400' }
-  if (q.private_status && q.global_status === 'suggested') return { text: t('queries.suggestedBadge'), class: 'bg-amber-100 text-amber-800 dark:bg-amber-500/10 dark:text-amber-400' }
-  if (q.private_status) return { text: t('queries.draftBadge'), class: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' }
-  if (q.status === 'draft') return { text: t('queries.draftBadge'), class: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400' }
-  return null
-}
 
 const fetchQueryCounts = async () => {
   try {
@@ -1606,62 +1598,31 @@ const fetchQueryCounts = async () => {
   } catch (e) { console.error('Failed to load query counts', e) }
 }
 
-async function loadQueries(agentId: string, opts: { force?: boolean } = {}) {
-  const cur = queryTree.value[agentId]
-  if (cur?.loading) return
-  if (cur?.loaded && !opts.force) return
-  queryTree.value = { ...queryTree.value, [agentId]: { items: cur?.items || [], loaded: !!cur?.loaded, loading: true } }
-  try {
-    const { data } = await useMyFetch<any>(
-      `/api/entities?data_source_ids=${encodeURIComponent(agentId)}&limit=1000`, { method: 'GET' })
-    const items = (data.value || []) as QueryEntity[]
-    queryTree.value = { ...queryTree.value, [agentId]: { items, loaded: true, loading: false } }
-  } catch (e) {
-    console.error('Failed to load queries', e)
-    queryTree.value = { ...queryTree.value, [agentId]: { items: [], loaded: true, loading: false } }
-  }
-}
-
-const onQueriesRowClick = (agentId: string) => {
-  loadQueries(agentId)
-  expand('queries:' + agentId)
-}
-
-// ── Query detail (right pane, not a modal) ────────────────
+// The selected query INSIDE the queries panel — never on its own, so closing it
+// lands back on the agent's list instead of an empty pane.
 const queryView = ref<null | { entityId: string; agentId: string }>(null)
 const queryAgent = computed(() => queryView.value ? agents.value.find(a => a.id === queryView.value!.agentId) : null)
+// Back: drop the selection and fall through to the agent's list, which remounts
+// and refetches — so a query approved or renamed here shows its new state there.
 const closeQuery = () => { queryView.value = null }
-const openQuery = (agentId: string, q: QueryEntity) => {
-  clearRightPane()
+// The X closes the whole pane, not just the query.
+const closeQueryPane = () => { queryView.value = null; closePanel() }
+const openQueriesPanel = (agentId: string) => {
+  if (panelView.value?.kind === 'queries' && panelView.value?.agentId === agentId) {
+    // Clicking the row again backs out of an open query to the list.
+    if (queryView.value) closeQuery()
+    return
+  }
+  openPanel('queries', agentId)
+}
+const openQuery = (agentId: string, q: any) => {
   queryView.value = { entityId: String(q.id), agentId }
 }
-// A workflow action (suggest / approve / reject / edit) rewrites the row's
-// lifecycle, which is exactly what the leaf's badge shows — so patch the loaded
-// row in place and refresh the badge count rather than leaving the tree stale.
-const onQueryChanged = (updated: any) => {
-  const agentId = queryView.value?.agentId
-  if (!agentId || !updated?.id) return
-  const st = queryTree.value[agentId]
-  if (st) {
-    queryTree.value = {
-      ...queryTree.value,
-      [agentId]: { ...st, items: st.items.map(q => (String(q.id) === String(updated.id) ? { ...q, ...updated } : q)) },
-    }
-  }
-  fetchQueryCounts()
-}
+// Approve / suggest / reject / rename rewrite the row's lifecycle, which is
+// what the list badge and the tree count show — refresh both.
+const onQueryChanged = () => { fetchQueryCounts() }
 const onQueryDeleted = () => {
-  const agentId = queryView.value?.agentId
-  const entityId = queryView.value?.entityId
-  closeQuery()
-  if (!agentId || !entityId) return
-  const st = queryTree.value[agentId]
-  if (st) {
-    queryTree.value = {
-      ...queryTree.value,
-      [agentId]: { ...st, items: st.items.filter(q => String(q.id) !== String(entityId)) },
-    }
-  }
+  queryView.value = null
   fetchQueryCounts()
 }
 
@@ -2089,15 +2050,15 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
@@ -4150,47 +4111,6 @@ const CaseLeaf = defineComponent({
   },
 })
 
-const QueryLeaf = defineComponent({
-  props: {
-    entity: { type: Object as () => any, required: true },
-    agentId: { type: String, required: true },
-    indent: { type: Number, default: 2 },
-  },
-  setup(props) {
-    return () => {
-      const q = props.entity
-      const selected = queryView.value?.entityId === String(q.id)
-      const badge = queryBadge(q)
-      const label = q.title || q.slug || t('agentsPage.untitledQuery')
-      return createElement('div', {
-        role: 'button',
-        tabindex: 0,
-        class: ['group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0 cursor-pointer',
-                selected ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'],
-        style: { paddingInlineStart: (6 + props.indent * 14) + 'px', paddingInlineEnd: '8px' },
-        onClick: () => openQuery(props.agentId, q),
-        onKeydown: (e: KeyboardEvent) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openQuery(props.agentId, q) } },
-      }, [
-        createElement('span', { class: 'w-3 shrink-0' }),
-        createElement(resolveComponent('UIcon'), {
-          name: q.type === 'metric' ? 'i-heroicons-variable' : 'i-heroicons-table-cells',
-          class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0',
-          title: q.type || 'model',
-        }),
-        createElement('span', { class: 'flex-1 text-start truncate', title: label }, label),
-        badge
-          ? createElement('span', { class: ['shrink-0 inline-flex items-center px-1.5 h-5 rounded text-[10px] font-medium', badge.class] }, badge.text)
-          : null,
-        // Attached to more than this agent — the m:n fact the tree would
-        // otherwise hide, since the row also renders under those other agents.
-        (q.data_sources && q.data_sources.length > 1)
-          ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1 h-4 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[11px] font-medium', title: q.data_sources.map((d: any) => d.name).join(', ') }, String(q.data_sources.length))
-          : null,
-      ])
-    }
-  },
-})
-
 const EmptyHint = defineComponent({
   props: { text: String, add: Boolean, pad: { type: Number, default: 34 } },
   emits: ['add'],
@@ -4221,16 +4141,18 @@ const FilterSection = defineComponent({
 // router navigation) so the address bar updates without re-running the global
 // middleware (auth/onboarding/permissions) or remounting/flickering the page.
 const route = useRoute()
-const PANEL_KINDS = ['tables', 'tools', 'evals', 'settings'] as const
+const PANEL_KINDS = ['tables', 'tools', 'queries', 'evals', 'settings'] as const
 
 // The URL that reflects the current right-pane state. Only one of agent /
 // panel / instruction views is open at a time (each open() clears the others).
 const explorerUrl = (): string => {
   // Global evals has no agentId — filter empty segments so it maps to
   // /agents/global-evals rather than /agents//global-evals.
+  // A query open inside the queries panel gets the deeper URL, so the link a
+  // reader shares opens that query and not the agent's whole list.
+  if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
-  if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
   return '/agents'
 }
@@ -4272,9 +4194,14 @@ const restoreFromRoute = () => {
       .then(({ data }: any) => {
         const ent = data?.value
         if (!ent) return
+        // Hang it under one of its own agents so Back has a list to return to.
+        // A query attached to none has no such list; it still opens on its own.
         const agentId = String(ent.data_sources?.[0]?.id || '')
+        if (agentId) {
+          expand('agent:' + agentId, true)
+          openPanel('queries', agentId)
+        }
         openQuery(agentId, ent)
-        if (agentId) { expand('agent:' + agentId, true); expand('queries:' + agentId, true); loadQueries(agentId) }
       })
       .catch(() => {})
     return
