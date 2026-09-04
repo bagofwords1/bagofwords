@@ -326,6 +326,29 @@ def test_ccache_paths_are_private_to_each_manager(tmp_path):
     )
 
 
+def test_ccache_root_and_worker_dir_are_private(tmp_path):
+    """Nesting the worker dir must not leave the cache root world-traversable.
+
+    os.makedirs() applies its mode to the leaf only, so creating the root
+    implicitly would give it 0o777 & ~umask instead of 0700.
+    """
+    import os
+    import stat
+
+    from app.data_sources.kerberos import KerberosTicketManager
+
+    root = tmp_path / "bow_krb5"  # absent, like a fresh /tmp/bow_krb5
+    previous_umask = os.umask(0o022)
+    try:
+        manager = KerberosTicketManager(ccache_dir=str(root))
+        ccache_path = manager._ccache_path_for("user:alice@CORP.EXAMPLE.COM")
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(os.path.dirname(ccache_path)).st_mode) == 0o700
+
+
 # ---------- resolve_credentials helper ---------- #
 
 

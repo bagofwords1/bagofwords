@@ -170,6 +170,13 @@ class KerberosTicketManager:
             return ccache_path
 
     def _ccache_path_for(self, key: str) -> str:
+        # os.makedirs applies `mode` to the leaf directory only — intermediate
+        # ones land at 0o777 & ~umask (typically 0755). The worker dir below is
+        # the leaf, so the root has to be created in its own call or the cache
+        # root becomes world-traversable. Only creation is constrained: an
+        # operator-supplied BOW_KRB5_CCACHE_DIR is left as configured (mounted
+        # ccache dirs are group-accessible under OpenShift's arbitrary UIDs).
+        os.makedirs(self._ccache_dir, mode=0o700, exist_ok=True)
         worker_dir = os.path.join(self._ccache_dir, f"worker-{self._cache_namespace}")
         os.makedirs(worker_dir, mode=0o700, exist_ok=True)
         with suppress(OSError):
