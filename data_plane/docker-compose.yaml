@@ -28,10 +28,6 @@ services:
       # Production terminates TLS at Bow's ingress: wss://tunnel.<your-bow-host>.
       BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL: ${BOW_TUNNEL_ENDPOINT_URL:?set BOW_TUNNEL_ENDPOINT_URL}
       BOW_EDGE_AGENT_NATS_TOKEN:    ${BOW_NATS_TOKEN:?set BOW_NATS_TOKEN}
-      # --- credential store encryption --------------------------------------
-      # Supply from your secret manager. Losing this key makes stored data-source
-      # credentials unrecoverable; changing it invalidates them.
-      BOW_EDGE_AGENT_STORE_KEY:     ${BOW_STORE_KEY:?set BOW_STORE_KEY (base64 Fernet key)}
       # Admin UI binds all interfaces INSIDE the container; the port mapping
       # below is what keeps it on the host's loopback.
       BOW_EDGE_AGENT_ADMIN_HOST:    0.0.0.0

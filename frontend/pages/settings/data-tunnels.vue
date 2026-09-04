@@ -251,7 +251,6 @@ const dockerCmd = computed(() => [
   '  -v "$(pwd)/config.yaml:/etc/bow/edge-agent.yaml:ro" \\',
   '  -v bow-edge-data:/data \\',
   '  -e BOW_EDGE_AGENT_NATS_TOKEN=<your-nats-token> \\',
-  '  -e BOW_EDGE_AGENT_STORE_KEY=<your-fernet-key> \\',
   '  -p 127.0.0.1:9191:9191 \\',
   '  bow/data-edge-agent:latest',
 ].join('\n'))

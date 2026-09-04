@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cryptography.fernet import Fernet
 
 from ..config import AgentConfig, ConnectionConfig
 from ..main import _merge_store_connections, _resolve_store_path
@@ -40,7 +39,7 @@ def test_store_path_falls_back_to_cwd_when_config_is_env_only():
 # -- _merge_store_connections ------------------------------------------------
 
 def _store(tmp_path, *conns) -> ConnectionStore:
-    s = ConnectionStore(tmp_path / "store.json", Fernet.generate_key().decode())
+    s = ConnectionStore(tmp_path / "store.json")
     for c in conns:
         s.upsert(c)
     return s

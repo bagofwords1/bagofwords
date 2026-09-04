@@ -1,7 +1,7 @@
 """Admin UI API (design C4): CRUD, credential hygiene, persistence + apply.
 
 No broker and no real database: a fake tunnel records what the server asks it
-to apply, and a real (tmp) encrypted store backs persistence. What we assert is
+to apply, and a real (tmp) store backs persistence. What we assert is
 the server's contract — credentials never come back out, blank fields keep the
 saved value, a save both persists and applies, a delete does both.
 """
@@ -11,7 +11,6 @@ from __future__ import annotations
 import pytest
 import pytest_asyncio
 from aiohttp.test_utils import TestClient, TestServer
-from cryptography.fernet import Fernet
 
 from ..admin.server import AdminServer
 from ..audit import AuditLog
@@ -60,7 +59,7 @@ class FakeTunnel:
 
 @pytest.fixture
 def store(tmp_path):
-    return ConnectionStore(tmp_path / "store.json", Fernet.generate_key().decode())
+    return ConnectionStore(tmp_path / "store.json")
 
 
 @pytest_asyncio.fixture
@@ -90,7 +89,7 @@ async def test_create_persists_applies_and_hides_credentials(client):
     assert "credentials" not in body
     assert body["credential_keys"] == ["password", "user"]
 
-    # Applied to the tunnel and written to the store (encrypted).
+    # Applied to the tunnel and written to the store.
     assert client.tunnel.applied == ["lego-pg"]
     stored = client.store.get("lego-pg")
     assert stored.credentials == {"user": "lego", "password": "s3cret"}

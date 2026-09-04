@@ -1,11 +1,16 @@
-"""Credential store (design C4): encryption at rest + round-tripping."""
+"""Connection store (design C4): cleartext persistence + round-tripping.
+
+Credentials are stored in cleartext by design — securing the file is the site
+owner's responsibility — so these assert the round-trip and 0600 file mode, not
+encryption.
+"""
 
 from __future__ import annotations
 
 import json
+import stat
 
 import pytest
-from cryptography.fernet import Fernet
 
 from ..config import ConnectionConfig
 from ..store import ConnectionStore, StoreError
@@ -22,13 +27,8 @@ def _conn(name="pg", **over):
     return ConnectionConfig(**base)
 
 
-@pytest.fixture
-def key():
-    return Fernet.generate_key().decode()
-
-
-def test_upsert_then_list_round_trips(tmp_path, key):
-    store = ConnectionStore(tmp_path / "store.json", key)
+def test_upsert_then_list_round_trips(tmp_path):
+    store = ConnectionStore(tmp_path / "store.json")
     store.upsert(_conn())
 
     got = store.list()
@@ -40,30 +40,34 @@ def test_upsert_then_list_round_trips(tmp_path, key):
     assert c.query_timeout_seconds == 120
 
 
-def test_credentials_are_encrypted_on_disk(tmp_path, key):
+def test_credentials_are_stored_in_cleartext(tmp_path):
     path = tmp_path / "store.json"
-    store = ConnectionStore(path, key)
+    store = ConnectionStore(path)
     store.upsert(_conn())
 
-    raw = path.read_text()
-    # The secret must not appear in cleartext; config detail may.
-    assert "hunter2" not in raw
-    assert "bow_reader" not in raw
-    assert "db.internal" in raw  # config is intentionally clear
-    row = json.loads(raw)["connections"][0]
-    assert "credentials_enc" in row and "credentials" not in row
+    row = json.loads(path.read_text())["connections"][0]
+    # cleartext credentials dict, no encrypted blob
+    assert row["credentials"] == {"user": "bow_reader", "password": "hunter2"}
+    assert "credentials_enc" not in row
 
 
-def test_upsert_replaces_by_name(tmp_path, key):
-    store = ConnectionStore(tmp_path / "store.json", key)
+def test_store_file_is_0600(tmp_path):
+    path = tmp_path / "store.json"
+    ConnectionStore(path).upsert(_conn())
+    mode = stat.S_IMODE(path.stat().st_mode)
+    assert mode == 0o600
+
+
+def test_upsert_replaces_by_name(tmp_path):
+    store = ConnectionStore(tmp_path / "store.json")
     store.upsert(_conn(config={"host": "old"}))
     store.upsert(_conn(config={"host": "new"}))
     got = store.list()
     assert len(got) == 1 and got[0].config["host"] == "new"
 
 
-def test_delete(tmp_path, key):
-    store = ConnectionStore(tmp_path / "store.json", key)
+def test_delete(tmp_path):
+    store = ConnectionStore(tmp_path / "store.json")
     store.upsert(_conn("a"))
     store.upsert(_conn("b"))
     assert store.delete("a") is True
@@ -71,23 +75,20 @@ def test_delete(tmp_path, key):
     assert store.delete("missing") is False
 
 
-def test_wrong_key_is_a_loud_error_not_silent_credential_loss(tmp_path, key):
+def test_reopen_reads_existing_connections(tmp_path):
     path = tmp_path / "store.json"
-    ConnectionStore(path, key).upsert(_conn())
-    other = ConnectionStore(path, Fernet.generate_key().decode())
-    with pytest.raises(StoreError):
-        other.list()
-
-
-def test_generated_key_file_persists_across_instances(tmp_path):
-    path = tmp_path / "store.json"
-    ConnectionStore(path).upsert(_conn())  # generates <store>.key
-    keyfile = path.with_suffix(path.suffix + ".key")
-    assert keyfile.is_file()
-    # A fresh instance with no explicit key reuses the generated key file.
+    ConnectionStore(path).upsert(_conn())
+    # a fresh instance (a restart) reads what was written, no key needed
     reopened = ConnectionStore(path)
     assert reopened.list()[0].credentials["password"] == "hunter2"
 
 
-def test_empty_store_lists_nothing(tmp_path, key):
-    assert ConnectionStore(tmp_path / "store.json", key).list() == []
+def test_empty_store_lists_nothing(tmp_path):
+    assert ConnectionStore(tmp_path / "store.json").list() == []
+
+
+def test_corrupt_file_raises_storeerror(tmp_path):
+    path = tmp_path / "store.json"
+    path.write_text("{ not json")
+    with pytest.raises(StoreError):
+        ConnectionStore(path).list()

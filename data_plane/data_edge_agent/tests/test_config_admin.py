@@ -12,7 +12,7 @@ def test_admin_defaults():
     assert cfg.admin_enabled is True
     assert cfg.admin_host == "127.0.0.1"   # loopback by design
     assert cfg.admin_port == 9191
-    assert cfg.store_path is None and cfg.store_key is None
+    assert cfg.store_path is None
 
 
 @pytest.mark.parametrize("raw,expected", [
@@ -32,9 +32,7 @@ def test_admin_and_store_env_overrides(monkeypatch):
     monkeypatch.setenv("BOW_EDGE_AGENT_ADMIN_HOST", "0.0.0.0")
     monkeypatch.setenv("BOW_EDGE_AGENT_ADMIN_PORT", "9292")
     monkeypatch.setenv("BOW_EDGE_AGENT_STORE_PATH", "/data/store.json")
-    monkeypatch.setenv("BOW_EDGE_AGENT_STORE_KEY", "a-key")
     cfg = load_config(None)
     assert cfg.admin_host == "0.0.0.0"
     assert cfg.admin_port == 9292          # int-coerced
     assert cfg.store_path == "/data/store.json"
-    assert cfg.store_key == "a-key"

@@ -172,10 +172,10 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     configure_logging(config.log_level)
 
-    # Build the credential store and fold its connections in before start-up,
+    # Build the connection store and fold its connections in before start-up,
     # so admin-UI-managed sources are served on this boot too. A store failure
-    # (e.g. a wrong key) is fatal: serving a connection with silently-missing
-    # credentials is worse than refusing to start.
+    # (e.g. an unreadable/corrupt file) is fatal: serving a connection with
+    # silently-missing credentials is worse than refusing to start.
     config_path = args.config or os.environ.get("BOW_EDGE_AGENT_CONFIG")
 
     # Local audit trail (C4/C5): always on — it is a security feature, not a
@@ -186,7 +186,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     store: Optional[ConnectionStore] = None
     if config.admin_enabled:
         try:
-            store = ConnectionStore(_resolve_store_path(config, config_path), config.store_key)
+            store = ConnectionStore(_resolve_store_path(config, config_path))
             _merge_store_connections(config, store)
         except Exception:
             logger.exception("edge_agent.store.fatal")
