@@ -1630,6 +1630,18 @@ class PrometheusConfig(BaseModel):
         description="Optional prefix to bound metric discovery on large instances (e.g. 'node_' or 'http_'). Leave blank to index all metrics.",
         json_schema_extra={"ui:type": "string"},
     )
+    discovery_lookback_hours: Optional[float] = Field(
+        None,
+        title="Discovery Lookback (hours)",
+        description="How far back schema discovery looks for a metric's labels. Defaults to 1 hour, which keeps indexing cheap on high-churn instances. Raise it only if a metric is scraped less often than that and its labels are being missed.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    timeout: Optional[int] = Field(
+        None,
+        title="Request Timeout (seconds)",
+        description="Per-request timeout for the Prometheus HTTP API. Defaults to 30. Raise it for a slow or heavily loaded instance.",
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # Jaeger (distributed tracing via the Query JSON HTTP API)
