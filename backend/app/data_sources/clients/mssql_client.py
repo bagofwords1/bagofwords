@@ -135,11 +135,12 @@ class MSSQLClient(DataSourceClient):
                 # performed its GSS handshake, so the pool is keyed by ccache —
                 # sharing one across principals would hand out a connection
                 # authenticated as somebody else.
-                engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
-                # KRB5CCNAME is process-global; hold the activation lock only
-                # while the driver performs the GSS handshake. The established
-                # connection stays bound to its identity afterwards.
+                # Keep lazy engine/driver initialization and the handshake
+                # under the same credential-cache selection. Initializing an
+                # engine before activation can observe another thread's cache.
+                # Established queries run outside this process-wide lock.
                 with get_ticket_manager().activate(ccache):
+                    engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
                     conn = engine.connect()
             else:
                 engine = get_engine(self.sql_server_uri)

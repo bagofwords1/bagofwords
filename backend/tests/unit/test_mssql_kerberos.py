@@ -15,9 +15,11 @@ domain available.
 from __future__ import annotations
 
 import asyncio
+import os
 import sys
 import threading
 import types
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, unquote_plus, urlsplit
 
 import pytest
@@ -204,6 +206,93 @@ def _install_fake_gssapi(monkeypatch, store_calls, impersonate_calls, lifetime=3
     )
     monkeypatch.setitem(sys.modules, "gssapi", fake)
     return fake
+
+
+@pytest.mark.parametrize("driver", [17, 18])
+@pytest.mark.parametrize("concurrent", [False, True])
+def test_connections_preserve_requested_kerberos_identity(tmp_path, monkeypatch, driver, concurrent):
+    """Cold/warm engines retain their user's identity, including during setup.
+
+    Model a credential-sensitive external driver that captures its default
+    identity during lazy initialization. The real ticket manager, engine pool,
+    client and cancellation tracking run unchanged; only GSSAPI and the
+    external SQLAlchemy/driver boundary are substituted. No AD or SQL is needed.
+    """
+    import sqlalchemy
+    from app.data_sources import engine_pool, kerberos
+
+    _install_fake_gssapi(monkeypatch, [], [])
+    manager = kerberos.KerberosTicketManager(ccache_dir=str(tmp_path))
+    monkeypatch.setattr(kerberos, "_manager", manager)
+    ambient_cache = f"FILE:{tmp_path / 'ambient'}"
+    monkeypatch.setenv("KRB5CCNAME", ambient_cache)
+    identities = {ambient_cache: "ambient-service"}
+    clients = []
+    for principal, mode in [
+        ("reader@EXAMPLE.TEST", "delegated"),
+        ("analyst@EXAMPLE.TEST", "delegated"),
+        ("service@EXAMPLE.TEST", "service"),
+        ("ambient-service", "default"),
+    ]:
+        kwargs = {}
+        if mode == "delegated":
+            kwargs["kerberos_impersonate"] = principal
+            identities[f"FILE:{manager.delegated_ccache(principal)}"] = principal
+        elif mode == "service":
+            kwargs["kerberos_principal"] = principal
+            identities[f"FILE:{manager.service_ccache(principal)}"] = principal
+        clients.append((principal, MSSQLClient(
+            "sql.example.test", 1433, "synthetic", use_kerberos=True,
+            odbc_driver=driver, **kwargs,
+        )))
+
+    class DriverConnection:
+        def __init__(self, identity):
+            self.identity = identity
+            self.info = {}
+
+        def execute(self, statement):
+            value = 1 if str(statement) == "SELECT @@SPID" else self.identity
+            return types.SimpleNamespace(scalar=lambda: value)
+
+        def close(self):
+            pass
+
+    class DriverEngine:
+        def __init__(self, *args, **kwargs):
+            self.identity = identities[os.environ["KRB5CCNAME"]]
+
+        def connect(self):
+            return DriverConnection(self.identity)
+
+        def dispose(self):
+            pass
+
+    engine_pool.dispose_all()
+    monkeypatch.setattr(sqlalchemy, "create_engine", DriverEngine)
+    try:
+        for _ in range(2):  # Cold engine initialization, then pool reuse.
+            barrier = threading.Barrier(len(clients), timeout=10) if concurrent else None
+
+            def query_identity(item):
+                expected, client = item
+                with client.connect() as connection:
+                    if barrier:
+                        # All queries must be able to enter before any exits:
+                        # credential selection must not serialize query bodies.
+                        barrier.wait()
+                    actual = connection.execute(sqlalchemy.text("SELECT ORIGINAL_LOGIN()")).scalar()
+                    assert actual == expected
+
+            if concurrent:
+                with ThreadPoolExecutor(max_workers=len(clients)) as pool:
+                    list(pool.map(query_identity, clients))
+            else:
+                for item in clients:
+                    query_identity(item)
+            assert os.environ["KRB5CCNAME"] == ambient_cache
+    finally:
+        engine_pool.dispose_all()
 
 
 def test_delegated_ccache_acquires_and_caches(tmp_path, monkeypatch):
