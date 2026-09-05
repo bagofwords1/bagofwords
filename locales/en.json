@@ -3687,7 +3687,11 @@
       "enterprise": "Enterprise",
       "sample": "sample",
       "orTry": "Or try a sample database:",
-      "errorAvailable": "Could not fetch available data sources"
+      "errorAvailable": "Could not fetch available data sources",
+      "searchPlaceholder": "Search data sources...",
+      "showAll": "Show all data sources ({count} more)",
+      "showLess": "Show fewer",
+      "noResults": "No data sources match “{query}”"
     },
     "schema": {
       "save": "Save & Continue"
