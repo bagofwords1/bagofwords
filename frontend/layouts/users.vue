@@ -1,11 +1,6 @@
 <template>
   <div class="min-h-screen bg-white dark:bg-gray-950">
     <UNotifications />
-    <!-- Product mark, out of the content flow so every auth page shares one
-         anchor and the form stays optically centered. -->
-    <NuxtLink to="/" class="fixed top-5 start-6 z-10 flex items-center gap-2">
-      <img src="/assets/logo-128.png" alt="Bag of words" class="h-7 w-7" />
-    </NuxtLink>
     <slot />
   </div>
 </template>

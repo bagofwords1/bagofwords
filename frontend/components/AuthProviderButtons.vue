@@ -9,7 +9,7 @@
       :class="buttonClass"
     >
       <template v-if="loadingProvider === p.name">
-        <Spinner class="h-3.5 w-3.5" />
+        <Spinner class="h-3 w-3" />
       </template>
       <template v-else>
         <img v-if="iconSrc(p)" :src="iconSrc(p)!" alt="" aria-hidden="true" :class="iconClass" />
@@ -61,14 +61,14 @@ const allProviders = computed<AuthProvider[]>(() => [
 // The mark is pinned to the leading edge so every label lands on the same
 // centered axis no matter how long the provider name is.
 const buttonClass =
-  'relative w-full h-10 inline-flex items-center justify-center rounded-lg border ' +
-  'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-sm font-medium ' +
+  'relative w-full h-9 sm:h-7 inline-flex items-center justify-center rounded-md border ' +
+  'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-base sm:text-xs font-medium ' +
   'text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/60 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ' +
   'dark:focus-visible:ring-white focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950 ' +
   'disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
 
-const iconClass = 'absolute start-3.5 h-4 w-4'
+const iconClass = 'absolute start-2.5 h-4 w-4 sm:h-3.5 sm:w-3.5'
 
 // Only three marks are shipped: the two providers most deployments use, and a
 // neutral key for every other OIDC issuer (Okta, Keycloak, an in-house IdP).

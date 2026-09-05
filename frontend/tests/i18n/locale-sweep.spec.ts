@@ -22,68 +22,68 @@ const CASES: Record<Locale, {
   smokeHello: string;
   smokeCommonSave: string;
   // Pattern expected on the /users/sign-in heading, which renders
-  // auth.welcomeBack. A regex so a locale rewrite can pick a synonym.
+  // auth.welcomeTitle. A regex so a locale rewrite can pick a synonym.
   signInHeading: RegExp;
 }> = {
   en: {
     dir: 'ltr',
     smokeHello: 'Hello',
     smokeCommonSave: 'Save',
-    signInHeading: /Welcome back/,
+    signInHeading: /Welcome to BOW/,
   },
   es: {
     dir: 'ltr',
     smokeHello: 'Hola',
     smokeCommonSave: 'Guardar',
-    signInHeading: /Bienvenido de nuevo/,
+    signInHeading: /Bienvenido a BOW/,
   },
   he: {
     dir: 'rtl',
     smokeHello: 'שלום',
     smokeCommonSave: 'שמירה',
-    signInHeading: /ברוכים השבים/,
+    signInHeading: /ברוכים הבאים/,
   },
   fr: {
     dir: 'ltr',
     smokeHello: 'Bonjour',
     smokeCommonSave: 'Enregistrer',
-    signInHeading: /Bon retour/,
+    signInHeading: /Bienvenue sur BOW/,
   },
   sv: {
     dir: 'ltr',
     smokeHello: 'Hej',
     smokeCommonSave: 'Spara',
-    signInHeading: /Välkommen tillbaka/,
+    signInHeading: /Välkommen till BOW/,
   },
   ar: {
     dir: 'rtl',
     smokeHello: 'مرحبًا',
     smokeCommonSave: 'حفظ',
-    signInHeading: /مرحبًا بعودتك/,
+    signInHeading: /مرحبًا بك في BOW/,
   },
   ru: {
     dir: 'ltr',
     smokeHello: 'Привет',
     smokeCommonSave: 'Сохранить',
-    signInHeading: /С возвращением/,
+    signInHeading: /Добро пожаловать в BOW/,
   },
   de: {
     dir: 'ltr',
     smokeHello: 'Hallo',
     smokeCommonSave: 'Speichern',
-    signInHeading: /Willkommen zurück/,
+    signInHeading: /Willkommen bei BOW/,
   },
   pt: {
     dir: 'ltr',
     smokeHello: 'Olá',
     smokeCommonSave: 'Salvar',
-    signInHeading: /Bem-vindo de volta/,
+    signInHeading: /Bem-vindo ao BOW/,
   },
   it: {
     dir: 'ltr',
     smokeHello: 'Ciao',
     smokeCommonSave: 'Salva',
-    signInHeading: /Bentornato/,
+    signInHeading: /Benvenuto in BOW/,
   },
 };
 
