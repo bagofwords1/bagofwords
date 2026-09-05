@@ -3471,7 +3471,7 @@ class DataSourceService:
         
         # Apply pagination
         offset = (page - 1) * page_size
-        base_query = base_query.offset(offset).limit(page_size)
+        base_query = base_query.order_by(DataSourceTable.id.asc()).offset(offset).limit(page_size)
 
         # Add selectinload for connection info
         base_query = base_query.options(
@@ -3542,6 +3542,10 @@ class DataSourceService:
                 connection_id=conn_id,
                 connection_name=conn_name,
                 connection_type=conn_type,
+                custom_query_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "bow" else None,
+                last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
+                last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
+                rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,
                 # Metrics
                 centrality_score=table.centrality_score,
                 richness=table.richness,
@@ -3550,6 +3554,7 @@ class DataSourceService:
                 entity_like=table.entity_like,
                 metrics_computed_at=table.metrics_computed_at.isoformat() if table.metrics_computed_at else None,
                 # Stats fields
+                last_used_at=stats.last_used_at if stats else None,
                 usage_count=int(stats.usage_count or 0) if stats else None,
                 success_count=int(stats.success_count or 0) if stats else None,
                 failure_count=int(stats.failure_count or 0) if stats else None,

@@ -13,24 +13,26 @@
           :show-save="false" />
       </div>
 
-      <!-- SQL / table / object connections → a tables grid each -->
-      <div v-for="conn in tableConnections" :key="conn.id" class="mb-6">
-        <div class="flex items-center gap-2 mb-2 px-1">
-          <DataSourceIcon :type="conn.type" class="w-4 h-4" />
-          <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ conn.name }}</span>
-          <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ conn.type }}</span>
+      <!-- One selection and graph across table connections, including onboarding. -->
+      <div v-if="tableConnections.length" class="mb-6">
+        <div class="flex flex-wrap gap-x-4 gap-y-2 mb-2 px-1">
+          <div v-for="conn in tableConnections" :key="conn.id" class="flex items-center gap-2">
+            <DataSourceIcon :type="conn.type" class="w-4 h-4" />
+            <span class="text-sm font-medium text-gray-800 dark:text-gray-200">{{ conn.name }}</span>
+            <span class="text-[10px] uppercase tracking-wide text-gray-400 dark:text-gray-500">{{ conn.type }}</span>
+          </div>
         </div>
         <TablesSelector
-          :ref="(el) => registerTableRef(conn.id, el)"
+          ref="tablesRef"
           :ds-id="dsId"
           schema="full"
-          :connection-filter="conn.id"
+          :connection-filter="tableConnections.map(conn => conn.id).join(',')"
           :can-update="canUpdate"
           :show-refresh="true"
           :show-save="false"
           :show-header="false"
           :show-stats="true"
-          :item-noun="nounFor(shapeOf(conn))" />
+          :item-noun="nounFor(tableConnections.length === 1 ? shapeOf(tableConnections[0]) : 'tables')" />
       </div>
 
       <!-- Tool / MCP connections → the tools picker (per-connection internally) -->
@@ -97,18 +99,14 @@ function nounFor(shape: string | undefined) {
   return { sing: 'table', plural: 'tables' }
 }
 
-// Collect child TablesSelector instances so one "Save & Continue" persists all.
-const tableRefs = new Map<string, any>()
-function registerTableRef(id: string, el: any) { if (el) tableRefs.set(id, el); else tableRefs.delete(id) }
+const tablesRef = ref<InstanceType<typeof TablesSelector> | null>(null)
 
 const saving = ref(false)
 async function saveAndContinue() {
   if (saving.value) return
   saving.value = true
   try {
-    for (const el of tableRefs.values()) {
-      if (el && typeof el.save === 'function') await el.save()
-    }
+    if (tablesRef.value && await tablesRef.value.save() === false) return
     emit('saved')
   } finally {
     saving.value = false
