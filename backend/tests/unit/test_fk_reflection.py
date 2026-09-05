@@ -161,3 +161,71 @@ def test_reflection_failure_costs_the_caller_nothing(reflected):
 def test_empty_input_is_not_an_error(reflected):
     conn, _ = reflected
     assert attach_foreign_keys(conn, {}, None, lambda s, t: t) == 0
+
+
+class TestSqliteClientForeignKeys:
+    """The SQLite client end to end, since it reaches reflection differently.
+
+    Its catalog reads use raw sqlite3 (PRAGMA, `row_factory`), which
+    `sqlalchemy.inspect` cannot drive, so `_attach_foreign_keys` opens a second
+    SQLAlchemy handle on the same file. That indirection is worth covering at
+    the client level rather than only at the helper's.
+    """
+
+    SEED = """
+        CREATE TABLE customers (id INTEGER PRIMARY KEY, name TEXT);
+        CREATE TABLE regions (code TEXT, sub_code TEXT, PRIMARY KEY (code, sub_code));
+        CREATE TABLE orders (
+            id INTEGER PRIMARY KEY,
+            customer_id INTEGER REFERENCES customers(id),
+            region_code TEXT,
+            region_sub_code TEXT,
+            FOREIGN KEY (region_code, region_sub_code) REFERENCES regions(code, sub_code)
+        );
+        CREATE TABLE audit_log (id INTEGER PRIMARY KEY, message TEXT);
+    """
+
+    @pytest.fixture
+    def client(self, tmp_path):
+        import sqlite3
+
+        from app.data_sources.clients.sqlite_client import SqliteClient
+
+        path = tmp_path / "shop.db"
+        conn = sqlite3.connect(path)
+        conn.executescript(self.SEED)
+        conn.commit()
+        conn.close()
+        return SqliteClient(database=str(path))
+
+    def test_relationships_are_discovered(self, client):
+        by_name = {t.name: t for t in client.get_tables()}
+        edges = {
+            (fk.column.name, fk.references_name, fk.references_column.name)
+            for fk in by_name["orders"].fks or []
+        }
+
+        assert ("customer_id", "customers", "id") in edges, edges
+        assert ("region_code", "regions", "code") in edges, edges
+        assert ("region_sub_code", "regions", "sub_code") in edges, edges
+
+    def test_references_are_unqualified_like_the_table_names(self, client):
+        """A `main.customers` reference would resolve to nothing downstream."""
+        for table in client.get_tables():
+            for fk in table.fks or []:
+                assert "." not in fk.references_name, fk.references_name
+
+    def test_tables_without_constraints_stay_empty(self, client):
+        by_name = {t.name: t for t in client.get_tables()}
+        assert not (by_name["audit_log"].fks or [])
+        assert not (by_name["customers"].fks or [])
+
+    def test_an_in_memory_database_degrades_instead_of_failing(self):
+        """A second handle to `:memory:` opens a different, empty database.
+
+        Reporting "no constraints" from that would be a confident lie, so
+        reflection is skipped — but the tables themselves must still come back.
+        """
+        from app.data_sources.clients.sqlite_client import SqliteClient
+
+        assert SqliteClient(database=":memory:").get_tables() == []
