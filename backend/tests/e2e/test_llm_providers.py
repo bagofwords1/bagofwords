@@ -66,10 +66,7 @@ def test_llm_providers(create_llm_provider_and_models, get_models, get_default_m
     default_model = get_default_model(user_token, org_id)
     
     assert len(default_model) == 1
-    # The catalog default is gpt-6-astra, which this fixture's provider does not
-    # create (it offers Sol, Terra and Luna). With no catalog default among its
-    # models the documented fallback applies and the first enabled model wins.
-    assert default_model[0]["model_id"] == "gpt-5.6-sol"
+    assert default_model[0]["model_id"] == "gpt-5.6-terra"
 
     #set_llm_provider_as_default(provider_id, user_token, org_id)
     #toggle_llm_active_status(default_model[0]["id"], True, user_token, org_id)
@@ -254,13 +251,14 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-5.6-sol"]["is_default"] is False
     assert by_model_id["gpt-5.6-sol"]["max_output_tokens"] == 128000
 
-    # gpt-6-astra is the OpenAI catalog default, so the stale preset provider is
-    # migrated onto it and Terra, the previous default, is demoted.
+    # Astra ships in the catalog and reaches the migrated provider, but it does
+    # not take the default: adding a model must not move an org onto a pricier
+    # one behind its back.
     assert by_model_id["gpt-6-astra"]["is_enabled"] is True
-    assert by_model_id["gpt-6-astra"]["is_default"] is True
+    assert by_model_id["gpt-6-astra"]["is_default"] is False
 
     assert by_model_id["gpt-5.6-terra"]["is_enabled"] is True
-    assert by_model_id["gpt-5.6-terra"]["is_default"] is False
+    assert by_model_id["gpt-5.6-terra"]["is_default"] is True
 
     assert by_model_id["gpt-5.6-luna"]["is_enabled"] is True
     assert by_model_id["gpt-5.6-luna"]["is_small_default"] is True

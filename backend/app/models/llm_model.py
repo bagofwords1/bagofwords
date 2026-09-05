@@ -21,7 +21,10 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        # Selectable, but not the default: Astra is ~4x Terra's input price and
+        # 3.3x its output price, so switching every org's default on upgrade is
+        # a cost decision, not a catalog one.
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
@@ -47,7 +50,7 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": False,
+        "is_default": True,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
