@@ -1261,8 +1261,9 @@
       "untitled": "Untitled"
     },
     "readInstruction": {
-      "reading": "Reading instruction…",
+      "reading": "Reading…",
       "read": "Read instruction",
+      "readSkill": "Read skill",
       "failed": "Could not read instruction"
     },
     "createEval": {

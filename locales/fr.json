@@ -1173,8 +1173,9 @@
       "untitled": "Sans titre"
     },
     "readInstruction": {
-      "reading": "Lecture de l'instruction…",
+      "reading": "Lecture…",
       "read": "Instruction lue",
+      "readSkill": "Compétence lue",
       "failed": "Impossible de lire l'instruction"
     },
     "createEval": {

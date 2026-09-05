@@ -1173,8 +1173,9 @@
       "untitled": "Namnlös"
     },
     "readInstruction": {
-      "reading": "Läser instruktion…",
+      "reading": "Läser…",
       "read": "Instruktion läst",
+      "readSkill": "Färdighet läst",
       "failed": "Kunde inte läsa instruktionen"
     },
     "createEval": {
