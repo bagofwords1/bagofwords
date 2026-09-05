@@ -16,6 +16,7 @@ class ErrorCode(str, Enum):
     # Authentication / authorization
     UNAUTHORIZED = "unauthorized"
     ACCESS_DENIED = "access.denied"
+    ACCOUNT_DISABLED = "account.disabled"
     API_KEY_INVALID = "api_key.invalid"
     VERIFICATION_INVALID = "verification.invalid"
 
