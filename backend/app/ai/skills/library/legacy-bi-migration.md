@@ -7,8 +7,6 @@ version: "1.0"
 tags: [migration, dashboard]
 ---
 
-# Rebuild a legacy BI report
-
 A migration is judged on one thing: does the new number equal the old number?
 Rebuilding something that looks similar but computes differently destroys trust
 in the whole platform on day one. Reproduce first, improve later — and never

@@ -8,8 +8,6 @@ modes: [training]
 tags: [curation, onboarding]
 ---
 
-# Mine a dashboard into reusable instructions
-
 A dashboard that people trust is a written-down record of how this business
 actually defines its numbers. Every `WHERE status != 'test'`, every join path,
 every date-column choice is a decision someone made and nobody wrote down.

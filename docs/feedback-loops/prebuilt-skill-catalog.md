@@ -37,18 +37,22 @@ product documentation), `POST .../{key}/install`, `DELETE .../{key}`,
 `POST /instructions/global`, because an installed skill is a global row that
 reaches every request in the org).
 
-**UI** — a dedicated `/skills` page (`frontend/pages/skills.vue`) with two
-tabs over one card component (`components/skills/SkillCard.vue`):
+**UI** — inside the knowledge explorer, where skills already live. The Skills
+group gets a **Browse pre-built skills** row that opens the catalog in the
+explorer's own detail panel (the same slot as Tables / Tools / Evals — a new
+`panelView.kind === 'skill-catalog'`, agent-less like `global-evals`):
+`frontend/components/instructions/SkillCatalogPanel.vue`.
 
-- **Enabled** — every `kind='skill'` instruction in the org, pre-built *and*
-  hand-authored, each labelled Pre-built or Custom. This is the tab that
-  answers "what does the agent actually have?", which the catalog alone
-  cannot: a hand-written skill is invisible to the catalog endpoint.
-- **Catalog** — the 16 shipped entries with Enable / Disable / Update.
+Each catalog row expands in place to show the **shipped playbook read-only**,
+so it can be read before anyone enables it, and carries Enable / Disable /
+Update. An *enabled* skill is a normal instruction, so clicking it in the tree
+opens the existing instruction editor — versions, Details strip, Analyze tab
+and all — with nothing new built for it.
 
-Cards carry Enabled / Update available / Edited badges; non-admins get a
-read-only view with a lock notice. The page has a top-level nav entry, and the
-Skills group in the knowledge tree links to it.
+Two UI shapes were tried and discarded on the way: a modal (wrong for reading
+16 playbooks) and a standalone `/skills` page with Enabled/Catalog tabs (a
+second home for something the explorer already owns, and a redundant top-level
+nav entry). The panel keeps one home for skills.
 
 ## Three fixes this loop found
 
@@ -77,6 +81,11 @@ Skills group in the knowledge tree links to it.
    can train models…`) where the one-line description belongs — the same line
    the agent sees in `<available_skills>`. Both projections now carry it, along
    with `catalog_key`/`catalog_version`, which were also absent.
+
+Skill bodies also opened with an `# H1` repeating their own title, which the
+detail pane rendered directly under the heading it duplicated. The frontmatter
+`title` and `read_instruction`'s response both carry it, so the H1 was dropped
+from all 16 files.
 
 A round of self-review caught three more before they shipped: `is_customized`
 compared only the body, so scoping a skill to one channel (without editing the

@@ -7,8 +7,6 @@ version: "1.0"
 tags: [analysis, diagnostics]
 ---
 
-# Root cause analysis for a metric movement
-
 Explaining a number that moved is not the same as reporting the number. A
 plausible-sounding story built on one query is the failure mode here: the
 business acts on it, and it is wrong. Work the steps in order and stop at the

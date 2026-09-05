@@ -147,10 +147,10 @@
               <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
               <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
             </template>
-            <NuxtLink to="/skills" data-testid="browse-skill-catalog" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-[11px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors" style="padding-inline-start:32px;padding-inline-end:8px" @click.stop>
+            <button type="button" data-testid="browse-skill-catalog" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-[11px] transition-colors" :class="panelView?.kind === 'skill-catalog' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:32px;padding-inline-end:8px" @click.stop="openSkillCatalog">
               <UIcon name="i-heroicons-squares-plus" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
               <span class="truncate">{{ $t('skillCatalog.browse') }}</span>
-            </NuxtLink>
+            </button>
           </TreeGroup>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
@@ -567,7 +567,11 @@
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <template v-if="panelView.kind === 'global-evals'">
+              <template v-if="panelView.kind === 'skill-catalog'">
+                <UIcon name="i-heroicons-squares-plus" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('skillCatalog.title') }}</span>
+              </template>
+              <template v-else-if="panelView.kind === 'global-evals'">
                 <UIcon name="i-heroicons-check-circle" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
                 <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('agentsPage.globalEvals') }}</span>
                 <span class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">{{ $t('agentsPage.allAgentsTag') }}</span>
@@ -585,7 +589,8 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
-            <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
+            <InstructionsSkillCatalogPanel v-if="panelView.kind === 'skill-catalog'" key="skill-catalog" @changed="onSkillCatalogChanged" />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global :initial-run-id="pendingRunId" />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
@@ -1947,9 +1952,9 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings' | 'global-evals' | 'skill-catalog'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), 'skill-catalog': t('skillCatalog.title') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
@@ -1964,6 +1969,19 @@ const openPanel = (kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings', ag
 const openGlobalEvals = () => {
   clearRightPane()
   panelView.value = { kind: 'global-evals', agentId: '' }
+}
+// Pre-built skill catalog — org-wide, not bound to any agent.
+const openSkillCatalog = () => {
+  clearRightPane()
+  panelView.value = { kind: 'skill-catalog', agentId: '' }
+}
+// Enabling lands a normal kind='skill' instruction; disabling deletes one.
+// loadGroup merges rows by id and never removes, so a disabled skill would
+// linger in the tree until a reload — drop it here, as deleteInstruction does.
+const onSkillCatalogChanged = async ({ removedId }: { removedId?: string | null } = {}) => {
+  if (removedId) allInstructions.value = allInstructions.value.filter(i => i.id !== removedId)
+  await fetchCounts()
+  if (loadedGroups.value.has('skills')) await loadGroup('skills', true)
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }

@@ -7,8 +7,6 @@ version: "1.0"
 tags: [dbt, lookml, governance]
 ---
 
-# Align answers with the semantic layer
-
 When an org has invested in dbt models or LookML views, those definitions are
 the governed truth. An answer that re-derives a metric from raw tables and gets
 a slightly different number is worse than useless: it makes two internal

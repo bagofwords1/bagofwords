@@ -7,8 +7,6 @@ version: "1.0"
 tags: [monitoring, automation]
 ---
 
-# Design a metric alert or scheduled monitor
-
 "Tell me when revenue drops" is not a specification. An alert built from it
 either never fires or fires every day, and both outcomes end the same way — it
 gets muted, and the real incident is missed. Nail down five things before

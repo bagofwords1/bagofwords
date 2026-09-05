@@ -7,8 +7,6 @@ version: "1.0"
 tags: [schema, diagram, documentation]
 ---
 
-# Entity-relationship diagram as a Mermaid ERD
-
 Produce a diagram that reflects the **actual** schema, including relationships
 the database does not declare. Most analytical warehouses have few or no
 foreign keys, so a diagram built only from declared constraints is nearly

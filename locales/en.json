@@ -380,8 +380,7 @@
     "starOnGithub": "Star our GitHub",
     "admin": "Admin",
     "notifications": "Notifications",
-    "automations": "Automations",
-    "skills": "Skills"
+    "automations": "Automations"
   },
   "notifications": {
     "title": "Notifications",
@@ -4852,15 +4851,6 @@
     "disabledToast": "Disabled “{name}”",
     "updatedToast": "Updated “{name}”",
     "actionFailed": "That did not work. Please try again.",
-    "confirmOverwrite": "“{name}” was edited for your organization. Updating replaces your version with the shipped one. Continue?",
-    "pageTitle": "Skills",
-    "tabEnabled": "Enabled",
-    "tabCatalog": "Catalog",
-    "enabledEmpty": "No skills enabled yet",
-    "enabledEmptyHint": "Enable a pre-built skill, or write your own from the Agents page.",
-    "prebuilt": "Pre-built",
-    "custom": "Custom",
-    "edit": "Edit",
-    "untitled": "Untitled skill"
+    "confirmOverwrite": "“{name}” was edited for your organization. Updating replaces your version with the shipped one. Continue?"
   }
 }

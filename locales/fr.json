@@ -351,8 +351,7 @@
     "automations": "Automatisations",
     "agent": "Agent",
     "agents": "Agents",
-    "viewAllAgents": "Voir tous les agents →",
-    "skills": "Compétences"
+    "viewAllAgents": "Voir tous les agents →"
   },
   "notifications": {
     "title": "Notifications",
@@ -4824,15 +4823,6 @@
     "disabledToast": "« {name} » désactivée",
     "updatedToast": "« {name} » mise à jour",
     "actionFailed": "Cela n’a pas fonctionné. Veuillez réessayer.",
-    "confirmOverwrite": "« {name} » a été modifiée pour votre organisation. La mise à jour remplacera votre version par celle d’origine. Continuer ?",
-    "pageTitle": "Compétences",
-    "tabEnabled": "Activées",
-    "tabCatalog": "Catalogue",
-    "enabledEmpty": "Aucune compétence activée",
-    "enabledEmptyHint": "Activez une compétence prédéfinie ou écrivez la vôtre depuis la page Agents.",
-    "prebuilt": "Prédéfinie",
-    "custom": "Personnalisée",
-    "edit": "Modifier",
-    "untitled": "Compétence sans titre"
+    "confirmOverwrite": "« {name} » a été modifiée pour votre organisation. La mise à jour remplacera votre version par celle d’origine. Continuer ?"
   }
 }

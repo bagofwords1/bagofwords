@@ -7,8 +7,6 @@ version: "1.0"
 tags: [machine-learning, modeling]
 ---
 
-# Predictive modeling with scikit-learn
-
 The sandbox can train models, which makes it easy to produce a number that
 looks like a prediction and is worthless. The discipline below is what makes
 the difference.

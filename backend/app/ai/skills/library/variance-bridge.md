@@ -7,8 +7,6 @@ version: "1.0"
 tags: [finance, analysis]
 ---
 
-# Variance and bridge analysis
-
 A bridge answers "what makes up this gap" with components that **add up** to
 the gap. That arithmetic constraint is the whole discipline: if the parts do
 not sum to the total, the analysis is wrong, no matter how sensible each part

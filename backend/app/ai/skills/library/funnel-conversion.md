@@ -7,8 +7,6 @@ version: "1.0"
 tags: [analysis, conversion]
 ---
 
-# Funnel and conversion analysis
-
 A funnel is a set of choices disguised as a chart. Two analysts measuring "the
 same" funnel routinely differ by tens of percent, entirely because of decisions
 neither wrote down.

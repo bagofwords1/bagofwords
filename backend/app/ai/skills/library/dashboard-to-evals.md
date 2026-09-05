@@ -8,8 +8,6 @@ modes: [training]
 tags: [evals, quality]
 ---
 
-# Turn a dashboard into eval cases
-
 Nobody writes evals from a blank page, which is why most workspaces have none.
 A dashboard people already trust is the cheapest source of ground truth
 available: someone validated those numbers once, and the questions behind them

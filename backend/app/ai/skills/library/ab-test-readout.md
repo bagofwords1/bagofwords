@@ -7,8 +7,6 @@ version: "1.0"
 tags: [experimentation, statistics]
 ---
 
-# A/B test and experiment readout
-
 Most experiment mistakes are not statistical, they are procedural: calling a
 test early, testing a metric the experiment cannot move, or reading a broken
 randomization as a win. Check validity first; significance is the last step,

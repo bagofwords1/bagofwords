@@ -7,8 +7,6 @@ version: "1.0"
 tags: [documents, reconciliation]
 ---
 
-# Extract and reconcile data from a PDF
-
 PDFs carry numbers that exist nowhere else: a vendor statement, a filing, a
 board pack, a lab report. The work is not "read the PDF" — it is getting
 numbers out of a layout-oriented format without silently corrupting them, and

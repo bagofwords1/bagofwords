@@ -7,8 +7,6 @@ version: "1.0"
 tags: [slides, communication]
 ---
 
-# Executive readout deck
-
 The slide mechanics (the python-pptx authoring contract for `create_artifact`
 with `mode='slides'`) are specified elsewhere. This skill is about the part
 that makes a deck land: **what the slides say, in what order.**

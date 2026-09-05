@@ -7,8 +7,6 @@ version: "1.0"
 tags: [analysis, retention]
 ---
 
-# Cohort and retention analysis
-
 Retention numbers are easy to compute and easy to compute wrong. Almost every
 mistake is one of four: an incomplete final cohort, a moving denominator,
 counting revisits as retention, or comparing cohorts at different ages.

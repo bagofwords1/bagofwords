@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.555 (September 5, 2026)
-- Added a Skills page with Enabled and Catalog tabs, and a catalog of 16 pre-built skills (RCA, Mermaid ERD, dashboard→instructions, dashboard→evals, scikit-learn modeling, cohort/funnel/variance analysis and more) that an admin enables per organization
+- Added a catalog of 16 pre-built skills (RCA, Mermaid ERD, dashboard→instructions, dashboard→evals, scikit-learn modeling, cohort/funnel/variance analysis and more), browsable from the Skills group in the knowledge explorer and enabled per organization by an admin
 - Skills scoped to specific agent modes are no longer advertised outside them
 - Instruction lists now carry a skill's one-line description instead of a prefix of its body
 

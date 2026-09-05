@@ -363,8 +363,7 @@
     "starOnGithub": "Star our GitHub",
     "admin": "ניהול",
     "notifications": "התראות",
-    "automations": "אוטומציות",
-    "skills": "מיומנויות"
+    "automations": "אוטומציות"
   },
   "notifications": {
     "title": "התראות",
@@ -4846,15 +4845,6 @@
     "disabledToast": "‏„{name}” כובתה",
     "updatedToast": "‏„{name}” עודכנה",
     "actionFailed": "הפעולה נכשלה. נסו שוב.",
-    "confirmOverwrite": "‏„{name}” נערכה עבור הארגון שלכם. עדכון יחליף את הגרסה שלכם בגרסה המקורית. להמשיך?",
-    "pageTitle": "מיומנויות",
-    "tabEnabled": "פעילות",
-    "tabCatalog": "קטלוג",
-    "enabledEmpty": "עדיין אין מיומנויות פעילות",
-    "enabledEmptyHint": "הפעילו מיומנות מובנית, או כתבו משלכם מדף הסוכנים.",
-    "prebuilt": "מובנית",
-    "custom": "משלכם",
-    "edit": "עריכה",
-    "untitled": "מיומנות ללא שם"
+    "confirmOverwrite": "‏„{name}” נערכה עבור הארגון שלכם. עדכון יחליף את הגרסה שלכם בגרסה המקורית. להמשיך?"
   }
 }

@@ -363,8 +363,7 @@
     "starOnGithub": "Star our GitHub",
     "admin": "Administración",
     "notifications": "Notificaciones",
-    "automations": "Automatizaciones",
-    "skills": "Habilidades"
+    "automations": "Automatizaciones"
   },
   "notifications": {
     "title": "Notificaciones",
@@ -4846,15 +4845,6 @@
     "disabledToast": "Se desactivó «{name}»",
     "updatedToast": "Se actualizó «{name}»",
     "actionFailed": "No funcionó. Inténtalo de nuevo.",
-    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?",
-    "pageTitle": "Habilidades",
-    "tabEnabled": "Activadas",
-    "tabCatalog": "Catálogo",
-    "enabledEmpty": "Aún no hay habilidades activadas",
-    "enabledEmptyHint": "Activa una habilidad predefinida o escribe la tuya desde la página de Agentes.",
-    "prebuilt": "Predefinida",
-    "custom": "Propia",
-    "edit": "Editar",
-    "untitled": "Habilidad sin título"
+    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?"
   }
 }

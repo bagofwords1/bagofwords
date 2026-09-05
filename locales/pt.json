@@ -351,8 +351,7 @@
     "automations": "Automações",
     "agent": "Agente",
     "agents": "Agentes",
-    "viewAllAgents": "Ver todos os agentes →",
-    "skills": "Habilidades"
+    "viewAllAgents": "Ver todos os agentes →"
   },
   "notifications": {
     "title": "Notificações",
@@ -4824,15 +4823,6 @@
     "disabledToast": "«{name}» desativada",
     "updatedToast": "«{name}» atualizada",
     "actionFailed": "Não funcionou. Tente novamente.",
-    "confirmOverwrite": "«{name}» foi editada para a sua organização. Atualizar substitui a sua versão pela original. Continuar?",
-    "pageTitle": "Habilidades",
-    "tabEnabled": "Ativas",
-    "tabCatalog": "Catálogo",
-    "enabledEmpty": "Ainda não há habilidades ativas",
-    "enabledEmptyHint": "Ative uma habilidade predefinida ou escreva a sua na página de Agentes.",
-    "prebuilt": "Predefinida",
-    "custom": "Própria",
-    "edit": "Editar",
-    "untitled": "Habilidade sem título"
+    "confirmOverwrite": "«{name}» foi editada para a sua organização. Atualizar substitui a sua versão pela original. Continuar?"
   }
 }

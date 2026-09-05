@@ -7,8 +7,6 @@ version: "1.0"
 tags: [data-quality, trust]
 ---
 
-# Data freshness and trust pre-flight
-
 The most damaging wrong answer is not a bad query — it is a correct query over
 data that stopped loading three days ago, reported with total confidence. This
 check is cheap, and it is the difference between an answer someone can act on

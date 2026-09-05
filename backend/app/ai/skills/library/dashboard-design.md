@@ -7,8 +7,6 @@ version: "1.0"
 tags: [dashboard, design]
 ---
 
-# Dashboard composition and house style
-
 The component mechanics (KPICard, SectionCard, DataTable, EChart, dark mode,
 `data-bow-viz` provenance) are already specified for you elsewhere. This skill
 is about the decisions those mechanics cannot make: **what belongs on the
