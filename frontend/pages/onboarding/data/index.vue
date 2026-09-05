@@ -18,11 +18,31 @@
                 <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-600" />
               </div>
 
+              <!-- Category chips, same vocabulary as the add-connection modal.
+                   "Popular" is the default; "All" is the whole catalogue. -->
+              <div class="flex flex-wrap gap-1.5 mt-3">
+                <button
+                  v-for="chip in chips"
+                  :key="chip.key"
+                  type="button"
+                  :data-testid="`onboarding-ds-chip-${chip.key}`"
+                  @click="activeCategory = chip.key"
+                  :class="[
+                    'px-2.5 py-1 text-xs rounded-full border transition-colors',
+                    activeCategory === chip.key
+                      ? 'bg-blue-50 dark:bg-blue-950 border-blue-300 dark:border-blue-800 text-blue-700 dark:text-blue-300 font-medium'
+                      : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:border-gray-300 dark:hover:border-gray-600'
+                  ]"
+                >
+                  {{ $t(chip.label) }}
+                </button>
+              </div>
+
               <div v-if="noResults" class="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
                 {{ $t('onboarding.data.noResults', { query: query.trim() }) }}
               </div>
 
-              <div v-else class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <div v-else class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 max-h-[380px] overflow-y-auto -mx-1 px-1">
                 <button
                   v-for="ds in visibleDataSources"
                   :key="ds.type"
@@ -54,17 +74,6 @@
                       </span>
                     </div>
                   </div>
-                </button>
-              </div>
-
-              <div v-if="!isSearching && hiddenCount > 0" class="mt-4 text-center">
-                <button
-                  type="button"
-                  data-testid="onboarding-ds-show-all"
-                  @click="showAll = !showAll"
-                  class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                >
-                  {{ showAll ? $t('onboarding.data.showLess') : $t('onboarding.data.showAll', { count: hiddenCount }) }}
                 </button>
               </div>
 
@@ -137,10 +146,10 @@ const { isLicensed } = useEnterprise()
 const available_ds = ref<any[]>([])
 const {
   query,
-  showAll,
+  activeCategory,
+  chips,
   isSearching,
   visible: visibleDataSources,
-  hiddenCount,
   noResults,
 } = useDataSourcePicker(available_ds)
 const demo_ds = ref<any[]>([])
@@ -192,8 +201,8 @@ function selectDataSource(ds: any) {
   selectedDataSource.value = ds
 }
 
-// Deliberately keeps the search query: coming back from a connect form should
-// land on the results you picked from, not on the collapsed popular grid.
+// Deliberately keeps the query and the active chip: coming back from a connect
+// form should land on the results you picked from, not on the popular grid.
 function backToList() {
   selectedDataSource.value = null
 }

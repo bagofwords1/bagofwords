@@ -3023,7 +3023,9 @@
     "toolsAccessible": "{n} ferramentas acessíveis",
     "toolsLabel": "Ferramentas",
     "unitHours": "horas",
-    "unitMinutes": "minutos"
+    "unitMinutes": "minutos",
+    "catPopular": "Populares",
+    "catCustom": "Personalizado"
   },
   "share": {
     "shareDashboard": "Compartilhar painel",
@@ -3524,8 +3526,6 @@
       "orTry": "Ou experimente um banco de dados de exemplo:",
       "errorAvailable": "Não foi possível buscar fontes de dados disponíveis",
       "searchPlaceholder": "Buscar fontes de dados...",
-      "showAll": "Mostrar todas as fontes de dados (mais {count})",
-      "showLess": "Mostrar menos",
       "noResults": "Nenhuma fonte de dados corresponde a “{query}”"
     },
     "schema": {

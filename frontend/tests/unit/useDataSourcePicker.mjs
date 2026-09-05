@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
 
 import {
+  DATA_SOURCE_CATEGORIES,
   POPULAR_DATA_SOURCE_TYPES,
   filterDataSources,
   popularDataSources,
+  scopeDataSources,
 } from '../../composables/useDataSourcePicker.ts'
 
 // A stand-in for /available_data_sources: a few popular entries, a few that are
@@ -90,4 +92,23 @@ assert.deepEqual(types('files'), ['csv', 'google_drive'])
 
 assert.deepEqual(types('cassandra'), [], 'no match yields an empty list, not everything')
 
-console.log('data source picker: popular subset + search over the full catalogue')
+// --- category chips ----------------------------------------------------------
+
+const scoped = (key) => scopeDataSources(CATALOG, key).map((ds) => ds.type)
+
+assert.deepEqual(scoped('all'), CATALOG.map((ds) => ds.type), '"All" is the whole catalogue')
+assert.deepEqual(scoped('popular'), popular.map((ds) => ds.type), '"Popular" is the curated set')
+assert.deepEqual(scoped('bi'), ['qlik_sense'])
+assert.deepEqual(scoped('files'), ['csv', 'google_drive'])
+assert.deepEqual(scoped('custom'), ['mcp'], 'MCP / Custom API are reachable under their own chip')
+
+// An entry with no category counts as a database — that is what the registry
+// defaults it to, so it must not vanish from every chip but "All".
+assert.deepEqual(scopeDataSources([{ type: 'duckdb', title: 'DuckDB' }], 'databases').length, 1)
+
+// Every chip the UI can render has to name a category the registry uses.
+for (const { key, label } of DATA_SOURCE_CATEGORIES) {
+  assert.ok(key && label.startsWith('data.cat'), `chip ${key} needs an i18n label`)
+}
+
+console.log('data source picker: popular subset + search + category scoping')

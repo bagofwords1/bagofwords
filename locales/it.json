@@ -3023,7 +3023,9 @@
     "toolsAccessible": "{n} strumenti accessibili",
     "toolsLabel": "Strumenti",
     "unitHours": "ore",
-    "unitMinutes": "minuti"
+    "unitMinutes": "minuti",
+    "catPopular": "Popolari",
+    "catCustom": "Personalizzato"
   },
   "share": {
     "shareDashboard": "Condividi dashboard",
@@ -3524,8 +3526,6 @@
       "orTry": "Oppure prova un database di esempio:",
       "errorAvailable": "Impossibile recuperare le origini dati disponibili",
       "searchPlaceholder": "Cerca origini dati...",
-      "showAll": "Mostra tutte le origini dati (altre {count})",
-      "showLess": "Mostra meno",
       "noResults": "Nessuna origine dati corrisponde a “{query}”"
     },
     "schema": {
