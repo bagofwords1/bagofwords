@@ -87,6 +87,49 @@ the debounce; leaving the block hides the source; Save round-trips the
 plain ```sql fence in the same doc stays a normal code block. UI evidence:
 `media/pr/doc-editor-mermaid/*.png`.
 
+## Loop D — PDF export (document, not app screenshot)
+
+A doc used to "export" by calling `window.print()` on the app with a stylesheet
+that hid the chrome via `visibility: hidden` — which keeps every layout box. On
+paper the invisible chat pane (37% of the window, in px) still ate the sheet, so
+the document printed as a narrow ribbon down the right margin: measured on a
+1920px screen, a 3-page report came out as **20 pages** whose entire text layer
+was `Q22025RevenueReviewPrepar`. The export now renders
+`frontend/pages/print/doc.vue` — the document alone, at the paper's measure —
+through the same headless Chromium the dashboard export uses
+(`ReportPdfService._render_doc_pdf`).
+
+```bash
+tools/agent/boot_stack.sh --dev
+# Seed a report owned by the login user with a mode='doc' artifact: prose,
+# a markdown table, {{viz:...}} for a chart AND a table, a mermaid fence and a
+# ::: columns block (POST /api/reports + an artifacts row).
+curl -s -o doc.pdf -w '%{http_code}\n' \
+  "http://localhost:8000/api/artifacts/<artifactId>/export/pdf" \
+  -H "Authorization: Bearer $JWT" -H "X-Organization-Id: $ORG"
+cd backend && uv run python -c "
+import pypdfium2, sys
+d = pypdfium2.PdfDocument('../doc.pdf')
+print(len(d), d[0].get_size())
+d[0].render(scale=1.4).to_pil().save('page1.png')"
+```
+
+Observed (2026-09-04): HTTP 200, **3 A4 portrait pages** (595x842pt) for the
+same document; page 1 carries the title, prose, bullets, blockquote and the live
+bar chart; page 2 the embedded query table (every row, header repeated) plus the
+markdown table and the mermaid diagram; page 3 the two-column block, the code
+block and the footer. In-app the owner's editor PDF button and the read-only
+`/r/[id]` export menu both download it; exporting mid-edit is refused with
+"Save the document before exporting it as PDF" (the render is of the SAVED
+version). Regression: `tests/e2e/test_report_pdf_completeness.py` (dashboard
+un-clipping + one-page fit + the doc branch) and
+`tests/unit/test_doc_pdf_render.py` (render origin, page geometry, file
+placeholders) all pass.
+
+Note: the renderer loads the app's own page over HTTP. The standard image serves
+the SPA from the backend process (`SERVE_FRONTEND=1`), so `base_url` doubles as
+an internal address; a split deployment sets `BOW_RENDER_ORIGIN`.
+
 ## What this proves / regression notes
 
 - Doc creation/editing is exercised at every layer: tool contract, HTTP route

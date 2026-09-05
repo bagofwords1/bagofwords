@@ -684,7 +684,7 @@ class PowerBIClient(DataSourceClient):
                     continue
 
                 # Skip internal/system tables
-                if table_name.startswith("DateTableTemplate") or table_name.startswith("LocalDateTable"):
+                if self._is_system_table(table_name):
                     continue
 
                 # Skip internal engine columns (RowNumber-<GUID>): not
@@ -813,7 +813,7 @@ UNION(
         relationships: List[Dict] = []
 
         def _table(name: str) -> Optional[Dict]:
-            if not name or name.startswith("DateTableTemplate") or name.startswith("LocalDateTable"):
+            if not name or self._is_system_table(name):
                 return None
             if name not in tables_dict:
                 tables_dict[name] = {"name": name, "columns": [], "measures": []}
@@ -860,6 +860,13 @@ UNION(
                 to_column = str(info2 or "")
                 if not (tbl_name and name and to_table and to_column):
                     continue
+                # The table list above drops auto-generated date tables via
+                # `_table()`; without the same test here an edge survives to a
+                # table that was never emitted, and the agent is handed
+                # `references {dataset}/LocalDateTable_<guid>(Date)` for
+                # something it can neither see nor query in DAX.
+                if self._is_system_table(tbl_name) or self._is_system_table(to_table):
+                    continue
                 # Inactive relationships are ignored by the engine unless a query
                 # opts in with USERELATIONSHIP; presenting them as joinable would
                 # invite silently wrong results.
@@ -876,6 +883,23 @@ UNION(
         if not tables_dict:
             return [], [], "model metadata query returned only system tables"
         return list(tables_dict.values()), relationships, None
+
+    @staticmethod
+    def _is_system_table(name: str) -> bool:
+        """True for the tables Power BI generates rather than the author.
+
+        The engine creates a hidden `LocalDateTable_<guid>` per date column (and
+        `DateTableTemplate_<guid>` behind the auto date/time feature). They are
+        excluded from the indexed catalog because they are not tables an author
+        modelled or an agent can usefully query.
+
+        Shared rather than inlined because the rule has to hold in two places at
+        once: the table list AND every relationship list. Filtering only the
+        former is what let edges reference tables that were never emitted.
+        """
+        return bool(name) and (
+            name.startswith("DateTableTemplate") or name.startswith("LocalDateTable")
+        )
 
     def _get_relationships_via_dax(self, workspace_id: str, dataset_id: str) -> List[Dict]:
         """Read a model's relationships with the querying identity's own token.
@@ -933,6 +957,10 @@ UNION(
             to_table = str(row.get("ToTable") or "")
             to_column = str(row.get("ToColumn") or "")
             if not (from_table and from_column and to_table and to_column):
+                continue
+            # Same reason as the model-metadata path: an edge to a generated
+            # date table names something the catalog never emits.
+            if self._is_system_table(from_table) or self._is_system_table(to_table):
                 continue
             # Inactive relationships are NOT applied by the engine unless a query
             # opts in via USERELATIONSHIP. Presenting them like active ones would
@@ -1100,6 +1128,8 @@ UNION(
             from_column = rel.get("fromColumn") or ""
             to_table = rel.get("toTable") or ""
             to_column = rel.get("toColumn") or ""
+            if self._is_system_table(from_table) or self._is_system_table(to_table):
+                continue
             if from_table and from_column and to_table and to_column:
                 relationships.append({
                     "fromTable": from_table,

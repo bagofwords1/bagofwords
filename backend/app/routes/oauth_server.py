@@ -96,6 +96,7 @@ async def authorize_redirect(
     scope: Optional[str] = None,
     code_challenge: Optional[str] = None,
     code_challenge_method: Optional[str] = None,
+    login_hint: Optional[str] = None,
     db: AsyncSession = Depends(get_async_db),
 ):
     """OAuth authorize endpoint.
@@ -141,6 +142,11 @@ async def authorize_redirect(
         params["code_challenge"] = code_challenge
     if code_challenge_method:
         params["code_challenge_method"] = code_challenge_method
+    # Carried so the consent page can hand it to the SSO round trip: the app
+    # embedding BOW knows who it is opening the session for, and naming that
+    # user is what keeps the provider from showing an account picker.
+    if login_hint:
+        params["login_hint"] = login_hint
 
     consent_url = f"/authorize?{urlencode(params)}"
     return RedirectResponse(url=consent_url, status_code=302)

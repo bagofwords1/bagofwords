@@ -1297,6 +1297,24 @@ class DataSourceService:
         return schema
 
 
+    async def get_domain_file_connections(self, db, data_source_id, organization):
+        """Scope-only projection for authorized agent viewers.
+
+        Do not expose arbitrary connector config: some connector types carry
+        sensitive settings outside the encrypted credentials column.
+        """
+        from app.schemas.data_source_registry import get_entry
+        allowed = {"site_url", "drive_name", "folder_path", "root_path", "bucket",
+                   "prefix", "include_globs", "index_mode", "index_content", "recursive"}
+        result = []
+        for conn in await self.get_domain_connections(db, data_source_id, organization):
+            if get_entry(conn.type).data_shape != "files":
+                continue
+            config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+            result.append({"id": str(conn.id), "name": conn.name, "type": conn.type,
+                           "config": {key: value for key, value in config.items() if key in allowed}})
+        return result
+
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
 
@@ -3237,7 +3255,7 @@ class DataSourceService:
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
-            "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
+            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "onedrive", "google_drive",
             "outlook_mail", "gmail_mail",
         ]
         _file_ct_subq = None
@@ -3453,7 +3471,7 @@ class DataSourceService:
         
         # Apply pagination
         offset = (page - 1) * page_size
-        base_query = base_query.offset(offset).limit(page_size)
+        base_query = base_query.order_by(DataSourceTable.id.asc()).offset(offset).limit(page_size)
 
         # Add selectinload for connection info
         base_query = base_query.options(
@@ -3524,6 +3542,10 @@ class DataSourceService:
                 connection_id=conn_id,
                 connection_name=conn_name,
                 connection_type=conn_type,
+                custom_query_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "bow" else None,
+                last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
+                last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
+                rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,
                 # Metrics
                 centrality_score=table.centrality_score,
                 richness=table.richness,
@@ -3532,6 +3554,7 @@ class DataSourceService:
                 entity_like=table.entity_like,
                 metrics_computed_at=table.metrics_computed_at.isoformat() if table.metrics_computed_at else None,
                 # Stats fields
+                last_used_at=stats.last_used_at if stats else None,
                 usage_count=int(stats.usage_count or 0) if stats else None,
                 success_count=int(stats.success_count or 0) if stats else None,
                 failure_count=int(stats.failure_count or 0) if stats else None,

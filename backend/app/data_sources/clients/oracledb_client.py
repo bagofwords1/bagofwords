@@ -14,6 +14,7 @@ from contextlib import contextmanager
 from typing import Generator, List, Optional
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
+from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
 
 
@@ -212,6 +213,7 @@ class OracledbClient(DataSourceClient):
                     dtype=data_type,
                     description=col_comment if col_comment else None
                 ))
+            self._attach_foreign_keys(conn, tables)
             return list(tables.values())
 
     def _get_tables_basic(self) -> List[Table]:
@@ -250,7 +252,8 @@ class OracledbClient(DataSourceClient):
                             name=fqn, columns=[], pks=[], fks=[], metadata_json={"schema": owner}
                         )
                     tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
-                return list(tables.values())
+                self._attach_foreign_keys(conn, tables)
+            return list(tables.values())
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -259,6 +262,20 @@ class OracledbClient(DataSourceClient):
         """This method is now obsolete. Please use get_tables() instead."""
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
+
+    def _attach_foreign_keys(self, conn, tables) -> None:
+        """Populate `fks` on the tables just collected.
+
+        `name_fn` mirrors the `f"{owner}.{table_name}"` this client uses for
+        `Table.name` — the two must agree or downstream resolution, which is an
+        exact string match, drops every edge without complaining.
+        """
+        attach_foreign_keys(
+            conn,
+            tables,
+            self._schemas or None,
+            lambda schema, table: f"{schema}.{table}",
+        )
 
     def get_schemas(self):
         """Get schemas for all tables in the specified database."""

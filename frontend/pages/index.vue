@@ -7,10 +7,6 @@
       </NuxtLink>
       <UDropdown :items="menuItems" :popper="{ placement: 'bottom-end' }">
         <UButton color="white" trailing-icon="i-heroicons-bars-3" />
-        <template #queries="{ item }">
-          <LibraryIcon class="w-4 h-4 text-gray-400" />
-          <span class="truncate">{{ item.label }}</span>
-        </template>
         <template #monitoring="{ item }">
           <ActivityIcon class="w-4 h-4 text-gray-400" />
           <span class="truncate">{{ item.label }}</span>
@@ -175,7 +171,6 @@ import Spinner from '@/components/Spinner.vue'
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue';
 import McpModal from '~/components/McpModal.vue';
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue';
-import LibraryIcon from '~/components/icons/LibraryIcon.vue';
 import ActivityIcon from '~/components/icons/ActivityIcon.vue';
 import McpIcon from '~/components/icons/McpIcon.vue';
 
@@ -302,7 +297,6 @@ const menuItems = computed(() => {
     { label: t('nav.dashboards'), icon: 'i-heroicons-chart-bar-square', to: '/dashboards' },
     { label: t('nav.scheduled'), icon: 'i-heroicons-clock', to: '/scheduled-tasks' },
     { label: t('nav.instructions'), icon: 'i-heroicons-cube', to: '/agents' },
-    { label: t('nav.queries'), slot: 'queries', to: '/queries' },
   ]
   if (isAdmin.value) {
     main.push({ label: t('nav.monitoring'), slot: 'monitoring', to: '/monitoring' })

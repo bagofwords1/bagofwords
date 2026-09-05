@@ -1,4 +1,5 @@
 from pydantic import BaseModel, validator
+from app.schemas.base import OptionalUTCDatetime
 from typing import Optional, List, Dict, Any, Union
 
 
@@ -66,6 +67,12 @@ class DataSourceTableSchema(BaseModel):
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
     connection_type: Optional[str] = None
+    # Safe display metadata only; query SQL, artifacts and RLS policies stay on
+    # the connection-admin endpoint.
+    custom_query_id: Optional[str] = None
+    last_refreshed_at: OptionalUTCDatetime = None
+    last_refresh_status: Optional[str] = None
+    rls_enabled: bool = False
     # Topology and richness metrics
     centrality_score: Optional[float] = None
     richness: Optional[float] = None
@@ -74,6 +81,7 @@ class DataSourceTableSchema(BaseModel):
     entity_like: Optional[bool] = None
     metrics_computed_at: Optional[str] = None
     # Usage stats (populated when with_stats=True)
+    last_used_at: OptionalUTCDatetime = None
     usage_count: Optional[int] = None
     success_count: Optional[int] = None
     failure_count: Optional[int] = None

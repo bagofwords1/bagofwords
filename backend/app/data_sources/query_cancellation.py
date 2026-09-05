@@ -43,7 +43,7 @@ of what happened instead of raising, and callers record it.
 
 import logging
 import threading
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -84,7 +84,7 @@ def cancel_thread(client: Any, thread_ident: int) -> str:
         # The query finished between the timeout firing and this call.
         return "not_running"
     try:
-        return _cancel(sa_conn)
+        return _cancel(sa_conn, client)
     except Exception as e:  # pragma: no cover - defensive
         logger.warning("Query cancellation failed: %s", e)
         return f"failed: {type(e).__name__}"
@@ -115,7 +115,7 @@ def _dbapi_connection(sa_conn: Any):
     return getattr(fairy, "dbapi_connection", None) or fairy
 
 
-def _cancel(sa_conn: Any) -> str:
+def _cancel(sa_conn: Any, client: Any = None) -> str:
     dialect = _dialect_name(sa_conn)
     raw = _dbapi_connection(sa_conn)
     if raw is None:
@@ -140,7 +140,7 @@ def _cancel(sa_conn: Any) -> str:
         if spid is None:
             return "unsupported: no spid"
         return _kill_via_side_connection(
-            sa_conn, f"KILL {int(spid)}", f"session killed (spid {spid})"
+            sa_conn, f"KILL {int(spid)}", f"session killed (spid {spid})", client=client
         )
 
     return f"unsupported: {dialect or 'unknown'}"
@@ -190,7 +190,7 @@ def capture_identity(sa_conn: Any) -> None:
         logger.debug("Could not capture SQL Server SPID: %s", e)
 
 
-def _kill_via_side_connection(sa_conn: Any, statement: str, success: str) -> str:
+def _kill_via_side_connection(sa_conn: Any, statement: str, success: str, client: Any = None) -> str:
     """Issue `statement` on a fresh connection to the same server.
 
     Not from the pool: the pool may be saturated (that is often *why* we are
@@ -212,10 +212,18 @@ def _kill_via_side_connection(sa_conn: Any, statement: str, success: str) -> str
         #   "KILL command cannot be used inside user transactions." (6115)
         # Verified against SQL Server 2022 — every cancellation failed this way
         # until the isolation level was set.
-        side = sqlalchemy.create_engine(
-            sa_conn.engine.url, poolclass=NullPool
-        ).execution_options(isolation_level="AUTOCOMMIT")
-        with side.connect() as c:
+        activation = nullcontext()
+        if client is not None and getattr(client, "use_kerberos", False):
+            from app.data_sources.kerberos import get_ticket_manager
+            activation = get_ticket_manager().activate(client._kerberos_ccache())
+        with activation:
+            side = sqlalchemy.create_engine(
+                sa_conn.engine.url, poolclass=NullPool
+            ).execution_options(isolation_level="AUTOCOMMIT")
+            c = side.connect()
+        with c:
+            if client is not None and getattr(client, "kerberos_impersonate", None):
+                client.verify_directory_identity(c)
             c.exec_driver_sql(statement)
         return success
     except Exception as e:

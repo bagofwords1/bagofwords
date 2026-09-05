@@ -691,6 +691,15 @@ const groupMemberships = ref<Record<string, string[]>>({}) // groupId -> userIds
 const groupPendingMemberships = ref<Record<string, string[]>>({}) // groupId -> membershipIds
 const usagePolicies = ref<UsagePolicySummary[]>([])
 const { hasFeature } = useEnterprise()
+const { settings: appSettings } = useAppSettings()
+// Single-organization installs deactivate an account when its last membership
+// goes (backend: app/core/user_lifecycle). Pending invites have no account yet,
+// so nothing is deactivated for them.
+const singleOrgInstall = computed(
+    () => appSettings.value?.features?.allow_multiple_organizations === false,
+)
+const deactivatesAccountOnRemoval = (member: Member) =>
+    singleOrgInstall.value && !!member.user_id
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
 const canBulkActions = computed(() => useCan('update_organization_members') || useCan('remove_organization_members'))
 const membersColspan = computed(() => 8 + (showQuotaColumn.value ? 1 : 0) + (useCan('remove_organization_members') ? 1 : 0) + (canBulkActions.value ? 1 : 0))
@@ -995,7 +1004,15 @@ async function bulkAddGroup(groupId: string) {
 async function bulkRemove() {
     const n = selectedIds.value.length
     if (!n) return
-    if (!window.confirm(t('settings.members.confirmRemove', { name: `${n} ${t('settings.members.selected')}` }))) return
+    const label = `${n} ${t('settings.members.selected')}`
+    const anyDeactivates = members.value.some(
+        (m) => selectedIds.value.includes(m.id) && deactivatesAccountOnRemoval(m),
+    )
+    if (!window.confirm(
+        anyDeactivates
+            ? t('settings.members.confirmRemoveAndDeactivate', { name: label })
+            : t('settings.members.confirmRemove', { name: label })
+    )) return
     bulkBusy.value = true
     try {
         let ok = 0
@@ -1316,7 +1333,14 @@ async function resendInvite(member: Member) {
 
 const removeMember = async (member: Member) => {
     const name = member.user?.name || member.email || ''
-    const confirmed = window.confirm(t('settings.members.confirmRemove', { name }))
+    // In a single-organization install, removing a registered member is also
+    // their last membership, which deactivates the account — say so, since
+    // "remove from the organization" undersells losing the sign-in.
+    const confirmed = window.confirm(
+        deactivatesAccountOnRemoval(member)
+            ? t('settings.members.confirmRemoveAndDeactivate', { name })
+            : t('settings.members.confirmRemove', { name })
+    )
     if (!confirmed) return
 
     try {

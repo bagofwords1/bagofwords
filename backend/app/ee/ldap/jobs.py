@@ -22,13 +22,13 @@ async def ldap_sync_all_organizations():
         return
 
     ldap_config = settings.bow_config.ldap
-    if not ldap_config.enabled:
+    if not ldap_config.enabled or not ldap_config.organization_id:
         return
 
     sync_service = LDAPGroupSyncService(ldap_config)
 
     async with async_session_maker() as db:
-        orgs = (await db.execute(select(Organization))).scalars().all()
+        orgs = (await db.execute(select(Organization).where(Organization.id == ldap_config.organization_id))).scalars().all()
         for org in orgs:
             try:
                 result = await sync_service.sync_groups(db, str(org.id))

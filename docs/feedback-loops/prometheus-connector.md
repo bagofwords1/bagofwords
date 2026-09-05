@@ -4,7 +4,8 @@ Adds a **Prometheus** data source connector: a `DataSourceClient` subclass that
 speaks the Prometheus HTTP API (`/api/v1/query`, `/api/v1/query_range`,
 `/api/v1/label/__name__/values`, `/api/v1/metadata`, `/api/v1/series`) using
 plain `requests`, with Pydantic config/credentials schemas and a `REGISTRY`
-entry (beta, `dev_only` while incubating). Prometheus is queried with **PromQL**,
+entry (beta, catalog-visible in every environment since the promotion below).
+Prometheus is queried with **PromQL**,
 not SQL — the closest existing reference is `posthog_client.py` (HTTP API + a
 non-SQL query language + a discovered catalog), *not* `postgresql_client.py`.
 
@@ -14,11 +15,44 @@ non-SQL query language + a discovered catalog), *not* `postgresql_client.py`.
 |-------|------|--------|
 | Client | `backend/app/data_sources/clients/prometheus_client.py` | New `PrometheusClient(DataSourceClient)` |
 | Config | `backend/app/schemas/data_sources/configs.py` | `PrometheusConfig`, `PrometheusNoAuthCredentials`, `PrometheusBasicCredentials`, `PrometheusBearerCredentials` |
-| Registry | `backend/app/schemas/data_source_registry.py` | `"prometheus"` entry: explicit `client_path`, `data_shape="tables"`, `version="beta"`, `dev_only=True` |
+| Registry | `backend/app/schemas/data_source_registry.py` | `"prometheus"` entry: explicit `client_path`, `data_shape="tables"`, `version="beta"` |
 | Driver | — | none: plain `requests` (already a dependency), no Dockerfile change |
 | Icon | `frontend/public/data_sources_icons/prometheus.png` | Prometheus flame mark |
 | Unit tests | `backend/tests/unit/test_prometheus_client.py` | 12 tests, `requests` boundary faked |
 | Demo stack | `docs/feedback-loops/assets/prometheus-stack/` | compose: Prometheus + Alertmanager + node-exporter + alert/recording rules |
+
+## Promotion out of `dev_only` (validated against a live stack)
+
+The connector shipped behind `dev_only=True` while incubating, which hid it from
+the connector catalog outside dev. It was promoted after a full sandbox re-run
+against a live Prometheus 3.14.0 (673 metrics, 2156 series, 9 firing alerts),
+which also surfaced three defects worth fixing first:
+
+- **Histogram/summary components were never typed.** `/api/v1/metadata` only
+  carries an entry under a histogram's BASE name, which is itself never a series
+  and so never appears in `/api/v1/label/__name__/values`. Looking metadata up by
+  the exact series name left every `_bucket`/`_sum`/`_count` as `unknown` —
+  **177 of 673 metrics (26%) on this stock instance, with `histogram` never
+  assigned to anything**. `_metadata_for()` now falls back to the base name and
+  re-types per suffix: `_bucket` → `histogram`, `_sum`/`_count` → `counter`
+  (they are counters; queried raw they return meaningless monotonic totals). A
+  metric with its own metadata that merely ends in `_count` keeps its own type.
+  After the fix: **unknown 177 → 48, histogram 0 → 31, counter 220 → 318**. The
+  48 that remain are genuinely untyped at the source — synthetic series
+  (`ALERTS`, recording rules) plus node_exporter metrics that declare
+  `"type": "unknown"` themselves.
+- **Schema discovery was unbounded.** `/api/v1/series` with no `start`/`end`
+  scans the whole retention window and returns one object per series *ever*
+  seen. Measured on this stack after 400 short-lived targets were removed:
+  **406 series / 39.1 KiB unbounded vs 6 series / 0.7 KiB over a live window —
+  58x the payload, for label keys that a bounded query answers exactly.**
+  Discovery now carries `start`/`end` (default 1h, `discovery_lookback_hours`)
+  and a `limit`.
+- **Blank optional number fields broke indexing.** The connect form submits
+  unset numeric fields as `""`, which `requests` rejects with *"Timeout value
+  connect was , but it must be an int, float or None"* — Test-connection passed
+  while schema indexing failed with a 500. Numeric config is now coerced, with
+  blank/garbage falling back to the default.
 
 ## Design decisions
 

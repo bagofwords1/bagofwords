@@ -141,13 +141,15 @@
               </div>
             </template>
           </TreeGroup>
-          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
-            <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
-            <template v-else>
-              <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
-              <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
-            </template>
-          </TreeGroup>
+          <!-- Skills is a destination, not a folder: the enabled list and the
+               catalog both live in the panel, so the row has nothing to expand
+               into and stays a single button. -->
+          <button type="button" data-testid="skills-button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'skills' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openSkillCatalog">
+            <span class="w-3 shrink-0"></span>
+            <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="flex-1 text-start truncate">{{ $t('agentsPage.skills') }}</span>
+            <span v-if="skillCount" class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">{{ skillCount }}</span>
+          </button>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
                org-wide shelves, label opens the runs panel. Gated on ORG-LEVEL
@@ -272,6 +274,19 @@
                   </div>
                 </template>
               </TreeGroup>
+
+              <!-- Queries (catalog entities). A leaf row, not a group: clicking
+                   it opens the agent's list in the right pane rather than
+                   expanding, because a query is a document with a body and reads
+                   better as a list than as truncated titles in the tree. An
+                   entity is m:n with agents, so one attached to two agents is
+                   listed under both. -->
+              <button v-if="!needsSignIn(agent)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'queries' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openQueriesPanel(agent.id)">
+                <span class="w-3 shrink-0"></span>
+                <LibraryIcon class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                <span class="flex-1 text-start truncate">{{ $t('agentsPage.queries') }}</span>
+                <span v-if="queryCounts[agent.id]" class="text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500">{{ queryCounts[agent.id] }}</span>
+              </button>
 
               <!-- Evals: the chevron expands the suite tree, the LABEL still opens
                    the runs/self-learning panel, so the existing entry point is
@@ -560,10 +575,49 @@
           </div>
         </template>
 
+        <!-- One query. Sits ahead of the panel branch so it renders over the
+             agent's list (Back returns to it) AND on its own for a query with
+             no agent attached, which has no list to sit over. -->
+        <template v-else-if="queryView">
+          <div class="flex items-center gap-2 px-6 py-3 border-b border-gray-100 dark:border-gray-800 shrink-0">
+            <!-- The back control IS the breadcrumb: it names where it goes, so
+                 there is no second "Back" stacked under the mobile layout's own
+                 back-to-tree bar. Without an agent there is no list to go back
+                 to, so it renders as a plain label. -->
+            <component
+              :is="queryView.agentId ? 'button' : 'div'"
+              :type="queryView.agentId ? 'button' : undefined"
+              class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1"
+              :class="queryView.agentId ? 'hover:bg-gray-100 dark:hover:bg-gray-800/70 cursor-pointer' : ''"
+              :data-testid="queryView.agentId ? 'query-back' : 'query-crumb'"
+              @click="queryView.agentId && closeQuery()"
+            >
+              <UIcon v-if="queryView.agentId" name="i-heroicons-arrow-left" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0 rtl:rotate-180" />
+              <LibraryIcon v-else class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+              <span class="text-[13px] text-gray-500 dark:text-gray-400 truncate">{{ queryAgent ? `${queryAgent.name} · ${$t('agentsPage.queries')}` : $t('agentsPage.queries') }}</span>
+            </component>
+            <button class="ms-auto h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" :title="$t('common.close')" data-testid="query-panel-close" @click="closeQueryPane">
+              <UIcon name="i-heroicons-x-mark" class="w-4 h-4" />
+            </button>
+          </div>
+          <div class="flex-1 overflow-auto">
+            <EntityDetailPanel
+              :key="'query-' + queryView.entityId"
+              :entity-id="queryView.entityId"
+              @changed="onQueryChanged"
+              @deleted="onQueryDeleted"
+            />
+          </div>
+        </template>
+
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <template v-if="panelView.kind === 'global-evals'">
+              <template v-if="panelView.kind === 'skills'">
+                <UIcon name="i-heroicons-squares-plus" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('agentsPage.skills') }}</span>
+              </template>
+              <template v-else-if="panelView.kind === 'global-evals'">
                 <UIcon name="i-heroicons-check-circle" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
                 <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('agentsPage.globalEvals') }}</span>
                 <span class="text-[11px] px-1.5 h-4 inline-flex items-center rounded bg-gray-100 dark:bg-gray-800 text-gray-400 dark:text-gray-500 shrink-0">{{ $t('agentsPage.allAgentsTag') }}</span>
@@ -581,7 +635,14 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
-            <AgentEvalsPanel v-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
+            <AgentQueriesPanel
+              v-if="panelView.kind === 'queries'"
+              :key="'queries-' + panelView.agentId"
+              :ds-id="panelView.agentId"
+              @select="openQuery(panelView.agentId, $event)"
+            />
+            <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
+            <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global :initial-run-id="pendingRunId" />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
             <div v-else class="px-6 py-4">
@@ -1139,6 +1200,9 @@ import InstructionEditor from '~/components/instructions/InstructionEditor.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructionPicker.vue'
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
+import EntityDetailPanel from '~/components/entity/EntityDetailPanel.vue'
+import AgentQueriesPanel from '~/components/entity/AgentQueriesPanel.vue'
+import LibraryIcon from '~/components/icons/LibraryIcon.vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
 import PublishStatusControl from '~/components/datasources/PublishStatusControl.vue'
@@ -1247,7 +1311,7 @@ const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
@@ -1518,6 +1582,56 @@ const rootDropzoneAttrs = (scope: string) => ({
   onDragover: (e: DragEvent) => onRootDragover(scope, e),
   onDragleave: () => onRootDragleave(scope),
 })
+
+// ── Queries (catalog entities) ────────────────────────────
+// The tree row opens AgentQueriesPanel in the right pane rather than expanding
+// (see the row's comment); selecting a query there swaps the panel for its
+// detail, one Back away. The explorer owns that selection because it is what
+// the URL reflects, and because a delete has to fall back to the list.
+//
+// The only per-agent state the tree itself keeps is the badge count, from
+// GET /entities/counts — one grouped query with the same visibility rules as
+// the list, so the badge cannot disagree with the rows behind it.
+const queryCounts = ref<Record<string, number>>({})
+
+const fetchQueryCounts = async () => {
+  try {
+    const { data } = await useMyFetch<any>('/api/entities/counts', { method: 'GET' })
+    if (data.value?.by_agent) {
+      queryCounts.value = Object.fromEntries(
+        Object.entries(data.value.by_agent).map(([k, v]) => [String(k), Number(v) || 0])
+      )
+    }
+  } catch (e) { console.error('Failed to load query counts', e) }
+}
+
+// The selected query INSIDE the queries panel — never on its own, so closing it
+// lands back on the agent's list instead of an empty pane.
+const queryView = ref<null | { entityId: string; agentId: string }>(null)
+const queryAgent = computed(() => queryView.value ? agents.value.find(a => a.id === queryView.value!.agentId) : null)
+// Back: drop the selection and fall through to the agent's list, which remounts
+// and refetches — so a query approved or renamed here shows its new state there.
+const closeQuery = () => { queryView.value = null }
+// The X closes the whole pane, not just the query.
+const closeQueryPane = () => { queryView.value = null; closePanel() }
+const openQueriesPanel = (agentId: string) => {
+  if (panelView.value?.kind === 'queries' && panelView.value?.agentId === agentId) {
+    // Clicking the row again backs out of an open query to the list.
+    if (queryView.value) closeQuery()
+    return
+  }
+  openPanel('queries', agentId)
+}
+const openQuery = (agentId: string, q: any) => {
+  queryView.value = { entityId: String(q.id), agentId }
+}
+// Approve / suggest / reject / rename rewrite the row's lifecycle, which is
+// what the list badge and the tree count show — refresh both.
+const onQueryChanged = () => { fetchQueryCounts() }
+const onQueryDeleted = () => {
+  queryView.value = null
+  fetchQueryCounts()
+}
 
 // ── Eval suites tree ──────────────────────────────────────
 // Suites render as folders under each agent's Evals group, and test cases as
@@ -1943,15 +2057,15 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings' | 'global-evals'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
@@ -1960,6 +2074,29 @@ const openPanel = (kind: 'tables' | 'tools' | 'files' | 'evals' | 'settings', ag
 const openGlobalEvals = () => {
   clearRightPane()
   panelView.value = { kind: 'global-evals', agentId: '' }
+}
+// Pre-built skill catalog — org-wide, not bound to any agent.
+const openSkillCatalog = () => {
+  clearRightPane()
+  panelView.value = { kind: 'skills', agentId: '' }
+}
+// Enabling lands a normal kind='skill' instruction; disabling deletes one.
+// loadGroup merges rows by id and never removes, so a disabled skill would
+// linger in the tree until a reload — drop it here, as deleteInstruction does.
+// Open an enabled skill in the normal instruction editor. The panel only holds
+// list rows, so fetch the full instruction the same way a deep link does.
+const openInstructionById = async (id: string) => {
+  const existing = allInstructions.value.find(i => i.id === id)
+  if (existing) { openInstruction(existing); return }
+  try {
+    const { data } = await useMyFetch<any>(`/api/instructions/${id}`, { method: 'GET' })
+    if (data.value) openInstruction(data.value as Instruction)
+  } catch { /* the row may have just been deleted — leave the panel open */ }
+}
+const onSkillCatalogChanged = async ({ removedId }: { removedId?: string | null } = {}) => {
+  if (removedId) allInstructions.value = allInstructions.value.filter(i => i.id !== removedId)
+  await fetchCounts()
+  if (loadedGroups.value.has('skills')) await loadGroup('skills', true)
 }
 const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.value) refreshAgentDetail() }
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
@@ -2241,7 +2378,7 @@ const fetchReviewCount = async () => {
 }
 const closeReview = () => { reviewView.value = null; fetchReviewCount() }
 const clearRightPane = () => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase()
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); closeQuery()
   detail.value = null; selectedId.value = null; creating.value = false; editing.value = false
   versions.value = []; pendingBuilds.value = []; mainText.value = null; mainVersionId.value = null
 }
@@ -2518,7 +2655,7 @@ const { showTopBanner, bannerHeight } = useTopBanner()
 const { isMobile } = useMobile()
 const detailOpen = computed(() => !!(
   reviewView.value || agentView.value || panelView.value ||
-  previewFile.value || detail.value || creating.value
+  previewFile.value || detail.value || creating.value || queryView.value
 ))
 const backToTree = () => {
   closeReview()
@@ -2526,6 +2663,7 @@ const backToTree = () => {
   closePanel()
   closePreview()
   closeDiff()
+  closeQuery()
   detail.value = null
   selectedId.value = null
   creating.value = false
@@ -3296,7 +3434,7 @@ const loadAgentMeta = async (id: string) => {
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
   // File-source connections + their glob rules (shown in the Files tree).
   try {
-    const { data } = await useMyFetch<any[]>(`/data_sources/${id}/connections`, { method: 'GET' })
+    const { data } = await useMyFetch<any[]>(`/data_sources/${id}/file-connections`, { method: 'GET' })
     agentFileConns.value[id] = (data.value || [])
       .filter((c: any) => FILE_CONN_TYPES.has(c.type))
       .map((c: any) => ({
@@ -3390,7 +3528,7 @@ const listFor = (kind: string) => {
   let base = allInstructions.value
   if (kind === 'skills') base = base.filter(i => (i as any).kind === 'skill')
   else if (kind === 'pending') base = base.filter(isPending)
-  else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0)
+  else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0 && (i as any).kind !== 'skill')
   return applyFilters(base)
 }
 // An agent's Instructions node lists EVERY instruction attached to it, table-
@@ -3421,7 +3559,7 @@ const activeTables = (agentId: string) => (agentTables.value[agentId] || []).fil
 
 // ── Detail / create ─────────────────────────────────────
 const openInstruction = async (ins: Instruction) => {
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); creating.value = false; bottomTab.value = 'details'
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); closeQuery(); creating.value = false; bottomTab.value = 'details'
   // Clear every draft-derived value before swapping rows. Without this, an
   // in-flight manager request can briefly render its hunks/history after the
   // user has selected an instruction they may only view.
@@ -3479,7 +3617,7 @@ const openCreate = (scope?: { agentId?: string; tableId?: string; tableName?: st
   // + button) forces no agent; otherwise inherit the agent in view, so New from
   // inside an agent doesn't quietly create an org-wide instruction.
   const agentId = scope?.global ? null : (scope?.agentId || currentAgentId())
-  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
+  closePreview(); closeDiff(); closePanel(); closeAgentView(); closeReview(); closeEvalCase(); closeQuery(); pendingBuilds.value = []; detail.value = null; selectedId.value = null; versions.value = []; mainText.value = null; mainVersionId.value = null
   creating.value = true; editing.value = true
   draft.title = ''; draft.description = ''; draft.text = ''; draft.kind = 'instruction'; draft.load_mode = 'always'; draft.status = 'published'; draft.category = 'general'
   draft.applicable_modes = []; draft.applicable_channels = []
@@ -4033,13 +4171,16 @@ const FilterSection = defineComponent({
 // router navigation) so the address bar updates without re-running the global
 // middleware (auth/onboarding/permissions) or remounting/flickering the page.
 const route = useRoute()
-const PANEL_KINDS = ['tables', 'tools', 'evals', 'settings'] as const
+const PANEL_KINDS = ['tables', 'tools', 'queries', 'evals', 'settings'] as const
 
 // The URL that reflects the current right-pane state. Only one of agent /
 // panel / instruction views is open at a time (each open() clears the others).
 const explorerUrl = (): string => {
   // Global evals has no agentId — filter empty segments so it maps to
   // /agents/global-evals rather than /agents//global-evals.
+  // A query open inside the queries panel gets the deeper URL, so the link a
+  // reader shares opens that query and not the agent's whole list.
+  if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
@@ -4053,7 +4194,7 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, queryView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
@@ -4073,9 +4214,36 @@ const restoreFromRoute = () => {
       .catch(() => {})
     return
   }
+  // /agents/queries/<id> — a query's detail, reached from a deep link. The
+  // tree is lazy, so the row may not be loaded: fetch the entity, then hang it
+  // under one of its own agents (they all list it) so the pane has a parent.
+  if (seg[0] === 'queries' && seg[1]) {
+    const entityId = seg[1]
+    if (queryView.value?.entityId === entityId) return
+    useMyFetch<any>(`/api/entities/${entityId}`, { method: 'GET' })
+      .then(({ data }: any) => {
+        const ent = data?.value
+        if (!ent) return
+        // Hang it under one of its own agents so Back has a list to return to.
+        // A query attached to none has no such list; it still opens on its own.
+        const agentId = String(ent.data_sources?.[0]?.id || '')
+        if (agentId) {
+          expand('agent:' + agentId, true)
+          openPanel('queries', agentId)
+        }
+        openQuery(agentId, ent)
+      })
+      .catch(() => {})
+    return
+  }
   // /agents/global-evals — org-wide evals view, not bound to an agent
   if (seg[0] === 'global-evals') {
     if (panelView.value?.kind !== 'global-evals') openGlobalEvals()
+    return
+  }
+  // /agents/skills — the pre-built skill catalog, also not bound to an agent
+  if (seg[0] === 'skills') {
+    if (panelView.value?.kind !== 'skills') openSkillCatalog()
     return
   }
   const agentId = seg[0]
@@ -4129,7 +4297,7 @@ onMounted(async () => {
   // Lazy tree: load agents + aggregate counts only (no instruction rows). Each
   // group's rows load on first expand. fetchCounts also feeds the pending dots
   // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
-  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   instrLoading.value = false
   // fetchCounts already populated the per-row "pending" dot set from its own
   // response, so no separate org-wide /pending-changes sweep is needed here.

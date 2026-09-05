@@ -1007,7 +1007,11 @@ class ReadFileTool(Tool):
             bits.append(summary_note)
         if cached:
             bits.append("cached")
+        if session_file_id:
+            bits.append(f"session_file_id={session_file_id} (use this ID for inspect_data/create_data, not the source path)")
         observation = {"summary": " — ".join(bits), "success": True}
+        if session_file_id:
+            observation["session_file_id"] = session_file_id
         # The content itself, bounded — without this the model receives only
         # the summary line above and re-reads the file forever.
         if ct in ("text", "json", "tabular") and allow_llm_see_data(runtime_ctx):

@@ -142,6 +142,11 @@ data:
       bind_password: ${BOW_LDAP_BIND_PASSWORD}
       use_ssl: {{ .Values.config.ldap.useSsl }}
       start_tls: {{ .Values.config.ldap.startTls }}
+      ca_certs_file: {{ .Values.config.ldap.caCertsFile | quote }}
+      organization_id: {{ .Values.config.ldap.organizationId | quote }}
+      admission_group_dn: {{ .Values.config.ldap.admissionGroupDn | quote }}
+      kerberos_realm: {{ .Values.config.ldap.kerberosRealm | quote }}
+      allow_local_superuser_login: {{ .Values.config.ldap.allowLocalSuperuserLogin }}
       base_dn: {{ .Values.config.ldap.baseDn | quote }}
 {{- if .Values.config.ldap.userSearchBase }}
       user_search_base: {{ .Values.config.ldap.userSearchBase | quote }}

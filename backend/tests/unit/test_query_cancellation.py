@@ -145,7 +145,7 @@ def test_mysql_without_a_thread_id_reports_unsupported():
 def test_sql_server_kills_the_captured_spid(monkeypatch):
     sent = {}
 
-    def fake_kill(sa_conn, statement, success):
+    def fake_kill(sa_conn, statement, success, client=None):
         sent["statement"] = statement
         return success
 

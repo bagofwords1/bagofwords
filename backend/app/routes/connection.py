@@ -34,6 +34,7 @@ from app.schemas.connection_schema import (
     ConnectionToolTestResult,
     ConnectionIndexingProgress,
 )
+from app.schemas.user_data_source_credentials_schema import UserDataSourceCredentialsCreate
 from app.services.connection_indexing_service import ConnectionIndexingService
 from app.schemas.connection_tool_schema import (
     ConnectionToolSchema,
@@ -706,6 +707,33 @@ async def test_my_connection_credentials(
         timings=result.get("timings"),
         details=result.get("details"),
     )
+
+
+@router.post("/{connection_id}/my-credentials")
+async def save_my_connection_credentials(
+    connection_id: str,
+    data: UserDataSourceCredentialsCreate,
+    request: Request,
+    user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Save on-prem Windows credentials in the same store runtime reads.
+
+    The legacy datasource credential endpoint writes a different table; new
+    file connections must use the canonical connection-scoped credential row.
+    OAuth and existing credential flows are deliberately unchanged.
+    """
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, user, connection)
+    result = await connection_service.save_windows_user_credentials(db, connection, user, data)
+    try:
+        await audit_service.log(db=db, organization_id=organization.id,
+            action="credentials.updated", user_id=user.id, resource_type="connection",
+            resource_id=connection_id, request=request)
+    except Exception:
+        pass
+    return result
 
 
 @router.delete("/{connection_id}/my-credentials")
@@ -1478,4 +1506,3 @@ async def update_tool(
         input_schema=tool.input_schema,
         output_schema=tool.output_schema,
     )
-

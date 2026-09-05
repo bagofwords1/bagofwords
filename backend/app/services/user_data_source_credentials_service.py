@@ -373,7 +373,9 @@ class UserDataSourceCredentialsService:
             raise HTTPException(status_code=400, detail="Authentication mode is not allowed for user credentials")
         schema_cls = variant.schema
         try:
-            schema_cls(**(payload.credentials or {}))
+            validated = schema_cls(**(payload.credentials or {}))
+            if ds_type.lower() == "mssql":
+                payload.credentials = validated.model_dump()
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
@@ -383,6 +385,9 @@ class UserDataSourceCredentialsService:
         # go underneath — exactly as the runtime resolver will merge them.
         from app.schemas.data_source_registry import overlay_system_credentials
         creds = overlay_system_credentials(connection, payload.credentials or {}, payload.auth_mode)
+        if payload.auth_mode == "kerberos_delegated":
+            from app.services.connection_service import ConnectionService
+            creds = ConnectionService._kerberos_delegated_credentials(connection, user, None)
         ClientClass = resolve_client_class(ds_type)
         params = {**(config or {}), **creds}
         # Strip meta keys
@@ -423,24 +428,17 @@ class UserDataSourceCredentialsService:
         # Validate credentials against registry schema
         schema_cls = variant.schema
         try:
-            schema_cls(**(payload.credentials or {}))
+            validated = schema_cls(**(payload.credentials or {}))
+            if ds_type.lower() == "mssql":
+                payload.credentials = validated.model_dump()
         except Exception as e:
             raise HTTPException(status_code=422, detail=f"Invalid credentials: {e}")
 
         # Kerberos SSO rows persist an explicit UPN: fill a blank principal from
         # the login identity at save time so resolvers never see an empty one.
         if payload.auth_mode == "kerberos_delegated":
-            creds = dict(payload.credentials or {})
-            if not (creds.get("kerberos_impersonate") or "").strip():
-                email = (getattr(user, "email", None) or "").strip()
-                if "@" not in email:
-                    raise HTTPException(
-                        status_code=422,
-                        detail="Kerberos SSO requires an Active Directory principal (UPN); your login identity has none — provide one explicitly.",
-                    )
-                creds["kerberos_impersonate"] = email
-            creds["use_kerberos"] = True
-            payload.credentials = creds
+            from app.services.connection_service import ConnectionService
+            payload.credentials = ConnectionService._kerberos_delegated_credentials(connection, user, None)
 
         # Find existing (active) row
         stmt = (
@@ -602,5 +600,3 @@ class UserDataSourceCredentialsService:
             return
         await db.delete(row)
         await db.commit()
-
-

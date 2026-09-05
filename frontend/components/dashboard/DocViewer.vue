@@ -6,10 +6,11 @@
         <div v-if="block.type === 'md'" class="bow-doc-md" v-html="block.html" />
 
         <!-- Live visualization -->
-        <DocVizEmbed v-else-if="block.type === 'viz'" :viz="vizById(block.vizId)" />
+        <DocVizEmbed v-else-if="block.type === 'viz'" :viz="vizById(block.vizId)" :paper="paper" />
 
         <!-- Embedded image -->
-        <DocFileEmbed v-else-if="block.type === 'file'" :file-id="block.fileId" :alt="block.alt" />
+        <DocFileEmbed v-else-if="block.type === 'file'" :file-id="block.fileId" :alt="block.alt"
+          :data-uri="files?.[block.fileId]" />
 
         <!-- Mermaid diagram -->
         <DocMermaid v-else-if="block.type === 'mermaid'" :code="block.code" />
@@ -23,8 +24,9 @@
           <div v-for="(col, ci) in block.columns" :key="ci" class="min-w-0">
             <template v-for="(cb, cbi) in col" :key="cbi">
               <div v-if="cb.type === 'md'" class="bow-doc-md" v-html="cb.html" />
-              <DocVizEmbed v-else-if="cb.type === 'viz'" :viz="vizById(cb.vizId)" />
-              <DocFileEmbed v-else-if="cb.type === 'file'" :file-id="cb.fileId" :alt="cb.alt" />
+              <DocVizEmbed v-else-if="cb.type === 'viz'" :viz="vizById(cb.vizId)" :paper="paper" />
+              <DocFileEmbed v-else-if="cb.type === 'file'" :file-id="cb.fileId" :alt="cb.alt"
+                :data-uri="files?.[cb.fileId]" />
               <DocMermaid v-else-if="cb.type === 'mermaid'" :code="cb.code" />
             </template>
           </div>
@@ -64,6 +66,18 @@ const props = defineProps<{
   markdown: string
   visualizations?: DocViz[]
   compact?: boolean
+  /**
+   * Rendering onto paper (the PDF export's /print/doc page) rather than into a
+   * scrolling pane: embedded tables lay every row out instead of virtualizing
+   * them inside a fixed-height grid.
+   */
+  paper?: boolean
+  /**
+   * Embedded images by file id, already resolved to data: URIs. The live
+   * viewer fetches them over an authenticated route; a headless render has no
+   * session, so the server hands them over up front.
+   */
+  files?: Record<string, string>
 }>()
 
 const md = new MarkdownIt({
@@ -355,31 +369,12 @@ const docDir = computed(() => detectDocDir(props.markdown))
 :global(.dark) .bow-doc-md :deep(th) { color: rgb(209 213 219); border-color: rgb(55 65 81); }
 :global(.dark) .bow-doc-md :deep(td) { border-color: rgb(31 41 55); }
 
-/* Print: clean page for PDF export */
+/* A plain Ctrl+P of whatever page is showing the document. The PDF export
+   does not come through here — it renders pages/print/doc.vue, which is a
+   document on a sheet rather than a pane inside the app. */
 @media print {
   .doc-viewer { overflow: visible !important; }
   .bow-doc { padding: 0; max-width: 100%; }
 }
 
-</style>
-
-<!-- Print isolation: when ArtifactFrame's Print button stamps `printing-doc` on
-     <html>, only the document prints — app chrome, chat and toolbars vanish. -->
-<style>
-@media print {
-  html.printing-doc body * { visibility: hidden !important; }
-  html.printing-doc .doc-viewer,
-  html.printing-doc .doc-viewer * { visibility: visible !important; }
-  html.printing-doc .doc-viewer {
-    /* `absolute` (not `fixed`) so the document flows across pages: a fixed
-       element is clipped to a single viewport box, cutting the PDF off after
-       a couple of pages. No `bottom`/`inset` so height follows the content. */
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    overflow: visible !important;
-    height: auto !important;
-  }
-}
 </style>

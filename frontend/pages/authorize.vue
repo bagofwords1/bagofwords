@@ -93,6 +93,7 @@ const scope = (route.query.scope as string) || 'mcp'
 const codeChallenge = route.query.code_challenge as string
 const codeChallengeMethod = (route.query.code_challenge_method as string) || 'S256'
 const responseType = (route.query.response_type as string) || 'code'
+const loginHint = route.query.login_hint as string | undefined
 
 const clientInitials = computed(() => clientName.value.split(/\s+/).filter(Boolean).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'OA')
 
@@ -112,7 +113,11 @@ onMounted(async () => {
   await getSession()
   if (status.value !== 'authenticated') {
     const returnTo = window.location.pathname + window.location.search
-    await navigateTo(`/users/sign-in?redirect=${encodeURIComponent(returnTo)}`)
+    // login_hint rides alongside `redirect` rather than only inside it: the
+    // sign-in page reads its own query to build the SSO URL, and would never
+    // see a hint buried in the encoded return path.
+    const signIn = `/users/sign-in?redirect=${encodeURIComponent(returnTo)}`
+    await navigateTo(loginHint ? `${signIn}&login_hint=${encodeURIComponent(loginHint)}` : signIn)
     return
   }
 

@@ -1,8 +1,8 @@
 import { defineConfig, devices } from '@playwright/test'
 
-// Screenshot-only config for the empty-state illustrations on /evals,
-// /scheduled-tasks and /queries. No globalSetup / onboarding dependency so the
-// pages stay genuinely empty. Run manually:
+// Screenshot-only config for the empty-state illustrations on /evals and
+// /scheduled-tasks. No globalSetup / onboarding dependency so the pages stay
+// genuinely empty. Run manually:
 //   npx playwright test tests/empty-states/empty-states.shot.ts --config=pw.empty.config.ts
 export default defineConfig({
   testDir: './tests/empty-states',

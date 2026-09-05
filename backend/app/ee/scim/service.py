@@ -271,6 +271,13 @@ class ScimUserService:
             from app.core.permission_resolver import ensure_system_role_assignment
             await ensure_system_role_assignment(db, organization_id, str(existing_user.id), "member")
 
+            # Honor the provisioned active state, same as the create branch
+            # below and the PUT/PATCH handlers. Without this, re-provisioning
+            # someone whose account was deactivated (removed from their last
+            # organization — see app/core/user_lifecycle) would hand them a
+            # membership they still could not log in with.
+            existing_user.is_active = data.active
+
             # Update external ID if provided
             if data.externalId:
                 existing_user.scim_external_id = data.externalId

@@ -103,37 +103,37 @@ export default defineNuxtConfig({
     },
     proxies: {
         '/.well-known': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path
         },
         '/mcp': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => `/api${path}`
         },
         '/swagger': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path
         },
         '/openapi.json': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path
         },
         '/excel': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => `/api${path}`
         },
         '/api': {
-            target: 'http://127.0.0.1:8000',
+            target: process.env.BOW_API_TARGET || 'http://127.0.0.1:8000',
             changeOrigin: true,
             secure: false,
             rewrite: (path) => path,

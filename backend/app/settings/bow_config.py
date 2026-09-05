@@ -100,6 +100,19 @@ class GoogleOAuth(BaseModel):
     client_secret: Optional[str] = None
 
 
+def brand_for_issuer(issuer: Optional[str]) -> str:
+    """Identify the identity provider behind an OIDC issuer URL.
+
+    Returns one of: "microsoft", "google", "custom".
+    """
+    issuer = (issuer or "").lower()
+    if "login.microsoftonline.com" in issuer or "sts.windows.net" in issuer:
+        return "microsoft"
+    if "accounts.google.com" in issuer:
+        return "google"
+    return "custom"
+
+
 class OIDCProvider(BaseModel):
     name: str
     enabled: bool = False
@@ -123,6 +136,31 @@ class OIDCProvider(BaseModel):
     group_claim: str = "groups"              # claim name in id_token
     resolve_group_names: bool = False        # call Graph API to get display names (Entra returns UUIDs)
 
+    def brand(self) -> str:
+        """Which identity provider is behind this entry.
+
+        `name` is a routing slug (it appears in /api/auth/<name>/callback, which
+        is registered with the IdP), so it can be anything the operator picked —
+        "entra", "corp-sso", "ad". The issuer is what actually tells us who is
+        on the other end, and the login page uses this to pick a logo.
+        """
+        return brand_for_issuer(self.issuer)
+
+    def display_label(self) -> str:
+        """Human-readable provider name for the sign-in button.
+
+        An explicit `label` always wins; otherwise a recognized provider gets
+        its real product name and anything else falls back to the slug.
+        """
+        if self.label:
+            return self.label
+        brand = self.brand()
+        if brand == "microsoft":
+            return "Microsoft"
+        if brand == "google":
+            return "Google"
+        return (self.name or "").replace("_", " ").replace("-", " ").strip().title() or self.name
+
 
 class LDAPConfig(BaseModel):
     """LDAP / Active Directory configuration for group sync and optional bind auth."""
@@ -132,6 +170,12 @@ class LDAPConfig(BaseModel):
     bind_password: Optional[str] = None                # service account password
     use_ssl: bool = True
     start_tls: bool = False
+    ca_certs_file: Optional[str] = None
+    # AD-first: each deployment explicitly admits one organization's group.
+    organization_id: Optional[str] = None
+    admission_group_dn: Optional[str] = None
+    kerberos_realm: Optional[str] = None
+    allow_local_superuser_login: bool = False
     base_dn: str = ""
     user_search_base: Optional[str] = None             # defaults to base_dn
     user_search_filter: str = "(objectClass=person)"

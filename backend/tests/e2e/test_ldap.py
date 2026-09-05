@@ -116,7 +116,13 @@ def enable_ldap():
 def ldap_setup(test_client, create_user, login_user, whoami, enterprise_license, enable_ldap):
     """Set up a user, org, and auth headers for LDAP admin endpoints."""
     user = create_user()
-    token = login_user(user["email"], user["password"])
+    # Establish the operator session before enabling directory-only login.
+    from app.settings.config import settings
+    settings.bow_config.ldap.enabled = False
+    try:
+        token = login_user(user["email"], user["password"])
+    finally:
+        settings.bow_config.ldap.enabled = True
     user_info = whoami(token)
     org_id = user_info['organizations'][0]['id']
 
@@ -309,7 +315,11 @@ class TestLdapRequiresLicense:
         from app.settings.config import settings
 
         user = create_user()
-        token = login_user(user["email"], user["password"])
+        settings.bow_config.ldap.enabled = False
+        try:
+            token = login_user(user["email"], user["password"])
+        finally:
+            settings.bow_config.ldap.enabled = True
         org_id = whoami(token)['organizations'][0]['id']
 
         if hasattr(settings.bow_config, 'license') and settings.bow_config.license:
@@ -333,7 +343,11 @@ class TestLdapRequiresLicense:
         from app.settings.config import settings
 
         user = create_user()
-        token = login_user(user["email"], user["password"])
+        settings.bow_config.ldap.enabled = False
+        try:
+            token = login_user(user["email"], user["password"])
+        finally:
+            settings.bow_config.ldap.enabled = True
         org_id = whoami(token)['organizations'][0]['id']
 
         if hasattr(settings.bow_config, 'license') and settings.bow_config.license:

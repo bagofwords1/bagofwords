@@ -7756,13 +7756,12 @@ class AgentV2:
                         except Exception:
                             pass
 
-                        # Fallback for create_data: if no columns in data_model, emit usage from tool_input.tables_by_source
+                        # `tables_by_source` records every source table passed to create_data.
+                        # It complements the data model, whose columns can describe only
+                        # the resulting dataset and otherwise omit joined tables.
                         try:
                             if tool_name == "create_data":
-                                dm = getattr(step_obj, "data_model", {}) or {}
-                                cols = dm.get("columns") if isinstance(dm, dict) else None
-                                has_columns = isinstance(cols, list) and len(cols) > 0
-                                if not has_columns and isinstance(tool_input, dict):
+                                if isinstance(tool_input, dict):
                                     tbs = tool_input.get("tables_by_source")
                                     if tbs:
                                         await self.project_manager.emit_table_usage_from_tables_by_source(

@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from typing import List, Generator
 from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
+from app.data_sources.fk_reflection import attach_foreign_keys
 from functools import cached_property
 from urllib.parse import quote_plus
 
@@ -101,7 +102,8 @@ class MariadbClient(DataSourceClient):
                             name=table_name, columns=[], pks=[], fks=[])
                     tables[table_name].columns.append(
                         TableColumn(name=column_name, dtype=data_type))
-                return list(tables.values())
+                self._attach_foreign_keys(conn, tables)
+            return list(tables.values())
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -110,6 +112,21 @@ class MariadbClient(DataSourceClient):
         """Placeholder implementation for the abstract method."""
         raise NotImplementedError(
             "get_schema() is not implemented in MariadbClient. Use get_tables() instead.")
+
+    def _attach_foreign_keys(self, conn, tables) -> None:
+        """Populate `fks` on the tables just collected.
+
+        This client addresses a single database and names tables bare, so both
+        the reference string and the dict key drop the schema. Passing the
+        default tuple key here would match nothing and silently yield no edges.
+        """
+        attach_foreign_keys(
+            conn,
+            tables,
+            None,
+            lambda schema, table: table,
+            key_fn=lambda schema, table: table,
+        )
 
     def get_schemas(self):
         """Get schemas for all tables in the specified database."""

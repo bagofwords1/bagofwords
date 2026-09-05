@@ -1,4 +1,5 @@
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import track
 
 import pandas as pd
@@ -426,6 +427,8 @@ class SnowflakeClient(DataSourceClient):
                     description=col_comment
                 ))
 
+            self._attach_foreign_keys(conn, tables)
+
         return list(tables.values())
 
     def _get_tables_basic(self) -> List[Table]:
@@ -465,7 +468,27 @@ class SnowflakeClient(DataSourceClient):
                     )
                 tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
 
+            self._attach_foreign_keys(conn, tables)
+
         return list(tables.values())
+
+    def _attach_foreign_keys(self, conn, tables) -> None:
+        """Populate `fks` on the tables just collected.
+
+        `name_fn` mirrors the `f"{table_schema}.{table_name}"` this client uses
+        for `Table.name` — the two must agree or downstream resolution, which is
+        an exact string match, drops every edge without complaining.
+
+        Snowflake declares foreign keys but does not enforce them, so most
+        warehouses have none to find. Reflecting costs one call per schema and
+        returns whatever was actually declared.
+        """
+        attach_foreign_keys(
+            conn,
+            tables,
+            self._schemas or None,
+            lambda schema, table: f"{schema}.{table}",
+        )
 
     def get_schema(self, table: str, schema: str) -> Table:
         """Return Table."""

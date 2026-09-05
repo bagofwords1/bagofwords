@@ -3,6 +3,7 @@ from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
 import pandas as pd
 import requests
+import time
 from contextlib import contextmanager
 from typing import Any, Dict, List, Optional
 
@@ -22,6 +23,21 @@ _TYPE_HINT = {
     "summary": "summary",
     "untyped": "untyped",
     "unknown": "unknown",
+}
+
+# A histogram/summary is exposed as three *suffixed* series — `_bucket`, `_sum`
+# and `_count` — but `/api/v1/metadata` only carries an entry under the BASE
+# name (`http_request_duration_seconds`), which is itself never a series and so
+# never appears in `/api/v1/label/__name__/values`. Looking metadata up by the
+# exact series name therefore misses every component: on a stock Prometheus
+# ~20% of metrics come back `unknown` and NOTHING is ever typed `histogram`.
+# The suffix decides the component's own type: `_bucket` is the histogram body
+# (needs histogram_quantile), while `_sum`/`_count` are plain counters (need
+# rate/increase) — querying those raw returns meaningless monotonic totals.
+_COMPONENT_SUFFIX_TYPE = {
+    "_bucket": "histogram",
+    "_sum": "counter",
+    "_count": "counter",
 }
 
 
@@ -47,10 +63,36 @@ class PrometheusClient(DataSourceClient):
     Mimir).
     """
 
+    # PromQL's own relative windows are the range selectors inside the query;
+    # the instant/range boundary lives in execute_query's start/end args, which
+    # are Python-side and so must be computed from `now` rather than frozen as
+    # literals that go stale on the next dashboard refresh.
+    relative_date_hint = (
+        "Relative dates (PromQL): windows inside the query are relative already "
+        "— rate(m[5m]), m offset 1h, avg_over_time(m[24h]). For a range query, "
+        "compute execute_query's start/end from datetime.now(timezone.utc) "
+        "(e.g. end - timedelta(hours=1)); never hard-code a date literal."
+    )
+
     # Discovering label sets series-by-series is the slow part on large
     # instances, so metric names are matched in batches of this size per
     # /api/v1/series request.
     _SERIES_BATCH = 40
+
+    # `/api/v1/series` with no start/end scans the FULL retention window and
+    # returns one JSON object per matching series — on a churning instance
+    # (pods, jobs, build ids) that is every series ever seen, not the live ones,
+    # so the response can be orders of magnitude larger than the live label set
+    # it is being read for. We only need which label KEYS a metric currently
+    # carries, so discovery is bounded to a recent window. Overridable per
+    # connection for an instance scraped less often than this.
+    _DISCOVERY_LOOKBACK_S = 3600
+
+    # Hard ceiling on series returned per discovery request, so one
+    # high-cardinality metric cannot pin the response size. Prometheus caps
+    # server-side (2.45+/3.x); older servers ignore it and stay bounded by the
+    # lookback window alone.
+    _SERIES_LIMIT = 5000
 
     def __init__(
         self,
@@ -61,6 +103,7 @@ class PrometheusClient(DataSourceClient):
         verify_ssl: bool = True,
         org_id: Optional[str] = None,
         metric_prefix: Optional[str] = None,
+        discovery_lookback_hours: Optional[float] = None,
         timeout: int = 30,
     ):
         self.base_url = (base_url or "").rstrip("/")
@@ -70,7 +113,29 @@ class PrometheusClient(DataSourceClient):
         self.verify_ssl = verify_ssl
         self.org_id = org_id
         self.metric_prefix = (metric_prefix or "").strip() or None
-        self.timeout = timeout
+        # Optional numeric config arrives from the connect form as a STRING —
+        # and as "" when the admin leaves the field blank, which `requests`
+        # rejects with "Timeout value connect was , but it must be an int,
+        # float or None". Coerce both here so a blank field means "default".
+        self.timeout = self._as_number(timeout, int, 30)
+        hours = self._as_number(discovery_lookback_hours, float, 0)
+        self.discovery_lookback_s = (
+            int(hours * 3600) if hours and hours > 0 else self._DISCOVERY_LOOKBACK_S
+        )
+
+    @staticmethod
+    def _as_number(value, cast, default):
+        """Cast an optional config value, falling back on blank/garbage input."""
+        if value is None:
+            return default
+        if isinstance(value, str):
+            value = value.strip()
+            if not value:
+                return default
+        try:
+            return cast(value)
+        except (TypeError, ValueError):
+            return default
 
     # ── HTTP plumbing ────────────────────────────────────────────────────────
 
@@ -154,19 +219,58 @@ class PrometheusClient(DataSourceClient):
                     out[name] = entries[0]
         return out
 
+    @staticmethod
+    def _metadata_for(metadata: Dict[str, dict], name: str) -> dict:
+        """Metadata for one series name, resolving histogram/summary components.
+
+        Exact name first. Failing that, a `_bucket`/`_sum`/`_count` series is
+        looked up under its base name and re-typed for what that component
+        actually is (see _COMPONENT_SUFFIX_TYPE) — the base entry says
+        `histogram`, but only `_bucket` is the histogram body; `_sum`/`_count`
+        are counters. `help` and `unit` carry over from the base metric, which
+        is exactly what they describe.
+        """
+        meta = metadata.get(name)
+        if meta:
+            return meta
+        for suffix, component_type in _COMPONENT_SUFFIX_TYPE.items():
+            if not name.endswith(suffix):
+                continue
+            base = metadata.get(name[: -len(suffix)])
+            if not base:
+                continue
+            base_type = (base.get("type") or "").lower()
+            # Only re-type when the base really is a histogram/summary; a plain
+            # counter that happens to end in `_count` keeps its own type.
+            if base_type not in ("histogram", "summary"):
+                return base
+            return {**base, "type": component_type}
+        return {}
+
     def _labels_for(self, session: requests.Session, names: List[str]) -> Dict[str, set]:
         """Map each metric name to the set of label keys seen on its series.
 
         Uses ``/api/v1/series`` with one ``match[]=<metric>`` selector per name,
         batched to keep each request bounded. ``__name__`` is dropped from the
         label set (it is the metric/table name itself).
+
+        Every request is bounded by ``start``/``end`` (a recent window) and a
+        ``limit`` — without them Prometheus scans the whole retention period and
+        materialises one object per series ever seen, which on a churning
+        instance dwarfs the live label set this is actually reading.
         """
         labels: Dict[str, set] = {n: set() for n in names}
+        now = int(time.time())
+        window = [
+            ("start", str(now - self.discovery_lookback_s)),
+            ("end", str(now)),
+            ("limit", str(self._SERIES_LIMIT)),
+        ]
         for i in range(0, len(names), self._SERIES_BATCH):
             batch = names[i : i + self._SERIES_BATCH]
             series = self._api(
                 session, "/api/v1/series",
-                params=[("match[]", n) for n in batch], method="POST",
+                params=[("match[]", n) for n in batch] + window, method="POST",
             ) or []
             for s in series:
                 name = s.get("__name__")
@@ -201,7 +305,7 @@ class PrometheusClient(DataSourceClient):
 
             tables: List[Table] = []
             for name in names:
-                meta = metadata.get(name, {})
+                meta = self._metadata_for(metadata, name)
                 mtype = (meta.get("type") or "unknown").lower()
                 help_text = meta.get("help") or None
                 unit = meta.get("unit") or None
@@ -371,10 +475,16 @@ df = client.execute_query('sum by (job) (rate(prometheus_http_requests_total[5m]
 # Histograms: use histogram_quantile over the _bucket series
 df = client.execute_query('histogram_quantile(0.95, sum by (le) (rate(prometheus_http_request_duration_seconds_bucket[5m])))')
 
-# Range query — a time series over a window (returns one row per sample)
+# Range query — a time series over a window (returns one row per sample).
+# Compute start/end RELATIVE to now: this code is re-executed on dashboard
+# refreshes and scheduled runs, and a hard-coded date would pin every future
+# run to the same stale window.
+from datetime import datetime, timedelta, timezone
+end = datetime.now(timezone.utc)
+start = end - timedelta(hours=1)
 df = client.execute_query(
     'sum(rate(prometheus_http_requests_total[5m]))',
-    start='2024-01-01T00:00:00Z', end='2024-01-01T01:00:00Z', step='60s')
+    start=start.isoformat(), end=end.isoformat(), step='60s')
 ```
 
 ### Alerts

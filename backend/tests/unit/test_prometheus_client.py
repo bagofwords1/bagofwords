@@ -275,3 +275,160 @@ def test_registry_resolves_prometheus_client():
     from app.schemas.data_source_registry import resolve_client_class
 
     assert resolve_client_class("prometheus") is PrometheusClient
+
+
+# ---------- histogram / summary component metadata ---------- #
+
+
+def _histogram_routes():
+    """A stock Prometheus exposure: the histogram and summary appear ONLY as
+    their suffixed component series, while /api/v1/metadata carries a single
+    entry under each base name (which is itself never a series)."""
+    return {
+        "/api/v1/label/__name__/values": _ok(
+            [
+                "http_request_duration_seconds_bucket",
+                "http_request_duration_seconds_sum",
+                "http_request_duration_seconds_count",
+                "gc_pause_seconds_sum",
+                "gc_pause_seconds_count",
+                "items_count",
+            ]
+        ),
+        "/api/v1/metadata": _ok(
+            {
+                "http_request_duration_seconds": [
+                    {"type": "histogram", "help": "Latency of HTTP requests.", "unit": "seconds"}
+                ],
+                "gc_pause_seconds": [{"type": "summary", "help": "GC pauses.", "unit": ""}],
+                # A plain gauge that merely ends in `_count` — it must keep its
+                # own type rather than being re-typed as a histogram component.
+                "items_count": [{"type": "gauge", "help": "Items in queue.", "unit": ""}],
+            }
+        ),
+        "/api/v1/series": _ok(
+            [
+                {"__name__": "http_request_duration_seconds_bucket", "handler": "/", "le": "0.1"},
+                {"__name__": "http_request_duration_seconds_sum", "handler": "/"},
+                {"__name__": "http_request_duration_seconds_count", "handler": "/"},
+                {"__name__": "gc_pause_seconds_sum", "job": "app"},
+                {"__name__": "gc_pause_seconds_count", "job": "app"},
+                {"__name__": "items_count", "queue": "inbox"},
+            ]
+        ),
+    }
+
+
+def test_histogram_components_resolve_type_from_the_base_metric(monkeypatch):
+    """`_bucket` is the histogram body; `_sum`/`_count` are counters.
+
+    /api/v1/metadata only has the base name, so an exact-name lookup leaves
+    every component `unknown` — losing the histogram_quantile hint on `_bucket`
+    and, worse, the rate() hint on `_sum`/`_count`, which are counters that
+    return meaningless monotonic totals when queried raw.
+    """
+    _install(monkeypatch, _histogram_routes())
+    by_name = {t.name: t for t in PrometheusClient(base_url="http://h:9090").get_schemas()}
+
+    bucket = by_name["http_request_duration_seconds_bucket"]
+    assert bucket.metadata_json["metric_type"] == "histogram"
+    assert bucket.columns[-1].dtype == "histogram (use histogram_quantile)"
+    # help/unit carry over from the base metric, which is what they describe.
+    assert bucket.description == "Latency of HTTP requests."
+    assert bucket.metadata_json["unit"] == "seconds"
+
+    for suffix in ("sum", "count"):
+        comp = by_name[f"http_request_duration_seconds_{suffix}"]
+        assert comp.metadata_json["metric_type"] == "counter"
+        assert comp.columns[-1].dtype == "counter (use rate/increase)"
+
+
+def test_summary_components_are_counters(monkeypatch):
+    _install(monkeypatch, _histogram_routes())
+    by_name = {t.name: t for t in PrometheusClient(base_url="http://h:9090").get_schemas()}
+    for suffix in ("sum", "count"):
+        assert by_name[f"gc_pause_seconds_{suffix}"].metadata_json["metric_type"] == "counter"
+
+
+def test_metric_whose_own_name_ends_in_count_keeps_its_type(monkeypatch):
+    """`items_count` has its own metadata entry — the suffix fallback must not
+    fire and re-type a real gauge as a histogram component."""
+    _install(monkeypatch, _histogram_routes())
+    by_name = {t.name: t for t in PrometheusClient(base_url="http://h:9090").get_schemas()}
+    assert by_name["items_count"].metadata_json["metric_type"] == "gauge"
+
+
+def test_unknown_component_without_base_metadata_stays_unknown(monkeypatch):
+    routes = _histogram_routes()
+    routes["/api/v1/metadata"] = _ok({})
+    _install(monkeypatch, routes)
+    by_name = {t.name: t for t in PrometheusClient(base_url="http://h:9090").get_schemas()}
+    assert by_name["http_request_duration_seconds_bucket"].metadata_json["metric_type"] == "unknown"
+
+
+# ---------- bounded discovery ---------- #
+
+
+def test_series_discovery_is_bounded_by_window_and_limit(monkeypatch):
+    """An unbounded /api/v1/series scans the whole retention window and returns
+    one object per series ever seen. Discovery only needs the live label keys,
+    so every request carries start/end and a limit."""
+    session = _install(monkeypatch, _schema_routes())
+    PrometheusClient(base_url="http://h:9090").get_schemas()
+
+    series_calls = [c for c in session.calls if "/api/v1/series" in c[1]]
+    assert series_calls, "expected at least one /series call"
+    for _method, _url, data in series_calls:
+        keys = dict(data)
+        assert "start" in keys and "end" in keys, "series discovery must be time-bounded"
+        assert int(keys["end"]) - int(keys["start"]) == 3600
+        assert keys["limit"] == "5000"
+
+
+def test_discovery_lookback_is_configurable(monkeypatch):
+    session = _install(monkeypatch, _schema_routes())
+    PrometheusClient(base_url="http://h:9090", discovery_lookback_hours=6).get_schemas()
+    data = dict([c for c in session.calls if "/api/v1/series" in c[1]][0][2])
+    assert int(data["end"]) - int(data["start"]) == 6 * 3600
+
+
+def test_blank_lookback_falls_back_to_the_default(monkeypatch):
+    session = _install(monkeypatch, _schema_routes())
+    PrometheusClient(base_url="http://h:9090", discovery_lookback_hours=None).get_schemas()
+    data = dict([c for c in session.calls if "/api/v1/series" in c[1]][0][2])
+    assert int(data["end"]) - int(data["start"]) == 3600
+
+
+def test_prometheus_is_no_longer_dev_only():
+    """The connector is catalog-visible outside dev environments."""
+    from app.schemas.data_source_registry import REGISTRY
+
+    entry = REGISTRY["prometheus"]
+    assert entry.dev_only is False
+    assert entry.version == "beta"
+
+
+# ---------- optional numeric config from the connect form ---------- #
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_blank_numeric_config_falls_back_to_defaults(blank):
+    """The connect form submits optional number fields as strings, and as ""
+    when left blank — which `requests` rejects with "Timeout value connect was
+    , but it must be an int, float or None", failing schema indexing with a 500
+    even though Test-connection passed."""
+    c = PrometheusClient(base_url="http://h:9090", timeout=blank, discovery_lookback_hours=blank)
+    assert c.timeout == 30
+    assert c.discovery_lookback_s == 3600
+
+
+def test_numeric_config_accepts_form_strings():
+    c = PrometheusClient(base_url="http://h:9090", timeout="45", discovery_lookback_hours="2.5")
+    assert c.timeout == 45
+    assert c.discovery_lookback_s == 9000
+
+
+def test_garbage_numeric_config_does_not_break_the_client():
+    c = PrometheusClient(base_url="http://h:9090", timeout="soon", discovery_lookback_hours="lots")
+    assert c.timeout == 30
+    assert c.discovery_lookback_s == 3600

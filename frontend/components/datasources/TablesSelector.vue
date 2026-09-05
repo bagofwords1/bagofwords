@@ -1,113 +1,41 @@
 <template>
-  <div class="w-full">
-    <div v-if="showHeader" class="mb-2 flex items-center justify-between">
-      <div>
-        <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
-        <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
-      </div>
-      <div>
-        <button
-          v-if="showRefresh"
-          @click="onRefresh"
-          :disabled="loading || refreshing"
-          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
-        >
-          <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-          <span v-if="!refreshIconOnly">Reload {{ props.itemNoun.plural }}</span>
-        </button>
-      </div>
+  <Teleport to="body" :disabled="!fullscreen || fullscreenInPlace">
+  <div @keydown.esc.capture="onEmbeddedEscape" ref="selectorElement" :role="fullscreen && !fullscreenInPlace ? 'dialog' : undefined" :aria-modal="(fullscreen && !fullscreenInPlace) || undefined" :aria-label="fullscreen ? t('tableErd.erd') : undefined" tabindex="-1" class="w-full" :class="fullscreen && !fullscreenInPlace ? 'fixed inset-0 z-40 overflow-auto bg-white dark:bg-gray-900 p-4' : ''">
+    <div v-if="showHeader" class="mb-3">
+      <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
+      <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
-    <div v-else class="mb-2 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-1.5">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
+      <div class="flex items-center gap-4">
         <slot name="reload-left" />
+        <div class="flex items-center gap-4" :aria-label="t('tableErd.view')" role="group">
+          <button v-for="view in ['table', 'erd'] as const" :key="view" type="button"
+            :aria-pressed="tableView === view" @click="setTableView(view)"
+            class="py-1.5 text-xs border-b-2 transition-colors"
+            :class="tableView === view ? 'border-gray-800 dark:border-gray-200 text-gray-900 dark:text-white font-medium' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'">
+            {{ t(`tableErd.${view}`) }}
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-1.5">
-        <button
-          v-if="customQueriesEnabled && canAuthorCustomQueries"
-          data-testid="add-custom-query"
-          @click="openNewCustomQuery()"
-          class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-        >
-          <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
-          Add Custom
+      <div class="flex items-center gap-3">
+        <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
+        <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
+          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+          <UIcon name="i-heroicons-plus" class="w-3 h-3" />{{ t('tableErd.customQuery') }}
         </button>
-        <!-- The button being simply absent is indistinguishable from the
-             feature not existing. Someone who could otherwise use it is told
-             which of the two things is missing. -->
-        <NuxtLink
-          v-else-if="!customQueriesEnabled && canAuthorCustomQueries"
-          data-testid="custom-queries-disabled-hint"
-          to="/settings/ai_settings"
-          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap"
-          title="Custom queries are a beta feature and are off by default"
-        >
-          <UIcon name="heroicons-bolt" class="w-3 h-3 inline text-amber-400" />
-          Custom queries are off — enable in AI settings
+        <NuxtLink v-else-if="!customQueriesEnabled && canAuthorCustomQueries" data-testid="custom-queries-disabled-hint"
+          to="/settings/ai_settings" :title="t('tableErd.enableCustomQueries')"
+          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
+          {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <button
-          v-if="showRefresh"
-          @click="onRefresh"
-          :disabled="loading || refreshing"
-          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
-        >
-          <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-          <span v-if="!refreshIconOnly">Reload tables</span>
+        <button v-if="showRefresh" @click="onRefresh" :disabled="loading || refreshing"
+          :aria-label="t('tableErd.reload')"
+          class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+          <Spinner v-if="loading || refreshing" class="w-3 h-3" />
+          <UIcon v-else name="i-heroicons-arrow-path" class="w-3 h-3" />
+          <span v-if="!refreshIconOnly">{{ t('tableErd.reload') }}</span>
         </button>
       </div>
-    </div>
-
-    <!-- Custom queries: BOW-managed, materialized relations. Listed above the
-         introspected tables because they are the curated, fast ones. -->
-    <div v-if="customQueriesEnabled && customQueries.length" class="mb-3" data-testid="custom-queries-section">
-      <div class="flex items-center gap-1.5 px-1 mb-1">
-        <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
-        <span class="text-[11px] font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-          Custom queries ({{ customQueries.length }})
-        </span>
-        <span class="text-[10px] text-gray-400">cached locally · agents answer without querying the source</span>
-      </div>
-      <ul class="divide-y divide-gray-100 dark:divide-gray-800 border border-amber-200/60 dark:border-amber-900/40 rounded-lg bg-amber-50/30 dark:bg-amber-900/10">
-        <li v-for="cq in customQueries" :key="cq.id" class="py-2 px-2" :data-testid="`cq-row-${cq.name}`">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center min-w-0">
-              <!-- Activation is per agent, exactly like a regular table. A new
-                   agent starts with it off. -->
-              <UCheckbox
-                v-if="canUpdate"
-                color="blue"
-                :model-value="isCustomQueryActive(cq)"
-                :data-testid="`cq-toggle-${cq.name}`"
-                @update:model-value="(val: boolean) => onCustomQueryToggle(cq, val)"
-                class="me-3"
-              />
-              <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-2 flex-shrink-0" />
-              <span class="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">{{ cq.name }}</span>
-              <span v-if="!isCustomQueryActive(cq) && canUpdate"
-                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
-              <span v-if="cq.rls_enabled"
-                    :data-testid="`cq-rls-badge-${cq.name}`"
-                    title="Rows are filtered per user by a row-level security policy"
-                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">row-filtered</span>
-              <span v-if="cq.last_refresh_status === 'error'"
-                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700">refresh failed</span>
-              <span v-else class="ms-2 text-[10px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                {{ (cq.no_rows || 0).toLocaleString() }} rows
-              </span>
-            </div>
-            <div class="flex items-center gap-3 flex-shrink-0 text-[11px] text-gray-500 dark:text-gray-400">
-              <span class="whitespace-nowrap">{{ freshness(cq) }}</span>
-              <span v-if="cq.last_refresh_ms != null" class="whitespace-nowrap">took {{ formatMs(cq.last_refresh_ms) }}</span>
-              <span v-if="cq.next_run_at" class="whitespace-nowrap">next {{ nextRun(cq) }}</span>
-              <button
-                v-if="canEditCustomQuery(cq)"
-                :data-testid="`cq-edit-${cq.name}`"
-                class="text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                @click="openEditCustomQuery(cq)"
-              >Edit</button>
-            </div>
-          </div>
-        </li>
-      </ul>
     </div>
 
     <!-- Kept mounted rather than v-if'd on the connection: creating the
@@ -120,7 +48,6 @@
       :connection-type="cqModalConnection?.type || ''"
       :connections="manageableConnections"
       :cq="cqEditing"
-      :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
     />
@@ -308,10 +235,10 @@
         <span v-if="isPaginated && hasActiveFilters">
           {{ totalMatching }} matching · Showing {{ paginationStart }}-{{ paginationEnd }}
         </span>
-        <span v-else-if="isPaginated">
+        <span v-else-if="isPaginated && tableView === 'table'">
           Showing {{ paginationStart }}-{{ paginationEnd }} of {{ totalTables }}
         </span>
-        <span v-else></span>
+        <span v-else-if="canUpdate">{{ draftSelectedCount }}/{{ totalTables }} active</span>
         
         <!-- Right side: bulk actions -->
         <div v-if="canUpdate" class="flex items-center gap-2">
@@ -338,11 +265,23 @@
       
       <!-- Active count row. A reader only ever sees active tables, so the
            ratio is always N/N — it reads as a stat but carries no information. -->
-      <div v-if="canUpdate" class="text-[10px] text-gray-500 dark:text-gray-400">
-        {{ selectedCount }}/{{ totalTables }} active
+      <div v-if="canUpdate && (hasActiveFilters || tableView === 'table')" class="text-[10px] text-gray-500 dark:text-gray-400">
+        {{ draftSelectedCount }}/{{ totalTables }} active
       </div>
     </div>
 
+    <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative isolate" :aria-busy="!diagramReady && !catalogError">
+      <div v-if="!catalogLoaded && !catalogError" class="h-[460px]" />
+      <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
+        <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
+      </div>
+      <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
+      <TablesCanvas v-if="catalogLoaded" :class="{ 'opacity-0 pointer-events-none': !diagramReady }" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
+        :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
+        :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
+    </div>
+
+    <div v-show="tableView === 'table'">
     <!-- Loading state -->
     <div v-if="loading" class="text-sm text-gray-500 dark:text-gray-400 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 me-2" />
@@ -399,12 +338,14 @@
         </div>
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
           <ul class="divide-y divide-gray-100 dark:divide-gray-800">
-            <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2">
+            <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2" :data-testid="table.custom_query_id ? `cq-row-${table.name}` : undefined">
               <div class="flex items-center">
                 <UCheckbox
                   v-if="canUpdate"
                   color="blue"
                   :model-value="isTableActive(tableKey(table))"
+                  :disabled="saving"
+                  :data-testid="table.custom_query_id ? `cq-toggle-${table.name}` : undefined"
                   @update:model-value="(val: boolean) => onTableToggle(tableKey(table), val)"
                   class="me-3"
                 />
@@ -415,9 +356,25 @@
                       <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
                       <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
+                    <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-gray-400" :title="t('tableErd.customQuery')" />
                     <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
+                    <span v-if="table.rls_enabled" class="ms-2 text-[10px] text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
+                    <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-[10px] text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
                     <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <!-- Relationships are listed in the expanded panel, which
+                         means finding the connected tables costs one click per
+                         row. The badge puts that on the collapsed row so a
+                         well-connected table is visible while scanning. -->
+                    <UTooltip v-if="relatedTableCount(table)" :text="relationshipSummary(table)">
+                      <span
+                        :data-testid="`rel-badge-${table.name}`"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      >
+                        <UIcon name="heroicons-link" class="w-3 h-3" />
+                        {{ relatedTableCount(table) }}
+                      </span>
+                    </UTooltip>
                   </div>
                   <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
@@ -446,6 +403,10 @@
                       </span>
                     </UTooltip>
                   </span>
+                </button>
+                <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
+                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                  <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
@@ -602,11 +563,13 @@
       </div>
     </div>
 
+    </div>
+
     <!-- Save button -->
-    <div v-if="showSave && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
+    <div v-if="(showSave || (fullscreen && !fullscreenInPlace)) && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-start rtl:justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
       <button 
         @click="onSave" 
-        :disabled="saving" 
+        :disabled="saving || bulkUpdating || catalogLoading"
         class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50"
       >
         <span v-if="saving">Saving...</span>
@@ -614,10 +577,14 @@
       </button>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
+import { useScrollLock, useEventListener } from '@vueuse/core'
 import Spinner from '@/components/Spinner.vue'
+const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
+import { tableId, matchesTable } from '~/utils/tableGraph'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import CustomQueryModal from '@/components/datasources/CustomQueryModal.vue'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
@@ -635,6 +602,11 @@ type Table = {
   columns?: Column[];
   pks?: any[];
   fks?: ForeignKey[];
+  last_used_at?: string;
+  custom_query_id?: string;
+  last_refreshed_at?: string;
+  last_refresh_status?: string;
+  rls_enabled?: boolean;
   usage_count?: number;
   success_count?: number;
   failure_count?: number;
@@ -701,6 +673,7 @@ type PaginatedResponse = {
 
 const props = withDefaults(defineProps<{
   dsId: string;
+  fullscreenInPlace?: boolean;
   schema: 'full' | 'user';
   canUpdate?: boolean;
   showRefresh?: boolean;
@@ -739,15 +712,66 @@ const props = withDefaults(defineProps<{
   connectionFilter: '',
 })
 
-const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
+const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void; (e: 'fullscreen-change', expanded: boolean): void }>()
 
 // Let a parent composite (CatalogSelector) drive save across several
 // per-connection grids with one button. onSave is a hoisted declaration below.
 defineExpose({ save: () => onSave() })
 
+const { t } = useI18n()
+const fullscreen = ref(false)
+const selectorElement = ref<HTMLElement | null>(null)
+let fullscreenTrigger: HTMLElement | null = null
+let appSurface: HTMLElement | null = null
+let previousVisibility = ''
+let previousInert = false
+function restoreAppSurface() {
+  if (appSurface) { appSurface.style.visibility = previousVisibility; appSurface.inert = previousInert; appSurface = null }
+}
+const bodyLocked = useScrollLock(typeof document === 'undefined' ? null : document.body)
+function onEmbeddedEscape(event: KeyboardEvent) {
+  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value) return
+  if (selectorElement.value?.querySelector('[aria-expanded="true"]')) return
+  event.preventDefault()
+  event.stopPropagation()
+  toggleFullscreen()
+}
+function toggleFullscreen() {
+  if (props.fullscreenInPlace) {
+    fullscreen.value = !fullscreen.value
+    emit('fullscreen-change', fullscreen.value)
+    return
+  }
+  if (!fullscreen.value) {
+    fullscreenTrigger = document.activeElement as HTMLElement
+    appSurface = document.getElementById('__nuxt')
+    if (appSurface) {
+      previousVisibility = appSurface.style.visibility
+      previousInert = appSurface.inert
+      appSurface.style.visibility = 'hidden'
+      appSurface.inert = true
+    }
+  } else restoreAppSurface()
+  fullscreen.value = !fullscreen.value
+  bodyLocked.value = fullscreen.value
+  nextTick(() => fullscreen.value ? selectorElement.value?.focus() : fullscreenTrigger?.focus())
+}
+useEventListener('keydown', (event: KeyboardEvent) => {
+  if (props.fullscreenInPlace) return
+  if (event.key === 'Tab' && fullscreen.value && !props.fullscreenInPlace && !cqModalOpen.value) {
+    const controls = [...selectorElement.value?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex="0"]') || []].filter(element => !element.hasAttribute('disabled') && element.getClientRects().length)
+    const first = controls[0], last = controls[controls.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === selectorElement.value)) { event.preventDefault(); last?.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+  }
+  if (event.key === 'Escape' && fullscreen.value && !cqModalOpen.value && !event.defaultPrevented) {
+    event.preventDefault()
+    toggleFullscreen()
+  }
+})
+onBeforeUnmount(() => { bodyLocked.value = false; restoreAppSurface() })
 const toast = useToast()
 const route = useRoute()
-const { relativeTime } = useRelativeTime()
 const { triggerUserSignIn } = useConnectionSignIn()
 
 // Loading states
@@ -821,47 +845,6 @@ function canEditCustomQuery(cq: any): boolean {
 
 const { isCustomQueriesEnabled: customQueriesEnabled } = useOrgSettings()
 
-// Activation lives on the agent's DataSourceTable row, same as a regular table,
-// so it's read from the loaded table list rather than the connection-level
-// custom query record (which is shared across agents).
-function isCustomQueryActive(cq: any): boolean {
-  const row = tables.value.find((t: any) => t.name === cq.name)
-  if (row) return isTableActive(tableKey(row))
-  return false
-}
-
-async function onCustomQueryToggle(cq: any, val: boolean) {
-  try {
-    await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
-      method: 'PUT',
-      body: { activate: val ? [cq.name] : [], deactivate: val ? [] : [cq.name] },
-    })
-    await fetchTables()
-  } catch (e: any) {
-    toast.add({ title: 'Could not update', description: e?.message || String(e), color: 'red' })
-  }
-}
-
-function formatMs(ms: number): string {
-  if (ms == null) return ''
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
-}
-
-function nextRun(cq: any): string {
-  if (!cq.next_run_at) return ''
-  const d = new Date(cq.next_run_at)
-  const mins = Math.round((d.getTime() - Date.now()) / 60000)
-  if (mins <= 0) return 'due'
-  if (mins < 60) return `in ${mins}m`
-  const hrs = Math.round(mins / 60)
-  return hrs < 24 ? `in ${hrs}h` : `in ${Math.round(hrs / 24)}d`
-}
-
-function freshness(cq: any): string {
-  if (!cq.last_refreshed_at) return 'not cached yet'
-  return `as of ${relativeTime(cq.last_refreshed_at)}`
-}
-
 async function loadCustomQueries() {
   const conns = accelerableConnections.value
   if (!conns.length) { customQueries.value = []; return }
@@ -879,8 +862,14 @@ async function loadCustomQueries() {
   customQueries.value = all
 }
 
+const editableQueryIds = computed(() => new Set(customQueries.value.filter(canEditCustomQuery).map(query => query.id)))
+async function editQueryTable(id: string) {
+  const query = customQueries.value.find(query => query.id === id)
+  if (query && canEditCustomQuery(query)) await openEditCustomQuery(query)
+}
+
 async function openNewCustomQuery() {
-  cqModalConnection.value = accelerableConnections.value[0] || null
+  cqModalConnection.value = manageableConnections.value[0] || null
   cqEditing.value = null
   if (!cqModalConnection.value) return
   await nextTick()
@@ -896,9 +885,8 @@ async function openEditCustomQuery(cq: any) {
 
 async function onCustomQuerySaved() {
   await loadCustomQueries()
-  // A new relation is auto-activated for this agent, so the table grid needs to
-  // reflect the new activation state.
-  await fetchTables()
+  // Refresh cached metadata; activation remains in the shared table draft.
+  await reloadKnownCatalog()
 }
 
 async function onConnectAccount() {
@@ -953,7 +941,7 @@ async function followCatalogSyncAfterSignIn() {
     catalogSyncPhase.value = ''
   }
   if (!catalogSyncCancelled) {
-    await fetchTables()
+    await reloadKnownCatalog()
     await loadAuthConnections()
   }
 }
@@ -991,13 +979,123 @@ const sort = reactive<{ key: 'name' | 'is_active' | 'usage' | null; direction: '
 const originalActiveState = ref<Map<string, boolean>>(new Map())
 const currentActiveState = ref<Map<string, boolean>>(new Map())
 
-// Pending bulk actions (deferred until Save)
-type BulkAction = {
-  action: 'activate' | 'deactivate'
-  filter: Record<string, any> | null
-  count: number  // For display purposes
+// The catalog is loaded only for ERD or bulk selection. It uses the same
+// permission-scoped endpoint as the list, across every page.
+const tableView = ref<'table' | 'erd'>('table')
+const erdOpened = ref(false)
+const diagramReady = ref(false)
+const catalog = ref<Table[]>([])
+const catalogLoaded = ref(false)
+const catalogLoading = ref(false)
+const catalogError = ref(false)
+let catalogGeneration = 0
+let catalogRequest: Promise<boolean> | null = null
+let listGeneration = 0
+const discoveryFilter = computed(() => ({
+  search: searchDebounced.value,
+  schema: selectedSchemas.value,
+  connection: selectedConnections.value.length ? selectedConnections.value : props.connectionFilter.split(',').filter(Boolean),
+  selected_state: filters.value.selectedState,
+}))
+const catalogMatches = computed(() => catalog.value.filter(table => matchesTable(table, discoveryFilter.value, isTableActive(tableKey(table)))))
+const canvasActiveIds = computed(() => new Set(catalog.value.filter(table => isTableActive(tableKey(table))).map(tableId)))
+const canvasMatchIds = computed(() => new Set(catalogMatches.value.map(tableId)))
+const draftSelectedCount = computed(() => catalogLoaded.value ? canvasActiveIds.value.size : selectedCount.value + [...currentActiveState.value].reduce((n, [key, value]) => n + Number(value) - Number(originalActiveState.value.get(key)), 0))
+
+function registerTables(rows: Table[]) {
+  for (const table of rows) {
+    const key = tableKey(table)
+    // Refresh clean rows while keeping unsaved choices made in either view.
+    if (!currentActiveState.value.has(key) || currentActiveState.value.get(key) === originalActiveState.value.get(key)) {
+      originalActiveState.value.set(key, table.is_active)
+      currentActiveState.value.set(key, table.is_active)
+    }
+  }
 }
-const pendingBulkActions = ref<BulkAction[]>([])
+function renderCatalogPage() {
+  if (!catalogLoaded.value) return
+  const rows = [...catalogMatches.value].sort((a, b) => {
+    const key = sort.key
+    const av = key === 'is_active' ? Number(isTableActive(tableKey(a))) : key === 'usage' ? a.usage_count ?? -1 : a.name
+    const bv = key === 'is_active' ? Number(isTableActive(tableKey(b))) : key === 'usage' ? b.usage_count ?? -1 : b.name
+    const order = typeof av === 'string' ? av.localeCompare(String(bv)) : Number(av) - Number(bv)
+    return order * (sort.direction === 'desc' ? -1 : 1) || tableKey(a).localeCompare(tableKey(b))
+  })
+  isPaginated.value = true
+  totalMatching.value = rows.length
+  totalTables.value = catalog.value.length
+  totalPages.value = Math.max(1, Math.ceil(rows.length / props.pageSize))
+  page.value = Math.min(page.value, totalPages.value)
+  tables.value = rows.slice((page.value - 1) * props.pageSize, page.value * props.pageSize)
+}
+watch([catalogMatches, sort, page], renderCatalogPage, { deep: true })
+async function setTableView(view: 'table' | 'erd') {
+  tableView.value = view
+  if (view === 'erd') { erdOpened.value = true; await loadCatalog() }
+}
+function invalidateCatalog() {
+  diagramReady.value = false
+  catalogGeneration++
+  catalogRequest = null
+  catalogLoaded.value = false
+  catalogLoading.value = false
+  catalog.value = []
+}
+async function reloadKnownCatalog() {
+  const reloadGraph = catalogLoaded.value || erdOpened.value
+  invalidateCatalog()
+  await fetchTables()
+  if (reloadGraph) await loadCatalog()
+}
+async function loadCatalog(): Promise<boolean> {
+  if (catalogLoaded.value) return true
+  if (catalogRequest) return catalogRequest
+  const generation = ++catalogGeneration
+  // Ignore any older list fetch once the complete catalog is authoritative.
+  listGeneration++
+  loading.value = false
+  catalogLoading.value = true
+  catalogError.value = false
+  const dsId = props.dsId
+  const endpoint = endpointForSchema()
+  catalogRequest = (async () => {
+    try {
+      const rows: Table[] = []
+      let nextPage = 1
+      let more = true
+      while (more) {
+        const params = new URLSearchParams({ page: String(nextPage), page_size: '500', sort_by: 'name', sort_dir: 'asc' })
+        if (props.connectionFilter) params.set('connection_filter', props.connectionFilter)
+        if (props.showStats) params.set('with_stats', 'true')
+        const res: any = await useMyFetch(`/data_sources/${dsId}/${endpoint}?${params}`, { method: 'GET' })
+        if (generation !== catalogGeneration) return false
+        if (res.status?.value !== 'success') throw new Error('catalog')
+        const data = res.data.value
+        const batch = Array.isArray(data) ? data : data.tables
+        rows.push(...batch)
+        more = !Array.isArray(data) && data.has_more
+        if (more && !batch.length) throw new Error('empty catalog page')
+        if (!Array.isArray(data)) {
+          availableSchemas.value = data.schemas
+          availableConnections.value = data.connections.filter((connection: { id: string }) => !props.connectionFilter || props.connectionFilter.split(',').includes(connection.id))
+        }
+        nextPage++
+      }
+      const scope = props.connectionFilter.split(',').filter(Boolean)
+      catalog.value = [...new Map(rows.filter(row => !scope.length || scope.includes(row.connection_id || '')).map(row => [tableKey(row), row])).values()]
+      registerTables(catalog.value)
+      catalogLoaded.value = true
+      renderCatalogPage()
+      return true
+    } catch {
+      if (generation === catalogGeneration) catalogError.value = true
+      return false
+    } finally {
+      if (generation === catalogGeneration) { catalogLoading.value = false; catalogRequest = null }
+    }
+  })()
+  return catalogRequest
+}
 
 // Menu state
 const filterMenuOpen = ref(false)
@@ -1046,7 +1144,6 @@ const hasActiveFilters = computed(() => {
 })
 
 const hasPendingChanges = computed(() => {
-  if (pendingBulkActions.value.length > 0) return true
   for (const [name, currentVal] of currentActiveState.value) {
     const originalVal = originalActiveState.value.get(name)
     if (originalVal !== currentVal) return true
@@ -1056,11 +1153,42 @@ const hasPendingChanges = computed(() => {
 
 // Helper functions
 function tableKey(table: Table): string {
-  return table.id || table.name
+  return tableId(table)
 }
 
 function isTableActive(key: string): boolean {
   return currentActiveState.value.get(key) ?? false
+}
+
+// ---- Relationships --------------------------------------------------------
+// A composite foreign key arrives as one `fks` entry per column pair, so the
+// raw length counts columns, not neighbours: a two-column key to one table
+// would read as "2 relationships". Counting distinct targets answers the
+// question someone actually has while scanning — how many tables does this one
+// join to — and the tooltip carries the column detail.
+
+function relatedTableNames(table: Table): string[] {
+  const names = new Set<string>()
+  for (const fk of table.fks || []) {
+    if (fk?.references_name) names.add(fk.references_name)
+  }
+  return Array.from(names)
+}
+
+function relatedTableCount(table: Table): number {
+  return relatedTableNames(table).length
+}
+
+// UTooltip renders plain text on a single line — newlines collapse and a long
+// string is ellipsized — so the tooltip names the neighbouring tables and
+// nothing more. Column-level detail belongs in the expanded panel below, which
+// already lists every edge, and duplicating it here just gets truncated.
+function relationshipSummary(table: Table): string {
+  const names = relatedTableNames(table)
+  const shown = names.slice(0, 3)
+  const rest = names.length - shown.length
+  const list = shown.join(', ') + (rest > 0 ? `, +${rest} more` : '')
+  return `Related to ${names.length === 1 ? '1 table' : `${names.length} tables`}: ${list}`
 }
 
 function isTableDirty(key: string): boolean {
@@ -1070,6 +1198,7 @@ function isTableDirty(key: string): boolean {
 }
 
 function onTableToggle(key: string, newValue: boolean) {
+  if (!props.canUpdate || saving.value) return
   currentActiveState.value.set(key, newValue)
 }
 
@@ -1163,6 +1292,8 @@ function onGlobalClick(e: MouseEvent) {
 
 // Data fetching
 async function fetchTables() {
+  if (catalogLoaded.value) { renderCatalogPage(); return }
+  const generation = ++listGeneration
   loading.value = true
   try {
     const endpoint = endpointForSchema()
@@ -1178,10 +1309,8 @@ async function fetchTables() {
       if (selectedSchemas.value.length > 0) {
         params.set('schema_filter', selectedSchemas.value.join(','))
       }
-      // A forced connectionFilter prop (per-connection section) wins over the
-      // in-grid connection chips.
-      const connFilter = (props.connectionFilter || '').trim()
-        || (selectedConnections.value.length > 0 ? selectedConnections.value.join(',') : '')
+      // User filters narrow the connection scope of the combined selector.
+      const connFilter = discoveryFilter.value.connection.join(',')
       if (connFilter) {
         params.set('connection_filter', connFilter)
       }
@@ -1201,6 +1330,7 @@ async function fetchTables() {
 
       const res = await useMyFetch(`/data_sources/${props.dsId}/${endpoint}?${params.toString()}`, { method: 'GET' })
       
+      if (generation !== listGeneration || catalogLoaded.value) return
       if ((res as any)?.status?.value === 'success') {
         const data = (res as any).data?.value
         
@@ -1224,20 +1354,10 @@ async function fetchTables() {
           }
           // Update available connections
           if (paginatedData.connections && paginatedData.connections.length > 0) {
-            availableConnections.value = paginatedData.connections
+            availableConnections.value = paginatedData.connections.filter(connection => !props.connectionFilter || props.connectionFilter.split(',').includes(connection.id))
           }
           
-          // Update tracking maps for loaded tables
-          for (const table of paginatedData.tables) {
-            const key = tableKey(table)
-            if (!originalActiveState.value.has(key)) {
-              originalActiveState.value.set(key, table.is_active)
-            }
-            // Only set current if not already tracked (preserve local changes)
-            if (!currentActiveState.value.has(key)) {
-              currentActiveState.value.set(key, table.is_active)
-            }
-          }
+          registerTables(paginatedData.tables)
         } else if (Array.isArray(data)) {
           // Legacy list response
           isPaginated.value = false
@@ -1255,12 +1375,7 @@ async function fetchTables() {
           }
           availableSchemas.value = Array.from(schemas).sort()
           
-          // Initialize tracking
-          for (const table of tables.value) {
-            const key = tableKey(table)
-            originalActiveState.value.set(key, table.is_active)
-            currentActiveState.value.set(key, table.is_active)
-          }
+          registerTables(tables.value)
         }
       } else {
         tables.value = []
@@ -1270,6 +1385,7 @@ async function fetchTables() {
       const url = `/data_sources/${props.dsId}/${endpoint}${props.showStats ? '?with_stats=true' : ''}`
       const res = await useMyFetch(url, { method: 'GET' })
 
+      if (generation !== listGeneration || catalogLoaded.value) return
       if ((res as any)?.status?.value === 'success') {
         isPaginated.value = false
         tables.value = ((res as any).data?.value || []) as Table[]
@@ -1278,11 +1394,7 @@ async function fetchTables() {
         selectedCount.value = tables.value.filter(t => t.is_active).length
         totalPages.value = 1
 
-        for (const table of tables.value) {
-          const key = tableKey(table)
-          originalActiveState.value.set(key, table.is_active)
-          currentActiveState.value.set(key, table.is_active)
-        }
+        registerTables(tables.value)
       } else {
         tables.value = []
       }
@@ -1290,7 +1402,7 @@ async function fetchTables() {
   } catch (e) {
     emit('error', e)
   } finally {
-    loading.value = false
+    if (generation === listGeneration) loading.value = false
     refreshing.value = false
   }
 }
@@ -1305,123 +1417,64 @@ function toggleTableExpand(table: Table) {
   expandedTables.value[table.name] = !expandedTables.value[table.name]
 }
 
-// Bulk actions - stored as pending operations, executed on Save
-function selectAllMatching() {
-  // Build filter object matching current filters
-  const filterObj: Record<string, any> = {}
-  if (selectedSchemas.value.length > 0) {
-    filterObj.schema = selectedSchemas.value
-  }
-  if (selectedConnections.value.length > 0) {
-    filterObj.connection = selectedConnections.value
-  }
-  if (searchDebounced.value.trim()) {
-    filterObj.search = searchDebounced.value.trim()
-  }
-  if (filters.value.selectedState) {
-    filterObj.selected_state = filters.value.selectedState
-  }
-  
-  // Add to pending bulk actions
-  pendingBulkActions.value.push({
-    action: 'activate',
-    filter: Object.keys(filterObj).length > 0 ? filterObj : null,
-    count: totalMatching.value
-  })
-  
-  // Update visible tables to show as checked
-  for (const table of tables.value) {
-    const key = tableKey(table)
-    currentActiveState.value.set(key, true)
-    // Update originalActiveState so subsequent toggles are detected as changes
-    originalActiveState.value.set(key, true)
-  }
+// Resolve the same discovery filters against the complete permission-scoped
+// catalog, then save one delta. Bulk selection and individual overrides share
+// the exact same draft, including rows never visited in the list.
+async function setAllMatching(active: boolean) {
+  if (bulkUpdating.value) return
+  bulkUpdating.value = true
+  const filter = JSON.parse(JSON.stringify(discoveryFilter.value))
+  try {
+    if (!await loadCatalog()) return
+    const matching = catalog.value.filter(table => matchesTable(table, filter, isTableActive(tableKey(table))))
+    for (const table of matching) onTableToggle(tableKey(table), active)
+  } finally { bulkUpdating.value = false }
 }
+function selectAllMatching() { return setAllMatching(true) }
+function deselectAllMatching() { return setAllMatching(false) }
 
-function deselectAllMatching() {
-  // Build filter object matching current filters
-  const filterObj: Record<string, any> = {}
-  if (selectedSchemas.value.length > 0) {
-    filterObj.schema = selectedSchemas.value
-  }
-  if (selectedConnections.value.length > 0) {
-    filterObj.connection = selectedConnections.value
-  }
-  if (searchDebounced.value.trim()) {
-    filterObj.search = searchDebounced.value.trim()
-  }
-  if (filters.value.selectedState) {
-    filterObj.selected_state = filters.value.selectedState
-  }
-  
-  // Add to pending bulk actions
-  pendingBulkActions.value.push({
-    action: 'deactivate',
-    filter: Object.keys(filterObj).length > 0 ? filterObj : null,
-    count: totalMatching.value
-  })
-  
-  // Update visible tables to show as unchecked
-  for (const table of tables.value) {
-    const key = tableKey(table)
-    currentActiveState.value.set(key, false)
-    // Update originalActiveState so subsequent toggles are detected as changes
-    originalActiveState.value.set(key, false)
-  }
-}
-
-// Save - executes bulk actions first, then individual delta
+// Both views save the same effective draft through the existing delta endpoint.
 async function onSave() {
-  if (saving.value) return
-  if (!hasPendingChanges.value) { emit('saved', tables.value); return }
+  if (saving.value || bulkUpdating.value || catalogLoading.value) return false
+  if (!hasPendingChanges.value) { emit('saved', tables.value); return true }
   saving.value = true
   
   try {
-    // 1. Execute pending bulk actions first (fail fast if any error)
-    for (const bulkAction of pendingBulkActions.value) {
-      const res = await useMyFetch(`/data_sources/${props.dsId}/bulk_update_tables`, {
-        method: 'POST',
-        body: {
-          action: bulkAction.action,
-          filter: bulkAction.filter
-        }
-      })
-      if ((res as any)?.status?.value !== 'success') {
-        const errorMsg = `Bulk ${bulkAction.action} failed`
-        console.error(errorMsg, bulkAction)
-        throw new Error(errorMsg)
-      }
-    }
-    
-    // 2. Execute individual delta changes (for single checkbox toggles)
+    // Persist the effective draft once, including bulk actions and overrides.
     const toActivate: string[] = []
     const toDeactivate: string[] = []
+    const knownTables = new Map([...tables.value, ...catalog.value].map(table => [tableKey(table), table]))
 
     for (const [key, currentVal] of currentActiveState.value) {
       const originalVal = originalActiveState.value.get(key)
       if (originalVal !== currentVal) {
         if (currentVal) {
-          toActivate.push(key)
+          toActivate.push(knownTables.get(key)?.id || knownTables.get(key)?.name || key)
         } else {
-          toDeactivate.push(key)
+          toDeactivate.push(knownTables.get(key)?.id || knownTables.get(key)?.name || key)
         }
       }
     }
 
     if (toActivate.length > 0 || toDeactivate.length > 0) {
-      await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
+      const result: any = await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
         method: 'PUT',
         body: {
           activate: toActivate,
           deactivate: toDeactivate
         }
       })
+      if (result.status?.value !== 'success') throw new Error(t('tableErd.saveError'))
     }
     
-    // 3. Clear all tracking and refresh to get actual state
-    pendingBulkActions.value = []
+    // Commit the local baseline before optional refresh, including onboarding.
+    const savedRows = catalogLoaded.value ? catalog.value : tables.value
+    selectedCount.value = draftSelectedCount.value
+    for (const table of savedRows) table.is_active = isTableActive(tableKey(table))
+    // Refresh the baseline without losing selection in parent-owned Save flows.
     originalActiveState.value.clear()
     currentActiveState.value.clear()
+    registerTables(savedRows)
     if (!props.skipRefreshOnSave) {
       await fetchTables()
     }
@@ -1432,6 +1485,7 @@ async function onSave() {
       color: 'green'
     })
     emit('saved', tables.value)
+    return true
   } catch (e: any) {
     const errorMsg = e?.message || 'Failed to save table selection'
     toast.add({
@@ -1440,6 +1494,7 @@ async function onSave() {
       color: 'red'
     })
     emit('error', e)
+    return false
   } finally {
     saving.value = false
   }
@@ -1462,8 +1517,8 @@ async function onRefresh() {
       }
     }
 
+    invalidateCatalog()
     // Clear all tracking on refresh
-    pendingBulkActions.value = []
     originalActiveState.value.clear()
     currentActiveState.value.clear()
     selectedConnections.value = []
@@ -1471,6 +1526,7 @@ async function onRefresh() {
 
     await fetchTables()
     await loadAuthConnections()
+    if (tableView.value === 'erd') await loadCatalog()
   } catch (e: any) {
     toast.add({ title: `Reload ${props.itemNoun.plural} failed`, description: e?.message || String(e), color: 'red' })
   } finally {
@@ -1479,8 +1535,11 @@ async function onRefresh() {
 }
 
 // Lifecycle
-watch(() => [props.dsId, props.schema], () => {
+watch(() => [props.dsId, props.schema, props.connectionFilter, props.canUpdate], () => {
   if (props.dsId) {
+    invalidateCatalog()
+    tableView.value = 'table'
+    erdOpened.value = false
     // Reset all state on datasource change
     page.value = 1
     searchInput.value = ''
@@ -1488,7 +1547,6 @@ watch(() => [props.dsId, props.schema], () => {
     selectedSchemas.value = []
     selectedConnections.value = []
     filters.value.selectedState = null
-    pendingBulkActions.value = []
     originalActiveState.value.clear()
     currentActiveState.value.clear()
     fetchTables()
@@ -1502,6 +1560,8 @@ onMounted(() => {
 })
 
 onBeforeUnmount(() => {
+  catalogGeneration++
+  listGeneration++
   document.removeEventListener('click', onGlobalClick)
   if (searchTimeout) clearTimeout(searchTimeout)
   catalogSyncCancelled = true

@@ -9,6 +9,9 @@ from pydantic import BaseModel
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    SharePointOnpremConfig,
+    SharePointOnpremNtlmCredentials,
+    SharePointOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
@@ -28,6 +31,11 @@ from app.schemas.data_sources.configs import (
     GCPConfig,
     AWSCostConfig,
     AWSAthenaConfig,
+    # AWS CloudWatch
+    AWSCloudWatchConfig,
+    AWSCloudWatchKeyCredentials,
+    AWSCloudWatchRoleCredentials,
+    AWSCloudWatchDefaultCredentials,
     VerticaConfig,
     AwsRedshiftConfig,
     TableauConfig,
@@ -788,7 +796,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             # the user's UPN is derived from their login identity unless overridden.
             "kerberos_delegated": AuthVariant(title="Kerberos SSO (per-user delegation)", schema=MssqlKerberosDelegatedCredentials, scopes=["user"]),
         }),
-        client_path=None,
+        client_path="app.data_sources.clients.mssql_client.MSSQLClient",
     ),
     "clickhouse": DataSourceRegistryEntry(
         type="clickhouse",
@@ -854,6 +862,38 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "key": AuthVariant(title="AWS Keys", schema=AWSCostCredentials, scopes=["system", "user"])  # system
         }),
         client_path=None,
+        version="beta",
+    ),
+    "aws_cloudwatch": DataSourceRegistryEntry(
+        type="aws_cloudwatch",
+        category="infra",
+        title="AWS CloudWatch",
+        description="Logs and metrics from AWS. Investigate log groups with Logs Insights and chart CloudWatch metrics — both are discovered as tables on one connection.",
+        config_schema=AWSCloudWatchConfig,
+        # Same three AWS credential shapes as S3/Athena. `aws_default` is the one
+        # that matters for in-AWS deployments (instance profile / EKS IRSA), where
+        # no secret should be stored at all.
+        credentials_auth=AuthOptions(
+            default="aws_keys",
+            by_auth={
+                "aws_keys": AuthVariant(
+                    title="AWS Access Key",
+                    schema=AWSCloudWatchKeyCredentials,
+                    scopes=["system"],
+                ),
+                "aws_role": AuthVariant(
+                    title="AWS Assume Role (STS)",
+                    schema=AWSCloudWatchRoleCredentials,
+                    scopes=["system"],
+                ),
+                "aws_default": AuthVariant(
+                    title="AWS Default Chain",
+                    schema=AWSCloudWatchDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.aws_cloudwatch_client.AwsCloudWatchClient",
         version="beta",
     ),
     "vertica": DataSourceRegistryEntry(
@@ -1004,7 +1044,7 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.prometheus_client.PrometheusClient",
-        dev_only=True,
+        version="beta",
     ),
     "jaeger": DataSourceRegistryEntry(
         type="jaeger",
@@ -1312,6 +1352,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
+        requires_license="enterprise",
+    ),
+    "sharepoint_onprem": DataSourceRegistryEntry(
+        type="sharepoint_onprem",
+        category="files",
+        title="SharePoint Server (on-prem)",
+        description="Read and search SharePoint Server document libraries using NTLM or Kerberos. No Microsoft Graph or Entra app required.",
+        config_schema=SharePointOnpremConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.sharepoint_onprem_client.SharepointOnpremClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
         requires_license="enterprise",
     ),
     "sharepoint": DataSourceRegistryEntry(

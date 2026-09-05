@@ -1058,7 +1058,7 @@ class ConnectionService:
             roster.append({
                 "user_id": r.user_id,
                 "principal": md.get("principal"),
-                "verified": bool(r.last_used_at),
+                "verified": bool(r.last_used_at and not md.get("last_error")),
                 "last_verified_at": r.last_used_at,
                 "last_error": md.get("last_error"),
             })
@@ -1110,6 +1110,35 @@ class ConnectionService:
                 except Exception:
                     pass
             return {"success": False, "message": str(e)}
+
+    async def save_windows_user_credentials(self, db, connection, user, payload) -> dict:
+        """Canonical per-user credential storage for the on-prem file connector.
+
+        Keep OAuth and legacy datasource credential flows unchanged. Callers
+        must authorize read access to the connection before invoking this.
+        """
+        from app.errors import AppError, ErrorCode
+        from app.models.user_connection_credentials import UserConnectionCredentials
+        from app.schemas.data_sources.configs import SharePointOnpremNtlmCredentials
+        from app.services.connection_identity import get_user_conn_cred_row
+        if connection.type != "sharepoint_onprem" or connection.auth_policy != "user_required" or payload.auth_mode != "ntlm":
+            raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual Windows credentials")
+        if connection.allowed_user_auth_modes and payload.auth_mode not in connection.allowed_user_auth_modes:
+            raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
+        try:
+            credentials = SharePointOnpremNtlmCredentials(**payload.credentials).model_dump()
+        except ValueError:
+            raise AppError(ErrorCode.VALIDATION, "A domain username and password are required", status_code=422)
+        row = await get_user_conn_cred_row(db, connection, user)
+        if row is None:
+            row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
+                organization_id=str(connection.organization_id), auth_mode="ntlm", is_active=True, is_primary=True)
+        row.auth_mode = "ntlm"
+        row.last_used_at = None
+        row.encrypt_credentials(credentials)
+        db.add(row)
+        await db.commit()
+        return {"success": True, "auth_mode": "ntlm"}
 
     async def delete_user_credentials(
         self,
@@ -1848,6 +1877,16 @@ class ConnectionService:
         # user saved an explicit override.
         kerberos_creds = self._kerberos_delegated_credentials(connection, current_user, row)
         if kerberos_creds is not None:
+            import asyncio
+            from app.ee.ldap.connection import LDAPConnectionManager
+            from app.settings.config import settings
+            identity = current_user.ldap_identity
+            try:
+                fresh = await asyncio.to_thread(LDAPConnectionManager(settings.bow_config.ldap).read_identity, identity["dn"])
+                if any(fresh.get(k) != identity.get(k) for k in ("provider", "guid", "sid_hex", "principal")):
+                    raise ValueError("Directory identity changed")
+            except Exception:
+                raise HTTPException(status_code=403, detail="Directory identity verification failed")
             self.last_credential_identity = "user"
             return kerberos_creds
 
@@ -1907,7 +1946,14 @@ class ConnectionService:
         # Overlay variants (e.g. Qlik on-prem "identity") carry only the user's
         # identity fields — merge them over the connection's system credentials.
         from app.schemas.data_source_registry import overlay_system_credentials
-        return overlay_system_credentials(connection, row.decrypt_credentials() or {}, row.auth_mode)
+        credentials = row.decrypt_credentials() or {}
+        if connection.type.lower() == "mssql":
+            from app.schemas.data_source_registry import get_entry
+            variant = get_entry("MSSQL").credentials_auth.by_auth.get(row.auth_mode)
+            if variant is None or "user" not in variant.scopes:
+                raise HTTPException(status_code=403, detail="User authentication mode rejected")
+            credentials = variant.schema(**credentials).model_dump()
+        return overlay_system_credentials(connection, credentials, row.auth_mode)
 
     @staticmethod
     def _kerberos_delegated_credentials(connection: Connection, user: User, row) -> Optional[dict]:
@@ -1941,7 +1987,10 @@ class ConnectionService:
                     "principal in your connection credentials."
                 ),
             )
-        return {"use_kerberos": True, "kerberos_impersonate": principal}
+        if (user.ldap_identity.get("organization_id") != str(connection.organization_id)):
+            raise HTTPException(status_code=403, detail="Directory identity scope mismatch")
+        return {"use_kerberos": True, "kerberos_impersonate": principal,
+                "kerberos_expected_sid": user.ldap_identity["sid_hex"]}
 
     def _resolve_client_by_type(
         self,
@@ -1972,7 +2021,9 @@ class ConnectionService:
             # auth_type="none", so an oauth_app API root 404 looked like a failure.
             # Clients that don't accept auth_type drop it via the signature narrowing below.
             meta_keys = {"auth_policy", "allowed_user_auth_modes"}
-            client_params = {k: v for k, v in client_params.items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
+            client_params = {k: v for k, v in client_params.items()
+                             if v is not None and (v != "" or (data_source_type == "sharepoint_onprem" and k == "drive_name"))
+                             and k not in meta_keys and not k.startswith("oauth_")}
 
             # Narrow to constructor signature — but skip narrowing when the
             # constructor accepts **kwargs. Thin subclasses like OnedriveClient /

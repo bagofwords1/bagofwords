@@ -3,17 +3,19 @@
 # See backend/app/ee/LICENSE for details
 
 import logging
+import asyncio
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Set
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, or_, update
 
 from app.models.group import Group
 from app.models.group_membership import GroupMembership
 from app.models.user import User
 from app.models.membership import Membership
-from app.ee.ldap.connection import LDAPConnectionManager
+from app.ee.ldap.connection import LDAPConnectionManager, LDAPAdmissionError
+from app.models.organization import Organization
 from app.ee.ldap.schemas import SyncResult, LDAPSyncPreview, LDAPGroupPreview
 from app.settings.bow_config import LDAPConfig
 
@@ -29,6 +31,14 @@ class LDAPGroupSyncService:
         self.connection = LDAPConnectionManager(config)
 
     async def sync_groups(self, db: AsyncSession, organization_id: str) -> SyncResult:
+        try:
+            return await self._sync_groups(db, organization_id)
+        except Exception as exc:
+            await db.rollback()
+            return SyncResult(timestamp=datetime.now(timezone.utc),
+                              errors=[f"Directory synchronization rejected: {type(exc).__name__}"])
+
+    async def _sync_groups(self, db: AsyncSession, organization_id: str) -> SyncResult:
         """
         Full sync of LDAP groups into the application.
 
@@ -40,13 +50,23 @@ class LDAPGroupSyncService:
         5. Mark removed LDAP groups as deleted
         """
         result = SyncResult(timestamp=datetime.now(timezone.utc))
+        if not self.config.organization_id or str(organization_id) != self.config.organization_id:
+            result.errors.append("Directory organization scope mismatch")
+            return result
+
+        # Acquire the DB write/row lock BEFORE fetching the snapshot, including
+        # SQLite (SELECT FOR UPDATE alone is ignored there). All workers/manual
+        # and scheduled callers serialize on the configured organization.
+        await db.execute(update(Organization).where(Organization.id == organization_id)
+                         .values(name=Organization.name))
 
         try:
-            ldap_groups = self.connection.search_groups()
-            ldap_users = self.connection.search_users()
+            ldap_groups = await asyncio.to_thread(self.connection.search_groups)
+            ldap_users = await asyncio.to_thread(self.connection.search_users)
         except Exception as e:
-            result.errors.append(f"LDAP search failed: {e}")
-            logger.error(f"LDAP sync failed for org {organization_id}: {e}")
+            result.errors.append(f"LDAP search failed: {type(e).__name__}")
+            logger.error("LDAP snapshot rejected: %s", type(e).__name__)
+            await db.rollback()
             return result
 
         # Build DN→email map for member resolution
@@ -123,11 +143,13 @@ class LDAPGroupSyncService:
 
     async def preview_sync(self, db: AsyncSession, organization_id: str) -> LDAPSyncPreview:
         """Dry-run: compute what a sync would change without writing."""
-        ldap_groups = self.connection.search_groups()
-        ldap_users = self.connection.search_users()
+        if not self.config.organization_id or str(organization_id) != self.config.organization_id:
+            raise ValueError("Directory organization scope mismatch")
+        ldap_groups = await asyncio.to_thread(self.connection.search_groups)
+        ldap_users = await asyncio.to_thread(self.connection.search_users)
 
         dn_to_email: Dict[str, str] = {u["dn"]: u["email"] for u in ldap_users}
-        email_to_user_id = await self._get_org_user_map(db, organization_id)
+        email_to_user_id = await self._get_all_user_map(db)
 
         existing_groups = await self._get_ldap_groups(db, organization_id)
         existing_by_dn: Dict[str, Group] = {g.external_id: g for g in existing_groups if g.external_id}
@@ -238,9 +260,20 @@ class LDAPGroupSyncService:
 
     async def _get_all_user_map(self, db: AsyncSession) -> Dict[str, str]:
         """Build email→user_id map for ALL app users (regardless of org)."""
-        stmt = select(User.email, User.id)
-        rows = (await db.execute(stmt)).all()
-        return {email.lower(): uid for email, uid in rows}
+        rows = (await db.execute(select(User).where(User.ldap_subject.isnot(None), User.is_active.is_(True)))).scalars().all()
+        mapped = {}
+        for user in rows:
+            identity = user.ldap_identity or {}
+            if identity.get("provider") != self.connection.provider_id:
+                continue
+            # A reused email or DN never transfers another object's grants.
+            try:
+                fresh = await asyncio.to_thread(self.connection.read_identity, identity["dn"])
+            except LDAPAdmissionError:
+                continue
+            if fresh["guid"] == identity.get("guid") and fresh["sid_hex"] == identity.get("sid_hex"):
+                mapped[fresh["email"].lower()] = str(user.id)
+        return mapped
 
     async def _ensure_org_memberships(
         self,
@@ -278,12 +311,17 @@ class LDAPGroupSyncService:
                 to_create = to_create[:remaining]
 
         from app.core.permission_resolver import ensure_system_role_assignment
+        from app.core.user_lifecycle import reactivate_user_for_membership
         for user_id in to_create:
             db.add(Membership(
                 user_id=user_id,
                 organization_id=organization_id,
                 role="member",
+                directory_provider=self.connection.provider_id,
             ))
+            # Regaining a membership restores a login closed by
+            # app/core/user_lifecycle when the user's last one was removed.
+            await reactivate_user_for_membership(db, str(user_id))
             # Give the user a real RBAC assignment (not just the legacy string).
             await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
@@ -339,6 +377,7 @@ class LDAPGroupSyncService:
         stmt = (
             select(Membership)
             .where(Membership.organization_id == organization_id)
+            .where(Membership.directory_provider == self.connection.provider_id)
             .where(Membership.deleted_at.is_(None))
             .where(Membership.user_id.notin_(users_with_ldap_groups))
             .where(Membership.user_id.notin_(users_still_in_ldap))
@@ -364,7 +403,7 @@ class LDAPGroupSyncService:
                 select(GroupMembership.id)
                 .join(Group, Group.id == GroupMembership.group_id)
                 .where(Group.organization_id == organization_id)
-                .where(Group.external_provider != PROVIDER_NAME)
+                .where(or_(Group.external_provider != PROVIDER_NAME, Group.external_provider.is_(None)))
                 .where(GroupMembership.user_id == membership.user_id)
             )
             has_manual_groups = (await db.execute(non_ldap_stmt)).scalar_one_or_none()

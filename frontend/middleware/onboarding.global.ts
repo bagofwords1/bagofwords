@@ -15,7 +15,9 @@ export default (defineNuxtRouteMiddleware(async (to) => {
   }
 
   // Allow auth, organization creation, and public routes
-  const allowPrefixes = ['/users/', '/organizations/new', '/r/']
+  // '/print/': headless paper renders (PDF export) have no session and must
+  // never be redirected — the renderer would capture the onboarding card.
+  const allowPrefixes = ['/users/', '/organizations/new', '/r/', '/print/']
   if (allowPrefixes.some(p => to.path.startsWith(p))) return
 
   // Ensure org

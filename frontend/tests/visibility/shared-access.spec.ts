@@ -34,20 +34,22 @@ test.describe('Shared page visibility (both admin and member)', () => {
       .toBeVisible({ timeout: 10000 });
   });
 
-  test('admin can access queries page', async ({ adminPage }) => {
+  // Queries live in the /agents tree now; /queries redirects there.
+  test('admin can reach the queries catalog', async ({ adminPage }) => {
     await adminPage.goto('/queries');
     await adminPage.waitForLoadState('domcontentloaded');
 
-    // On a fresh org the page renders the empty state (no <h1>Queries</h1>).
-    await expect(adminPage.getByRole('heading', { name: 'Nothing published yet' }))
+    await expect(adminPage).toHaveURL(/\/agents$/, { timeout: 10000 });
+    await expect(adminPage.getByRole('heading', { name: 'Agents', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 
-  test('member can access queries page', async ({ memberPage }) => {
+  test('member can reach the queries catalog', async ({ memberPage }) => {
     await memberPage.goto('/queries');
     await memberPage.waitForLoadState('domcontentloaded');
 
-    await expect(memberPage.getByRole('heading', { name: 'Nothing published yet' }))
+    await expect(memberPage).toHaveURL(/\/agents$/, { timeout: 10000 });
+    await expect(memberPage.getByRole('heading', { name: 'Agents', exact: true }))
       .toBeVisible({ timeout: 10000 });
   });
 });

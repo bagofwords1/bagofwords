@@ -12,7 +12,7 @@
 
       <div v-show="active === 'tables'" class="bg-white dark:bg-gray-900 rounded-lg">
         <TablesSelector ref="tablesRef" :ds-id="dsId" schema="full" :connection-filter="tableConnectionIds"
-          :can-update="true" :show-refresh="true" :show-save="false" :show-header="true"
+          :fullscreen-in-place="fullscreenInPlace" @fullscreen-change="$emit('fullscreen-change', $event)" :can-update="true" :show-refresh="true" :show-save="false" :show-header="true"
           header-title="Select tables" header-subtitle="Choose which tables to enable. Start focused, you can always add more later."
           :show-stats="true" :skip-refresh-on-save="true" />
       </div>
@@ -31,11 +31,12 @@
         />
       </div>
 
-      <div v-if="showContinue" class="mt-4 flex justify-end">
+      <div v-if="showContinue" class="mt-4 flex items-center gap-3 justify-start rtl:flex-row-reverse">
         <button type="button" :disabled="saving" @click="saveAndContinue"
           class="px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400">
           {{ saving ? 'Saving…' : continueLabel }}
         </button>
+        <slot name="continue-actions" />
       </div>
     </div>
   </div>
@@ -46,10 +47,10 @@ import TablesSelector from '@/components/datasources/TablesSelector.vue'
 import AgentFilesPanel from '@/components/datasources/AgentFilesPanel.vue'
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 
-const props = withDefaults(defineProps<{ dsId: string; showContinue?: boolean; continueLabel?: string }>(), {
+const props = withDefaults(defineProps<{ dsId: string; fullscreenInPlace?: boolean; showContinue?: boolean; continueLabel?: string }>(), {
   showContinue: true, continueLabel: 'Save & Continue',
 })
-const emit = defineEmits(['saved', 'edit-connection', 'add-mcp', 'add-custom-api', 'delete-connection'])
+const emit = defineEmits(['saved', 'fullscreen-change', 'edit-connection', 'add-mcp', 'add-custom-api', 'delete-connection'])
 
 const connections = ref<any[]>([])
 const registryByType = ref<Record<string, any>>({})
@@ -91,7 +92,7 @@ async function saveAndContinue() {
   if (saving.value) return
   saving.value = true
   try {
-    if (tablesRef.value && typeof tablesRef.value.save === 'function') await tablesRef.value.save()
+    if (tablesRef.value && typeof tablesRef.value.save === 'function' && await tablesRef.value.save() === false) return
     emit('saved')
   } finally { saving.value = false }
 }

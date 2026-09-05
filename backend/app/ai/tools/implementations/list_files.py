@@ -28,7 +28,7 @@ from ._file_tool_common import resolve_file_client, resolve_file_data_source
 _MAX_RESULTS = 500
 
 # Connector-specific metadata keys on the cached Table's metadata_json.
-_FILE_METADATA_KEYS = ("graph", "google_drive", "network_dir", "s3")
+_FILE_METADATA_KEYS = ("graph", "sharepoint_onprem", "google_drive", "network_dir", "s3")
 
 
 class ListFilesTool(Tool):

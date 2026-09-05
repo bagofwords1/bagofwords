@@ -566,3 +566,89 @@ class TestIncrementalDiscovery:
         )
         c.get_schemas()
         assert calls == ["d1"]
+
+
+class TestGeneratedDateTableRelationships:
+    """A relationship may not name a table the catalog refuses to emit.
+
+    Power BI creates a hidden `LocalDateTable_<guid>` per date column. The table
+    lists have always excluded them; the three relationship producers did not,
+    so an edge survived to a table that appears nowhere in the agent's schema —
+    rendered as `foreign key (Close Date) references
+    deals2/LocalDateTable_fb22216f-...(Date)`, an instruction to join something
+    that cannot be seen or queried in DAX.
+
+    Observed on a live tenant: 2 of 14 edges, both on date columns, which is
+    exactly the join an agent reaches for on a time-series question. Each
+    producer is covered separately because the bug was that they disagreed.
+    """
+
+    GUID = "fb22216f-60fb-4bfc-9c86-a7dd14f19579"
+
+    def test_model_metadata_path_drops_the_edge(self):
+        import pandas as pd
+
+        c = _mk_client()
+        local_date = f"LocalDateTable_{self.GUID}"
+        c._execute_dax_internal = MagicMock(return_value=pd.DataFrame([
+            {"Tbl": "Opportunities", "Kind": "C", "Name": "Close Date", "Info1": "dateTime", "Flag": 0},
+            {"Tbl": "Opportunities", "Kind": "C", "Name": "Company", "Info1": "string", "Flag": 0},
+            {"Tbl": "Accounts", "Kind": "C", "Name": "Company", "Info1": "string", "Flag": 0},
+            # The generated date table and the edge into it.
+            {"Tbl": local_date, "Kind": "C", "Name": "Date", "Info1": "dateTime", "Flag": 1},
+            {"Tbl": "Opportunities", "Kind": "R", "Name": "Close Date", "Info1": local_date, "Info2": "Date", "Flag": 1},
+            # A real relationship, which must survive.
+            {"Tbl": "Opportunities", "Kind": "R", "Name": "Company", "Info1": "Accounts", "Info2": "Company", "Flag": 1},
+        ]))
+
+        tables, relationships, reason = c._get_model_metadata_via_dax("ws", "ds")
+
+        assert reason is None
+        emitted = {t["name"] for t in tables}
+        assert local_date not in emitted
+        assert [r["toTable"] for r in relationships] == ["Accounts"]
+
+    def test_dax_fallback_path_drops_the_edge(self):
+        import pandas as pd
+
+        c = _mk_client()
+        c._execute_dax_internal = MagicMock(return_value=pd.DataFrame([
+            {"FromTable": "Opportunities", "FromColumn": "Close Date",
+             "ToTable": f"LocalDateTable_{self.GUID}", "ToColumn": "Date", "IsActive": True},
+            {"FromTable": "Opportunities", "FromColumn": "Company",
+             "ToTable": "Accounts", "ToColumn": "Company", "IsActive": True},
+        ]))
+
+        relationships = c._get_relationships_via_dax("ws", "ds")
+
+        assert [r["toTable"] for r in relationships] == ["Accounts"]
+
+    def test_admin_scan_path_drops_the_edge(self):
+        c = _mk_client()
+
+        _, relationships = c._parse_admin_scan_tables({
+            "tables": [{"name": "Opportunities", "columns": [{"name": "Close Date"}]}],
+            "relationships": [
+                {"fromTable": "Opportunities", "fromColumn": "Close Date",
+                 "toTable": f"DateTableTemplate_{self.GUID}", "toColumn": "Date"},
+                {"fromTable": "Opportunities", "fromColumn": "Company",
+                 "toTable": "Accounts", "toColumn": "Company"},
+            ],
+        })
+
+        assert [r["toTable"] for r in relationships] == ["Accounts"]
+
+    def test_author_tables_that_merely_mention_dates_are_kept(self):
+        """The filter is a prefix match on generated names, not a date heuristic.
+
+        A modelled `DateDimension` or `LocalDates` is an author's table and must
+        never be swept up with the engine's.
+        """
+        from app.data_sources.clients.powerbi_client import PowerBIClient
+
+        assert PowerBIClient._is_system_table(f"LocalDateTable_{self.GUID}")
+        assert PowerBIClient._is_system_table(f"DateTableTemplate_{self.GUID}")
+        assert not PowerBIClient._is_system_table("DateDimension")
+        assert not PowerBIClient._is_system_table("LocalDates")
+        assert not PowerBIClient._is_system_table("dim_date")
+        assert not PowerBIClient._is_system_table("")

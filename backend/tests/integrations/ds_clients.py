@@ -22,9 +22,16 @@ logger = logging.getLogger(__name__)
 # SOURCE OF TRUTH: Data sources to test
 # =============================================================================
 DATA_SOURCES = [
+    "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
-    "snowflake",
+    # Temporarily skipped: the CI Snowflake trial account is suspended for lack
+    # of a payment method, so every connection fails in the driver
+    # (ProgrammingError 000666 / SQLSTATE 57014) before any client code runs.
+    # Not a client defect — re-enable as soon as billing is restored, since
+    # #1069 added Snowflake foreign-key introspection that this is the only
+    # live coverage for.
+    pytest.param("snowflake", marks=pytest.mark.skip(reason="CI Snowflake account suspended (billing); tracked separately")),
     # Temporarily skipped: the CI BigQuery test dataset returns 0 tables
     # (empty dataset / lapsed permissions), unrelated to client code. Re-enable
     # once the CI service account's dataset is restored.
@@ -236,6 +243,16 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
     Extract and normalize kwargs for a data source from credentials.
     Skips the test if the data source is missing or disabled.
     """
+    if name == "sharepoint_onprem" and os.environ.get("SHAREPOINT_TEST_SITE_URL"):
+        return {
+            "site_url": os.environ["SHAREPOINT_TEST_SITE_URL"],
+            "username": os.environ.get("SHAREPOINT_TEST_USERNAME"),
+            "password": os.environ.get("SHAREPOINT_TEST_PASSWORD"),
+            "allow_http": os.environ.get("SHAREPOINT_TEST_ALLOW_HTTP") == "true",
+            "drive_name": os.environ.get("SHAREPOINT_TEST_LIBRARY", "Documents"),
+            "folder_path": os.environ.get("SHAREPOINT_TEST_FOLDER", ""),
+            "recursive": True,
+        }
     cfg = dict(DS_CREDENTIALS.get(name, {}))
     if not cfg:
         pytest.skip(f"{name} missing in integrations.json (data_sources)")
