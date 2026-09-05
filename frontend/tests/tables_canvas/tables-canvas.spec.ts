@@ -59,6 +59,8 @@ test('selected stroke and searchable selection menu', async ({page}) => {
   await expect(node(page,'orders').getByTestId('erd-connection-icon')).toBeVisible()
   if (seed.reference_connection_id) await expect(node(page,'companies')).toBeInViewport({ratio:0.99})
   await page.getByTestId('erd-select-tables').click()
+  await expect(page.getByRole('listbox')).not.toContainText('Selected')
+  await expect(page.getByRole('listbox')).not.toContainText('Not selected')
   await expect(page.getByRole('option').first()).toContainText('orders')
   await expect(page.getByRole('option').first()).toHaveAttribute('aria-selected','true')
   await expect(page.getByRole('option').nth(1)).toHaveAttribute('aria-selected','false')

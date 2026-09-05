@@ -408,3 +408,7 @@ asserts both boundaries and that the cross-connection neighbor remains visible.
 Renamed the two view labels to **List** and **Visual**, with matching translations in all ten catalogs. Internal view identifiers and selection behavior remain unchanged. Updated browser locators, including Hebrew.
 
 Verification: 2 targeted canvas browser tests passed (English toolbar, onboarding, selection, Hebrew/dark mode); all 30 locale checks passed. Catalog key structures are unchanged. Evidence: `media/pr/tables-erd/before-view-labels.png`, `after-metrics-hover.png`, and `after-agent-canvas-he-dark.png`.
+
+### Selection dropdown cleanup
+
+Removed the redundant Selected / Not selected text from dropdown options. The native checkmark and `aria-selected` state remain. The targeted browser regression passed: selected-first ordering, checked/unchecked accessibility states, search, selection, and Save. Before/after evidence: `before-selection-menu-labels.png` and `after-selection-menu.png` under `media/pr/tables-erd/`.

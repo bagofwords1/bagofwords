@@ -10,7 +10,6 @@
           <template #option="{ option }">
             <DataSourceIcon :type="option.connection_type" class="h-3.5 w-3.5 shrink-0" />
             <span class="min-w-0 flex-1"><span class="block truncate font-mono" dir="ltr">{{ option.name }}</span><span class="block truncate text-[10px] text-gray-400">{{ option.connection_name }}{{ option.metadata_json?.schema ? ` · ${option.metadata_json.schema}` : '' }}</span></span>
-            <span class="text-[10px] text-gray-400">{{ t(activeIds.has(option.id) ? 'tableErd.selected' : 'tableErd.notSelected') }}</span>
           </template>
           <template #empty>{{ t('tableErd.noMatches') }}</template>
           <template #option-empty>{{ t('tableErd.noMatches') }}</template>
