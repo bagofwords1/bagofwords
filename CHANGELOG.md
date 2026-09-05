@@ -4,6 +4,7 @@
 - Queries moved from their own page into the agents knowledge tree: each agent has a Queries row that opens its saved queries in the side panel, with a lifecycle badge on each, and /queries redirects there (#1061)
 - Session tokens are now revocable: logging out, changing or resetting a password, and the new admin force-signout all invalidate every session token already issued to that user. **Upgrading signs every user out once** (#1063)
 - SSO sign-in no longer returns the session token in the redirect URL; the callback redirects with a single-use 60s code the app trades for the token over POST (#1063)
+- Prometheus connector is out of `dev_only` and ships as beta, with histogram/summary metrics typed from their base metric, schema discovery bounded to a recent window, and a configurable request timeout and discovery lookback (#1065)
 
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
