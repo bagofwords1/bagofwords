@@ -447,6 +447,7 @@
     "signingUp": "Регистрация…",
     "redirecting": "Перенаправление…",
     "orContinueWith": "Или продолжить через",
+    "orContinueWithEmail": "Или продолжить через email",
     "signInWithGoogle": "Войти через Google",
     "signUpWithGoogle": "Зарегистрироваться через Google",
     "signInWithProvider": "Войти через {provider}",

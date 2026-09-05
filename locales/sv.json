@@ -447,6 +447,7 @@
     "signingUp": "Registrerar…",
     "redirecting": "Omdirigerar…",
     "orContinueWith": "Eller fortsätt med",
+    "orContinueWithEmail": "Eller fortsätt med e-post",
     "signInWithGoogle": "Logga in med Google",
     "signUpWithGoogle": "Registrera dig med Google",
     "signInWithProvider": "Logga in med {provider}",

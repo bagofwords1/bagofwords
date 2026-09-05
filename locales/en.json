@@ -476,6 +476,7 @@
     "signingUp": "Signing up…",
     "redirecting": "Redirecting…",
     "orContinueWith": "Or continue with",
+    "orContinueWithEmail": "Or continue with email",
     "signInWithGoogle": "Sign in with Google",
     "signUpWithGoogle": "Sign up with Google",
     "signInWithProvider": "Sign in with {provider}",

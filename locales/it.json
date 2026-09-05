@@ -447,6 +447,7 @@
     "signingUp": "Registrazione in corso…",
     "redirecting": "Reindirizzamento…",
     "orContinueWith": "Oppure continua con",
+    "orContinueWithEmail": "Oppure continua con l'email",
     "signInWithGoogle": "Accedi con Google",
     "signUpWithGoogle": "Registrati con Google",
     "signInWithProvider": "Accedi con {provider}",

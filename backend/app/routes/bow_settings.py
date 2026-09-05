@@ -23,7 +23,13 @@ async def get_frontend_settings():
         "oidc_providers": [
             {
                 "name": p.name,
-                "enabled": p.enabled
+                "enabled": p.enabled,
+                # Display-only. `brand` picks the logo on the sign-in button and
+                # is deliberately an enum rather than the raw issuer, which can
+                # carry a tenant id and has no business on a public endpoint.
+                "label": p.display_label(),
+                "brand": p.brand(),
+                "icon": p.icon,
             } for p in getattr(settings.bow_config, "oidc_providers", []) or []
         ],
         "features": {

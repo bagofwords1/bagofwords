@@ -459,6 +459,7 @@
     "signingUp": "Registrando…",
     "redirecting": "Redirigiendo…",
     "orContinueWith": "O continúe con",
+    "orContinueWithEmail": "O continúe con correo electrónico",
     "signInWithGoogle": "Iniciar sesión con Google",
     "signUpWithGoogle": "Registrarse con Google",
     "signInWithProvider": "Iniciar sesión con {provider}",
