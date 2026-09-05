@@ -564,9 +564,98 @@ class EntityService:
                 )
             )
         
+        # Workshop rows (drafts, suggestions, archived) belong to their author
+        # and whoever may approve them — see app.core.entity_scope. Applied in
+        # SQL, before LIMIT, so other people's drafts can't consume the page.
+        from app.core.entity_scope import entity_authority_scope, visibility_clause
+
+        unscoped, authority_ids = await entity_authority_scope(
+            db, str(current_user.id), str(organization.id)
+        )
+        stmt = stmt.where(
+            visibility_clause(
+                Entity, entity_data_source_association,
+                str(current_user.id), unscoped, authority_ids,
+            )
+        )
+
         stmt = stmt.order_by(Entity.updated_at.desc()).offset(skip).limit(limit)
         result = await db.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_entity_counts(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> dict:
+        """Per-agent counts for the /agents tree badges, without hydrating rows.
+
+        Same visibility rules as ``list_entities`` so the badge agrees with the
+        rows a lazy per-agent fetch returns — including the archived cut, which
+        the tree applies to its rows.
+        """
+        from sqlalchemy import exists, and_, func
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        from app.core.entity_scope import entity_authority_scope, visibility_clause
+
+        is_admin, accessible_ids = await get_accessible_data_source_ids(
+            db, str(current_user.id), str(organization.id)
+        )
+        accessible_ds_subquery = (
+            select(DataSource.id).filter(DataSource.organization_id == organization.id)
+        )
+        if not is_admin:
+            clauses = [DataSource.is_public == True]
+            if accessible_ids:
+                clauses.append(DataSource.id.in_(accessible_ids))
+            accessible_ds_subquery = accessible_ds_subquery.filter(or_(*clauses))
+
+        # correlate(Entity): this query joins the association table in its own
+        # FROM, and without it SQLAlchemy auto-correlates the table out of the
+        # subquery, leaving it with no FROM clause.
+        has_inaccessible_ds = exists(
+            select(1)
+            .select_from(entity_data_source_association)
+            .where(
+                and_(
+                    entity_data_source_association.c.entity_id == Entity.id,
+                    entity_data_source_association.c.data_source_id.notin_(accessible_ds_subquery),
+                )
+            )
+            .correlate(Entity)
+        )
+
+        unscoped, authority_ids = await entity_authority_scope(
+            db, str(current_user.id), str(organization.id)
+        )
+
+        rows = await db.execute(
+            select(
+                entity_data_source_association.c.data_source_id,
+                func.count(Entity.id),
+            )
+            .select_from(Entity)
+            .join(
+                entity_data_source_association,
+                entity_data_source_association.c.entity_id == Entity.id,
+            )
+            .where(Entity.organization_id == str(organization.id))
+            .where(Entity.deleted_at == None)
+            .where(~has_inaccessible_ds)
+            # The tree hides archived rows, so the badge must not count them.
+            .where(Entity.status != "archived")
+            .where(or_(Entity.private_status == None, Entity.private_status != "archived"))
+            .where(
+                visibility_clause(
+                    Entity, entity_data_source_association,
+                    str(current_user.id), unscoped, authority_ids,
+                )
+            )
+            .group_by(entity_data_source_association.c.data_source_id)
+        )
+        by_agent = {str(ds_id): int(n) for ds_id, n in rows.all()}
+        return {"by_agent": by_agent, "total": sum(by_agent.values())}
 
     async def get_entity(
         self,
@@ -593,7 +682,17 @@ class EntityService:
                     db, str(current_user.id), str(organization.id), ds
                 ):
                     return None
-        
+
+        # ...and the same workshop rule the list applies, so a draft that is
+        # hidden from the tree cannot be read by guessing its id.
+        from app.core.entity_scope import entity_authority_scope, can_view_entity
+
+        unscoped, authority_ids = await entity_authority_scope(
+            db, str(current_user.id), str(organization.id)
+        )
+        if not can_view_entity(entity, str(current_user.id), unscoped, authority_ids):
+            return None
+
         return entity
 
     async def update_entity(

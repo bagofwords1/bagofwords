@@ -181,6 +181,19 @@ async def list_entities(
     return [EntityListSchema.model_validate(e) for e in entities]
 
 
+# Declared BEFORE /{entity_id} so "counts" is not swallowed as an entity id.
+@router.get("/counts")
+async def get_entity_counts(
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Per-agent badge counts for the /agents tree — one cheap grouped query,
+    no rows. Same visibility rules as the list, so the badge matches what a
+    lazy per-agent fetch returns."""
+    return await service.get_entity_counts(db, organization, current_user)
+
+
 @router.get("/{entity_id}", response_model=EntitySchema)
 async def get_entity(
     entity_id: str,
