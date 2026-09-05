@@ -4808,7 +4808,6 @@
     "closeFilePanel": "Stäng filen"
   },
   "skillCatalog": {
-    "title": "Färdiga färdigheter",
     "subtitle": "Utvalda guider som agenten laddar vid behov. Aktivera dem ditt team behöver.",
     "searchPlaceholder": "Sök färdigheter…",
     "loading": "Laddar färdigheter…",

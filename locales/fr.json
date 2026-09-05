@@ -4808,7 +4808,6 @@
     "closeFilePanel": "Fermer le fichier"
   },
   "skillCatalog": {
-    "title": "Compétences prédéfinies",
     "subtitle": "Des guides sélectionnés que l’agent charge à la demande. Activez ceux dont votre équipe a besoin.",
     "searchPlaceholder": "Rechercher des compétences…",
     "loading": "Chargement des compétences…",

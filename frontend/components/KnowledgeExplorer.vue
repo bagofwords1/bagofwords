@@ -143,7 +143,7 @@
           </TreeGroup>
           <!-- Clicking the row opens the pre-built catalog (mirrors Tables /
                Tools); the chevron alone expands the org's enabled skills. -->
-          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :active="panelView?.kind === 'skill-catalog'" data-testid="skills-group" :open="isOpen('skills')" @toggle="onSkillsRowClick">
+          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :active="panelView?.kind === 'skills'" data-testid="skills-group" :open="isOpen('skills')" @toggle="onSkillsRowClick">
             <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
               <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
@@ -613,9 +613,9 @@
         <template v-else-if="panelView">
           <div class="h-11 shrink-0 px-4 flex items-center justify-between border-b border-gray-100 dark:border-gray-800">
             <div class="flex items-center gap-1.5 min-w-0">
-              <template v-if="panelView.kind === 'skill-catalog'">
+              <template v-if="panelView.kind === 'skills'">
                 <UIcon name="i-heroicons-squares-plus" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
-                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('skillCatalog.title') }}</span>
+                <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate">{{ $t('agentsPage.skills') }}</span>
               </template>
               <template v-else-if="panelView.kind === 'global-evals'">
                 <UIcon name="i-heroicons-check-circle" class="w-[18px] h-[18px] shrink-0 text-gray-400 dark:text-gray-500" />
@@ -641,7 +641,7 @@
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
             />
-            <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skill-catalog'" key="skill-catalog" @changed="onSkillCatalogChanged" />
+            <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global :initial-run-id="pendingRunId" />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
@@ -2057,9 +2057,9 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skill-catalog'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), 'skill-catalog': t('skillCatalog.title') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
@@ -2078,12 +2078,12 @@ const openGlobalEvals = () => {
 // Pre-built skill catalog — org-wide, not bound to any agent.
 const openSkillCatalog = () => {
   clearRightPane()
-  panelView.value = { kind: 'skill-catalog', agentId: '' }
+  panelView.value = { kind: 'skills', agentId: '' }
 }
 // Same shape as onPanelRowClick: the row opens the catalog and expands the
 // group; clicking it again while the catalog is open just collapses the group.
 const onSkillsRowClick = () => {
-  if (panelView.value?.kind === 'skill-catalog') { expand('skills'); return }
+  if (panelView.value?.kind === 'skills') { expand('skills'); return }
   if (!isOpen('skills')) expand('skills')
   openSkillCatalog()
 }
@@ -4236,6 +4236,11 @@ const restoreFromRoute = () => {
   // /agents/global-evals — org-wide evals view, not bound to an agent
   if (seg[0] === 'global-evals') {
     if (panelView.value?.kind !== 'global-evals') openGlobalEvals()
+    return
+  }
+  // /agents/skills — the pre-built skill catalog, also not bound to an agent
+  if (seg[0] === 'skills') {
+    if (panelView.value?.kind !== 'skills') openSkillCatalog()
     return
   }
   const agentId = seg[0]
