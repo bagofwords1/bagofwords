@@ -6,6 +6,8 @@ export type GraphTable = {
   fks?: { column?: { name: string }; references_name: string; references_column?: { name: string } }[];
   metadata_json?: { schema?: string; [key: string]: any };
   usage_count?: number; last_used_at?: string; pos_feedback_count?: number; neg_feedback_count?: number;
+  success_count?: number; failure_count?: number; custom_query_id?: string;
+  last_refreshed_at?: string; last_refresh_status?: string; rls_enabled?: boolean;
 }
 export const tableId = (t: GraphTable) => t.id || `${t.connection_id || ''}:${t.metadata_json?.schema || ''}:${t.name}`
 export type TableLink = { id: string; source: string; target: string; suggested?: boolean; columns: { from: string; to: string }[] }

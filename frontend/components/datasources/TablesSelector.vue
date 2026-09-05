@@ -1,113 +1,40 @@
 <template>
   <div class="w-full">
-    <div v-if="showHeader" class="mb-2 flex items-center justify-between">
-      <div>
-        <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
-        <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
-      </div>
-      <div>
-        <button
-          v-if="showRefresh"
-          @click="onRefresh"
-          :disabled="loading || refreshing"
-          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
-        >
-          <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-          <span v-if="!refreshIconOnly">Reload {{ props.itemNoun.plural }}</span>
-        </button>
-      </div>
+    <div v-if="showHeader" class="mb-3">
+      <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
+      <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
-    <div v-else class="mb-2 flex items-center justify-between gap-2">
-      <div class="flex items-center gap-1.5">
+    <div class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
+      <div class="flex items-center gap-4">
         <slot name="reload-left" />
+        <div class="flex items-center gap-4" :aria-label="t('tableErd.view')" role="group">
+          <button v-for="view in ['table', 'erd'] as const" :key="view" type="button"
+            :aria-pressed="tableView === view" @click="setTableView(view)"
+            class="py-1.5 text-xs border-b-2 transition-colors"
+            :class="tableView === view ? 'border-gray-800 dark:border-gray-200 text-gray-900 dark:text-white font-medium' : 'border-transparent text-gray-400 hover:text-gray-700 dark:hover:text-gray-200'">
+            {{ t(`tableErd.${view}`) }}
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-1.5">
-        <button
-          v-if="customQueriesEnabled && canAuthorCustomQueries"
-          data-testid="add-custom-query"
-          @click="openNewCustomQuery()"
-          class="flex items-center gap-1.5 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
-        >
-          <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
-          Add Custom
+      <div class="flex items-center gap-3">
+        <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
+        <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
+          class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
+          <UIcon name="i-heroicons-plus" class="w-3 h-3" />{{ t('tableErd.customQuery') }}
         </button>
-        <!-- The button being simply absent is indistinguishable from the
-             feature not existing. Someone who could otherwise use it is told
-             which of the two things is missing. -->
-        <NuxtLink
-          v-else-if="!customQueriesEnabled && canAuthorCustomQueries"
-          data-testid="custom-queries-disabled-hint"
-          to="/settings/ai_settings"
-          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap"
-          title="Custom queries are a beta feature and are off by default"
-        >
-          <UIcon name="heroicons-bolt" class="w-3 h-3 inline text-amber-400" />
-          Custom queries are off — enable in AI settings
+        <NuxtLink v-else-if="!customQueriesEnabled && canAuthorCustomQueries" data-testid="custom-queries-disabled-hint"
+          to="/settings/ai_settings" :title="t('tableErd.enableCustomQueries')"
+          class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
+          {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <button
-          v-if="showRefresh"
-          @click="onRefresh"
-          :disabled="loading || refreshing"
-          :class="refreshIconOnly ? 'p-1.5 rounded-lg border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50' : 'flex items-center gap-2 border border-gray-300 dark:border-gray-700 rounded-lg px-3 py-1.5 text-xs text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50'"
-        >
-          <Spinner v-if="loading || refreshing" class="w-4 h-4" />
-          <span v-if="!refreshIconOnly">Reload tables</span>
+        <button v-if="showRefresh" @click="onRefresh" :disabled="loading || refreshing"
+          :aria-label="t('tableErd.reload')"
+          class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
+          <Spinner v-if="loading || refreshing" class="w-3 h-3" />
+          <UIcon v-else name="i-heroicons-arrow-path" class="w-3 h-3" />
+          <span v-if="!refreshIconOnly">{{ t('tableErd.reload') }}</span>
         </button>
       </div>
-    </div>
-
-    <!-- Custom queries: BOW-managed, materialized relations. Listed above the
-         introspected tables because they are the curated, fast ones. -->
-    <div v-if="customQueriesEnabled && customQueries.length" class="mb-3" data-testid="custom-queries-section">
-      <div class="flex items-center gap-1.5 px-1 mb-1">
-        <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500" />
-        <span class="text-[11px] font-medium text-gray-600 dark:text-gray-300 uppercase tracking-wide">
-          Custom queries ({{ customQueries.length }})
-        </span>
-        <span class="text-[10px] text-gray-400">cached locally · agents answer without querying the source</span>
-      </div>
-      <ul class="divide-y divide-gray-100 dark:divide-gray-800 border border-amber-200/60 dark:border-amber-900/40 rounded-lg bg-amber-50/30 dark:bg-amber-900/10">
-        <li v-for="cq in customQueries" :key="cq.id" class="py-2 px-2" :data-testid="`cq-row-${cq.name}`">
-          <div class="flex items-center justify-between gap-2">
-            <div class="flex items-center min-w-0">
-              <!-- Activation is per agent, exactly like a regular table. A new
-                   agent starts with it off. -->
-              <UCheckbox
-                v-if="canUpdate"
-                color="blue"
-                :model-value="isCustomQueryActive(cq)"
-                :data-testid="`cq-toggle-${cq.name}`"
-                @update:model-value="(val: boolean) => onCustomQueryToggle(cq, val)"
-                class="me-3"
-              />
-              <UIcon name="heroicons-bolt" class="w-3.5 h-3.5 text-amber-500 me-2 flex-shrink-0" />
-              <span class="text-sm text-gray-800 dark:text-gray-200 truncate font-mono">{{ cq.name }}</span>
-              <span v-if="!isCustomQueryActive(cq) && canUpdate"
-                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
-              <span v-if="cq.rls_enabled"
-                    :data-testid="`cq-rls-badge-${cq.name}`"
-                    title="Rows are filtered per user by a row-level security policy"
-                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300">row-filtered</span>
-              <span v-if="cq.last_refresh_status === 'error'"
-                    class="ms-2 text-[10px] px-1 py-0.5 rounded bg-red-100 text-red-700">refresh failed</span>
-              <span v-else class="ms-2 text-[10px] px-1 py-0.5 rounded bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300">
-                {{ (cq.no_rows || 0).toLocaleString() }} rows
-              </span>
-            </div>
-            <div class="flex items-center gap-3 flex-shrink-0 text-[11px] text-gray-500 dark:text-gray-400">
-              <span class="whitespace-nowrap">{{ freshness(cq) }}</span>
-              <span v-if="cq.last_refresh_ms != null" class="whitespace-nowrap">took {{ formatMs(cq.last_refresh_ms) }}</span>
-              <span v-if="cq.next_run_at" class="whitespace-nowrap">next {{ nextRun(cq) }}</span>
-              <button
-                v-if="canEditCustomQuery(cq)"
-                :data-testid="`cq-edit-${cq.name}`"
-                class="text-blue-600 hover:text-blue-700 dark:text-blue-400"
-                @click="openEditCustomQuery(cq)"
-              >Edit</button>
-            </div>
-          </div>
-        </li>
-      </ul>
     </div>
 
     <!-- Kept mounted rather than v-if'd on the connection: creating the
@@ -120,23 +47,9 @@
       :connection-type="cqModalConnection?.type || ''"
       :connections="manageableConnections"
       :cq="cqEditing"
-      :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
     />
-
-    <div class="flex items-center justify-between mb-3">
-      <div class="inline-flex rounded-md bg-gray-100 dark:bg-gray-800 p-0.5" :aria-label="t('tableErd.view')" role="group">
-        <button v-for="view in ['table', 'erd'] as const" :key="view" type="button"
-          :aria-pressed="tableView === view" @click="setTableView(view)"
-          class="inline-flex items-center gap-1.5 px-2.5 py-1 text-[11px] rounded transition-colors"
-          :class="tableView === view ? 'bg-white dark:bg-gray-700 text-gray-900 dark:text-gray-100 shadow-sm' : 'text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200'">
-          <UIcon :name="view === 'table' ? 'i-heroicons-table-cells' : 'i-heroicons-share'" class="w-3.5 h-3.5" />
-          {{ t(`tableErd.${view}`) }}
-        </button>
-      </div>
-      <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
-    </div>
 
     <!-- Search and filters row -->
     <div>
@@ -360,7 +273,8 @@
       <div v-if="catalogLoading" class="py-4 text-xs text-gray-500 flex items-center gap-2"><Spinner class="w-3 h-3" />{{ t('tableErd.loading') }}</div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
-        :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats" @toggle="onTableToggle" />
+        :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
+        :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
 
     <div v-show="tableView === 'table'">
@@ -420,16 +334,21 @@
         </div>
         <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
           <ul class="divide-y divide-gray-100 dark:divide-gray-800">
-            <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2">
+            <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2" :data-testid="table.custom_query_id ? `cq-row-${table.name}` : undefined">
               <div class="flex items-center">
                 <UCheckbox
                   v-if="canUpdate"
                   color="blue"
                   :model-value="isTableActive(tableKey(table))"
                   :disabled="saving"
+                  :data-testid="table.custom_query_id ? `cq-toggle-${table.name}` : undefined"
                   @update:model-value="(val: boolean) => onTableToggle(tableKey(table), val)"
                   class="me-3"
                 />
+                <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
+                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="me-2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                  <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
+                </button>
                 <button type="button" class="flex items-center justify-between text-start flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 dark:text-gray-400 rtl-flip" />
@@ -437,7 +356,10 @@
                       <DataSourceIcon :type="table.connection_type" class="h-3.5 me-1 flex-shrink-0" />
                       <span class="text-[9px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 me-1.5 flex-shrink-0 truncate max-w-[120px]">{{ table.connection_name || table.connection_type }}</span>
                     </template>
+                    <UIcon v-if="table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 me-1 text-gray-400" :title="t('tableErd.customQuery')" />
                     <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
+                    <span v-if="table.rls_enabled" class="ms-2 text-[10px] text-blue-500">{{ t('tableErd.rowFiltered') }}</span>
+                    <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-[10px] text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
                     <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
                   </div>
@@ -662,6 +584,10 @@ type Table = {
   pks?: any[];
   fks?: ForeignKey[];
   last_used_at?: string;
+  custom_query_id?: string;
+  last_refreshed_at?: string;
+  last_refresh_status?: string;
+  rls_enabled?: boolean;
   usage_count?: number;
   success_count?: number;
   failure_count?: number;
@@ -775,7 +701,6 @@ defineExpose({ save: () => onSave() })
 const { t } = useI18n()
 const toast = useToast()
 const route = useRoute()
-const { relativeTime } = useRelativeTime()
 const { triggerUserSignIn } = useConnectionSignIn()
 
 // Loading states
@@ -849,47 +774,6 @@ function canEditCustomQuery(cq: any): boolean {
 
 const { isCustomQueriesEnabled: customQueriesEnabled } = useOrgSettings()
 
-// Activation lives on the agent's DataSourceTable row, same as a regular table,
-// so it's read from the loaded table list rather than the connection-level
-// custom query record (which is shared across agents).
-function isCustomQueryActive(cq: any): boolean {
-  const row = tables.value.find((t: any) => t.name === cq.name)
-  if (row) return isTableActive(tableKey(row))
-  return false
-}
-
-async function onCustomQueryToggle(cq: any, val: boolean) {
-  try {
-    await useMyFetch(`/data_sources/${props.dsId}/update_tables_status`, {
-      method: 'PUT',
-      body: { activate: val ? [cq.name] : [], deactivate: val ? [] : [cq.name] },
-    })
-    await reloadKnownCatalog()
-  } catch (e: any) {
-    toast.add({ title: 'Could not update', description: e?.message || String(e), color: 'red' })
-  }
-}
-
-function formatMs(ms: number): string {
-  if (ms == null) return ''
-  return ms < 1000 ? `${ms}ms` : `${(ms / 1000).toFixed(1)}s`
-}
-
-function nextRun(cq: any): string {
-  if (!cq.next_run_at) return ''
-  const d = new Date(cq.next_run_at)
-  const mins = Math.round((d.getTime() - Date.now()) / 60000)
-  if (mins <= 0) return 'due'
-  if (mins < 60) return `in ${mins}m`
-  const hrs = Math.round(mins / 60)
-  return hrs < 24 ? `in ${hrs}h` : `in ${Math.round(hrs / 24)}d`
-}
-
-function freshness(cq: any): string {
-  if (!cq.last_refreshed_at) return 'not cached yet'
-  return `as of ${relativeTime(cq.last_refreshed_at)}`
-}
-
 async function loadCustomQueries() {
   const conns = accelerableConnections.value
   if (!conns.length) { customQueries.value = []; return }
@@ -907,8 +791,14 @@ async function loadCustomQueries() {
   customQueries.value = all
 }
 
+const editableQueryIds = computed(() => new Set(customQueries.value.filter(canEditCustomQuery).map(query => query.id)))
+async function editQueryTable(id: string) {
+  const query = customQueries.value.find(query => query.id === id)
+  if (query && canEditCustomQuery(query)) await openEditCustomQuery(query)
+}
+
 async function openNewCustomQuery() {
-  cqModalConnection.value = accelerableConnections.value[0] || null
+  cqModalConnection.value = manageableConnections.value[0] || null
   cqEditing.value = null
   if (!cqModalConnection.value) return
   await nextTick()
@@ -924,8 +814,7 @@ async function openEditCustomQuery(cq: any) {
 
 async function onCustomQuerySaved() {
   await loadCustomQueries()
-  // A new relation is auto-activated for this agent, so the table grid needs to
-  // reflect the new activation state.
+  // Refresh cached metadata; activation remains in the shared table draft.
   await reloadKnownCatalog()
 }
 

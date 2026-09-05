@@ -6,7 +6,7 @@
           :search-attributes="['name', 'connection_name']" :searchable-placeholder="t('tableErd.searchTables')"
           :ui-menu="{ width: 'w-80', height: 'max-h-72', option: { size: 'text-xs' } }" :popper="{ placement: 'bottom-start' }"
           @open="menuOpen = true; searchOpen = false" @close="menuOpen = false">
-          <button class="control px-2 gap-1.5"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ t('tableErd.addTables') }}</button>
+          <button data-testid="erd-select-tables" class="control px-2 gap-1.5"><UIcon name="i-heroicons-table-cells" class="w-3.5 h-3.5" />{{ activeIds.size ? t('tableErd.selectedCount', { count: activeIds.size }) : t('tableErd.selectTables') }}</button>
           <template #option="{ option }">
             <DataSourceIcon :type="option.connection_type" class="h-3.5 w-3.5 shrink-0" />
             <span class="min-w-0 flex-1"><span class="block truncate font-mono" dir="ltr">{{ option.name }}</span><span class="block truncate text-[10px] text-gray-400">{{ option.connection_name }}{{ option.metadata_json?.schema ? ` · ${option.metadata_json.schema}` : '' }}</span></span>
@@ -20,9 +20,6 @@
         </button>
         <button v-if="focused" class="control px-2" @click="clearFocus">{{ t('tableErd.clearFocus') }}</button>
       </div>
-      <select v-if="showStats" v-model="overlay" :aria-label="t('tableErd.overlay')" class="pointer-events-auto h-8 max-w-36 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-[11px] text-gray-600 dark:text-gray-300 px-2 shadow-sm">
-        <option v-for="key in ['none', 'usage', 'lastUsed', 'feedback']" :key="key" :value="key">{{ t(`tableErd.${key}`) }}</option>
-      </select>
     </div>
     <div v-if="searchOpen" class="absolute start-3 top-14 z-10 w-60 max-h-[60%] overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-md p-1" data-testid="erd-discovery">
       <div class="px-2 py-2 text-[10px] text-gray-500">{{ t('tableErd.searchHint') }}</div>
@@ -69,8 +66,8 @@ import { layout } from 'dagre-d3-es/src/dagre/layout.js'
 import { tableGraph, tableId, visibleTableIds, type GraphTable } from '~/utils/tableGraph'
 import TableCanvasNode from './TableCanvasNode.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
-const props = defineProps<{ tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean }>()
-const emit = defineEmits<{ toggle: [id: string, value: boolean] }>()
+const props = defineProps<{ tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string> }>()
+const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string] }>()
 const { t, locale } = useI18n()
 const flowId = `table-erd-${useId()}`
 const { zoomIn, zoomOut, getViewport, setViewport } = useVueFlow({ id: flowId })
@@ -86,7 +83,6 @@ const menuOpen = ref(false)
 const searchOpen = ref(props.filtering)
 watch(() => props.matchIds, () => { if (!menuOpen.value) searchOpen.value = props.filtering })
 const resultLimit = ref(50)
-const overlay = ref('none')
 const positions = new Map<string, { x: number; y: number }>()
 let overview: ReturnType<typeof getViewport> | null = null
 const byId = computed(() => new Map(props.tables.map(t => [tableId(t), t])))
@@ -137,13 +133,6 @@ function fitNodes(ids?: Set<string>, padding = 0.12, duration = 250) {
   const zoom = Math.max(0.015, Math.min(1, viewportWidth / (width * (1 + 2 * padding)), viewportHeight / (height * (1 + 2 * padding))))
   return setViewport({ x: (viewportWidth - width * zoom) / 2 - left * zoom, y: (viewportHeight - height * zoom) / 2 - top * zoom, zoom }, { duration })
 }
-function metric(table: GraphTable) {
-  const number = (value?: number) => value == null ? '—' : new Intl.NumberFormat(locale.value).format(value)
-  if (overlay.value === 'usage') return t('tableErd.usageValue', { count: number(table.usage_count) })
-  if (overlay.value === 'feedback') return t('tableErd.feedbackValue', { positive: number(table.pos_feedback_count), negative: number(table.neg_feedback_count) })
-  if (overlay.value === 'lastUsed') return table.last_used_at ? new Intl.DateTimeFormat(locale.value, { dateStyle: 'medium' }).format(new Date(table.last_used_at)) : t('tableErd.unknown')
-  return ''
-}
 function toggle(id: string, value: boolean) { explored.value = new Set([...explored.value, id]); emit('toggle', id, value) }
 function expand(id: string) {
   explored.value = new Set([...explored.value, id, ...graph.value.neighbors.get(id) || []])
@@ -193,7 +182,7 @@ function rearrange() {
   nodes.value = nodes.value.map(n => ({ ...n, position: positions.get(n.id)!, computedPosition: { ...positions.get(n.id)!, z: 0 } }))
   nextTick(() => fitNodes(undefined, 0.12, 0))
 }
-watch([visibleIds, () => props.tables, () => props.activeIds, focused, overlay, locale], () => {
+watch([visibleIds, () => props.tables, () => props.activeIds, focused, locale, () => props.showStats, () => props.canUpdate, () => props.editableQueryIds], () => {
   rememberPositions()
   const previous = new Set(nodes.value.map(node => node.id))
   const ids = [...visibleIds.value].filter(id => byId.value.has(id))
@@ -211,7 +200,8 @@ watch([visibleIds, () => props.tables, () => props.activeIds, focused, overlay, 
     // Offscreen nodes have no mounted wrapper to recompute their coordinates.
     // Keep Vue Flow's viewport index aligned when we move them programmatically.
     return { id, type: 'table', position: positions.get(id)!, computedPosition: { ...positions.get(id)!, z: 0 }, dimensions: { width: 232, height: 140 }, style: { opacity: focused.value && !neighborhood.value.has(id) ? 0.3 : 1 }, data: {
-      table, active: props.activeIds.has(id), canUpdate: props.canUpdate, focused: focused.value === id, keyColumns: [...keyColumns].filter(Boolean), metric: metric(table),
+      table, active: props.activeIds.has(id), canUpdate: props.canUpdate, focused: focused.value === id, keyColumns: [...keyColumns].filter(Boolean), showStats: props.showStats,
+      editQuery: table.custom_query_id && props.editableQueryIds?.has(table.custom_query_id) ? () => emit('editQuery', table.custom_query_id!) : undefined,
       hiddenNeighbors: [...graph.value.neighbors.get(id) || []].filter(n => !visibleIds.value.has(n)).length,
       toggle: (value: boolean) => toggle(id, value), expand: () => expand(id),
     } }

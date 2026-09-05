@@ -3524,6 +3524,10 @@ class DataSourceService:
                 connection_id=conn_id,
                 connection_name=conn_name,
                 connection_type=conn_type,
+                custom_query_id=str(table.connection_table.id) if table.connection_table and table.connection_table.kind == "bow" else None,
+                last_refreshed_at=table.connection_table.last_refreshed_at if table.connection_table and table.connection_table.kind == "bow" else None,
+                last_refresh_status=table.connection_table.last_refresh_status if table.connection_table and table.connection_table.kind == "bow" else None,
+                rls_enabled=bool(table.connection_table.rls_enabled) if table.connection_table and table.connection_table.kind == "bow" else False,
                 # Metrics
                 centrality_score=table.centrality_score,
                 richness=table.richness,

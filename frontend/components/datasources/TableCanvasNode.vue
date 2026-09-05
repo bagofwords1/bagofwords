@@ -1,6 +1,6 @@
 <template>
-  <div class="table-node rounded-lg border bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 shadow-sm text-[11px] leading-normal"
-    :class="[data.active ? 'border-blue-500 dark:border-blue-400' : 'border-dotted border-gray-400 dark:border-gray-500 bg-gray-50/90 dark:bg-gray-900/90', data.focused ? 'ring-2 ring-blue-500/20' : '']"
+  <div class="table-node rounded-lg border shadow-sm text-[11px] leading-normal"
+    :class="[data.active ? 'border-blue-500 dark:border-blue-400 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200' : 'border-dotted border-gray-400 dark:border-gray-500 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400', data.focused ? 'ring-2 ring-blue-500/20' : '']"
     :data-testid="`erd-node-${data.table.name}`" :data-active="data.active">
     <Handle type="target" :position="Position.Left" :connectable="false" class="!bg-gray-400 !border-white" />
     <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 dark:border-gray-800">
@@ -13,17 +13,18 @@
         </div>
         <div class="text-[9px] text-gray-400 truncate mt-0.5">{{ [data.table.connection_name, data.table.metadata_json?.schema].filter(Boolean).join(' · ') }}</div>
       </div>
-      <UIcon v-if="data.active" name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />
-      <button v-else-if="data.canUpdate" class="nodrag nopan text-[10px] text-blue-600 dark:text-blue-400 hover:underline" @click.stop="data.toggle(true)">{{ t('tableErd.add') }}</button>
+      <UIcon v-if="data.table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 text-gray-400" :title="t('tableErd.customQuery')" data-testid="erd-custom-query" />
+      <button v-if="data.editQuery" class="nodrag nopan text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="t('tableErd.editQuery', { name: data.table.name })" @click.stop="data.editQuery()"><UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" /></button>
     </div>
     <div class="px-3 py-2 space-y-1 flex-1">
-      <div v-for="column in data.keyColumns.slice(0, 3)" :key="column" class="flex items-center gap-2 text-[10px] font-mono" dir="ltr">
-        <UIcon name="i-heroicons-key" class="w-3 h-3 text-gray-400" /><span class="truncate">{{ column }}</span>
+      <div v-for="column in (data.keyColumns.length ? data.keyColumns : data.table.custom_query_id ? (data.table.columns || []).map((c: { name: string }) => c.name) : []).slice(0, 3)" :key="column" class="flex items-center gap-2 text-[10px] font-mono" dir="ltr">
+        <UIcon :name="data.keyColumns.includes(column) ? 'i-heroicons-key' : 'i-heroicons-table-cells'" class="w-3 h-3 text-gray-400" /><span class="truncate">{{ column }}</span>
       </div>
-      <span v-if="!data.keyColumns.length" class="text-[10px] text-gray-400">{{ t('tableErd.noKeys') }}</span>
+      <span v-if="!data.keyColumns.length && !data.table.custom_query_id" class="text-[10px] text-gray-400">{{ t('tableErd.noKeys') }}</span>
     </div>
     <div class="flex items-center justify-between gap-2 px-3 pb-2 text-[9px] text-gray-500 dark:text-gray-400">
-      <span>{{ data.metric || (data.active ? t('tableErd.selected') : t('tableErd.notSelected')) }}</span>
+      <TableMetrics v-if="data.showStats" :table="data.table" />
+      <span v-else>{{ t(data.active ? 'tableErd.selected' : 'tableErd.notSelected') }}</span>
       <button v-if="data.hiddenNeighbors" class="nodrag nopan text-blue-600 dark:text-blue-400 hover:underline" @click.stop="data.expand()">
         {{ t('tableErd.expand', { count: data.hiddenNeighbors }) }}
       </button>
@@ -34,6 +35,7 @@
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
+import TableMetrics from './TableMetrics.vue'
 defineProps<{ data: any }>()
 const { t } = useI18n()
 </script>

@@ -3,8 +3,7 @@
 Adds a minimal **Table / ERD** toggle to the existing selector. Both views use
 one draft selection and the existing Save/Save & Continue operation. Selecting a
 table reveals its direct declared or suggested neighbors without selecting them. The diagram
-supports focus, one-hop expansion, search, key/relationship details, and optional
-usage, last-used, and answer-feedback overlays.
+supports focus, one-hop expansion, search, key/relationship details, and usage on each card with last-used and answer-feedback details on hover.
 
 ## Working context
 
@@ -22,14 +21,14 @@ usage, last-used, and answer-feedback overlays.
 | State | Rendering | Agent activation |
 | --- | --- | --- |
 | Selected | Blue solid-border checked card | Enabled after Save |
-| Shown, not selected | Gray dotted unchecked card with Add | Disabled |
+| Shown, not selected | Gray dotted unchecked card on a muted background | Disabled |
 | Not shown, not selected | Discoverable through search or Expand | Disabled |
 
 - Active tables always bring their immediate incoming and outgoing neighbors
   into the graph model. Already selected neighbors stay checked.
 - A revealed ghost does not recursively reveal its own neighbors. Selecting it
   or explicitly expanding it reveals the next hop.
-- Focus, search preview, expand, drag, and overlays do not activate tables.
+- Focus, search preview, expand, drag, and metrics do not activate tables.
 - Deselecting retains the card in the current exploration, including changes
   made in Table view. Reset clears exploration-only ghosts; Clear focus only
   changes the highlight and viewport.
@@ -47,12 +46,13 @@ usage, last-used, and answer-feedback overlays.
 | File | Responsibility |
 | --- | --- |
 | `frontend/components/datasources/TablesSelector.vue` | Toggle, complete permission-scoped catalog, shared filters/draft and connection scopes, one delta Save |
-| `frontend/components/datasources/TablesCanvas.vue` | Vue Flow viewport, focus/expand, viewport rendering, selection menu, packed layout, overlays, detail panel |
-| `frontend/components/datasources/TableCanvasNode.vue` | Minimal checked/ghost table card and explicit activation controls |
+| `frontend/components/datasources/TablesCanvas.vue` | Vue Flow viewport, focus/expand, viewport rendering, selection menu, packed layout, detail panel |
+| `frontend/components/datasources/TableCanvasNode.vue` | Checked/ghost table card, query marker, checkbox and permitted editor action |
+| `frontend/components/datasources/TableMetrics.vue` | Usage on each card; successful/failed queries, feedback, last use and cache status on hover |
 | `frontend/utils/tableGraph.ts` | Connection/schema-scoped relationship resolution, one-hop visibility, shared filter predicates |
 | `frontend/components/datasources/{CatalogSelector,AgentKnowledgeTabs}.vue` | One combined onboarding selector across table connections; preserve the step when Save fails |
-| `backend/app/schemas/datasource_table_schema.py` | Optional last-used timestamp with the existing UTC serializer |
-| `backend/app/services/data_source_service.py` | Populate last-used from table stats; stable ID tie-breaker for pagination |
+| `backend/app/schemas/datasource_table_schema.py` | UTC last-used/cache timestamps and safe custom-query display metadata |
+| `backend/app/services/data_source_service.py` | Populate stats and safe query metadata; stable ID tie-breaker for pagination |
 | `locales/{en,es,he,fr,sv,ar,ru,de,pt,it}.json` | Matching translated ERD namespace |
 | `frontend/nuxt.config.ts` | Optional `BOW_API_TARGET` override for an isolated local backend |
 
@@ -79,7 +79,7 @@ the draft and returns failure to the parent instead of navigating onward.
 - [x] Implement three states, direct neighbors, focus, expansion, discovery,
   stable positions, details, empty/retry states and large graphs.
 - [x] Share selection, filters, counts and Save across views and parent embeds.
-- [x] Add usage/last-used/feedback overlays and all ten locale catalogs.
+- [x] Add usage/last-used/feedback metrics and all ten locale catalogs.
 - [x] Add a deterministic fixture, focused Playwright suite and graph unit checks.
 - [x] Run existing backend pagination, selection and reader-permission regressions.
 - [x] Run the existing 30-case locale sweep and check catalog drift.
@@ -89,6 +89,11 @@ the draft and returns failure to the parent instead of navigating onward.
 - [x] Add labelled key-name suggestions and combined multi-connection onboarding.
 - [x] Replace the node cap with viewport rendering and packed large-graph layout.
 - [x] Finish refinement acceptance and production build.
+- [x] Replace the pill toggle with text tabs in the Reload row and shorten the disabled custom-query hint.
+- [x] Show the draft selected count in the picker and use gray checkbox-only ghost cards.
+- [x] Replace overlays with per-card usage and a complete metrics tooltip.
+- [x] Unify cached custom queries with table selection, preserving editor permissions.
+- [x] Complete final cleanup acceptance, screenshots and production build.
 
 ## Fixture and isolation
 
@@ -168,6 +173,7 @@ TESTING=true ENVIRONMENT=production MPLCONFIGDIR=/private/tmp/bow-tables-erd-run
   tests/e2e/test_data_source.py::test_paginated_full_schema \
   tests/e2e/test_data_source.py::test_bulk_update_and_delta_update \
   tests/e2e/rbac/test_rbac_data_sources.py::test_full_schema_hides_inactive_tables_from_non_managers \
+  tests/unit/test_custom_query_permissions.py \
   --db=sqlite -q
 ```
 
@@ -217,7 +223,9 @@ Playwright acceptance test, not a passive page recording.
 | Agent before / after | `before-agent-list-en.png`, `after-agent-canvas-en.png` |
 | Onboarding before / after | `before-onboarding-list-en.png`, `after-onboarding-canvas-en.png` |
 | Large graph | `after-large.png` |
-| Overlay | `after-overlays.png` |
+| Metrics hover | `after-metrics-hover.png` |
+| Cached custom query | `after-custom-query.png`, `after-custom-query-metrics.png` |
+| Cleanup before | `before-cleanup-en.png`, `before-cleanup-he-dark.png`, `before-cleanup-onboarding.png` |
 | Hebrew / dark before / after | `before-agent-list-he-dark.png`, `after-agent-canvas-he-dark.png` |
 | Narrow viewport | `after-narrow.png` |
 | Empty state | `after-empty.png` |
@@ -240,6 +248,10 @@ Playwright acceptance test, not a passive page recording.
 | Last-used API serialization | Known fixture timestamp returned as `2026-09-01T10:00:00Z` |
 | Initial production build | PASS (exit 0); existing duplicate-key/import and chunk-size warnings remain |
 | Refinement production build | PASS (exit 0), client + server + Nitro output; existing warnings unchanged |
+| Cleanup browser acceptance | 11 passed on development; all 11 passed again on the production build (41.0 seconds), using 528 tables across two connections plus a temporary custom query |
+| Cleanup production build | PASS (exit 0); client, server and Nitro output built successfully; existing warnings unchanged |
+| Cleanup backend regressions | 14 passed: pagination, delta/bulk, reader schema scope and custom-query permissions |
+| Cleanup locale sweep | 30 passed (26.8 seconds); ten ERD catalogs match with no additional global key drift |
 
 ## Limits of this evidence
 
@@ -293,3 +305,36 @@ Additional evidence: `before-refinement-en.png`,
 `after-cross-connection.png`. The standard after screenshots and interaction GIF
 are refreshed for this version. Original list baselines predate the second
 connection; refinement comparisons use the same viewport and synthetic source.
+
+## Cleanup — metrics, compact toolbar and custom queries
+
+Table / ERD are now understated text tabs beside Connections, aligned with
+Reload. The feature-off hint reads “Custom queries off.” The canvas picker
+shows the draft selected count, and unchecked neighbors have a darker gray
+background with dotted borders and one checkbox. The overlay selector is gone.
+Usage is always present when statistics are enabled; its tooltip shows success,
+failure, feedback and last use.
+
+Custom queries now use the ordinary catalog row in both views. Their checkbox
+changes the same draft and only Save activates them for the agent. Creating or
+editing the connection-level query still uses the existing editor; creating a
+query from this selector no longer silently activates it. Query cards show a
+bolt and output columns; cache status and last refresh appear in the tooltip.
+Only connection administrators receive the pencil action. The schema endpoint
+adds safe display metadata, never SQL, artifact paths/keys or RLS policy details.
+
+Relationships use the output schema and the same declared/suggested resolver.
+SQL source-table dependencies are not inferred: a materialized aggregate over
+orders can be selected alone, because the agent reads its cached result.
+
+The cleanup baseline test failed on the old picker label instead of the
+required selected count. Live screenshot inspection then caught tooltip rows
+clipped by the UI library’s default fixed height. The tooltip now grows to fit
+its content, and the acceptance test checks the last row is inside its bounds.
+
+The new custom-query browser case creates a real cached SQLite aggregate via
+the API, checks safe metadata and initial inactivity, selects it in Table view,
+switches to ERD, checks no source-table node is required, inspects cache metrics,
+opens the permitted editor, saves, reloads, and switches to a real reader account
+to verify that edit/activation controls are absent. It deletes the synthetic
+query and restores the feature setting afterward.

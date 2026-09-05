@@ -43,7 +43,10 @@ with httpx.Client(base_url=s['base_url'], headers=headers, timeout=120) as c:
         connection.raise_for_status()
         s['reference_connection_id'] = connection.json()['id']
         json.dump(s, open(a.seed, 'w'), indent=2)
-    c.post(f"/api/data_sources/{ds['id']}/connections/{s['reference_connection_id']}").raise_for_status()
+    attached = c.get(f"/api/data_sources/{ds['id']}/connections")
+    attached.raise_for_status()
+    if s['reference_connection_id'] not in {connection['id'] for connection in attached.json()}:
+        c.post(f"/api/data_sources/{ds['id']}/connections/{s['reference_connection_id']}").raise_for_status()
     c.get(f"/api/data_sources/{ds['id']}/refresh_schema").raise_for_status()
     c.put('/api/organization/onboarding', json={'dismissed': True, 'completed': False}).raise_for_status()
     c.put(f"/api/data_sources/{ds['id']}", json={'name': 'Commerce', 'is_public': True}).raise_for_status()

@@ -67,6 +67,12 @@ class DataSourceTableSchema(BaseModel):
     connection_id: Optional[str] = None
     connection_name: Optional[str] = None
     connection_type: Optional[str] = None
+    # Safe display metadata only; query SQL, artifacts and RLS policies stay on
+    # the connection-admin endpoint.
+    custom_query_id: Optional[str] = None
+    last_refreshed_at: OptionalUTCDatetime = None
+    last_refresh_status: Optional[str] = None
+    rls_enabled: bool = False
     # Topology and richness metrics
     centrality_score: Optional[float] = None
     richness: Optional[float] = None
