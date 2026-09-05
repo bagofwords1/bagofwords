@@ -418,6 +418,19 @@
                     <span class="text-sm text-gray-800 dark:text-gray-200 truncate">{{ table.name }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
                     <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <!-- Relationships are listed in the expanded panel, which
+                         means finding the connected tables costs one click per
+                         row. The badge puts that on the collapsed row so a
+                         well-connected table is visible while scanning. -->
+                    <UTooltip v-if="relatedTableCount(table)" :text="relationshipSummary(table)">
+                      <span
+                        :data-testid="`rel-badge-${table.name}`"
+                        class="ms-1.5 inline-flex items-center gap-0.5 text-[10px] px-1 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+                      >
+                        <UIcon name="heroicons-link" class="w-3 h-3" />
+                        {{ relatedTableCount(table) }}
+                      </span>
+                    </UTooltip>
                   </div>
                   <span v-if="props.showStats && (table.usage_count !== undefined)" class="ms-2 text-[11px] text-gray-500 dark:text-gray-400 whitespace-nowrap flex items-center gap-2">
                     <span>usage {{ table.usage_count }}</span>
@@ -1061,6 +1074,37 @@ function tableKey(table: Table): string {
 
 function isTableActive(key: string): boolean {
   return currentActiveState.value.get(key) ?? false
+}
+
+// ---- Relationships --------------------------------------------------------
+// A composite foreign key arrives as one `fks` entry per column pair, so the
+// raw length counts columns, not neighbours: a two-column key to one table
+// would read as "2 relationships". Counting distinct targets answers the
+// question someone actually has while scanning — how many tables does this one
+// join to — and the tooltip carries the column detail.
+
+function relatedTableNames(table: Table): string[] {
+  const names = new Set<string>()
+  for (const fk of table.fks || []) {
+    if (fk?.references_name) names.add(fk.references_name)
+  }
+  return Array.from(names)
+}
+
+function relatedTableCount(table: Table): number {
+  return relatedTableNames(table).length
+}
+
+// UTooltip renders plain text on a single line — newlines collapse and a long
+// string is ellipsized — so the tooltip names the neighbouring tables and
+// nothing more. Column-level detail belongs in the expanded panel below, which
+// already lists every edge, and duplicating it here just gets truncated.
+function relationshipSummary(table: Table): string {
+  const names = relatedTableNames(table)
+  const shown = names.slice(0, 3)
+  const rest = names.length - shown.length
+  const list = shown.join(', ') + (rest > 0 ? `, +${rest} more` : '')
+  return `Related to ${names.length === 1 ? '1 table' : `${names.length} tables`}: ${list}`
 }
 
 function isTableDirty(key: string): boolean {
