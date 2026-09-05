@@ -1,17 +1,17 @@
 <template>
   <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
-    <div class="w-full max-w-[380px]">
-      <h1 class="text-[26px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
-        {{ $t('auth.createAccount') }}
+    <div class="w-full max-w-[360px]">
+      <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+        {{ setupRequired ? $t('auth.setupTitle') : $t('auth.createAccount') }}
       </h1>
-      <p class="mt-2 text-[15px] text-center text-gray-500 dark:text-gray-400">
-        {{ $t('auth.signUpSubtitle') }}
+      <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
+        {{ setupRequired ? $t('auth.setupSubtitle') : $t('auth.signUpSubtitle') }}
       </p>
 
       <p v-if="error_message" v-html="error_message"
-         class="mt-6 text-sm text-red-500 text-center whitespace-pre-line"></p>
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
 
-      <div v-if="showSso" class="mt-9">
+      <div v-if="showSso" class="mt-7">
         <AuthProviderButtons
           :providers="oidcProviders"
           :google-enabled="googleSignIn"
@@ -20,50 +20,50 @@
         />
       </div>
 
-      <div v-if="showSso && showCredentials" class="relative my-7">
+      <div v-if="showSso && showCredentials" class="relative my-5">
         <div class="absolute inset-0 flex items-center" aria-hidden="true">
           <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
         <div class="relative flex justify-center">
-          <span class="px-4 text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+          <span class="px-3 text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
             {{ $t('auth.or') }}
           </span>
         </div>
       </div>
 
-      <form v-if="showCredentials" @submit.prevent="submit" :class="showSso ? '' : 'mt-9'">
+      <form v-if="showCredentials" @submit.prevent="submit" :class="showSso ? '' : 'mt-7'">
         <div>
           <label for="name" :class="labelClass">{{ $t('auth.name') }}</label>
           <input id="name" v-model="name" type="text" autocomplete="name" :class="inputClass" />
         </div>
 
-        <div class="mt-5">
+        <div class="mt-4">
           <label for="email" :class="labelClass">{{ $t('auth.email') }}</label>
           <input id="email" v-model="email" type="email" autocomplete="email" :class="inputClass" />
         </div>
 
-        <div class="mt-5">
+        <div class="mt-4">
           <label for="password" :class="labelClass">{{ $t('auth.password') }}</label>
           <input id="password" v-model="password" type="password" autocomplete="new-password" :class="inputClass" />
         </div>
 
         <button type="submit" :disabled="isSubmitting" :class="primaryButtonClass">
           <template v-if="isSubmitting">
-            <Spinner class="h-4 w-4 me-2" />
+            <Spinner class="h-3.5 w-3.5 me-2" />
             {{ $t('auth.signingUp') }}
           </template>
           <template v-else>{{ $t('auth.signUp') }}</template>
         </button>
       </form>
 
-      <p v-if="authMode !== 'sso_only'" class="mt-8 text-[15px] text-center text-gray-500 dark:text-gray-400">
+      <p v-if="authMode !== 'sso_only' && !setupRequired" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.alreadyHaveAccount') }}
         <NuxtLink to="/users/sign-in" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signIn') }}
         </NuxtLink>
       </p>
 
-      <p class="mt-8 text-xs leading-relaxed text-center text-gray-400 dark:text-gray-500">
+      <p class="mt-6 text-xs leading-relaxed text-center text-gray-400 dark:text-gray-500">
         {{ $t('auth.termsPrefix') }}
         <a href="https://bagofwords.com/terms" target="_blank" class="underline underline-offset-2 hover:text-gray-600 dark:hover:text-gray-300">{{ $t('auth.termsOfService') }}</a>
         {{ $t('common.and') }}
@@ -116,23 +116,25 @@ const oidcProviders = ref<AuthProvider[]>([])
 const pageLoaded = ref(false)
 const isSubmitting = ref(false)
 const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
+// No user has claimed this instance yet: this signup bootstraps the admin.
+const setupRequired = ref(false)
 
 const showCredentials = computed(() => authMode.value !== 'sso_only')
 const showSso = computed(() =>
   authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
 
-const labelClass = 'block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2'
+const labelClass = 'block text-[13px] font-medium text-gray-900 dark:text-gray-100 mb-1.5'
 
 // Monochrome controls: the only color on the page is the provider logos and
 // the one primary action.
 const inputClass =
-  'w-full h-11 px-3.5 rounded-xl border border-gray-300 dark:border-gray-700 ' +
-  'bg-white dark:bg-gray-900 text-[15px] text-gray-900 dark:text-white ' +
+  'w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 ' +
+  'bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white ' +
   'focus:outline-none focus:border-gray-900 dark:focus:border-white ' +
   'focus:ring-1 focus:ring-gray-900 dark:focus:ring-white transition-colors'
 
 const primaryButtonClass =
-  'mt-7 w-full h-11 inline-flex items-center justify-center rounded-xl text-[15px] font-medium ' +
+  'mt-5 w-full h-10 inline-flex items-center justify-center rounded-lg text-sm font-medium ' +
   'text-white bg-gray-900 hover:bg-gray-800 dark:text-gray-900 dark:bg-white dark:hover:bg-gray-100 ' +
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ' +
   'dark:focus-visible:ring-white focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950 ' +
@@ -176,6 +178,7 @@ onMounted(async () => {
       authMode.value = settings.auth.mode
     }
     googleSignIn.value = settings?.google_oauth?.enabled ?? false
+    setupRequired.value = settings?.setup_required ?? false
   } catch (_) {}
   const inviteError = route.query.error as string
   if (inviteError) {

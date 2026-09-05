@@ -2,16 +2,25 @@ import os
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.settings.config import settings
-from app.dependencies import get_current_locale, get_current_organization, _locale_from_org
+from app.dependencies import get_current_locale, get_current_organization, _locale_from_org, get_async_db
 from app.models.organization import Organization
 
 router = APIRouter()
 
 @router.get("/settings", tags=["settings"])
-async def get_frontend_settings():
+async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
     """Get frontend configuration settings"""
+    from app.core.auth import any_user_exists
+
     is_testing = os.getenv("TESTING", "").lower() == "true"
+
+    # A fresh instance has nothing to sign in to: registration bootstraps the
+    # first account without an invite, so the auth pages render a setup screen
+    # instead of a login form. This says the instance is unclaimed, which is
+    # already discoverable by attempting to register.
+    setup_required = not await any_user_exists(db)
     
     return JSONResponse({
         "google_oauth": {
@@ -48,6 +57,7 @@ async def get_frontend_settings():
             "enabled": settings.bow_config.telemetry.enabled and not is_testing,
         },
         "smtp_enabled": settings.bow_config.smtp_settings is not None,
+        "setup_required": setup_required,
         "version": settings.PROJECT_VERSION,
         "environment": settings.ENVIRONMENT,
         "i18n": {
