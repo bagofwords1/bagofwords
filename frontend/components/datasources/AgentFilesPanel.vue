@@ -84,7 +84,11 @@ const fileInput = ref<HTMLInputElement | null>(null)
 
 const fileConnections = computed(() => connections.value.filter((c) => registryByType.value[c.type]?.data_shape === 'files'))
 const cfg = (c: any) => c?.config || {}
-const baseOf = (c: any) => cfg(c).bucket ? `s3://${cfg(c).bucket}/${cfg(c).prefix || ''}` : (cfg(c).root_path || '—')
+const baseOf = (c: any) => {
+  const g = cfg(c)
+  if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
+  return g.bucket ? `s3://${g.bucket}/${g.prefix || ''}` : (g.root_path || '—')
+}
 const globsOf = (c: any) => String(cfg(c).include_globs || '').split(/[,\n]/).map((s) => s.trim()).filter(Boolean)
 const indexModeOf = (c: any) => cfg(c).index_mode || (cfg(c).index_content === false ? 'metadata' : 'content')
 const badgeLabel = (m: string) => ({ none: 'Live', metadata: 'Indexed: list', content: 'Indexed: contents' } as any)[m] || m
@@ -94,7 +98,7 @@ async function loadAll() {
   if (!props.dsId) return
   const [reg, conns, ups] = await Promise.all([
     useMyFetch('/available_data_sources', { method: 'GET' }),
-    useMyFetch(`/data_sources/${props.dsId}/connections`, { method: 'GET' }),
+    useMyFetch(`/data_sources/${props.dsId}/file-connections`, { method: 'GET' }),
     useMyFetch(`/data_sources/${props.dsId}/files`, { method: 'GET' }),
   ])
   for (const e of (reg.data.value as any[]) || []) registryByType.value[e.type] = e

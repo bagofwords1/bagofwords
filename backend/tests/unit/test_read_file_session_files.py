@@ -102,6 +102,15 @@ async def _run_grep(tool_input, runtime_ctx):
 
 class TestSessionResolution:
     @pytest.mark.asyncio
+    @pytest.mark.parametrize("row_count", [3, 250])
+    async def test_tabular_read_observation_exposes_analysis_attachment_id(self, tmp_path, row_count):
+        body = "region,amount\n" + "North,120\n" * row_count
+        f = _mk_file(tmp_path, "revenue.csv", body.encode(), "text/csv")
+        payload = await _run_read({"file_id": f.id}, _runtime_ctx([f]))
+        assert payload["output"]["success"] is True, payload
+        assert payload["observation"].get("session_file_id") == payload["output"]["session_file_id"]
+
+    @pytest.mark.asyncio
     async def test_session_json_read_without_connection(self, tmp_path):
         body = json.dumps({"verification_code": "CODE-SESSION-11AA", "n": list(range(50))})
         f = _mk_file(tmp_path, "rules.json", body.encode(), "application/json")
