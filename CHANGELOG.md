@@ -10,6 +10,7 @@
 - Prometheus connector is out of `dev_only` and ships as beta, with histogram/summary metrics typed from their base metric, schema discovery bounded to a recent window, and a configurable request timeout and discovery lookback (#1065)
 - Added an AWS CloudWatch connector cataloging log groups (via Logs Insights) and metrics as tables on one connection, with static keys, assume-role, or the default credential chain (#1066)
 - OpenAI catalog adds GPT-6 Astra and makes it the default in place of Terra (Luna stays the small-model default); GPT-6 requests omit temperature and route tool calls through the Responses API. Astra bills at $10 input / $50 output per million tokens, so this is an intentional quality/cost change (#1068)
+- Added a catalog of 16 pre-built skills (RCA, Mermaid ERD, dashboard→instructions, dashboard→evals, scikit-learn modeling, cohort/funnel/variance analysis and more), browsable from the Skills group in the knowledge explorer and installed per organization by an admin; skills scoped to specific agent modes are no longer advertised outside them, and instruction lists now carry a skill's one-line description instead of a prefix of its body (#1070)
 
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)

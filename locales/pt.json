@@ -4802,5 +4802,28 @@
     "showingRows": "A mostrar {n} de {total} linhas",
     "openInPanel": "Abrir no painel lateral",
     "closeFilePanel": "Fechar ficheiro"
+  },
+  "skillCatalog": {
+    "title": "Habilidades predefinidas",
+    "subtitle": "Guias curados que o agente carrega quando precisa. Ative os que a sua equipa precisa.",
+    "searchPlaceholder": "Pesquisar habilidades…",
+    "loading": "A carregar habilidades…",
+    "loadFailed": "Não foi possível carregar o catálogo de habilidades.",
+    "noResults": "Nenhuma habilidade corresponde à pesquisa.",
+    "enable": "Ativar",
+    "disable": "Desativar",
+    "update": "Atualizar",
+    "updateAvailable": "Atualização disponível",
+    "customized": "Editada",
+    "customizedHint": "Esta habilidade foi editada para a sua organização. Atualizar substitui-a pela versão original.",
+    "modeScoped": "Apenas {modes}",
+    "modeScopedHint": "Esta habilidade só é oferecida ao agente nestes modos.",
+    "adminOnly": "Só um administrador pode ativar uma habilidade para a organização.",
+    "enabledToast": "«{name}» ativada",
+    "disabledToast": "«{name}» desativada",
+    "updatedToast": "«{name}» atualizada",
+    "actionFailed": "Não funcionou. Tente novamente.",
+    "confirmOverwrite": "«{name}» foi editada para a sua organização. Atualizar substitui a sua versão pela original. Continuar?",
+    "reset": "Repor"
   }
 }
