@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean
+from sqlalchemy import Column, String, DateTime, Boolean, Integer
 from typing import List
 from sqlalchemy.orm import relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable
@@ -19,6 +19,14 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     last_seen = Column(DateTime, nullable=True)
     scim_external_id = Column(String(255), nullable=True, index=True)  # IdP external identifier for SCIM provisioning
     ldap_dn = Column(String(512), nullable=True, index=True)  # LDAP distinguished name
+    # Monotonic counter stamped into every session JWT as the `session_epoch`
+    # claim. A token is only accepted while its claim matches this column, so
+    # incrementing it revokes every session token already issued to the user.
+    # Bumped on logout, on password change/reset, and by an admin forcing a
+    # sign-out. Without it the JWTs are stateless and unrevokable: logging out
+    # only drops the browser's copy while the token stays valid for its full
+    # 7-day lifetime.
+    session_epoch = Column(Integer, nullable=False, default=1, server_default="1")
     # True for the backing row of a ServiceAccount (a non-human API principal).
     # Such rows cannot log in interactively (is_active=False) and are filtered
     # out of human-facing surfaces (member lists, people pickers, seat counts).

@@ -1,7 +1,8 @@
 from typing import Optional, List
 from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, or_
+from sqlalchemy import and_, select, or_
+from sqlalchemy.exc import IntegrityError
 
 from app.models.table_usage_event import TableUsageEvent
 from app.models.table_feedback_event import TableFeedbackEvent
@@ -28,7 +29,7 @@ class TableUsageService:
             "trusted": 1.5,
         }
 
-    async def record_usage_event(self, db: AsyncSession, payload: TableUsageEventCreate) -> TableUsageEventSchema:
+    async def record_usage_event(self, db: AsyncSession, payload: TableUsageEventCreate) -> TableUsageEventSchema | None:
         # Guard: ensure data_source exists within org and user can access
         if not await self._validate_data_source_access(db, payload.org_id, payload.data_source_id, payload.user_id):
             return None  # silently skip emission if DS invalid/inaccessible
@@ -36,6 +37,20 @@ class TableUsageService:
         role_weight = payload.role_weight
         if role_weight is None and payload.user_role:
             role_weight = self.role_weights.get(payload.user_role.lower(), 1.0)
+
+        duplicate_filters = [
+            TableUsageEvent.step_id == payload.step_id,
+            TableUsageEvent.data_source_id == payload.data_source_id,
+        ]
+        if payload.datasource_table_id:
+            duplicate_filters.append(or_(
+                TableUsageEvent.datasource_table_id == payload.datasource_table_id,
+                TableUsageEvent.table_fqn == payload.table_fqn,
+            ))
+        else:
+            duplicate_filters.append(TableUsageEvent.table_fqn == payload.table_fqn)
+        if await db.scalar(select(TableUsageEvent.id).where(and_(*duplicate_filters)).limit(1)):
+            return None
 
         event = TableUsageEvent(
             org_id=payload.org_id,
@@ -55,9 +70,10 @@ class TableUsageService:
         db.add(event)
         try:
             await db.commit()
-        except Exception:
-            # Unique constraint might trip if called twice; ignore duplicates
+        except IntegrityError:
+            # A concurrent emission may win after the preflight query.
             await db.rollback()
+            return None
 
         # Upsert aggregate only at org-level (report_id None)
         await self._upsert_stats(
@@ -227,4 +243,3 @@ class TableUsageService:
             return True
         from app.core.permission_resolver import user_can_access_data_source
         return await user_can_access_data_source(db, str(user_id), str(org_id), ds)
-

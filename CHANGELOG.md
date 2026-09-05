@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.555 (September 5, 2026)
+- Document artifacts can now be exported as PDF, rendered through the real document viewer in headless Chromium instead of the browser print dialog (#1060)
+- Queries moved from their own page into the agents knowledge tree: each agent has a Queries row that opens its saved queries in the side panel, and unpublished queries are no longer served to members who don't own or manage them (#1061)
+- Hardened SQL Server Kerberos delegation: connection handshakes serialize around the process-global credential cache and each worker gets a private ccache, so concurrent service-account and per-user connections can no longer pick up the wrong identity (#1062)
+- Session tokens are now revocable: logging out, changing or resetting a password, and the new admin force-signout all invalidate every session token already issued to that user. **Upgrading signs every user out once** (#1063)
+- SSO sign-in no longer returns the session token in the redirect URL; the callback redirects with a single-use 60s code the app trades for the token over POST (#1063)
+- Sign-in auto-starts the SSO round trip when there is exactly one provider in `sso_only` mode, and `login_hint` is carried through to the provider so an embedding app opens BOW without a chooser (#1064)
+- Prometheus connector is out of `dev_only` and ships as beta, with histogram/summary metrics typed from their base metric, schema discovery bounded to a recent window, and a configurable request timeout and discovery lookback (#1065)
+- Added an AWS CloudWatch connector cataloging log groups (via Logs Insights) and metrics as tables on one connection, with static keys, assume-role, or the default credential chain (#1066)
+- OpenAI catalog adds GPT-6 Astra as a selectable model: GPT-6 requests omit temperature and route tool calls through the Responses API, including on gateways with a custom base URL. GPT-5.6 Terra remains the default and Luna the small-model default, so no organization changes model or cost on upgrade (#1068)
+- Added a catalog of 16 pre-built skills (RCA, Mermaid ERD, dashboard→instructions, dashboard→evals, scikit-learn modeling, cohort/funnel/variance analysis and more), browsable from the Skills group in the knowledge explorer and installed per organization by an admin; skills scoped to specific agent modes are no longer advertised outside them, and instruction lists now carry a skill's one-line description instead of a prefix of its body (#1070)
+
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
 - Added scikit-learn support with ML training constraints (#1055)

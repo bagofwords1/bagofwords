@@ -101,9 +101,8 @@ class MSSQLClient(DataSourceClient):
         params += (
             "TrustServerCertificate=yes;"
             "LoginTimeout=30;"
+            f"Encrypt={'yes' if self.encrypt else 'no'};"
         )
-        if not self.encrypt:
-            params += "Encrypt=no;"
         # Append user-supplied extra ODBC keywords (e.g. ApplicationIntent=ReadOnly),
         # skipping any that would override the security-sensitive keys above.
         for key, value in (self.additional_params or {}).items():

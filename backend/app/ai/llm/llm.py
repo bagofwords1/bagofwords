@@ -267,13 +267,15 @@ class LLM:
         custom_headers = build_provider_headers(additional_config) or None
         if self.provider == "openai":
             base_url = additional_config.get("base_url")
-            if base_url:
+            if base_url and not self.model_id.startswith("gpt-6"):
                 # Custom base URL on openai provider → use Chat Completions (compatible endpoint)
                 self.client = OpenAi(api_key=self.api_key, base_url=base_url, temperature=configured_temperature, default_headers=custom_headers)
             else:
-                # Default OpenAI → Responses API (supports reasoning content)
+                # Native OpenAI and GPT-6 (including gateways) use Responses;
+                # GPT-6 tool calling is not supported on Chat Completions.
                 self.client = OpenAIResponsesClient(
                     api_key=self.api_key,
+                    base_url=base_url,
                     enable_web_search=enable_web_search,
                     temperature=configured_temperature,
                     default_headers=custom_headers,

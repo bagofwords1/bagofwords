@@ -72,6 +72,49 @@ async def remove_member(
     )
     return await organization_service.remove_member(db, organization_id, membership_id, current_user, organization)
 
+@router.post("/organizations/{organization_id}/members/{membership_id}/sign-out", status_code=204, dependencies=[Depends(forbid_service_account_principal)])
+@requires_permission('manage_members')
+async def force_member_sign_out(
+    organization_id: str,
+    membership_id: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Revoke every session token held by a member.
+
+    The break-glass control for a leaked bearer token: session JWTs are only
+    accepted while they carry the user's current `session_epoch`, so bumping it
+    invalidates all of them at once, on every device. Before this existed the
+    only lever was deactivating the account.
+    """
+    from app.core.auth import bump_session_epoch
+
+    # Scope the lookup to the org the caller was actually authorized against
+    # (the resolved `organization`), not the org id in the path — those are
+    # separate inputs, and only the former has been checked for membership and
+    # manage_members.
+    membership = await organization_service.get_member(
+        db, membership_id, str(organization.id), current_user
+    )
+    if membership is None or not membership.user_id:
+        raise HTTPException(status_code=404, detail="Member not found")
+
+    await bump_session_epoch(membership.user_id)
+
+    await audit_service.log(
+        db=db,
+        organization_id=organization_id,
+        action="member.sessions_revoked",
+        user_id=current_user.id,
+        resource_type="membership",
+        resource_id=membership_id,
+        request=request,
+    )
+    return None
+
+
 @router.put("/organizations/{organization_id}/members/{membership_id}", response_model=MembershipSchema, dependencies=[Depends(forbid_service_account_principal)])
 @requires_permission('manage_members')
 async def update_member(

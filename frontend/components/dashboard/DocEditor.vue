@@ -57,7 +57,7 @@
 </template>
 
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, shallowRef, computed } from 'vue'
+import { onBeforeUnmount, onMounted, ref, shallowRef, computed, watch } from 'vue'
 import { Editor, EditorContent, VueNodeViewRenderer } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import CodeBlock from '@tiptap/extension-code-block'
@@ -90,15 +90,19 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'save', markdown: string): void
   (e: 'cancel'): void
+  (e: 'export-pdf'): void
 }>()
 
 const isSaving = ref(false)
 const saveError = ref('')
 
-// Exposed so the parent can toggle the saving state / surface API errors
+// Exposed so the parent can toggle the saving state / surface API errors, and
+// so it can tell whether the PDF it is about to render (the SAVED document)
+// still matches what the author is looking at.
 defineExpose({
   setSaving(v: boolean) { isSaving.value = v },
   setError(msg: string) { saveError.value = msg },
+  hasUnsavedChanges: () => isDirty.value,
 })
 
 const vizMap = computed(() => {
@@ -186,6 +190,14 @@ function preprocessForEditor(markdown: string): string {
 
 const editor = shallowRef<Editor>()
 
+// Set by the editor's own update event, not by comparing markdown: TipTap
+// re-serializes a document it merely loaded (spacing, escapes), so a text
+// comparison calls an untouched document dirty.
+const isDirty = ref(false)
+// A save round-trips through the parent and comes back as a new version, which
+// re-keys this component — but reset here too rather than depend on that.
+watch(() => props.markdown, () => { isDirty.value = false })
+
 onMounted(() => {
   editor.value = new Editor({
     content: preprocessForEditor(props.markdown),
@@ -211,6 +223,7 @@ onMounted(() => {
       // explicit dir (never dir="auto") keeps the caret placed correctly.
       attributes: { class: 'focus:outline-none', dir: detectDocDir(props.markdown) },
     },
+    onUpdate: () => { isDirty.value = true },
   })
   // Provide viz data to node views via editor storage
   ;(editor.value.storage as any).docVizMap = vizMap
@@ -245,18 +258,10 @@ function exportMarkdown() {
   URL.revokeObjectURL(url)
 }
 
-// Export as PDF via the browser print dialog. The print stylesheet below
-// isolates the editor content (live charts and all) and hides the toolbar/app
-// chrome, so the PDF is the document only.
+// PDF is rendered server-side from the saved document (the same headless
+// Chromium every other artifact exports through), so the parent owns it.
 function exportPdf() {
-  document.documentElement.classList.add('printing-doc-editor')
-  const cleanup = () => {
-    document.documentElement.classList.remove('printing-doc-editor')
-    window.removeEventListener('afterprint', cleanup)
-  }
-  window.addEventListener('afterprint', cleanup)
-  setTimeout(cleanup, 2000)
-  window.print()
+  emit('export-pdf')
 }
 
 const toolbarButtons = computed(() => {
@@ -313,29 +318,4 @@ const toolbarButtons = computed(() => {
 
 /* Selected atom node outline */
 .bow-doc-editor :deep(.ProseMirror-selectednode) { outline: 2px solid rgb(147 197 253); border-radius: 0.5rem; }
-</style>
-
-<!-- Print isolation: "Export as PDF" stamps `printing-doc-editor` on <html>,
-     so only the editor content (charts included) prints — toolbar and app
-     chrome are hidden, and the contenteditable caret/selection is suppressed. -->
-<style>
-@media print {
-  html.printing-doc-editor body * { visibility: hidden !important; }
-  html.printing-doc-editor .bow-doc-editor,
-  html.printing-doc-editor .bow-doc-editor * { visibility: visible !important; }
-  html.printing-doc-editor .bow-doc-editor {
-    /* `absolute` (not `fixed`) so the document flows across pages: a fixed
-       element is clipped to a single viewport box, cutting the PDF off after
-       a couple of pages. No `bottom`/`inset` so height follows the content. */
-    position: absolute !important;
-    top: 0 !important;
-    left: 0 !important;
-    right: 0 !important;
-    overflow: visible !important;
-    height: auto !important;
-    padding: 0 !important;
-  }
-  html.printing-doc-editor .bow-doc-editor .ProseMirror { caret-color: transparent !important; }
-  html.printing-doc-editor .bow-doc-editor .ProseMirror-selectednode { outline: none !important; }
-}
 </style>
