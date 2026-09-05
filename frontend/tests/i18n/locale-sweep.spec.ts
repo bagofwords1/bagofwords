@@ -21,71 +21,69 @@ const CASES: Record<Locale, {
   // Substrings expected on /i18n-smoke for that locale
   smokeHello: string;
   smokeCommonSave: string;
-  // Pattern expected on the /users/sign-in heading. A regex because English
-  // authoring keeps two parallel keys (auth.signIn = "Login", auth.login =
-  // "Sign in") and the page uses auth.signIn today. Locale rewrites are
-  // allowed to pick either synonym.
+  // Pattern expected on the /users/sign-in heading, which renders
+  // auth.welcomeBack. A regex so a locale rewrite can pick a synonym.
   signInHeading: RegExp;
 }> = {
   en: {
     dir: 'ltr',
     smokeHello: 'Hello',
     smokeCommonSave: 'Save',
-    signInHeading: /Login|Sign in/,
+    signInHeading: /Welcome back/,
   },
   es: {
     dir: 'ltr',
     smokeHello: 'Hola',
     smokeCommonSave: 'Guardar',
-    signInHeading: /Iniciar sesión/,
+    signInHeading: /Bienvenido de nuevo/,
   },
   he: {
     dir: 'rtl',
     smokeHello: 'שלום',
     smokeCommonSave: 'שמירה',
-    signInHeading: /התחברות|כניסה/,
+    signInHeading: /ברוכים השבים/,
   },
   fr: {
     dir: 'ltr',
     smokeHello: 'Bonjour',
     smokeCommonSave: 'Enregistrer',
-    signInHeading: /Connexion|Se connecter/,
+    signInHeading: /Bon retour/,
   },
   sv: {
     dir: 'ltr',
     smokeHello: 'Hej',
     smokeCommonSave: 'Spara',
-    signInHeading: /Logga in/,
+    signInHeading: /Välkommen tillbaka/,
   },
   ar: {
     dir: 'rtl',
     smokeHello: 'مرحبًا',
     smokeCommonSave: 'حفظ',
-    signInHeading: /تسجيل الدخول/,
+    signInHeading: /مرحبًا بعودتك/,
   },
   ru: {
     dir: 'ltr',
     smokeHello: 'Привет',
     smokeCommonSave: 'Сохранить',
-    signInHeading: /Вход|Войти/,
+    signInHeading: /С возвращением/,
   },
   de: {
     dir: 'ltr',
     smokeHello: 'Hallo',
     smokeCommonSave: 'Speichern',
-    signInHeading: /Anmelden|Login/,
+    signInHeading: /Willkommen zurück/,
   },
   pt: {
     dir: 'ltr',
     smokeHello: 'Olá',
     smokeCommonSave: 'Salvar',
-    signInHeading: /Entrar/,
+    signInHeading: /Bem-vindo de volta/,
   },
   it: {
     dir: 'ltr',
     smokeHello: 'Ciao',
     smokeCommonSave: 'Salva',
-    signInHeading: /Accedi/,
+    signInHeading: /Bentornato/,
   },
 };
 

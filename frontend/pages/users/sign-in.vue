@@ -1,14 +1,17 @@
 <template>
-  <div class="min-h-screen flex items-center justify-center px-6 py-20" v-if="pageLoaded">
-    <div class="w-full max-w-[360px]">
-      <h1 class="text-xl font-semibold text-center text-gray-900 dark:text-white">
-        {{ $t('auth.signIn') }}
+  <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
+    <div class="w-full max-w-[380px]">
+      <h1 class="text-[26px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+        {{ $t('auth.welcomeBack') }}
       </h1>
+      <p class="mt-2 text-[15px] text-center text-gray-500 dark:text-gray-400">
+        {{ $t('auth.signInSubtitle') }}
+      </p>
 
       <p v-if="error_message" v-html="error_message"
-         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
+         class="mt-6 text-sm text-red-500 text-center whitespace-pre-line"></p>
 
-      <div v-if="showSso" class="mt-7">
+      <div v-if="showSso" class="mt-9">
         <AuthProviderButtons
           :providers="oidcProviders"
           :google-enabled="googleSignIn"
@@ -17,34 +20,30 @@
         />
       </div>
 
-      <div v-if="showSso && showCredentials" class="relative my-6">
+      <div v-if="showSso && showCredentials" class="relative my-7">
         <div class="absolute inset-0 flex items-center" aria-hidden="true">
           <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
         <div class="relative flex justify-center">
-          <span class="px-3 text-xs text-gray-500 dark:text-gray-400 bg-white dark:bg-gray-950">
-            {{ $t('auth.orContinueWithEmail') }}
+          <span class="px-4 text-xs uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+            {{ $t('auth.or') }}
           </span>
         </div>
       </div>
 
-      <form v-if="showCredentials" @submit.prevent="signInWithCredentials()" :class="showSso ? '' : 'mt-7'">
+      <form v-if="showCredentials" @submit.prevent="signInWithCredentials()" :class="showSso ? '' : 'mt-9'">
         <div>
-          <label for="email" class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">
-            {{ $t('auth.email') }}
-          </label>
+          <label for="email" :class="labelClass">{{ $t('auth.email') }}</label>
           <input id="email" v-model="email" type="email" autocomplete="email" :class="inputClass" />
         </div>
 
-        <div class="mt-4">
-          <div class="flex items-baseline justify-between mb-1.5">
-            <label for="password" class="block text-xs font-medium text-gray-700 dark:text-gray-300">
-              {{ $t('auth.password') }}
-            </label>
+        <div class="mt-5">
+          <div class="flex items-baseline justify-between">
+            <label for="password" :class="labelClass">{{ $t('auth.password') }}</label>
             <NuxtLink
               v-if="smtpEnabled"
               to="/users/forgot-password"
-              class="text-xs text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200"
+              class="mb-2 text-sm text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
             >
               {{ $t('auth.forgotPassword') }}
             </NuxtLink>
@@ -52,11 +51,7 @@
           <input id="password" v-model="password" type="password" autocomplete="current-password" :class="inputClass" />
         </div>
 
-        <button
-          type="submit"
-          :disabled="isSubmitting"
-          class="mt-5 w-full h-10 inline-flex items-center justify-center rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-        >
+        <button type="submit" :disabled="isSubmitting" :class="primaryButtonClass">
           <template v-if="isSubmitting">
             <Spinner class="h-4 w-4 me-2" />
             {{ $t('auth.loggingIn') }}
@@ -65,9 +60,9 @@
         </button>
       </form>
 
-      <p v-if="authMode !== 'sso_only'" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
+      <p v-if="authMode !== 'sso_only'" class="mt-8 text-[15px] text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.newToBow') }}
-        <NuxtLink to="/users/sign-up" class="text-blue-600 hover:text-blue-700 dark:text-blue-400">
+        <NuxtLink to="/users/sign-up" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signUp') }}
         </NuxtLink>
       </p>
@@ -113,10 +108,22 @@
   const showSso = computed(() =>
     authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
 
+  const labelClass = 'block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2'
+
+  // Monochrome controls: the only color on the page is the provider logos and
+  // the one primary action.
   const inputClass =
-    'w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 ' +
-    'bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white ' +
-    'focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-colors'
+    'w-full h-11 px-3.5 rounded-xl border border-gray-300 dark:border-gray-700 ' +
+    'bg-white dark:bg-gray-900 text-[15px] text-gray-900 dark:text-white ' +
+    'focus:outline-none focus:border-gray-900 dark:focus:border-white ' +
+    'focus:ring-1 focus:ring-gray-900 dark:focus:ring-white transition-colors'
+
+  const primaryButtonClass =
+    'mt-7 w-full h-11 inline-flex items-center justify-center rounded-xl text-[15px] font-medium ' +
+    'text-white bg-gray-900 hover:bg-gray-800 dark:text-gray-900 dark:bg-white dark:hover:bg-gray-100 ' +
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ' +
+    'dark:focus-visible:ring-white focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950 ' +
+    'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
 
   function onProviderError(message: string) {
     error_message.value = message

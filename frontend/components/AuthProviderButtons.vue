@@ -1,24 +1,7 @@
 <template>
-  <div class="space-y-2" v-if="googleEnabled || providers.length">
+  <div class="space-y-2.5" v-if="allProviders.length">
     <button
-      v-if="googleEnabled"
-      @click="start('google')"
-      type="button"
-      :disabled="loadingProvider !== null"
-      :class="buttonClass"
-    >
-      <template v-if="loadingProvider === 'google'">
-        <Spinner class="h-4 w-4 me-2" />
-        {{ $t('auth.redirecting') }}
-      </template>
-      <template v-else>
-        <img src="/icons/google.svg" alt="" aria-hidden="true" class="h-[18px] w-[18px] me-2.5" />
-        {{ mode === 'sign-up' ? $t('auth.signUpWithGoogle') : $t('auth.signInWithGoogle') }}
-      </template>
-    </button>
-
-    <button
-      v-for="p in providers"
+      v-for="p in allProviders"
       :key="p.name"
       @click="start(p.name)"
       type="button"
@@ -26,15 +9,15 @@
       :class="buttonClass"
     >
       <template v-if="loadingProvider === p.name">
-        <Spinner class="h-4 w-4 me-2" />
-        {{ $t('auth.redirecting') }}
+        <Spinner class="h-4 w-4" />
       </template>
       <template v-else>
-        <img v-if="iconSrc(p)" :src="iconSrc(p)" alt="" aria-hidden="true" class="h-[18px] w-[18px] me-2.5" />
-        <UIcon v-else name="i-heroicons-key" aria-hidden="true" class="h-[18px] w-[18px] me-2.5 text-gray-400 dark:text-gray-500" />
-        {{ mode === 'sign-up'
+        <img v-if="iconSrc(p)" :src="iconSrc(p)!" alt="" aria-hidden="true" :class="iconClass" />
+        <UIcon v-else name="i-heroicons-lock-closed" aria-hidden="true"
+               :class="[iconClass, 'text-gray-400 dark:text-gray-500']" />
+        <span>{{ mode === 'sign-up'
           ? $t('auth.continueWithProvider', { provider: label(p) })
-          : $t('auth.signInWithProvider', { provider: label(p) }) }}
+          : $t('auth.signInWithProvider', { provider: label(p) }) }}</span>
       </template>
     </button>
   </div>
@@ -67,11 +50,25 @@ const { t } = useI18n()
 const route = useRoute()
 const loadingProvider = ref<string | null>(null)
 
+// Google's built-in flow is just another button: folding it into one list keeps
+// the verb consistent across the stack ("Continue with Google" next to
+// "Continue with Microsoft", not "Sign up with Google").
+const allProviders = computed<AuthProvider[]>(() => [
+  ...(props.googleEnabled ? [{ name: 'google', label: 'Google', brand: 'google' as const }] : []),
+  ...props.providers,
+])
+
+// The mark is pinned to the leading edge so every label lands on the same
+// centered axis no matter how long the provider name is.
 const buttonClass =
-  'w-full h-10 inline-flex items-center justify-center rounded-lg border border-gray-300 ' +
-  'dark:border-gray-700 bg-white dark:bg-gray-900 text-sm font-medium text-gray-700 ' +
-  'dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 focus:outline-none ' +
-  'focus:ring-2 focus:ring-blue-500/40 disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+  'relative w-full h-11 inline-flex items-center justify-center rounded-xl border ' +
+  'border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 text-[15px] font-medium ' +
+  'text-gray-900 dark:text-gray-100 hover:bg-gray-50 dark:hover:bg-gray-800/60 ' +
+  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ' +
+  'dark:focus-visible:ring-white focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950 ' +
+  'disabled:opacity-50 disabled:cursor-not-allowed transition-colors'
+
+const iconClass = 'absolute start-4 h-[18px] w-[18px]'
 
 // Only three marks are shipped: the two providers most deployments use, and a
 // neutral key for every other OIDC issuer (Okta, Keycloak, an in-house IdP).
@@ -122,7 +119,7 @@ async function start(name: string) {
     throw new Error('missing authorization_url')
   } catch (error) {
     loadingProvider.value = null
-    const provider = props.providers.find((p) => p.name === name)
+    const provider = allProviders.value.find((p) => p.name === name)
     emit('error', name === 'google'
       ? t('auth.googleInitError')
       : t('auth.providerInitError', { provider: provider ? label(provider) : name }))

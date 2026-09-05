@@ -444,7 +444,7 @@
     }
   },
   "auth": {
-    "signIn": "Login",
+    "signIn": "Sign in",
     "signUp": "Sign up",
     "name": "Name",
     "email": "Email",
@@ -477,6 +477,11 @@
     "redirecting": "Redirecting…",
     "orContinueWith": "Or continue with",
     "orContinueWithEmail": "Or continue with email",
+    "welcomeBack": "Welcome back",
+    "signInSubtitle": "Sign in to your account",
+    "createAccount": "Create your account",
+    "signUpSubtitle": "Get started with Bag of words",
+    "or": "or",
     "signInWithGoogle": "Sign in with Google",
     "signUpWithGoogle": "Sign up with Google",
     "signInWithProvider": "Sign in with {provider}",
