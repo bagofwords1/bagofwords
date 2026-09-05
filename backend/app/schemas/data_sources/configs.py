@@ -2052,6 +2052,30 @@ class SharePointConfig(BaseModel):
     )
 
 
+# SharePoint Server uses Windows auth and its own REST API, not Graph.
+class SharePointOnpremConfig(SharePointConfig):
+    site_url: str = Field(..., title="Site URL", description="SharePoint Server site URL, including /sites/name. Not the Central Administration URL.", json_schema_extra={"ui:type": "string"})
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
+    max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)", description="Reject oversized downloads before parsing; files are never silently truncated.", json_schema_extra={"ui:type": "number"})
+    max_catalog_objects: int = Field(5000, ge=1, le=50000, title="Max Files", json_schema_extra={"ui:type": "number"})
+
+
+class SharePointOnpremNtlmCredentials(BaseModel):
+    username: str = Field(..., min_length=1, title="Domain username", description="DOMAIN\\username or user@domain. Use a read-only account scoped to the intended libraries.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class SharePointOnpremKerberosCredentials(BaseModel):
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: Optional[str] = Field(None, title="Service principal", description="Optional service-account UPN. Administrators must mount krb5.conf and the client keytab (KRB5_CLIENT_KTNAME), or provide a ticket cache. This authenticates as the service account, not as the signed-in BOW user.", json_schema_extra={"ui:type": "string"})
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
+
+
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
 class SharePointListsCredentials(SharePointCredentials):
@@ -3450,6 +3474,9 @@ __all__ = [
     # SharePoint / OneDrive / Google Drive (file connectors)
     "SharePointCredentials",
     "SharePointConfig",
+    "SharePointOnpremConfig",
+    "SharePointOnpremNtlmCredentials",
+    "SharePointOnpremKerberosCredentials",
     "OneDriveCredentials",
     "OneDriveConfig",
     "GoogleDriveCredentials",

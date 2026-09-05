@@ -28,7 +28,7 @@ from app.data_sources.clients.base import Capability
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
-_FILE_METADATA_KEYS = ("network_dir", "graph", "google_drive", "s3")
+_FILE_METADATA_KEYS = ("network_dir", "graph", "sharepoint_onprem", "google_drive", "s3")
 # Query tokens keep digit runs (case numbers, IDs) — unlike the indexer's
 # body tokenizer — so "6044534" scores against a name/path that carries it.
 _WORD_RE = re.compile(r"[^\W_]{2,}", re.UNICODE)
@@ -185,9 +185,17 @@ class SearchFilesTool(Tool):
                 try:
                     from sqlalchemy import select
                     from app.models.connection_table import ConnectionTable
+                    from app.models.connection import Connection
+                    connection_type = await runtime_ctx["db"].scalar(
+                        select(Connection.type).where(Connection.id == str(conn_id))
+                    )
                     tables = (await runtime_ctx["db"].execute(
                         select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
+                    if connection_type == "sharepoint_onprem":
+                        # Always check the caller's Windows identity live. Do
+                        # not fall back to a shared inventory on auth failure.
+                        tables = []
                     entries = _index_search(tables, data.query, data.max_results)
                     used_index = any(
                         (getattr(t, "metadata_json", None) or {}).get(k, {}).get("keywords") is not None

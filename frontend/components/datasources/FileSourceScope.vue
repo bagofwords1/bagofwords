@@ -84,6 +84,7 @@ const fileConnections = computed(() =>
 const cfg = (c: any) => c?.config || {}
 const baseOf = (c: any) => {
   const g = cfg(c)
+  if (c.type === 'sharepoint_onprem') return [g.site_url, g.drive_name, g.folder_path].filter(Boolean).join(' / ')
   if (g.bucket) return `s3://${g.bucket}/${g.prefix || ''}`
   return g.root_path || ''
 }

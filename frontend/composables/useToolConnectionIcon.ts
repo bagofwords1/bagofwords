@@ -16,7 +16,7 @@ import { computed, toValue, type MaybeRefOrGetter } from 'vue'
 // File-source connection types — used to scope the sole-connection fallback for
 // the file tools so a mixed (DB + file) agent doesn't misattribute.
 export const FILE_SOURCE_TYPES = [
-  'sharepoint', 'onedrive', 'google_drive', 'outlook_mail', 'network_dir', 's3',
+  'sharepoint', 'sharepoint_onprem', 'onedrive', 'google_drive', 'outlook_mail', 'network_dir', 's3',
   'onenote',
 ]
 
