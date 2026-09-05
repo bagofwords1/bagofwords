@@ -39,7 +39,7 @@
     <div v-if="!nodes.length" class="absolute inset-0 flex items-center justify-center pointer-events-none">
       <div class="text-center max-w-60 px-3"><UIcon name="i-heroicons-share" class="w-6 h-6 text-gray-300 mb-2" /><p class="text-xs text-gray-500 dark:text-gray-400">{{ t(canUpdate ? 'tableErd.empty' : 'tableErd.noMatches') }}</p></div>
     </div>
-    <div v-if="focusedTable" :style="panelStyle" class="absolute end-3 bottom-12 z-10 w-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow-sm" data-testid="erd-details">
+    <div v-if="focusedTable" ref="detailsPanel" :style="panelStyle" class="absolute end-3 bottom-12 z-10 w-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow-sm" data-testid="erd-details">
       <div class="flex justify-between items-center gap-2"><span class="font-mono text-xs truncate dark:text-gray-200" dir="ltr">{{ focusedTable.name }}</span><button class="control w-5" :aria-label="t('tableErd.clearFocus')" @click="clearFocus"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button></div>
       <div v-if="filtering && !matchIds.has(focused!)" class="mt-2 text-[10px] text-gray-500">{{ t('tableErd.outsideFilters') }}</div>
       <p v-if="!focusedLinks.length" class="text-[11px] text-gray-500 mt-2">{{ t('tableErd.noRelationships') }}</p>
@@ -51,7 +51,7 @@
       <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-[10px] text-gray-500">{{ t('tableErd.unresolved') }}</p>
       <details :open="columnsOpen" class="mt-3 text-[10px] text-gray-500" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="cursor-pointer">{{ t('tableErd.columns', { count: focusedTable.columns?.length || 0 }) }}</summary>
-        <input v-model="columnSearch" :placeholder="t('tableErd.searchColumns')" :aria-label="t('tableErd.searchColumns')" class="my-2 w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs" />
+        <input ref="columnSearchInput" v-model="columnSearch" :placeholder="t('tableErd.searchColumns')" :aria-label="t('tableErd.searchColumns')" class="my-2 w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs" />
         <div class="max-h-64 overflow-auto overscroll-contain">
           <div v-for="column in filteredColumns.slice(0, columnLimit)" :key="column.name" data-testid="erd-column" class="flex justify-between gap-3 py-1.5 font-mono" dir="ltr"><span class="break-all">{{ column.name }}</span><span class="text-gray-400 shrink-0">{{ column.dtype || column.type }}</span></div>
           <p v-if="!filteredColumns.length" class="py-2">{{ t('tableErd.noColumns') }}</p>
@@ -71,11 +71,11 @@ import { useElementSize, useEventListener } from '@vueuse/core'
 import { VueFlow, useVueFlow, MarkerType, BaseEdge, type Node } from '@vue-flow/core'
 import { Graph } from 'dagre-d3-es/src/graphlib/graph.js'
 import { layout } from 'dagre-d3-es/src/dagre/layout.js'
-import { tableGraph, tableId, visibleTableIds, type GraphTable } from '~/utils/tableGraph'
+import { TABLE_NODE_WIDTH, TABLE_NODE_HEIGHT, tableGraph, tableId, visibleTableIds, type GraphTable } from '~/utils/tableGraph'
 import TableCanvasNode from './TableCanvasNode.vue'
 import TableRecentPrompts from './TableRecentPrompts.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
-const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean }>()
+const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean; bottomInset?: number }>()
 const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string]; toggleFullscreen: []; ready: [] }>()
 const { t, locale } = useI18n()
 const flowId = `table-erd-${useId()}`
@@ -85,7 +85,7 @@ const canvasHeight = ref(460)
 const { width: canvasWidth } = useElementSize(canvasElement)
 function resizeCanvas() {
   if (!canvasElement.value) return
-  canvasHeight.value = Math.max(320, window.innerHeight - Math.max(0, canvasElement.value.getBoundingClientRect().top) - 72)
+  canvasHeight.value = Math.max(320, window.innerHeight - Math.max(0, canvasElement.value.getBoundingClientRect().top) - (props.bottomInset || 72))
 }
 onMounted(() => nextTick(resizeCanvas))
 useEventListener('resize', resizeCanvas)
@@ -109,6 +109,8 @@ watch(() => props.fullscreen, (full) => {
 // Vue Flow keeps an LTR coordinate surface even when its surrounding UI is RTL.
 const flowStyle = computed(() => focusedTable.value ? canvasWidth.value >= 700 ? { [(['he', 'ar'].includes(locale.value) ? 'insetInlineStart' : 'insetInlineEnd')]: '280px' } : { bottom: '250px' } : {})
 const panelStyle = computed(() => canvasWidth.value >= 700 ? { top: '52px' } : { height: '200px', width: 'calc(100% - 24px)' })
+const detailsPanel = ref<HTMLElement | null>(null)
+const columnSearchInput = ref<HTMLInputElement | null>(null)
 const columnsOpen = ref(false)
 const columnSearch = ref('')
 const columnLimit = ref(50)
@@ -169,8 +171,8 @@ function fitNodes(ids?: Set<string>, padding = 0.08, duration = 250, minimumZoom
   // Fixed card geometry lets us fit offscreen cards before Vue Flow mounts
   // them, without waiting for DOM measurements or stale computed positions.
   const left = Math.min(...rows.map(n => n.position.x)), top = Math.min(...rows.map(n => n.position.y))
-  const width = Math.max(...rows.map(n => n.position.x + 280)) - left
-  const height = Math.max(...rows.map(n => n.position.y + 180)) - top
+  const width = Math.max(...rows.map(n => n.position.x + TABLE_NODE_WIDTH)) - left
+  const height = Math.max(...rows.map(n => n.position.y + TABLE_NODE_HEIGHT)) - top
   const viewportWidth = canvasElement.value.clientWidth - (focusedTable.value && canvasWidth.value >= 700 ? 280 : 0), viewportHeight = canvasElement.value.clientHeight - 84 - (focusedTable.value && canvasWidth.value < 700 ? 214 : 0)
   const zoom = Math.max(minimumZoom, Math.min(1, viewportWidth / (width * (1 + 2 * padding)), viewportHeight / (height * (1 + 2 * padding))))
   return setViewport({ x: (viewportWidth - width * zoom) / 2 - left * zoom, y: (viewportHeight - height * zoom) / 2 - top * zoom, zoom }, { duration })
@@ -189,6 +191,17 @@ function focus(id: string) {
   if (focused.value !== id) { columnsOpen.value = false; columnSearch.value = ''; columnLimit.value = 50 }
   focused.value = id
   nextTick(() => fitNodes(canvasWidth.value < 700 ? new Set([id]) : neighborhood.value, 0.06))
+}
+async function openColumns(id: string) {
+  focus(id)
+  columnsOpen.value = true
+  columnSearch.value = ''
+  columnLimit.value = 50
+  await nextTick()
+  if (focused.value !== id) return
+  // Make the destination visible even when the previous table's details were scrolled.
+  if (detailsPanel.value) detailsPanel.value.scrollTop = 0
+  columnSearchInput.value?.focus({ preventScroll: true })
 }
 function onNodeClick({ node }: { node: Node }) { focus(node.id) }
 function clearFocus() { focused.value = null; if (overview) { setViewport(overview, { duration: 250 }); overview = null } }
@@ -215,12 +228,12 @@ function rearrange(initial = false) {
     remaining.delete(ids[0])
     for (let i = 0; i < ids.length; i++) for (const id of graph.value.neighbors.get(ids[i]) || []) if (remaining.delete(id)) ids.push(id)
     const g = new Graph().setGraph({ rankdir: narrow ? 'TB' : 'LR', nodesep: 28, ranksep: narrow ? 40 : 80 }).setDefaultEdgeLabel(() => ({}))
-    for (const id of ids) g.setNode(id, { width: 280, height: 180 })
+    for (const id of ids) g.setNode(id, { width: TABLE_NODE_WIDTH, height: TABLE_NODE_HEIGHT })
     for (const l of graph.value.links) if (g.hasNode(l.source) && g.hasNode(l.target) && l.source !== l.target) g.setEdge(l.source, l.target)
     if (ids.length > 1) layout(g)
-    groups.push(ids.length === 1 ? { width: 280, height: 180, points: new Map([[ids[0], {x: 0, y: 0}]]) } : {
+    groups.push(ids.length === 1 ? { width: TABLE_NODE_WIDTH, height: TABLE_NODE_HEIGHT, points: new Map([[ids[0], {x: 0, y: 0}]]) } : {
       width: g.graph().width, height: g.graph().height,
-      points: new Map(ids.map(id => { const p = g.node(id); return [id, {x: p.x - 140, y: p.y - 90}] })),
+      points: new Map(ids.map(id => { const p = g.node(id); return [id, {x: p.x - TABLE_NODE_WIDTH / 2, y: p.y - TABLE_NODE_HEIGHT / 2}] })),
     })
   }
   const width = Math.max(...groups.map(g => g.width), Math.sqrt(groups.reduce((area, g) => area + (g.width + 40) * (g.height + 40), 0) * (narrow ? 1 : 1.8)))
@@ -231,7 +244,7 @@ function rearrange(initial = false) {
     x += group.width + 40; rowHeight = Math.max(rowHeight, group.height)
   }
   nodes.value = nodes.value.map(n => ({ ...n, position: positions.get(n.id)!, computedPosition: { ...positions.get(n.id)!, z: 0 } }))
-  nextTick(() => fitNodes(undefined, 0.08, 0, initial ? 0.7 : 0.015))
+  nextTick(() => fitNodes(undefined, 0.08, 0, initial ? 0.55 : 0.015))
 }
 watch([visibleIds, () => props.tables, () => props.activeIds, focused, locale, () => props.showStats, () => props.canUpdate, () => props.editableQueryIds], () => {
   rememberPositions()
@@ -250,11 +263,11 @@ watch([visibleIds, () => props.tables, () => props.activeIds, focused, locale, (
     for (const l of graph.value.links) { if (l.source === id) l.columns.forEach(c => keyColumns.add(c.from)); if (l.target === id) l.columns.forEach(c => keyColumns.add(c.to)) }
     // Offscreen nodes have no mounted wrapper to recompute their coordinates.
     // Keep Vue Flow's viewport index aligned when we move them programmatically.
-    return { id, type: 'table', position: positions.get(id)!, computedPosition: { ...positions.get(id)!, z: 0 }, dimensions: { width: 280, height: 180 }, style: { opacity: focused.value && !neighborhood.value.has(id) ? 0.3 : 1 }, data: {
+    return { id, type: 'table', position: positions.get(id)!, computedPosition: { ...positions.get(id)!, z: 0 }, dimensions: { width: TABLE_NODE_WIDTH, height: TABLE_NODE_HEIGHT }, style: { opacity: focused.value && !neighborhood.value.has(id) ? 0.3 : 1 }, data: {
       table, active: props.activeIds.has(id), canUpdate: props.canUpdate, focused: focused.value === id, keyColumns: [...keyColumns].filter(Boolean), showStats: props.showStats,
       editQuery: table.custom_query_id && props.editableQueryIds?.has(table.custom_query_id) ? () => emit('editQuery', table.custom_query_id!) : undefined,
       hiddenNeighbors: [...graph.value.neighbors.get(id) || []].filter(n => !visibleIds.value.has(n)).length,
-      openColumns: () => { focus(id); columnsOpen.value = true },
+      openColumns: () => openColumns(id),
       toggle: (value: boolean) => toggle(id, value), expand: () => expand(id),
     } }
   })

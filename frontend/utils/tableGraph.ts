@@ -1,3 +1,5 @@
+export const TABLE_NODE_WIDTH = 360
+export const TABLE_NODE_HEIGHT = 224
 /** Declared references and conservative, explicitly labelled key-name suggestions. */
 export type GraphTable = {
   id?: string; name: string; is_active: boolean; connection_id?: string; connection_name?: string; connection_type?: string;

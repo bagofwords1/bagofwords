@@ -1,5 +1,5 @@
 <template>
-  <div class="table-node rounded-lg border shadow-sm text-[11px] leading-normal"
+  <div :style="{ width: `${TABLE_NODE_WIDTH}px`, height: `${TABLE_NODE_HEIGHT}px` }" class="table-node rounded-lg border shadow-sm text-[11px] leading-normal"
     :class="[data.active ? 'border-blue-500 dark:border-blue-400 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200' : 'border-dotted border-gray-400 dark:border-gray-500 bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400', data.focused ? 'ring-2 ring-blue-500/20' : '']"
     :data-testid="`erd-node-${data.table.name}`" :data-active="data.active">
     <Handle type="target" :position="Position.Left" :connectable="false" class="!bg-gray-400 !border-white" />
@@ -9,9 +9,9 @@
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-1.5 min-w-0" :title="data.table.connection_name">
           <span data-testid="erd-connection-icon" class="shrink-0"><DataSourceIcon :type="data.table.connection_type" class="h-3.5 w-3.5" /></span>
-          <span class="text-[11px] font-medium font-mono truncate" dir="ltr" :title="data.table.name">{{ data.table.name }}</span>
+          <span class="text-[11px] font-medium font-mono line-clamp-2 break-words leading-4" dir="ltr" :title="data.table.name">{{ data.table.name }}</span>
         </div>
-        <div class="text-[9px] text-gray-400 truncate mt-0.5">{{ [data.table.connection_name, data.table.metadata_json?.schema].filter(Boolean).join(' · ') }}</div>
+        <div class="text-[9px] text-gray-400 line-clamp-2 break-words leading-3 mt-0.5">{{ [data.table.connection_name, data.table.metadata_json?.schema].filter(Boolean).join(' · ') }}</div>
       </div>
       <UIcon v-if="data.table.custom_query_id" name="i-heroicons-bolt" class="w-3.5 h-3.5 text-gray-400" :title="t('tableErd.customQuery')" data-testid="erd-custom-query" />
       <button v-if="data.editQuery" class="nodrag nopan text-gray-400 hover:text-gray-700 dark:hover:text-gray-200" :aria-label="t('tableErd.editQuery', { name: data.table.name })" @click.stop="data.editQuery()"><UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" /></button>
@@ -33,6 +33,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import { TABLE_NODE_WIDTH, TABLE_NODE_HEIGHT } from '~/utils/tableGraph'
 import { Handle, Position } from '@vue-flow/core'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 import TableMetrics from './TableMetrics.vue'
@@ -41,5 +42,5 @@ const previewColumns = computed(() => [...new Set<string>([...props.data.keyColu
 const { t } = useI18n()
 </script>
 <style scoped>
-.table-node { width: 280px; height: 180px; display: flex; flex-direction: column; }
+.table-node { display: flex; flex-direction: column; }
 </style>

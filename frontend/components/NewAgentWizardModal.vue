@@ -1,17 +1,17 @@
 <template>
-  <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl' }" :prevent-close="step !== 'connect'">
-    <div class="p-5">
+  <UModal v-model="isOpen" :transition="false" :ui="{ width: expanded ? 'sm:max-w-[calc(100vw-2rem)]' : step === 'schema' ? 'sm:max-w-6xl' : 'sm:max-w-3xl' }" :prevent-close="step !== 'connect'">
+    <div class="p-5 max-h-[calc(100dvh-2rem)] overflow-y-auto" data-testid="new-agent-wizard">
       <!-- Header -->
-      <div class="flex items-center justify-between mb-1">
+      <div v-show="!expanded" class="flex items-center justify-between mb-1">
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Create Data Agent</h3>
         <button class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300" @click="isOpen = false">
           <UIcon name="heroicons-x-mark" class="w-5 h-5" />
         </button>
       </div>
-      <p class="text-sm text-gray-500 dark:text-gray-400">Set data source, select tables, and define additional context</p>
+      <p v-show="!expanded" class="text-sm text-gray-500 dark:text-gray-400">Set data source, select tables, and define additional context</p>
 
       <!-- Stepper -->
-      <nav class="w-full my-5">
+      <nav v-show="!expanded" class="w-full my-5">
         <ol class="flex justify-center items-center gap-4 text-xs">
           <li v-for="(s, idx) in steps" :key="s.key" class="flex items-center gap-2">
             <span class="flex items-center gap-2">
@@ -69,9 +69,9 @@
               <template #label>
                 <div v-if="selectedConnections.length > 0" class="flex items-center gap-1.5 flex-wrap">
                   <template v-for="conn in selectedConnections" :key="conn.id">
-                    <div class="flex items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5">
+                    <div class="flex max-w-full items-center gap-1 bg-gray-100 dark:bg-gray-800 rounded px-1.5 py-0.5">
                       <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-3.5 flex-shrink-0" />
-                      <span class="text-xs truncate max-w-[100px]">{{ conn.name }}</span>
+                      <span class="min-w-0 text-xs break-words">{{ conn.name }}</span>
                     </div>
                   </template>
                 </div>
@@ -111,10 +111,7 @@
               {{ errorMessage }}
             </div>
 
-            <div class="flex justify-between items-center pt-4 border-t border-gray-100 dark:border-gray-800">
-              <button class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="isOpen = false">
-                ← Cancel
-              </button>
+            <div class="flex justify-start rtl:flex-row-reverse gap-3 items-center pt-4 border-t border-gray-100 dark:border-gray-800">
               <UButton
                 color="blue"
                 size="xs"
@@ -124,6 +121,9 @@
               >
                 Save & Continue
               </UButton>
+              <button class="text-sm text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300" @click="isOpen = false">
+                {{ $t('common.cancel') }}
+              </button>
             </div>
           </div>
 
@@ -138,9 +138,11 @@
 
       <!-- ── Step 2: Configure knowledge (tables / files / tools) ──── -->
       <div v-else-if="step === 'schema'">
-        <p class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Pick tables for databases, review the file scope for directories — each source its own way.</p>
+        <p v-show="!expanded" class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Pick tables for databases, review the file scope for directories — each source its own way.</p>
         <div class="bg-white dark:bg-gray-900 rounded-lg">
-          <AgentKnowledgeTabs :ds-id="dsId" continue-label="Save & Continue" @saved="step = 'context'" />
+          <AgentKnowledgeTabs :ds-id="dsId" fullscreen-in-place continue-label="Save & Continue" @fullscreen-change="expanded = $event" @saved="expanded = false; step = 'context'">
+            <template #continue-actions><button type="button" class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400" @click="isOpen = false">{{ $t('common.cancel') }}</button></template>
+          </AgentKnowledgeTabs>
         </div>
       </div>
 
@@ -177,11 +179,12 @@
             <button class="text-blue-500 hover:text-blue-600 underline-offset-2 hover:underline" @click="showGitModal = true">integrate</button>
           </div>
 
-          <div class="flex justify-end pt-4">
+          <div class="flex items-center gap-3 justify-start rtl:flex-row-reverse pt-4">
             <button @click="handleSave" :disabled="saving || loadingDraft" class="bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-1.5 px-3 rounded disabled:opacity-50">
               <span v-if="saving">Saving...</span>
               <span v-else>Finish</span>
             </button>
+            <button type="button" class="text-sm text-gray-500 dark:text-gray-400" @click="isOpen = false">{{ $t('common.cancel') }}</button>
           </div>
 
           <GitRepoModalComponent v-model="showGitModal" :datasource-id="String(dsId)" :git-repository="integration?.git_repository" :metadata-resources="{ resources: [] }" @update:modelValue="handleGitModalClose" />
@@ -222,6 +225,7 @@ const steps = [
   { key: 'context', label: 'Set Context' },
 ] as const
 const step = ref<'connect' | 'schema' | 'context'>('connect')
+const expanded = ref(false)
 const order = ['connect', 'schema', 'context']
 function isDone(key: string) {
   return order.indexOf(key) < order.indexOf(step.value)
@@ -237,6 +241,7 @@ const dsId = ref('')
 
 // Reset everything when the modal opens.
 watch(isOpen, (val) => {
+  expanded.value = false
   if (val) {
     step.value = 'connect'
     dsId.value = ''

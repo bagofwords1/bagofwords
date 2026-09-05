@@ -112,6 +112,8 @@ test('three states, exploration, shared filters and persisted selection', async 
   await expect(node(page,'line_items')).toHaveAttribute('data-active','false')
   await node(page,'line_items').getByRole('checkbox').check()
   await expect(node(page,'orders')).toHaveAttribute('data-active','true')
+  await page.getByRole('button',{name:'Clear focus',exact:true}).first().click()
+  await page.getByRole('button',{name:'Fit view',exact:true}).click()
   await node(page,'customers').getByRole('checkbox').check()
   await page.getByRole('button',{name:'List',exact:true}).click()
   await page.getByPlaceholder('Search tables...').fill('customers')
@@ -292,6 +294,7 @@ test('late filtered list responses cannot replace the complete draft catalog', a
     await page.getByRole('button',{name:'Visual',exact:true}).click()
     await catalogReady
     await page.getByRole('button',{name:'Filter tables',exact:true}).click()
+    await page.screenshot({path:path.join(evidence,'after-loading-filter-menu.png')})
     await page.getByRole('button',{name:'Unselected',exact:true}).click()
     await page.getByPlaceholder('Search tables...').fill('orders')
     await listReady
@@ -548,4 +551,113 @@ test('visual spinner stays until catalog and diagram are ready', async ({page}) 
   await expect(spinner).toHaveCount(0)
   await expect(page.getByTestId('tables-erd')).toHaveCSS('opacity','1')
   await page.screenshot({path:path.join(evidence,'after-visual-ready.png')})
+})
+
+test('column buttons open the focused table columns after switching and collapsing', async ({page}) => {
+  await page.goto(`/agents/${id}/tables`)
+  await page.getByRole('button',{name:'Visual',exact:true}).click()
+  await expect(page.getByTestId('erd-loading')).toHaveCount(0)
+  const details = page.getByTestId('erd-details')
+  for (const name of ['orders', 'customers', 'orders', 'payments']) {
+    await node(page,name).getByRole('button',{name:/^Columns \(/}).click()
+    await expect(details.getByPlaceholder('Search columns…')).toBeVisible()
+    await expect(details.getByTestId('erd-column').first()).toBeVisible()
+    await details.getByPlaceholder('Search columns…').fill('id')
+    await details.locator('summary').click()
+    await expect(details.getByPlaceholder('Search columns…')).toBeHidden()
+  }
+  await node(page,'orders').locator('.font-mono').first().click()
+  await expect(details.getByTestId('table-recent-prompts').locator('li').first()).toBeVisible()
+  await details.evaluate(el => { el.scrollTop = el.scrollHeight })
+  await node(page,'orders').getByRole('button',{name:/^Columns \(/}).click()
+  await expect(details.getByPlaceholder('Search columns…')).toBeInViewport({ratio:1})
+  await expect(details.getByPlaceholder('Search columns…')).toBeFocused()
+  await page.screenshot({path:path.join(evidence,'after-column-button.png')})
+})
+
+test('wizard expands within its dialog and keeps primary actions on the left', async ({page,request,context}) => {
+  const locale = process.env.BOW_WIZARD_LOCALE || 'en'
+  const messages = JSON.parse(fs.readFileSync(path.resolve(`../locales/${locale}.json`), 'utf8'))
+  await context.addInitScript(locale => localStorage.setItem('bow.locale', locale), locale)
+  await page.setViewportSize({width:1366,height:900})
+  let createdId: string | undefined
+  await page.route('**/llm_sync', route => route.fulfill({json:{}}))
+  page.on('response', async response => {
+    if (response.request().method()==='POST' && new URL(response.url()).pathname==='/api/data_sources' && response.ok()) createdId=(await response.json()).id
+  })
+  try {
+    await page.goto('/agents')
+    await page.getByRole('button',{name:messages.agentsPage.new,exact:true}).last().click()
+    await page.getByRole('button',{name:`${messages.agentsPage.newAgent} ${messages.agentsPage.newAgentDesc}`,exact:true}).click()
+    const baseline = Boolean(process.env.BOW_WIZARD_BASELINE)
+    const wizard = baseline ? page.getByRole('dialog').locator('.p-5').first() : page.getByTestId('new-agent-wizard')
+    await wizard.getByPlaceholder('e.g., Sales, Marketing, Finance').fill(`Canvas wizard ${randomUUID().slice(0,6)}`)
+    await wizard.getByRole('button',{name:'Select connections',exact:true}).last().click()
+    await page.getByRole('option').filter({hasText:'sqlite-1'}).first().click()
+    await page.keyboard.press('Escape')
+    await wizard.getByRole('switch').click()
+    const save = wizard.getByRole('button',{name:'Save & Continue',exact:true})
+    const cancel = wizard.getByRole('button',{name:messages.common.cancel,exact:true})
+    if (!baseline) expect((await save.boundingBox())!.x).toBeLessThan((await cancel.boundingBox())!.x)
+    await page.screenshot({path:path.join(evidence,baseline ? 'before-wizard-actions.png' : `after-wizard-actions-${locale}.png`)})
+    await save.click()
+    await wizard.getByRole('button',{name:messages.tableErd.erd,exact:true}).click()
+    await expect(wizard.getByTestId('erd-loading')).toHaveCount(0)
+    const normalWidth = (await wizard.boundingBox())!.width
+    await wizard.getByRole('button',{name:messages.tableErd.fullscreen,exact:true}).click()
+    if (baseline) {
+      await page.screenshot({path:path.join(evidence,'before-wizard-expanded.png')})
+      await expect(wizard.getByTestId('tables-erd')).toBeVisible()
+    }
+    await expect(wizard.getByRole('button',{name:messages.tableErd.exitFullscreen,exact:true})).toBeVisible()
+    await expect.poll(async ()=>(await wizard.boundingBox())!.width).toBeGreaterThan(normalWidth)
+    await expect(page.getByRole('dialog')).toHaveCount(1)
+    await expect(wizard.getByTestId('tables-erd')).toBeVisible()
+    const menu = wizard.getByTestId('erd-select-tables')
+    await menu.click()
+    await expect(page.getByRole('listbox')).toBeVisible()
+    await page.getByPlaceholder(messages.tableErd.searchTables).fill('orders')
+    await page.getByRole('option').filter({hasText:'orders'}).first().click()
+    await page.keyboard.press('Escape')
+    await expect(wizard.getByRole('button',{name:messages.tableErd.exitFullscreen,exact:true})).toBeVisible()
+    if (!baseline) expect((await save.boundingBox())!.x).toBeLessThan((await cancel.boundingBox())!.x)
+    await expect(save).toBeInViewport({ratio:1})
+    await expect.poll(() => wizard.evaluate(el => { let current: Element | null = el; while (current) { if (getComputedStyle(current).opacity === '0' || getComputedStyle(current).visibility === 'hidden') return false; current = current.parentElement }; return true })).toBe(true)
+    await page.screenshot({path:path.join(evidence,`after-wizard-expanded-${locale}.png`),animations:'disabled'})
+    await wizard.getByPlaceholder('Search tables...').focus()
+    await page.keyboard.press('Escape')
+    await expect(wizard.getByRole('button',{name:messages.tableErd.exitFullscreen,exact:true})).toHaveCount(0)
+    await save.click()
+    await expect(wizard.getByRole('button',{name:'Finish',exact:true})).toBeVisible()
+    expect((await wizard.getByRole('button',{name:'Finish',exact:true}).boundingBox())!.x).toBeLessThan((await cancel.boundingBox())!.x)
+    await cancel.click()
+    await expect(wizard).toHaveCount(0)
+  } finally {
+    if (createdId) await request.delete(`${seed.base_url}/api/data_sources/${createdId}`,{headers})
+  }
+})
+
+test('visual cards allow longer table and source names', async ({page}) => {
+  const tableName = 'Adventure Works Internet Sales / Detailed Customer Orders'
+  const sourceName = 'AdventureWorks SSAS Production Warehouse — Sales and Customer Analytics'
+  await page.route('**/full_schema?**', async route => {
+    const response = await route.fetch()
+    const data = await response.json()
+    for (const table of data.tables || []) if (table.name==='orders') {
+      table.name=tableName
+      table.connection_name=sourceName
+    }
+    await route.fulfill({response,json:data})
+  })
+  await page.goto(`/agents/${id}/tables`)
+  await page.getByRole('button',{name:'Visual',exact:true}).click()
+  await page.getByRole('button',{name:'Full screen',exact:true}).click()
+  const card = node(page,tableName)
+  const name = card.getByTitle(tableName,{exact:true})
+  await expect(name).toBeVisible()
+  expect(await name.evaluate(el=>el.clientHeight)).toBeGreaterThan(20)
+  expect(await name.evaluate(el=>el.scrollHeight<=el.clientHeight)).toBe(true)
+  await expect(card.getByText(sourceName,{exact:true})).toBeVisible()
+  expect(await card.getByText(sourceName,{exact:true}).evaluate(el=>el.scrollHeight<=el.clientHeight)).toBe(true)
+  await page.screenshot({path:path.join(evidence,'after-long-table-names.png')})
 })
