@@ -25,7 +25,13 @@ DATA_SOURCES = [
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
-    "snowflake",
+    # Temporarily skipped: the CI Snowflake trial account is suspended for lack
+    # of a payment method, so every connection fails in the driver
+    # (ProgrammingError 000666 / SQLSTATE 57014) before any client code runs.
+    # Not a client defect — re-enable as soon as billing is restored, since
+    # #1069 added Snowflake foreign-key introspection that this is the only
+    # live coverage for.
+    pytest.param("snowflake", marks=pytest.mark.skip(reason="CI Snowflake account suspended (billing); tracked separately")),
     # Temporarily skipped: the CI BigQuery test dataset returns 0 tables
     # (empty dataset / lapsed permissions), unrelated to client code. Re-enable
     # once the CI service account's dataset is restored.

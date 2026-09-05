@@ -338,6 +338,7 @@ def test_connection_get_tables(
     create_user,
     login_user,
     whoami,
+    test_client,
 ):
     """Test that GET /connections/{id}/tables returns discovered tables."""
     if not CONNECTION_TEST_DB_PATH.exists():
@@ -363,6 +364,15 @@ def test_connection_get_tables(
         user_token=user_token,
         org_id=org_id,
     )
+
+    # /refresh only queues the indexing job and returns straight away, so the
+    # tables it discovers do not exist yet when it responds. Wait for the run to
+    # finish before asserting on its output — the same wait test_connection_crud
+    # above does. Without it this passes only when the background job happens to
+    # win the race, which is why it flakes on a loaded CI runner.
+    from tests.e2e.test_connection_indexing import _poll_until_terminal
+    final = _poll_until_terminal(test_client, connection["id"], user_token, org_id)
+    assert final["status"] == "completed", final
 
     # Get tables
     tables = get_connection_tables(
