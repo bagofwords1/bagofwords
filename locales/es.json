@@ -363,7 +363,8 @@
     "starOnGithub": "Star our GitHub",
     "admin": "Administración",
     "notifications": "Notificaciones",
-    "automations": "Automatizaciones"
+    "automations": "Automatizaciones",
+    "skills": "Habilidades"
   },
   "notifications": {
     "title": "Notificaciones",
@@ -4841,11 +4842,19 @@
     "modeScoped": "Solo {modes}",
     "modeScopedHint": "Esta habilidad solo se ofrece al agente en estos modos.",
     "adminOnly": "Solo un administrador puede activar una habilidad para la organización.",
-    "close": "Cerrar",
     "enabledToast": "Se activó «{name}»",
     "disabledToast": "Se desactivó «{name}»",
     "updatedToast": "Se actualizó «{name}»",
     "actionFailed": "No funcionó. Inténtalo de nuevo.",
-    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?"
+    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?",
+    "pageTitle": "Habilidades",
+    "tabEnabled": "Activadas",
+    "tabCatalog": "Catálogo",
+    "enabledEmpty": "Aún no hay habilidades activadas",
+    "enabledEmptyHint": "Activa una habilidad predefinida o escribe la tuya desde la página de Agentes.",
+    "prebuilt": "Predefinida",
+    "custom": "Propia",
+    "edit": "Editar",
+    "untitled": "Habilidad sin título"
   }
 }

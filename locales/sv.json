@@ -351,7 +351,8 @@
     "automations": "Automatiseringar",
     "agent": "Agent",
     "agents": "Agenter",
-    "viewAllAgents": "Visa alla agenter →"
+    "viewAllAgents": "Visa alla agenter →",
+    "skills": "Färdigheter"
   },
   "notifications": {
     "title": "Aviseringar",
@@ -4819,11 +4820,19 @@
     "modeScoped": "Endast {modes}",
     "modeScopedHint": "Den här färdigheten erbjuds bara till agenten i dessa lägen.",
     "adminOnly": "Endast en administratör kan aktivera en färdighet för organisationen.",
-    "close": "Stäng",
     "enabledToast": "”{name}” aktiverades",
     "disabledToast": "”{name}” inaktiverades",
     "updatedToast": "”{name}” uppdaterades",
     "actionFailed": "Det fungerade inte. Försök igen.",
-    "confirmOverwrite": "”{name}” har redigerats för din organisation. En uppdatering ersätter din version med originalet. Fortsätta?"
+    "confirmOverwrite": "”{name}” har redigerats för din organisation. En uppdatering ersätter din version med originalet. Fortsätta?",
+    "pageTitle": "Färdigheter",
+    "tabEnabled": "Aktiverade",
+    "tabCatalog": "Katalog",
+    "enabledEmpty": "Inga färdigheter aktiverade än",
+    "enabledEmptyHint": "Aktivera en färdig färdighet, eller skriv en egen från Agenter-sidan.",
+    "prebuilt": "Färdig",
+    "custom": "Egen",
+    "edit": "Redigera",
+    "untitled": "Namnlös färdighet"
   }
 }

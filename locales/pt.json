@@ -351,7 +351,8 @@
     "automations": "Automações",
     "agent": "Agente",
     "agents": "Agentes",
-    "viewAllAgents": "Ver todos os agentes →"
+    "viewAllAgents": "Ver todos os agentes →",
+    "skills": "Habilidades"
   },
   "notifications": {
     "title": "Notificações",
@@ -4819,11 +4820,19 @@
     "modeScoped": "Apenas {modes}",
     "modeScopedHint": "Esta habilidade só é oferecida ao agente nestes modos.",
     "adminOnly": "Só um administrador pode ativar uma habilidade para a organização.",
-    "close": "Fechar",
     "enabledToast": "«{name}» ativada",
     "disabledToast": "«{name}» desativada",
     "updatedToast": "«{name}» atualizada",
     "actionFailed": "Não funcionou. Tente novamente.",
-    "confirmOverwrite": "«{name}» foi editada para a sua organização. Atualizar substitui a sua versão pela original. Continuar?"
+    "confirmOverwrite": "«{name}» foi editada para a sua organização. Atualizar substitui a sua versão pela original. Continuar?",
+    "pageTitle": "Habilidades",
+    "tabEnabled": "Ativas",
+    "tabCatalog": "Catálogo",
+    "enabledEmpty": "Ainda não há habilidades ativas",
+    "enabledEmptyHint": "Ative uma habilidade predefinida ou escreva a sua na página de Agentes.",
+    "prebuilt": "Predefinida",
+    "custom": "Própria",
+    "edit": "Editar",
+    "untitled": "Habilidade sem título"
   }
 }

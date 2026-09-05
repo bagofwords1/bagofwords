@@ -37,11 +37,20 @@ product documentation), `POST .../{key}/install`, `DELETE .../{key}`,
 `POST /instructions/global`, because an installed skill is a global row that
 reaches every request in the org).
 
-**UI** — `frontend/components/instructions/SkillCatalogModal.vue`, opened from
-the Skills group in the knowledge tree. Cards carry Enabled / Update available /
-Edited badges; non-admins get a read-only view with a lock notice.
+**UI** — a dedicated `/skills` page (`frontend/pages/skills.vue`) with two
+tabs over one card component (`components/skills/SkillCard.vue`):
 
-## Two fixes this loop found
+- **Enabled** — every `kind='skill'` instruction in the org, pre-built *and*
+  hand-authored, each labelled Pre-built or Custom. This is the tab that
+  answers "what does the agent actually have?", which the catalog alone
+  cannot: a hand-written skill is invisible to the catalog endpoint.
+- **Catalog** — the 16 shipped entries with Enable / Disable / Update.
+
+Cards carry Enabled / Update available / Edited badges; non-admins get a
+read-only view with a lock notice. The page has a top-level nav entry, and the
+Skills group in the knowledge tree links to it.
+
+## Three fixes this loop found
 
 1. **`_build_skills_catalog` ignored `applicable_modes`/`applicable_channels`.**
    Loaded instructions honored the scoping (lines 213/452/854 of
@@ -61,10 +70,21 @@ Edited badges; non-admins get a read-only view with a lock notice.
    this by filtering client-side; the modal now reports `removedId` and
    `onSkillCatalogChanged` does the same.
 
-Two smaller gaps fixed alongside: `catalog_key`/`catalog_version` were absent
-from both list projections, and `InstructionListSchema` declared `description`
-but never populated it — so every full list row reported `description=None`,
-which for a skill is the one line that says what it is for.
+3. **Neither list projection carried a skill's `description`.**
+   `InstructionListSchema` declared the field and never populated it; the light
+   row did not declare it at all. The Enabled tab therefore rendered a prefix
+   of the markdown body (`# Predictive modeling with scikit-learn The sandbox
+   can train models…`) where the one-line description belongs — the same line
+   the agent sees in `<available_skills>`. Both projections now carry it, along
+   with `catalog_key`/`catalog_version`, which were also absent.
+
+A round of self-review caught three more before they shipped: `is_customized`
+compared only the body, so scoping a skill to one channel (without editing the
+text) skipped the overwrite confirmation and the update silently reset that
+scoping; `VALID_MODES` accepted `deep` (retired) and `excel` (never a mode), so
+an entry scoped to either would install cleanly and then be invisible in every
+real mode; and `uninstall` removed only the first row for a key, so a duplicate
+from a raced install kept the playbook advertised after it was disabled.
 
 ---
 
@@ -87,18 +107,32 @@ The i18n locale sweep needs the documented symlink
 
 ### 1. UI, as an admin
 
-Enable three skills through the modal, all `POST .../install` → 200; each
-button flips Enable → Disable and grows an "Enabled" badge; the tree picks up
-the rows and the count. Disable flips back, `DELETE` → 200, and the row leaves
-the tree (after fix 2). Search filters; the update flow shows
-"Update available" + "Edited", asks for confirmation before overwriting a
-customized skill, and clears both badges afterwards.
+On `/skills`: the Enabled tab opens on the org's skills and the Catalog tab
+lists all 16, each tab's count in its label. Enabling from the Catalog tab is
+`POST .../install` → 200, the button flips Enable → Disable, an "Enabled"
+badge appears, and the Enabled tab count goes 6 → 7 with the new skill listed;
+disabling reverses all of it (`DELETE` → 200, 7 → 6). Search filters both
+tabs. The update flow shows "Update available" + "Edited", asks for
+confirmation before overwriting a customized skill, and clears both badges
+afterwards.
+
+The knowledge tree keeps its own list of skills, and its stale-row bug (fix 2)
+was found and fixed while the UI was still a modal in that tree — the fix
+still matters because disabling from `/skills` and returning to the tree hits
+the same merge path.
 
 ### 2. UI, as a member
 
 A member invited into the org sees all 16 cards, the lock notice
 ("Only an administrator can enable a skill for the organization"), and every
 toggle `disabled` — `toggle disabled for member: true`.
+
+### 2b. RTL
+
+`/skills` in Hebrew: `html[dir=rtl]`, the whole page mirrored (sidebar, tabs,
+cards, actions), no unresolved `skillCatalog.*` keys. Skill titles and
+descriptions stay English by design — they are catalog content the agent
+reads, not UI chrome.
 
 ### 3. Context — the part that matters
 

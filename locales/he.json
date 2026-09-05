@@ -363,7 +363,8 @@
     "starOnGithub": "Star our GitHub",
     "admin": "ניהול",
     "notifications": "התראות",
-    "automations": "אוטומציות"
+    "automations": "אוטומציות",
+    "skills": "מיומנויות"
   },
   "notifications": {
     "title": "התראות",
@@ -4841,11 +4842,19 @@
     "modeScoped": "{modes} בלבד",
     "modeScopedHint": "המיומנות הזו מוצעת לסוכן במצבים האלה בלבד.",
     "adminOnly": "רק מנהל יכול להפעיל מיומנות עבור הארגון.",
-    "close": "סגירה",
     "enabledToast": "‏„{name}” הופעלה",
     "disabledToast": "‏„{name}” כובתה",
     "updatedToast": "‏„{name}” עודכנה",
     "actionFailed": "הפעולה נכשלה. נסו שוב.",
-    "confirmOverwrite": "‏„{name}” נערכה עבור הארגון שלכם. עדכון יחליף את הגרסה שלכם בגרסה המקורית. להמשיך?"
+    "confirmOverwrite": "‏„{name}” נערכה עבור הארגון שלכם. עדכון יחליף את הגרסה שלכם בגרסה המקורית. להמשיך?",
+    "pageTitle": "מיומנויות",
+    "tabEnabled": "פעילות",
+    "tabCatalog": "קטלוג",
+    "enabledEmpty": "עדיין אין מיומנויות פעילות",
+    "enabledEmptyHint": "הפעילו מיומנות מובנית, או כתבו משלכם מדף הסוכנים.",
+    "prebuilt": "מובנית",
+    "custom": "משלכם",
+    "edit": "עריכה",
+    "untitled": "מיומנות ללא שם"
   }
 }

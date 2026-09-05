@@ -351,7 +351,8 @@
     "automations": "الأتمتة",
     "agent": "وكيل",
     "agents": "الوكلاء",
-    "viewAllAgents": "عرض كل الوكلاء ←"
+    "viewAllAgents": "عرض كل الوكلاء ←",
+    "skills": "المهارات"
   },
   "notifications": {
     "title": "الإشعارات",
@@ -4819,11 +4820,19 @@
     "modeScoped": "{modes} فقط",
     "modeScopedHint": "تُعرض هذه المهارة على الوكيل في هذه الأوضاع فقط.",
     "adminOnly": "يمكن للمسؤول وحده تفعيل مهارة للمؤسسة.",
-    "close": "إغلاق",
     "enabledToast": "تم تفعيل «{name}»",
     "disabledToast": "تم تعطيل «{name}»",
     "updatedToast": "تم تحديث «{name}»",
     "actionFailed": "لم تنجح العملية. حاول مرة أخرى.",
-    "confirmOverwrite": "تم تعديل «{name}» لمؤسستك. سيؤدي التحديث إلى استبدال نسختك بالنسخة الأصلية. هل تريد المتابعة؟"
+    "confirmOverwrite": "تم تعديل «{name}» لمؤسستك. سيؤدي التحديث إلى استبدال نسختك بالنسخة الأصلية. هل تريد المتابعة؟",
+    "pageTitle": "المهارات",
+    "tabEnabled": "المفعّلة",
+    "tabCatalog": "الكتالوج",
+    "enabledEmpty": "لا توجد مهارات مفعّلة بعد",
+    "enabledEmptyHint": "فعّل مهارة جاهزة، أو اكتب مهارتك من صفحة الوكلاء.",
+    "prebuilt": "جاهزة",
+    "custom": "مخصصة",
+    "edit": "تحرير",
+    "untitled": "مهارة بلا عنوان"
   }
 }

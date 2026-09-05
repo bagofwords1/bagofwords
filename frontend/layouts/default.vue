@@ -751,6 +751,7 @@
     { href: 'notifications', action: 'notifications', icon: 'heroicons-bell', label: 'nav.notifications' },
     { href: '/agents', icon: 'heroicons-cube', label: 'nav.agents', gapBefore: true },
     { href: '/prompts', icon: 'heroicons-book-open', label: 'nav.prompts' },
+    { href: '/skills', icon: 'heroicons-sparkles', label: 'nav.skills' },
     { href: '/files', icon: 'heroicons-document-duplicate', label: 'nav.files', hidden: true },
     { href: '/queries', component: LibraryIcon, label: 'nav.queries' },
     // Monitoring is no longer admin-only: an agent manager gets the same console

@@ -351,7 +351,8 @@
     "automations": "Automazioni",
     "agent": "Agente",
     "agents": "Agenti",
-    "viewAllAgents": "Vedi tutti gli agenti →"
+    "viewAllAgents": "Vedi tutti gli agenti →",
+    "skills": "Competenze"
   },
   "notifications": {
     "title": "Notifiche",
@@ -4819,11 +4820,19 @@
     "modeScoped": "Solo {modes}",
     "modeScopedHint": "Questa competenza viene offerta all’agente solo in queste modalità.",
     "adminOnly": "Solo un amministratore può attivare una competenza per l’organizzazione.",
-    "close": "Chiudi",
     "enabledToast": "«{name}» attivata",
     "disabledToast": "«{name}» disattivata",
     "updatedToast": "«{name}» aggiornata",
     "actionFailed": "Non ha funzionato. Riprova.",
-    "confirmOverwrite": "«{name}» è stata modificata per la tua organizzazione. L’aggiornamento sostituirà la tua versione con quella originale. Continuare?"
+    "confirmOverwrite": "«{name}» è stata modificata per la tua organizzazione. L’aggiornamento sostituirà la tua versione con quella originale. Continuare?",
+    "pageTitle": "Competenze",
+    "tabEnabled": "Attive",
+    "tabCatalog": "Catalogo",
+    "enabledEmpty": "Nessuna competenza attiva",
+    "enabledEmptyHint": "Attiva una competenza predefinita o scrivi la tua dalla pagina Agenti.",
+    "prebuilt": "Predefinita",
+    "custom": "Personalizzata",
+    "edit": "Modifica",
+    "untitled": "Competenza senza titolo"
   }
 }

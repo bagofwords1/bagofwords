@@ -40,14 +40,17 @@ class SkillCatalogService:
     # Reads
     # ------------------------------------------------------------------
 
-    async def _installed_rows(
+    async def _installed_by_key(
         self, db: AsyncSession, organization: Organization
-    ) -> Dict[str, Instruction]:
-        """catalog_key -> the org's installed row, newest first wins.
+    ) -> Dict[str, List[Instruction]]:
+        """catalog_key -> every live row the org has for it, oldest first.
 
-        Duplicates should not exist (``install`` is idempotent), but a row
-        created before that guard, or by a direct API call, must not make the
-        listing raise.
+        Normally one row per key: ``install`` checks before creating. That check
+        is not atomic and there is no unique constraint behind it, so two
+        concurrent installs can both win. Returning the full list (rather than
+        collapsing to one) is what lets ``uninstall`` clear the duplicate too —
+        otherwise one Disable click leaves a second copy of the same playbook
+        advertised in <available_skills>.
         """
         result = await db.execute(
             select(Instruction)
@@ -60,16 +63,48 @@ class SkillCatalogService:
             )
             .order_by(Instruction.created_at.asc())
         )
-        rows: Dict[str, Instruction] = {}
+        rows: Dict[str, List[Instruction]] = {}
         for row in result.scalars().all():
-            rows[row.catalog_key] = row
+            rows.setdefault(row.catalog_key, []).append(row)
+        for key, key_rows in rows.items():
+            if len(key_rows) > 1:
+                logger.warning(
+                    "org %s has %d rows for pre-built skill %s — the playbook is "
+                    "advertised more than once; disabling it will clear them all",
+                    organization.id, len(key_rows), key,
+                )
         return rows
 
     @staticmethod
-    def _entry_state(skill: PrebuiltSkill, row: Optional[Instruction]) -> Dict:
+    def _is_customized(skill: PrebuiltSkill, row: Instruction) -> bool:
+        """True when the org's copy diverges from the shipped entry.
+
+        Covers every field ``update_to_latest`` overwrites, not just the body:
+        an admin who scopes an installed skill to one channel without touching
+        the text would otherwise be reported as un-customized, the UI would skip
+        its confirmation, and the update would silently reset that scoping.
+        (``data_source_ids`` is deliberately absent — the update leaves agent
+        scoping alone, so it is not a divergence an update would destroy.)
+        """
+        def _list(value) -> list:
+            return list(value) if isinstance(value, list) else []
+
+        return (
+            (row.text or "").strip() != skill.body.strip()
+            or (row.title or "") != skill.title
+            or (row.description or "") != skill.description
+            or (row.category or "") != skill.category
+            or _list(row.applicable_modes) != list(skill.modes)
+            or _list(row.applicable_channels) != list(skill.channels)
+        )
+
+    @classmethod
+    def _entry_state(
+        cls, skill: PrebuiltSkill, rows: Optional[List[Instruction]],
+    ) -> Dict:
         """One catalog entry plus this org's installation state."""
         entry = skill.to_dict()
-        if row is None:
+        if not rows:
             entry.update(
                 installed=False,
                 instruction_id=None,
@@ -77,19 +112,23 @@ class SkillCatalogService:
                 update_available=False,
                 is_customized=False,
                 status=None,
+                duplicate_count=0,
             )
             return entry
 
+        row = rows[0]
         installed_version = row.catalog_version
         entry.update(
             installed=True,
             instruction_id=str(row.id),
             installed_version=installed_version,
             update_available=bool(installed_version and installed_version != skill.version),
-            # A body that no longer matches the shipped text means the admin
-            # tuned it — an update would overwrite that, so the UI must warn.
-            is_customized=(row.text or "").strip() != skill.body.strip(),
+            is_customized=cls._is_customized(skill, row),
             status=row.status,
+            # >1 means a concurrent install slipped past the idempotency check;
+            # surfaced rather than hidden so it is visible instead of showing up
+            # as the same playbook advertised twice.
+            duplicate_count=len(rows) - 1,
         )
         return entry
 
@@ -97,7 +136,7 @@ class SkillCatalogService:
         self, db: AsyncSession, organization: Organization
     ) -> List[Dict]:
         """Every catalog entry, annotated with this org's installation state."""
-        installed = await self._installed_rows(db, organization)
+        installed = await self._installed_by_key(db, organization)
         return [
             self._entry_state(skill, installed.get(skill.key))
             for skill in list_prebuilt_skills()
@@ -129,7 +168,7 @@ class SkillCatalogService:
         """
         skill = self._require_entry(key)
 
-        installed = await self._installed_rows(db, organization)
+        installed = await self._installed_by_key(db, organization)
         if key in installed:
             return self._entry_state(skill, installed[key])
 
@@ -156,11 +195,11 @@ class SkillCatalogService:
             "installed pre-built skill %s v%s for org %s", skill.key, skill.version, organization.id,
         )
         # Re-read so the returned state reflects what actually landed.
-        installed = await self._installed_rows(db, organization)
-        row = installed.get(key)
-        if row is None:  # pragma: no cover - create_instruction raises on failure
+        installed = await self._installed_by_key(db, organization)
+        rows = installed.get(key)
+        if not rows:  # pragma: no cover - create_instruction raises on failure
             raise HTTPException(status_code=500, detail="Skill install did not persist")
-        return self._entry_state(skill, row)
+        return self._entry_state(skill, rows)
 
     async def uninstall(
         self,
@@ -171,17 +210,23 @@ class SkillCatalogService:
     ) -> Dict:
         """Disable a catalog skill: soft-delete the org's installed row."""
         skill = self._require_entry(key)
-        installed = await self._installed_rows(db, organization)
-        row = installed.get(key)
-        if row is None:
+        installed = await self._installed_by_key(db, organization)
+        rows = installed.get(key)
+        if not rows:
             # Already absent — report the (uninstalled) state rather than 404,
             # so a double-click from the UI is not an error.
             return self._entry_state(skill, None)
 
-        await self.instruction_service.delete_instruction(
-            db, str(row.id), organization, current_user,
+        # Every row, not just the first: a duplicate left behind would keep the
+        # playbook advertised after the admin disabled it.
+        for row in rows:
+            await self.instruction_service.delete_instruction(
+                db, str(row.id), organization, current_user,
+            )
+        logger.info(
+            "uninstalled pre-built skill %s (%d row(s)) for org %s",
+            key, len(rows), organization.id,
         )
-        logger.info("uninstalled pre-built skill %s for org %s", key, organization.id)
         return self._entry_state(skill, None)
 
     async def update_to_latest(
@@ -198,10 +243,11 @@ class SkillCatalogService:
         ``is_customized`` flag is what the UI warns from.
         """
         skill = self._require_entry(key)
-        installed = await self._installed_rows(db, organization)
-        row = installed.get(key)
-        if row is None:
+        installed = await self._installed_by_key(db, organization)
+        rows = installed.get(key)
+        if not rows:
             raise HTTPException(status_code=404, detail=f"Skill '{key}' is not installed")
+        row = rows[0]
 
         await self.instruction_service.update_instruction(
             db,
@@ -224,7 +270,7 @@ class SkillCatalogService:
         row.catalog_version = skill.version
         await db.commit()
 
-        installed = await self._installed_rows(db, organization)
+        installed = await self._installed_by_key(db, organization)
         logger.info(
             "updated pre-built skill %s to v%s for org %s", key, skill.version, organization.id,
         )

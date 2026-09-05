@@ -351,7 +351,8 @@
     "automations": "Automatisierungen",
     "agent": "Agent",
     "agents": "Agenten",
-    "viewAllAgents": "Alle Agenten ansehen →"
+    "viewAllAgents": "Alle Agenten ansehen →",
+    "skills": "Skills"
   },
   "notifications": {
     "title": "Benachrichtigungen",
@@ -4819,11 +4820,19 @@
     "modeScoped": "Nur {modes}",
     "modeScopedHint": "Dieser Skill wird dem Agenten nur in diesen Modi angeboten.",
     "adminOnly": "Nur Administratoren können einen Skill für die Organisation aktivieren.",
-    "close": "Schließen",
     "enabledToast": "„{name}“ aktiviert",
     "disabledToast": "„{name}“ deaktiviert",
     "updatedToast": "„{name}“ aktualisiert",
     "actionFailed": "Das hat nicht geklappt. Bitte erneut versuchen.",
-    "confirmOverwrite": "„{name}“ wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird Ihre Version durch die Originalversion ersetzt. Fortfahren?"
+    "confirmOverwrite": "„{name}“ wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird Ihre Version durch die Originalversion ersetzt. Fortfahren?",
+    "pageTitle": "Skills",
+    "tabEnabled": "Aktiviert",
+    "tabCatalog": "Katalog",
+    "enabledEmpty": "Noch keine Skills aktiviert",
+    "enabledEmptyHint": "Aktivieren Sie einen vorgefertigten Skill oder schreiben Sie auf der Agenten-Seite einen eigenen.",
+    "prebuilt": "Vorgefertigt",
+    "custom": "Eigener",
+    "edit": "Bearbeiten",
+    "untitled": "Skill ohne Titel"
   }
 }

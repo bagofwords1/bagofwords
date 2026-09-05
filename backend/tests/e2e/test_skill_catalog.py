@@ -319,3 +319,82 @@ async def test_mode_scoped_skill_is_only_advertised_in_its_mode(
     # An unscoped skill stays visible everywhere — the filter must not
     # over-reach into skills that declared no modes.
     assert chat_id in in_chat and chat_id in in_training
+
+
+@pytest.mark.e2e
+def test_scoping_an_installed_skill_counts_as_customized(
+    create_user, login_user, whoami, test_client
+):
+    """is_customized must cover everything an update overwrites, not just the
+    body — otherwise the UI skips its confirmation and the update silently
+    resets the admin's scoping."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    key = _a_chat_skill_key()
+    installed = _install(test_client, token, org_id, key)
+    assert _catalog(test_client, token, org_id)[key]["is_customized"] is False
+
+    # Narrow the skill to one channel, leaving the text untouched.
+    scoped = test_client.put(
+        f"/api/instructions/{installed['instruction_id']}",
+        json={"applicable_channels": ["slack"]},
+        headers=_auth(token, org_id),
+    )
+    assert scoped.status_code == 200, scoped.json()
+
+    assert _catalog(test_client, token, org_id)[key]["is_customized"] is True
+
+    # And an update restores the shipped scoping, clearing the flag.
+    assert test_client.post(
+        f"/api/instructions/skill-catalog/{key}/update", headers=_auth(token, org_id)
+    ).status_code == 200
+    after = _catalog(test_client, token, org_id)[key]
+    assert after["is_customized"] is False
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_uninstall_clears_duplicate_rows(create_user, login_user, whoami, test_client):
+    """Install is check-then-act with no unique constraint behind it, so two
+    concurrent installs can both land. One Disable must clear all of them —
+    a leftover row keeps the playbook advertised after it was disabled."""
+    from sqlalchemy import select
+    from app.dependencies import async_session_maker
+    from app.models.instruction import Instruction
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    key = _a_chat_skill_key()
+    first = _install(test_client, token, org_id, key)
+
+    # A second row for the same key is only reachable by racing the check, so
+    # produce it directly.
+    async with async_session_maker() as db:
+        original = (await db.execute(
+            select(Instruction).where(Instruction.id == first["instruction_id"])
+        )).scalar_one()
+        db.add(Instruction(
+            text=original.text, title=original.title, description=original.description,
+            category=original.category, kind="skill", status="published",
+            load_mode="intelligent", organization_id=org_id,
+            catalog_key=key, catalog_version=original.catalog_version,
+        ))
+        await db.commit()
+
+    assert _catalog(test_client, token, org_id)[key]["duplicate_count"] == 1
+
+    assert test_client.delete(
+        f"/api/instructions/skill-catalog/{key}", headers=_auth(token, org_id)
+    ).status_code == 200
+
+    entry = _catalog(test_client, token, org_id)[key]
+    assert entry["installed"] is False
+    assert entry["duplicate_count"] == 0
+
+    async with async_session_maker() as db:
+        live = (await db.execute(
+            select(Instruction).where(
+                Instruction.organization_id == org_id,
+                Instruction.catalog_key == key,
+                Instruction.deleted_at.is_(None),
+            )
+        )).scalars().all()
+    assert live == []

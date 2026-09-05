@@ -4312,6 +4312,7 @@ class InstructionService:
                         id=str(inst.id),
                         title=getattr(inst, "title", None),
                         preview=build_preview(inst.text),
+                        description=getattr(inst, "description", None),
                         status=inst.status,
                         category=inst.category,
                         kind=getattr(inst, "kind", "instruction") or "instruction",

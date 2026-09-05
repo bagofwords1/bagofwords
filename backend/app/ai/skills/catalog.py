@@ -42,7 +42,12 @@ VALID_CATEGORIES = {"code_gen", "data_modeling", "general", "dashboard", "visual
 #: Agent run-modes an entry may scope itself to. A skill that only makes sense
 #: in one mode (its tools exist nowhere else) must say so, or it burns a
 #: catalog slot in every other mode.
-VALID_MODES = {"chat", "deep", "training", "knowledge", "excel"}
+#:
+#: Only real modes belong here. 'deep' is retired (InstructionService.
+#: RETIRED_MODES strips it) and 'excel' was never a mode — an entry scoped to
+#: either would install cleanly and then be filtered out of <available_skills>
+#: in every actual mode, i.e. silently invisible.
+VALID_MODES = {"chat", "training", "knowledge"}
 
 #: Frontmatter keys every entry must declare.
 REQUIRED_FIELDS = ("key", "title", "description", "category", "version")

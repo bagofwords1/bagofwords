@@ -240,6 +240,10 @@ class InstructionListItemSchema(BaseModel):
     title: Optional[str] = None
     #: Body prefix — the tree label falls back to it when `title` is unset.
     preview: Optional[str] = None
+    #: One-line blurb. For a skill this is the line the agent's
+    #: <available_skills> catalog advertises, so a list surface must show it
+    #: rather than falling back to a prefix of the body.
+    description: Optional[str] = None
     status: str
     category: str
     kind: str = "instruction"
