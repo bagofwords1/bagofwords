@@ -164,15 +164,28 @@ class ApiKeyService:
             if sa_result.scalar_one_or_none() is None:
                 return None
 
-        # Update last_used_at
-        api_key_obj.last_used_at = datetime.utcnow()
-        await db.commit()
-
         # Get the user
         user_result = await db.execute(
             select(User).where(User.id == api_key_obj.user_id)
         )
-        return user_result.scalar_one_or_none()
+        user = user_result.scalar_one_or_none()
+        if user is None:
+            return None
+
+        # Personal keys follow the account: a deactivated user (removed from
+        # their last organization, or SCIM-deprovisioned) must not keep a
+        # working credential. The JWT and OAuth-token paths already re-assert
+        # is_active per request; this is the third one. Service-account keys are
+        # exempt — their backing user row is is_active=False by construction and
+        # their kill switch is ServiceAccount.disabled_at, checked above.
+        if not api_key_obj.service_account_id and not user.is_active:
+            return None
+
+        # Update last_used_at
+        api_key_obj.last_used_at = datetime.utcnow()
+        await db.commit()
+
+        return user
 
     async def get_organization_by_api_key(
         self,

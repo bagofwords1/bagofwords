@@ -278,12 +278,16 @@ class LDAPGroupSyncService:
                 to_create = to_create[:remaining]
 
         from app.core.permission_resolver import ensure_system_role_assignment
+        from app.core.user_lifecycle import reactivate_user_for_membership
         for user_id in to_create:
             db.add(Membership(
                 user_id=user_id,
                 organization_id=organization_id,
                 role="member",
             ))
+            # Regaining a membership restores a login closed by
+            # app/core/user_lifecycle when the user's last one was removed.
+            await reactivate_user_for_membership(db, str(user_id))
             # Give the user a real RBAC assignment (not just the legacy string).
             await ensure_system_role_assignment(db, organization_id, str(user_id), "member")
             logger.info(f"LDAP sync: auto-created org membership for user {user_id} in org {organization_id}")
