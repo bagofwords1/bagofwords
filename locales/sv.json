@@ -4821,6 +4821,12 @@
     "updatedToast": "”{name}” uppdaterades",
     "actionFailed": "Det fungerade inte. Försök igen.",
     "confirmOverwrite": "”{name}” har redigerats för din organisation. En uppdatering ersätter din version med originalet. Fortsätta?",
-    "reset": "Återställ"
+    "reset": "Återställ",
+    "tabEnabled": "Aktiverade",
+    "tabCatalog": "Katalog",
+    "enabledSubtitle": "Färdigheter som den här organisationen har aktiverat. Öppna en för att läsa eller redigera den.",
+    "enabledEmpty": "Inga färdigheter aktiverade än",
+    "browse": "Bläddra i katalogen",
+    "custom": "Egen"
   }
 }

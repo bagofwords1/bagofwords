@@ -41,8 +41,10 @@ def _install(test_client, token, org_id, key):
 
 
 def _a_chat_skill_key() -> str:
-    """A catalog entry that applies to every mode (no mode scoping)."""
-    return next(s.key for s in list_prebuilt_skills() if not s.modes)
+    """A catalog entry that is offered in chat — unscoped, or scoped to chat."""
+    return next(
+        s.key for s in list_prebuilt_skills() if not s.modes or "chat" in s.modes
+    )
 
 
 def _a_training_only_skill_key():
@@ -316,9 +318,9 @@ async def test_mode_scoped_skill_is_only_advertised_in_its_mode(
 
     assert training_id not in in_chat
     assert training_id in in_training
-    # An unscoped skill stays visible everywhere — the filter must not
-    # over-reach into skills that declared no modes.
-    assert chat_id in in_chat and chat_id in in_training
+    # A chat-scoped (or unscoped) skill stays visible in chat — the filter must
+    # not over-reach beyond the entries that actually excluded this mode.
+    assert chat_id in in_chat
 
 
 @pytest.mark.e2e

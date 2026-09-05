@@ -4821,6 +4821,12 @@
     "updatedToast": "« {name} » mise à jour",
     "actionFailed": "Cela n’a pas fonctionné. Veuillez réessayer.",
     "confirmOverwrite": "« {name} » a été modifiée pour votre organisation. La mise à jour remplacera votre version par celle d’origine. Continuer ?",
-    "reset": "Réinitialiser"
+    "reset": "Réinitialiser",
+    "tabEnabled": "Activées",
+    "tabCatalog": "Catalogue",
+    "enabledSubtitle": "Compétences activées par cette organisation. Ouvrez-en une pour la lire ou la modifier.",
+    "enabledEmpty": "Aucune compétence activée",
+    "browse": "Parcourir le catalogue",
+    "custom": "Personnalisée"
   }
 }

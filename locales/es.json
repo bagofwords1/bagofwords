@@ -4843,6 +4843,12 @@
     "updatedToast": "Se actualizó «{name}»",
     "actionFailed": "No funcionó. Inténtalo de nuevo.",
     "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?",
-    "reset": "Restablecer"
+    "reset": "Restablecer",
+    "tabEnabled": "Activadas",
+    "tabCatalog": "Catálogo",
+    "enabledSubtitle": "Habilidades que esta organización tiene activadas. Abre una para leerla o editarla.",
+    "enabledEmpty": "Aún no hay habilidades activadas",
+    "browse": "Ver el catálogo",
+    "custom": "Propia"
   }
 }
