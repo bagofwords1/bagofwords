@@ -557,8 +557,7 @@ class UserManager(BaseUserManager[User, str]):
                 # Enforce invite policy similar to regular registration
                 async with self.user_db.session as session:
                     # If uninvited signups are disabled and not first user, require invite
-                    user_count = (await session.execute(select(User))).scalars().all().__len__()
-                    if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
+                    if await any_user_exists(session) and not settings.bow_config.features.allow_uninvited_signups:
                         stmt = select(Membership).where(
                             and_(
                                 func.lower(Membership.email) == (account_email or "").strip().lower(),
@@ -753,7 +752,7 @@ class UserManager(BaseUserManager[User, str]):
         email = user_create.email
 
         async with self.user_db.session as session:
-            user_count = (await session.execute(select(User))).scalars().all().__len__()
+            users_exist = await any_user_exists(session)
 
             # 1) A token was presented — validate it strictly.
             if token:
@@ -773,7 +772,7 @@ class UserManager(BaseUserManager[User, str]):
                 return  # valid invite — allow creation
 
             # 2) No token. First user always allowed (bootstrap).
-            if user_count == 0:
+            if not users_exist:
                 return
 
             # A pending invite exists for this email but no token was supplied.
@@ -801,6 +800,20 @@ class UserManager(BaseUserManager[User, str]):
                 )
 
         return
+
+
+async def any_user_exists(session: AsyncSession) -> bool:
+    """Whether this instance has been claimed yet.
+
+    Registration bootstraps the first user without an invite, so "no users yet"
+    is a real state that both the invite policy and the setup screen key off.
+
+    Deliberately uncached: a module-level flag would survive the database resets
+    between tests and tell a fresh-instance test that users already exist. A
+    COUNT over an indexed primary key is cheap enough not to need one.
+    """
+    return bool(await session.scalar(select(func.count()).select_from(User)))
+
 
 async def _org_signup_policy(db: AsyncSession, organization_id: str) -> dict:
     from app.models.organization_settings import OrganizationSettings
