@@ -4800,5 +4800,30 @@
     "showingRows": "Affichage de {n} sur {total} lignes",
     "openInPanel": "Ouvrir dans le panneau latéral",
     "closeFilePanel": "Fermer le fichier"
+  },
+  "skillCatalog": {
+    "title": "Compétences prédéfinies",
+    "subtitle": "Des guides sélectionnés que l’agent charge à la demande. Activez ceux dont votre équipe a besoin.",
+    "browse": "Parcourir les compétences prédéfinies",
+    "searchPlaceholder": "Rechercher des compétences…",
+    "loading": "Chargement des compétences…",
+    "loadFailed": "Impossible de charger le catalogue de compétences.",
+    "noResults": "Aucune compétence ne correspond à votre recherche.",
+    "enable": "Activer",
+    "disable": "Désactiver",
+    "enabled": "Activée",
+    "update": "Mettre à jour",
+    "updateAvailable": "Mise à jour disponible",
+    "customized": "Modifiée",
+    "customizedHint": "Cette compétence a été modifiée pour votre organisation. La mise à jour la remplacera par la version d’origine.",
+    "modeScoped": "{modes} uniquement",
+    "modeScopedHint": "Cette compétence n’est proposée à l’agent que dans ces modes.",
+    "adminOnly": "Seul un administrateur peut activer une compétence pour l’organisation.",
+    "close": "Fermer",
+    "enabledToast": "« {name} » activée",
+    "disabledToast": "« {name} » désactivée",
+    "updatedToast": "« {name} » mise à jour",
+    "actionFailed": "Cela n’a pas fonctionné. Veuillez réessayer.",
+    "confirmOverwrite": "« {name} » a été modifiée pour votre organisation. La mise à jour remplacera votre version par celle d’origine. Continuer ?"
   }
 }

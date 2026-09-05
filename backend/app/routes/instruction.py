@@ -13,6 +13,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.permissions_decorator import requires_permission, check_resource_permissions, require_org_permission
 from app.services.instruction_service import InstructionService
+from app.services.skill_catalog_service import SkillCatalogService
 from app.services.instruction_activity_service import (
     ACTIVITY_SOURCES,
     InstructionActivityService,
@@ -59,6 +60,7 @@ FULL_MAX_LIMIT = 200
 LIGHT_MAX_LIMIT = 2000
 
 instruction_service = InstructionService()
+skill_catalog_service = SkillCatalogService(instruction_service)
 instruction_activity_service = InstructionActivityService()
 instruction_label_service = InstructionLabelService()
 instruction_directory_service = InstructionDirectoryService()
@@ -439,6 +441,72 @@ async def get_available_references(
         types=types,
         data_source_ids=data_source_filter,
     )
+
+# PRE-BUILT SKILL CATALOG
+#
+# The catalog is code-defined content (app/ai/skills/library). Listing it is
+# open to any member — it is product documentation, and the Skills tree shows
+# it to everyone. Installing is an org-level `manage_instructions` action: an
+# installed skill is a global, agent-wide row that reaches every request in the
+# org, so a per-data-source grant confers no authority over it (same gate as
+# POST /instructions/global).
+async def _require_skill_catalog_admin(
+    db: AsyncSession, current_user: User, organization: Organization,
+) -> None:
+    await require_org_permission(
+        db, str(current_user.id), str(organization.id), "manage_instructions",
+    )
+
+
+@router.get("/instructions/skill-catalog", response_model=List[dict])
+async def list_skill_catalog(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Pre-built skills, each annotated with this org's installation state."""
+    return await skill_catalog_service.list_catalog(db, organization)
+
+
+@router.post("/instructions/skill-catalog/{key}/install", response_model=dict)
+async def install_skill_from_catalog(
+    key: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Enable a pre-built skill for the organization (admin only). Idempotent."""
+    await _require_skill_catalog_admin(db, current_user, organization)
+    return await skill_catalog_service.install(db, key, current_user, organization)
+
+
+@router.delete("/instructions/skill-catalog/{key}", response_model=dict)
+async def uninstall_skill_from_catalog(
+    key: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Disable a pre-built skill for the organization (admin only)."""
+    await _require_skill_catalog_admin(db, current_user, organization)
+    return await skill_catalog_service.uninstall(db, key, current_user, organization)
+
+
+@router.post("/instructions/skill-catalog/{key}/update", response_model=dict)
+async def update_skill_from_catalog(
+    key: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Re-sync an installed skill to the current catalog version (admin only).
+
+    Overwrites the org's copy — including any local edits, which the listing
+    flags as `is_customized` so the UI can warn before calling this.
+    """
+    await _require_skill_catalog_admin(db, current_user, organization)
+    return await skill_catalog_service.update_to_latest(db, key, current_user, organization)
+
 
 # UTILITY ROUTES
 @router.get("/instructions/source-types", response_model=List[dict])

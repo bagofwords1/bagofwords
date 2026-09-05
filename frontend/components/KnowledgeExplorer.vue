@@ -141,12 +141,16 @@
               </div>
             </template>
           </TreeGroup>
-          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
+          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :addable="canAddInstrFor()" :open="isOpen('skills')" @toggle="expand('skills')" @add="showSkillCatalog = true">
             <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
-              <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
+              <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" :add="canAddInstrFor()" @add="showSkillCatalog = true" />
               <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
             </template>
+            <button type="button" data-testid="browse-skill-catalog" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-[11px] text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70 transition-colors" style="padding-inline-start:32px;padding-inline-end:8px" @click.stop="showSkillCatalog = true">
+              <UIcon name="i-heroicons-squares-plus" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
+              <span class="truncate">{{ $t('skillCatalog.browse') }}</span>
+            </button>
           </TreeGroup>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
@@ -1039,6 +1043,9 @@
         </div>
       </div>
     </UModal>
+
+    <!-- Pre-built skill catalog: browse + enable/disable for the org. -->
+    <InstructionsSkillCatalogModal v-model="showSkillCatalog" @changed="onSkillCatalogChanged" />
 
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
 
@@ -3365,6 +3372,19 @@ const pendingCount = computed(() => {
 })
 const globalCount = computed(() => counts.value?.global || 0)
 const skillCount = computed(() => counts.value?.skills || 0)
+
+// Pre-built skill catalog (admin enables an entry; it lands as a normal
+// kind='skill' instruction). Reload the badge count and, when the group is
+// already expanded, its rows — otherwise an enable appears to do nothing.
+const showSkillCatalog = ref(false)
+const onSkillCatalogChanged = async ({ removedId }: { removedId?: string | null } = {}) => {
+  // Disabling deletes the row. loadGroup merges by id and never removes, so the
+  // disabled skill would linger in the tree until a reload — drop it here, the
+  // same way deleteInstruction does.
+  if (removedId) allInstructions.value = allInstructions.value.filter(i => i.id !== removedId)
+  await fetchCounts()
+  if (loadedGroups.value.has('skills')) await loadGroup('skills', true)
+}
 const agentCount = (id: string) => counts.value?.by_agent?.[id] || 0
 
 // Plural choice for the agent header counts ("1 table" vs "2 tables").

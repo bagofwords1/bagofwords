@@ -254,6 +254,11 @@ class InstructionListItemSchema(BaseModel):
     ai_source: Optional[str] = None
     applicable_modes: Optional[List[str]] = None
     applicable_channels: Optional[List[str]] = None
+    #: Catalog provenance for a row installed from the pre-built skill catalog
+    #: (None for user- and AI-authored rows). Drives the "Pre-built" badge and
+    #: lets a list surface tell an installed skill from a hand-written one.
+    catalog_key: Optional[str] = None
+    catalog_version: Optional[str] = None
 
     # Build system / pending-review markers (drive the amber "Pending review"
     # dot and the Pending changes view).
@@ -311,6 +316,9 @@ class InstructionListSchema(BaseModel):
     description: Optional[str] = None
     applicable_modes: Optional[List[str]] = None
     applicable_channels: Optional[List[str]] = None
+    #: Catalog provenance for a row installed from the pre-built skill catalog.
+    catalog_key: Optional[str] = None
+    catalog_version: Optional[str] = None
     structured_data: Optional[Dict[str, Any]] = None
     formatted_content: Optional[str] = None
 

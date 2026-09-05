@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.555 (September 5, 2026)
+- Added a catalog of 16 pre-built skills (RCA, Mermaid ERD, dashboard→instructions, dashboard→evals, scikit-learn modeling, cohort/funnel/variance analysis and more) that an admin enables per organization from the Skills group
+- Skills scoped to specific agent modes are no longer advertised outside them
+
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
 - Added scikit-learn support with ML training constraints (#1055)

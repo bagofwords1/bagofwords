@@ -4800,5 +4800,30 @@
     "showingRows": "{n} von {total} Zeilen angezeigt",
     "openInPanel": "In der Seitenleiste öffnen",
     "closeFilePanel": "Datei schließen"
+  },
+  "skillCatalog": {
+    "title": "Vorgefertigte Skills",
+    "subtitle": "Kuratierte Leitfäden, die der Agent bei Bedarf lädt. Aktivieren Sie die, die Ihr Team braucht.",
+    "browse": "Vorgefertigte Skills durchsuchen",
+    "searchPlaceholder": "Skills suchen…",
+    "loading": "Skills werden geladen…",
+    "loadFailed": "Der Skill-Katalog konnte nicht geladen werden.",
+    "noResults": "Keine Skills passen zu Ihrer Suche.",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "enabled": "Aktiviert",
+    "update": "Aktualisieren",
+    "updateAvailable": "Update verfügbar",
+    "customized": "Bearbeitet",
+    "customizedHint": "Dieser Skill wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird er durch die Originalversion ersetzt.",
+    "modeScoped": "Nur {modes}",
+    "modeScopedHint": "Dieser Skill wird dem Agenten nur in diesen Modi angeboten.",
+    "adminOnly": "Nur Administratoren können einen Skill für die Organisation aktivieren.",
+    "close": "Schließen",
+    "enabledToast": "„{name}“ aktiviert",
+    "disabledToast": "„{name}“ deaktiviert",
+    "updatedToast": "„{name}“ aktualisiert",
+    "actionFailed": "Das hat nicht geklappt. Bitte erneut versuchen.",
+    "confirmOverwrite": "„{name}“ wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird Ihre Version durch die Originalversion ersetzt. Fortfahren?"
   }
 }
