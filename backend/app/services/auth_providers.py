@@ -104,6 +104,24 @@ def _read_pkce_cookie(provider: str, request: Request) -> Optional[str]:
     return request.cookies.get(f"oidc_{provider}_verifier")
 
 
+def _read_login_hint(request: Request) -> Optional[str]:
+    """Read an optional ``login_hint`` off the authorize request.
+
+    An embedded app already knows which user it is opening BOW for, so it can
+    name them here and skip the provider's account picker — the difference
+    between a silent SSO round trip and a chooser screen for anyone signed in
+    to more than one account. Only this one parameter is honoured; the rest of
+    the authorize URL is ours to build.
+    """
+    value = (request.query_params.get("login_hint") or "").strip()
+    # Entra echoes the hint into a redirect; a CR/LF would let a caller graft
+    # extra header lines onto it, and the length cap keeps a hostile value from
+    # blowing past the provider's URL limit.
+    if not value or len(value) > 320 or any(c in value for c in "\r\n"):
+        return None
+    return value
+
+
 def _generate_pkce_pair() -> Tuple[str, str]:
     # verifier (43-128 chars) and S256 challenge
     verifier_bytes = os.urandom(64)
@@ -177,12 +195,17 @@ async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
     state = uuid.uuid4().hex
     redirect_uri = _get_redirect_uri(provider, request, getattr(cfg, "redirect_path", None))
 
+    login_hint = _read_login_hint(request)
+
     authorization_url = await client.get_authorization_url(
         redirect_uri=redirect_uri,
         state=state,
         scope=_get_scopes(getattr(cfg, "scopes", None)),
         extras_params={
             **(getattr(cfg, "extra_authorize_params", {}) or {}),
+            # A per-request hint names the actual user, so it beats the static
+            # config default rather than the other way round.
+            **({"login_hint": login_hint} if login_hint else {}),
             **({"code_challenge": code_challenge, "code_challenge_method": "S256"} if getattr(cfg, "pkce", True) else {}),
         },
     )
