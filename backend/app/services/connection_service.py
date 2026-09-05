@@ -1873,8 +1873,7 @@ class ConnectionService:
         # --- Kerberos SSO (per-user constrained delegation) ---
         # No stored secret is involved: the app impersonates the user's AD
         # principal via S4U at connect time, so a missing credential row is not
-        # an error — the principal is derived from the login identity unless the
-        # user saved an explicit override.
+        # an error — the principal comes only from the verified directory object.
         kerberos_creds = self._kerberos_delegated_credentials(connection, current_user, row)
         if kerberos_creds is not None:
             import asyncio
@@ -1979,13 +1978,11 @@ class ConnectionService:
         marker = row if (row is not None and row.auth_mode == KERBEROS_SSO_MODE) else None
         principal = resolve_kerberos_principal(user, marker)
         if not principal:
-            raise HTTPException(
-                status_code=403,
-                detail=(
-                    "Kerberos SSO requires an Active Directory principal (UPN). "
-                    "Your login identity has no UPN-shaped email — save your AD "
-                    "principal in your connection credentials."
-                ),
+            from app.errors import AppError, ErrorCode
+            raise AppError.forbidden(
+                ErrorCode.ACCESS_DENIED,
+                "Kerberos SSO requires a verified directory identity. "
+                "Sign in with your directory account.",
             )
         if (user.ldap_identity.get("organization_id") != str(connection.organization_id)):
             raise HTTPException(status_code=403, detail="Directory identity scope mismatch")

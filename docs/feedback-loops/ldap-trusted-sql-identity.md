@@ -1,6 +1,7 @@
 # Feedback loop — LDAP login must not authorize arbitrary SQL impersonation
 
-Status: implementation and verification in progress. **Not production-certified.**
+Status: scoped LDAP → Kerberos → SQL lab flow verified (2026-09-06).
+**Not a blanket production certification; remaining gates are listed below.**
 
 Baseline: umbrella branch after the Kerberos engine-activation merge.
 Only synthetic identities are used in regression tests. No customer data or
@@ -64,13 +65,13 @@ live AD, SQL, browser, or LLM integration.
 - `ldapsecurity01`: new nullable identity/ownership fields; existing accounts
   are deliberately not automatically linked.
 
-## Remaining gates
+## Remaining production gates
 
-Live directory transport/negative cases; PostgreSQL; supported group semantics;
-safe account-linking/migration operations; scope changes and sync preview parity;
-all credential API paths; TLS configuration and packaging; throttling;
-actual browser/LLM SQL identity and permission checks; secondary data paths;
-fresh-process concurrency/rotation; screenshots; deployment and security review.
+Supported group semantics (nested/ranged membership matrix); safe existing-account
+linking/migration operations; scope changes and sync-preview parity; all credential
+API paths; deployment-specific TLS packaging; throttling; rotation/failure recovery;
+and deployment/security review. SharePoint delegated identity is **not** proven by
+the SQL tests. These are not waived by a successful disposable lab.
 
 ## Live lab checkpoint
 
@@ -108,9 +109,92 @@ The browser exposed a separate sign-in defect: in `sso_only` mode it displayed
 only the heading, with no LDAP password form. Before screenshot captured in
 the AWS lab. Public settings now exposes only `ldap.enabled`, and the frontend
 uses it to show the form without enabling arbitrary local-password fallback.
-Deployment and after-browser verification of this fix are pending.
+The deployed frontend was built from checkpoint `32dfd8398`; subsequent backend
+fixes below were mounted into the same isolated container. Fresh real LDAP
+browser logins now display the password form and enter the app for both members.
 
-**Limits:** LLM and full browser query flows remain unverified.
-One fresh container and twenty concurrent requests are not the full
-rotation/multi-worker matrix. No browser screenshots or production-readiness
-claim yet. Do not treat this checkpoint as release acceptance.
+## Final end-to-end pass and additional fixes
+
+Two synthetic users signed in through the actual browser form. A real
+`gpt-5.4-mini` prompt invoked `create_data`, generated Python using the SQL
+client, and executed only this identity/constant query (no table contents):
+
+```sql
+SELECT ORIGINAL_LOGIN() AS sql_login,
+       CONVERT(varchar(30), CONNECTIONPROPERTY('auth_scheme')) AS auth_scheme,
+       42 AS synthetic_check;
+```
+
+Both stored results and visible browser tables showed the respective synthetic
+AD login, `KERBEROS`, and `42`. The reader could not retrieve the analyst's shared
+snapshot: data was withheld and executable code redacted. Disabling the reader
+in real AD invalidated its existing JWT (401), while the analyst stayed valid
+(200); the reader was restored afterward.
+
+Three defects found during this pass were corrected:
+
+1. **Cold prompt catalog:** `SchemaContextBuilder` read an absent per-user overlay
+   without discovering it. Kerberos has no OAuth callback to initialize that
+   cache. It now discovers under the verified caller on first use, never from
+   the service catalog. After deleting only the reader's derived overlay, a real
+   browser/LLM prompt still produced the reader's correct SQL identity.
+2. **Empty refresh revocation:** `get_user_data_source_schema` returned early for
+   `[]`, leaving stale access. A successful empty snapshot now reconciles the
+   overlay; `None` is rejected as a missing snapshot. Both new overlay regressions
+   failed before the fixes; all six overlay tests passed afterward.
+3. **Concurrent first viewer result:** two BOW HTTP requests selected an empty
+   cache slot and both inserted it, producing a unique-constraint 500. Atomic
+   SQLite/PostgreSQL upsert now retains the exact step/user/parameter key in both
+   query and step execution paths. A synchronized two-request endpoint regression
+   passes. The live cold-cache retry passed **12 requests across six threads**,
+   six per identity, with zero identity mismatches or HTTP failures.
+
+The stale error instructing users to enter a different principal was also
+replaced with the existing localized access-denied contract. Directory identity
+must be verified; editable email/credential fields cannot authorize delegation.
+
+### Regression evidence
+
+- LDAP/Kerberos/cancellation/overlay suite on PostgreSQL: **97 passed**.
+- Additional viewer-cache, report-parameter and shared-artifact suite on
+  PostgreSQL: **30 passed**. Its first run failed because the disposable test
+  container's uploads directory was unwritable; a scoped writable tmpfs corrected
+  the harness before rerunning.
+- Local combined suite initially: **105 passed, 4 failed** because four unit
+  assertions still expected HTTPException after the typed AppError migration.
+  Updating those assertions preserved the 403/error-code contract; the affected
+  Kerberos and concurrent-query files then passed **36 tests**.
+- Final combined local rerun after those updates: **109 passed** (2730 warnings).
+
+For the added cache tests, run the existing local command with:
+
+```sh
+tests/e2e/test_kerberos_sso_member_overlay.py
+tests/e2e/test_query_viewer_run_with_data_source.py
+tests/e2e/test_report_rerun_params.py
+tests/e2e/rbac/test_viewer_run_shared_artifacts.py
+```
+
+### Browser evidence
+
+Evidence contains only synthetic lab users and constant query output:
+
+- `media/pr/ldap-trusted-sql-identity/ldap-signin-before.png`
+- `media/pr/ldap-trusted-sql-identity/ldap-signin-after.png`
+- `media/pr/ldap-trusted-sql-identity/ldap-analyst-final-table.png`
+- `media/pr/ldap-trusted-sql-identity/ldap-reader-final-table.png`
+- `media/pr/ldap-trusted-sql-identity/ldap-browser-verification.gif`
+
+The before image predates the separately merged sign-in redesign, so it proves
+the missing form, not a pixel-identical base. Reusing saved browser sessions
+stalled one capture; fresh real LDAP logins produced both final table captures.
+The successful prompt explicitly selected `create_data`: general-purpose tool
+selection is not claimed perfect. Restricted-table denial was verified at the
+SQL client layer in the earlier checkpoint, not through a final browser prompt.
+
+Temporary upstream LLM credentials were cleared from the lab provider and its
+encrypted SSM parameter; temporary browser/admin session files and eight named
+disposable containers were removed. Stored synthetic query evidence remains.
+The two lab EC2 instances are stopped (not terminated); persistent disks remain
+recoverable and may continue to incur storage charges. Rotate any upstream key
+that was pasted into chat; deleting the lab copy is not key revocation.

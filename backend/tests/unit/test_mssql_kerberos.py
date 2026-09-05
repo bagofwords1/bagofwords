@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, unquote_plus, urlsplit
 
 import pytest
-from fastapi import HTTPException
+from app.errors import AppError, ErrorCode
 from pydantic import ValidationError
 
 from app.data_sources.clients.mssql_client import MSSQLClient
@@ -478,14 +478,16 @@ def test_kerberos_sso_not_enabled_returns_none():
 
 
 def test_kerberos_sso_rejects_unverified_login_email():
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(AppError) as exc:
         _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), None)
     assert exc.value.status_code == 403
+    assert exc.value.error_code == ErrorCode.ACCESS_DENIED.value
+    assert "verified directory identity" in exc.value.message
 
 
 def test_kerberos_sso_explicit_row_is_not_delegation_authority():
     row = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "j.doe@ad.corp.example.com"})
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(AppError) as exc:
         _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), row)
     assert exc.value.status_code == 403
 
@@ -497,13 +499,13 @@ def test_kerberos_sso_honors_other_real_auth_mode():
 
 def test_kerberos_sso_ignores_service_account_marker_row():
     row = _FakeRow("service_account", {})
-    with pytest.raises(HTTPException) as exc:
+    with pytest.raises(AppError) as exc:
         _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), row)
     assert exc.value.status_code == 403
 
 
-def test_kerberos_sso_requires_upn_shaped_identity():
-    with pytest.raises(HTTPException) as exc:
+def test_kerberos_sso_requires_verified_identity():
+    with pytest.raises(AppError) as exc:
         _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("no-upn-here"), None)
     assert exc.value.status_code == 403
 
@@ -520,14 +522,14 @@ def test_supports_user_kerberos_sso():
 
 def test_resolve_kerberos_principal_precedence():
     from app.services.connection_identity import resolve_kerberos_principal
-    # login UPN when no row
+    # An email shaped like a UPN is not verified directory authority.
     assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), None) is None
-    # explicit override wins
+    # An explicit override is not delegation authority either.
     row = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "j.doe@ad.corp.example.com"})
     assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), row) is None
-    # non-UPN login and no override → None (must set principal)
+    # An unverified bare username also fails closed.
     assert resolve_kerberos_principal(_FakeUser("no-upn"), None) is None
-    # a non-kerberos row is ignored for principal derivation → falls back to email
+    # A non-Kerberos row cannot authorize an email fallback.
     other = _FakeRow("userpass", {"kerberos_impersonate": "should-be-ignored@x"})
     assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), other) is None
 

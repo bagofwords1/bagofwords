@@ -511,33 +511,15 @@ class StepService:
         # fingerprint raises MultipleResultsFound as soon as the viewer holds
         # more than one combination.
         fingerprint = params_fingerprint(params)
-        existing = await db.execute(
-            select(StepUserResult).where(
-                StepUserResult.step_id == str(step_id),
-                StepUserResult.user_id == str(run_user.id),
-                StepUserResult.params_fingerprint == fingerprint,
-            )
+        from app.services.viewer_result_store import store_viewer_result
+        return await store_viewer_result(
+            db, step_id=str(step_id), user_id=str(run_user.id),
+            organization_id=str(report.organization_id), report_id=str(report.id),
+            params_fingerprint=fingerprint, status=status,
+            status_reason=status_reason, data=data, executed_as=executed_as,
+            applied_params=dict(params) if params else None,
+            last_run_at=datetime.utcnow(),
         )
-        row = existing.scalars().first()
-        if row is None:
-            row = StepUserResult(
-                step_id=str(step_id),
-                user_id=str(run_user.id),
-                organization_id=str(report.organization_id),
-                report_id=str(report.id),
-                params_fingerprint=fingerprint,
-            )
-            db.add(row)
-
-        row.status = status
-        row.status_reason = status_reason
-        row.data = data
-        row.executed_as = executed_as
-        row.applied_params = dict(params) if params else None
-        row.last_run_at = datetime.utcnow()
-        await db.commit()
-        await db.refresh(row)
-        return row
 
     async def get_steps_by_widget(self, db: AsyncSession, widget_id: str):
         steps = await db.execute(select(Step).filter(Step.widget_id == widget_id))

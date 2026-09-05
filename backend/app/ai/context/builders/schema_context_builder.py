@@ -307,6 +307,23 @@ class SchemaContextBuilder:
                     )
                 )
                 overlay_tables = overlays_q.scalars().all()
+                if not overlay_tables:
+                    from app.services.connection_identity import supports_user_kerberos_sso
+                    if any(supports_user_kerberos_sso(c) for c in (ds.connections or [])):
+                        # Kerberos has no OAuth callback to initialize a user's
+                        # catalog. Discover on first prompt under the verified
+                        # caller identity; never substitute the service catalog.
+                        from app.services.data_source_service import DataSourceService
+                        await DataSourceService().get_user_data_source_schema(
+                            db=self.db, data_source=ds, user=self.user,
+                        )
+                        overlay_tables = (await self.db.execute(
+                            select(UserDataSourceTable).where(
+                                UserDataSourceTable.data_source_id == str(ds.id),
+                                UserDataSourceTable.user_id == str(self.user.id),
+                                UserDataSourceTable.is_accessible == True,
+                            )
+                        )).scalars().all()
                 overlay_ids = [str(ot.id) for ot in overlay_tables]
                 # Every table this user can actually see. Relationships are read
                 # from the canonical row, which was indexed by a broader
