@@ -4906,6 +4906,11 @@
     "loading": "Cargando relaciones…",
     "loadError": "No se pudieron cargar las relaciones.",
     "retry": "Reintentar",
-    "saveError": "No se pudo guardar la selección."
+    "saveError": "No se pudo guardar la selección.",
+    "fullscreen": "Pantalla completa",
+    "exitFullscreen": "Salir de pantalla completa",
+    "searchColumns": "Buscar columnas…",
+    "noColumns": "No hay columnas coincidentes",
+    "centrality": "Centralidad"
   }
 }

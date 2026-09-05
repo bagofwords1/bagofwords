@@ -4882,6 +4882,11 @@
     "loading": "Chargement des relations…",
     "loadError": "Impossible de charger les relations.",
     "retry": "Réessayer",
-    "saveError": "Impossible d’enregistrer la sélection."
+    "saveError": "Impossible d’enregistrer la sélection.",
+    "fullscreen": "Plein écran",
+    "exitFullscreen": "Quitter le plein écran",
+    "searchColumns": "Rechercher des colonnes…",
+    "noColumns": "Aucune colonne correspondante",
+    "centrality": "Centralité"
   }
 }

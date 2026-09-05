@@ -59,7 +59,7 @@ supports focus, one-hop expansion, search, key/relationship details, and usage o
 Vue Flow was already installed and registered. Dagre's existing `dagre-d3-es`
 package is now declared directly at the already-locked version, 7.0.14, and only
 its layout/graph modules are imported. The ERD component loads asynchronously.
-Initial layout uses fixed card geometry; explicit Arrange recomputes it.
+Initial layout uses fixed 280×180 card geometry; explicit Arrange recomputes it.
 Offscreen coordinates stay synchronized with Vue Flow’s viewport index. Newly
 revealed nodes preserve existing card positions, and Expand brings them into view. Self-links route around the card.
 
@@ -338,3 +338,67 @@ switches to ERD, checks no source-table node is required, inspects cache metrics
 opens the permitted editor, saves, reloads, and switches to a real reader account
 to verify that edit/activation controls are absent. It deletes the synthetic
 query and restores the feature setting afterward.
+
+## Laptop workspace — full screen, wide schemas and visible metrics
+
+The user’s laptop screenshots showed small cards, a short canvas, a floating
+panel over related tables, and Save obscured by the support widget on the right.
+At baseline `e82600e2`, `TablesCanvas.vue:2` capped the height with
+`clamp(380px, 52vh, 560px)`, its details panel overlaid the viewport, and
+`TablesSelector.vue:552` aligned Save to the end of the row. The laptop test
+captured `before-workspace-laptop.png`, then failed because the Full screen
+button did not exist.
+
+Changes:
+
+- Cards retain three preview columns, prioritizing relationship keys. A
+  Columns (N) control opens a searchable column list in the details dock.
+  Only the first 50 matches render initially; Show more reveals another 50.
+  The list scrolls within the dock, so hundreds of columns never grow a node.
+- The canvas fills remaining viewport space, with room for Save. Initial
+  zoom has a readable floor; explicit Fit still shows the entire graph.
+  Details reserve space beside the graph, or below it on narrow screens.
+- Full screen moves the same selector to a body-level overlay, retaining its
+  draft, node positions and viewport. Search, both views, selection, query
+  editing, Save and an explicit exit remain available. Escape exits, keyboard
+  focus stays within the selector, and the app surface is restored on exit.
+  Onboarding has Save within full screen, then its existing Save & Continue
+  when returning to the embedded step.
+- Save and the onboarding continuation buttons stay on the physical left in
+  both English and Hebrew, clear of the support widget.
+- The card footer reuses the table list’s usage, successful/failed query and
+  positive/negative feedback counts and icons. Centrality is shown when supplied
+  by the existing API. Large counts use compact formatting; the hover details
+  retain full values, last use and cache status. No popularity score is invented.
+
+The `laptop canvas, full screen, wide columns and visible metrics` case runs at
+1366×768. It overrides only the synthetic orders response’s column metadata to
+300 columns and a known centrality value, leaving authentication, selection and
+saving on the real local API. It checks the left-aligned Save position, full-screen
+height, the 50-row initial bound, searching the last column, visible metrics,
+view switching, Escape, and preserved activation. The custom-query regression
+also opens the real editor from full screen and exits afterward.
+
+Re-run with the existing commands above, or isolate the new checks with:
+
+```bash
+node node_modules/@playwright/test/cli.js test --config playwright.tables-canvas.config.ts --grep 'laptop canvas|cached custom'
+```
+
+Evidence: `before-workspace-laptop.png`, `after-workspace-laptop.png`,
+`after-workspace-fullscreen.png`; the standard English/Hebrew/onboarding and
+large-graph screenshots are refreshed. The new flow is `fullscreen-columns.gif`.
+
+Verification: all 12 ERD browser cases passed on the development stack, including
+528 objects across two connections. The additional full-screen/editor and view
+switching checks passed. Graph invariants passed, and all ten ERD catalogs have
+matching keys with no increased global drift. Final production verification: 12 browser cases passed in 43.2 seconds,
+including physical-left Save in Hebrew, full-screen Save persistence, keyboard
+navigation, and the graph/dock boundary. The production build passed (exit 0).
+All 30 locale checks passed on production without retries (5.2 seconds); the
+concurrent development run had one delayed Spanish page that passed on retry.
+
+Screenshot review caught two final layout details: RTL must preserve the physical
+left for Save, and Vue Flow’s default `width: 100%` must be overridden with
+`width: auto` for the reserved dock inset to take effect. The browser suite now
+asserts both boundaries and that the cross-connection neighbor remains visible.

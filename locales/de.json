@@ -4882,6 +4882,11 @@
     "loading": "Beziehungen werden geladen…",
     "loadError": "Beziehungen konnten nicht geladen werden.",
     "retry": "Erneut versuchen",
-    "saveError": "Auswahl konnte nicht gespeichert werden."
+    "saveError": "Auswahl konnte nicht gespeichert werden.",
+    "fullscreen": "Vollbild",
+    "exitFullscreen": "Vollbild verlassen",
+    "searchColumns": "Spalten suchen…",
+    "noColumns": "Keine passenden Spalten",
+    "centrality": "Zentralität"
   }
 }

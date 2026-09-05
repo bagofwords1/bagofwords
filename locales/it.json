@@ -4882,6 +4882,11 @@
     "loading": "Caricamento relazioni…",
     "loadError": "Impossibile caricare le relazioni.",
     "retry": "Riprova",
-    "saveError": "Impossibile salvare la selezione."
+    "saveError": "Impossibile salvare la selezione.",
+    "fullscreen": "Schermo intero",
+    "exitFullscreen": "Esci da schermo intero",
+    "searchColumns": "Cerca colonne…",
+    "noColumns": "Nessuna colonna corrispondente",
+    "centrality": "Centralità"
   }
 }

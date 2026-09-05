@@ -31,7 +31,7 @@
         />
       </div>
 
-      <div v-if="showContinue" class="mt-4 flex justify-end">
+      <div v-if="showContinue" class="mt-4 flex justify-start rtl:justify-end">
         <button type="button" :disabled="saving" @click="saveAndContinue"
           class="px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400">
           {{ saving ? 'Saving…' : continueLabel }}
