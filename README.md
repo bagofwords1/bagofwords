@@ -181,6 +181,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Splunk | Search and observability |
 | Zabbix | Monitoring and observability |
 | AppDynamics | Monitoring and observability |
+| Prometheus | Monitoring and observability |
 | Jaeger | Tracing and observability |
 | Tableau | BI tool |
 | Power BI | BI tool |
@@ -197,6 +198,7 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | CSV | Files |
 | OneDrive | Files |
 | SharePoint | Files |
+| SharePoint Server (on-prem) | Files |
 | SharePoint Lists | Business app |
 
 ### Connect Tools Through MCP
