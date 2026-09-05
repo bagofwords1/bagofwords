@@ -487,7 +487,7 @@ dev = [
     { name = "pytest-timeout" },
     { name = "pytest-xdist" },
     { name = "ruff" },
-    { name = "testcontainers", extra = ["mysql"] },
+    { name = "testcontainers", extra = ["mssql", "mysql"] },
     { name = "ty" },
 ]
 kerberos = [
@@ -600,7 +600,7 @@ requires-dist = [
     { name = "stripe", specifier = ">=11.6.0,<11.7" },
     { name = "tenacity", specifier = ">=9.1.4,<9.2" },
     { name = "teradatasql", specifier = ">=20.0.0.61,<20.1" },
-    { name = "testcontainers", extras = ["postgres", "mysql"], marker = "extra == 'dev'", specifier = ">=4.14.2,<4.15" },
+    { name = "testcontainers", extras = ["postgres", "mysql", "mssql"], marker = "extra == 'dev'", specifier = ">=4.14.2,<4.15" },
     { name = "tiktoken", specifier = ">=0.13.0,<0.14" },
     { name = "trino", specifier = ">=0.337.0,<0.338" },
     { name = "ty", marker = "extra == 'dev'", specifier = ">=0.0.51,<0.1" },
@@ -3638,6 +3638,35 @@ wheels = [
 ]
 
 [[package]]
+name = "pymssql"
+version = "2.4.0"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/5d/4b/15f8faa7ffdcf1102637485869d87f1ea6d6a5b148cc7af9ee07d644e1c8/pymssql-2.4.0.tar.gz", hash = "sha256:c74eeb11f154eaec72ba39db3395cec8b522b580a3165584915390d6f7e962b3", size = 204966, upload-time = "2026-09-01T01:11:57.666Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/b7/0f4023625f5100ee78887ddeacc5521f9a6854637485171df51d7275899c/pymssql-2.4.0-cp312-cp312-macosx_14_0_arm64.whl", hash = "sha256:b431102558c76530505746f2ea8167fcc7d1deb1c50c797f36181dbfe366050b", size = 3183355, upload-time = "2026-09-01T01:10:56.003Z" },
+    { url = "https://files.pythonhosted.org/packages/69/9c/9b644e6e995f75a5d8b6e51fd98855014ef79d0ef5845128981b8b0da00e/pymssql-2.4.0-cp312-cp312-macosx_15_0_x86_64.whl", hash = "sha256:e0890069d3d4afb608674315e0c7b1f9290ca33d1bd6424f8373f81ace79c016", size = 2988416, upload-time = "2026-09-01T01:10:58.156Z" },
+    { url = "https://files.pythonhosted.org/packages/e6/26/df87ca403407c8d30e4070553bbbc1c9b36f4eaaf3648fdd18f40238028c/pymssql-2.4.0-cp312-cp312-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:300c9bec2497d260854f70f25bf45ef115b08aa51238f146da664dcbb0b5b0e5", size = 3081233, upload-time = "2026-09-01T01:11:00.197Z" },
+    { url = "https://files.pythonhosted.org/packages/22/6d/f27d0de50afde20b740c56d00753b9491b3a673ad9acc5d0d04d046bc852/pymssql-2.4.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:1b0b0c09f15ac96fd7f802db7fdf0d8ad5537ccd90db0f3a92737f489f8f0ff8", size = 3207243, upload-time = "2026-09-01T01:11:02.379Z" },
+    { url = "https://files.pythonhosted.org/packages/6e/78/eac9c5be5d75bfd5021f2856461f7475c15fba834208bec13bbeaa696fec/pymssql-2.4.0-cp312-cp312-musllinux_1_2_aarch64.whl", hash = "sha256:885f4db0c4fdba922bf100da015102750b758d5ebc3c7244598ad47b159f7b05", size = 3735355, upload-time = "2026-09-01T01:11:04.382Z" },
+    { url = "https://files.pythonhosted.org/packages/10/ea/ab00eabe80833640dc0eda8ebfbfc8eb657fcae4a3a9c29a65a0d9fb08f5/pymssql-2.4.0-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:1a7b77015c5e92ea718809fa6299f6cd8e54c39ef1837fdd1d18e9b09827ae3f", size = 3476353, upload-time = "2026-09-01T01:11:06.192Z" },
+    { url = "https://files.pythonhosted.org/packages/74/c2/f0b2bb24fd50b10f961ea3c52b6317b7292f26a26e8c467e8713cb263b08/pymssql-2.4.0-cp312-cp312-win_amd64.whl", hash = "sha256:14d42964bc0bc6d238eb6579d3f1761d13f1af8872fe40725f850afabd29004f", size = 2332799, upload-time = "2026-09-01T01:11:08.176Z" },
+    { url = "https://files.pythonhosted.org/packages/92/70/b1ec693c334a0c7d3e311a47d4fc0984200e93893bb7b3111223d4ca895a/pymssql-2.4.0-cp313-cp313-macosx_14_0_arm64.whl", hash = "sha256:f24a8e26fa24bcb54fc1e42ecc7e04d31386ae341ef24a0ce5ab28825c1e6b60", size = 3184317, upload-time = "2026-09-01T01:11:09.982Z" },
+    { url = "https://files.pythonhosted.org/packages/84/ac/0cf83c7ab51aeeae44ae268b050adc6b7a3fc8e39b29725a95a0709eee67/pymssql-2.4.0-cp313-cp313-macosx_15_0_x86_64.whl", hash = "sha256:9abd2bdd3fdec4b204619a6e2879f700d6ea3579ecf7183461dcd28c7c3ca447", size = 2993292, upload-time = "2026-09-01T01:11:12.002Z" },
+    { url = "https://files.pythonhosted.org/packages/bb/bf/a3e5730fd70f1e709c34f42c5ae8cf7358c0f8ca3b9c65808d977b3f8b8c/pymssql-2.4.0-cp313-cp313-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:a950900b76d90d7778a42e5fab6a03d82136a78e5800be7a148cef3c0b5a3700", size = 3080703, upload-time = "2026-09-01T01:11:14.031Z" },
+    { url = "https://files.pythonhosted.org/packages/44/ca/a84d975093b1304259b1716a2ad2685d7bef9fcb865dcf0ab773f1d97280/pymssql-2.4.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:fcfd3f118a5073e4f41bcd1d96e65606e31c140a8e692e051d3f0c4833c259bc", size = 3206695, upload-time = "2026-09-01T01:11:15.814Z" },
+    { url = "https://files.pythonhosted.org/packages/29/fb/829053bdc60aaf1a4f11eefccc36039c43177ef5b9b6f8cb9a36068cca61/pymssql-2.4.0-cp313-cp313-musllinux_1_2_aarch64.whl", hash = "sha256:0019a0301489f259c61fb8a8f9204e0405763763b26818a3a1c1988ac821a4b5", size = 3734690, upload-time = "2026-09-01T01:11:17.638Z" },
+    { url = "https://files.pythonhosted.org/packages/cc/80/f4cae99188710afd3261082d84f9ab4f981561d460453893e0961fecbd7a/pymssql-2.4.0-cp313-cp313-musllinux_1_2_x86_64.whl", hash = "sha256:7c903cb903337a3a668c32f647d7d91d87a038f65e055155d09415db843e6bb0", size = 3475952, upload-time = "2026-09-01T01:11:19.648Z" },
+    { url = "https://files.pythonhosted.org/packages/e0/80/ce4bfd451ca5093c9b1863f5f3ee043f37075691fa034e823fdc4d6f9d6d/pymssql-2.4.0-cp313-cp313-win_amd64.whl", hash = "sha256:18d0539d88d245a21cb348f8b46ce517ca0d93c44c502becb7849ca288c57fcd", size = 2331943, upload-time = "2026-09-01T01:11:21.495Z" },
+    { url = "https://files.pythonhosted.org/packages/96/15/8359d085ef0870f7cf78ac88b2f336e9971ae8e002478aa640a508efe2f6/pymssql-2.4.0-cp314-cp314-macosx_14_0_arm64.whl", hash = "sha256:10ad9b17fd6203448b0bcacd1e08eaec52a1c22f2acbc939d48c083f4452054a", size = 3186738, upload-time = "2026-09-01T01:11:23.267Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/fc/de2a1224ecbafae2ddbe73dc6599a8a43d68faf7dbcf98eec29252864c32/pymssql-2.4.0-cp314-cp314-macosx_15_0_x86_64.whl", hash = "sha256:ef686f87269f977bc13d6b644d6bb04257ef21477a548313e35ca228794141a6", size = 2994778, upload-time = "2026-09-01T01:11:24.851Z" },
+    { url = "https://files.pythonhosted.org/packages/bd/e1/1a10660bc19cb6f07801008c04de45a7be3ac5df61a69c71540e8452c63d/pymssql-2.4.0-cp314-cp314-manylinux_2_27_aarch64.manylinux_2_28_aarch64.whl", hash = "sha256:7794af8c8c85f38a973c7c5b3d4297db4deb1a4c65a13a75b327d1258127940c", size = 3079122, upload-time = "2026-09-01T01:11:26.809Z" },
+    { url = "https://files.pythonhosted.org/packages/8e/5a/cfcbf648d141647c057acbb7db27c5be2a135cce8dc23247aec30fffd257/pymssql-2.4.0-cp314-cp314-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl", hash = "sha256:adb6e6079354a0b3e1d3fb03bcddf1103d2bf2824eb8ae6f675ee7236cc3c676", size = 3204659, upload-time = "2026-09-01T01:11:28.491Z" },
+    { url = "https://files.pythonhosted.org/packages/f1/e5/c0dbc28629844164d517f2b0dfdc68b8e4820bf216075bf001713001c520/pymssql-2.4.0-cp314-cp314-musllinux_1_2_aarch64.whl", hash = "sha256:b4e2708c017c50dd738c08457de38f7b95a67518ced4afb00da481015b54db6d", size = 3733454, upload-time = "2026-09-01T01:11:30.295Z" },
+    { url = "https://files.pythonhosted.org/packages/fc/4f/d8cb47ae7e3de90314d644dc1c6891f5c73763185731a64009a3172af76d/pymssql-2.4.0-cp314-cp314-musllinux_1_2_x86_64.whl", hash = "sha256:c1d6836dffd97b4a582df00fe4e5b18340823ef547a7ee0124adb4a5f0b80ddf", size = 3474202, upload-time = "2026-09-01T01:11:32.048Z" },
+    { url = "https://files.pythonhosted.org/packages/61/af/596bdc78f7bc7df7d38c4179177811b047eaf6d96fa8d8c68398071dd2e0/pymssql-2.4.0-cp314-cp314-win_amd64.whl", hash = "sha256:d8e83295a53112259a461af84e5c63cefc32fdec97a682a11c76728296e8cefd", size = 2394490, upload-time = "2026-09-01T01:11:33.741Z" },
+]
+
+[[package]]
 name = "pymysql"
 version = "1.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -4745,6 +4774,10 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+mssql = [
+    { name = "pymssql" },
+    { name = "sqlalchemy" },
+]
 mysql = [
     { name = "pymysql", extra = ["rsa"] },
     { name = "sqlalchemy" },
