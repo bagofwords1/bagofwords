@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 from contextlib import contextmanager
@@ -11,6 +12,9 @@ import pandas as pd
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
+from app.data_sources.fk_reflection import attach_foreign_keys
+
+logger = logging.getLogger(__name__)
 
 
 class SqliteClient(DataSourceClient):
@@ -126,10 +130,41 @@ class SqliteClient(DataSourceClient):
                         )
                     )
                 reporter.done()
+                self._attach_foreign_keys(tables)
                 return tables
         except Exception as exc:
             print(f"Error retrieving tables: {exc}")
             return []
+
+    def _attach_foreign_keys(self, tables: list[Table]) -> None:
+        """Populate `fks` on the tables just collected.
+
+        The catalog reads above use raw sqlite3 (PRAGMA, `row_factory`), which
+        `sqlalchemy.inspect` cannot drive, so reflection addresses the same file
+        through the SQLAlchemy handle `extraction_connect` already opens for
+        extraction. SQLite's own locking is what keeps the two honest.
+
+        An in-memory database is the one case that cannot work: it is private
+        to the connection that created it, so a second handle would open a
+        different, empty database and report no constraints at all. Better to
+        skip than to state that confidently.
+
+        Names are bare here, so both the reference string and the lookup key
+        drop the schema.
+        """
+        if not self.sqlite_uri:
+            return
+        try:
+            with self.extraction_connect() as conn:
+                attach_foreign_keys(
+                    conn,
+                    {t.name: t for t in tables},
+                    None,
+                    lambda schema, table: table,
+                    key_fn=lambda schema, table: table,
+                )
+        except Exception:
+            logger.debug("SQLite FK reflection failed; continuing", exc_info=True)
 
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None):
         return self.get_tables(progress_callback=progress_callback)

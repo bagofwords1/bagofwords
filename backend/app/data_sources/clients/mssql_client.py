@@ -5,6 +5,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
+from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
 from contextlib import contextmanager
@@ -246,6 +247,7 @@ class MSSQLClient(DataSourceClient):
                     dtype=data_type,
                     description=col_comment if col_comment else None
                 ))
+            self._attach_foreign_keys(conn, tables)
             return list(tables.values())
 
     def _get_tables_basic(self) -> List[Table]:
@@ -283,7 +285,22 @@ class MSSQLClient(DataSourceClient):
                         metadata_json={"schema": table_schema})
                 tables[key].columns.append(
                     TableColumn(name=column_name, dtype=data_type))
+            self._attach_foreign_keys(conn, tables)
             return list(tables.values())
+
+    def _attach_foreign_keys(self, conn, tables) -> None:
+        """Populate `fks` on the tables just collected.
+
+        `name_fn` mirrors the `f"{table_schema}.{table_name}"` this client uses
+        for `Table.name` — the two must agree or downstream resolution, which is
+        an exact string match, drops every edge without complaining.
+        """
+        attach_foreign_keys(
+            conn,
+            tables,
+            self._schemas or None,
+            lambda schema, table: f"{schema}.{table}",
+        )
 
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""
