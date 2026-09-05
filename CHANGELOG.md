@@ -11,6 +11,8 @@
 - Added an AWS CloudWatch connector cataloging log groups (via Logs Insights) and metrics as tables on one connection, with static keys, assume-role, or the default credential chain (#1066)
 - OpenAI catalog adds GPT-6 Astra as a selectable model: GPT-6 requests omit temperature and route tool calls through the Responses API, including on gateways with a custom base URL. GPT-5.6 Terra remains the default and Luna the small-model default, so no organization changes model or cost on upgrade (#1068)
 - Added a catalog of 16 pre-built skills (RCA, Mermaid ERD, dashboard→instructions, dashboard→evals, scikit-learn modeling, cohort/funnel/variance analysis and more), browsable from the Skills group in the knowledge explorer and installed per organization by an admin; skills scoped to specific agent modes are no longer advertised outside them, and instruction lists now carry a skill's one-line description instead of a prefix of its body (#1070)
+- SQL data sources now introspect foreign keys (Postgres, SQL Server, MySQL/MariaDB, Oracle, Snowflake), so the agent sees table relationships without manual configuration; relationships pointing outside the selected tables are pruned from context, and the table picker shows a related-tables badge (#1069)
+- Added a SharePoint Server (on-premises) file connector, authenticating over Kerberos/GSSAPI against a self-hosted farm rather than the Graph API (#1071)
 
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
