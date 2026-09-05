@@ -15,6 +15,7 @@ from httpx_oauth.clients.openid import OpenID
 from httpx_oauth.clients.google import GoogleOAuth2
 
 from app.settings.config import settings
+from app.settings.bow_config import brand_for_issuer
 from app.core.auth import get_jwt_strategy
 
 import logging as _logging
@@ -144,8 +145,7 @@ def _is_entra_provider(provider_name: str) -> bool:
     cfg = _get_oidc_config(provider_name)
     if not cfg:
         return False
-    issuer = (cfg.issuer or "").lower()
-    return "login.microsoftonline.com" in issuer or "sts.windows.net" in issuer
+    return brand_for_issuer(cfg.issuer) == "microsoft"
 
 
 def _is_google_provider(provider_name: str) -> bool:
@@ -156,7 +156,7 @@ def _is_google_provider(provider_name: str) -> bool:
     cfg = _get_oidc_config(provider_name)
     if not cfg:
         return False
-    return "accounts.google.com" in (cfg.issuer or "").lower()
+    return brand_for_issuer(cfg.issuer) == "google"
 
 
 async def build_authorize_url(provider: str, request: Request) -> JSONResponse:
