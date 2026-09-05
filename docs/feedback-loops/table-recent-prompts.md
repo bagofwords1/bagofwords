@@ -52,3 +52,37 @@ The frontend request/reset guard lives in `frontend/components/datasources/Table
 - English and Hebrew/dark screenshots inspected; final flow recorded in `recent-prompts.gif`.
 
 Historical usage without exact persisted attribution intentionally yields no examples. There is no backfill or guessed matching, and no migration is needed.
+
+## Create Data with multiple source tables — 2026-09-05
+
+The table-history query already selects a prompt by its exact persisted
+`datasource_table_id`, so one execution appears under every table for which it
+has an event. The missing records were upstream: `agent_v2.py:7759` emitted
+`tool_input.tables_by_source` only when the output data model had no columns.
+A Create Data call with a normal result schema could therefore omit joined
+source tables from history.
+
+Create Data now records `tables_by_source` in addition to output-model lineage.
+`TableUsageService.record_usage_event` deduplicates by step, source, and the
+resolved table before updating aggregate stats, preventing the two lineage
+paths from double-counting the same table.
+
+The e2e regression creates one Create Data execution with two table usage
+events and verifies that the same prompt is returned by each table’s
+agent-admin-only endpoint. It passed with:
+
+```bash
+cd backend
+BOW_DATABASE_URL=sqlite:////private/tmp/bow-tables-erd-run/test-table-prompts.db \
+TESTING=true /Users/yochze/Desktop/bagofwords/backend/.venv/bin/python \
+  -m pytest tests/e2e/rbac/test_table_recent_prompts.py -q --db=sqlite
+```
+
+The prompt panel is also now visually contained as a separate history area;
+its cards retain only the prompt, outcome, and date. The exact-table and
+agent-admin constraints remain unchanged.
+
+UI evidence: `media/pr/tables-erd/after-recent-prompts.png` shows the
+contained history panel and `after-custom-query-list-edit.png` shows the edit
+action at the trailing edge of its list row. The focused browser regressions
+for both passed against the isolated seeded stack.
