@@ -4827,7 +4827,13 @@
     "updatedToast": "„{name}“ aktualisiert",
     "actionFailed": "Das hat nicht geklappt. Bitte erneut versuchen.",
     "confirmOverwrite": "„{name}“ wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird Ihre Version durch die Originalversion ersetzt. Fortfahren?",
-    "reset": "Zurücksetzen"
+    "reset": "Zurücksetzen",
+    "custom": "Eigener",
+    "browse": "Katalog durchsuchen",
+    "enabledEmpty": "Noch keine Skills aktiviert",
+    "tabCatalog": "Katalog",
+    "enabledSubtitle": "Skills, die diese Organisation aktiviert hat. Öffnen Sie einen zum Lesen oder Bearbeiten.",
+    "tabEnabled": "Aktiviert"
   },
   "tableErd": {
     "recentPrompts": "Letzte Anfragen",

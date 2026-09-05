@@ -4827,7 +4827,13 @@
     "updatedToast": "« {name} » mise à jour",
     "actionFailed": "Cela n’a pas fonctionné. Veuillez réessayer.",
     "confirmOverwrite": "« {name} » a été modifiée pour votre organisation. La mise à jour remplacera votre version par celle d’origine. Continuer ?",
-    "reset": "Réinitialiser"
+    "reset": "Réinitialiser",
+    "custom": "Personnalisée",
+    "browse": "Parcourir le catalogue",
+    "enabledEmpty": "Aucune compétence activée",
+    "tabCatalog": "Catalogue",
+    "enabledSubtitle": "Compétences activées par cette organisation. Ouvrez-en une pour la lire ou la modifier.",
+    "tabEnabled": "Activées"
   },
   "tableErd": {
     "recentPrompts": "Demandes récentes",

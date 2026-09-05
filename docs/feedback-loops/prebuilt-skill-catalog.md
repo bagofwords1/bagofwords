@@ -6,7 +6,7 @@ started empty: someone had to author a playbook from a blank page before the
 mechanism did anything. `Instruction.catalog_key` / `catalog_version` were
 already reserved on the model for this — "Unused until the catalog ships".
 
-This loop ships the catalog: 16 curated playbooks an admin enables per org,
+This loop ships the catalog: 10 curated playbooks an admin enables per org,
 and verifies end to end that an enabled skill reaches the planner the way a
 hand-authored one does.
 
@@ -43,11 +43,20 @@ slot as Tables / Tools / Evals — a new `panelView.kind === 'skill-catalog'`,
 agent-less like `global-evals`), so the catalog is one click from the tree with
 nothing to expand first: `frontend/components/instructions/SkillCatalogPanel.vue`.
 
-A row is a title, a one-line description and a **toggle**. It expands in place
-to show the **shipped playbook read-only**, so it can be read before anyone
-enables it. An *enabled* skill is a normal instruction, so clicking it in the
-tree opens the existing instruction editor — versions, Details strip, Analyze
-tab and all — with nothing new built for it.
+The panel has two tabs. **Enabled** lists every `kind='skill'` instruction the
+org has — pre-built and hand-authored — and **Catalog** lists the shipped
+entries. A row is a title, a one-line description and a **toggle**. An
+uninstalled entry expands in place to show the **shipped playbook read-only**,
+so it can be read before anyone enables it; an installed one opens in the
+existing instruction editor — versions, Details strip, Analyze tab and all —
+because an enabled skill *is* a normal instruction and needed nothing new built
+for it.
+
+Skills is a single button in the tree, not an expandable group: its contents
+live in the panel, so there is nothing to expand into. And `listFor('global')`
+now excludes `kind='skill'` — a global skill has no data sources either, so
+without that filter every enabled skill also appeared under Global
+instructions.
 
 Three UI shapes were tried and discarded on the way: a modal (wrong for reading
 16 playbooks), a standalone `/skills` page with Enabled/Catalog tabs (a second

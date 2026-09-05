@@ -141,15 +141,15 @@
               </div>
             </template>
           </TreeGroup>
-          <!-- Clicking the row opens the pre-built catalog (mirrors Tables /
-               Tools); the chevron alone expands the org's enabled skills. -->
-          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :active="panelView?.kind === 'skills'" data-testid="skills-group" :open="isOpen('skills')" @toggle="onSkillsRowClick">
-            <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
-            <template v-else>
-              <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
-              <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
-            </template>
-          </TreeGroup>
+          <!-- Skills is a destination, not a folder: the enabled list and the
+               catalog both live in the panel, so the row has nothing to expand
+               into and stays a single button. -->
+          <button type="button" data-testid="skills-button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'skills' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:6px;padding-inline-end:8px" @click="openSkillCatalog">
+            <span class="w-3 shrink-0"></span>
+            <UIcon name="i-heroicons-sparkles" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+            <span class="flex-1 text-start truncate">{{ $t('agentsPage.skills') }}</span>
+            <span v-if="skillCount" class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 tabular-nums">{{ skillCount }}</span>
+          </button>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
                org-wide shelves, label opens the runs panel. Gated on ORG-LEVEL
@@ -641,7 +641,7 @@
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
             />
-            <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" />
+            <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'global-evals'" key="global-evals" global :initial-run-id="pendingRunId" />
             <AgentSettingsPanel v-else-if="panelView.kind === 'settings'" :key="'settings-' + panelView.agentId" :agent-id="panelView.agentId" @updated="onAgentSettingsUpdated" @deleted="onAgentDeleted" />
@@ -2080,16 +2080,19 @@ const openSkillCatalog = () => {
   clearRightPane()
   panelView.value = { kind: 'skills', agentId: '' }
 }
-// Same shape as onPanelRowClick: the row opens the catalog and expands the
-// group; clicking it again while the catalog is open just collapses the group.
-const onSkillsRowClick = () => {
-  if (panelView.value?.kind === 'skills') { expand('skills'); return }
-  if (!isOpen('skills')) expand('skills')
-  openSkillCatalog()
-}
 // Enabling lands a normal kind='skill' instruction; disabling deletes one.
 // loadGroup merges rows by id and never removes, so a disabled skill would
 // linger in the tree until a reload — drop it here, as deleteInstruction does.
+// Open an enabled skill in the normal instruction editor. The panel only holds
+// list rows, so fetch the full instruction the same way a deep link does.
+const openInstructionById = async (id: string) => {
+  const existing = allInstructions.value.find(i => i.id === id)
+  if (existing) { openInstruction(existing); return }
+  try {
+    const { data } = await useMyFetch<any>(`/api/instructions/${id}`, { method: 'GET' })
+    if (data.value) openInstruction(data.value as Instruction)
+  } catch { /* the row may have just been deleted — leave the panel open */ }
+}
 const onSkillCatalogChanged = async ({ removedId }: { removedId?: string | null } = {}) => {
   if (removedId) allInstructions.value = allInstructions.value.filter(i => i.id !== removedId)
   await fetchCounts()
@@ -3525,7 +3528,7 @@ const listFor = (kind: string) => {
   let base = allInstructions.value
   if (kind === 'skills') base = base.filter(i => (i as any).kind === 'skill')
   else if (kind === 'pending') base = base.filter(isPending)
-  else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0)
+  else if (kind === 'global') base = base.filter(i => (i.data_sources || []).length === 0 && (i as any).kind !== 'skill')
   return applyFilters(base)
 }
 // An agent's Instructions node lists EVERY instruction attached to it, table-

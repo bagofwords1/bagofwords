@@ -4857,7 +4857,13 @@
     "updatedToast": "Updated “{name}”",
     "actionFailed": "That did not work. Please try again.",
     "confirmOverwrite": "“{name}” was edited for your organization. Updating replaces your version with the shipped one. Continue?",
-    "reset": "Reset"
+    "reset": "Reset",
+    "custom": "Custom",
+    "browse": "Browse the catalog",
+    "enabledEmpty": "No skills enabled yet",
+    "tabCatalog": "Catalog",
+    "enabledSubtitle": "Skills this organization has turned on. Open one to read or edit it.",
+    "tabEnabled": "Enabled"
   },
   "tableErd": {
     "recentPrompts": "Recent prompts",

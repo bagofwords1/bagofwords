@@ -3,7 +3,8 @@ key: ml-sklearn
 title: Predictive modeling with scikit-learn
 description: Use when asked to predict, score, forecast, segment or find drivers — frame the problem and validate honestly before reporting.
 category: code_gen
-version: "1.0"
+version: "1.1"
+modes: [chat]
 tags: [machine-learning, modeling]
 ---
 
@@ -11,24 +12,38 @@ The sandbox can train models, which makes it easy to produce a number that
 looks like a prediction and is worthless. The discipline below is what makes
 the difference.
 
-## What is actually available
+## What the sandbox actually allows
 
-- **scikit-learn and scipy** — subject to the org's machine-learning setting.
-  When it is off, the sandbox rejects those imports: say plainly that training
-  is disabled in AI Settings and offer the pandas/numpy alternative (target
-  rate by feature bucket, correlations, a fitted trend line). Never hand-roll
-  an estimator in numpy to work around the switch.
-- **NOT available**: statsmodels, prophet, xgboost, shap. Do not import them
-  and do not promise what they would provide (no p-values from statsmodels, no
-  SHAP values). Say what you used instead.
-- **Nothing persists.** The estimator is never saved — every rerun retrains
-  from scratch. Set `random_state` on everything that takes it, or the
-  dashboard changes numbers on refresh for no reason.
-- **Row limits.** Sample down to the org's training row limit before fitting.
-  Sample randomly, with a fixed seed — never `LIMIT n` on an ordered query,
-  which silently trains on the oldest or largest rows only.
+Generated code is AST-validated before it runs, so these are hard limits, not
+style advice — a violation rejects the whole attempt:
+
+- **scikit-learn and scipy** are available, gated by the org's machine-learning
+  setting. With it off they join the forbidden-module list and the code is
+  rejected up front: say plainly that training is disabled in AI Settings and
+  offer the pandas/numpy alternative (target rate by feature bucket,
+  correlations, a fitted trend line). Never hand-roll an estimator in numpy to
+  work around the switch.
+- **NOT installed**: statsmodels, prophet, xgboost, shap. Do not import them and
+  do not promise what they would provide — no p-values from statsmodels, no SHAP
+  values. Say what you used instead.
+- **Nothing can be persisted.** `joblib` is forbidden outright (its `dump` and
+  `load` write and unpickle straight from a path), as are `pickle` and `open`.
+  There is no way to save a fitted model, so **every run retrains from
+  scratch**. Set `random_state` on everything that takes it, or the same
+  dashboard shows different numbers on refresh for no reason.
+- **No parallelism.** `multiprocessing`, `threading`, `concurrent` and `asyncio`
+  are all forbidden, so scikit-learn's `n_jobs` cannot help — leave it at the
+  default and keep the fit small enough to run single-threaded.
+- **No `getattr` / `hasattr` / `setattr`**, and no dunder attributes. Use plain
+  dot access; fields on provided objects always exist, so check truthiness, not
+  presence.
+- **No literal file paths.** `pd.read_csv("/some/path")` and its neighbours are
+  rejected — an uploaded file always arrives as `excel_files[i].path`.
+- **Row limits.** Sample down to the org's training row limit (50,000 by
+  default) before fitting. Sample randomly with a fixed seed — never `LIMIT n`
+  on an ordered query, which silently trains on the oldest or largest rows only.
 - Results must come back as a **tidy DataFrame** (`feature`/`importance`,
-  `metric`/`value`, `actual`/`predicted`), not an object.
+  `metric`/`value`, `actual`/`predicted`), never an estimator object.
 
 ## 1. Frame the problem before touching the data
 

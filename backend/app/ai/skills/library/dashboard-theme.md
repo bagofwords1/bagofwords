@@ -1,9 +1,10 @@
 ---
-key: dashboard-design
-title: Dashboard composition and house style
-description: Use when building or restructuring a dashboard — decide what goes on it, in what order, before styling anything.
+key: dashboard-theme
+title: Company dashboard theme
+description: Use when building or restructuring a dashboard — the company's rules for what goes on it, in what order, and how it looks.
 category: dashboard
-version: "1.0"
+version: "1.1"
+modes: [chat, training]
 tags: [dashboard, design]
 ---
 
@@ -12,10 +13,10 @@ The component mechanics (KPICard, SectionCard, DataTable, EChart, dark mode,
 is about the decisions those mechanics cannot make: **what belongs on the
 dashboard, in what order, and what the reader is meant to do with it.**
 
-> Customize this skill for your organization. The Layout and House style
-> sections below are deliberately generic — replace them with your own
-> conventions (palette, logo, standard KPI set, required footer) and every
-> dashboard the agent builds will follow them.
+> **This skill is meant to be edited.** The sections below are deliberately
+> generic; replace them with your organization's actual conventions — palette,
+> logo, standard KPI set, required footer, naming — and every dashboard the
+> agent builds will follow them. Until you do, it enforces sound defaults.
 
 ## 1. Decide the dashboard's job first
 

@@ -1,15 +1,21 @@
 ---
-key: exec-readout-deck
-title: Executive readout deck
-description: Use when asked for a deck, readout or presentation for leadership — structure the narrative before authoring slides.
+key: deck-theme
+title: Company deck theme
+description: Use when asked for a deck, readout or presentation — the company's rules for how a deck is structured and what belongs on a slide.
 category: dashboard
-version: "1.0"
+version: "1.1"
+modes: [chat, training]
 tags: [slides, communication]
 ---
 
 The slide mechanics (the python-pptx authoring contract for `create_artifact`
-with `mode='slides'`) are specified elsewhere. This skill is about the part
-that makes a deck land: **what the slides say, in what order.**
+with `mode='slides'`) are specified elsewhere. This skill is about the part that
+makes a deck land: **what the slides say, in what order.**
+
+> **This skill is meant to be edited.** Replace the structure and discipline
+> below with your organization's actual deck conventions — template, title
+> slide, colour and font rules, the standard sections leadership expects — and
+> every deck follows them. Until you do, it enforces sound defaults.
 
 ## 1. Decide whether it should be a deck at all
 

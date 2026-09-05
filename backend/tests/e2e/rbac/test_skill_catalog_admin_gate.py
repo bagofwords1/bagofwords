@@ -17,7 +17,8 @@ def _headers(token: str, org_id: str) -> dict:
 
 
 def _a_skill_key() -> str:
-    return next(s.key for s in list_prebuilt_skills() if not s.modes)
+    """Any catalog entry — the gate does not depend on mode scoping."""
+    return list_prebuilt_skills()[0].key
 
 
 @pytest.fixture

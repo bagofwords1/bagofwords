@@ -4827,7 +4827,13 @@
     "updatedToast": "«{name}» atualizada",
     "actionFailed": "Não funcionou. Tente novamente.",
     "confirmOverwrite": "«{name}» foi editada para a sua organização. Atualizar substitui a sua versão pela original. Continuar?",
-    "reset": "Repor"
+    "reset": "Repor",
+    "custom": "Própria",
+    "browse": "Ver o catálogo",
+    "enabledEmpty": "Ainda não há habilidades ativas",
+    "tabCatalog": "Catálogo",
+    "enabledSubtitle": "Habilidades que esta organização ativou. Abra uma para ler ou editar.",
+    "tabEnabled": "Ativas"
   },
   "tableErd": {
     "recentPrompts": "Solicitações recentes",
