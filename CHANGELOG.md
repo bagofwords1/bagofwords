@@ -4,6 +4,7 @@
 - Removing a member now deactivates their account when it was their last organization, so they can no longer sign in — their reports, queries and history are kept, and re-inviting them restores access. Applies to single-organization installs (`allow_multiple_organizations` off)
 - A removed member's personal API keys stop working immediately
 - Signing in to a disabled account now says so, instead of "wrong email or password". Only shown once the password is verified, so it discloses nothing to someone guessing credentials
+- A mistyped password on the sign-in form now says "Invalid credentials" instead of showing the raw `LOGIN_BAD_CREDENTIALS` code
 
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)

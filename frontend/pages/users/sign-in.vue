@@ -164,7 +164,14 @@
       return getErrorMessage(error, fallback)
     }
     // Handle simple detail string
-    if (typeof data.detail === 'string') {
+    if (typeof data.detail === 'string' && data.detail) {
+      // fastapi-users answers with bare enum sentinels (LOGIN_BAD_CREDENTIALS,
+      // LOGIN_USER_NOT_VERIFIED, ...). Showing one to a user who mistyped their
+      // password is worse than saying nothing, so treat any all-caps token as
+      // machine text and use the caller's localized fallback instead.
+      if (/^[A-Z][A-Z0-9_]*$/.test(data.detail)) {
+        return fallback
+      }
       return data.detail
     }
     // Handle message field
