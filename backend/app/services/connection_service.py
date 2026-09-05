@@ -1058,7 +1058,7 @@ class ConnectionService:
             roster.append({
                 "user_id": r.user_id,
                 "principal": md.get("principal"),
-                "verified": bool(r.last_used_at),
+                "verified": bool(r.last_used_at and not md.get("last_error")),
                 "last_verified_at": r.last_used_at,
                 "last_error": md.get("last_error"),
             })

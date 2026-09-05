@@ -3,6 +3,10 @@
 Bag of Words supports two Kerberos auth shapes for on-prem Microsoft SQL Server,
 on top of the default SQL username/password login:
 
+For a runnable local proof with a Samba AD/KDC, SQL Server 2022, real
+S4U2Self/S4U2Proxy, and the production BOW connector, see
+[`lab/sql-server-kerberos`](../lab/sql-server-kerberos/README.md).
+
 | Auth variant | Scope | Identity seen by SQL Server |
 |---|---|---|
 | `userpass` (default) | system or per-user | SQL login |

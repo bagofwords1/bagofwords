@@ -33,6 +33,7 @@ import base64
 import hashlib
 import logging
 import os
+import secrets
 import threading
 import time
 from contextlib import contextmanager, suppress
@@ -44,7 +45,7 @@ logger = logging.getLogger(__name__)
 # as different users queue on this lock; once the driver has opened the
 # connection the env var no longer matters, so the hold time is one TCP+GSS
 # handshake.
-_ENV_LOCK = threading.Lock()
+_ENV_LOCK = threading.RLock()
 
 # Refresh a cached credential when less than this many seconds of its ticket
 # lifetime remain, so a connection never starts with an about-to-expire ticket.
@@ -92,6 +93,7 @@ class KerberosTicketManager:
     def __init__(self, ccache_dir: str | None = None, client_keytab: str | None = None):
         self._ccache_dir = ccache_dir or os.environ.get(CCACHE_DIR_ENV) or "/tmp/bow_krb5"
         self._client_keytab = client_keytab or os.environ.get(CLIENT_KEYTAB_ENV)
+        self._cache_namespace = f"{os.getpid()}-{secrets.token_hex(6)}"
         self._lock = threading.Lock()
         self._cache: dict[str, _CachedCredential] = {}
 
@@ -128,13 +130,14 @@ class KerberosTicketManager:
         """Point KRB5CCNAME at ``ccache_path`` for the duration of the block.
 
         Process-global and therefore serialized: hold only around the driver
-        connect call, never around query execution. A ``None`` path activates
-        nothing (default cache) without taking the lock.
+        connect call, never around query execution. A ``None`` path leaves the
+        default cache selected but still takes the lock, preventing it from
+        observing a concurrently activated delegated cache.
         """
-        if not ccache_path:
-            yield
-            return
         with _ENV_LOCK:
+            if not ccache_path:
+                yield
+                return
             previous = os.environ.get("KRB5CCNAME")
             os.environ["KRB5CCNAME"] = f"FILE:{ccache_path}"
             try:
@@ -167,10 +170,20 @@ class KerberosTicketManager:
             return ccache_path
 
     def _ccache_path_for(self, key: str) -> str:
+        # os.makedirs applies `mode` to the leaf directory only — intermediate
+        # ones land at 0o777 & ~umask (typically 0755). The worker dir below is
+        # the leaf, so the root has to be created in its own call or the cache
+        # root becomes world-traversable. Only creation is constrained: an
+        # operator-supplied BOW_KRB5_CCACHE_DIR is left as configured (mounted
+        # ccache dirs are group-accessible under OpenShift's arbitrary UIDs).
         os.makedirs(self._ccache_dir, mode=0o700, exist_ok=True)
+        worker_dir = os.path.join(self._ccache_dir, f"worker-{self._cache_namespace}")
+        os.makedirs(worker_dir, mode=0o700, exist_ok=True)
+        with suppress(OSError):
+            os.chmod(worker_dir, 0o700)
         digest = hashlib.sha256(key.encode("utf-8")).digest()
         token = base64.urlsafe_b64encode(digest[:12]).decode("ascii").rstrip("=")
-        return os.path.join(self._ccache_dir, f"krb5cc_{token}")
+        return os.path.join(worker_dir, f"krb5cc_{token}")
 
     def _service_credentials(self, gssapi, principal: str | None = None):
         """Initiate-usage credentials for the app's service identity (keytab)."""
@@ -181,9 +194,12 @@ class KerberosTicketManager:
         if principal:
             name = gssapi.Name(principal, gssapi.NameType.kerberos_principal)
         try:
-            if store:
-                return gssapi.Credentials(usage="initiate", name=name, store=store)
-            return gssapi.Credentials(usage="initiate", name=name)
+            # Credential acquisition may consult the process-default cache.
+            # Serialize it with all temporary KRB5CCNAME activations.
+            with _ENV_LOCK:
+                if store:
+                    return gssapi.Credentials(usage="initiate", name=name, store=store)
+                return gssapi.Credentials(usage="initiate", name=name)
         except Exception as e:
             raise KerberosDelegationError(
                 f"Failed to acquire service credentials"
