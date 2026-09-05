@@ -986,12 +986,6 @@ class MssqlKerberosDelegatedCredentials(BaseModel):
         description="Queries run under your own Active Directory identity via Kerberos Constrained Delegation.",
         json_schema_extra={"ui:type": "boolean"},
     )
-    kerberos_impersonate: Optional[str] = Field(
-        None,
-        title="Active Directory Principal (UPN)",
-        description="Your AD user principal name, e.g. jdoe@corp.example.com. Leave blank to use your login identity.",
-        json_schema_extra={"ui:type": "string"},
-    )
 
     @model_validator(mode="after")
     def validate_kerberos_enabled(cls, model: "MssqlKerberosDelegatedCredentials") -> "MssqlKerberosDelegatedCredentials":

@@ -237,6 +237,7 @@ def test_connections_preserve_requested_kerberos_identity(tmp_path, monkeypatch,
         kwargs = {}
         if mode == "delegated":
             kwargs["kerberos_impersonate"] = principal
+            kwargs["kerberos_expected_sid"] = principal.encode().hex()
             identities[f"FILE:{manager.delegated_ccache(principal)}"] = principal
         elif mode == "service":
             kwargs["kerberos_principal"] = principal
@@ -252,10 +253,15 @@ def test_connections_preserve_requested_kerberos_identity(tmp_path, monkeypatch,
             self.info = {}
 
         def execute(self, statement):
+            if "SUSER_SID" in str(statement):
+                return types.SimpleNamespace(one=lambda: (self.identity.encode(), "KERBEROS"))
             value = 1 if str(statement) == "SELECT @@SPID" else self.identity
             return types.SimpleNamespace(scalar=lambda: value)
 
         def close(self):
+            pass
+
+        def invalidate(self):
             pass
 
     class DriverEngine:
@@ -471,15 +477,17 @@ def test_kerberos_sso_not_enabled_returns_none():
     assert _resolve(_FakeConnection(["oauth"]), _FakeUser("a@b.c"), None) is None
 
 
-def test_kerberos_sso_derives_upn_from_login_email():
-    creds = _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), None)
-    assert creds == {"use_kerberos": True, "kerberos_impersonate": "jdoe@corp.example.com"}
+def test_kerberos_sso_rejects_unverified_login_email():
+    with pytest.raises(HTTPException) as exc:
+        _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), None)
+    assert exc.value.status_code == 403
 
 
-def test_kerberos_sso_explicit_row_principal_wins():
+def test_kerberos_sso_explicit_row_is_not_delegation_authority():
     row = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "j.doe@ad.corp.example.com"})
-    creds = _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), row)
-    assert creds["kerberos_impersonate"] == "j.doe@ad.corp.example.com"
+    with pytest.raises(HTTPException) as exc:
+        _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), row)
+    assert exc.value.status_code == 403
 
 
 def test_kerberos_sso_honors_other_real_auth_mode():
@@ -489,8 +497,9 @@ def test_kerberos_sso_honors_other_real_auth_mode():
 
 def test_kerberos_sso_ignores_service_account_marker_row():
     row = _FakeRow("service_account", {})
-    creds = _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), row)
-    assert creds["kerberos_impersonate"] == "jdoe@corp.example.com"
+    with pytest.raises(HTTPException) as exc:
+        _resolve(_FakeConnection(["kerberos_delegated"]), _FakeUser("jdoe@corp.example.com"), row)
+    assert exc.value.status_code == 403
 
 
 def test_kerberos_sso_requires_upn_shaped_identity():
@@ -512,15 +521,15 @@ def test_supports_user_kerberos_sso():
 def test_resolve_kerberos_principal_precedence():
     from app.services.connection_identity import resolve_kerberos_principal
     # login UPN when no row
-    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), None) == "jdoe@corp.example.com"
+    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), None) is None
     # explicit override wins
     row = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "j.doe@ad.corp.example.com"})
-    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), row) == "j.doe@ad.corp.example.com"
+    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), row) is None
     # non-UPN login and no override → None (must set principal)
     assert resolve_kerberos_principal(_FakeUser("no-upn"), None) is None
     # a non-kerberos row is ignored for principal derivation → falls back to email
     other = _FakeRow("userpass", {"kerberos_impersonate": "should-be-ignored@x"})
-    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), other) == "jdoe@corp.example.com"
+    assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), other) is None
 
 
 def test_failed_kerberos_recheck_is_not_reported_as_success():
@@ -544,4 +553,4 @@ def test_failed_kerberos_recheck_is_not_reported_as_success():
         None, connection, _FakeUser("jdoe@corp.example.com"), None, None,
         cred_index=_Index(),
     ))
-    assert status.connection == "offline"
+    assert status.connection == "not_connected"

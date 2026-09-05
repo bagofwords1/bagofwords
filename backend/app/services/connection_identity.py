@@ -304,15 +304,17 @@ def resolve_kerberos_principal(user, row: UserConnectionCredentials | None = Non
     Returns None when neither yields a UPN-shaped value (login isn't an AD UPN
     and no override saved) — the member must set their principal explicitly.
     """
-    if row is not None and row.auth_mode == KERBEROS_SSO_MODE:
-        try:
-            explicit = (row.decrypt_credentials() or {}).get("kerberos_impersonate")
-        except Exception:
-            explicit = None
-        if explicit and "@" in explicit:
-            return explicit.strip()
-    email = (getattr(user, "email", None) or "").strip()
-    return email if "@" in email else None
+    from app.settings.config import settings
+    from app.ee.ldap.connection import LDAPConnectionManager
+    identity = getattr(user, "ldap_identity", None)
+    if not isinstance(identity, dict) or not settings.bow_config.ldap.enabled:
+        return None
+    manager = LDAPConnectionManager(settings.bow_config.ldap)
+    if identity.get("provider") != manager.provider_id or not identity.get("sid_hex"):
+        return None
+    if getattr(user, "ldap_subject", None) != identity["provider"] + ":" + identity.get("guid", ""):
+        return None
+    return identity.get("principal")
 
 
 async def build_kerberos_sso_status(

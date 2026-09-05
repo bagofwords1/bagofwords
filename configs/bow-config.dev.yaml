@@ -54,6 +54,12 @@ oidc_providers:
 #  url: ldaps://ad.company.com:636
 #  bind_dn: cn=service-account,ou=Services,dc=company,dc=com
 #  bind_password: ${BOW_LDAP_BIND_PASSWORD}
+#  ca_certs_file: /run/bow/directory-ca.pem
+#  organization_id: <existing-bow-organization-id>
+#  admission_group_dn: cn=BOW Users,ou=Groups,dc=company,dc=com
+#  kerberos_realm: COMPANY.COM
+#  auto_provision_users: true
+#  allow_local_superuser_login: false
 
 encryption_key: ${BOW_ENCRYPTION_KEY}
 

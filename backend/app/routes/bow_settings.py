@@ -20,6 +20,7 @@ async def get_frontend_settings():
         "auth": {
             "mode": getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'
         },
+        "ldap": {"enabled": settings.bow_config.ldap.enabled},
         "oidc_providers": [
             {
                 "name": p.name,

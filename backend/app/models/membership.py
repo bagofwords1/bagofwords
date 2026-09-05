@@ -48,3 +48,4 @@ class Membership(BaseSchema):
     organization = relationship("Organization", back_populates="memberships")
 
     role = Column(String, nullable=False, default='member')
+    directory_provider = Column(String(64), nullable=True)

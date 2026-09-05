@@ -167,12 +167,22 @@ config:
     enabled: false
     # -- LDAP server URL (e.g. `ldaps://ad.corp.com:636`).
     url: ""
-    # -- Service account DN for binding (optional — omit for anonymous bind).
+    # -- Required least-privilege lookup account DN. Anonymous bind is prohibited.
     bindDn: ""
     # -- Use SSL/TLS for the LDAP connection.
     useSsl: true
     # -- Upgrade the connection to TLS after connecting (mutually exclusive with `useSsl`).
     startTls: false
+    # -- Mounted private CA bundle; empty uses system trust. Certificate checks cannot be disabled.
+    caCertsFile: ""
+    # -- BOW organization admitted by this directory integration (required when enabled).
+    organizationId: ""
+    # -- AD group DN admitting users; nested AD membership is evaluated by AD.
+    admissionGroupDn: ""
+    # -- AD Kerberos realm, independent of users' email/UPN suffixes.
+    kerberosRealm: ""
+    # -- Explicit recovery policy, only for unlinked local superusers.
+    allowLocalSuperuserLogin: false
     # -- Base DN for user and group searches (e.g. `dc=corp,dc=com`).
     baseDn: ""
     # -- Base DN for user searches. Defaults to `baseDn` when empty.
@@ -394,4 +404,3 @@ networkPolicy:
   #     - protocol: TCP
   #       port: 3000
   egress: []
-

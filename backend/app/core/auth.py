@@ -82,7 +82,9 @@ class UserManager(BaseUserManager[User, str]):
                 "Your account has been disabled. Contact your administrator.",
                 status_code=403,
             )
-        if settings.bow_config.auth.mode == "sso_only" and not await self._user_can_use_local_login(user):
+        if (settings.bow_config.auth.mode == "sso_only" and
+                not getattr(user, "_directory_authenticated", False) and
+                not await self._user_can_use_local_login(user)):
             return None
         return user
 
@@ -91,20 +93,14 @@ class UserManager(BaseUserManager[User, str]):
         if ldap_config.enabled:
             ldap_result = await self._ldap_authenticate(credentials.username, credentials.password)
 
-            if ldap_result == "success":
-                # _ldap_authenticate stores the user; look them up
-                try:
-                    return await self.get_by_email(credentials.username)
-                except exceptions.UserNotExists:
-                    return None
-            elif ldap_result == "unreachable":
-                # LDAP server down — fall back to local auth for everyone
-                return await super().authenticate(credentials)
+            if isinstance(ldap_result, User):
+                return ldap_result
             else:
-                # LDAP reachable but auth failed — only superusers get local fallback
+                # Recovery is explicit and restricted to unlinked local superusers.
                 try:
                     local_user = await self.get_by_email(credentials.username)
-                    if local_user.is_superuser:
+                    if (ldap_config.allow_local_superuser_login and local_user.is_superuser
+                            and not local_user.ldap_subject):
                         return await super().authenticate(credentials)
                 except exceptions.UserNotExists:
                     pass
@@ -141,7 +137,7 @@ class UserManager(BaseUserManager[User, str]):
                     return True
             return False
 
-    async def _ldap_authenticate(self, email: str, password: str) -> str:
+    async def _ldap_authenticate(self, email: str, password: str) -> User | str:
         """
         Try LDAP bind auth.
 
@@ -157,47 +153,61 @@ class UserManager(BaseUserManager[User, str]):
         ldap_config = settings.bow_config.ldap
         manager = LDAPConnectionManager(ldap_config)
 
+        import asyncio
         try:
-            user_dn = manager.find_user_dn(email)
+            identity = await asyncio.to_thread(manager.authenticate_identity, email, password)
         except Exception as e:
-            _logger.warning(f"LDAP server unreachable during user search: {e}")
-            return "unreachable"
-
-        if not user_dn:
+            _logger.warning("Directory authentication rejected: %s", type(e).__name__)
             return "failed"
-
+        if not identity or not ldap_config.organization_id:
+            return "failed"
+        from pydantic import TypeAdapter, EmailStr, ValidationError
         try:
-            if not manager.bind_user(user_dn, password):
-                return "failed"
-        except Exception as e:
-            _logger.warning(f"LDAP server unreachable during bind: {e}")
-            return "unreachable"
-
-        # Bind succeeded — find or create local user
-        try:
-            await self.get_by_email(email)
-            return "success"
-        except exceptions.UserNotExists:
+            email = str(TypeAdapter(EmailStr).validate_python(identity["email"]))
+        except (ValidationError, KeyError):
+            return "failed"
+        subject = identity["provider"] + ":" + identity["guid"]
+        session = self.user_db.session
+        user = (await session.execute(select(User).where(User.ldap_subject == subject))).scalar_one_or_none()
+        collision = (await session.execute(select(User).where(func.lower(User.email) == email.lower()))).scalar_one_or_none()
+        if collision is not None and (user is None or collision.id != user.id):
+            return "failed"
+        if user is None:
             if not ldap_config.auto_provision_users:
                 return "failed"
-
-            # Auto-provision: create local user from LDAP
+            org = await session.get(Organization, ldap_config.organization_id)
+            if org is None:
+                return "failed"
+            from app.core.seats import seats_remaining
+            remaining = await seats_remaining(session, ldap_config.organization_id)
+            if remaining is not None and remaining <= 0:
+                return "failed"
             from fastapi_users.password import PasswordHelper
             ph = PasswordHelper()
-            async with self.user_db.session as session:
-                await self.user_db.create({
-                    "email": email,
-                    "name": email.split("@")[0],
-                    "hashed_password": ph.hash(ph.generate()),
-                    "is_active": True,
-                    "is_verified": True,
-                    "is_superuser": False,
-                })
-                await self._attach_open_memberships(
-                    await self.get_by_email(email), session
-                )
-                await session.commit()
-            return "success"
+            user = User(email=email.lower(), name=identity["name"],
+                hashed_password=ph.hash(ph.generate()), is_active=True,
+                is_verified=True, is_superuser=False, ldap_subject=subject,
+                ldap_identity=identity, ldap_dn=identity["dn"])
+            session.add(user)
+            await session.flush()
+            session.add(Membership(user_id=user.id, organization_id=ldap_config.organization_id,
+                role="member", directory_provider=identity["provider"]))
+            from app.core.permission_resolver import ensure_system_role_assignment
+            await ensure_system_role_assignment(session, ldap_config.organization_id, str(user.id), "member")
+        else:
+            if not user.is_active or user.is_superuser:
+                return "failed"
+            membership = (await session.execute(select(Membership.id).where(
+                Membership.user_id == user.id, Membership.organization_id == ldap_config.organization_id,
+                Membership.deleted_at.is_(None)))).first()
+            if not membership:
+                return "failed"
+            user.email = email.lower()
+            user.ldap_identity = identity
+            user.ldap_dn = identity["dn"]
+        await session.commit()
+        user._directory_authenticated = True
+        return user
 
     async def on_after_login(
         self,
@@ -1026,6 +1036,7 @@ class SessionEpochJWTStrategy(JWTStrategy):
             "sub": str(user.id),
             "aud": self.token_audience,
             SESSION_EPOCH_CLAIM: _session_epoch_of(user),
+            "directory_subject": user.ldap_subject if getattr(user, "_directory_authenticated", False) else None,
         }
         return generate_jwt(
             data, self.encode_key, self.lifetime_seconds, algorithm=self.algorithm
@@ -1051,6 +1062,21 @@ class SessionEpochJWTStrategy(JWTStrategy):
                 user.id,
             )
             return None
+
+        if user.ldap_subject:
+            if claims.get("directory_subject") != user.ldap_subject or not settings.bow_config.ldap.enabled:
+                return None
+            import asyncio
+            from app.ee.ldap.connection import LDAPConnectionManager
+            try:
+                identity = user.ldap_identity or {}
+                manager = LDAPConnectionManager(settings.bow_config.ldap)
+                fresh = await asyncio.to_thread(manager.read_identity, identity["dn"])
+                if any(fresh.get(k) != identity.get(k) for k in ("provider", "guid", "sid_hex", "principal")):
+                    return None
+            except Exception:
+                return None
+            user._directory_authenticated = True
 
         return user
 

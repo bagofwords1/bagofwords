@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, DateTime, Boolean, Integer
+from sqlalchemy import Column, String, DateTime, Boolean, Integer, JSON
 from typing import List
 from sqlalchemy.orm import relationship
 from fastapi_users.db import SQLAlchemyBaseUserTable
@@ -19,6 +19,9 @@ class User(SQLAlchemyBaseUserTable[str], Base):
     last_seen = Column(DateTime, nullable=True)
     scim_external_id = Column(String(255), nullable=True, index=True)  # IdP external identifier for SCIM provisioning
     ldap_dn = Column(String(512), nullable=True, index=True)  # LDAP distinguished name
+    # Written exclusively after verified AD authentication. Not exposed by UserUpdate.
+    ldap_identity = Column(JSON, nullable=True)
+    ldap_subject = Column(String(101), nullable=True, unique=True)
     # Monotonic counter stamped into every session JWT as the `session_epoch`
     # claim. A token is only accepted while its claim matches this column, so
     # incrementing it revokes every session token already issued to the user.

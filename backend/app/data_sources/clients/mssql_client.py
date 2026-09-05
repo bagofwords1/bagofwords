@@ -1,6 +1,7 @@
 from app.data_sources.clients.base import DataSourceClient
 
 import logging
+import re
 import pandas as pd
 import sqlalchemy
 
@@ -15,6 +16,16 @@ from app.ai.prompt_formatters import TableFormatter
 from functools import cached_property
 
 logger = logging.getLogger(__name__)
+
+
+def _odbc_value(value):
+    """Keep delimiters inside a value rather than interpreting new keywords."""
+    value = str(value)
+    if "\x00" in value:
+        raise ValueError("ODBC values cannot contain NUL")
+    if any(c in value for c in ";{}") or value != value.strip():
+        return "{" + value.replace("}", "}}") + "}"
+    return value
 
 
 class MSSQLClient(DataSourceClient):
@@ -40,7 +51,8 @@ class MSSQLClient(DataSourceClient):
     def __init__(self, host, port, database, user=None, password=None, schema: Optional[str] = None,
                  odbc_driver: int = 18, encrypt: bool = True, additional_params: Optional[dict] = None,
                  use_kerberos: bool = False, kerberos_principal: Optional[str] = None,
-                 kerberos_impersonate: Optional[str] = None):
+                 kerberos_impersonate: Optional[str] = None,
+                 kerberos_expected_sid: Optional[str] = None):
         self.host = host
         self.port = port
         self.database = database
@@ -61,6 +73,7 @@ class MSSQLClient(DataSourceClient):
         self.use_kerberos = bool(use_kerberos)
         self.kerberos_principal = (kerberos_principal or "").strip() or None
         self.kerberos_impersonate = (kerberos_impersonate or "").strip() or None
+        self.kerberos_expected_sid = kerberos_expected_sid
         self._schemas = []
         if isinstance(self.schema, str) and self.schema.strip():
             parts = [s.strip() for s in self.schema.split(",") if s.strip()]
@@ -76,8 +89,8 @@ class MSSQLClient(DataSourceClient):
         driver_name = f"ODBC Driver {self.odbc_driver} for SQL Server"
         params = (
             f"DRIVER={driver_name};"
-            f"SERVER={self.host},{self.port};"
-            f"DATABASE={self.database};"
+            f"SERVER={_odbc_value(f'{self.host},{self.port}')};"
+            f"DATABASE={_odbc_value(self.database)};"
         )
         if self.use_kerberos:
             # Integrated auth: the driver authenticates via GSSAPI from the
@@ -96,11 +109,11 @@ class MSSQLClient(DataSourceClient):
             params += f"APP=BagOfWords-{safe_ident};"
         else:
             params += (
-                f"UID={self.user};"
-                f"PWD={self.password};"
+                f"UID={_odbc_value(self.user)};"
+                f"PWD={_odbc_value(self.password)};"
             )
         params += (
-            "TrustServerCertificate=yes;"
+            "TrustServerCertificate=no;"
             "LoginTimeout=30;"
             f"Encrypt={'yes' if self.encrypt else 'no'};"
         )
@@ -110,7 +123,9 @@ class MSSQLClient(DataSourceClient):
             k = str(key).strip()
             if not k or k.lower() in self.PROTECTED_ODBC_KEYS:
                 continue
-            params += f"{k}={value};"
+            if not re.fullmatch(r"[A-Za-z][A-Za-z0-9 _]*", k):
+                raise ValueError("Invalid ODBC keyword")
+            params += f"{k}={_odbc_value(value)};"
         return f"mssql+pyodbc:///?odbc_connect={quote_plus(params)}"
 
     def _kerberos_ccache(self) -> Optional[str]:
@@ -128,6 +143,8 @@ class MSSQLClient(DataSourceClient):
         """Yield a connection to a SQL Server database."""
         conn = None
         try:
+            if self.kerberos_impersonate and not self.kerberos_expected_sid:
+                raise RuntimeError("Delegation requires a verified directory SID")
             if self.use_kerberos:
                 from app.data_sources.kerberos import get_ticket_manager
                 ccache = self._kerberos_ccache()
@@ -145,6 +162,8 @@ class MSSQLClient(DataSourceClient):
             else:
                 engine = get_engine(self.sql_server_uri)
                 conn = engine.connect()
+            if self.kerberos_impersonate:
+                self.verify_directory_identity(conn)
             # pyodbc has no connection-level cancel, so a timed-out query is
             # stopped with KILL <spid> from a side connection. The SPID is
             # server-side, so it has to be read while the connection is idle;
@@ -153,6 +172,8 @@ class MSSQLClient(DataSourceClient):
             capture_identity(conn)
         except Exception as e:
             if conn is not None:
+                if self.kerberos_impersonate:
+                    conn.invalidate()
                 conn.close()
             raise RuntimeError(f"{e}")
         # The yield is deliberately OUTSIDE the try/except above. With it
@@ -168,6 +189,23 @@ class MSSQLClient(DataSourceClient):
             conn.close()
         # NB: no engine.dispose() — the engine is pooled and shared
         # (engine_pool). conn.close() above returns the connection.
+
+    def verify_directory_identity(self, conn):
+        """Also used by the independent timeout-cancellation connection."""
+        if not self.kerberos_impersonate:
+            return
+        try:
+            row = conn.execute(text(
+                "SELECT SUSER_SID(ORIGINAL_LOGIN()), "
+                "CONVERT(varchar(30), CONNECTIONPROPERTY('auth_scheme'))"
+            )).one()
+            if (not self.kerberos_expected_sid or row[0] is None or
+                    bytes(row[0]).hex().lower() != self.kerberos_expected_sid.lower()
+                    or str(row[1]).upper() != "KERBEROS"):
+                raise RuntimeError("SQL authenticated identity mismatch")
+        except Exception:
+            conn.invalidate()
+            raise
 
     def execute_query(self, sql: str) -> pd.DataFrame:
         """Execute SQL statement and return the result as a DataFrame."""

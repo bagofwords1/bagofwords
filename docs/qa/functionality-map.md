@@ -33,6 +33,23 @@ step only — the settings page itself has no Playwright spec).
 
 ## Other areas (screens enumerated, flows not yet mapped)
 
+## LDAP and delegated SQL (change-scoped pass)
+
+Mapped from `users/sign-in.vue`, `settings/identity-provider.vue`, the connection
+router, and LDAP admin routes. Auth middleware requires verified sessions;
+permissions middleware gates admin screens; onboarding redirects apply to
+admins, not newly provisioned ordinary members. These rows are not claims that
+the UI has passed: client-only network probes do not exercise them.
+
+| Area | Flow | Route(s) | API | Automated coverage | Last QA | Status |
+|------|------|----------|-----|--------------------|---------|--------|
+| LDAP | Directory member signs in and enters the configured organization | /users/sign-in | POST /api/auth/jwt/login; GET /api/users/me | test_ldap_auth_security.py (API, directory boundary substituted) | — | Pending live UI |
+| LDAP | Admin tests directory and previews/synchronizes groups | /settings/identity-provider | /api/enterprise/ldap/test-connection; /sync/preview; /sync | test_ldap.py; test_ldap_sync_security.py | — | Pending live UI |
+| SQL | Member uses trusted directory identity without entering another principal | connection credentials form | /api/connections/{id}/my-credentials | test_ldap_identity_security.py; Kerberos overlay tests | — | Pending live UI |
+| SQL | Each member prompts for sales and receives results under their SQL identity | /reports/[id] | report/completion routes and connection resolver | Client-level live LDAP/Kerberos probe only | — | Pending browser/LLM |
+| SQL | Restricted table stays inaccessible to the reader | /reports/[id] | completion/query execution | Live SQL permission denial only | — | Pending browser/LLM |
+| LDAP | Revoked directory access invalidates an existing session | /users/sign-in; authenticated pages | JWT session validation | test_ldap_auth_security.py | — | Pending live UI |
+
 From `frontend/pages/**`: home/reports (`/`, `/reports/[id]`), agents
 (`/agents/**`), dashboards, automations (`/automations`, scheduled prompts),
 prompts, queries, monitoring, projects, settings (access/members, AI settings,

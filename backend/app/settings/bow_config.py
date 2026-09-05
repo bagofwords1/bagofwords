@@ -132,6 +132,12 @@ class LDAPConfig(BaseModel):
     bind_password: Optional[str] = None                # service account password
     use_ssl: bool = True
     start_tls: bool = False
+    ca_certs_file: Optional[str] = None
+    # AD-first: each deployment explicitly admits one organization's group.
+    organization_id: Optional[str] = None
+    admission_group_dn: Optional[str] = None
+    kerberos_realm: Optional[str] = None
+    allow_local_superuser_login: bool = False
     base_dn: str = ""
     user_search_base: Optional[str] = None             # defaults to base_dn
     user_search_filter: str = "(objectClass=person)"

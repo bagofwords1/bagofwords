@@ -7,7 +7,7 @@
       <h1 class="font-medium text-3xl mt-4 mb-5">{{ $t('auth.signIn') }}</h1>
       <div class="px-10 py-6  border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm bg-white dark:bg-gray-900">
       <p v-if="error_message" v-html="error_message" class="mb-4 text-red-500 text-sm whitespace-pre-line"></p>
-      <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only' || localOverride">
+      <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only' || ldapEnabled || localOverride">
         <div class="field block mt-3">
           <i class="i-heroicons-user"></i>
           <input type="text"
@@ -120,6 +120,7 @@
   const loadingProvider = ref<string | null>(null)
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
   const smtpEnabled = ref(false)
+  const ldapEnabled = ref(false)
   const isSubmitting = ref(false)
   const localOverride = computed(() => route.query.local === 'true')
   // How many ways there are to sign in. When there is exactly one there is
@@ -211,6 +212,7 @@
         authMode.value = settings.auth.mode
       }
       smtpEnabled.value = settings?.smtp_enabled ?? false
+      ldapEnabled.value = settings?.ldap?.enabled ?? false
     } catch (_) {}
     const inviteError = route.query.error as string
     if (inviteError) {
@@ -265,6 +267,7 @@
     if (
       authMode.value === 'sso_only'
       && !localOverride.value
+      && !ldapEnabled.value
       && !inviteError
       && ssoProviderCount.value === 1
     ) {
