@@ -1,51 +1,49 @@
 <template>
-  <div class="grid min-h-screen place-items-center bg-white dark:bg-gray-950 p-5" v-if="pageLoaded">
-    <div class="w-full max-w-sm">
-      <div class="mb-8">
-        <img src="/assets/logo-128.png" alt="BOW" class="h-8 w-8 object-contain" />
-        <h1 class="mt-5 text-lg font-semibold tracking-tight text-gray-950 dark:text-white">
-          {{ $t('auth.welcomeTitle') }}
-        </h1>
-        <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-          {{ $t('auth.signInSubtitle') }}
-        </p>
-      </div>
+  <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
+    <div class="w-full max-w-[360px]">
+      <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+        {{ $t('auth.welcomeBack') }}
+      </h1>
+      <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
+        {{ $t('auth.signInSubtitle') }}
+      </p>
 
       <p v-if="error_message" v-html="error_message"
-         class="mb-4 text-xs text-red-500 whitespace-pre-line"></p>
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
 
-      <AuthProviderButtons
-        v-if="showSso"
-        :providers="oidcProviders"
-        :google-enabled="googleSignIn"
-        mode="sign-in"
-        @error="onProviderError"
-      />
+      <div v-if="showSso" class="mt-7">
+        <AuthProviderButtons
+          :providers="oidcProviders"
+          :google-enabled="googleSignIn"
+          mode="sign-in"
+          @error="onProviderError"
+        />
+      </div>
 
-      <div v-if="showSso && showCredentials" class="relative my-4">
+      <div v-if="showSso && showCredentials" class="relative my-5">
         <div class="absolute inset-0 flex items-center" aria-hidden="true">
           <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
         <div class="relative flex justify-center">
-          <span class="px-2 text-[10px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+          <span class="px-3 text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
             {{ $t('auth.or') }}
           </span>
         </div>
       </div>
 
-      <form v-if="showCredentials" @submit.prevent="signInWithCredentials()" class="space-y-4">
+      <form v-if="showCredentials" @submit.prevent="signInWithCredentials()" :class="showSso ? '' : 'mt-7'">
         <div>
           <label for="email" :class="labelClass">{{ $t('auth.email') }}</label>
           <input id="email" v-model="email" type="email" autocomplete="email" :class="inputClass" />
         </div>
 
-        <div>
+        <div class="mt-4">
           <div class="flex items-baseline justify-between">
             <label for="password" :class="labelClass">{{ $t('auth.password') }}</label>
             <NuxtLink
               v-if="smtpEnabled"
               to="/users/forgot-password"
-              class="mb-1.5 text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+              class="mb-1.5 text-[13px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
             >
               {{ $t('auth.forgotPassword') }}
             </NuxtLink>
@@ -55,14 +53,14 @@
 
         <button type="submit" :disabled="isSubmitting" :class="primaryButtonClass">
           <template v-if="isSubmitting">
-            <Spinner class="h-3 w-3 me-2" />
+            <Spinner class="h-3.5 w-3.5 me-2" />
             {{ $t('auth.loggingIn') }}
           </template>
           <template v-else>{{ $t('auth.signIn') }}</template>
         </button>
       </form>
 
-      <p v-if="authMode !== 'sso_only'" class="mt-6 text-xs text-gray-500 dark:text-gray-400">
+      <p v-if="authMode !== 'sso_only'" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ $t('auth.newToBow') }}
         <NuxtLink to="/users/sign-up" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
           {{ $t('auth.signUp') }}
@@ -70,7 +68,7 @@
       </p>
     </div>
   </div>
-  <div v-else class="grid min-h-screen place-items-center"><Spinner class="h-5 w-5" /></div>
+  <div v-else class="min-h-screen flex items-center justify-center"><Spinner class="h-6 w-6" /></div>
 </template>
 
 <script setup lang="ts">
@@ -110,19 +108,18 @@
   const showSso = computed(() =>
     authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
 
-  // Matches the Mission backoffice scale: 14px/500 label over a 28px control
-  // with 12px text. Controls step up to 36px/16px below sm — iOS Safari
-  // auto-zooms on focus when an input's font is under 16px.
-  const labelClass = 'block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1.5'
+  const labelClass = 'block text-[13px] font-medium text-gray-900 dark:text-gray-100 mb-1.5'
 
+  // Monochrome controls: the only color on the page is the provider logos and
+  // the one primary action.
   const inputClass =
-    'w-full h-9 sm:h-7 px-2.5 rounded-md border border-gray-300 dark:border-gray-700 ' +
-    'bg-white dark:bg-gray-900 text-base sm:text-xs text-gray-900 dark:text-white ' +
+    'w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 ' +
+    'bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white ' +
     'focus:outline-none focus:border-gray-900 dark:focus:border-white ' +
     'focus:ring-1 focus:ring-gray-900 dark:focus:ring-white transition-colors'
 
   const primaryButtonClass =
-    'w-full h-9 sm:h-7 inline-flex items-center justify-center rounded-md text-base sm:text-xs font-medium ' +
+    'mt-5 w-full h-10 inline-flex items-center justify-center rounded-lg text-sm font-medium ' +
     'text-white bg-gray-900 hover:bg-gray-800 dark:text-gray-900 dark:bg-white dark:hover:bg-gray-100 ' +
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ' +
     'dark:focus-visible:ring-white focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950 ' +
