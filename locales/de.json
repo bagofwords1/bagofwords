@@ -1166,8 +1166,9 @@
       "untitled": "Ohne Titel"
     },
     "readInstruction": {
-      "reading": "Anweisung wird gelesen…",
+      "reading": "Wird gelesen…",
       "read": "Anweisung gelesen",
+      "readSkill": "Skill gelesen",
       "failed": "Anweisung konnte nicht gelesen werden"
     },
     "createEval": {

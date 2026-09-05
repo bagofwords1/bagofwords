@@ -1178,8 +1178,9 @@
       "untitled": "ללא כותרת"
     },
     "readInstruction": {
-      "reading": "קורא הנחיה…",
+      "reading": "קורא…",
       "read": "הנחיה נקראה",
+      "readSkill": "קריאת מיומנות",
       "failed": "לא ניתן לקרוא את ההנחיה"
     },
     "createEval": {
