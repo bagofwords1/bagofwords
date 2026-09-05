@@ -37,22 +37,23 @@ product documentation), `POST .../{key}/install`, `DELETE .../{key}`,
 `POST /instructions/global`, because an installed skill is a global row that
 reaches every request in the org).
 
-**UI** — inside the knowledge explorer, where skills already live. The Skills
-group gets a **Browse pre-built skills** row that opens the catalog in the
-explorer's own detail panel (the same slot as Tables / Tools / Evals — a new
-`panelView.kind === 'skill-catalog'`, agent-less like `global-evals`):
-`frontend/components/instructions/SkillCatalogPanel.vue`.
+**UI** — inside the knowledge explorer, where skills already live. Clicking the
+**Skills** row opens the catalog in the explorer's own detail panel (the same
+slot as Tables / Tools / Evals — a new `panelView.kind === 'skill-catalog'`,
+agent-less like `global-evals`), so the catalog is one click from the tree with
+nothing to expand first: `frontend/components/instructions/SkillCatalogPanel.vue`.
 
-Each catalog row expands in place to show the **shipped playbook read-only**,
-so it can be read before anyone enables it, and carries Enable / Disable /
-Update. An *enabled* skill is a normal instruction, so clicking it in the tree
-opens the existing instruction editor — versions, Details strip, Analyze tab
-and all — with nothing new built for it.
+A row is a title, a one-line description and a **toggle**. It expands in place
+to show the **shipped playbook read-only**, so it can be read before anyone
+enables it. An *enabled* skill is a normal instruction, so clicking it in the
+tree opens the existing instruction editor — versions, Details strip, Analyze
+tab and all — with nothing new built for it.
 
-Two UI shapes were tried and discarded on the way: a modal (wrong for reading
-16 playbooks) and a standalone `/skills` page with Enabled/Catalog tabs (a
-second home for something the explorer already owns, and a redundant top-level
-nav entry). The panel keeps one home for skills.
+Three UI shapes were tried and discarded on the way: a modal (wrong for reading
+16 playbooks), a standalone `/skills` page with Enabled/Catalog tabs (a second
+home for something the explorer already owns, plus a redundant top-level nav
+entry), and a sub-row inside the expanded Skills group (a second click to reach
+something the group row itself can open).
 
 ## Three fixes this loop found
 
@@ -81,6 +82,12 @@ nav entry). The panel keeps one home for skills.
    can train models…`) where the one-line description belongs — the same line
    the agent sees in `<available_skills>`. Both projections now carry it, along
    with `catalog_key`/`catalog_version`, which were also absent.
+
+An installed skill that had been edited could only be put back to the shipped
+text if a *version bump* happened to be pending: the re-sync action was gated on
+`update_available`, so local edits were effectively one-way. It is now offered
+whenever the copy diverges, labelled **Update** when a new version exists and
+**Reset** when it does not (`test_update_resets_local_edits_without_a_version_bump`).
 
 Skill bodies also opened with an `# H1` repeating their own title, which the
 detail pane rendered directly under the heading it duplicated. The frontmatter

@@ -4804,14 +4804,12 @@
   "skillCatalog": {
     "title": "Competenze predefinite",
     "subtitle": "Guide curate che l’agente carica quando servono. Attiva quelle utili al tuo team.",
-    "browse": "Sfoglia le competenze predefinite",
     "searchPlaceholder": "Cerca competenze…",
     "loading": "Caricamento competenze…",
     "loadFailed": "Impossibile caricare il catalogo delle competenze.",
     "noResults": "Nessuna competenza corrisponde alla ricerca.",
     "enable": "Attiva",
     "disable": "Disattiva",
-    "enabled": "Attiva",
     "update": "Aggiorna",
     "updateAvailable": "Aggiornamento disponibile",
     "customized": "Modificata",
@@ -4823,6 +4821,7 @@
     "disabledToast": "«{name}» disattivata",
     "updatedToast": "«{name}» aggiornata",
     "actionFailed": "Non ha funzionato. Riprova.",
-    "confirmOverwrite": "«{name}» è stata modificata per la tua organizzazione. L’aggiornamento sostituirà la tua versione con quella originale. Continuare?"
+    "confirmOverwrite": "«{name}» è stata modificata per la tua organizzazione. L’aggiornamento sostituirà la tua versione con quella originale. Continuare?",
+    "reset": "Ripristina"
   }
 }

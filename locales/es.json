@@ -4826,14 +4826,12 @@
   "skillCatalog": {
     "title": "Habilidades predefinidas",
     "subtitle": "Guías curadas que el agente carga cuando las necesita. Activa las que tu equipo necesite.",
-    "browse": "Ver habilidades predefinidas",
     "searchPlaceholder": "Buscar habilidades…",
     "loading": "Cargando habilidades…",
     "loadFailed": "No se pudo cargar el catálogo de habilidades.",
     "noResults": "Ninguna habilidad coincide con tu búsqueda.",
     "enable": "Activar",
     "disable": "Desactivar",
-    "enabled": "Activada",
     "update": "Actualizar",
     "updateAvailable": "Actualización disponible",
     "customized": "Editada",
@@ -4845,6 +4843,7 @@
     "disabledToast": "Se desactivó «{name}»",
     "updatedToast": "Se actualizó «{name}»",
     "actionFailed": "No funcionó. Inténtalo de nuevo.",
-    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?"
+    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?",
+    "reset": "Restablecer"
   }
 }

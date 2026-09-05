@@ -55,11 +55,6 @@
             <div class="flex items-center gap-1.5 flex-wrap">
               <span class="text-[13px] text-gray-800 dark:text-gray-200">{{ skill.title }}</span>
               <span
-                v-if="skill.installed"
-                data-testid="skill-enabled-badge"
-                class="text-[10px] text-gray-400 dark:text-gray-500"
-              >{{ $t('skillCatalog.enabled') }}</span>
-              <span
                 v-if="skill.update_available"
                 class="inline-flex items-center px-1.5 h-4 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-medium"
               >{{ $t('skillCatalog.updateAvailable') }}</span>
@@ -82,27 +77,34 @@
           </div>
 
           <div class="shrink-0 flex items-center gap-1.5" @click.stop>
+            <!-- A new shipped version to take, or local edits to discard —
+                 without this second case an edited skill has no way back to
+                 the shipped text. -->
             <button
-              v-if="skill.installed && skill.update_available && canManage"
+              v-if="skill.installed && canManage && (skill.update_available || skill.is_customized)"
               type="button"
+              :data-testid="`skill-resync-${skill.key}`"
               :disabled="busyKey === skill.key"
-              class="h-7 px-2.5 rounded-md text-[11px] font-medium text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10 disabled:opacity-50"
+              class="h-7 px-2.5 rounded-md text-[11px] font-medium disabled:opacity-50"
+              :class="skill.update_available
+                ? 'text-amber-700 dark:text-amber-400 hover:bg-amber-50 dark:hover:bg-amber-500/10'
+                : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'"
               @click="update(skill)"
-            >{{ $t('skillCatalog.update') }}</button>
-            <button
-              type="button"
+            >{{ skill.update_available ? $t('skillCatalog.update') : $t('skillCatalog.reset') }}</button>
+            <Spinner v-if="busyKey === skill.key" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+            <!-- Bound to the server's state, not a local ref: the switch moves
+                 when the install actually lands, so it can never show enabled
+                 for a skill the agent does not have. -->
+            <UToggle
+              v-else
               :data-testid="`skill-toggle-${skill.key}`"
-              :disabled="!canManage || busyKey === skill.key"
-              class="h-7 px-3 rounded-md text-[11px] font-medium border disabled:opacity-50 disabled:cursor-not-allowed"
-              :class="skill.installed
-                ? 'border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50'
-                : 'border-gray-900 dark:border-gray-100 bg-gray-900 dark:bg-gray-100 text-white dark:text-gray-900 hover:bg-gray-800 dark:hover:bg-white'"
+              :model-value="skill.installed"
+              :disabled="!canManage"
+              size="sm"
+              :aria-label="skill.installed ? $t('skillCatalog.disable') : $t('skillCatalog.enable')"
               :title="canManage ? '' : $t('skillCatalog.adminOnly')"
-              @click="toggle(skill)"
-            >
-              <Spinner v-if="busyKey === skill.key" class="w-3 h-3" />
-              <template v-else>{{ skill.installed ? $t('skillCatalog.disable') : $t('skillCatalog.enable') }}</template>
-            </button>
+              @update:model-value="toggle(skill)"
+            />
           </div>
         </div>
 
@@ -225,7 +227,7 @@ const toggle = async (skill: CatalogEntry) => {
 
 const update = async (skill: CatalogEntry) => {
   if (!canManage.value || busyKey.value) return
-  // Updating overwrites the org's copy, so a customized skill needs consent.
+  // Either way this discards the org's copy, so local edits need consent.
   if (skill.is_customized && !confirm(t('skillCatalog.confirmOverwrite', { name: skill.title }))) return
   busyKey.value = skill.key
   try {

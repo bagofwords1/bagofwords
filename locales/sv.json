@@ -4804,14 +4804,12 @@
   "skillCatalog": {
     "title": "Färdiga färdigheter",
     "subtitle": "Utvalda guider som agenten laddar vid behov. Aktivera dem ditt team behöver.",
-    "browse": "Bläddra bland färdiga färdigheter",
     "searchPlaceholder": "Sök färdigheter…",
     "loading": "Laddar färdigheter…",
     "loadFailed": "Det gick inte att ladda färdighetskatalogen.",
     "noResults": "Inga färdigheter matchar din sökning.",
     "enable": "Aktivera",
     "disable": "Inaktivera",
-    "enabled": "Aktiverad",
     "update": "Uppdatera",
     "updateAvailable": "Uppdatering tillgänglig",
     "customized": "Redigerad",
@@ -4823,6 +4821,7 @@
     "disabledToast": "”{name}” inaktiverades",
     "updatedToast": "”{name}” uppdaterades",
     "actionFailed": "Det fungerade inte. Försök igen.",
-    "confirmOverwrite": "”{name}” har redigerats för din organisation. En uppdatering ersätter din version med originalet. Fortsätta?"
+    "confirmOverwrite": "”{name}” har redigerats för din organisation. En uppdatering ersätter din version med originalet. Fortsätta?",
+    "reset": "Återställ"
   }
 }

@@ -398,3 +398,38 @@ async def test_uninstall_clears_duplicate_rows(create_user, login_user, whoami, 
             )
         )).scalars().all()
     assert live == []
+
+
+@pytest.mark.e2e
+def test_update_resets_local_edits_without_a_version_bump(
+    create_user, login_user, whoami, test_client
+):
+    """Reset path: an edited skill can be put back to the shipped text even
+    when no new catalog version exists — otherwise local edits are one-way."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    key = _a_chat_skill_key()
+    skill = get_prebuilt_skill(key)
+    installed = _install(test_client, token, org_id, key)
+
+    edited = test_client.put(
+        f"/api/instructions/{installed['instruction_id']}",
+        json={"text": "Our own take on this playbook."},
+        headers=_auth(token, org_id),
+    )
+    assert edited.status_code == 200, edited.json()
+
+    before = _catalog(test_client, token, org_id)[key]
+    assert before["is_customized"] is True
+    # No version bump — the only reason to re-sync is the local edit itself.
+    assert before["update_available"] is False
+
+    assert test_client.post(
+        f"/api/instructions/skill-catalog/{key}/update", headers=_auth(token, org_id)
+    ).status_code == 200
+
+    after = _catalog(test_client, token, org_id)[key]
+    assert after["is_customized"] is False
+    row = test_client.get(
+        f"/api/instructions/{installed['instruction_id']}", headers=_auth(token, org_id)
+    ).json()
+    assert row["text"].strip() == skill.body.strip()

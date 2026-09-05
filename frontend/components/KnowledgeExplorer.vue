@@ -141,16 +141,14 @@
               </div>
             </template>
           </TreeGroup>
-          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :open="isOpen('skills')" @toggle="expand('skills')">
+          <!-- Clicking the row opens the pre-built catalog (mirrors Tables /
+               Tools); the chevron alone expands the org's enabled skills. -->
+          <TreeGroup :label="$t('agentsPage.skills')" icon="i-heroicons-sparkles" :count="skillCount" :active="panelView?.kind === 'skill-catalog'" data-testid="skills-group" :open="isOpen('skills')" @toggle="onSkillsRowClick">
             <div v-if="groupLoading('skills')" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:32px"><Spinner class="w-3.5 h-3.5" /><span>Loading…</span></div>
             <template v-else>
               <EmptyHint v-if="skillCount === 0" :text="$t('agentsPage.noSkills')" />
               <InstrLeaf v-for="ins in listFor('skills')" :key="ins.id" :ins="ins" />
             </template>
-            <button type="button" data-testid="browse-skill-catalog" class="group w-full flex items-center gap-1.5 h-7 rounded-md text-[11px] transition-colors" :class="panelView?.kind === 'skill-catalog' ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:32px;padding-inline-end:8px" @click.stop="openSkillCatalog">
-              <UIcon name="i-heroicons-squares-plus" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
-              <span class="truncate">{{ $t('skillCatalog.browse') }}</span>
-            </button>
           </TreeGroup>
           <!-- Org-wide evals (apply to all agents). Admin-gated via manage_evals. -->
           <!-- Global Evals mirrors an agent's Evals group: chevron expands the
@@ -1974,6 +1972,13 @@ const openGlobalEvals = () => {
 const openSkillCatalog = () => {
   clearRightPane()
   panelView.value = { kind: 'skill-catalog', agentId: '' }
+}
+// Same shape as onPanelRowClick: the row opens the catalog and expands the
+// group; clicking it again while the catalog is open just collapses the group.
+const onSkillsRowClick = () => {
+  if (panelView.value?.kind === 'skill-catalog') { expand('skills'); return }
+  if (!isOpen('skills')) expand('skills')
+  openSkillCatalog()
 }
 // Enabling lands a normal kind='skill' instruction; disabling deletes one.
 // loadGroup merges rows by id and never removes, so a disabled skill would
