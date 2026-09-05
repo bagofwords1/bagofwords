@@ -3170,7 +3170,9 @@
     "mcpModeAiTip": "AI may set it; server fills if empty",
     "mcpModeLockedTip": "Admin value always wins; hidden from the AI",
     "mcpAddMetaField": "+ Add metadata field",
-    "verify": "Verify"
+    "verify": "Verify",
+    "catPopular": "Popular",
+    "catCustom": "Custom"
   },
   "share": {
     "shareDashboard": "Share Dashboard",
@@ -3684,7 +3686,9 @@
       "enterprise": "Enterprise",
       "sample": "sample",
       "orTry": "Or try a sample database:",
-      "errorAvailable": "Could not fetch available data sources"
+      "errorAvailable": "Could not fetch available data sources",
+      "searchPlaceholder": "Search data sources...",
+      "noResults": "No data sources match “{query}”"
     },
     "schema": {
       "save": "Save & Continue"

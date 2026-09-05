@@ -3022,7 +3022,9 @@
     "toolsAccessible": "{n} Tools zugänglich",
     "toolsLabel": "Tools",
     "unitHours": "Stunden",
-    "unitMinutes": "Minuten"
+    "unitMinutes": "Minuten",
+    "catPopular": "Beliebt",
+    "catCustom": "Benutzerdefiniert"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3521,7 +3523,9 @@
       "enterprise": "Enterprise",
       "sample": "Beispiel",
       "orTry": "Oder probieren Sie eine Beispieldatenbank:",
-      "errorAvailable": "Verfügbare Datenquellen konnten nicht abgerufen werden"
+      "errorAvailable": "Verfügbare Datenquellen konnten nicht abgerufen werden",
+      "searchPlaceholder": "Datenquellen suchen...",
+      "noResults": "Keine Datenquelle passt zu „{query}“"
     },
     "schema": {
       "save": "Speichern und fortfahren"

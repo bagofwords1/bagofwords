@@ -3022,7 +3022,9 @@
     "toolsAccessible": "Доступно инструментов: {n}",
     "toolsLabel": "Инструменты",
     "unitHours": "часов",
-    "unitMinutes": "минут"
+    "unitMinutes": "минут",
+    "catPopular": "Популярные",
+    "catCustom": "Свои"
   },
   "share": {
     "shareDashboard": "Поделиться дашбордом",
@@ -3521,7 +3523,9 @@
       "enterprise": "Enterprise",
       "sample": "демо",
       "orTry": "Или попробуйте демо-базу данных:",
-      "errorAvailable": "Не удалось получить доступные источники данных"
+      "errorAvailable": "Не удалось получить доступные источники данных",
+      "searchPlaceholder": "Поиск источников данных...",
+      "noResults": "Нет источников данных по запросу «{query}»"
     },
     "schema": {
       "save": "Сохранить и продолжить"

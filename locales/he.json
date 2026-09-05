@@ -3108,7 +3108,9 @@
       "test": "בדיקת כתובות",
       "urls": "כתובות מותרות",
       "urlsHelp": "תבנית אחת בכל שורה, לדוגמה https://portal.vendor.com/**. הסוכן יוכל לגשת רק לכתובות שתואמות."
-    }
+    },
+    "catPopular": "פופולריים",
+    "catCustom": "מותאם אישית"
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",
@@ -3616,7 +3618,9 @@
       "enterprise": "Enterprise",
       "sample": "דוגמה",
       "orTry": "או נסו מסד נתונים לדוגמה:",
-      "errorAvailable": "לא ניתן לטעון את מקורות הנתונים הזמינים"
+      "errorAvailable": "לא ניתן לטעון את מקורות הנתונים הזמינים",
+      "searchPlaceholder": "חיפוש מקורות נתונים...",
+      "noResults": "אין מקורות נתונים התואמים ל־“{query}”"
     },
     "schema": {
       "save": "שמירה והמשך"

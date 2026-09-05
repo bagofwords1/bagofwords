@@ -3022,7 +3022,9 @@
     "toolsAccessible": "{n} verktyg tillgängliga",
     "toolsLabel": "Verktyg",
     "unitHours": "timmar",
-    "unitMinutes": "minuter"
+    "unitMinutes": "minuter",
+    "catPopular": "Populära",
+    "catCustom": "Anpassad"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",
@@ -3521,7 +3523,9 @@
       "enterprise": "Enterprise",
       "sample": "exempel",
       "orTry": "Eller prova en exempeldatabas:",
-      "errorAvailable": "Det gick inte att hämta tillgängliga datakällor"
+      "errorAvailable": "Det gick inte att hämta tillgängliga datakällor",
+      "searchPlaceholder": "Sök datakällor...",
+      "noResults": "Ingen datakälla matchar ”{query}”"
     },
     "schema": {
       "save": "Spara och fortsätt"
