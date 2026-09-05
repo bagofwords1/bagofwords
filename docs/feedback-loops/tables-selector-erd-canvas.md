@@ -418,3 +418,9 @@ Removed the redundant Selected / Not selected text from dropdown options. The na
 The existing `Spinner.vue` now occupies the diagram area while the catalog, lazy canvas component, and initial node layout load. `TablesCanvas` emits ready after the initial positions and viewport reach the DOM; the selector then reveals it. Empty graphs become ready on mount. Catalog failure hides the spinner so Retry remains usable; reloading resets readiness.
 
 The delayed-catalog browser regression fails on the previous production build (no diagram loading indicator), then passes on the change. Evidence: `before-visual-loading.png`, `after-visual-loading.png`, `after-visual-ready.png`, and `visual-loading.gif` in `media/pr/tables-erd/`.
+
+### Columns click destination
+
+The reported symptom was a Columns click appearing to only focus its table. In this checkout, the existing handler did expand the side-panel list; the confirmed gap was that focus stayed on the card and there was no explicit reset/reveal of the destination. The new regression reproduced that gap (`Search columns…` was not focused). The handler now expands the list, clears its previous search/pagination, resets the details scroll position, and focuses column search after rendering. A focus-ID check prevents a late callback from focusing another table's input.
+
+Two browser scenarios passed: switching/collapsing/reopening columns and the laptop/full-screen 300-column case. Evidence: `before-column-button.png`, `after-column-button.png`, and `column-button.gif` under `media/pr/tables-erd/`. This validates an explicit side-panel destination; it does not claim the originally reported complete failure to expand was reproduced.

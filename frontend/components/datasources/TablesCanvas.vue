@@ -39,7 +39,7 @@
     <div v-if="!nodes.length" class="absolute inset-0 flex items-center justify-center pointer-events-none">
       <div class="text-center max-w-60 px-3"><UIcon name="i-heroicons-share" class="w-6 h-6 text-gray-300 mb-2" /><p class="text-xs text-gray-500 dark:text-gray-400">{{ t(canUpdate ? 'tableErd.empty' : 'tableErd.noMatches') }}</p></div>
     </div>
-    <div v-if="focusedTable" :style="panelStyle" class="absolute end-3 bottom-12 z-10 w-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow-sm" data-testid="erd-details">
+    <div v-if="focusedTable" ref="detailsPanel" :style="panelStyle" class="absolute end-3 bottom-12 z-10 w-64 overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-3 shadow-sm" data-testid="erd-details">
       <div class="flex justify-between items-center gap-2"><span class="font-mono text-xs truncate dark:text-gray-200" dir="ltr">{{ focusedTable.name }}</span><button class="control w-5" :aria-label="t('tableErd.clearFocus')" @click="clearFocus"><UIcon name="i-heroicons-x-mark" class="w-3 h-3" /></button></div>
       <div v-if="filtering && !matchIds.has(focused!)" class="mt-2 text-[10px] text-gray-500">{{ t('tableErd.outsideFilters') }}</div>
       <p v-if="!focusedLinks.length" class="text-[11px] text-gray-500 mt-2">{{ t('tableErd.noRelationships') }}</p>
@@ -51,7 +51,7 @@
       <p v-if="graph.unresolved.get(focused!)" class="mt-2 text-[10px] text-gray-500">{{ t('tableErd.unresolved') }}</p>
       <details :open="columnsOpen" class="mt-3 text-[10px] text-gray-500" @toggle="columnsOpen = ($event.target as HTMLDetailsElement).open">
         <summary class="cursor-pointer">{{ t('tableErd.columns', { count: focusedTable.columns?.length || 0 }) }}</summary>
-        <input v-model="columnSearch" :placeholder="t('tableErd.searchColumns')" :aria-label="t('tableErd.searchColumns')" class="my-2 w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs" />
+        <input ref="columnSearchInput" v-model="columnSearch" :placeholder="t('tableErd.searchColumns')" :aria-label="t('tableErd.searchColumns')" class="my-2 w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs" />
         <div class="max-h-64 overflow-auto overscroll-contain">
           <div v-for="column in filteredColumns.slice(0, columnLimit)" :key="column.name" data-testid="erd-column" class="flex justify-between gap-3 py-1.5 font-mono" dir="ltr"><span class="break-all">{{ column.name }}</span><span class="text-gray-400 shrink-0">{{ column.dtype || column.type }}</span></div>
           <p v-if="!filteredColumns.length" class="py-2">{{ t('tableErd.noColumns') }}</p>
@@ -109,6 +109,8 @@ watch(() => props.fullscreen, (full) => {
 // Vue Flow keeps an LTR coordinate surface even when its surrounding UI is RTL.
 const flowStyle = computed(() => focusedTable.value ? canvasWidth.value >= 700 ? { [(['he', 'ar'].includes(locale.value) ? 'insetInlineStart' : 'insetInlineEnd')]: '280px' } : { bottom: '250px' } : {})
 const panelStyle = computed(() => canvasWidth.value >= 700 ? { top: '52px' } : { height: '200px', width: 'calc(100% - 24px)' })
+const detailsPanel = ref<HTMLElement | null>(null)
+const columnSearchInput = ref<HTMLInputElement | null>(null)
 const columnsOpen = ref(false)
 const columnSearch = ref('')
 const columnLimit = ref(50)
@@ -190,6 +192,17 @@ function focus(id: string) {
   focused.value = id
   nextTick(() => fitNodes(canvasWidth.value < 700 ? new Set([id]) : neighborhood.value, 0.06))
 }
+async function openColumns(id: string) {
+  focus(id)
+  columnsOpen.value = true
+  columnSearch.value = ''
+  columnLimit.value = 50
+  await nextTick()
+  if (focused.value !== id) return
+  // Make the destination visible even when the previous table's details were scrolled.
+  if (detailsPanel.value) detailsPanel.value.scrollTop = 0
+  columnSearchInput.value?.focus({ preventScroll: true })
+}
 function onNodeClick({ node }: { node: Node }) { focus(node.id) }
 function clearFocus() { focused.value = null; if (overview) { setViewport(overview, { duration: 250 }); overview = null } }
 const arranged = ref(false)
@@ -254,7 +267,7 @@ watch([visibleIds, () => props.tables, () => props.activeIds, focused, locale, (
       table, active: props.activeIds.has(id), canUpdate: props.canUpdate, focused: focused.value === id, keyColumns: [...keyColumns].filter(Boolean), showStats: props.showStats,
       editQuery: table.custom_query_id && props.editableQueryIds?.has(table.custom_query_id) ? () => emit('editQuery', table.custom_query_id!) : undefined,
       hiddenNeighbors: [...graph.value.neighbors.get(id) || []].filter(n => !visibleIds.value.has(n)).length,
-      openColumns: () => { focus(id); columnsOpen.value = true },
+      openColumns: () => openColumns(id),
       toggle: (value: boolean) => toggle(id, value), expand: () => expand(id),
     } }
   })
