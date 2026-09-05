@@ -2,7 +2,7 @@
   <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
     <div class="w-full max-w-[360px]">
       <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
-        {{ setupRequired ? $t('auth.setupTitle') : $t('auth.createAccount') }}
+        {{ $t('auth.welcomeTitle') }}
       </h1>
       <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
         {{ setupRequired ? $t('auth.setupSubtitle') : $t('auth.signUpSubtitle') }}
