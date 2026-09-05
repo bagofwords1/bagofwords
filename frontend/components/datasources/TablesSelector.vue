@@ -1,6 +1,6 @@
 <template>
-  <Teleport to="body" :disabled="!fullscreen">
-  <div ref="selectorElement" :role="fullscreen ? 'dialog' : undefined" :aria-modal="fullscreen || undefined" :aria-label="fullscreen ? t('tableErd.erd') : undefined" tabindex="-1" class="w-full" :class="fullscreen ? 'fixed inset-0 z-40 overflow-auto bg-white dark:bg-gray-900 p-4' : ''">
+  <Teleport to="body" :disabled="!fullscreen || fullscreenInPlace">
+  <div @keydown.esc.capture="onEmbeddedEscape" ref="selectorElement" :role="fullscreen && !fullscreenInPlace ? 'dialog' : undefined" :aria-modal="(fullscreen && !fullscreenInPlace) || undefined" :aria-label="fullscreen ? t('tableErd.erd') : undefined" tabindex="-1" class="w-full" :class="fullscreen && !fullscreenInPlace ? 'fixed inset-0 z-40 overflow-auto bg-white dark:bg-gray-900 p-4' : ''">
     <div v-if="showHeader" class="mb-3">
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
@@ -271,7 +271,7 @@
       </div>
     </div>
 
-    <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative" :aria-busy="!diagramReady && !catalogError">
+    <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative isolate" :aria-busy="!diagramReady && !catalogError">
       <div v-if="!catalogLoaded && !catalogError" class="h-[460px]" />
       <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
         <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
@@ -279,7 +279,7 @@
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :class="{ 'opacity-0 pointer-events-none': !diagramReady }" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
-        :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
+        :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
 
     <div v-show="tableView === 'table'">
@@ -554,7 +554,7 @@
     </div>
 
     <!-- Save button -->
-    <div v-if="(showSave || fullscreen) && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-start rtl:justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
+    <div v-if="(showSave || (fullscreen && !fullscreenInPlace)) && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-start rtl:justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
       <button 
         @click="onSave" 
         :disabled="saving || bulkUpdating || catalogLoading"
@@ -661,6 +661,7 @@ type PaginatedResponse = {
 
 const props = withDefaults(defineProps<{
   dsId: string;
+  fullscreenInPlace?: boolean;
   schema: 'full' | 'user';
   canUpdate?: boolean;
   showRefresh?: boolean;
@@ -699,7 +700,7 @@ const props = withDefaults(defineProps<{
   connectionFilter: '',
 })
 
-const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void }>()
+const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err: any): void; (e: 'fullscreen-change', expanded: boolean): void }>()
 
 // Let a parent composite (CatalogSelector) drive save across several
 // per-connection grids with one button. onSave is a hoisted declaration below.
@@ -716,7 +717,19 @@ function restoreAppSurface() {
   if (appSurface) { appSurface.style.visibility = previousVisibility; appSurface.inert = previousInert; appSurface = null }
 }
 const bodyLocked = useScrollLock(typeof document === 'undefined' ? null : document.body)
+function onEmbeddedEscape(event: KeyboardEvent) {
+  if (!props.fullscreenInPlace || !fullscreen.value || cqModalOpen.value) return
+  if (selectorElement.value?.querySelector('[aria-expanded="true"]')) return
+  event.preventDefault()
+  event.stopPropagation()
+  toggleFullscreen()
+}
 function toggleFullscreen() {
+  if (props.fullscreenInPlace) {
+    fullscreen.value = !fullscreen.value
+    emit('fullscreen-change', fullscreen.value)
+    return
+  }
   if (!fullscreen.value) {
     fullscreenTrigger = document.activeElement as HTMLElement
     appSurface = document.getElementById('__nuxt')
@@ -732,7 +745,8 @@ function toggleFullscreen() {
   nextTick(() => fullscreen.value ? selectorElement.value?.focus() : fullscreenTrigger?.focus())
 }
 useEventListener('keydown', (event: KeyboardEvent) => {
-  if (event.key === 'Tab' && fullscreen.value && !cqModalOpen.value) {
+  if (props.fullscreenInPlace) return
+  if (event.key === 'Tab' && fullscreen.value && !props.fullscreenInPlace && !cqModalOpen.value) {
     const controls = [...selectorElement.value?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex="0"]') || []].filter(element => !element.hasAttribute('disabled') && element.getClientRects().length)
     const first = controls[0], last = controls[controls.length - 1]
     if (event.shiftKey && (document.activeElement === first || document.activeElement === selectorElement.value)) { event.preventDefault(); last?.focus() }
