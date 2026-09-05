@@ -1115,6 +1115,65 @@ class AWSAthenaConfig(BaseModel):
     data_source: str = Field("AwsDataCatalog", title="Data Source", description="", json_schema_extra={"ui:type": "string"})
 
 
+# AWS CloudWatch — log groups (Logs Insights) + metrics.
+# Credentials mirror the S3/Athena idiom so boto3 session construction is shared:
+# static keys, keys + STS assume-role, or the default credential chain.
+class AWSCloudWatchKeyCredentials(BaseModel):
+    access_key: str = Field(..., title="Access Key", description="AWS access key id.", json_schema_extra={"ui:type": "string"})
+    secret_key: str = Field(..., title="Secret Key", description="AWS secret access key.", json_schema_extra={"ui:type": "password"})
+    session_token: Optional[str] = Field(None, title="Session Token", description="Optional session token for temporary credentials.", json_schema_extra={"ui:type": "password"})
+
+
+class AWSCloudWatchRoleCredentials(BaseModel):
+    role_arn: str = Field(..., title="Role ARN", description="ARN of the IAM role to assume (STS) for CloudWatch access.", json_schema_extra={"ui:type": "string"})
+    access_key: Optional[str] = Field(None, title="Access Key", description="Optional — access key id used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "string"})
+    secret_key: Optional[str] = Field(None, title="Secret Key", description="Optional — secret access key used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "password"})
+
+
+class AWSCloudWatchDefaultCredentials(BaseModel):
+    """No credentials required — boto3 resolves via its default chain (env vars,
+    shared config, instance profile, EKS IRSA)."""
+    class Config:
+        extra = "allow"
+
+
+class AWSCloudWatchConfig(BaseModel):
+    region: str = Field(
+        ...,
+        title="Region",
+        description="AWS region to read CloudWatch from (e.g. 'eu-west-1'). Log groups and metrics are per-region.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    log_group_prefix: Optional[str] = Field(
+        None,
+        title="Log Group Prefix",
+        description="Only discover log groups whose name starts with this (e.g. '/aws/lambda/'). Strongly recommended — accounts routinely have thousands. Leave blank to index every log group in the region.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    metric_namespaces: Optional[str] = Field(
+        None,
+        title="Metric Namespaces",
+        description="Comma-separated CloudWatch namespaces to index as tables (e.g. 'AWS/EC2,AWS/RDS'). Leave blank to skip metrics and index log groups only.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    discovery_window_hours: int = Field(
+        24,
+        ge=1,
+        le=720,
+        title="Discovery Window (hours)",
+        description="How far back to sample log events when inferring a log group's columns. Larger windows find more fields but cost more to scan.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_sampled_log_groups: int = Field(
+        25,
+        ge=0,
+        le=500,
+        title="Max Sampled Log Groups",
+        description="Cap on how many log groups (ranked by stored bytes) get their fields sampled during indexing. The rest are still listed, with the built-in @-fields only. Keeps reindexing cheap — Logs Insights bills on bytes scanned.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Vertica
 class VerticaCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})

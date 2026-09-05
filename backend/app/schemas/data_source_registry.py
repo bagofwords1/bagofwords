@@ -28,6 +28,11 @@ from app.schemas.data_sources.configs import (
     GCPConfig,
     AWSCostConfig,
     AWSAthenaConfig,
+    # AWS CloudWatch
+    AWSCloudWatchConfig,
+    AWSCloudWatchKeyCredentials,
+    AWSCloudWatchRoleCredentials,
+    AWSCloudWatchDefaultCredentials,
     VerticaConfig,
     AwsRedshiftConfig,
     TableauConfig,
@@ -855,6 +860,39 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path=None,
         version="beta",
+    ),
+    "aws_cloudwatch": DataSourceRegistryEntry(
+        type="aws_cloudwatch",
+        category="infra",
+        title="AWS CloudWatch",
+        description="Logs and metrics from AWS. Investigate log groups with Logs Insights and chart CloudWatch metrics — both are discovered as tables on one connection.",
+        config_schema=AWSCloudWatchConfig,
+        # Same three AWS credential shapes as S3/Athena. `aws_default` is the one
+        # that matters for in-AWS deployments (instance profile / EKS IRSA), where
+        # no secret should be stored at all.
+        credentials_auth=AuthOptions(
+            default="aws_keys",
+            by_auth={
+                "aws_keys": AuthVariant(
+                    title="AWS Access Key",
+                    schema=AWSCloudWatchKeyCredentials,
+                    scopes=["system"],
+                ),
+                "aws_role": AuthVariant(
+                    title="AWS Assume Role (STS)",
+                    schema=AWSCloudWatchRoleCredentials,
+                    scopes=["system"],
+                ),
+                "aws_default": AuthVariant(
+                    title="AWS Default Chain",
+                    schema=AWSCloudWatchDefaultCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.aws_cloudwatch_client.AwsCloudWatchClient",
+        version="beta",
+        dev_only=True,
     ),
     "vertica": DataSourceRegistryEntry(
         type="vertica",
