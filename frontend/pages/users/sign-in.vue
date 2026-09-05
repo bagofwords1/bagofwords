@@ -101,6 +101,10 @@
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
   const smtpEnabled = ref(false)
   const isSubmitting = ref(false)
+  // <AuthProviderButtons> tracks this for the buttons it owns, but the
+  // single-provider auto-start below runs before that component is rendered
+  // and drives the round trip itself, so this page needs its own copy.
+  const loadingProvider = ref<string | null>(null)
   const localOverride = computed(() => route.query.local === 'true')
   // How many ways there are to sign in. When there is exactly one there is
   // nothing for the user to choose, so we can start it for them.
@@ -296,6 +300,20 @@
     pageLoaded.value = true
   })
 
+
+  // Same reason as `loadingProvider` above: <AuthProviderButtons> has its own
+  // copy for the buttons it owns, but the single-provider auto-start drives the
+  // round trip from this page, before that component exists.
+  function persistRedirectForOAuth() {
+    const target = safeRedirectTarget(route.query.redirect)
+    try {
+      if (target) {
+        sessionStorage.setItem(OAUTH_REDIRECT_STORAGE_NAME, target)
+      } else {
+        sessionStorage.removeItem(OAUTH_REDIRECT_STORAGE_NAME)
+      }
+    } catch (_) {}
+  }
 
   async function signInWithCredentials() {
     isSubmitting.value = true
