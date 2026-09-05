@@ -1166,8 +1166,9 @@
       "untitled": "Namnlös"
     },
     "readInstruction": {
-      "reading": "Läser instruktion…",
+      "reading": "Läser…",
       "read": "Instruktion läst",
+      "readSkill": "Färdighet läst",
       "failed": "Kunde inte läsa instruktionen"
     },
     "createEval": {
@@ -4800,5 +4801,33 @@
     "showingRows": "Visar {n} av {total} rader",
     "openInPanel": "Öppna i sidopanelen",
     "closeFilePanel": "Stäng filen"
+  },
+  "skillCatalog": {
+    "subtitle": "Utvalda guider som agenten laddar vid behov. Aktivera dem ditt team behöver.",
+    "searchPlaceholder": "Sök färdigheter…",
+    "loading": "Laddar färdigheter…",
+    "loadFailed": "Det gick inte att ladda färdighetskatalogen.",
+    "noResults": "Inga färdigheter matchar din sökning.",
+    "enable": "Aktivera",
+    "disable": "Inaktivera",
+    "update": "Uppdatera",
+    "updateAvailable": "Uppdatering tillgänglig",
+    "customized": "Redigerad",
+    "customizedHint": "Den här färdigheten har redigerats för din organisation. En uppdatering ersätter den med originalversionen.",
+    "modeScoped": "Endast {modes}",
+    "modeScopedHint": "Den här färdigheten erbjuds bara till agenten i dessa lägen.",
+    "adminOnly": "Endast en administratör kan aktivera en färdighet för organisationen.",
+    "enabledToast": "”{name}” aktiverades",
+    "disabledToast": "”{name}” inaktiverades",
+    "updatedToast": "”{name}” uppdaterades",
+    "actionFailed": "Det fungerade inte. Försök igen.",
+    "confirmOverwrite": "”{name}” har redigerats för din organisation. En uppdatering ersätter din version med originalet. Fortsätta?",
+    "reset": "Återställ",
+    "tabEnabled": "Aktiverade",
+    "tabCatalog": "Katalog",
+    "enabledSubtitle": "Färdigheter som den här organisationen har aktiverat. Öppna en för att läsa eller redigera den.",
+    "enabledEmpty": "Inga färdigheter aktiverade än",
+    "browse": "Bläddra i katalogen",
+    "custom": "Egen"
   }
 }

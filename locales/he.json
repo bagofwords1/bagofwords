@@ -1178,8 +1178,9 @@
       "untitled": "ללא כותרת"
     },
     "readInstruction": {
-      "reading": "קורא הנחיה…",
+      "reading": "קורא…",
       "read": "הנחיה נקראה",
+      "readSkill": "קריאת מיומנות",
       "failed": "לא ניתן לקרוא את ההנחיה"
     },
     "createEval": {
@@ -4822,5 +4823,33 @@
     "agents": "סוכנים",
     "selectAgents": "בחר סוכנים",
     "status": "סטטוס"
+  },
+  "skillCatalog": {
+    "subtitle": "מדריכים מוכנים שהסוכן טוען לפי הצורך. הפעילו את אלה שהצוות שלכם צריך.",
+    "searchPlaceholder": "חיפוש מיומנויות…",
+    "loading": "טוען מיומנויות…",
+    "loadFailed": "לא ניתן לטעון את קטלוג המיומנויות.",
+    "noResults": "אין מיומנויות שתואמות לחיפוש.",
+    "enable": "הפעלה",
+    "disable": "כיבוי",
+    "update": "עדכון",
+    "updateAvailable": "יש עדכון",
+    "customized": "נערכה",
+    "customizedHint": "המיומנות הזו נערכה עבור הארגון שלכם. עדכון יחליף אותה בגרסה המקורית.",
+    "modeScoped": "{modes} בלבד",
+    "modeScopedHint": "המיומנות הזו מוצעת לסוכן במצבים האלה בלבד.",
+    "adminOnly": "רק מנהל יכול להפעיל מיומנות עבור הארגון.",
+    "enabledToast": "‏„{name}” הופעלה",
+    "disabledToast": "‏„{name}” כובתה",
+    "updatedToast": "‏„{name}” עודכנה",
+    "actionFailed": "הפעולה נכשלה. נסו שוב.",
+    "confirmOverwrite": "‏„{name}” נערכה עבור הארגון שלכם. עדכון יחליף את הגרסה שלכם בגרסה המקורית. להמשיך?",
+    "reset": "איפוס",
+    "tabEnabled": "פעילות",
+    "tabCatalog": "קטלוג",
+    "enabledSubtitle": "מיומנויות שהארגון הזה הפעיל. פתחו אחת כדי לקרוא או לערוך אותה.",
+    "enabledEmpty": "עדיין אין מיומנויות פעילות",
+    "browse": "עיון בקטלוג",
+    "custom": "משלכם"
   }
 }

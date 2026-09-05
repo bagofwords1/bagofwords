@@ -1166,8 +1166,9 @@
       "untitled": "Ohne Titel"
     },
     "readInstruction": {
-      "reading": "Anweisung wird gelesen…",
+      "reading": "Wird gelesen…",
       "read": "Anweisung gelesen",
+      "readSkill": "Skill gelesen",
       "failed": "Anweisung konnte nicht gelesen werden"
     },
     "createEval": {
@@ -4800,5 +4801,33 @@
     "showingRows": "{n} von {total} Zeilen angezeigt",
     "openInPanel": "In der Seitenleiste öffnen",
     "closeFilePanel": "Datei schließen"
+  },
+  "skillCatalog": {
+    "subtitle": "Kuratierte Leitfäden, die der Agent bei Bedarf lädt. Aktivieren Sie die, die Ihr Team braucht.",
+    "searchPlaceholder": "Skills suchen…",
+    "loading": "Skills werden geladen…",
+    "loadFailed": "Der Skill-Katalog konnte nicht geladen werden.",
+    "noResults": "Keine Skills passen zu Ihrer Suche.",
+    "enable": "Aktivieren",
+    "disable": "Deaktivieren",
+    "update": "Aktualisieren",
+    "updateAvailable": "Update verfügbar",
+    "customized": "Bearbeitet",
+    "customizedHint": "Dieser Skill wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird er durch die Originalversion ersetzt.",
+    "modeScoped": "Nur {modes}",
+    "modeScopedHint": "Dieser Skill wird dem Agenten nur in diesen Modi angeboten.",
+    "adminOnly": "Nur Administratoren können einen Skill für die Organisation aktivieren.",
+    "enabledToast": "„{name}“ aktiviert",
+    "disabledToast": "„{name}“ deaktiviert",
+    "updatedToast": "„{name}“ aktualisiert",
+    "actionFailed": "Das hat nicht geklappt. Bitte erneut versuchen.",
+    "confirmOverwrite": "„{name}“ wurde für Ihre Organisation bearbeitet. Beim Aktualisieren wird Ihre Version durch die Originalversion ersetzt. Fortfahren?",
+    "reset": "Zurücksetzen",
+    "tabEnabled": "Aktiviert",
+    "tabCatalog": "Katalog",
+    "enabledSubtitle": "Skills, die diese Organisation aktiviert hat. Öffnen Sie einen zum Lesen oder Bearbeiten.",
+    "enabledEmpty": "Noch keine Skills aktiviert",
+    "browse": "Katalog durchsuchen",
+    "custom": "Eigener"
   }
 }

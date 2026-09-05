@@ -4312,6 +4312,7 @@ class InstructionService:
                         id=str(inst.id),
                         title=getattr(inst, "title", None),
                         preview=build_preview(inst.text),
+                        description=getattr(inst, "description", None),
                         status=inst.status,
                         category=inst.category,
                         kind=getattr(inst, "kind", "instruction") or "instruction",
@@ -4328,6 +4329,8 @@ class InstructionService:
                         ai_source=getattr(inst, "ai_source", None),
                         applicable_modes=getattr(inst, "applicable_modes", None),
                         applicable_channels=getattr(inst, "applicable_channels", None),
+                        catalog_key=getattr(inst, "catalog_key", None),
+                        catalog_version=getattr(inst, "catalog_version", None),
                         current_version_id=getattr(inst, "current_version_id", None),
                         table_ref_ids=table_ref_ids.get(str(inst.id), []),
                         data_sources=ds_min,
@@ -4368,6 +4371,12 @@ class InstructionService:
                     applicable_channels=getattr(inst, "applicable_channels", None),
                     kind=getattr(inst, "kind", "instruction") or "instruction",
                     title=getattr(inst, "title", None),
+                    # Declared on the schema but never populated here, so every
+                    # full list row reported description=None — which for a
+                    # skill is the one line that says what it is for.
+                    description=getattr(inst, "description", None),
+                    catalog_key=getattr(inst, "catalog_key", None),
+                    catalog_version=getattr(inst, "catalog_version", None),
                     structured_data=getattr(inst, "structured_data", None),
                     formatted_content=getattr(inst, "formatted_content", None),
                     # Build System fields

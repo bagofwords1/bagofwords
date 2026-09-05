@@ -1178,8 +1178,9 @@
       "untitled": "Sin título"
     },
     "readInstruction": {
-      "reading": "Leyendo instrucción…",
+      "reading": "Leyendo…",
       "read": "Instrucción leída",
+      "readSkill": "Habilidad leída",
       "failed": "No se pudo leer la instrucción"
     },
     "createEval": {
@@ -4822,5 +4823,33 @@
     "agents": "Agentes",
     "selectAgents": "Selecciona agentes",
     "status": "Estado"
+  },
+  "skillCatalog": {
+    "subtitle": "Guías curadas que el agente carga cuando las necesita. Activa las que tu equipo necesite.",
+    "searchPlaceholder": "Buscar habilidades…",
+    "loading": "Cargando habilidades…",
+    "loadFailed": "No se pudo cargar el catálogo de habilidades.",
+    "noResults": "Ninguna habilidad coincide con tu búsqueda.",
+    "enable": "Activar",
+    "disable": "Desactivar",
+    "update": "Actualizar",
+    "updateAvailable": "Actualización disponible",
+    "customized": "Editada",
+    "customizedHint": "Esta habilidad se editó para tu organización. Al actualizar se reemplazará por la versión original.",
+    "modeScoped": "Solo {modes}",
+    "modeScopedHint": "Esta habilidad solo se ofrece al agente en estos modos.",
+    "adminOnly": "Solo un administrador puede activar una habilidad para la organización.",
+    "enabledToast": "Se activó «{name}»",
+    "disabledToast": "Se desactivó «{name}»",
+    "updatedToast": "Se actualizó «{name}»",
+    "actionFailed": "No funcionó. Inténtalo de nuevo.",
+    "confirmOverwrite": "«{name}» se editó para tu organización. Al actualizar se reemplazará tu versión por la original. ¿Continuar?",
+    "reset": "Restablecer",
+    "tabEnabled": "Activadas",
+    "tabCatalog": "Catálogo",
+    "enabledSubtitle": "Habilidades que esta organización tiene activadas. Abre una para leerla o editarla.",
+    "enabledEmpty": "Aún no hay habilidades activadas",
+    "browse": "Ver el catálogo",
+    "custom": "Propia"
   }
 }

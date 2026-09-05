@@ -1252,8 +1252,9 @@
       "untitled": "Untitled"
     },
     "readInstruction": {
-      "reading": "Reading instruction…",
+      "reading": "Reading…",
       "read": "Read instruction",
+      "readSkill": "Read skill",
       "failed": "Could not read instruction"
     },
     "createEval": {
@@ -4828,5 +4829,33 @@
     "agents": "Agents",
     "selectAgents": "Select agents",
     "status": "Status"
+  },
+  "skillCatalog": {
+    "subtitle": "Curated playbooks the agent loads on demand. Enable the ones your team needs.",
+    "searchPlaceholder": "Search skills…",
+    "loading": "Loading skills…",
+    "loadFailed": "Could not load the skill catalog.",
+    "noResults": "No skills match your search.",
+    "enable": "Enable",
+    "disable": "Disable",
+    "update": "Update",
+    "updateAvailable": "Update available",
+    "customized": "Edited",
+    "customizedHint": "This skill was edited for your organization. Updating replaces it with the shipped version.",
+    "modeScoped": "{modes} only",
+    "modeScopedHint": "This skill is only offered to the agent in these modes.",
+    "adminOnly": "Only an administrator can enable a skill for the organization.",
+    "enabledToast": "Enabled “{name}”",
+    "disabledToast": "Disabled “{name}”",
+    "updatedToast": "Updated “{name}”",
+    "actionFailed": "That did not work. Please try again.",
+    "confirmOverwrite": "“{name}” was edited for your organization. Updating replaces your version with the shipped one. Continue?",
+    "reset": "Reset",
+    "tabEnabled": "Enabled",
+    "tabCatalog": "Catalog",
+    "enabledSubtitle": "Skills this organization has turned on. Open one to read or edit it.",
+    "enabledEmpty": "No skills enabled yet",
+    "browse": "Browse the catalog",
+    "custom": "Custom"
   }
 }

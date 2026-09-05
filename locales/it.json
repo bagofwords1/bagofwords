@@ -1166,8 +1166,9 @@
       "untitled": "Senza titolo"
     },
     "readInstruction": {
-      "reading": "Lettura dell'istruzione…",
+      "reading": "Lettura…",
       "read": "Istruzione letta",
+      "readSkill": "Competenza letta",
       "failed": "Impossibile leggere l'istruzione"
     },
     "createEval": {
@@ -4800,5 +4801,33 @@
     "showingRows": "Visualizzate {n} di {total} righe",
     "openInPanel": "Apri nel pannello laterale",
     "closeFilePanel": "Chiudi file"
+  },
+  "skillCatalog": {
+    "subtitle": "Guide curate che l’agente carica quando servono. Attiva quelle utili al tuo team.",
+    "searchPlaceholder": "Cerca competenze…",
+    "loading": "Caricamento competenze…",
+    "loadFailed": "Impossibile caricare il catalogo delle competenze.",
+    "noResults": "Nessuna competenza corrisponde alla ricerca.",
+    "enable": "Attiva",
+    "disable": "Disattiva",
+    "update": "Aggiorna",
+    "updateAvailable": "Aggiornamento disponibile",
+    "customized": "Modificata",
+    "customizedHint": "Questa competenza è stata modificata per la tua organizzazione. L’aggiornamento la sostituirà con la versione originale.",
+    "modeScoped": "Solo {modes}",
+    "modeScopedHint": "Questa competenza viene offerta all’agente solo in queste modalità.",
+    "adminOnly": "Solo un amministratore può attivare una competenza per l’organizzazione.",
+    "enabledToast": "«{name}» attivata",
+    "disabledToast": "«{name}» disattivata",
+    "updatedToast": "«{name}» aggiornata",
+    "actionFailed": "Non ha funzionato. Riprova.",
+    "confirmOverwrite": "«{name}» è stata modificata per la tua organizzazione. L’aggiornamento sostituirà la tua versione con quella originale. Continuare?",
+    "reset": "Ripristina",
+    "tabEnabled": "Attive",
+    "tabCatalog": "Catalogo",
+    "enabledSubtitle": "Competenze attivate da questa organizzazione. Aprine una per leggerla o modificarla.",
+    "enabledEmpty": "Nessuna competenza attiva",
+    "browse": "Sfoglia il catalogo",
+    "custom": "Personalizzata"
   }
 }
