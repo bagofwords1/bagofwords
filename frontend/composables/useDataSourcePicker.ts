@@ -120,33 +120,62 @@ export function filterDataSources(sources: any[], query: string): any[] {
     .map(({ ds }) => ds)
 }
 
+// The domain categories, in the order the add-connection modal renders them,
+// so both pickers name and order the catalogue the same way. `custom` (raw MCP
+// / Custom API) is a chip here because onboarding has no footer to pin it to.
+export const DATA_SOURCE_CATEGORIES: { key: string; label: string }[] = [
+  { key: 'databases', label: 'data.catDatabases' },
+  { key: 'bi', label: 'data.catBi' },
+  { key: 'infra', label: 'data.catInfra' },
+  { key: 'services', label: 'data.catServices' },
+  { key: 'files', label: 'data.catFiles' },
+  { key: 'custom', label: 'data.catCustom' },
+]
+
 /**
- * Search + "popular first" behaviour for the connector picker.
+ * The slice of the catalogue a chip stands for: the curated set, everything,
+ * or one category. Entries with no category fall in with the databases, which
+ * is what the registry itself defaults them to.
+ */
+export function scopeDataSources(sources: any[], scope: string): any[] {
+  if (scope === 'popular') return popularDataSources(sources)
+  if (scope === 'all') return sources || []
+  return (sources || []).filter((ds: any) => (ds?.category || 'databases') === scope)
+}
+
+/**
+ * Search + category chips for the connector picker.
  *
- * With an empty query the picker shows only `POPULAR_DATA_SOURCE_TYPES` (in
- * that order) until `showAll` is toggled; while a query is present it always
- * searches the full catalogue, so a connector that isn't popular is still one
- * keystroke away.
+ * The picker opens on `popular` — the curated set, not all ~68 connectors —
+ * and the chips ("All" plus each non-empty category) are how you browse wider.
+ * Typing resets the chip to `all` so search is global by default; picking a
+ * chip afterwards narrows the results you are looking at.
  */
 export function useDataSourcePicker(sources: Ref<any[]>) {
   const query = ref('')
-  const showAll = ref(false)
+  const activeCategory = ref('popular')
 
   const isSearching = computed(() => query.value.trim().length > 0)
 
-  const popular = computed(() => popularDataSources(sources.value))
-
-  const matches = computed(() => filterDataSources(sources.value, query.value))
-
-  const visible = computed(() => {
-    if (isSearching.value) return matches.value
-    return showAll.value ? sources.value || [] : popular.value
+  watch(isSearching, (searching) => {
+    if (searching) activeCategory.value = 'all'
   })
 
-  // How many connectors the collapsed (popular-only) view is hiding.
-  const hiddenCount = computed(() => Math.max((sources.value || []).length - popular.value.length, 0))
+  // Chips: Popular, All, then the categories the catalogue actually has.
+  const chips = computed(() => {
+    const present = new Set((sources.value || []).map((ds: any) => ds?.category || 'databases'))
+    return [
+      { key: 'popular', label: 'data.catPopular' },
+      { key: 'all', label: 'data.catAll' },
+      ...DATA_SOURCE_CATEGORIES.filter((c) => present.has(c.key)),
+    ]
+  })
 
-  const noResults = computed(() => isSearching.value && matches.value.length === 0)
+  const visible = computed(() =>
+    filterDataSources(scopeDataSources(sources.value, activeCategory.value), query.value),
+  )
 
-  return { query, showAll, isSearching, popular, matches, visible, hiddenCount, noResults }
+  const noResults = computed(() => isSearching.value && visible.value.length === 0)
+
+  return { query, activeCategory, chips, isSearching, visible, noResults }
 }

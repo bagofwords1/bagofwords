@@ -3022,7 +3022,9 @@
     "toolsAccessible": "{n} Tools zugänglich",
     "toolsLabel": "Tools",
     "unitHours": "Stunden",
-    "unitMinutes": "Minuten"
+    "unitMinutes": "Minuten",
+    "catPopular": "Beliebt",
+    "catCustom": "Benutzerdefiniert"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
@@ -3523,8 +3525,6 @@
       "orTry": "Oder probieren Sie eine Beispieldatenbank:",
       "errorAvailable": "Verfügbare Datenquellen konnten nicht abgerufen werden",
       "searchPlaceholder": "Datenquellen suchen...",
-      "showAll": "Alle Datenquellen anzeigen ({count} weitere)",
-      "showLess": "Weniger anzeigen",
       "noResults": "Keine Datenquelle passt zu „{query}“"
     },
     "schema": {

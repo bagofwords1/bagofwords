@@ -3022,7 +3022,9 @@
     "toolsAccessible": "{n} أدوات متاحة",
     "toolsLabel": "الأدوات",
     "unitHours": "ساعات",
-    "unitMinutes": "دقائق"
+    "unitMinutes": "دقائق",
+    "catPopular": "الأكثر شيوعاً",
+    "catCustom": "مخصص"
   },
   "share": {
     "shareDashboard": "مشاركة لوحة التحكم",
@@ -3523,8 +3525,6 @@
       "orTry": "أو جرّب قاعدة بيانات تجريبية:",
       "errorAvailable": "تعذّر جلب مصادر البيانات المتاحة",
       "searchPlaceholder": "ابحث عن مصادر البيانات...",
-      "showAll": "عرض جميع مصادر البيانات ({count} إضافي)",
-      "showLess": "عرض أقل",
       "noResults": "لا توجد مصادر بيانات تطابق «{query}»"
     },
     "schema": {
