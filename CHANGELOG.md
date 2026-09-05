@@ -14,6 +14,7 @@
 - SQL data sources now introspect foreign keys (Postgres, SQL Server, MySQL/MariaDB, Oracle, Snowflake), so the agent sees table relationships without manual configuration; relationships pointing outside the selected tables are pruned from context, and the table picker shows a related-tables badge (#1069)
 - Added a SharePoint Server (on-premises) file connector, authenticating over Kerberos/GSSAPI against a self-hosted farm rather than the Graph API (#1071)
 - Table selection gains a shared ERD canvas: relationships are laid out visually across a connection's tables, with selection, focus/expand and custom-query selection shared with the list view (#1072)
+- The onboarding connector step now leads with the connectors new workspaces most often start with, plus a search box that always queries the full catalogue (matching title, type, description, category and common aliases like "postgres" or "excel") and a show-all toggle (#1073)
 
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
