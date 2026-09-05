@@ -4827,6 +4827,13 @@
     "reset": "Zurücksetzen"
   },
   "tableErd": {
+    "recentPrompts": "Letzte Anfragen",
+    "thisAgentOnly": "Nur erfasste Tabellennutzung dieses Agenten",
+    "promptUnavailable": "Anfrage nicht verfügbar",
+    "promptsError": "Anfragen konnten nicht geladen werden.",
+    "noPrompts": "Keine erfassten Anfragen für diese Tabelle.",
+    "morePrompts": "Mehr anzeigen",
+    "loadingPrompts": "Anfragen werden geladen…",
     "selectedCount": "{count} ausgewählt",
     "selectTables": "Tabellen auswählen",
     "customQuery": "Eigene Abfrage",

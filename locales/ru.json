@@ -4827,6 +4827,13 @@
     "reset": "Сбросить"
   },
   "tableErd": {
+    "recentPrompts": "Недавние запросы",
+    "thisAgentOnly": "Только использование таблицы этим агентом",
+    "promptUnavailable": "Запрос недоступен",
+    "promptsError": "Не удалось загрузить запросы.",
+    "noPrompts": "Для этой таблицы нет записанных запросов.",
+    "morePrompts": "Показать ещё",
+    "loadingPrompts": "Загрузка запросов…",
     "selectedCount": "Выбрано: {count}",
     "selectTables": "Выбрать таблицы",
     "customQuery": "Пользовательский запрос",

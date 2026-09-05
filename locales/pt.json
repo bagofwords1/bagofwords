@@ -4827,6 +4827,13 @@
     "reset": "Repor"
   },
   "tableErd": {
+    "recentPrompts": "Solicitações recentes",
+    "thisAgentOnly": "Somente uso registrado deste agente",
+    "promptUnavailable": "Solicitação indisponível",
+    "promptsError": "Não foi possível carregar as solicitações.",
+    "noPrompts": "Nenhuma solicitação registrada para esta tabela.",
+    "morePrompts": "Mostrar mais",
+    "loadingPrompts": "Carregando solicitações…",
     "selectedCount": "{count} selecionadas",
     "selectTables": "Selecionar tabelas",
     "customQuery": "Consulta personalizada",

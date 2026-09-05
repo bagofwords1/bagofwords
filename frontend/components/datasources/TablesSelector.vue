@@ -274,7 +274,7 @@
     <div v-if="erdOpened" v-show="tableView === 'erd'">
       <div v-if="catalogLoading" class="py-4 text-xs text-gray-500 flex items-center gap-2"><Spinner class="w-3 h-3" />{{ t('tableErd.loading') }}</div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
-      <TablesCanvas v-if="catalogLoaded" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
+      <TablesCanvas v-if="catalogLoaded" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>

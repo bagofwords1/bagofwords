@@ -4827,6 +4827,13 @@
     "reset": "Ripristina"
   },
   "tableErd": {
+    "recentPrompts": "Richieste recenti",
+    "thisAgentOnly": "Solo utilizzo registrato di questo agente",
+    "promptUnavailable": "Richiesta non disponibile",
+    "promptsError": "Impossibile caricare le richieste.",
+    "noPrompts": "Nessuna richiesta registrata per questa tabella.",
+    "morePrompts": "Mostra altro",
+    "loadingPrompts": "Caricamento richieste…",
     "selectedCount": "{count} selezionate",
     "selectTables": "Seleziona tabelle",
     "customQuery": "Query personalizzata",

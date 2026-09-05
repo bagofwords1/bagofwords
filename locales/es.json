@@ -4851,6 +4851,13 @@
     "reset": "Restablecer"
   },
   "tableErd": {
+    "recentPrompts": "Consultas recientes",
+    "thisAgentOnly": "Solo el uso registrado de este agente",
+    "promptUnavailable": "Consulta no disponible",
+    "promptsError": "No se pudieron cargar las consultas.",
+    "noPrompts": "No hay consultas registradas para esta tabla.",
+    "morePrompts": "Mostrar más",
+    "loadingPrompts": "Cargando consultas…",
     "selectedCount": "{count} seleccionadas",
     "selectTables": "Seleccionar tablas",
     "customQuery": "Consulta personalizada",

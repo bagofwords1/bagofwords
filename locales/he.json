@@ -4851,6 +4851,13 @@
     "reset": "איפוס"
   },
   "tableErd": {
+    "recentPrompts": "בקשות אחרונות",
+    "thisAgentOnly": "רק שימוש מתועד בטבלה של הסוכן הזה",
+    "promptUnavailable": "הבקשה אינה זמינה",
+    "promptsError": "לא ניתן לטעון בקשות.",
+    "noPrompts": "אין בקשות מתועדות לטבלה הזו.",
+    "morePrompts": "הצגת עוד",
+    "loadingPrompts": "טוען בקשות…",
     "selectedCount": "{count} נבחרו",
     "selectTables": "בחירת טבלאות",
     "customQuery": "שאילתה מותאמת",

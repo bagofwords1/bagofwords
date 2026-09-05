@@ -59,6 +59,7 @@
           <button v-if="filteredColumns.length > columnLimit" class="control px-2 w-full" @click="columnLimit += 50">{{ t('tableErd.showMore') }}</button>
         </div>
       </details>
+      <TableRecentPrompts v-if="canViewPrompts && agentId && focusedTable.id" :agent-id="agentId" :table-id="focusedTable.id" />
     </div>
     <div class="absolute bottom-0 inset-x-0 flex flex-wrap items-center justify-between gap-2 border-t border-gray-200/80 dark:border-gray-800 bg-white/95 dark:bg-gray-900/95 px-3 py-2 text-[10px] text-gray-500">
       <div class="flex items-center gap-3"><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-blue-500" />{{ t('tableErd.selected') }}</span><span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 rounded-sm border border-dotted border-gray-400" />{{ t('tableErd.notSelected') }}</span><span v-if="hasSuggestions" class="flex items-center gap-1.5"><span class="w-4 border-t border-dashed border-gray-400" />{{ t('tableErd.suggested') }}</span></div>
@@ -73,8 +74,9 @@ import { Graph } from 'dagre-d3-es/src/graphlib/graph.js'
 import { layout } from 'dagre-d3-es/src/dagre/layout.js'
 import { tableGraph, tableId, visibleTableIds, type GraphTable } from '~/utils/tableGraph'
 import TableCanvasNode from './TableCanvasNode.vue'
+import TableRecentPrompts from './TableRecentPrompts.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
-const props = defineProps<{ tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean }>()
+const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean }>()
 const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string]; toggleFullscreen: [] }>()
 const { t, locale } = useI18n()
 const flowId = `table-erd-${useId()}`
@@ -105,7 +107,8 @@ watch(() => props.fullscreen, (full) => {
     })
   })
 })
-const flowStyle = computed(() => focusedTable.value ? canvasWidth.value >= 700 ? { insetInlineEnd: '280px' } : { bottom: '250px' } : {})
+// Vue Flow keeps an LTR coordinate surface even when its surrounding UI is RTL.
+const flowStyle = computed(() => focusedTable.value ? canvasWidth.value >= 700 ? { [(['he', 'ar'].includes(locale.value) ? 'insetInlineStart' : 'insetInlineEnd')]: '280px' } : { bottom: '250px' } : {})
 const panelStyle = computed(() => canvasWidth.value >= 700 ? { top: '52px' } : { height: '200px', width: 'calc(100% - 24px)' })
 const columnsOpen = ref(false)
 const columnSearch = ref('')
