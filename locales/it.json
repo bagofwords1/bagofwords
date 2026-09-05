@@ -4846,8 +4846,8 @@
     "suggested": "Suggerita",
     "suggestedHint": "Suggerita dai nomi delle chiavi · non verificata",
     "view": "Vista tabelle",
-    "table": "Tabella",
-    "erd": "ERD",
+    "table": "Elenco",
+    "erd": "Visuale",
     "unsaved": "Modifiche non salvate",
     "selectTable": "Seleziona {name}",
     "add": "Aggiungi",
@@ -4882,6 +4882,11 @@
     "loading": "Caricamento relazioni…",
     "loadError": "Impossibile caricare le relazioni.",
     "retry": "Riprova",
-    "saveError": "Impossibile salvare la selezione."
+    "saveError": "Impossibile salvare la selezione.",
+    "fullscreen": "Schermo intero",
+    "exitFullscreen": "Esci da schermo intero",
+    "searchColumns": "Cerca colonne…",
+    "noColumns": "Nessuna colonna corrispondente",
+    "centrality": "Centralità"
   }
 }

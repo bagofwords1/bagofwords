@@ -4846,8 +4846,8 @@
     "suggested": "Föreslagen",
     "suggestedHint": "Föreslagen utifrån nyckelnamn · ej verifierad",
     "view": "Tabellvy",
-    "table": "Tabell",
-    "erd": "ERD",
+    "table": "Lista",
+    "erd": "Visuell",
     "unsaved": "Osparade ändringar",
     "selectTable": "Välj {name}",
     "add": "Lägg till",
@@ -4882,6 +4882,11 @@
     "loading": "Laddar relationer…",
     "loadError": "Kunde inte ladda relationer.",
     "retry": "Försök igen",
-    "saveError": "Kunde inte spara urvalet."
+    "saveError": "Kunde inte spara urvalet.",
+    "fullscreen": "Helskärm",
+    "exitFullscreen": "Avsluta helskärm",
+    "searchColumns": "Sök kolumner…",
+    "noColumns": "Inga matchande kolumner",
+    "centrality": "Centralitet"
   }
 }

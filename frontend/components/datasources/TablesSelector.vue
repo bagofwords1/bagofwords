@@ -1,5 +1,6 @@
 <template>
-  <div class="w-full">
+  <Teleport to="body" :disabled="!fullscreen">
+  <div ref="selectorElement" :role="fullscreen ? 'dialog' : undefined" :aria-modal="fullscreen || undefined" :aria-label="fullscreen ? t('tableErd.erd') : undefined" tabindex="-1" class="w-full" :class="fullscreen ? 'fixed inset-0 z-40 overflow-auto bg-white dark:bg-gray-900 p-4' : ''">
     <div v-if="showHeader" class="mb-3">
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
@@ -17,6 +18,7 @@
         </div>
       </div>
       <div class="flex items-center gap-3">
+        <button v-if="fullscreen" type="button" @click="toggleFullscreen" :aria-label="t('tableErd.exitFullscreen')" class="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"><UIcon name="i-heroicons-arrows-pointing-in" class="w-3.5 h-3.5" />{{ t('tableErd.exitFullscreen') }}</button>
         <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
         <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
           class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
@@ -237,7 +239,7 @@
         <span v-else-if="isPaginated && tableView === 'table'">
           Showing {{ paginationStart }}-{{ paginationEnd }} of {{ totalTables }}
         </span>
-        <span v-else></span>
+        <span v-else-if="canUpdate">{{ draftSelectedCount }}/{{ totalTables }} active</span>
         
         <!-- Right side: bulk actions -->
         <div v-if="canUpdate" class="flex items-center gap-2">
@@ -264,7 +266,7 @@
       
       <!-- Active count row. A reader only ever sees active tables, so the
            ratio is always N/N — it reads as a stat but carries no information. -->
-      <div v-if="canUpdate" class="text-[10px] text-gray-500 dark:text-gray-400">
+      <div v-if="canUpdate && (hasActiveFilters || tableView === 'table')" class="text-[10px] text-gray-500 dark:text-gray-400">
         {{ draftSelectedCount }}/{{ totalTables }} active
       </div>
     </div>
@@ -274,7 +276,7 @@
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
       <TablesCanvas v-if="catalogLoaded" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
-        :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
+        :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
 
     <div v-show="tableView === 'table'">
@@ -562,7 +564,7 @@
     </div>
 
     <!-- Save button -->
-    <div v-if="showSave && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
+    <div v-if="(showSave || fullscreen) && canUpdate" class="sticky bottom-0 z-10 mt-3 flex items-center justify-start rtl:justify-end border-t border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 py-2">
       <button 
         @click="onSave" 
         :disabled="saving || bulkUpdating || catalogLoading"
@@ -573,9 +575,11 @@
       </button>
     </div>
   </div>
+  </Teleport>
 </template>
 
 <script setup lang="ts">
+import { useScrollLock, useEventListener } from '@vueuse/core'
 import Spinner from '@/components/Spinner.vue'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
 import { tableId, matchesTable } from '~/utils/tableGraph'
@@ -712,6 +716,44 @@ const emit = defineEmits<{ (e: 'saved', tables: Table[]): void; (e: 'error', err
 defineExpose({ save: () => onSave() })
 
 const { t } = useI18n()
+const fullscreen = ref(false)
+const selectorElement = ref<HTMLElement | null>(null)
+let fullscreenTrigger: HTMLElement | null = null
+let appSurface: HTMLElement | null = null
+let previousVisibility = ''
+let previousInert = false
+function restoreAppSurface() {
+  if (appSurface) { appSurface.style.visibility = previousVisibility; appSurface.inert = previousInert; appSurface = null }
+}
+const bodyLocked = useScrollLock(typeof document === 'undefined' ? null : document.body)
+function toggleFullscreen() {
+  if (!fullscreen.value) {
+    fullscreenTrigger = document.activeElement as HTMLElement
+    appSurface = document.getElementById('__nuxt')
+    if (appSurface) {
+      previousVisibility = appSurface.style.visibility
+      previousInert = appSurface.inert
+      appSurface.style.visibility = 'hidden'
+      appSurface.inert = true
+    }
+  } else restoreAppSurface()
+  fullscreen.value = !fullscreen.value
+  bodyLocked.value = fullscreen.value
+  nextTick(() => fullscreen.value ? selectorElement.value?.focus() : fullscreenTrigger?.focus())
+}
+useEventListener('keydown', (event: KeyboardEvent) => {
+  if (event.key === 'Tab' && fullscreen.value && !cqModalOpen.value) {
+    const controls = [...selectorElement.value?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href], summary, [tabindex="0"]') || []].filter(element => !element.hasAttribute('disabled') && element.getClientRects().length)
+    const first = controls[0], last = controls[controls.length - 1]
+    if (event.shiftKey && (document.activeElement === first || document.activeElement === selectorElement.value)) { event.preventDefault(); last?.focus() }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+  }
+  if (event.key === 'Escape' && fullscreen.value && !cqModalOpen.value && !event.defaultPrevented) {
+    event.preventDefault()
+    toggleFullscreen()
+  }
+})
+onBeforeUnmount(() => { bodyLocked.value = false; restoreAppSurface() })
 const toast = useToast()
 const route = useRoute()
 const { triggerUserSignIn } = useConnectionSignIn()

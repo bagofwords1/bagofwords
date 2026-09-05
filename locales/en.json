@@ -4876,8 +4876,8 @@
     "suggested": "Suggested",
     "suggestedHint": "Suggested from key names · unverified",
     "view": "Table view",
-    "table": "Table",
-    "erd": "ERD",
+    "table": "List",
+    "erd": "Visual",
     "unsaved": "Unsaved changes",
     "selectTable": "Select {name}",
     "add": "Add",
@@ -4912,6 +4912,11 @@
     "loading": "Loading relationships…",
     "loadError": "Could not load relationships.",
     "retry": "Retry",
-    "saveError": "Could not save table selection."
+    "saveError": "Could not save table selection.",
+    "fullscreen": "Full screen",
+    "exitFullscreen": "Exit full screen",
+    "searchColumns": "Search columns…",
+    "noColumns": "No matching columns",
+    "centrality": "Centrality"
   }
 }
