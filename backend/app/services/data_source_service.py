@@ -3453,7 +3453,7 @@ class DataSourceService:
         
         # Apply pagination
         offset = (page - 1) * page_size
-        base_query = base_query.offset(offset).limit(page_size)
+        base_query = base_query.order_by(DataSourceTable.id.asc()).offset(offset).limit(page_size)
 
         # Add selectinload for connection info
         base_query = base_query.options(
@@ -3532,6 +3532,7 @@ class DataSourceService:
                 entity_like=table.entity_like,
                 metrics_computed_at=table.metrics_computed_at.isoformat() if table.metrics_computed_at else None,
                 # Stats fields
+                last_used_at=stats.last_used_at if stats else None,
                 usage_count=int(stats.usage_count or 0) if stats else None,
                 success_count=int(stats.success_count or 0) if stats else None,
                 failure_count=int(stats.failure_count or 0) if stats else None,

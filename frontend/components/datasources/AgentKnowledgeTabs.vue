@@ -91,7 +91,7 @@ async function saveAndContinue() {
   if (saving.value) return
   saving.value = true
   try {
-    if (tablesRef.value && typeof tablesRef.value.save === 'function') await tablesRef.value.save()
+    if (tablesRef.value && typeof tablesRef.value.save === 'function' && await tablesRef.value.save() === false) return
     emit('saved')
   } finally { saving.value = false }
 }

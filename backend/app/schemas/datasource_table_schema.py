@@ -1,4 +1,5 @@
 from pydantic import BaseModel, validator
+from app.schemas.base import OptionalUTCDatetime
 from typing import Optional, List, Dict, Any, Union
 
 
@@ -74,6 +75,7 @@ class DataSourceTableSchema(BaseModel):
     entity_like: Optional[bool] = None
     metrics_computed_at: Optional[str] = None
     # Usage stats (populated when with_stats=True)
+    last_used_at: OptionalUTCDatetime = None
     usage_count: Optional[int] = None
     success_count: Optional[int] = None
     failure_count: Optional[int] = None

@@ -107,7 +107,7 @@ async function saveAndContinue() {
   saving.value = true
   try {
     for (const el of tableRefs.values()) {
-      if (el && typeof el.save === 'function') await el.save()
+      if (el && typeof el.save === 'function' && await el.save() === false) return
     }
     emit('saved')
   } finally {
