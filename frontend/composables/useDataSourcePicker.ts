@@ -11,11 +11,14 @@ export const POPULAR_DATA_SOURCE_TYPES = [
   'MSSQL',
   'snowflake',
   'bigquery',
+  'powerbi',
+  'tableau',
+  'qlik_sense',
   'aws_redshift',
   'databricks_sql',
-  'mongodb',
-  'salesforce',
-  'csv',
+  'sharepoint',
+  'mcp',
+  'custom_api',
 ]
 
 // Extra search terms per type, for names people type that don't appear in the

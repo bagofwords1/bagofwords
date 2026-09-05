@@ -17,6 +17,7 @@ const CATALOG = [
   { type: 'zabbix', title: 'Zabbix', category: 'infra', description: 'Monitoring' },
   { type: 'qlik_sense', title: 'Qlik Sense', category: 'bi', description: '' },
   { type: 'google_drive', title: 'Google Drive', category: 'files', description: '' },
+  { type: 'mcp', title: 'MCP Server', category: 'custom', description: '' },
 ]
 
 // --- the collapsed view ------------------------------------------------------
@@ -25,7 +26,7 @@ const popular = popularDataSources(CATALOG)
 
 assert.deepEqual(
   popular.map((ds) => ds.type),
-  ['postgresql', 'mysql', 'MSSQL', 'snowflake', 'csv'],
+  ['postgresql', 'mysql', 'MSSQL', 'snowflake', 'qlik_sense', 'mcp'],
   'the collapsed grid shows the curated types, in curated order, and nothing else',
 )
 
