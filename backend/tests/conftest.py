@@ -122,6 +122,13 @@ def pytest_configure(config):
         "evals: agent eval tests — real LLM + fixture data source; opt-in via "
         "-m evals and require OPENAI_API_KEY_TEST (or equivalent) to be set.",
     )
+    config.addinivalue_line(
+        "markers",
+        "integration: needs a live external dependency — a Docker daemon for a "
+        "source-database container, or credentials in integrations.json. Skips "
+        "itself when the dependency is absent, so it is safe to leave in a "
+        "default run.",
+    )
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_telemetry_for_tests():

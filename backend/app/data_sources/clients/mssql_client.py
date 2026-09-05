@@ -5,6 +5,7 @@ import pandas as pd
 import sqlalchemy
 
 from app.data_sources.engine_pool import get_engine
+from app.data_sources.fk_reflection import attach_foreign_keys
 from app.data_sources.query_cancellation import capture_identity, track
 from sqlalchemy import text
 from contextlib import contextmanager
@@ -101,9 +102,8 @@ class MSSQLClient(DataSourceClient):
         params += (
             "TrustServerCertificate=yes;"
             "LoginTimeout=30;"
+            f"Encrypt={'yes' if self.encrypt else 'no'};"
         )
-        if not self.encrypt:
-            params += "Encrypt=no;"
         # Append user-supplied extra ODBC keywords (e.g. ApplicationIntent=ReadOnly),
         # skipping any that would override the security-sensitive keys above.
         for key, value in (self.additional_params or {}).items():
@@ -135,11 +135,12 @@ class MSSQLClient(DataSourceClient):
                 # performed its GSS handshake, so the pool is keyed by ccache —
                 # sharing one across principals would hand out a connection
                 # authenticated as somebody else.
-                engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
-                # KRB5CCNAME is process-global; hold the activation lock only
-                # while the driver performs the GSS handshake. The established
-                # connection stays bound to its identity afterwards.
+                # Keep lazy engine/driver initialization and the handshake
+                # under the same credential-cache selection. Initializing an
+                # engine before activation can observe another thread's cache.
+                # Established queries run outside this process-wide lock.
                 with get_ticket_manager().activate(ccache):
+                    engine = get_engine(self.sql_server_uri, key_extra=str(ccache))
                     conn = engine.connect()
             else:
                 engine = get_engine(self.sql_server_uri)
@@ -246,6 +247,7 @@ class MSSQLClient(DataSourceClient):
                     dtype=data_type,
                     description=col_comment if col_comment else None
                 ))
+            self._attach_foreign_keys(conn, tables)
             return list(tables.values())
 
     def _get_tables_basic(self) -> List[Table]:
@@ -283,7 +285,22 @@ class MSSQLClient(DataSourceClient):
                         metadata_json={"schema": table_schema})
                 tables[key].columns.append(
                     TableColumn(name=column_name, dtype=data_type))
+            self._attach_foreign_keys(conn, tables)
             return list(tables.values())
+
+    def _attach_foreign_keys(self, conn, tables) -> None:
+        """Populate `fks` on the tables just collected.
+
+        `name_fn` mirrors the `f"{table_schema}.{table_name}"` this client uses
+        for `Table.name` — the two must agree or downstream resolution, which is
+        an exact string match, drops every edge without complaining.
+        """
+        attach_foreign_keys(
+            conn,
+            tables,
+            self._schemas or None,
+            lambda schema, table: f"{schema}.{table}",
+        )
 
     def get_schema(self, table_id: str) -> Table:
         """This method is now obsolete. Please use get_tables() instead."""

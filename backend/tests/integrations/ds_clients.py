@@ -22,6 +22,7 @@ logger = logging.getLogger(__name__)
 # SOURCE OF TRUTH: Data sources to test
 # =============================================================================
 DATA_SOURCES = [
+    "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
     "snowflake",
@@ -236,6 +237,16 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
     Extract and normalize kwargs for a data source from credentials.
     Skips the test if the data source is missing or disabled.
     """
+    if name == "sharepoint_onprem" and os.environ.get("SHAREPOINT_TEST_SITE_URL"):
+        return {
+            "site_url": os.environ["SHAREPOINT_TEST_SITE_URL"],
+            "username": os.environ.get("SHAREPOINT_TEST_USERNAME"),
+            "password": os.environ.get("SHAREPOINT_TEST_PASSWORD"),
+            "allow_http": os.environ.get("SHAREPOINT_TEST_ALLOW_HTTP") == "true",
+            "drive_name": os.environ.get("SHAREPOINT_TEST_LIBRARY", "Documents"),
+            "folder_path": os.environ.get("SHAREPOINT_TEST_FOLDER", ""),
+            "recursive": True,
+        }
     cfg = dict(DS_CREDENTIALS.get(name, {}))
     if not cfg:
         pytest.skip(f"{name} missing in integrations.json (data_sources)")

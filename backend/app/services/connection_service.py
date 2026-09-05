@@ -1058,7 +1058,7 @@ class ConnectionService:
             roster.append({
                 "user_id": r.user_id,
                 "principal": md.get("principal"),
-                "verified": bool(r.last_used_at),
+                "verified": bool(r.last_used_at and not md.get("last_error")),
                 "last_verified_at": r.last_used_at,
                 "last_error": md.get("last_error"),
             })
@@ -1110,6 +1110,35 @@ class ConnectionService:
                 except Exception:
                     pass
             return {"success": False, "message": str(e)}
+
+    async def save_windows_user_credentials(self, db, connection, user, payload) -> dict:
+        """Canonical per-user credential storage for the on-prem file connector.
+
+        Keep OAuth and legacy datasource credential flows unchanged. Callers
+        must authorize read access to the connection before invoking this.
+        """
+        from app.errors import AppError, ErrorCode
+        from app.models.user_connection_credentials import UserConnectionCredentials
+        from app.schemas.data_sources.configs import SharePointOnpremNtlmCredentials
+        from app.services.connection_identity import get_user_conn_cred_row
+        if connection.type != "sharepoint_onprem" or connection.auth_policy != "user_required" or payload.auth_mode != "ntlm":
+            raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual Windows credentials")
+        if connection.allowed_user_auth_modes and payload.auth_mode not in connection.allowed_user_auth_modes:
+            raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
+        try:
+            credentials = SharePointOnpremNtlmCredentials(**payload.credentials).model_dump()
+        except ValueError:
+            raise AppError(ErrorCode.VALIDATION, "A domain username and password are required", status_code=422)
+        row = await get_user_conn_cred_row(db, connection, user)
+        if row is None:
+            row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
+                organization_id=str(connection.organization_id), auth_mode="ntlm", is_active=True, is_primary=True)
+        row.auth_mode = "ntlm"
+        row.last_used_at = None
+        row.encrypt_credentials(credentials)
+        db.add(row)
+        await db.commit()
+        return {"success": True, "auth_mode": "ntlm"}
 
     async def delete_user_credentials(
         self,
@@ -1972,7 +2001,9 @@ class ConnectionService:
             # auth_type="none", so an oauth_app API root 404 looked like a failure.
             # Clients that don't accept auth_type drop it via the signature narrowing below.
             meta_keys = {"auth_policy", "allowed_user_auth_modes"}
-            client_params = {k: v for k, v in client_params.items() if v is not None and v != "" and k not in meta_keys and not k.startswith("oauth_")}
+            client_params = {k: v for k, v in client_params.items()
+                             if v is not None and (v != "" or (data_source_type == "sharepoint_onprem" and k == "drive_name"))
+                             and k not in meta_keys and not k.startswith("oauth_")}
 
             # Narrow to constructor signature — but skip narrowing when the
             # constructor accepts **kwargs. Thin subclasses like OnedriveClient /

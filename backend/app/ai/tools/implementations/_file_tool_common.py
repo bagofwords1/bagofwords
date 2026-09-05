@@ -33,6 +33,7 @@ logger = logging.getLogger(__name__)
 # by capability) but never read or searched, which surfaces as the misleading
 # "no file source is attached to this agent".
 FILE_SOURCE_TYPES = {
+    "sharepoint_onprem",
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
     "network_dir", "s3", "onenote",
     # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record
@@ -87,6 +88,13 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
     Auth failures become a call-to-action the model can relay ("user must
     Connect this source") instead of a raw OAuth boilerplate dump rendered
     red in the chat; everything else keeps the raw detail for debugging."""
+    from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError
+    if isinstance(exc, SharePointHTTPError) and exc.status == 401:
+        return (
+            f"Windows authentication failed for '{connection_name or 'SharePoint Server'}'. "
+            "Check this connection's NTLM credentials or deployment Kerberos configuration. "
+            "For a user-required connection, the user must connect with their own Windows credentials."
+        )
     text = str(exc)
     low = text.lower()
     if any(m in low for m in _AUTH_ERROR_MARKERS):

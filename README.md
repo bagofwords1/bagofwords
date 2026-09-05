@@ -169,34 +169,46 @@ Use your own API keys, endpoints, and model deployments. Multiple providers and 
 | Teradata Vantage | Database / warehouse |
 | SQLite | Database / warehouse |
 | Spark | Database / warehouse |
+| SAP HANA | Database / warehouse |
 | NetSuite | Business app |
 | Salesforce | Business app |
 | ServiceNow | Business app |
 | Monday data | Business app |
 | AWS Cost Explorer | Business app |
 | PostHog | Business app |
+| Priority ERP | Business app |
 | Outlook Mail | Business app |
 | Elasticsearch | Search and observability |
 | OpenSearch | Search and observability |
 | Splunk | Search and observability |
 | Zabbix | Monitoring and observability |
 | AppDynamics | Monitoring and observability |
+| Prometheus | Monitoring and observability |
+| AWS CloudWatch | Monitoring and observability |
+| VMware Aria Operations | Monitoring and observability |
 | Jaeger | Tracing and observability |
 | Tableau | BI tool |
 | Power BI | BI tool |
 | Power BI Report Server | BI tool |
+| Power BI (.pbix) | BI tool |
 | Qlik Sense | BI tool |
+| Qlik Sense (on-prem) | BI tool |
 | Qlik QVD | BI tool |
 | Sisense | BI tool |
 | Oracle BI | BI tool |
 | Infor OLAP | BI tool |
 | Microsoft Analysis Services | BI tool |
+| SAP BusinessObjects | BI tool |
+| SAP BW (XMLA) | BI tool |
+| SAP Datasphere | BI tool |
 | Timbr AI | Semantic layer |
 | Files and Directories | Files |
 | Amazon S3 | Files |
 | CSV | Files |
 | OneDrive | Files |
+| OneNote | Files |
 | SharePoint | Files |
+| SharePoint Server (on-prem) | Files |
 | SharePoint Lists | Business app |
 
 ### Connect Tools Through MCP

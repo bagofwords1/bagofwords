@@ -135,7 +135,7 @@ class OpenAIResponsesClient(LLMClient):
         chat_completion = self.client.chat.completions.create(
             model=model_id,
             messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
-            temperature=temperature,
+            **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
         )
         content = chat_completion.choices[0].message.content or ""
         usage_raw = getattr(chat_completion, "usage", None)
@@ -152,7 +152,7 @@ class OpenAIResponsesClient(LLMClient):
         stream = await self.async_client.chat.completions.create(
             model=model_id,
             messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
-            temperature=temperature,
+            **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
             stream=True,
             stream_options={"include_usage": True},
         )
@@ -316,7 +316,7 @@ class OpenAIResponsesClient(LLMClient):
         # The Responses path historically sends no temperature (reasoning models
         # reject it); only an explicit admin-configured value is forwarded, and
         # not to reasoning models, which 400 on any sampling parameter.
-        if self.temperature is not None and not model_id.startswith(("o1", "o3", "o4", "gpt-5")):
+        if self.temperature is not None and not model_id.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6")):
             request_kwargs["temperature"] = self.temperature
         if system:
             request_kwargs["instructions"] = system
@@ -343,7 +343,7 @@ class OpenAIResponsesClient(LLMClient):
             if tools and disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
         is_reasoning_model = (
-            model_id.startswith(("o1", "o3", "o4", "gpt-5"))
+            model_id.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6"))
             or model_id in {"o1", "o3"}
         )
         if thinking and is_reasoning_model:

@@ -15,6 +15,23 @@ DEFAULT_CUSTOM_MODEL_CONTEXT_WINDOW = 200_000
 
 LLM_MODEL_DETAILS = [
     {
+        # https://developers.openai.com/api/docs/models/gpt-6-astra
+        "name": "GPT-6 Astra",
+        "model_id": "gpt-6-astra",
+        "provider_type": "openai",
+        "is_preset": True,
+        "is_enabled": True,
+        # Selectable, but not the default: Astra is ~4x Terra's input price and
+        # 3.3x its output price, so switching every org's default on upgrade is
+        # a cost decision, not a catalog one.
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1050000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 10.00,
+        "output_cost_per_million_tokens_usd": 50.00
+    },
+    {
         "name": "GPT-5.6 Sol",
         "model_id": "gpt-5.6-sol",
         "provider_type": "openai",

@@ -1,109 +1,78 @@
 <template>
-    <div class="flex h-screen justify-center py-20 px-5 sm:px-0" v-if="pageLoaded">
-    <div class="w-full text-center sm:w-[400px]">
-      <div>
-        <img src="/assets/logo-128.png" alt="Bag of Words" class="h-10 w-10 mx-auto" />
+  <div class="min-h-screen flex items-center justify-center px-6 py-24" v-if="pageLoaded">
+    <div class="w-full max-w-[360px]">
+      <h1 class="text-[22px] leading-tight font-semibold tracking-tight text-center text-gray-900 dark:text-white">
+        {{ $t('auth.welcomeTitle') }}
+      </h1>
+      <p class="mt-1.5 text-sm text-center text-gray-500 dark:text-gray-400">
+        {{ $t('auth.signInSubtitle') }}
+      </p>
+
+      <p v-if="error_message" v-html="error_message"
+         class="mt-5 text-sm text-red-500 text-center whitespace-pre-line"></p>
+
+      <div v-if="showSso" class="mt-7">
+        <AuthProviderButtons
+          :providers="oidcProviders"
+          :google-enabled="googleSignIn"
+          :login-hint="loginHint"
+          mode="sign-in"
+          @error="onProviderError"
+        />
       </div>
-      <h1 class="font-medium text-3xl mt-4 mb-5">{{ $t('auth.signIn') }}</h1>
-      <div class="px-10 py-6  border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm bg-white dark:bg-gray-900">
-      <p v-if="error_message" v-html="error_message" class="mb-4 text-red-500 text-sm whitespace-pre-line"></p>
-      <form @submit.prevent="signInWithCredentials()" v-if="authMode !== 'sso_only' || localOverride">
-        <div class="field block mt-3">
-          <i class="i-heroicons-user"></i>
-          <input type="text"
-          :placeholder="$t('auth.email')"
-          id='email'
-          v-model='email'
-          class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
-          />
+
+      <div v-if="showSso && showCredentials" class="relative my-5">
+        <div class="absolute inset-0 flex items-center" aria-hidden="true">
+          <div class="w-full border-t border-gray-200 dark:border-gray-800"></div>
         </div>
-          <div class="field mt-4">
-          <input type='password'
-          :placeholder="$t('auth.password')"
-          id='password'
-          v-model='password'
-          class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-10 text-sm focus:outline-none focus:border-blue-500"
-          />
+        <div class="relative flex justify-center">
+          <span class="px-3 text-[11px] uppercase tracking-widest text-gray-400 dark:text-gray-500 bg-white dark:bg-gray-950">
+            {{ $t('auth.or') }}
+          </span>
+        </div>
+      </div>
+
+      <form v-if="showCredentials" @submit.prevent="signInWithCredentials()" :class="showSso ? '' : 'mt-7'">
+        <div>
+          <label for="email" :class="labelClass">{{ $t('auth.email') }}</label>
+          <input id="email" v-model="email" type="email" autocomplete="email" :class="inputClass" />
         </div>
 
-        <div class="field mt-2 text-start" v-if="smtpEnabled">
-          <NuxtLink to="/users/forgot-password" class="text-xs text-blue-400 hover:text-blue-600">
-            {{ $t('auth.forgotPassword') }}
-          </NuxtLink>
+        <div class="mt-4">
+          <div class="flex items-baseline justify-between">
+            <label for="password" :class="labelClass">{{ $t('auth.password') }}</label>
+            <NuxtLink
+              v-if="smtpEnabled"
+              to="/users/forgot-password"
+              class="mb-1.5 text-[13px] text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-white transition-colors"
+            >
+              {{ $t('auth.forgotPassword') }}
+            </NuxtLink>
+          </div>
+          <input id="password" v-model="password" type="password" autocomplete="current-password" :class="inputClass" />
         </div>
 
-        <div class="field mt-3">
-          <button type='submit' :disabled="isSubmitting" class="px-3 py-2.5 mb-4 text-sm font-medium text-white rounded-lg text-center w-full flex items-center justify-center disabled:bg-gray-400 disabled:cursor-not-allowed bg-blue-600 hover:bg-blue-700 focus:ring-4 focus:outline-none focus:ring-blue-300 dark:bg-blue-600 dark:hover:bg-blue-700 dark:focus:ring-blue-800">
-            <template v-if="isSubmitting">
-              <Spinner class="h-5 w-5 me-2" />
-              {{ $t('auth.loggingIn') }}
-            </template>
-            <template v-else>{{ $t('auth.signIn') }}</template>
-          </button>
-        </div>
+        <button type="submit" :disabled="isSubmitting" :class="primaryButtonClass">
+          <template v-if="isSubmitting">
+            <Spinner class="h-3.5 w-3.5 me-2" />
+            {{ $t('auth.loggingIn') }}
+          </template>
+          <template v-else>{{ $t('auth.signIn') }}</template>
+        </button>
       </form>
 
-        <div class="mt-3" v-if="authMode !== 'local_only' && (googleSignIn || oidcProviders.length)">
-        <div class="relative" v-if="authMode === 'hybrid'">
-          <div class="absolute inset-0 flex items-center">
-            <div class="w-full border-t border-gray-300 dark:border-gray-600"></div>
-          </div>
-          <div class="relative flex justify-center text-sm">
-            <span class="px-2 bg-gray-50 dark:bg-gray-900 text-gray-500 dark:text-gray-400">{{ $t('auth.orContinueWith') }}</span>
-          </div>
-        </div>
-        <div class="mt-3" v-if="googleSignIn">
-          <button
-            @click="signInWithGoogle"
-            type="button"
-            :disabled="loadingProvider !== null"
-            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <template v-if="loadingProvider === 'google'">
-              <Spinner class="h-5 w-5 me-2" />
-              {{ $t('auth.redirecting') }}
-            </template>
-            <template v-else>
-              <img src="/llm_providers_icons/google-icon.png" alt="Google logo" class="h-5 w-5 me-2" />
-              {{ $t('auth.signInWithGoogle') }}
-            </template>
-          </button>
-        </div>
-        <div class="mt-3 space-y-2" v-if="oidcProviders.length">
-          <button
-            v-for="p in oidcProviders"
-            :key="p.name"
-            @click="() => signInWithProvider(p.name)"
-            type="button"
-            :disabled="loadingProvider !== null"
-            class="w-full flex items-center justify-center px-4 py-2 border border-gray-300 dark:border-gray-600 rounded-lg shadow-sm text-sm font-medium text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <template v-if="loadingProvider === p.name">
-              <Spinner class="h-5 w-5 me-2" />
-              {{ $t('auth.redirecting') }}
-            </template>
-            <template v-else>
-              {{ $t('auth.signInWithProvider', { provider: p.name }) }}
-            </template>
-          </button>
-        </div>
-      </div>
-
-
-        <div class="mt-3 block text-sm" v-if="authMode !== 'sso_only'">
-      {{ $t('auth.newToBow') }}
-       <NuxtLink to="/users/sign-up" class="text-blue-400 hover:text-blue-600">
-        {{ $t('auth.signUp') }}
-      </NuxtLink>
-    </div>
-    </div>
+      <p v-if="authMode !== 'sso_only'" class="mt-6 text-sm text-center text-gray-500 dark:text-gray-400">
+        {{ $t('auth.newToBow') }}
+        <NuxtLink to="/users/sign-up" class="font-medium text-gray-900 dark:text-white hover:underline underline-offset-4">
+          {{ $t('auth.signUp') }}
+        </NuxtLink>
+      </p>
     </div>
   </div>
-  <div v-else class="flex h-screen items-center justify-center"><Spinner class="h-6 w-6" /></div>
-  </template>
+  <div v-else class="min-h-screen flex items-center justify-center"><Spinner class="h-6 w-6" /></div>
+</template>
 
-
-  <script setup lang="ts">
+<script setup lang="ts">
 
   import qs from 'qs';
 
@@ -114,14 +83,74 @@
   const { rawToken } = useAuthState()
   const { fetchOrganization } = useOrganization()
   const route = useRoute()
-  const config = useRuntimeConfig();
-  const googleSignIn = ref(config.public.googleSignIn);
-  const oidcProviders = ref<{ name: string; enabled: boolean }[]>([])
-  const loadingProvider = ref<string | null>(null)
+  // Shape of an entry in /api/settings -> oidc_providers. `label` and `brand`
+  // are derived server-side so the sign-in button can show a real product name
+  // and logo instead of the routing slug.
+  interface AuthProvider {
+    name: string
+    enabled?: boolean
+    label?: string
+    brand?: 'microsoft' | 'google' | 'custom'
+    icon?: string | null
+  }
+
+  // Google availability comes from /api/settings, the same place the OIDC list
+  // and auth mode come from — runtimeConfig never defined a googleSignIn key.
+  const googleSignIn = ref(false)
+  const oidcProviders = ref<AuthProvider[]>([])
   const authMode = ref<'hybrid'|'local_only'|'sso_only'>('hybrid')
   const smtpEnabled = ref(false)
   const isSubmitting = ref(false)
+  // <AuthProviderButtons> tracks this for the buttons it owns, but the
+  // single-provider auto-start below runs before that component is rendered
+  // and drives the round trip itself, so this page needs its own copy.
+  const loadingProvider = ref<string | null>(null)
   const localOverride = computed(() => route.query.local === 'true')
+  // How many ways there are to sign in. When there is exactly one there is
+  // nothing for the user to choose, so we can start it for them.
+  const ssoProviderCount = computed(() => oidcProviders.value.length + (googleSignIn.value ? 1 : 0))
+  // Set by an embedding app that already knows whose session it is opening.
+  // Forwarded to the provider so a browser holding several accounts doesn't
+  // stop on a chooser.
+  const loginHint = computed(() => {
+    const direct = (route.query.login_hint as string) || ''
+    if (direct) return direct
+    // The global auth middleware bounces an unauthenticated /authorize here
+    // before that page's own code can run, and it forwards only the original
+    // path — so on the flow that matters the hint arrives nested inside
+    // `redirect` rather than beside it.
+    const target = safeRedirectTarget(route.query.redirect)
+    const query = target?.slice(target.indexOf('?') + 1)
+    if (!target || !target.includes('?') || !query) return ''
+    return new URLSearchParams(query).get('login_hint') || ''
+  })
+
+  // `?local=true` is the escape hatch that lets an admin reach the password
+  // form on an sso_only instance.
+  const showCredentials = computed(() => authMode.value !== 'sso_only' || localOverride.value)
+  const showSso = computed(() =>
+    authMode.value !== 'local_only' && (googleSignIn.value || oidcProviders.value.length > 0))
+
+  const labelClass = 'block text-[13px] font-medium text-gray-900 dark:text-gray-100 mb-1.5'
+
+  // Monochrome controls: the only color on the page is the provider logos and
+  // the one primary action.
+  const inputClass =
+    'w-full h-10 px-3 rounded-lg border border-gray-300 dark:border-gray-700 ' +
+    'bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white ' +
+    'focus:outline-none focus:border-gray-900 dark:focus:border-white ' +
+    'focus:ring-1 focus:ring-gray-900 dark:focus:ring-white transition-colors'
+
+  const primaryButtonClass =
+    'mt-5 w-full h-10 inline-flex items-center justify-center rounded-lg text-sm font-medium ' +
+    'text-white bg-gray-900 hover:bg-gray-800 dark:text-gray-900 dark:bg-white dark:hover:bg-gray-100 ' +
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-gray-900 ' +
+    'dark:focus-visible:ring-white focus-visible:ring-offset-2 dark:focus-visible:ring-offset-gray-950 ' +
+    'disabled:opacity-40 disabled:cursor-not-allowed transition-colors'
+
+  function onProviderError(message: string) {
+    error_message.value = message
+  }
 
   definePageMeta({
   auth: {
@@ -148,6 +177,7 @@
   const OAUTH_REDIRECT_STORAGE_NAME = 'bow:postSignInRedirect'
 
   // Helper to extract error message from server response
+  const { getErrorMessage } = useErrorMessage()
   function extractErrorMessage(error: any, fallback: string): string {
     const data = error?.data
     if (!data) return fallback
@@ -156,8 +186,21 @@
     if (Array.isArray(data.detail)) {
       return data.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('\n')
     }
+    // A typed AppError carries `error_code`; resolve it against the locale
+    // catalog so reasons like a disabled account read in the user's language
+    // rather than in the server's English fallback.
+    if (data.error_code) {
+      return getErrorMessage(error, fallback)
+    }
     // Handle simple detail string
-    if (typeof data.detail === 'string') {
+    if (typeof data.detail === 'string' && data.detail) {
+      // fastapi-users answers with bare enum sentinels (LOGIN_BAD_CREDENTIALS,
+      // LOGIN_USER_NOT_VERIFIED, ...). Showing one to a user who mistyped their
+      // password is worse than saying nothing, so treat any all-caps token as
+      // machine text and use the caller's localized fallback instead.
+      if (/^[A-Z][A-Z0-9_]*$/.test(data.detail)) {
+        return fallback
+      }
       return data.detail
     }
     // Handle message field
@@ -178,15 +221,40 @@
       if (settings?.auth?.mode) {
         authMode.value = settings.auth.mode
       }
+      googleSignIn.value = settings?.google_oauth?.enabled ?? false
       smtpEnabled.value = settings?.smtp_enabled ?? false
+
+      // Nothing to sign in to on an unclaimed instance — the first account is
+      // created through sign-up, so send visitors straight there.
+      if (settings?.setup_required) {
+        return navigateTo('/users/sign-up')
+      }
     } catch (_) {}
     const inviteError = route.query.error as string
     if (inviteError) {
       error_message.value = inviteError
     }
-    const access_token = route.query.access_token as string
-    const userEmail = route.query.email as string
-    if (access_token) {
+    // SSO hands back a single-use code, not the token — see
+    // app/models/login_exchange_code.py for why the JWT must not ride in a URL.
+    const login_code = route.query.login_code as string
+    if (login_code) {
+      let access_token = ''
+      try {
+        const exchanged = await $fetch<{ access_token: string }>('/api/auth/exchange', {
+          method: 'POST',
+          body: { login_code },
+        })
+        access_token = exchanged?.access_token ?? ''
+      } catch (e) {
+        error_message.value = t('auth.signInFailed')
+        pageLoaded.value = true
+        return
+      }
+      if (!access_token) {
+        error_message.value = t('auth.signInFailed')
+        pageLoaded.value = true
+        return
+      }
       rawToken.value = access_token
       await getSession({ force: true })
       // Check if the user has an organization (same as credentials login)
@@ -203,10 +271,39 @@
       }
       return
     }
+
+    // Single-provider SSO: the button would be the only thing on the page, so
+    // press it. This is what lets an embedding app open BOW with no visible
+    // sign-in step when the user already has a live session at the provider.
+    //
+    // The guards are what keep it from becoming a redirect loop: a failed
+    // round trip comes back with ?error and must be able to show it, and
+    // ?local=true stays an escape hatch to the password form when the
+    // provider is unreachable.
+    if (
+      authMode.value === 'sso_only'
+      && !localOverride.value
+      && !inviteError
+      && ssoProviderCount.value === 1
+    ) {
+      const provider = oidcProviders.value[0]
+      await (provider ? signInWithProvider(provider.name) : signInWithGoogle())
+      // Both helpers swallow their own errors and clear loadingProvider when
+      // the authorize call failed; on success the browser is already leaving,
+      // so staying unloaded keeps the form from flashing up mid-redirect.
+      if (loadingProvider.value === null) {
+        pageLoaded.value = true
+      }
+      return
+    }
+
     pageLoaded.value = true
   })
 
 
+  // Same reason as `loadingProvider` above: <AuthProviderButtons> has its own
+  // copy for the buttons it owns, but the single-provider auto-start drives the
+  // round trip from this page, before that component exists.
   function persistRedirectForOAuth() {
     const target = safeRedirectTarget(route.query.redirect)
     try {
@@ -265,6 +362,10 @@
     }
   }
 
+  // #1075 moved the provider buttons into <AuthProviderButtons>, which owns the
+  // click path. These two helpers stay because #1064's single-provider
+  // auto-start runs in onMounted, before `pageLoaded` renders that component —
+  // a template ref is still null there, so the auto-start cannot delegate to it.
   // Add new function for Google sign-in
   async function signInWithGoogle() {
     try {
@@ -287,7 +388,10 @@
     try {
       loadingProvider.value = name
       persistRedirectForOAuth()
-      const response = await $fetch(`/api/auth/${name}/authorize`, { method: 'GET' })
+      const response = await $fetch(`/api/auth/${name}/authorize`, {
+        method: 'GET',
+        query: loginHint.value ? { login_hint: loginHint.value } : undefined,
+      })
       if ((response as any)?.authorization_url) {
         window.location.href = (response as any).authorization_url
       }

@@ -49,6 +49,7 @@ const normalizeType = (raw: string) => {
     t = t.replace(/_\d+$/g, '')
 
     // aliases
+    if (t === 'sharepoint_onprem') t = 'sharepoint'
     if (t === 'postgres') t = 'postgresql'
     if (t === 'sqlserver' || t === 'sql_server') t = 'mssql'
     if (t === 'awsathena') t = 'aws_athena'

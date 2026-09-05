@@ -11,6 +11,7 @@ from app.ai.prompt_formatters import Table, TableColumn
 from app.ai.prompt_formatters import TableFormatter
 
 import pyodbc
+from app.data_sources.fk_reflection import attach_foreign_keys
 
 # ODBC driver-manager pooling would hold server sessions open after close(),
 # under SQLAlchemy's pool; engine_pool disables it too, but this module dials
@@ -300,6 +301,7 @@ class MsFabricClient(DataSourceClient):
                     description=col_comment if col_comment else None
                 ))
 
+        self._attach_foreign_keys(tables)
         return list(tables.values())
 
     def _get_tables_basic(self) -> List[Table]:
@@ -346,11 +348,42 @@ class MsFabricClient(DataSourceClient):
                     )
                 tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
 
+        self._attach_foreign_keys(tables)
         return list(tables.values())
 
     def get_schema(self, table_name: str) -> Table:
         """Get schema for a specific table. Deprecated - use get_tables() instead."""
         raise NotImplementedError("get_schema() is deprecated. Use get_tables() instead.")
+
+    def _attach_foreign_keys(self, tables) -> None:
+        """Populate `fks` on the tables just collected.
+
+        `connect()` yields a raw pyodbc connection (Fabric authenticates with an
+        Entra token passed through `attrs_before`, which no URL can carry), and
+        `sqlalchemy.inspect` cannot drive one. Reflection therefore goes through
+        `extraction_engine`, the pooled SQLAlchemy handle already built over the
+        same `_open_connection` callback — so the token handshake and cold-start
+        retry apply here exactly as they do to a query.
+
+        Fabric declares foreign keys but does not enforce them, so most
+        warehouses have none to find; this returns whatever was declared.
+
+        `name_fn` mirrors the `f"{table_schema}.{table_name}"` used for
+        `Table.name` — the two must agree or downstream resolution, an exact
+        string match, drops every edge without complaining.
+        """
+        if not tables:
+            return
+        try:
+            with self.extraction_engine.connect() as conn:
+                attach_foreign_keys(
+                    conn,
+                    tables,
+                    None,
+                    lambda schema, table: f"{schema}.{table}",
+                )
+        except Exception:
+            logger.debug("Fabric FK reflection failed; continuing", exc_info=True)
 
     def get_schemas(self) -> List[Table]:
         """Get all table schemas. Wrapper for get_tables()."""

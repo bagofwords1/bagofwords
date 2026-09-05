@@ -1,0 +1,794 @@
+<!--
+  One query's detail view: header + workflow actions + parameter bar + the
+  visual/data/code tabs.
+
+  Extracted from the old standalone /queries/<id> page when the catalog moved
+  into the /agents knowledge tree, so the tree's right pane and the deep-link
+  route render the same thing instead of drifting into two detail views. The
+  host supplies the id and listens for `changed` / `deleted` to keep its own
+  list in step.
+-->
+<template>
+  <div class="py-6">
+    <div class="max-w-3xl mx-auto px-4">
+      <div class="mb-5">
+        <div class="flex items-start gap-3">
+          <div class="min-w-0 flex-1">
+            <div class="flex items-center gap-2 mb-1">
+              <span
+                class="text-[10px] px-1.5 py-0.5 rounded border"
+                :class="detail?.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
+              >{{ (detail?.type || '').toUpperCase() }}</span>
+              <span
+                v-if="paramSpecs.length"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 inline-flex items-center gap-1"
+                data-testid="entity-parameterized-badge"
+              ><Icon name="heroicons:adjustments-horizontal" class="w-3 h-3" />{{ $t('queries.detail.parameterizedBadge') }}</span>
+
+              <!-- Green check badge for approved/published entities -->
+              <Icon
+                v-if="entityType === 'global'"
+                name="heroicons:check-badge"
+                class="w-4 h-4 text-green-600"
+                :title="$t('queries.detail.approvedTitle')"
+              />
+
+              <!-- Entity workflow status badge -->
+              <span
+                v-if="entityType === 'draft'"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+              >{{ $t('queries.draftBadge') }}</span>
+              <span
+                v-else-if="entityType === 'private'"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+              >{{ $t('queries.draftBadge') }}</span>
+              <span
+                v-else-if="entityType === 'suggested'"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950"
+              >{{ $t('queries.suggestedBadge') }}</span>
+            </div>
+            <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
+            <div class="text-[12px] text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
+            <!-- Data source icons under description -->
+            <div v-if="detail?.data_sources?.length" class="mt-2 flex items-center gap-1.5">
+              <img
+                v-for="ds in (detail?.data_sources || [])"
+                :key="ds.id"
+                :src="dataSourceIcon(ds.type)"
+                :alt="ds.type"
+                class="w-5 h-5 rounded border border-gray-100 dark:border-gray-800 bg-white object-contain p-0.5"
+                @error="(e: any) => e.target && (e.target.style.visibility = 'hidden')"
+              />
+            </div>
+          </div>
+          <div class="flex-shrink-0 ms-auto flex items-center gap-2">
+            <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 dark:bg-red-950 text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50" @click="deleteEntity" :disabled="deleting">
+              <span v-if="deleting">{{ $t('queries.detail.deletingInProgress') }}</span>
+              <span v-else>{{ $t('queries.detail.deleteAction') }}</span>
+            </button>
+            <button v-if="canUpdateEntities" class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="openEdit = true">
+              {{ $t('queries.detail.editAction') }}
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-3 flex items-center gap-2 flex-wrap">
+          <div v-if="viewType" class="text-[11px] text-gray-500 dark:text-gray-400 px-1.5 py-0.5 bg-gray-50 dark:bg-gray-900 border border-gray-100 dark:border-gray-800 rounded">{{ viewType }}</div>
+          <div v-if="detail?.data?.info?.total_rows !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.rowsLabel', { n: formatCount(detail?.data?.info?.total_rows) }) }}</div>
+          <div v-if="detail?.data?.info?.total_columns !== undefined" class="text-[11px] text-gray-400">{{ $t('queries.detail.columnsLabel', { n: formatCount(detail?.data?.info?.total_columns) }) }}</div>
+          <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">{{ $t('queries.detail.refreshedLabel', { when: timeAgo(detail?.last_refreshed_at as any) }) }}</div>
+
+          <!-- Workflow actions -->
+          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 dark:bg-amber-950 text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50" @click="suggestEntity" :disabled="suggesting">
+            <span v-if="suggesting">{{ $t('queries.detail.suggestingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.suggestAction') }}</span>
+          </button>
+
+          <button v-if="canWithdraw" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" @click="withdrawSuggestion" :disabled="withdrawing">
+            <span v-if="withdrawing">{{ $t('queries.detail.withdrawingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.withdrawAction') }}</span>
+          </button>
+
+          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 dark:bg-green-950 text-green-700 hover:bg-green-100 dark:hover:bg-green-900/50" @click="approveSuggestion" :disabled="approving">
+            <span v-if="approving">{{ $t('queries.detail.approvingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.approveAction') }}</span>
+          </button>
+
+          <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 dark:bg-red-950 text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50" @click="rejectSuggestion" :disabled="rejecting">
+            <span v-if="rejecting">{{ $t('queries.detail.rejectingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.rejectAction') }}</span>
+          </button>
+
+
+          <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800" :class="{ 'ms-auto': !canCreateEntities && !isOwner && !canSuggest && !canWithdraw && !canApprove }" @click="refreshEntity" :disabled="refreshing">
+            <span v-if="refreshing">{{ $t('queries.detail.refreshingInProgress') }}</span>
+            <span v-else>{{ $t('queries.detail.refreshAction') }}</span>
+          </button>
+        </div>
+
+        <!-- Parameter bar: run the SAVED code with values as the viewer. The
+             result is a per-user slice (cached server-side); the shared
+             snapshot only changes through Refresh Data / the editor. -->
+        <div
+          v-if="paramSpecs.length"
+          class="mt-3 flex flex-wrap items-center gap-2 text-xs border border-gray-100 dark:border-gray-800 rounded bg-white dark:bg-gray-900 px-3 py-2"
+          data-testid="entity-param-bar"
+        >
+          <label v-for="spec in editableParamSpecs" :key="spec.name" class="flex items-center gap-1 text-gray-500 dark:text-gray-400">
+            <span class="text-[11px]">{{ spec.label || spec.name }}</span>
+            <select
+              v-if="paramOptions[spec.name] && spec.type !== 'list'"
+              v-model="paramValues[spec.name]"
+              class="px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
+              :data-testid="`entity-param-${spec.name}`"
+            >
+              <option :value="null">{{ $t('queries.detail.paramAll') }}</option>
+              <option v-for="o in paramOptions[spec.name]" :key="String(o.value)" :value="o.value">{{ o.label }}</option>
+            </select>
+            <input
+              v-else
+              v-model="paramValues[spec.name]"
+              class="w-32 px-1.5 py-0.5 border border-gray-200 dark:border-gray-700 rounded text-xs bg-white dark:bg-gray-900"
+              :placeholder="spec.type === 'list' ? $t('queries.detail.paramListPlaceholder') : (spec.default != null ? String(spec.default) : $t('queries.detail.paramAll'))"
+              :data-testid="`entity-param-${spec.name}`"
+              @keyup.enter="runWithParams"
+            />
+          </label>
+          <span
+            v-for="spec in identityParamSpecs"
+            :key="spec.name"
+            class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-[10px]"
+          >{{ spec.label || spec.name }}: {{ $t('queries.detail.paramScopedToYou') }}</span>
+          <button
+            v-if="editableParamSpecs.length"
+            class="px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 flex items-center gap-1"
+            :disabled="paramRunLoading"
+            data-testid="entity-param-run"
+            @click="runWithParams"
+          >
+            <Icon name="heroicons-play" class="w-3 h-3" />{{ paramRunLoading ? $t('queries.detail.paramsRunning') : $t('queries.detail.paramsRun') }}
+          </button>
+          <span v-if="detail?.applied_params" class="text-[10px] text-gray-400" data-testid="entity-applied">
+            {{ $t('queries.detail.paramsRanWith', { values: formatAppliedParams(detail.applied_params) }) }}
+          </span>
+          <span v-if="paramRunError" class="text-[10px] text-red-500" data-testid="entity-param-error">{{ paramRunError }}</span>
+        </div>
+
+        <div class="mt-4">
+          <div class="border border-gray-100 dark:border-gray-800 rounded bg-white dark:bg-gray-900">
+            <!-- Tab Navigation -->
+            <div class="flex border-b border-gray-100 dark:border-gray-800">
+              <button
+                v-if="showVisual"
+                @click="activeTab = 'visual'"
+                :class="[
+                  'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
+                  activeTab === 'visual'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                ]"
+              >
+                {{ $t('queries.detail.tabVisual') }}
+              </button>
+              <button
+                @click="activeTab = 'data'"
+                :class="[
+                  'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
+                  activeTab === 'data'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                ]"
+              >
+                <span>{{ $t('queries.detail.tabData') }}</span>
+                <span v-if="rowCount" class="ms-1.5 text-[11px] text-gray-400">({{ rowCount }})</span>
+              </button>
+              <button
+                @click="activeTab = 'code'"
+                :class="[
+                  'px-4 py-2 text-xs font-medium border-b-2 transition-colors',
+                  activeTab === 'code'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300'
+                ]"
+              >
+                {{ $t('queries.detail.tabCode') }}
+              </button>
+            </div>
+
+            <div class="p-3">
+              <!-- Visual Content -->
+              <Transition name="fade" mode="out-in">
+                <div v-if="activeTab === 'visual'">
+                  <div v-if="resolvedCompEl" :class="chartHeightClass">
+                    <component
+                      :is="resolvedCompEl"
+                      :widget="effectiveWidget"
+                      :data="detail?.data"
+                      :data_model="detail?.data_model || { type: viewType }"
+                      :step="effectiveStep"
+                      :view="detail?.view"
+                    />
+                  </div>
+                  <div v-else-if="chartVisualTypes.has(viewType)" class="h-[340px]">
+                    <RenderVisual :widget="effectiveWidget" :data="detail?.data" :data_model="detail?.data_model || { type: viewType }" />
+                  </div>
+                </div>
+              </Transition>
+
+              <!-- Data/Table Content -->
+              <Transition name="fade" mode="out-in">
+                <div v-if="activeTab === 'data'" class="h-[400px]">
+                  <RenderTable :widget="effectiveWidget" :step="effectiveStep" />
+                </div>
+              </Transition>
+
+              <!-- Code Content -->
+              <Transition name="fade" mode="out-in">
+                <div v-if="activeTab === 'code'" class="bg-gray-50 dark:bg-gray-900 rounded p-3 overflow-auto" style="max-height: 400px;">
+                  <div class="flex items-center justify-between mb-2">
+                    <span class="text-[11px] text-gray-500 dark:text-gray-400">&nbsp;</span>
+                    <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-800" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
+                  </div>
+                  <pre class="text-[11px] text-gray-800 dark:text-gray-200"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
+                </div>
+              </Transition>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <EntityEditModal
+      v-model="openEdit"
+      :detail="detail"
+      :entity-id="id"
+      :editor-lang="editorLang"
+      @saved="onModalSaved"
+    />
+  </div>
+</template>
+
+<script setup lang="ts">
+import { ref, computed, onMounted, watch, defineAsyncComponent } from 'vue'
+import { useMyFetch } from '~/composables/useMyFetch'
+import { useCan } from '~/composables/usePermissions'
+import { useAuth } from '#imports'
+import RenderVisual from '~/components/RenderVisual.vue'
+import RenderTable from '~/components/RenderTable.vue'
+import { resolveEntryByType } from '@/components/dashboard/registry'
+import EntityEditModal from '~/components/entity/EntityEditModal.vue'
+
+const toast = useToast()
+const { t } = useI18n()
+
+type MinimalDS = { id: string; name?: string; type?: string }
+type EntityDetail = {
+  id: string
+  type: string
+  title: string
+  slug: string
+  description?: string | null
+  data?: any
+  data_model?: any
+  view?: any
+  last_refreshed_at?: string | null
+  updated_at?: string | null
+  tags?: string[]
+  status?: string
+  data_sources?: MinimalDS[]
+  code?: string
+  private_status?: string | null
+  global_status?: string | null
+  owner_id?: string
+  reviewed_by?: any
+  parameters?: any[] | null
+  applied_params?: Record<string, any> | null
+}
+
+// The entity to show. Lives as a prop rather than a route param so the same
+// panel serves the /agents tree (right pane) and the /queries/<id> deep link.
+const props = defineProps<{ entityId: string }>()
+// `changed` carries the updated row so a host tree can refresh the leaf's badge
+// without re-fetching the whole group; `deleted` is the row going away.
+const emit = defineEmits<{ (e: 'deleted'): void; (e: 'changed', entity: any): void }>()
+const { data: authData } = useAuth()
+const id = computed(() => String(props.entityId || ''))
+const detail = ref<EntityDetail | null>(null)
+const loading = ref(true)
+// Per-agent `create_entities` on EVERY attached agent gates manage actions
+// (agent owners hold it via `manage`; org `manage_entities` / full admin via
+// implication). The old org-level checks used permission names that don't
+// exist ('create_entities'/'update_entities'/... are per-agent or nonexistent
+// strings), so every affordance was admin-only.
+const detailDsIds = computed(() => (detail.value?.data_sources || []).map((d: any) => d?.id).filter(Boolean))
+const canManageEntity = computed(() =>
+  detailDsIds.value.length ? useCanAll('create_entities', 'data_source', detailDsIds.value) : useCan('manage_entities')
+)
+const canCreateEntities = canManageEntity
+// The entity's owner may edit/delete their own entity while it is not
+// globally approved (mirrors the backend owner allowance).
+const ownerEditable = computed(() => isOwner.value && ['private', 'suggested', 'archived'].includes(String(entityType.value)))
+const canUpdateEntities = computed(() => canManageEntity.value || ownerEditable.value)
+const canDeleteEntities = computed(() => canManageEntity.value || ownerEditable.value)
+// Suggesting is open to any member for their own private entity.
+const canSuggestEntities = computed(() => true)
+// Approving/rejecting suggestions stays an org-admin capability.
+const canApproveEntities = computed(() => useCan('manage_entities'))
+
+// Entity workflow status
+const entityType = computed(() => {
+  const e = detail.value
+  if (!e) return null
+  if (e.status === 'archived' || e.private_status === 'archived') return 'archived'
+  if (e.private_status && !e.global_status) return 'private'
+  if (e.private_status && e.global_status === 'suggested') return 'suggested'
+  // Global approved entities - check if they're published or draft
+  if (!e.private_status && e.global_status === 'approved') {
+    if (e.status === 'published') return 'global'
+    if (e.status === 'draft') return 'draft'  // Admin draft
+  }
+  return 'unknown'
+})
+
+const isOwner = computed(() => {
+  const currentUserId = ((authData.value as any)?.user?.id ?? (authData.value as any)?.id)
+  return currentUserId && detail.value?.owner_id === currentUserId
+})
+
+const canSuggest = computed(() => {
+  return isOwner.value && entityType.value === 'private' && canSuggestEntities.value
+})
+
+const canWithdraw = computed(() => {
+  return isOwner.value && entityType.value === 'suggested'
+})
+
+const canApprove = computed(() => {
+  return canApproveEntities.value && entityType.value === 'suggested'
+})
+
+const viewType = computed(() => {
+  const viewObj = detail.value?.view
+  return String(viewObj?.view?.type || viewObj?.type || '')
+})
+const shape = computed(() => {
+  const d = detail.value?.data
+  if (!d) return null
+  const rows = Array.isArray(d?.rows) ? d.rows.length : (typeof d?.info?.total_rows === 'number' ? d.info.total_rows : null)
+  const cols = Array.isArray(d?.columns) ? d.columns.length : (Array.isArray(d?.rows) && d.rows[0] ? Object.keys(d.rows[0]).length : null)
+  return { rows, cols }
+})
+
+// Tab state and visualization logic
+const activeTab = ref<'visual' | 'data' | 'code'>('visual')
+
+const chartVisualTypes = new Set<string>([
+  'pie_chart',
+  'line_chart',
+  'bar_chart',
+  'area_chart',
+  'heatmap',
+  'scatter_plot',
+  'map',
+  'candlestick',
+  'treemap',
+  'radar_chart'
+])
+
+const showVisual = computed(() => {
+  // Handle both v2 format (view.view.type) and legacy format (view.type)
+  const viewObj = detail.value?.view
+  const vType = viewObj?.view?.type || viewObj?.type
+  const t = vType || detail.value?.data_model?.type
+  if (!t) return false
+  const entry = resolveEntryByType(String(t).toLowerCase())
+  if (entry) {
+    return entry.componentKey !== 'table.aggrid'
+  }
+  return chartVisualTypes.has(String(t)) || String(t) === 'count'
+})
+
+const hasData = computed(() => {
+  const rows = detail.value?.data?.rows
+  if (Array.isArray(rows)) return rows.length >= 0
+  return !!detail.value
+})
+
+const rowCount = computed(() => {
+  const rows = detail.value?.data?.rows
+  if (Array.isArray(rows)) {
+    return `${rows.length.toLocaleString()}`
+  }
+  return null
+})
+
+// Dashboard registry-driven dynamic component
+const compCache = new Map<string, any>()
+function getCompForType(type?: string | null) {
+  const t = (type || '').toLowerCase()
+  if (!t) return null
+  if (compCache.has(t)) return compCache.get(t)
+  const entry = resolveEntryByType(t)
+  if (!entry) return null
+  const comp = defineAsyncComponent(entry.load)
+  compCache.set(t, comp)
+  return comp
+}
+
+const resolvedCompEl = computed(() => {
+  const viewObj = detail.value?.view
+  const vType = viewObj?.view?.type || viewObj?.type
+  const dmType = detail.value?.data_model?.type
+  return getCompForType(String(vType || dmType || ''))
+})
+
+const chartHeightClass = computed(() => {
+  const viewObj = detail.value?.view
+  const vType = viewObj?.view?.type || viewObj?.type
+  const t = String((vType || detail.value?.data_model?.type || '')).toLowerCase()
+  return t === 'count' || t === 'metric_card' ? 'h-[120px] flex items-start' : 'h-[340px]'
+})
+
+const effectiveWidget = computed(() => {
+  return { id: detail.value?.id || 'preview', title: detail.value?.title || detail.value?.slug } as any
+})
+
+const effectiveStep = computed(() => {
+  return {
+    id: detail.value?.id,
+    data: detail.value?.data,
+    data_model: detail.value?.data_model || { type: viewType.value },
+    code: detail.value?.code,
+    status: 'success'
+  } as any
+})
+
+const openEdit = ref(false)
+const editorLang = ref('python')
+const form = ref<{
+  type: string
+  title: string
+  description: string | null
+  code: string
+  status: string
+  data_source_ids?: string[]
+  global_status?: string | null
+}>({
+  type: 'model',
+  title: '',
+  description: null,
+  code: '',
+  status: 'draft',
+  data_source_ids: [],
+  global_status: null
+})
+const editTab = ref<'details'|'code'>('details')
+const errorMsg = ref('')
+const saving = ref(false)
+const running = ref(false)
+const runMode = ref<'preview' | 'save' | null>(null)
+const codePreview = ref<any | null>(null)
+const codeErrorMsg = ref('')
+
+// Watch for data changes to update active tab
+watch([showVisual, hasData], () => {
+  if (showVisual.value) {
+    activeTab.value = 'visual'
+  } else if (hasData.value) {
+    activeTab.value = 'data'
+  } else {
+    activeTab.value = 'code'
+  }
+}, { immediate: true })
+
+onMounted(load)
+// Switching leaves in the tree swaps the prop on a mounted panel: reset the
+// per-entity state or the previous query's rows and parameter inputs bleed
+// into the next one while it loads.
+watch(() => props.entityId, () => {
+  detail.value = null
+  paramValues.value = {}
+  paramOptions.value = {}
+  paramRunError.value = null
+  load()
+})
+
+// Every workflow action returns the updated entity; funnel them through one
+// place so the host is told exactly once, with the row it should now show.
+function applyDetail(v: any) {
+  detail.value = v
+  emit('changed', v)
+}
+
+async function load() {
+  loading.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}`, { method: 'GET' })
+    if (error.value) throw error.value
+    detail.value = data.value as any
+  } catch {
+  } finally {
+    loading.value = false
+  }
+}
+
+// ── Parameters ──────────────────────────────────────────────────────────────
+// Declared ParamSpecs travel with the entity; identity-source params never
+// carry a client value (the server binds them to the viewer).
+const paramSpecs = computed<any[]>(() =>
+  (Array.isArray(detail.value?.parameters) ? detail.value!.parameters! : []).filter((p: any) => p && p.name))
+const editableParamSpecs = computed(() => paramSpecs.value.filter((s: any) => s.source !== 'identity'))
+const identityParamSpecs = computed(() => paramSpecs.value.filter((s: any) => s.source === 'identity'))
+const paramValues = ref<Record<string, any>>({})
+const paramOptions = ref<Record<string, Array<{ value: any; label: string }>>>({})
+const paramRunLoading = ref(false)
+const paramRunError = ref<string | null>(null)
+
+function formatAppliedParams(applied: Record<string, any>): string {
+  return Object.entries(applied || {})
+    .map(([k, v]) => `${k} = ${v === null || v === undefined ? t('queries.detail.paramAll') : JSON.stringify(v)}`)
+    .join(', ')
+}
+
+// Seed the inputs from the values the shown rows were produced with, so the
+// controls never contradict the data under them.
+function seedParamValuesFromApplied() {
+  const applied = detail.value?.applied_params || {}
+  for (const s of editableParamSpecs.value) {
+    if (paramValues.value[s.name] !== undefined) continue
+    const v = (applied as any)[s.name]
+    paramValues.value[s.name] = v === undefined ? (s.default ?? null) : v
+  }
+}
+
+function resolveParamOptions() {
+  const out: Record<string, Array<{ value: any; label: string }>> = {}
+  for (const spec of editableParamSpecs.value) {
+    if (Array.isArray(spec.options) && spec.options.length) {
+      out[spec.name] = spec.options.map((v: any) =>
+        (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) })
+    }
+  }
+  paramOptions.value = out
+}
+
+watch(paramSpecs, () => { seedParamValuesFromApplied(); resolveParamOptions() }, { immediate: true })
+
+async function runWithParams() {
+  if (paramRunLoading.value) return
+  paramRunLoading.value = true
+  paramRunError.value = null
+  try {
+    const params: Record<string, any> = {}
+    for (const s of editableParamSpecs.value) {
+      let v = paramValues.value[s.name]
+      if (v === undefined || v === '' || v === null) continue
+      // list-typed params submit arrays; the input takes comma-separated text
+      if (s.type === 'list' && typeof v === 'string') {
+        const items = v.split(',').map((x: string) => x.trim()).filter(Boolean)
+        if (!items.length) continue
+        v = items
+      }
+      params[s.name] = v
+    }
+    // No values at all → the shared-snapshot refresh path.
+    if (!Object.keys(params).length) { await refreshEntity(); return }
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: { params } })
+    if (error.value) throw error.value
+    applyDetail(data.value as any)
+  } catch (e: any) {
+    paramRunError.value = e?.data?.detail || e?.message || t('queries.detail.errRunParams')
+  } finally {
+    paramRunLoading.value = false
+  }
+}
+
+const refreshing = ref(false)
+async function refreshEntity() {
+  if (refreshing.value) return
+  refreshing.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: {} })
+    if (error.value) throw error.value
+    applyDetail(data.value as any)
+  } catch {}
+  refreshing.value = false
+}
+
+const deleting = ref(false)
+async function deleteEntity() {
+  if (deleting.value) return
+  const confirmed = window.confirm(t('queries.detail.deleteConfirm'))
+  if (!confirmed) return
+  deleting.value = true
+  try {
+    const { error } = await useMyFetch(`/api/entities/${id.value}`, { method: 'DELETE' })
+    if (error.value) throw error.value
+    toast.add({ title: t('queries.detail.toastDeletedTitle'), description: t('queries.detail.toastDeletedBody'), color: 'green' })
+    emit('deleted')
+  } catch (e: any) {
+    toast.add({ title: t('queries.detail.toastErrorTitle'), description: e?.data?.detail || e?.message || t('queries.detail.errDeleteEntity'), color: 'red' })
+  } finally {
+    deleting.value = false
+  }
+}
+
+// Suggestion workflow actions
+const suggesting = ref(false)
+async function suggestEntity() {
+  if (suggesting.value) return
+  suggesting.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/suggest`, { method: 'POST' })
+    if (error.value) throw error.value
+    applyDetail(data.value as any)
+    toast.add({
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.suggestSuccessBody'),
+      color: 'green'
+    })
+  } catch (e: any) {
+    console.error('Failed to suggest entity:', e)
+    toast.add({
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errSuggestEntity'),
+      color: 'red'
+    })
+  }
+  suggesting.value = false
+}
+
+const withdrawing = ref(false)
+async function withdrawSuggestion() {
+  if (withdrawing.value) return
+  withdrawing.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/withdraw`, { method: 'POST' })
+    if (error.value) throw error.value
+    applyDetail(data.value as any)
+    toast.add({
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.withdrawSuccessBody'),
+      color: 'green'
+    })
+  } catch (e: any) {
+    console.error('Failed to withdraw suggestion:', e)
+    toast.add({
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errWithdrawSuggestion'),
+      color: 'red'
+    })
+  }
+  withdrawing.value = false
+}
+
+const approving = ref(false)
+async function approveSuggestion() {
+  if (approving.value) return
+  approving.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/approve`, { method: 'POST' })
+    if (error.value) throw error.value
+    applyDetail(data.value as any)
+    toast.add({
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.approveSuccessBody'),
+      color: 'green'
+    })
+  } catch (e: any) {
+    console.error('Failed to approve suggestion:', e)
+    toast.add({
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errApproveEntity'),
+      color: 'red'
+    })
+  }
+  approving.value = false
+}
+
+const rejecting = ref(false)
+async function rejectSuggestion() {
+  if (rejecting.value) return
+  rejecting.value = true
+  try {
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/reject`, { method: 'POST' })
+    if (error.value) throw error.value
+    applyDetail(data.value as any)
+    toast.add({
+      title: t('queries.detail.toastSuccessTitle'),
+      description: t('queries.detail.rejectSuccessBody'),
+      color: 'green'
+    })
+  } catch (e: any) {
+    console.error('Failed to reject suggestion:', e)
+    toast.add({
+      title: t('queries.detail.toastErrorTitle'),
+      description: t('queries.detail.errRejectEntity'),
+      color: 'red'
+    })
+  }
+  rejecting.value = false
+}
+
+watch(openEdit, (v) => {
+  if (v && detail.value) {
+    form.value = {
+      type: detail.value.type,
+      title: detail.value.title,
+      description: (detail.value.description || null) as any,
+      code: detail.value.code || '',
+      status: detail.value.status || 'draft',
+      data_source_ids: detail.value.data_sources?.map(ds => ds.id) || [],
+      global_status: detail.value.global_status || null
+    }
+    editTab.value = 'details'
+    codePreview.value = detail.value.data || null
+    codeErrorMsg.value = ''
+    errorMsg.value = ''
+  }
+})
+
+function parseAsUTCIfNaive(s: string): Date {
+  // if string has no timezone, treat as UTC
+  const hasTZ = /Z|[+-]\d{2}:?\d{2}$/.test(s)
+  return new Date(hasTZ ? s : `${s}Z`)
+}
+
+function timeAgo(iso: string | Date | null | undefined) {
+  if (!iso) return '—'
+  const d = typeof iso === 'string' ? parseAsUTCIfNaive(iso) : iso
+  const diff = Math.max(0, Date.now() - (d?.getTime?.() || 0))
+  const mins = Math.floor(diff / 60000)
+  if (mins < 60) return t('queries.timeMinutesAgo', { n: mins })
+  const hrs = Math.floor(mins / 60)
+  if (hrs < 24) return t('queries.timeHoursAgo', { n: hrs })
+  const days = Math.floor(hrs / 24)
+  return t('queries.timeDaysAgo', { n: days })
+}
+
+function dataSourceIcon(type?: string) {
+  if (!type) return '/public/icons/database.png'
+  const key = String(type).toLowerCase()
+  return `/data_sources_icons/${key}.png`
+}
+
+function copyCode() {
+  try {
+    const code = detail.value?.code || ''
+    navigator.clipboard.writeText(code)
+  } catch {}
+}
+
+function formatCount(num?: number): string {
+  if (num === undefined || num === null) return '—'
+  if (num >= 1000000) return `${(num / 1000000).toFixed(1)}M`
+  if (num >= 1000) return `${(num / 1000).toFixed(1)}K`
+  return String(num)
+}
+
+function onModalSaved() {
+  load().then(() => emit('changed', detail.value))
+  toast.add({ title: t('queries.detail.toastSuccessTitle'), description: t('queries.detail.savedSuccessBody'), color: 'green' })
+}
+</script>
+
+<style scoped>
+.line-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>
+

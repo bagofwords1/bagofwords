@@ -33,11 +33,14 @@ from app.models.oauth_account import OAuthAccount
 from fastapi.responses import RedirectResponse
 
 from app.settings.config import settings
+from app.errors import AppError, ErrorCode
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate
 from app.core.telemetry import telemetry
 
 SECRET = settings.bow_config.encryption_key
+
+logger = logging.getLogger(__name__)
 
 
 DEFAULT_ORG_NAME = "Main Org"
@@ -67,6 +70,18 @@ class UserManager(BaseUserManager[User, str]):
         user = await self._do_authenticate(credentials)
         if user is None:
             return None
+        # Credentials are correct at this point, so naming the real reason
+        # leaks nothing an attacker could not already confirm — and the
+        # alternative ("wrong email or password") sends a removed member off
+        # to reset a password that was never the problem. fastapi-users' login
+        # route would otherwise fold this into LOGIN_BAD_CREDENTIALS, so the
+        # distinction has to be drawn here, before it returns.
+        if not user.is_active:
+            raise AppError(
+                ErrorCode.ACCOUNT_DISABLED,
+                "Your account has been disabled. Contact your administrator.",
+                status_code=403,
+            )
         if settings.bow_config.auth.mode == "sso_only" and not await self._user_can_use_local_login(user):
             return None
         return user
@@ -209,7 +224,14 @@ class UserManager(BaseUserManager[User, str]):
                 response_data = {}
             token = response_data.get('access_token')
             if token:
-                redirect_url = f"{settings.bow_config.base_url}/users/sign-in?access_token={token}&email={user.email}"
+                # Hand back a single-use code, never the token itself: a URL
+                # ends up in browser history, Referer headers and proxy logs.
+                from app.services.login_exchange_service import issue_login_code
+
+                login_code = await issue_login_code(str(user.id), token)
+                redirect_url = (
+                    f"{settings.bow_config.base_url}/users/sign-in?login_code={login_code}"
+                )
                 raise HTTPException(status_code=303, headers={"Location": redirect_url})
 
     async def _attach_open_memberships(self, user: User, session: AsyncSession):
@@ -223,6 +245,10 @@ class UserManager(BaseUserManager[User, str]):
         
         if open_memberships:
             user.is_verified = True
+            # An invite is also the way back in for someone who was deactivated
+            # when their last membership was removed (app/core/user_lifecycle).
+            from app.core.user_lifecycle import reactivate_user_for_membership
+            await reactivate_user_for_membership(session, str(user.id))
 
         # Update each open membership with the new user
         from app.models.role import Role
@@ -557,8 +583,7 @@ class UserManager(BaseUserManager[User, str]):
                 # Enforce invite policy similar to regular registration
                 async with self.user_db.session as session:
                     # If uninvited signups are disabled and not first user, require invite
-                    user_count = (await session.execute(select(User))).scalars().all().__len__()
-                    if user_count > 0 and not settings.bow_config.features.allow_uninvited_signups:
+                    if await any_user_exists(session) and not settings.bow_config.features.allow_uninvited_signups:
                         stmt = select(Membership).where(
                             and_(
                                 func.lower(Membership.email) == (account_email or "").strip().lower(),
@@ -664,6 +689,22 @@ class UserManager(BaseUserManager[User, str]):
     ):
         await self._send_reset_password_email(user, token, request)
 
+    async def on_after_reset_password(self, user: User, request: Optional[Request] = None):
+        # A password reset is the one moment where the old sessions are most
+        # likely the attacker's, so they must not survive it.
+        await bump_session_epoch(user.id)
+
+    async def on_after_update(
+        self,
+        user: User,
+        update_dict: dict,
+        request: Optional[Request] = None,
+    ):
+        # Same reasoning for a self-service password change. Other profile
+        # edits (name, avatar) leave sessions alone.
+        if "password" in update_dict or "hashed_password" in update_dict:
+            await bump_session_epoch(user.id)
+
     async def _send_reset_password_email(self, user: User, token: str, request: Optional[Request] = None):
         import asyncio
         
@@ -753,7 +794,7 @@ class UserManager(BaseUserManager[User, str]):
         email = user_create.email
 
         async with self.user_db.session as session:
-            user_count = (await session.execute(select(User))).scalars().all().__len__()
+            users_exist = await any_user_exists(session)
 
             # 1) A token was presented — validate it strictly.
             if token:
@@ -773,7 +814,7 @@ class UserManager(BaseUserManager[User, str]):
                 return  # valid invite — allow creation
 
             # 2) No token. First user always allowed (bootstrap).
-            if user_count == 0:
+            if not users_exist:
                 return
 
             # A pending invite exists for this email but no token was supplied.
@@ -801,6 +842,20 @@ class UserManager(BaseUserManager[User, str]):
                 )
 
         return
+
+
+async def any_user_exists(session: AsyncSession) -> bool:
+    """Whether this instance has been claimed yet.
+
+    Registration bootstraps the first user without an invite, so "no users yet"
+    is a real state that both the invite policy and the setup screen key off.
+
+    Deliberately uncached: a module-level flag would survive the database resets
+    between tests and tell a fresh-instance test that users already exist. A
+    COUNT over an indexed primary key is cheap enough not to need one.
+    """
+    return bool(await session.scalar(select(func.count()).select_from(User)))
+
 
 async def _org_signup_policy(db: AsyncSession, organization_id: str) -> dict:
     from app.models.organization_settings import OrganizationSettings
@@ -883,6 +938,8 @@ async def auto_provision_user_for_org(
                 organization_id=organization_id,
                 role=role,
             ))
+        from app.core.user_lifecycle import reactivate_user_for_membership
+        await reactivate_user_for_membership(db, str(existing_user.id))
         await db.commit()
         return existing_user
 
@@ -934,13 +991,102 @@ async def get_user_manager(user_db: SQLAlchemyUserDatabase = Depends(get_user_db
 
 bearer_transport = BearerTransport(tokenUrl="auth/jwt/login")
 
+# Claim carrying the user's `session_epoch` at the moment the token was minted.
+# Tokens issued before this claim existed decode to 0, which never matches the
+# seeded epoch of 1 — so upgrading signs everyone out once, on purpose.
+SESSION_EPOCH_CLAIM = "session_epoch"
 
-def get_jwt_strategy() -> JWTStrategy:
+
+def _session_epoch_of(user: User) -> int:
+    return int(getattr(user, "session_epoch", 0) or 0)
+
+
+async def bump_session_epoch(user_id: str) -> None:
+    """Invalidate every session token already issued to a user.
+
+    The increment runs in SQL so concurrent bumps can't clobber each other. Used
+    by logout, password change/reset, and the admin force-signout endpoint.
+    """
+    from app.dependencies import async_session_maker
+
+    async with async_session_maker() as db:
+        await db.execute(
+            update(User)
+            .where(User.id == str(user_id))
+            .values(session_epoch=User.session_epoch + 1)
+        )
+        await db.commit()
+
+
+class SessionEpochJWTStrategy(JWTStrategy):
+    """JWTStrategy that makes its tokens revocable.
+
+    Plain `JWTStrategy` is stateless: once minted, a token is valid until it
+    expires, and `destroy_token` raises `StrategyDestroyNotSupportedError` — so
+    fastapi-users' logout route silently does nothing and a stolen bearer token
+    survives any number of logout/login cycles for its full lifetime.
+
+    Stamping the user's `session_epoch` into the token and re-checking it on
+    every request turns that into a real revocation: bumping the column rejects
+    every token minted before the bump. The user row is already loaded to
+    authenticate the request, so this costs a comparison, not a query.
+    """
+
+    async def write_token(self, user: User) -> str:
+        from fastapi_users.jwt import generate_jwt
+
+        data = {
+            "sub": str(user.id),
+            "aud": self.token_audience,
+            SESSION_EPOCH_CLAIM: _session_epoch_of(user),
+        }
+        return generate_jwt(
+            data, self.encode_key, self.lifetime_seconds, algorithm=self.algorithm
+        )
+
+    async def read_token(self, token: Optional[str], user_manager) -> Optional[User]:
+        from fastapi_users.jwt import decode_jwt
+
+        user = await super().read_token(token, user_manager)
+        if user is None:
+            return None
+
+        try:
+            claims = decode_jwt(
+                token, self.decode_key, self.token_audience, algorithms=[self.algorithm]
+            )
+        except Exception:
+            return None
+
+        if int(claims.get(SESSION_EPOCH_CLAIM, 0) or 0) != _session_epoch_of(user):
+            logger.info(
+                "Rejected session token for user %s: revoked (stale session_epoch)",
+                user.id,
+            )
+            return None
+
+        return user
+
+
+def get_jwt_strategy() -> SessionEpochJWTStrategy:
     # Align JWT lifetime with frontend cookie (7 days) to avoid desync logout
-    return JWTStrategy(secret=SECRET, lifetime_seconds=60 * 60 * 24 * 7)
+    return SessionEpochJWTStrategy(secret=SECRET, lifetime_seconds=60 * 60 * 24 * 7)
 
 
-auth_backend = AuthenticationBackend(
+class RevocableAuthenticationBackend(AuthenticationBackend):
+    """Authentication backend whose logout actually invalidates the token.
+
+    The stock backend calls `strategy.destroy_token`, swallows the
+    "not supported" error a stateless JWT raises, and returns 204 — leaving the
+    token usable. Bumping the session epoch first makes the 204 honest.
+    """
+
+    async def logout(self, strategy, user, token):
+        await bump_session_epoch(user.id)
+        return await super().logout(strategy, user, token)
+
+
+auth_backend = RevocableAuthenticationBackend(
     name="jwt",
     transport=bearer_transport,
     get_strategy=get_jwt_strategy,

@@ -683,6 +683,18 @@ class InstructionContextBuilder:
         result = await self.db.execute(stmt)
         skills = result.scalars().all()
 
+        # Honor per-skill mode/channel scoping, exactly as loaded instructions
+        # do. A skill whose whole procedure is built on training-only tools
+        # would otherwise burn a catalog slot on every chat request and invite
+        # the planner to read a playbook it cannot act on.
+        skills = [
+            s for s in skills
+            if self._passes_mode_channel(
+                getattr(s, "applicable_modes", None),
+                getattr(s, "applicable_channels", None),
+            )
+        ]
+
         # Scope by data sources (global skills — no data sources — always included).
         effective_ds_ids = data_source_ids if data_source_ids is not None else self.data_source_ids
         if effective_ds_ids is not None:

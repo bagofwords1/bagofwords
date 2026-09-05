@@ -251,6 +251,12 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-5.6-sol"]["is_default"] is False
     assert by_model_id["gpt-5.6-sol"]["max_output_tokens"] == 128000
 
+    # Astra ships in the catalog and reaches the migrated provider, but it does
+    # not take the default: adding a model must not move an org onto a pricier
+    # one behind its back.
+    assert by_model_id["gpt-6-astra"]["is_enabled"] is True
+    assert by_model_id["gpt-6-astra"]["is_default"] is False
+
     assert by_model_id["gpt-5.6-terra"]["is_enabled"] is True
     assert by_model_id["gpt-5.6-terra"]["is_default"] is True
 

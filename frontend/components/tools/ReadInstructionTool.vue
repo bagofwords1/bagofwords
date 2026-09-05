@@ -15,9 +15,9 @@
           class="w-3 h-3 me-1 text-gray-400 flex-shrink-0"
         />
         <Icon v-else name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-red-500 flex-shrink-0" />
-        <Icon name="heroicons-cube" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
+        <Icon :name="isSkill ? 'heroicons-sparkles' : 'heroicons-cube'" class="w-3 h-3 me-1 text-indigo-400 flex-shrink-0" />
         <span v-if="succeeded" class="text-gray-700 dark:text-gray-300 truncate">
-          {{ t('tools.readInstruction.read') }}<template v-if="title"> · {{ title }}</template>
+          {{ isSkill ? t('tools.readInstruction.readSkill') : t('tools.readInstruction.read') }}<template v-if="title"> · {{ title }}</template>
         </span>
         <span v-else class="text-gray-700 dark:text-gray-300 truncate">
           {{ message || t('tools.readInstruction.failed') }}
@@ -55,6 +55,10 @@ const status = computed(() => props.toolExecution?.status || '')
 const result = computed<any>(() => props.toolExecution?.result_json || {})
 const succeeded = computed(() => status.value === 'success' && result.value?.success !== false)
 const title = computed<string>(() => result.value?.title || result.value?.short_id || '')
+// The tool reads instructions and skills alike and reports which it resolved,
+// so the row can name the right thing. Only the result knows: the call carries
+// a short id and nothing else, which is why the running state stays neutral.
+const isSkill = computed(() => result.value?.kind === 'skill')
 const text = computed<string>(() => result.value?.text || '')
 const message = computed<string>(() => result.value?.message || '')
 

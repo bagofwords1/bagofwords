@@ -14,8 +14,12 @@ domain available.
 """
 from __future__ import annotations
 
+import asyncio
+import os
 import sys
+import threading
 import types
+from concurrent.futures import ThreadPoolExecutor
 from urllib.parse import parse_qs, unquote_plus, urlsplit
 
 import pytest
@@ -108,6 +112,16 @@ def test_kerberos_principals_normalized():
     assert client.kerberos_impersonate == "jdoe@CORP.EXAMPLE.COM"
 
 
+@pytest.mark.parametrize("driver", [17, 18])
+@pytest.mark.parametrize("encrypt,expected", [(True, "yes"), (False, "no")])
+def test_encrypt_setting_is_explicit_for_every_supported_driver(driver, encrypt, expected):
+    client = MSSQLClient(
+        "db.corp.example.com", 1433, "dwh", "svc", "secret",
+        odbc_driver=driver, encrypt=encrypt,
+    )
+    assert _odbc_params(client)["encrypt"] == expected
+
+
 # ---------- registry / schemas ---------- #
 
 
@@ -121,6 +135,7 @@ def test_registry_exposes_kerberos_auth_variants():
     assert by_auth["kerberos_delegated"].scopes == ["user"]
     # default UX unchanged
     assert entry.credentials_auth.default == "userpass"
+    assert entry.client_path == "app.data_sources.clients.mssql_client.MSSQLClient"
 
 
 def test_kerberos_credentials_schema_validation():
@@ -191,6 +206,93 @@ def _install_fake_gssapi(monkeypatch, store_calls, impersonate_calls, lifetime=3
     )
     monkeypatch.setitem(sys.modules, "gssapi", fake)
     return fake
+
+
+@pytest.mark.parametrize("driver", [17, 18])
+@pytest.mark.parametrize("concurrent", [False, True])
+def test_connections_preserve_requested_kerberos_identity(tmp_path, monkeypatch, driver, concurrent):
+    """Cold/warm engines retain their user's identity, including during setup.
+
+    Model a credential-sensitive external driver that captures its default
+    identity during lazy initialization. The real ticket manager, engine pool,
+    client and cancellation tracking run unchanged; only GSSAPI and the
+    external SQLAlchemy/driver boundary are substituted. No AD or SQL is needed.
+    """
+    import sqlalchemy
+    from app.data_sources import engine_pool, kerberos
+
+    _install_fake_gssapi(monkeypatch, [], [])
+    manager = kerberos.KerberosTicketManager(ccache_dir=str(tmp_path))
+    monkeypatch.setattr(kerberos, "_manager", manager)
+    ambient_cache = f"FILE:{tmp_path / 'ambient'}"
+    monkeypatch.setenv("KRB5CCNAME", ambient_cache)
+    identities = {ambient_cache: "ambient-service"}
+    clients = []
+    for principal, mode in [
+        ("reader@EXAMPLE.TEST", "delegated"),
+        ("analyst@EXAMPLE.TEST", "delegated"),
+        ("service@EXAMPLE.TEST", "service"),
+        ("ambient-service", "default"),
+    ]:
+        kwargs = {}
+        if mode == "delegated":
+            kwargs["kerberos_impersonate"] = principal
+            identities[f"FILE:{manager.delegated_ccache(principal)}"] = principal
+        elif mode == "service":
+            kwargs["kerberos_principal"] = principal
+            identities[f"FILE:{manager.service_ccache(principal)}"] = principal
+        clients.append((principal, MSSQLClient(
+            "sql.example.test", 1433, "synthetic", use_kerberos=True,
+            odbc_driver=driver, **kwargs,
+        )))
+
+    class DriverConnection:
+        def __init__(self, identity):
+            self.identity = identity
+            self.info = {}
+
+        def execute(self, statement):
+            value = 1 if str(statement) == "SELECT @@SPID" else self.identity
+            return types.SimpleNamespace(scalar=lambda: value)
+
+        def close(self):
+            pass
+
+    class DriverEngine:
+        def __init__(self, *args, **kwargs):
+            self.identity = identities[os.environ["KRB5CCNAME"]]
+
+        def connect(self):
+            return DriverConnection(self.identity)
+
+        def dispose(self):
+            pass
+
+    engine_pool.dispose_all()
+    monkeypatch.setattr(sqlalchemy, "create_engine", DriverEngine)
+    try:
+        for _ in range(2):  # Cold engine initialization, then pool reuse.
+            barrier = threading.Barrier(len(clients), timeout=10) if concurrent else None
+
+            def query_identity(item):
+                expected, client = item
+                with client.connect() as connection:
+                    if barrier:
+                        # All queries must be able to enter before any exits:
+                        # credential selection must not serialize query bodies.
+                        barrier.wait()
+                    actual = connection.execute(sqlalchemy.text("SELECT ORIGINAL_LOGIN()")).scalar()
+                    assert actual == expected
+
+            if concurrent:
+                with ThreadPoolExecutor(max_workers=len(clients)) as pool:
+                    list(pool.map(query_identity, clients))
+            else:
+                for item in clients:
+                    query_identity(item)
+            assert os.environ["KRB5CCNAME"] == ambient_cache
+    finally:
+        engine_pool.dispose_all()
 
 
 def test_delegated_ccache_acquires_and_caches(tmp_path, monkeypatch):
@@ -276,6 +378,66 @@ def test_activate_sets_and_restores_krb5ccname(tmp_path, monkeypatch):
         assert "KRB5CCNAME" not in os.environ
 
 
+def test_default_ccache_activation_serializes_with_delegated_activation(tmp_path):
+    """A service-account handshake must not observe another user's KRB5CCNAME."""
+    import app.data_sources.kerberos as kerberos
+
+    mgr = kerberos.KerberosTicketManager(ccache_dir=str(tmp_path))
+    attempted = threading.Event()
+    entered = threading.Event()
+
+    def activate_default():
+        attempted.set()
+        with mgr.activate(None):
+            entered.set()
+
+    kerberos._ENV_LOCK.acquire()
+    try:
+        worker = threading.Thread(target=activate_default)
+        worker.start()
+        assert attempted.wait(timeout=1)
+        worker.join(timeout=0.2)
+        assert not entered.is_set()
+    finally:
+        kerberos._ENV_LOCK.release()
+    worker.join(timeout=1)
+    assert entered.is_set()
+
+
+def test_ccache_paths_are_private_to_each_manager(tmp_path):
+    """Separate worker managers must never overwrite the same ccache file."""
+    from app.data_sources.kerberos import KerberosTicketManager
+
+    first = KerberosTicketManager(ccache_dir=str(tmp_path))
+    second = KerberosTicketManager(ccache_dir=str(tmp_path))
+    assert first._ccache_path_for("user:alice@CORP.EXAMPLE.COM") != second._ccache_path_for(
+        "user:alice@CORP.EXAMPLE.COM"
+    )
+
+
+def test_ccache_root_and_worker_dir_are_private(tmp_path):
+    """Nesting the worker dir must not leave the cache root world-traversable.
+
+    os.makedirs() applies its mode to the leaf only, so creating the root
+    implicitly would give it 0o777 & ~umask instead of 0700.
+    """
+    import os
+    import stat
+
+    from app.data_sources.kerberos import KerberosTicketManager
+
+    root = tmp_path / "bow_krb5"  # absent, like a fresh /tmp/bow_krb5
+    previous_umask = os.umask(0o022)
+    try:
+        manager = KerberosTicketManager(ccache_dir=str(root))
+        ccache_path = manager._ccache_path_for("user:alice@CORP.EXAMPLE.COM")
+    finally:
+        os.umask(previous_umask)
+
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE(os.stat(os.path.dirname(ccache_path)).st_mode) == 0o700
+
+
 # ---------- resolve_credentials helper ---------- #
 
 
@@ -359,3 +521,27 @@ def test_resolve_kerberos_principal_precedence():
     # a non-kerberos row is ignored for principal derivation → falls back to email
     other = _FakeRow("userpass", {"kerberos_impersonate": "should-be-ignored@x"})
     assert resolve_kerberos_principal(_FakeUser("jdoe@corp.example.com"), other) == "jdoe@corp.example.com"
+
+
+def test_failed_kerberos_recheck_is_not_reported_as_success():
+    from datetime import datetime
+
+    from app.services.connection_identity import build_kerberos_sso_status
+
+    marker = _FakeRow("kerberos_delegated", {"kerberos_impersonate": "jdoe@corp.example.com"})
+    marker.last_used_at = datetime.utcnow()
+    marker.metadata_json = {"last_error": "KDC unreachable"}
+    marker.is_primary = True
+    marker.id = "marker-1"
+
+    class _Index:
+        def connection_row(self, _connection_id):
+            return marker
+
+    connection = _FakeConnection(["kerberos_delegated"])
+    connection.id = "connection-1"
+    status = asyncio.run(build_kerberos_sso_status(
+        None, connection, _FakeUser("jdoe@corp.example.com"), None, None,
+        cred_index=_Index(),
+    ))
+    assert status.connection == "offline"

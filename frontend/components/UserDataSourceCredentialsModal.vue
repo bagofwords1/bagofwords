@@ -96,7 +96,7 @@ const credentialFields = computed(() => {
       key: k,
       title: f.title || k,
       type: f.type || 'string',
-      format: f.format,
+      format: f.format || (f['ui:type'] === 'password' ? 'password' : undefined),
       required: req.includes(k)
     }
   })
@@ -168,7 +168,10 @@ const testResult = ref<{ success: boolean, message?: string } | null>(null)
 async function onSave() {
   try {
     saving.value = true
-    const { error } = await useMyFetch(`/data_sources/${ds.value.id}/my-credentials`, { method: 'POST', body: form.value })
+    const endpoint = connectionType.value === 'sharepoint_onprem'
+      ? `/connections/${connectionId.value}/my-credentials`
+      : `/data_sources/${ds.value.id}/my-credentials`
+    const { error } = await useMyFetch(endpoint, { method: 'POST', body: form.value })
     if (error.value) throw error.value
     emit('saved')
     emit('update:modelValue', false)
@@ -193,5 +196,4 @@ async function onTest() {
 }
 
 </script>
-
 

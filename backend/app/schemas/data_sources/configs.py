@@ -1115,6 +1115,65 @@ class AWSAthenaConfig(BaseModel):
     data_source: str = Field("AwsDataCatalog", title="Data Source", description="", json_schema_extra={"ui:type": "string"})
 
 
+# AWS CloudWatch — log groups (Logs Insights) + metrics.
+# Credentials mirror the S3/Athena idiom so boto3 session construction is shared:
+# static keys, keys + STS assume-role, or the default credential chain.
+class AWSCloudWatchKeyCredentials(BaseModel):
+    access_key: str = Field(..., title="Access Key", description="AWS access key id.", json_schema_extra={"ui:type": "string"})
+    secret_key: str = Field(..., title="Secret Key", description="AWS secret access key.", json_schema_extra={"ui:type": "password"})
+    session_token: Optional[str] = Field(None, title="Session Token", description="Optional session token for temporary credentials.", json_schema_extra={"ui:type": "password"})
+
+
+class AWSCloudWatchRoleCredentials(BaseModel):
+    role_arn: str = Field(..., title="Role ARN", description="ARN of the IAM role to assume (STS) for CloudWatch access.", json_schema_extra={"ui:type": "string"})
+    access_key: Optional[str] = Field(None, title="Access Key", description="Optional — access key id used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "string"})
+    secret_key: Optional[str] = Field(None, title="Secret Key", description="Optional — secret access key used to assume the role. Leave blank to use the instance profile / IRSA.", json_schema_extra={"ui:type": "password"})
+
+
+class AWSCloudWatchDefaultCredentials(BaseModel):
+    """No credentials required — boto3 resolves via its default chain (env vars,
+    shared config, instance profile, EKS IRSA)."""
+    class Config:
+        extra = "allow"
+
+
+class AWSCloudWatchConfig(BaseModel):
+    region: str = Field(
+        ...,
+        title="Region",
+        description="AWS region to read CloudWatch from (e.g. 'eu-west-1'). Log groups and metrics are per-region.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    log_group_prefix: Optional[str] = Field(
+        None,
+        title="Log Group Prefix",
+        description="Only discover log groups whose name starts with this (e.g. '/aws/lambda/'). Strongly recommended — accounts routinely have thousands. Leave blank to index every log group in the region.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    metric_namespaces: Optional[str] = Field(
+        None,
+        title="Metric Namespaces",
+        description="Comma-separated CloudWatch namespaces to index as tables (e.g. 'AWS/EC2,AWS/RDS'). Leave blank to skip metrics and index log groups only.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    discovery_window_hours: int = Field(
+        24,
+        ge=1,
+        le=720,
+        title="Discovery Window (hours)",
+        description="How far back to sample log events when inferring a log group's columns. Larger windows find more fields but cost more to scan.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    max_sampled_log_groups: int = Field(
+        25,
+        ge=0,
+        le=500,
+        title="Max Sampled Log Groups",
+        description="Cap on how many log groups (ranked by stored bytes) get their fields sampled during indexing. The rest are still listed, with the built-in @-fields only. Keeps reindexing cheap — Logs Insights bills on bytes scanned.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Vertica
 class VerticaCredentials(BaseModel):
     user: str = Field(..., title="User", description="", json_schema_extra={"ui:type": "string"})
@@ -1630,6 +1689,18 @@ class PrometheusConfig(BaseModel):
         description="Optional prefix to bound metric discovery on large instances (e.g. 'node_' or 'http_'). Leave blank to index all metrics.",
         json_schema_extra={"ui:type": "string"},
     )
+    discovery_lookback_hours: Optional[float] = Field(
+        None,
+        title="Discovery Lookback (hours)",
+        description="How far back schema discovery looks for a metric's labels. Defaults to 1 hour, which keeps indexing cheap on high-churn instances. Raise it only if a metric is scraped less often than that and its labels are being missed.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    timeout: Optional[int] = Field(
+        None,
+        title="Request Timeout (seconds)",
+        description="Per-request timeout for the Prometheus HTTP API. Defaults to 30. Raise it for a slow or heavily loaded instance.",
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # Jaeger (distributed tracing via the Query JSON HTTP API)
@@ -2050,6 +2121,30 @@ class SharePointConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "number"},
     )
+
+
+# SharePoint Server uses Windows auth and its own REST API, not Graph.
+class SharePointOnpremConfig(SharePointConfig):
+    site_url: str = Field(..., title="Site URL", description="SharePoint Server site URL, including /sites/name. Not the Central Administration URL.", json_schema_extra={"ui:type": "string"})
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)", description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.", json_schema_extra={"ui:type": "boolean"})
+    max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)", description="Reject oversized downloads before parsing; files are never silently truncated.", json_schema_extra={"ui:type": "number"})
+    max_catalog_objects: int = Field(5000, ge=1, le=50000, title="Max Files", json_schema_extra={"ui:type": "number"})
+
+
+class SharePointOnpremNtlmCredentials(BaseModel):
+    username: str = Field(..., min_length=1, title="Domain username", description="DOMAIN\\username or user@domain. Use a read-only account scoped to the intended libraries.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class SharePointOnpremKerberosCredentials(BaseModel):
+    kerberos: bool = Field(True, json_schema_extra={"ui:hidden": True})
+    principal: Optional[str] = Field(None, title="Service principal", description="Optional service-account UPN. Administrators must mount krb5.conf and the client keytab (KRB5_CLIENT_KTNAME), or provide a ticket cache. This authenticates as the service account, not as the signed-in BOW user.", json_schema_extra={"ui:type": "string"})
+
+    @model_validator(mode="after")
+    def require_kerberos(self):
+        if not self.kerberos:
+            raise ValueError("Kerberos must be enabled for this authentication variant.")
+        return self
 
 
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
@@ -3450,6 +3545,9 @@ __all__ = [
     # SharePoint / OneDrive / Google Drive (file connectors)
     "SharePointCredentials",
     "SharePointConfig",
+    "SharePointOnpremConfig",
+    "SharePointOnpremNtlmCredentials",
+    "SharePointOnpremKerberosCredentials",
     "OneDriveCredentials",
     "OneDriveConfig",
     "GoogleDriveCredentials",

@@ -392,6 +392,60 @@ class TestScimUserCrud:
         assert get_resp.status_code == 200
         assert get_resp.json()["active"] is False
 
+    def test_reprovisioning_restores_a_user_removed_from_the_members_list(
+        self, scim_setup, test_client
+    ):
+        """SCIM POST for an existing user honors `active`, so it can restore them.
+
+        Removing someone from the members list deactivates the account when it
+        was their last membership (app/core/user_lifecycle). The IdP is then the
+        way back in: re-provisioning must both re-add the membership and hand
+        back a usable account, not a membership the user still cannot log in
+        with.
+        """
+        email = "reprovision.user@example.com"
+        body = {
+            "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+            "userName": email,
+            "displayName": "Reprovision User",
+            "active": True,
+        }
+        headers = _scim_headers(scim_setup["scim_token"])
+
+        created = test_client.post("/scim/v2/Users", json=body, headers=headers)
+        assert created.status_code == 201, created.json()
+        scim_user_id = created.json()["id"]
+
+        # Remove them through the members list (not SCIM DELETE, which keeps the
+        # membership) so the account ends up deactivated with no membership.
+        admin_hdr = {
+            "Authorization": f"Bearer {scim_setup['user_token']}",
+            "X-Organization-Id": scim_setup["org_id"],
+        }
+        members = test_client.get(
+            f"/api/organizations/{scim_setup['org_id']}/members", headers=admin_hdr
+        )
+        assert members.status_code == 200, members.json()
+        membership_id = next(
+            m["id"] for m in members.json()
+            if (m.get("user") or {}).get("email") == email or m.get("email") == email
+        )
+        assert test_client.delete(
+            f"/api/organizations/{scim_setup['org_id']}/members/{membership_id}",
+            headers=admin_hdr,
+        ).status_code == 204
+
+        # The IdP re-provisions them.
+        reprovisioned = test_client.post("/scim/v2/Users", json=body, headers=headers)
+        assert reprovisioned.status_code == 201, reprovisioned.json()
+        assert reprovisioned.json()["id"] == scim_user_id, (
+            "Re-provisioning should reattach the original user record"
+        )
+        assert reprovisioned.json()["active"] is True, (
+            "A re-provisioned member must get a usable account back, not just a "
+            "membership on a deactivated one"
+        )
+
     def test_create_duplicate_user_conflict(self, scim_setup, test_client):
         """Test creating a user that already exists in the org returns 409."""
         user_data = {
