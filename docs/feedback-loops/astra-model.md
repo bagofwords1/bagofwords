@@ -1,7 +1,9 @@
 # Feedback Loop — Enable GPT-6 Astra
 
-Add Astra as the OpenAI default model and verify all three inference surfaces
-with the existing SDK. GPT-5.6 Luna remains the small-default model.
+Add Astra to the OpenAI catalog as a selectable model and verify all three
+inference surfaces with the existing SDK. GPT-5.6 Terra remains the default and
+GPT-5.6 Luna the small-default model: Astra is ~4x Terra's input price and 3.3x
+its output price, so it is offered rather than switched on for everyone.
 
 ## Root cause (validated)
 
@@ -70,7 +72,8 @@ answer contains that code. Live gateway behavior was not tested.
 ## The fix
 
 - Catalog: `gpt-6-astra`, text/image input, 1,050,000 context, 128,000 max output,
-  Standard base prices $10 input / $50 output per million tokens.
+  Standard base prices $10 input / $50 output per million tokens. Enabled and
+  selectable, but not the default — `gpt-5.6-terra` keeps `is_default`.
 - GPT-6 requests omit temperature on all three inference paths; Responses honors
   the existing low/medium/high thinking mapping.
 - OpenAI providers using GPT-6 select Responses even with a base URL override.
