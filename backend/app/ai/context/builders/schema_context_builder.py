@@ -805,10 +805,12 @@ class SchemaContextBuilder:
 
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {
+        "sharepoint_onprem",
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
         "outlook_mail", "gmail_mail", "onenote",
     }
     _NATIVE_SEARCH_TYPES = {
+        "sharepoint_onprem",
         "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
         # OneNote search is local (over the walked hierarchy), not a provider
         # call, but it is still a first-class search the agent should prefer
@@ -854,13 +856,15 @@ class SchemaContextBuilder:
             index_mode = cfg.get("index_mode") or ("content" if cfg.get("index_content", True) else "metadata")
             base = (f"s3://{cfg.get('bucket')}/{cfg.get('prefix') or ''}"
                     if cfg.get("bucket") else cfg.get("root_path"))
+            if c.type == "sharepoint_onprem":
+                base = " / ".join(str(cfg[k]) for k in ("site_url", "drive_name", "folder_path") if cfg.get(k))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
             topics, seen = [], set()
             for t in ftabs:
                 mj = getattr(t, 'metadata_json', None) or {}
-                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph")
+                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph") or mj.get("sharepoint_onprem")
                        or mj.get("google_drive") or {}) if isinstance(mj, dict) else {}
                 for kw in (sub.get("keywords") or []):
                     k = str(kw).lower()

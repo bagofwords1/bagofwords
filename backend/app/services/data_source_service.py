@@ -1297,6 +1297,24 @@ class DataSourceService:
         return schema
 
 
+    async def get_domain_file_connections(self, db, data_source_id, organization):
+        """Scope-only projection for authorized agent viewers.
+
+        Do not expose arbitrary connector config: some connector types carry
+        sensitive settings outside the encrypted credentials column.
+        """
+        from app.schemas.data_source_registry import get_entry
+        allowed = {"site_url", "drive_name", "folder_path", "root_path", "bucket",
+                   "prefix", "include_globs", "index_mode", "index_content", "recursive"}
+        result = []
+        for conn in await self.get_domain_connections(db, data_source_id, organization):
+            if get_entry(conn.type).data_shape != "files":
+                continue
+            config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+            result.append({"id": str(conn.id), "name": conn.name, "type": conn.type,
+                           "config": {key: value for key, value in config.items() if key in allowed}})
+        return result
+
     async def get_available_data_sources(self, db: AsyncSession, organization: Organization):
         return list_available_data_sources()
 
@@ -3237,7 +3255,7 @@ class DataSourceService:
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
-            "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
+            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "onedrive", "google_drive",
             "outlook_mail", "gmail_mail",
         ]
         _file_ct_subq = None

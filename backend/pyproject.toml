@@ -119,10 +119,11 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# Kerberos constrained delegation (S4U) for per-user SSO to on-prem SQL Server.
+# Kerberos constrained delegation (SQL Server SSO) and SharePoint HTTP auth.
 # Needs MIT krb5 headers to build (libkrb5-dev + krb5-config on Debian/Ubuntu).
 kerberos = [
     "gssapi>=1.8.3,<2",
+    "requests-gssapi>=1.4,<2",
 ]
 dev = [
     "pytest>=8.4.2,<8.5",

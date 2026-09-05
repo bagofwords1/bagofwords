@@ -9,6 +9,9 @@ from pydantic import BaseModel
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    SharePointOnpremConfig,
+    SharePointOnpremNtlmCredentials,
+    SharePointOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
     SapHanaConfig,
@@ -1350,6 +1353,22 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
+        requires_license="enterprise",
+    ),
+    "sharepoint_onprem": DataSourceRegistryEntry(
+        type="sharepoint_onprem",
+        category="files",
+        title="SharePoint Server (on-prem)",
+        description="Read and search SharePoint Server document libraries using NTLM or Kerberos. No Microsoft Graph or Entra app required.",
+        config_schema=SharePointOnpremConfig,
+        credentials_auth=AuthOptions(default="ntlm", by_auth={
+            "ntlm": AuthVariant(title="Windows credentials (NTLM)", schema=SharePointOnpremNtlmCredentials, scopes=["system", "user"]),
+            "kerberos": AuthVariant(title="Kerberos service account (mounted keytab / ticket cache)", schema=SharePointOnpremKerberosCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.sharepoint_onprem_client.SharepointOnpremClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
         requires_license="enterprise",
     ),
     "sharepoint": DataSourceRegistryEntry(

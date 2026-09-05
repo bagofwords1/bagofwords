@@ -503,6 +503,18 @@ async def remove_data_source_member(
 
 # ==================== Domain-Connection Routes ====================
 
+@router.get("/data_sources/{data_source_id}/file-connections")
+@requires_resource_permission('data_source', 'view')
+async def get_domain_file_connections(
+    data_source_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Member-safe file scope metadata; not the admin connection configuration."""
+    return await data_source_service.get_domain_file_connections(db, data_source_id, organization)
+
+
 @router.get("/data_sources/{data_source_id}/connections")
 @requires_resource_permission('data_source', 'manage')
 async def get_domain_connections(

@@ -1311,7 +1311,7 @@ const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
@@ -3431,7 +3431,7 @@ const loadAgentMeta = async (id: string) => {
   try { const { data } = await useMyFetch<any[]>(`/data_sources/${id}/files`, { method: 'GET' }); agentFiles.value[id] = data.value || [] } catch { agentFiles.value[id] = [] }
   // File-source connections + their glob rules (shown in the Files tree).
   try {
-    const { data } = await useMyFetch<any[]>(`/data_sources/${id}/connections`, { method: 'GET' })
+    const { data } = await useMyFetch<any[]>(`/data_sources/${id}/file-connections`, { method: 'GET' })
     agentFileConns.value[id] = (data.value || [])
       .filter((c: any) => FILE_CONN_TYPES.has(c.type))
       .map((c: any) => ({
