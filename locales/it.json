@@ -2203,6 +2203,7 @@
       "verified": "Verificato",
       "unverified": "Non verificato",
       "confirmRemove": "Sei sicuro di voler rimuovere {name} da questa organizzazione?",
+      "confirmRemoveAndDeactivate": "Vuoi davvero rimuovere {name} da questa organizzazione? Non potrà più accedere. I suoi report e la cronologia vengono conservati e invitandola di nuovo si ripristina l'accesso.",
       "failedToRemove": "Impossibile rimuovere il membro",
       "successRemoved": "{name} rimosso correttamente",
       "failedToInvite": "Impossibile invitare il membro",

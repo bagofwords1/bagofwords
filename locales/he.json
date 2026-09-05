@@ -2292,6 +2292,7 @@
       "verified": "אומת",
       "unverified": "לא אומת",
       "confirmRemove": "האם אתה בטוח שברצונך להסיר את {name} מהארגון?",
+      "confirmRemoveAndDeactivate": "האם אתה בטוח שברצונך להסיר את {name} מהארגון הזה? הוא לא יוכל עוד להתחבר. הדוחות וההיסטוריה שלו נשמרים, והזמנה מחדש תשחזר את הגישה.",
       "failedToRemove": "הסרת המשתמש נכשלה",
       "successRemoved": "{name} הוסר בהצלחה",
       "failedToInvite": "הזמנת המשתמש נכשלה",

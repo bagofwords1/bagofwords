@@ -2203,6 +2203,7 @@
       "verified": "Verifierad",
       "unverified": "Ej verifierad",
       "confirmRemove": "Är du säker på att du vill ta bort {name} från den här organisationen?",
+      "confirmRemoveAndDeactivate": "Är du säker på att du vill ta bort {name} från den här organisationen? Personen kommer inte längre att kunna logga in. Rapporter och historik sparas, och en ny inbjudan återställer åtkomsten.",
       "failedToRemove": "Det gick inte att ta bort medlemmen",
       "successRemoved": "{name} togs bort",
       "failedToInvite": "Det gick inte att bjuda in medlemmen",

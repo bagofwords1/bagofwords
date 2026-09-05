@@ -2292,6 +2292,7 @@
       "verified": "Verificado",
       "unverified": "No verificado",
       "confirmRemove": "¿Seguro que quieres quitar a {name} de esta organización?",
+      "confirmRemoveAndDeactivate": "¿Seguro que quieres eliminar a {name} de esta organización? Ya no podrá iniciar sesión. Sus informes e historial se conservan, y volver a invitarle restaura el acceso.",
       "failedToRemove": "No se pudo eliminar al miembro",
       "successRemoved": "Se eliminó correctamente a {name}",
       "failedToInvite": "No se pudo invitar al miembro",

@@ -2355,6 +2355,7 @@
       "verified": "Verified",
       "unverified": "Unverified",
       "confirmRemove": "Are you sure you want to remove {name} from this organization?",
+      "confirmRemoveAndDeactivate": "Are you sure you want to remove {name} from this organization? They will no longer be able to sign in. Their reports and history are kept, and re-inviting them restores access.",
       "failedToRemove": "Failed to remove member",
       "successRemoved": "Successfully removed {name}",
       "failedToInvite": "Failed to invite member",

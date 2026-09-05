@@ -31,6 +31,10 @@ from fastapi import Request
 from typing import Optional
 from app.settings.logging_config import get_logger
 from app.core.telemetry import telemetry, derive_org_domain
+from app.core.user_lifecycle import (
+    deactivate_user_if_orphaned,
+    reactivate_user_for_membership,
+)
 
 logger = get_logger(__name__)
 
@@ -342,6 +346,10 @@ class OrganizationService:
         if user:
             membership_data.user_id = user.id
             membership_data.email = None
+            # Re-inviting someone who was deactivated when their last membership
+            # was removed restores their login — that reversibility is the whole
+            # reason removal deactivates instead of deleting.
+            await reactivate_user_for_membership(db, str(user.id))
 
         membership = Membership(**membership_data.dict())
         # Pending (unregistered) invite → stamp a 14-day expiry on the invite
@@ -491,6 +499,9 @@ class OrganizationService:
         membership = await self.get_member(db, membership_id, organization_id, current_user)
         if not membership:
             raise HTTPException(status_code=404, detail="Membership not found")
+        # Read off the row before it is deleted below, so nothing downstream has
+        # to touch a deleted instance.
+        removed_user_id = str(membership.user_id) if membership.user_id else None
         if membership.user_id:
             # RBAC lockout prevention: ensure at least one user keeps full_admin_access
             await assert_full_admin_exists(db, organization_id, exclude_user_id=membership.user_id)
@@ -529,6 +540,16 @@ class OrganizationService:
             )
 
         await db.execute(delete(Membership).where(Membership.id == membership_id))
+
+        # Make the removal real without destroying what they built: a user left
+        # with no membership at all keeps a working login (JWTs, OAuth tokens
+        # and API keys all outlive the membership row), which reads to an admin
+        # like the removal didn't take. Deactivating closes every one of those
+        # paths while their reports, queries and audit trail stay intact, and
+        # re-inviting them undoes it. See app/core/user_lifecycle.
+        if removed_user_id:
+            await deactivate_user_if_orphaned(db, removed_user_id)
+
         await db.commit()
 
     async def _revoke_departed_member_access(

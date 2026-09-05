@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.555 (September 5, 2026)
+- Removing a member now deactivates their account when it was their last organization, so they can no longer sign in — their reports, queries and history are kept, and re-inviting them restores access. Applies to single-organization installs (`allow_multiple_organizations` off)
+- A removed member's personal API keys stop working immediately
+
 ## Version 0.0.554 (September 3, 2026)
 - Added a side panel view for query results with a full-width preview (#1054)
 - Added scikit-learn support with ML training constraints (#1055)

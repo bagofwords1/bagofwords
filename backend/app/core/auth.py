@@ -223,6 +223,10 @@ class UserManager(BaseUserManager[User, str]):
         
         if open_memberships:
             user.is_verified = True
+            # An invite is also the way back in for someone who was deactivated
+            # when their last membership was removed (app/core/user_lifecycle).
+            from app.core.user_lifecycle import reactivate_user_for_membership
+            await reactivate_user_for_membership(session, str(user.id))
 
         # Update each open membership with the new user
         from app.models.role import Role
@@ -883,6 +887,8 @@ async def auto_provision_user_for_org(
                 organization_id=organization_id,
                 role=role,
             ))
+        from app.core.user_lifecycle import reactivate_user_for_membership
+        await reactivate_user_for_membership(db, str(existing_user.id))
         await db.commit()
         return existing_user
 

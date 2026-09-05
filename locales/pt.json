@@ -2203,6 +2203,7 @@
       "verified": "Verificado",
       "unverified": "Não verificado",
       "confirmRemove": "Tem certeza de que deseja remover {name} desta organização?",
+      "confirmRemoveAndDeactivate": "Tem certeza de que deseja remover {name} desta organização? A pessoa não poderá mais entrar. Seus relatórios e histórico são mantidos, e convidá-la novamente restaura o acesso.",
       "failedToRemove": "Falha ao remover membro",
       "successRemoved": "{name} removido com sucesso",
       "failedToInvite": "Falha ao convidar membro",

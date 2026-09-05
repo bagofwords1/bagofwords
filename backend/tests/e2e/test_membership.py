@@ -186,13 +186,23 @@ def test_user_loses_access_after_membership_removal(
     )
     assert response.status_code == 204
     
-    # Verify second user CANNOT access org resources anymore (should get 403)
+    # Verify second user CANNOT access org resources anymore. In a single-org
+    # install losing your last membership deactivates the account, so the
+    # rejection happens at authentication (401) rather than at the org check —
+    # the outstanding token stops working rather than merely losing its org.
     response = test_client.get(
         f"/api/organizations/{org_id}/members",
         headers={"Authorization": f"Bearer {second_token}", "X-Organization-Id": org_id}
     )
-    assert response.status_code == 403, "User should be denied access after membership removal"
-    assert "not a member" in response.json().get("detail", "").lower()
+    assert response.status_code == 401, "Removed user's token should no longer authenticate"
+
+    # ...and they cannot mint a fresh token either, so the removal is not
+    # something a re-login walks around.
+    relogin = test_client.post(
+        "/api/auth/jwt/login",
+        data={"username": second_email, "password": "test123"},
+    )
+    assert relogin.status_code != 200, "Removed user should not be able to log back in"
 
 
 @pytest.mark.e2e
@@ -229,12 +239,12 @@ def test_membership_re_add_after_removal(
     )
     assert response.status_code == 204
     
-    # Confirm no access
+    # Confirm no access (removal deactivated the account, so it fails at auth)
     response = test_client.get(
         f"/api/organizations/{org_id}/members",
         headers={"Authorization": f"Bearer {second_token}", "X-Organization-Id": org_id}
     )
-    assert response.status_code == 403
+    assert response.status_code == 401
     
     # Re-add by email (user already exists, so it will link to existing user)
     response = test_client.post(
@@ -244,12 +254,169 @@ def test_membership_re_add_after_removal(
     )
     assert response.status_code == 200
     
-    # Confirm access restored
+    # Confirm access restored: the invite reactivates the account, so they can
+    # sign in again with the credentials they always had.
+    second_token = login_user(second_email, "test123")
     response = test_client.get(
         f"/api/organizations/{org_id}/members",
         headers={"Authorization": f"Bearer {second_token}", "X-Organization-Id": org_id}
     )
     assert response.status_code == 200, "User should have access after re-adding membership"
+
+
+def _invite_and_register(test_client, admin_token, org_id, create_user, email):
+    """Invite `email` into `org_id` and register that user. Returns membership_id."""
+    invite = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": email, "role": "member"},
+        headers={"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id},
+    )
+    assert invite.status_code == 200, invite.json()
+    create_user(email=email, password="test123")
+    return invite.json()["id"]
+
+
+@pytest.mark.e2e
+def test_removal_deactivates_the_account_without_deleting_the_user(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Removing a member closes their login but keeps their user record.
+
+    The account is deactivated, not deleted: the users row is referenced by
+    every report, query, file and audit entry they authored (reports.user_id is
+    a non-nullable FK), so deleting it would take the organization's content and
+    history with it. The observable promise is that the identity survives — a
+    later re-invite lands on the *same* user, not a fresh one.
+    """
+    admin_user = create_user()
+    admin_token = login_user(admin_user["email"], admin_user["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    hdr = {"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id}
+
+    member_email = f"member_{uuid.uuid4().hex[:8]}@test.com"
+    membership_id = _invite_and_register(
+        test_client, admin_token, org_id, create_user, member_email
+    )
+    member_token = login_user(member_email, "test123")
+    original_user_id = whoami(member_token)["id"]
+
+    assert test_client.delete(
+        f"/api/organizations/{org_id}/members/{membership_id}", headers=hdr
+    ).status_code == 204
+
+    # Removal closes the login...
+    assert test_client.post(
+        "/api/auth/jwt/login",
+        data={"username": member_email, "password": "test123"},
+    ).status_code != 200
+
+    # ...but the record behind it is still there. Re-invite: the email still
+    # resolves to the existing user, so the invite is attached directly rather
+    # than left pending for a new registration.
+    readd = test_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"organization_id": org_id, "email": member_email, "role": "member"},
+        headers=hdr,
+    )
+    assert readd.status_code == 200, readd.json()
+    assert readd.json()["user_id"] == original_user_id, (
+        "Re-invite must reattach the original user record, proving removal "
+        "deactivated the account rather than deleting it"
+    )
+
+    # And the same credentials work again — deactivation is reversible.
+    assert whoami(login_user(member_email, "test123"))["id"] == original_user_id
+
+
+@pytest.mark.e2e
+def test_removal_keeps_account_active_when_multiple_orgs_allowed(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+):
+    """With multiple organizations enabled, holding no membership is normal.
+
+    Deactivation-on-removal is scoped to the single-org deployment shape, where
+    "not in this org" and "has no account here" mean the same thing. When a user
+    can belong to several organizations, being between them (or holding an
+    unaccepted invite elsewhere) is an ordinary state, so the account keeps
+    working and only the org access is lost.
+    """
+    from app.settings.config import settings as bow_settings
+
+    flags = bow_settings.bow_config.features
+    saved = flags.allow_multiple_organizations
+    flags.allow_multiple_organizations = True
+    try:
+        admin_user = create_user()
+        admin_token = login_user(admin_user["email"], admin_user["password"])
+        org_id = whoami(admin_token)["organizations"][0]["id"]
+        hdr = {"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id}
+
+        member_email = f"member_{uuid.uuid4().hex[:8]}@test.com"
+        membership_id = _invite_and_register(
+            test_client, admin_token, org_id, create_user, member_email
+        )
+        member_token = login_user(member_email, "test123")
+
+        assert test_client.delete(
+            f"/api/organizations/{org_id}/members/{membership_id}", headers=hdr
+        ).status_code == 204
+
+        # Still authenticated (the account is untouched), just not in the org.
+        denied = test_client.get(
+            f"/api/organizations/{org_id}/members",
+            headers={"Authorization": f"Bearer {member_token}", "X-Organization-Id": org_id},
+        )
+        assert denied.status_code == 403, "Org access is lost, but the account is not"
+
+        # The account itself still works, and now belongs to no organization.
+        assert whoami(login_user(member_email, "test123"))["organizations"] == []
+    finally:
+        flags.allow_multiple_organizations = saved
+
+
+@pytest.mark.e2e
+def test_removal_revokes_the_members_api_keys(
+    test_client,
+    create_user,
+    login_user,
+    whoami,
+    create_api_key,
+    api_key_request,
+):
+    """A removed member's personal API key stops working.
+
+    An API key outlives the membership row, so revoking access has to reach it
+    too — otherwise a departed member keeps a working credential that no admin
+    action visibly took away.
+    """
+    admin_user = create_user()
+    admin_token = login_user(admin_user["email"], admin_user["password"])
+    org_id = whoami(admin_token)["organizations"][0]["id"]
+    hdr = {"Authorization": f"Bearer {admin_token}", "X-Organization-Id": org_id}
+
+    member_email = f"member_{uuid.uuid4().hex[:8]}@test.com"
+    membership_id = _invite_and_register(
+        test_client, admin_token, org_id, create_user, member_email
+    )
+    member_token = login_user(member_email, "test123")
+    api_key = create_api_key(member_token, org_id)["key"]
+
+    # The key works while they are a member.
+    assert api_key_request("GET", "/api/users/whoami", api_key, org_id).status_code == 200
+
+    assert test_client.delete(
+        f"/api/organizations/{org_id}/members/{membership_id}", headers=hdr
+    ).status_code == 204
+
+    assert api_key_request("GET", "/api/users/whoami", api_key, org_id).status_code == 401, (
+        "A removed member's API key must stop authenticating"
+    )
 
 
 @pytest.mark.e2e
