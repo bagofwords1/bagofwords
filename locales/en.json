@@ -4830,7 +4830,6 @@
     "status": "Status"
   },
   "skillCatalog": {
-    "title": "Pre-built skills",
     "subtitle": "Curated playbooks the agent loads on demand. Enable the ones your team needs.",
     "searchPlaceholder": "Search skills…",
     "loading": "Loading skills…",

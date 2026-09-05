@@ -4802,7 +4802,6 @@
     "closeFilePanel": "Datei schließen"
   },
   "skillCatalog": {
-    "title": "Vorgefertigte Skills",
     "subtitle": "Kuratierte Leitfäden, die der Agent bei Bedarf lädt. Aktivieren Sie die, die Ihr Team braucht.",
     "searchPlaceholder": "Skills suchen…",
     "loading": "Skills werden geladen…",

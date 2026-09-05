@@ -4802,7 +4802,6 @@
     "closeFilePanel": "Chiudi file"
   },
   "skillCatalog": {
-    "title": "Competenze predefinite",
     "subtitle": "Guide curate che l’agente carica quando servono. Attiva quelle utili al tuo team.",
     "searchPlaceholder": "Cerca competenze…",
     "loading": "Caricamento competenze…",

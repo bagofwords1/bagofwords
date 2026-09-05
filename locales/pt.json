@@ -4802,7 +4802,6 @@
     "closeFilePanel": "Fechar ficheiro"
   },
   "skillCatalog": {
-    "title": "Habilidades predefinidas",
     "subtitle": "Guias curados que o agente carrega quando precisa. Ative os que a sua equipa precisa.",
     "searchPlaceholder": "Pesquisar habilidades…",
     "loading": "A carregar habilidades…",

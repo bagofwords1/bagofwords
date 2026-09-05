@@ -4824,7 +4824,6 @@
     "status": "Estado"
   },
   "skillCatalog": {
-    "title": "Habilidades predefinidas",
     "subtitle": "Guías curadas que el agente carga cuando las necesita. Activa las que tu equipo necesite.",
     "searchPlaceholder": "Buscar habilidades…",
     "loading": "Cargando habilidades…",
