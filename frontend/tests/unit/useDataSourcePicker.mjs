@@ -62,6 +62,28 @@ assert.deepEqual(types('excel'), ['csv'], 'csv is reachable by the format people
 assert.deepEqual(types('sql server'), ['MSSQL'])
 assert.deepEqual(types('sql zabbix'), [], 'tokens must all hit the same entry')
 
+// --- ranking -----------------------------------------------------------------
+
+// A description that happens to contain every token must not outrank the
+// connector actually named that: "sql server" typed into onboarding means
+// Microsoft SQL Server, not the warehouse whose blurb mentions a SQL server.
+const RANKING = [
+  { type: 'aws_athena', title: 'AWS Athena', category: 'databases', description: 'Serverless SQL over S3' },
+  { type: 'MSSQL', title: 'Microsoft SQL Server', category: 'databases', description: '' },
+  { type: 'databricks_sql', title: 'Databricks SQL', category: 'databases', description: 'SQL warehouse server' },
+]
+assert.equal(
+  filterDataSources(RANKING, 'sql server')[0].type,
+  'MSSQL',
+  'a title match must rank above a description match',
+)
+
+// An exact title beats a title that merely contains the words.
+assert.equal(filterDataSources(RANKING, 'databricks')[0].type, 'databricks_sql')
+
+// Ranking never drops matches — it only reorders them.
+assert.equal(filterDataSources(RANKING, 'sql').length, 3)
+
 // Category is searchable, so "bi" or "files" surfaces a whole family.
 assert.deepEqual(types('files'), ['csv', 'google_drive'])
 

@@ -65,6 +65,32 @@ function haystack(ds: any): string {
     .toLowerCase()
 }
 
+/**
+ * How well `ds` answers `query`. Higher is better; the ordering matters more
+ * than the numbers. A name match outranks a description match, so "sql server"
+ * puts Microsoft SQL Server first instead of burying it among the connectors
+ * whose blurbs merely mention SQL and a server.
+ */
+function relevance(ds: any, phrase: string, tokens: string[]): number {
+  const title = String(ds?.title || '').toLowerCase()
+  const type = String(ds?.type || '').toLowerCase()
+  const aliases = (SEARCH_ALIASES[ds?.type] || []).join(' ')
+  const rest = [ds?.description, ds?.category].filter(Boolean).join(' ').toLowerCase()
+
+  let score = 0
+  if (title.startsWith(phrase)) score += 100
+  else if (title.includes(phrase)) score += 60
+  if (type.includes(phrase)) score += 50
+  if (aliases.includes(phrase)) score += 40
+
+  for (const token of tokens) {
+    if (title.includes(token)) score += 10
+    else if (type.includes(token) || aliases.includes(token)) score += 5
+    else if (rest.includes(token)) score += 1
+  }
+  return score
+}
+
 /** The popular connectors present in `sources`, in the curated order above. */
 export function popularDataSources(sources: any[]): any[] {
   const byType = new Map((sources || []).map((ds: any) => [ds.type, ds]))
@@ -72,17 +98,23 @@ export function popularDataSources(sources: any[]): any[] {
 }
 
 /**
- * Connectors matching `query`, which is matched token-by-token (all tokens must
- * hit) against title, type, description, category and the aliases above. An
- * empty query matches everything.
+ * Connectors matching `query`, best match first. Every token has to hit
+ * somewhere in the title, type, description, category or the aliases above;
+ * the surviving entries are then ordered by `relevance`. An empty query
+ * matches everything, in catalogue order.
  */
 export function filterDataSources(sources: any[], query: string): any[] {
-  const tokens = (query || '').trim().toLowerCase().split(/\s+/).filter(Boolean)
+  const phrase = (query || '').trim().toLowerCase().replace(/\s+/g, ' ')
+  const tokens = phrase.split(' ').filter(Boolean)
   if (!tokens.length) return sources || []
-  return (sources || []).filter((ds: any) => {
-    const text = haystack(ds)
-    return tokens.every((token) => text.includes(token))
-  })
+  return (sources || [])
+    .filter((ds: any) => {
+      const text = haystack(ds)
+      return tokens.every((token) => text.includes(token))
+    })
+    .map((ds: any) => ({ ds, score: relevance(ds, phrase, tokens) }))
+    .sort((a, b) => b.score - a.score)
+    .map(({ ds }) => ds)
 }
 
 /**
