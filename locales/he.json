@@ -3168,6 +3168,7 @@
     "validation": "בדקו את הטופס ונסו שוב.",
     "artifact.not_found": "הפריט לא נמצא",
     "access.denied": "הגישה נדחתה",
+    "account.disabled": "החשבון שלך הושבת. פנה למנהל המערכת.",
     "connection.not_found": "החיבור לא נמצא",
     "data_source.not_found": "מקור הנתונים לא נמצא",
     "file.not_found": "הקובץ לא נמצא",

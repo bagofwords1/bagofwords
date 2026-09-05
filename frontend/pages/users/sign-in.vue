@@ -148,6 +148,7 @@
   const OAUTH_REDIRECT_STORAGE_NAME = 'bow:postSignInRedirect'
 
   // Helper to extract error message from server response
+  const { getErrorMessage } = useErrorMessage()
   function extractErrorMessage(error: any, fallback: string): string {
     const data = error?.data
     if (!data) return fallback
@@ -155,6 +156,12 @@
     // Handle FastAPI validation errors (detail array)
     if (Array.isArray(data.detail)) {
       return data.detail.map((d: any) => d.msg || d.message || JSON.stringify(d)).join('\n')
+    }
+    // A typed AppError carries `error_code`; resolve it against the locale
+    // catalog so reasons like a disabled account read in the user's language
+    // rather than in the server's English fallback.
+    if (data.error_code) {
+      return getErrorMessage(error, fallback)
     }
     // Handle simple detail string
     if (typeof data.detail === 'string') {

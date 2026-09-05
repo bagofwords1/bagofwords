@@ -3082,6 +3082,7 @@
     "validation": "يُرجى التحقق من النموذج والمحاولة مجددًا.",
     "artifact.not_found": "العنصر غير موجود",
     "access.denied": "تم رفض الوصول",
+    "account.disabled": "تم تعطيل حسابك. يرجى التواصل مع المسؤول.",
     "connection.not_found": "الاتصال غير موجود",
     "data_source.not_found": "مصدر البيانات غير موجود",
     "file.not_found": "الملف غير موجود",

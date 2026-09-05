@@ -197,12 +197,25 @@ def test_user_loses_access_after_membership_removal(
     assert response.status_code == 401, "Removed user's token should no longer authenticate"
 
     # ...and they cannot mint a fresh token either, so the removal is not
-    # something a re-login walks around.
+    # something a re-login walks around. The refusal names the real reason:
+    # their credentials are correct, so "wrong email or password" would send
+    # them off to reset a password that was never the problem.
     relogin = test_client.post(
         "/api/auth/jwt/login",
         data={"username": second_email, "password": "test123"},
     )
-    assert relogin.status_code != 200, "Removed user should not be able to log back in"
+    assert relogin.status_code == 403, relogin.json()
+    assert relogin.json().get("error_code") == "account.disabled"
+
+    # A wrong password on the same account still gets the generic rejection, so
+    # the disabled state is only ever disclosed to someone who already proved
+    # they hold the credentials.
+    bad = test_client.post(
+        "/api/auth/jwt/login",
+        data={"username": second_email, "password": "not-the-password"},
+    )
+    assert bad.status_code == 400
+    assert bad.json().get("error_code") != "account.disabled"
 
 
 @pytest.mark.e2e

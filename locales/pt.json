@@ -3082,6 +3082,7 @@
     "validation": "Verifique o formulário e tente novamente.",
     "artifact.not_found": "Artefato não encontrado",
     "access.denied": "Acesso negado",
+    "account.disabled": "Sua conta foi desativada. Entre em contato com seu administrador.",
     "connection.not_found": "Conexão não encontrada",
     "data_source.not_found": "Fonte de dados não encontrada",
     "file.not_found": "Arquivo não encontrado",

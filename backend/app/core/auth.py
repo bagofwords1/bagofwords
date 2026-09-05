@@ -33,6 +33,7 @@ from app.models.oauth_account import OAuthAccount
 from fastapi.responses import RedirectResponse
 
 from app.settings.config import settings
+from app.errors import AppError, ErrorCode
 from app.services.organization_service import OrganizationService
 from app.schemas.organization_schema import OrganizationCreate
 from app.core.telemetry import telemetry
@@ -67,6 +68,18 @@ class UserManager(BaseUserManager[User, str]):
         user = await self._do_authenticate(credentials)
         if user is None:
             return None
+        # Credentials are correct at this point, so naming the real reason
+        # leaks nothing an attacker could not already confirm — and the
+        # alternative ("wrong email or password") sends a removed member off
+        # to reset a password that was never the problem. fastapi-users' login
+        # route would otherwise fold this into LOGIN_BAD_CREDENTIALS, so the
+        # distinction has to be drawn here, before it returns.
+        if not user.is_active:
+            raise AppError(
+                ErrorCode.ACCOUNT_DISABLED,
+                "Your account has been disabled. Contact your administrator.",
+                status_code=403,
+            )
         if settings.bow_config.auth.mode == "sso_only" and not await self._user_can_use_local_login(user):
             return None
         return user

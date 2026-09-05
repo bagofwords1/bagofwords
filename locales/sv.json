@@ -3082,6 +3082,7 @@
     "validation": "Kontrollera formuläret och försök igen.",
     "artifact.not_found": "Artefakten hittades inte",
     "access.denied": "Åtkomst nekad",
+    "account.disabled": "Ditt konto har inaktiverats. Kontakta din administratör.",
     "connection.not_found": "Anslutningen hittades inte",
     "data_source.not_found": "Datakällan hittades inte",
     "file.not_found": "Filen hittades inte",

@@ -3082,6 +3082,7 @@
     "validation": "Bitte überprüfen Sie das Formular und versuchen Sie es erneut.",
     "artifact.not_found": "Artefakt nicht gefunden",
     "access.denied": "Zugriff verweigert",
+    "account.disabled": "Ihr Konto wurde deaktiviert. Wenden Sie sich an Ihren Administrator.",
     "connection.not_found": "Verbindung nicht gefunden",
     "data_source.not_found": "Datenquelle nicht gefunden",
     "file.not_found": "Datei nicht gefunden",

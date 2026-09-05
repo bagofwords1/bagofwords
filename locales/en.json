@@ -3238,6 +3238,7 @@
     "validation": "Please check the form and try again.",
     "artifact.not_found": "Artifact not found",
     "access.denied": "Access denied",
+    "account.disabled": "Your account has been disabled. Contact your administrator.",
     "connection.not_found": "Connection not found",
     "data_source.not_found": "Data source not found",
     "file.not_found": "File not found",

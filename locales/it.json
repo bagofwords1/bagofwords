@@ -3082,6 +3082,7 @@
     "validation": "Verifica il modulo e riprova.",
     "artifact.not_found": "Artefatto non trovato",
     "access.denied": "Accesso negato",
+    "account.disabled": "Il tuo account è stato disattivato. Contatta il tuo amministratore.",
     "connection.not_found": "Connessione non trovata",
     "data_source.not_found": "Origine dati non trovata",
     "file.not_found": "File non trovato",

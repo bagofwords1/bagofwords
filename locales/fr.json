@@ -3082,6 +3082,7 @@
     "validation": "Veuillez vérifier le formulaire et réessayer.",
     "artifact.not_found": "Artefact introuvable",
     "access.denied": "Accès refusé",
+    "account.disabled": "Votre compte a été désactivé. Contactez votre administrateur.",
     "connection.not_found": "Connexion introuvable",
     "data_source.not_found": "Source de données introuvable",
     "file.not_found": "Fichier introuvable",

@@ -3168,6 +3168,7 @@
     "validation": "Revisa el formulario e inténtalo de nuevo.",
     "artifact.not_found": "Artefacto no encontrado",
     "access.denied": "Acceso denegado",
+    "account.disabled": "Tu cuenta ha sido deshabilitada. Ponte en contacto con tu administrador.",
     "connection.not_found": "Conexión no encontrada",
     "data_source.not_found": "Fuente de datos no encontrada",
     "file.not_found": "Archivo no encontrado",
