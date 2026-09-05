@@ -19,13 +19,14 @@ async def seed_history(org_id, agent_id, other_agent_id, user_id):
     async with async_session_maker() as db:
         table = DataSourceTable(datasource_id=agent_id, name='shared_table')
         other = DataSourceTable(datasource_id=other_agent_id, name='shared_table')
-        neighbor = DataSourceTable(datasource_id=agent_id, name='shared_table')
-        db.add_all([table, other, neighbor]); await db.flush()
+        joined_one = DataSourceTable(datasource_id=agent_id, name='joined_one')
+        joined_two = DataSourceTable(datasource_id=agent_id, name='joined_two')
+        db.add_all([table, other, joined_one, joined_two]); await db.flush()
         report = Report(title='Prompt examples', slug=str(uuid4()), user_id=user_id, organization_id=org_id)
         db.add(report); await db.flush()
         widget = Widget(title='Examples', slug=str(uuid4()), report_id=report.id)
         db.add(widget); await db.flush()
-        for i, target in enumerate([table] * 7 + [other, neighbor, None]):
+        for i, target in enumerate([table] * 7 + [other, None]):
             user = Completion(report_id=report.id, role='user', prompt={'content':f'Example {i}'})
             db.add(user); await db.flush()
             answer = Completion(report_id=report.id, parent_id=user.id)
@@ -42,8 +43,23 @@ async def seed_history(org_id, agent_id, other_agent_id, user_id):
                     datasource_table_id=target.id if target else None,
                     step_id=step.id, table_fqn='shared_table', source_type='sql', success=i != 2,
                     used_at=datetime(2026, 1, 1) + timedelta(days=i)))
+        user = Completion(report_id=report.id, role='user', prompt={'content':'Joined table example'})
+        db.add(user); await db.flush()
+        answer = Completion(report_id=report.id, parent_id=user.id)
+        db.add(answer); await db.flush()
+        execution = AgentExecution(report_id=report.id, organization_id=org_id, completion_id=answer.id)
+        db.add(execution); await db.flush()
+        step = Step(widget_id=widget.id, slug=str(uuid4()), status='success')
+        db.add(step); await db.flush()
+        db.add(ToolExecution(agent_execution_id=execution.id, created_step_id=step.id,
+            tool_name='create_data', success=True, status='completed'))
+        for target in (joined_one, joined_two):
+            db.add(TableUsageEvent(org_id=org_id, report_id=report.id,
+                data_source_id=agent_id, datasource_table_id=target.id, step_id=step.id,
+                table_fqn=target.name, source_type='sql', success=True,
+                used_at=datetime(2026, 2, 1)))
         await db.commit()
-        return table.id, other.id
+        return table.id, other.id, joined_one.id, joined_two.id
 
 @pytest.mark.e2e
 def test_prompts_are_paginated_deduplicated_and_agent_admin_only(
@@ -54,7 +70,7 @@ def test_prompts_are_paginated_deduplicated_and_agent_admin_only(
     agents = [create_data_source(name=f'Prompts {i}', type='network_dir',
         config={'root_path':str(tmp_path)}, credentials={'auth_type':'none'},
         user_token=token, org_id=org_id) for i in range(2)]
-    table_id, other_id = asyncio.run(seed_history(org_id, agents[0]['id'], agents[1]['id'], admin['user_id']))
+    table_id, other_id, joined_one_id, joined_two_id = asyncio.run(seed_history(org_id, agents[0]['id'], agents[1]['id'], admin['user_id']))
     headers = {'Authorization':f'Bearer {token}', 'X-Organization-Id':org_id}
     url = f"/api/data_sources/{agents[0]['id']}/tables/{table_id}/recent-prompts"
     response = test_client.get(url, headers=headers)
@@ -67,6 +83,12 @@ def test_prompts_are_paginated_deduplicated_and_agent_admin_only(
     assert [r['prompt'] for r in rows] == [f'Example {i}' for i in range(6, -1, -1)]
     assert len({r['execution_id'] for r in rows}) == 7
     assert sum(not r['success'] for r in rows) == 1
+    # One create_data execution can use multiple tables. Its prompt belongs in
+    # each table's history, while remaining scoped to this agent.
+    for joined_table_id in (joined_one_id, joined_two_id):
+        joined = test_client.get(url.replace(table_id, joined_table_id), headers=headers)
+        assert joined.status_code == 200, joined.text
+        assert [row['prompt'] for row in joined.json()['items']] == ['Joined table example']
     assert test_client.get(url.replace(table_id, other_id), headers=headers).status_code == 404
     assert test_client.get(url, params={'limit':21}, headers=headers).status_code == 422
     member = invite_user_to_org(org_id=org_id, admin_token=token)

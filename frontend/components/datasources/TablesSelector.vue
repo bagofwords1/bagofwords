@@ -18,7 +18,6 @@
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <button v-if="fullscreen" type="button" @click="toggleFullscreen" :aria-label="t('tableErd.exitFullscreen')" class="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"><UIcon name="i-heroicons-arrows-pointing-in" class="w-3.5 h-3.5" />{{ t('tableErd.exitFullscreen') }}</button>
         <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
         <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
           class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">
@@ -350,10 +349,6 @@
                   @update:model-value="(val: boolean) => onTableToggle(tableKey(table), val)"
                   class="me-3"
                 />
-                <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
-                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="me-2 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
-                  <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
-                </button>
                 <button type="button" class="flex items-center justify-between text-start flex-1" @click="toggleTableExpand(table)">
                   <div class="flex items-center min-w-0">
                     <UIcon :name="expandedTables[table.name] ? 'heroicons-chevron-down' : 'heroicons-chevron-right'" class="w-4 h-4 me-1 text-gray-500 dark:text-gray-400 rtl-flip" />
@@ -408,6 +403,10 @@
                       </span>
                     </UTooltip>
                   </span>
+                </button>
+                <button v-if="table.custom_query_id && editableQueryIds.has(table.custom_query_id)" type="button" @click="editQueryTable(table.custom_query_id)"
+                  :aria-label="t('tableErd.editQuery', { name: table.name })" class="ms-2 shrink-0 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200">
+                  <UIcon name="i-heroicons-pencil-square" class="w-3.5 h-3.5" />
                 </button>
               </div>
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
