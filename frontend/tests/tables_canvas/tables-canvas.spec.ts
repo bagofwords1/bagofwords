@@ -2,7 +2,17 @@ import { test, expect } from '@playwright/test'
 import fs from 'node:fs'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-const seed = JSON.parse(fs.readFileSync(process.env.BOW_ERD_SEED || '/tmp/bow-tables-erd-run/seed.json', 'utf8'))
+// This spec drives the ERD against a stack seeded by tools/agent/seed_tables_canvas.py
+// (specific tables, a reader user, a 120-table archive) and writes evidence screenshots.
+// CI has no such seed. Reading it at module scope threw during collection, which aborted
+// the entire Playwright run — every other spec in the suite was skipped as collateral —
+// so the seed is now optional and its absence skips only this file.
+const seedPath = process.env.BOW_ERD_SEED || '/tmp/bow-tables-erd-run/seed.json'
+const hasSeed = fs.existsSync(seedPath)
+test.skip(!hasSeed, `needs a seeded stack: run tools/agent/seed_tables_canvas.py, or point BOW_ERD_SEED at its seed.json (looked in ${seedPath})`)
+const seed = hasSeed
+  ? JSON.parse(fs.readFileSync(seedPath, 'utf8'))
+  : { sqlite_sources: [{ id: '' }], admin: { token: '' }, reader: { token: '' }, organization: { id: '' }, base_url: '' }
 const id = seed.sqlite_sources[0].id
 const headers = { Authorization: `Bearer ${seed.admin.token}`, 'X-Organization-Id': seed.organization.id }
 const evidence = path.resolve('../media/pr/tables-erd')
