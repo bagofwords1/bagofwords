@@ -5,9 +5,26 @@
         <template #data>
           <div>
             <div v-if="!selectedDataSource">
-              <div class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+              <!-- Search across the whole catalogue; the grid below shows only
+                   the popular connectors until you search or expand. -->
+              <div class="mt-3 relative">
+                <input
+                  v-model="query"
+                  type="text"
+                  data-testid="onboarding-ds-search"
+                  :placeholder="$t('onboarding.data.searchPlaceholder')"
+                  class="w-full ps-10 pe-4 py-2 text-sm rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-600 focus:outline-none focus:border-gray-300 dark:focus:border-gray-600"
+                />
+                <UIcon name="i-heroicons-magnifying-glass" class="absolute start-3 top-2.5 h-4 w-4 text-gray-400 dark:text-gray-600" />
+              </div>
+
+              <div v-if="noResults" class="mt-6 text-center text-sm text-gray-500 dark:text-gray-400">
+                {{ $t('onboarding.data.noResults', { query: query.trim() }) }}
+              </div>
+
+              <div v-else class="mt-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
                 <button
-                  v-for="ds in available_ds"
+                  v-for="ds in visibleDataSources"
                   :key="ds.type"
                   type="button"
                   :disabled="isLocked(ds)"
@@ -40,8 +57,19 @@
                 </button>
               </div>
 
+              <div v-if="!isSearching && hiddenCount > 0" class="mt-4 text-center">
+                <button
+                  type="button"
+                  data-testid="onboarding-ds-show-all"
+                  @click="showAll = !showAll"
+                  class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+                >
+                  {{ showAll ? $t('onboarding.data.showLess') : $t('onboarding.data.showAll', { count: hiddenCount }) }}
+                </button>
+              </div>
+
               <!-- Sample databases -->
-              <div v-if="uninstalledDemos.length > 0" class="mt-6">
+              <div v-if="!isSearching && uninstalledDemos.length > 0" class="mt-6">
                 <div class="text-xs text-gray-400 dark:text-gray-600 mb-2">{{ $t('onboarding.data.orTry') }}</div>
                 <div class="flex flex-wrap gap-2">
                   <button
@@ -107,6 +135,14 @@ async function skipForNow() { await updateOnboarding({ dismissed: true }); route
 const { isLicensed } = useEnterprise()
 
 const available_ds = ref<any[]>([])
+const {
+  query,
+  showAll,
+  isSearching,
+  visible: visibleDataSources,
+  hiddenCount,
+  noResults,
+} = useDataSourcePicker(available_ds)
 const demo_ds = ref<any[]>([])
 const selectedDataSource = ref<any | null>(null)
 const installingDemo = ref<string | null>(null)
@@ -156,6 +192,8 @@ function selectDataSource(ds: any) {
   selectedDataSource.value = ds
 }
 
+// Deliberately keeps the search query: coming back from a connect form should
+// land on the results you picked from, not on the collapsed popular grid.
 function backToList() {
   selectedDataSource.value = null
 }

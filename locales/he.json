@@ -3616,7 +3616,11 @@
       "enterprise": "Enterprise",
       "sample": "דוגמה",
       "orTry": "או נסו מסד נתונים לדוגמה:",
-      "errorAvailable": "לא ניתן לטעון את מקורות הנתונים הזמינים"
+      "errorAvailable": "לא ניתן לטעון את מקורות הנתונים הזמינים",
+      "searchPlaceholder": "חיפוש מקורות נתונים...",
+      "showAll": "הצגת כל מקורות הנתונים (עוד {count})",
+      "showLess": "הצגת פחות",
+      "noResults": "אין מקורות נתונים התואמים ל־“{query}”"
     },
     "schema": {
       "save": "שמירה והמשך"

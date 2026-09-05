@@ -3616,7 +3616,11 @@
       "enterprise": "Enterprise",
       "sample": "muestra",
       "orTry": "O prueba una base de datos de muestra:",
-      "errorAvailable": "No se pudieron obtener las fuentes de datos disponibles"
+      "errorAvailable": "No se pudieron obtener las fuentes de datos disponibles",
+      "searchPlaceholder": "Buscar fuentes de datos...",
+      "showAll": "Ver todas las fuentes de datos ({count} más)",
+      "showLess": "Ver menos",
+      "noResults": "Ninguna fuente de datos coincide con “{query}”"
     },
     "schema": {
       "save": "Guardar y continuar"

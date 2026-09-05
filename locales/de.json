@@ -3521,7 +3521,11 @@
       "enterprise": "Enterprise",
       "sample": "Beispiel",
       "orTry": "Oder probieren Sie eine Beispieldatenbank:",
-      "errorAvailable": "Verfügbare Datenquellen konnten nicht abgerufen werden"
+      "errorAvailable": "Verfügbare Datenquellen konnten nicht abgerufen werden",
+      "searchPlaceholder": "Datenquellen suchen...",
+      "showAll": "Alle Datenquellen anzeigen ({count} weitere)",
+      "showLess": "Weniger anzeigen",
+      "noResults": "Keine Datenquelle passt zu „{query}“"
     },
     "schema": {
       "save": "Speichern und fortfahren"

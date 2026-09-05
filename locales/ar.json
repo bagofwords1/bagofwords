@@ -3521,7 +3521,11 @@
       "enterprise": "Enterprise",
       "sample": "تجريبي",
       "orTry": "أو جرّب قاعدة بيانات تجريبية:",
-      "errorAvailable": "تعذّر جلب مصادر البيانات المتاحة"
+      "errorAvailable": "تعذّر جلب مصادر البيانات المتاحة",
+      "searchPlaceholder": "ابحث عن مصادر البيانات...",
+      "showAll": "عرض جميع مصادر البيانات ({count} إضافي)",
+      "showLess": "عرض أقل",
+      "noResults": "لا توجد مصادر بيانات تطابق «{query}»"
     },
     "schema": {
       "save": "حفظ ومتابعة"

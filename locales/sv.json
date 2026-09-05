@@ -3521,7 +3521,11 @@
       "enterprise": "Enterprise",
       "sample": "exempel",
       "orTry": "Eller prova en exempeldatabas:",
-      "errorAvailable": "Det gick inte att hämta tillgängliga datakällor"
+      "errorAvailable": "Det gick inte att hämta tillgängliga datakällor",
+      "searchPlaceholder": "Sök datakällor...",
+      "showAll": "Visa alla datakällor ({count} till)",
+      "showLess": "Visa färre",
+      "noResults": "Ingen datakälla matchar ”{query}”"
     },
     "schema": {
       "save": "Spara och fortsätt"

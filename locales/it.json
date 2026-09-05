@@ -3521,7 +3521,11 @@
       "enterprise": "Enterprise",
       "sample": "esempio",
       "orTry": "Oppure prova un database di esempio:",
-      "errorAvailable": "Impossibile recuperare le origini dati disponibili"
+      "errorAvailable": "Impossibile recuperare le origini dati disponibili",
+      "searchPlaceholder": "Cerca origini dati...",
+      "showAll": "Mostra tutte le origini dati (altre {count})",
+      "showLess": "Mostra meno",
+      "noResults": "Nessuna origine dati corrisponde a “{query}”"
     },
     "schema": {
       "save": "Salva e continua"
