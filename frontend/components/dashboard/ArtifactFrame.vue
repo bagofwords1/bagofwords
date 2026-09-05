@@ -110,8 +110,9 @@
         <!-- Schedule -->
         <CronModal v-if="report" :report="report" />
 
-        <!-- Doc export lives in the editor toolbar (owner, edit-by-default).
-             For the read-only viewer (non-owner) keep .md + PDF here. -->
+        <!-- The .md source download is doc-only, so it lives here; PDF is in
+             the shared ExportMenu below with every other artifact's exports.
+             (The owner edits by default and gets both in the editor toolbar.) -->
         <template v-if="isDocMode && !isEditingDoc">
           <UTooltip :text="t('docViewer.exportMarkdown')">
             <button
@@ -120,14 +121,6 @@
             >
               <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-blue-600" />
               <span class="text-xs text-blue-600 font-medium">.md</span>
-            </button>
-          </UTooltip>
-          <UTooltip :text="t('docViewer.exportPdf')">
-            <button
-              @click="printDoc"
-              class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
-            >
-              <Icon name="heroicons:printer" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
             </button>
           </UTooltip>
         </template>
@@ -339,6 +332,7 @@
         class="absolute inset-0"
         @save="saveDocEdit"
         @cancel="isEditingDoc = false"
+        @export-pdf="exportDocPdf"
       />
 
       <!-- Doc Mode - markdown document with live visualizations -->
@@ -1550,18 +1544,17 @@ async function saveDocEdit(markdown: string) {
   }
 }
 
-// Print the doc (browser print dialog → full-fidelity PDF with live charts).
-// A temporary root class isolates the DocViewer via the print stylesheet.
-function printDoc() {
-  document.documentElement.classList.add('printing-doc');
-  const cleanup = () => {
-    document.documentElement.classList.remove('printing-doc');
-    window.removeEventListener('afterprint', cleanup);
-  };
-  window.addEventListener('afterprint', cleanup);
-  // Fallback cleanup for browsers that don't fire afterprint reliably
-  setTimeout(cleanup, 2000);
-  window.print();
+// PDF from the editor toolbar. The server renders the SAVED document, so
+// exporting mid-edit would quietly hand back yesterday's text — say so instead.
+function exportDocPdf() {
+  if (docEditorRef.value?.hasUnsavedChanges?.()) {
+    toast.add({
+      title: t('docEditor.unsavedForExport'),
+      color: 'amber',
+    });
+    return;
+  }
+  exportPdf();
 }
 
 // Download the doc's markdown source

@@ -4526,7 +4526,8 @@
     "cancel": "Abbrechen",
     "saved": "Dokument gespeichert",
     "saveFailed": "Dokument konnte nicht gespeichert werden",
-    "editDiagramSource": "Klicken, um den Diagramm-Quelltext zu bearbeiten"
+    "editDiagramSource": "Klicken, um den Diagramm-Quelltext zu bearbeiten",
+    "unsavedForExport": "Speichern Sie das Dokument, bevor Sie es als PDF exportieren"
   },
   "notes": {
     "heading": "Notizen",
