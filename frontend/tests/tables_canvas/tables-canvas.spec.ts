@@ -517,3 +517,25 @@ test('recent prompts load on focus, paginate, reset, retry and localize', async 
   expect(rtlFlow!.x).toBeGreaterThanOrEqual(rtlDetails!.x + rtlDetails!.width)
   await page.screenshot({path:path.join(evidence,'after-recent-prompts-he.png')})
 })
+
+test('visual spinner stays until catalog and diagram are ready', async ({page}) => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/full_schema?**', async route => {
+    if (route.request().url().includes('page_size=500')) await gate
+    await route.continue()
+  })
+  await page.goto(`/agents/${id}/tables`)
+  await page.getByRole('button',{name:'Visual',exact:true}).click()
+  const spinner = page.getByTestId('erd-loading')
+  try {
+    await expect(spinner).toBeVisible()
+    await expect(spinner.locator('svg')).toBeVisible()
+    await expect(spinner.locator('..')).toHaveAttribute('aria-busy','true')
+    await page.screenshot({path:path.join(evidence,'after-visual-loading.png')})
+  } finally { release() }
+  await expect(node(page,'orders')).toBeVisible()
+  await expect(spinner).toHaveCount(0)
+  await expect(page.getByTestId('tables-erd')).toHaveCSS('opacity','1')
+  await page.screenshot({path:path.join(evidence,'after-visual-ready.png')})
+})

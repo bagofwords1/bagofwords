@@ -76,7 +76,7 @@ import TableCanvasNode from './TableCanvasNode.vue'
 import TableRecentPrompts from './TableRecentPrompts.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
 const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean }>()
-const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string]; toggleFullscreen: [] }>()
+const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string]; toggleFullscreen: []; ready: [] }>()
 const { t, locale } = useI18n()
 const flowId = `table-erd-${useId()}`
 const { zoomIn, zoomOut, getViewport, setViewport } = useVueFlow({ id: flowId })
@@ -193,9 +193,17 @@ function focus(id: string) {
 function onNodeClick({ node }: { node: Node }) { focus(node.id) }
 function clearFocus() { focused.value = null; if (overview) { setViewport(overview, { duration: 250 }); overview = null } }
 const arranged = ref(false)
-function initializeLayout() {
-  if (!arranged.value && nodes.value.length) { arranged.value = true; rearrange(true) }
+async function initializeLayout() {
+  if (!arranged.value && nodes.value.length) {
+    arranged.value = true
+    rearrange(true)
+    // Wait for positions and the initial viewport to reach the DOM before revealing it.
+    await nextTick()
+    await nextTick()
+    emit('ready')
+  }
 }
+onMounted(() => { if (!nodes.value.length) emit('ready') })
 function rearrange(initial = false) {
   const narrow = (canvasElement.value?.clientWidth || 900) < 760
   // Lay out connected neighborhoods independently, then pack them into rows.

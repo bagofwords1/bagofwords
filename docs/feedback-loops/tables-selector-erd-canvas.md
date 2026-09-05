@@ -412,3 +412,9 @@ Verification: 2 targeted canvas browser tests passed (English toolbar, onboardin
 ### Selection dropdown cleanup
 
 Removed the redundant Selected / Not selected text from dropdown options. The native checkmark and `aria-selected` state remain. The targeted browser regression passed: selected-first ordering, checked/unchecked accessibility states, search, selection, and Save. Before/after evidence: `before-selection-menu-labels.png` and `after-selection-menu.png` under `media/pr/tables-erd/`.
+
+### Visual loading indicator
+
+The existing `Spinner.vue` now occupies the diagram area while the catalog, lazy canvas component, and initial node layout load. `TablesCanvas` emits ready after the initial positions and viewport reach the DOM; the selector then reveals it. Empty graphs become ready on mount. Catalog failure hides the spinner so Retry remains usable; reloading resets readiness.
+
+The delayed-catalog browser regression fails on the previous production build (no diagram loading indicator), then passes on the change. Evidence: `before-visual-loading.png`, `after-visual-loading.png`, `after-visual-ready.png`, and `visual-loading.gif` in `media/pr/tables-erd/`.
