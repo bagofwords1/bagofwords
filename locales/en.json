@@ -483,6 +483,7 @@
     "signInWithProvider": "Sign in with {provider}",
     "continueWithProvider": "Continue with {provider}",
     "invalidCredentials": "Invalid credentials",
+    "signInFailed": "Sign-in failed. Please try again.",
     "registrationError": "An error occurred during registration.",
     "googleInitError": "Failed to initialize Google sign-in",
     "providerInitError": "Failed to initialize {provider} sign-in",

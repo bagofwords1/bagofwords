@@ -452,6 +452,7 @@
     "signInWithProvider": "Se connecter avec {provider}",
     "continueWithProvider": "Continuer avec {provider}",
     "invalidCredentials": "Identifiants invalides",
+    "signInFailed": "Échec de la connexion. Veuillez réessayer.",
     "registrationError": "Une erreur s'est produite lors de l'inscription.",
     "googleInitError": "Échec de l'initialisation de la connexion Google",
     "providerInitError": "Échec de l'initialisation de la connexion {provider}",

@@ -184,9 +184,27 @@
     if (inviteError) {
       error_message.value = inviteError
     }
-    const access_token = route.query.access_token as string
-    const userEmail = route.query.email as string
-    if (access_token) {
+    // SSO hands back a single-use code, not the token — see
+    // app/models/login_exchange_code.py for why the JWT must not ride in a URL.
+    const login_code = route.query.login_code as string
+    if (login_code) {
+      let access_token = ''
+      try {
+        const exchanged = await $fetch<{ access_token: string }>('/api/auth/exchange', {
+          method: 'POST',
+          body: { login_code },
+        })
+        access_token = exchanged?.access_token ?? ''
+      } catch (e) {
+        error_message.value = t('auth.signInFailed')
+        pageLoaded.value = true
+        return
+      }
+      if (!access_token) {
+        error_message.value = t('auth.signInFailed')
+        pageLoaded.value = true
+        return
+      }
       rawToken.value = access_token
       await getSession({ force: true })
       // Check if the user has an organization (same as credentials login)

@@ -326,9 +326,7 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
         await _record_login(user)
 
-        strategy = get_jwt_strategy()
-        jwt_token = await strategy.write_token(user)
-        return RedirectResponse(f"/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+        return await _login_redirect(user)
 
     # OIDC providers
     cfg = _get_oidc_config(provider)
@@ -488,9 +486,24 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
 
     await _record_login(user)
 
+    return await _login_redirect(user)
+
+
+async def _login_redirect(user) -> RedirectResponse:
+    """Finish an SSO login by redirecting the SPA to a one-time exchange code.
+
+    The session JWT deliberately does not travel in this URL — it would be
+    written to browser history, leak via Referer, and land in the access logs of
+    every proxy in front of a self-hosted install, where it stays valid for its
+    full 7-day lifetime. The code here is single-use and expires in 60s; the SPA
+    trades it for the token over POST /api/auth/exchange.
+    """
+    from app.services.login_exchange_service import issue_login_code
+
     strategy = get_jwt_strategy()
     jwt_token = await strategy.write_token(user)
-    return RedirectResponse(f"/users/sign-in?access_token={jwt_token}&email={user.email}", status_code=303)
+    login_code = await issue_login_code(str(user.id), jwt_token)
+    return RedirectResponse(f"/users/sign-in?login_code={login_code}", status_code=303)
 
 
 async def _record_login(user) -> None:
