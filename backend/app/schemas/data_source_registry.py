@@ -895,7 +895,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.aws_cloudwatch_client.AwsCloudWatchClient",
         version="beta",
-        dev_only=True,
     ),
     "vertica": DataSourceRegistryEntry(
         type="vertica",
