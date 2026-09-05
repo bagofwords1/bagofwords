@@ -18,7 +18,6 @@
         </div>
       </div>
       <div class="flex items-center gap-3">
-        <button v-if="fullscreen" type="button" @click="toggleFullscreen" :aria-label="t('tableErd.exitFullscreen')" class="inline-flex items-center gap-1.5 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200"><UIcon name="i-heroicons-arrows-pointing-in" class="w-3.5 h-3.5" />{{ t('tableErd.exitFullscreen') }}</button>
         <span v-if="hasPendingChanges" class="text-[10px] text-gray-400">{{ t('tableErd.unsaved') }}</span>
         <button v-if="customQueriesEnabled && canAuthorCustomQueries" data-testid="add-custom-query" @click="openNewCustomQuery()"
           class="inline-flex items-center gap-1 text-[11px] text-gray-500 hover:text-gray-800 dark:hover:text-gray-200">

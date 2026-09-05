@@ -17,9 +17,17 @@
         <button v-for="action in actions" :key="action.label" class="control w-7" :title="action.label" :aria-label="action.label" @click="action.run">
           <UIcon :name="action.icon" class="w-3.5 h-3.5" />
         </button>
-        <button v-if="!fullscreen" class="control w-7" :aria-label="t(fullscreen ? 'tableErd.exitFullscreen' : 'tableErd.fullscreen')" :title="t(fullscreen ? 'tableErd.exitFullscreen' : 'tableErd.fullscreen')" @click="emit('toggleFullscreen')"><UIcon :name="fullscreen ? 'i-heroicons-arrows-pointing-in' : 'i-heroicons-arrows-pointing-out'" class="w-3.5 h-3.5" /></button>
         <button v-if="focused" class="control px-2" @click="clearFocus">{{ t('tableErd.clearFocus') }}</button>
       </div>
+    </div>
+    <div class="absolute end-3 top-3 z-10 pointer-events-auto">
+      <button v-if="fullscreen" type="button" class="inline-flex items-center gap-1.5 rounded-md border border-gray-200/90 bg-white/95 px-2.5 py-1.5 text-[11px] font-medium text-gray-600 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900/95 dark:text-gray-300 dark:hover:bg-gray-800 dark:hover:text-white" :aria-label="t('tableErd.exitFullscreen')" :title="t('tableErd.exitFullscreen')" @click="emit('toggleFullscreen')">
+        <UIcon name="i-heroicons-arrows-pointing-in" class="h-3.5 w-3.5" />
+        {{ t('tableErd.exitFullscreen') }}
+      </button>
+      <button v-else type="button" class="control h-8 w-8 rounded-md border border-gray-200/90 bg-white/95 shadow-sm transition-colors hover:bg-gray-50 hover:text-gray-900 dark:border-gray-700 dark:bg-gray-900/95 dark:hover:bg-gray-800 dark:hover:text-white" :aria-label="t('tableErd.fullscreen')" :title="t('tableErd.fullscreen')" @click="emit('toggleFullscreen')">
+        <UIcon name="i-heroicons-arrows-pointing-out" class="h-3.5 w-3.5" />
+      </button>
     </div>
     <div v-if="searchOpen" class="absolute start-3 top-14 z-10 w-60 max-h-[60%] overflow-auto rounded-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-md p-1" data-testid="erd-discovery">
       <div class="px-2 py-2 text-[10px] text-gray-500">{{ t('tableErd.searchHint') }}</div>
