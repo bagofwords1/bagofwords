@@ -4827,6 +4827,9 @@
     "reset": "Réinitialiser"
   },
   "tableErd": {
+    "searchTables": "Rechercher des tables…",
+    "suggested": "Suggérée",
+    "suggestedHint": "Suggérée par les noms de clés · non vérifiée",
     "view": "Vue des tables",
     "table": "Table",
     "erd": "ERD",
@@ -4864,7 +4867,6 @@
     "loading": "Chargement des relations…",
     "loadError": "Impossible de charger les relations.",
     "retry": "Réessayer",
-    "saveError": "Impossible d’enregistrer la sélection.",
-    "omittedSelected": "{count} sélectionnées hors vue"
+    "saveError": "Impossible d’enregistrer la sélection."
   }
 }

@@ -4827,6 +4827,9 @@
     "reset": "Återställ"
   },
   "tableErd": {
+    "searchTables": "Sök tabeller…",
+    "suggested": "Föreslagen",
+    "suggestedHint": "Föreslagen utifrån nyckelnamn · ej verifierad",
     "view": "Tabellvy",
     "table": "Tabell",
     "erd": "ERD",
@@ -4864,7 +4867,6 @@
     "loading": "Laddar relationer…",
     "loadError": "Kunde inte ladda relationer.",
     "retry": "Försök igen",
-    "saveError": "Kunde inte spara urvalet.",
-    "omittedSelected": "{count} valda utanför vyn"
+    "saveError": "Kunde inte spara urvalet."
   }
 }

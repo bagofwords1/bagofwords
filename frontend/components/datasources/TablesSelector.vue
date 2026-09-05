@@ -1033,7 +1033,7 @@ let listGeneration = 0
 const discoveryFilter = computed(() => ({
   search: searchDebounced.value,
   schema: selectedSchemas.value,
-  connection: props.connectionFilter ? props.connectionFilter.split(',') : selectedConnections.value,
+  connection: selectedConnections.value.length ? selectedConnections.value : props.connectionFilter.split(',').filter(Boolean),
   selected_state: filters.value.selectedState,
 }))
 const catalogMatches = computed(() => catalog.value.filter(table => matchesTable(table, discoveryFilter.value, isTableActive(tableKey(table)))))
@@ -1115,7 +1115,7 @@ async function loadCatalog(): Promise<boolean> {
         if (more && !batch.length) throw new Error('empty catalog page')
         if (!Array.isArray(data)) {
           availableSchemas.value = data.schemas
-          availableConnections.value = data.connections
+          availableConnections.value = data.connections.filter((connection: { id: string }) => !props.connectionFilter || props.connectionFilter.split(',').includes(connection.id))
         }
         nextPage++
       }
@@ -1316,10 +1316,8 @@ async function fetchTables() {
       if (selectedSchemas.value.length > 0) {
         params.set('schema_filter', selectedSchemas.value.join(','))
       }
-      // A forced connectionFilter prop (per-connection section) wins over the
-      // in-grid connection chips.
-      const connFilter = (props.connectionFilter || '').trim()
-        || (selectedConnections.value.length > 0 ? selectedConnections.value.join(',') : '')
+      // User filters narrow the connection scope of the combined selector.
+      const connFilter = discoveryFilter.value.connection.join(',')
       if (connFilter) {
         params.set('connection_filter', connFilter)
       }
@@ -1363,7 +1361,7 @@ async function fetchTables() {
           }
           // Update available connections
           if (paginatedData.connections && paginatedData.connections.length > 0) {
-            availableConnections.value = paginatedData.connections
+            availableConnections.value = paginatedData.connections.filter(connection => !props.connectionFilter || props.connectionFilter.split(',').includes(connection.id))
           }
           
           registerTables(paginatedData.tables)

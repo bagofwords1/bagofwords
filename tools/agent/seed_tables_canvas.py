@@ -6,6 +6,7 @@ of the repository. No LLM or external database is used.
 import argparse
 import json
 import sqlite3
+from pathlib import Path
 import httpx
 from seed_org import register, login, pending_invite_token
 
@@ -29,8 +30,20 @@ with sqlite3.connect(ds['db_file']) as db:
     ''')
     for i in range(a.extra_tables):
         db.execute(f'CREATE TABLE IF NOT EXISTS archive_{i:03d} (id INTEGER PRIMARY KEY, value TEXT)')
+    if 'company_id' not in {row[1] for row in db.execute('PRAGMA table_info(orders)')}:
+        db.execute('ALTER TABLE orders ADD COLUMN company_id INTEGER')
+# A second real local connection exercises a key-name suggestion with no FK.
+reference_db = str(Path(ds['db_file']).with_name('reference.db'))
+with sqlite3.connect(reference_db) as db:
+    db.execute('CREATE TABLE IF NOT EXISTS companies (id INTEGER PRIMARY KEY, name TEXT)')
 headers = {'Authorization': 'Bearer ' + s['admin']['token'], 'X-Organization-Id': s['organization']['id']}
 with httpx.Client(base_url=s['base_url'], headers=headers, timeout=120) as c:
+    if not s.get('reference_connection_id'):
+        connection = c.post('/api/connections', json={'name': 'Reference', 'type': 'sqlite', 'config': {'database': reference_db}, 'credentials': {}, 'auth_policy': 'system_only'})
+        connection.raise_for_status()
+        s['reference_connection_id'] = connection.json()['id']
+        json.dump(s, open(a.seed, 'w'), indent=2)
+    c.post(f"/api/data_sources/{ds['id']}/connections/{s['reference_connection_id']}").raise_for_status()
     c.get(f"/api/data_sources/{ds['id']}/refresh_schema").raise_for_status()
     c.put('/api/organization/onboarding', json={'dismissed': True, 'completed': False}).raise_for_status()
     c.put(f"/api/data_sources/{ds['id']}", json={'name': 'Commerce', 'is_public': True}).raise_for_status()

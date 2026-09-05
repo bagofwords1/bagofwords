@@ -4857,6 +4857,9 @@
     "reset": "Reset"
   },
   "tableErd": {
+    "searchTables": "Search tables…",
+    "suggested": "Suggested",
+    "suggestedHint": "Suggested from key names · unverified",
     "view": "Table view",
     "table": "Table",
     "erd": "ERD",
@@ -4894,7 +4897,6 @@
     "loading": "Loading relationships…",
     "loadError": "Could not load relationships.",
     "retry": "Retry",
-    "saveError": "Could not save table selection.",
-    "omittedSelected": "{count} selected outside view"
+    "saveError": "Could not save table selection."
   }
 }

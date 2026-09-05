@@ -4827,6 +4827,9 @@
     "reset": "Zurücksetzen"
   },
   "tableErd": {
+    "searchTables": "Tabellen suchen…",
+    "suggested": "Vorgeschlagen",
+    "suggestedHint": "Aus Schlüsselnamen abgeleitet · ungeprüft",
     "view": "Tabellenansicht",
     "table": "Tabelle",
     "erd": "ERD",
@@ -4864,7 +4867,6 @@
     "loading": "Beziehungen werden geladen…",
     "loadError": "Beziehungen konnten nicht geladen werden.",
     "retry": "Erneut versuchen",
-    "saveError": "Auswahl konnte nicht gespeichert werden.",
-    "omittedSelected": "{count} ausgewählte außerhalb der Ansicht"
+    "saveError": "Auswahl konnte nicht gespeichert werden."
   }
 }

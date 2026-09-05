@@ -1,13 +1,16 @@
 <template>
   <div class="table-node rounded-lg border bg-white dark:bg-gray-900 text-gray-700 dark:text-gray-200 shadow-sm text-[11px] leading-normal"
-    :class="[data.active ? 'border-gray-300 dark:border-gray-600' : 'border-dashed border-gray-300 dark:border-gray-600 bg-gray-50/90 dark:bg-gray-900/90', data.focused ? 'ring-2 ring-blue-500/50' : '']"
+    :class="[data.active ? 'border-blue-500 dark:border-blue-400' : 'border-dotted border-gray-400 dark:border-gray-500 bg-gray-50/90 dark:bg-gray-900/90', data.focused ? 'ring-2 ring-blue-500/20' : '']"
     :data-testid="`erd-node-${data.table.name}`" :data-active="data.active">
     <Handle type="target" :position="Position.Left" :connectable="false" class="!bg-gray-400 !border-white" />
     <div class="flex items-center gap-2 px-3 py-2.5 border-b border-gray-100 dark:border-gray-800">
       <input v-if="data.canUpdate" type="checkbox" :checked="data.active" :aria-label="t('tableErd.selectTable', { name: data.table.name })"
         class="nodrag nopan h-3.5 w-3.5 rounded border-gray-300 accent-blue-500 shrink-0" @click.stop @change="data.toggle(!data.active)" />
       <div class="min-w-0 flex-1">
-        <div class="text-[11px] font-medium font-mono truncate" dir="ltr" :title="data.table.name">{{ data.table.name }}</div>
+        <div class="flex items-center gap-1.5 min-w-0" :title="data.table.connection_name">
+          <span data-testid="erd-connection-icon" class="shrink-0"><DataSourceIcon :type="data.table.connection_type" class="h-3.5 w-3.5" /></span>
+          <span class="text-[11px] font-medium font-mono truncate" dir="ltr" :title="data.table.name">{{ data.table.name }}</span>
+        </div>
         <div class="text-[9px] text-gray-400 truncate mt-0.5">{{ [data.table.connection_name, data.table.metadata_json?.schema].filter(Boolean).join(' · ') }}</div>
       </div>
       <UIcon v-if="data.active" name="i-heroicons-table-cells" class="w-3.5 h-3.5 text-gray-400" />
@@ -30,6 +33,7 @@
 </template>
 <script setup lang="ts">
 import { Handle, Position } from '@vue-flow/core'
+import DataSourceIcon from '@/components/DataSourceIcon.vue'
 defineProps<{ data: any }>()
 const { t } = useI18n()
 </script>

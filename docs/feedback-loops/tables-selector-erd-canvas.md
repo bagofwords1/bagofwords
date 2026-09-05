@@ -2,7 +2,7 @@
 
 Adds a minimal **Table / ERD** toggle to the existing selector. Both views use
 one draft selection and the existing Save/Save & Continue operation. Selecting a
-table reveals its direct known neighbors without selecting them. The diagram
+table reveals its direct declared or suggested neighbors without selecting them. The diagram
 supports focus, one-hop expansion, search, key/relationship details, and optional
 usage, last-used, and answer-feedback overlays.
 
@@ -21,8 +21,8 @@ usage, last-used, and answer-feedback overlays.
 
 | State | Rendering | Agent activation |
 | --- | --- | --- |
-| Selected | Normal checked card | Enabled after Save |
-| Shown, not selected | Dashed unchecked card with Add | Disabled |
+| Selected | Blue solid-border checked card | Enabled after Save |
+| Shown, not selected | Gray dotted unchecked card with Add | Disabled |
 | Not shown, not selected | Discoverable through search or Expand | Disabled |
 
 - Active tables always bring their immediate incoming and outgoing neighbors
@@ -36,8 +36,9 @@ usage, last-used, and answer-feedback overlays.
 - Discovery uses the same filters as Table view. Context nodes outside filters
   remain visible; their details identify this condition.
 - The catalog loads across API pages, independently of list pagination. Rendering
-  initially caps at 150 nodes, reports omitted selected nodes, and offers Show
-  more. Search can locate a table outside the current projection.
+  includes every selected/revealed node. Vue Flow mounts only viewport-visible
+  cards; connected neighborhoods are laid out independently and packed into rows.
+  Search focuses a table without truncating the rest of the graph.
 - A missing neighbor is a potential gap, never a validation error or Save blocker.
   Unresolved relationship targets are described without exposing their names.
 
@@ -45,11 +46,11 @@ usage, last-used, and answer-feedback overlays.
 
 | File | Responsibility |
 | --- | --- |
-| `frontend/components/datasources/TablesSelector.vue` | Toggle, complete permission-scoped catalog, shared filters/draft, one delta Save |
-| `frontend/components/datasources/TablesCanvas.vue` | Vue Flow viewport, focus/expand, bounded projection, search, overlays, detail panel |
+| `frontend/components/datasources/TablesSelector.vue` | Toggle, complete permission-scoped catalog, shared filters/draft and connection scopes, one delta Save |
+| `frontend/components/datasources/TablesCanvas.vue` | Vue Flow viewport, focus/expand, viewport rendering, selection menu, packed layout, overlays, detail panel |
 | `frontend/components/datasources/TableCanvasNode.vue` | Minimal checked/ghost table card and explicit activation controls |
 | `frontend/utils/tableGraph.ts` | Connection/schema-scoped relationship resolution, one-hop visibility, shared filter predicates |
-| `frontend/components/datasources/{CatalogSelector,AgentKnowledgeTabs}.vue` | Keep parent Save & Continue on the current step when child Save fails |
+| `frontend/components/datasources/{CatalogSelector,AgentKnowledgeTabs}.vue` | One combined onboarding selector across table connections; preserve the step when Save fails |
 | `backend/app/schemas/datasource_table_schema.py` | Optional last-used timestamp with the existing UTC serializer |
 | `backend/app/services/data_source_service.py` | Populate last-used from table stats; stable ID tie-breaker for pagination |
 | `locales/{en,es,he,fr,sv,ar,ru,de,pt,it}.json` | Matching translated ERD namespace |
@@ -58,8 +59,9 @@ usage, last-used, and answer-feedback overlays.
 Vue Flow was already installed and registered. Dagre's existing `dagre-d3-es`
 package is now declared directly at the already-locked version, 7.0.14, and only
 its layout/graph modules are imported. The ERD component loads asynchronously.
-Initial layout waits for measured nodes; explicit Arrange recomputes it. Newly
-revealed nodes preserve existing card positions. Self-links route around the card.
+Initial layout uses fixed card geometry; explicit Arrange recomputes it.
+Offscreen coordinates stay synchronized with Vue Flow’s viewport index. Newly
+revealed nodes preserve existing card positions, and Expand brings them into view. Self-links route around the card.
 
 Bulk selection now resolves the complete matching catalog into the same draft
 map as individual checkboxes. Save sends the final delta once, so an individual
@@ -75,14 +77,18 @@ the draft and returns failure to the parent instead of navigating onward.
 - [x] Seed a local synthetic source and capture the baseline UI before integration.
 - [x] Add the Table / ERD toggle using the existing theme and controls.
 - [x] Implement three states, direct neighbors, focus, expansion, discovery,
-  stable positions, details, empty/retry states and bounded large graphs.
+  stable positions, details, empty/retry states and large graphs.
 - [x] Share selection, filters, counts and Save across views and parent embeds.
 - [x] Add usage/last-used/feedback overlays and all ten locale catalogs.
 - [x] Add a deterministic fixture, focused Playwright suite and graph unit checks.
 - [x] Run existing backend pagination, selection and reader-permission regressions.
 - [x] Run the existing 30-case locale sweep and check catalog drift.
 - [x] Complete the baseline-to-feature rerun and inspect before/after screenshots.
-- [x] Complete the final production build.
+- [x] Complete the initial production build.
+- [x] Refine selected/ghost strokes, reuse USelectMenu, and show connection icons.
+- [x] Add labelled key-name suggestions and combined multi-connection onboarding.
+- [x] Replace the node cap with viewport rendering and packed large-graph layout.
+- [x] Finish refinement acceptance and production build.
 
 ## Fixture and isolation
 
@@ -92,11 +98,13 @@ through the real API. `tools/agent/seed_tables_canvas.py` extends that fixture:
 - `orders → customers`; `line_items → orders` and `line_items → products`;
   `payments → orders`; `employees → employees`.
 - Only `orders` starts selected. Products therefore starts hidden, while
-  customers, line_items, and payments start as unchecked neighbors.
-- 520 archive tables plus seven source tables force catalog loading beyond the
+  customers, line_items, payments, and companies start as unchecked neighbors.
+- 520 archive tables plus eight source tables across two connections force catalog loading beyond the
   API's 500-row page size. The list's page size remains 100.
 - A synthetic historical rollup has known usage, feedback and last-used values;
   other tables have no rollup, so unknown data can be distinguished from zero.
+- `orders.company_id → Reference.companies.id` has no FK declaration and
+  exercises a suggested relationship across two real SQLite connections.
 - A real member account can view the public test agent but cannot configure it.
 
 The SQLite connector currently emits no foreign-key metadata, and the public
@@ -193,7 +201,9 @@ Playwright projects, so its explicit local seed requirement cannot break regular
 CI discovery.
 
 Graph unit checks also cover connection/schema collisions, grouped join columns,
-self-links, unresolved targets, one-hop visibility and filter predicates.
+self-links, unresolved targets, one-hop visibility, filter predicates, suggested
+links, ambiguous targets, incompatible types, local-source preference, and a
+1,000-table metadata catalog.
 
 ## Loop B — visual evidence
 
@@ -221,13 +231,15 @@ Playwright acceptance test, not a passive page recording.
 | Initial base selector inspection | ERD button count 0; agent/onboarding screenshots captured |
 | Graph invariants | PASS |
 | Backend pagination, delta/bulk and reader scope | 3 passed (SQLite); existing dependency/deprecation/async-cleanup warnings recorded |
-| Existing locale sweep | 30 passed |
+| Existing locale sweep | 30 passed again after refinement (30.9 seconds) |
 | Catalog key drift | No increased missing/extra keys in any locale |
 | Discriminating baseline | Expected FAIL: the loaded base selector has no ERD toggle |
-| Final browser acceptance | 6 passed in 34 seconds against the isolated 527-table fixture |
+| Initial browser acceptance | 6 passed against the isolated 527-table fixture |
+| Refinement acceptance | 9 passed in 59.1 seconds; 528-table fixture across two real local connections |
 | Visual inspection | Loaded before/after agent and onboarding views, Hebrew/dark, narrow, large, empty, reader and overlays inspected; interaction GIF recorded |
 | Last-used API serialization | Known fixture timestamp returned as `2026-09-01T10:00:00Z` |
-| Production build | PASS (exit 0), including final catalog-race changes; existing duplicate-key/import and chunk-size warnings remain |
+| Initial production build | PASS (exit 0); existing duplicate-key/import and chunk-size warnings remain |
+| Refinement production build | PASS (exit 0), client + server + Nitro output; existing warnings unchanged |
 
 ## Limits of this evidence
 
@@ -235,10 +247,49 @@ A passing loop proves shared activation, navigable known relationships beyond
 pagination, explicit exploration, existing permission boundaries, and usability
 in the captured local conditions. It does not prove every real source supplies
 complete relationship metadata, every omitted neighbor is necessary, or answer
-quality improves. Edges represent connector-reported references; no relationships
-are inferred from column-name similarity. Feedback counts describe answers using
+quality improves. Solid edges represent connector-reported references. Dashed edges are explicitly
+labelled unverified suggestions: a named key such as `company_id` points at a
+unique compatible identity column on `companies`. Generic shared `id` columns,
+ambiguous targets, composite keys, incompatible types, and declared source
+columns do not generate guesses. Local connection/schema matches take
+precedence; a unique match may span connections. These suggestions do not
+validate data or imply that the connections support a federated SQL join. Feedback counts describe answers using
 a table, not a quality score for the table. Statistics use the existing all-time
 agent rollup; absent rollups are shown as unknown.
 
-No new relationship storage/migration, external connector inference, automatic
+No new relationship storage/migration, external data inspection, automatic
 neighbor activation, PR publication or deployment is part of this change.
+
+## Refinement — selected styling, picker, connections and scale
+
+User requested blue selected strokes, gray dotted unselected strokes, an existing
+`USelectMenu` with selected tables first, connection icons and relationships
+without explicit foreign keys, and support for hundreds of tables.
+
+The baseline browser check failed on the original gray selected border
+(`rgb(209, 213, 219)` instead of `rgb(59, 130, 246)`). The refined picker writes to
+the same selection draft, orders selected options first, and uses the same
+connection/schema/search constraints as the table view. Search previews remain
+non-activating; choosing a menu option explicitly changes activation.
+
+The filtered-picker test also reproduced a discovery panel covering menu
+options; opening the picker now closes the preview and keeps it closed while
+selection changes.
+
+The second connection exposed the old per-connection onboarding selectors, which
+prevented a combined graph. Onboarding now uses one selector scoped to all its
+table connections. Source filtering narrows that scope in both views.
+
+Additional browser cases cover picker ordering/search/persistence, real
+cross-connection suggestions and icons, and shared connection filters in
+onboarding. Viewport checks caught and fixed stale coordinates for offscreen
+cards during relayout; these assertions now check all initial neighbors and both
+ends of the large graph. The large-catalog case fits all 525 graph nodes from a 528-table
+catalog, then focuses an off-page table and checks that fewer than 50 cards
+remain mounted. The 520-table bulk selection still saves individual overrides.
+
+Additional evidence: `before-refinement-en.png`,
+`before-refinement-he-dark.png`, `after-selection-menu.png`, and
+`after-cross-connection.png`. The standard after screenshots and interaction GIF
+are refreshed for this version. Original list baselines predate the second
+connection; refinement comparisons use the same viewport and synthetic source.

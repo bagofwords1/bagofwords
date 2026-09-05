@@ -4827,6 +4827,9 @@
     "reset": "Repor"
   },
   "tableErd": {
+    "searchTables": "Pesquisar tabelas…",
+    "suggested": "Sugerida",
+    "suggestedHint": "Sugerida por nomes de chaves · não verificada",
     "view": "Vista de tabelas",
     "table": "Tabela",
     "erd": "ERD",
@@ -4864,7 +4867,6 @@
     "loading": "A carregar relações…",
     "loadError": "Não foi possível carregar as relações.",
     "retry": "Tentar novamente",
-    "saveError": "Não foi possível guardar a seleção.",
-    "omittedSelected": "{count} selecionadas fora da vista"
+    "saveError": "Não foi possível guardar a seleção."
   }
 }

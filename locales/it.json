@@ -4827,6 +4827,9 @@
     "reset": "Ripristina"
   },
   "tableErd": {
+    "searchTables": "Cerca tabelle…",
+    "suggested": "Suggerita",
+    "suggestedHint": "Suggerita dai nomi delle chiavi · non verificata",
     "view": "Vista tabelle",
     "table": "Tabella",
     "erd": "ERD",
@@ -4864,7 +4867,6 @@
     "loading": "Caricamento relazioni…",
     "loadError": "Impossibile caricare le relazioni.",
     "retry": "Riprova",
-    "saveError": "Impossibile salvare la selezione.",
-    "omittedSelected": "{count} selezionate fuori vista"
+    "saveError": "Impossibile salvare la selezione."
   }
 }
