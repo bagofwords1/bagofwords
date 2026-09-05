@@ -271,10 +271,13 @@
       </div>
     </div>
 
-    <div v-if="erdOpened" v-show="tableView === 'erd'">
-      <div v-if="catalogLoading" class="py-4 text-xs text-gray-500 flex items-center gap-2"><Spinner class="w-3 h-3" />{{ t('tableErd.loading') }}</div>
+    <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative" :aria-busy="!diagramReady && !catalogError">
+      <div v-if="!catalogLoaded && !catalogError" class="h-[460px]" />
+      <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
+        <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
+      </div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
-      <TablesCanvas v-if="catalogLoaded" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
+      <TablesCanvas v-if="catalogLoaded" :class="{ 'opacity-0 pointer-events-none': !diagramReady }" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
@@ -967,6 +970,7 @@ const currentActiveState = ref<Map<string, boolean>>(new Map())
 // permission-scoped endpoint as the list, across every page.
 const tableView = ref<'table' | 'erd'>('table')
 const erdOpened = ref(false)
+const diagramReady = ref(false)
 const catalog = ref<Table[]>([])
 const catalogLoaded = ref(false)
 const catalogLoading = ref(false)
@@ -1017,6 +1021,7 @@ async function setTableView(view: 'table' | 'erd') {
   if (view === 'erd') { erdOpened.value = true; await loadCatalog() }
 }
 function invalidateCatalog() {
+  diagramReady.value = false
   catalogGeneration++
   catalogRequest = null
   catalogLoaded.value = false

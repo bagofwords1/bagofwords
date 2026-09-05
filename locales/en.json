@@ -4861,6 +4861,13 @@
     "reset": "Reset"
   },
   "tableErd": {
+    "recentPrompts": "Recent prompts",
+    "thisAgentOnly": "Only this agent’s recorded table usage",
+    "promptUnavailable": "Prompt unavailable",
+    "promptsError": "Could not load prompts.",
+    "noPrompts": "No recorded prompts for this table.",
+    "morePrompts": "Show more",
+    "loadingPrompts": "Loading prompts…",
     "selectedCount": "{count} selected",
     "selectTables": "Select tables",
     "customQuery": "Custom query",

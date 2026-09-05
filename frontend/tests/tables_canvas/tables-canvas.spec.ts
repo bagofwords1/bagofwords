@@ -69,6 +69,8 @@ test('selected stroke and searchable selection menu', async ({page}) => {
   await expect(node(page,'orders').getByTestId('erd-connection-icon')).toBeVisible()
   if (seed.reference_connection_id) await expect(node(page,'companies')).toBeInViewport({ratio:0.99})
   await page.getByTestId('erd-select-tables').click()
+  await expect(page.getByRole('listbox')).not.toContainText('Selected')
+  await expect(page.getByRole('listbox')).not.toContainText('Not selected')
   await expect(page.getByRole('option').first()).toContainText('orders')
   await expect(page.getByRole('option').first()).toHaveAttribute('aria-selected','true')
   await expect(page.getByRole('option').nth(1)).toHaveAttribute('aria-selected','false')
@@ -252,6 +254,11 @@ test('reader sees selected tables only with no activation controls', async ({pag
   await expect(page.getByTestId('tables-erd').getByRole('checkbox')).toHaveCount(0)
   await expect(page.getByRole('button',{name:'Save',exact:true})).toHaveCount(0)
   await expect(page.getByRole('button',{name:'Add tables',exact:true})).toHaveCount(0)
+  await node(page,'orders').locator('.font-mono').first().click()
+  await expect(page.getByTestId('erd-details')).toBeVisible()
+  await expect(page.getByTestId('table-recent-prompts')).toHaveCount(0)
+  const prompts = await request.get(`${seed.base_url}/api/data_sources/${id}/tables/${data.tables[0].id}/recent-prompts`, {headers:readerHeaders})
+  expect(prompts.status()).toBe(403)
   await page.screenshot({path:path.join(evidence,'after-reader.png')})
 })
 
@@ -455,4 +462,90 @@ test('laptop canvas, full screen, wide columns and visible metrics', async ({pag
   await page.keyboard.press('Escape')
   await expect(page.getByRole('button',{name:'Full screen',exact:true})).toBeVisible()
   await expect(node(page,'orders')).toHaveAttribute('data-active','true')
+})
+
+test('recent prompts load on focus, paginate, reset, retry and localize', async ({page}) => {
+  await page.setViewportSize({width:1366,height:768})
+  let requests = 0
+  page.on('request', request => { if (request.url().includes('/recent-prompts')) requests++ })
+  await page.goto(`/agents/${id}/tables`)
+  await page.getByRole('button',{name:'Visual',exact:true}).click()
+  await expect(node(page,'orders')).toBeVisible()
+  expect(requests).toBe(0)
+  await page.getByRole('button',{name:'Full screen',exact:true}).click()
+  await node(page,'orders').locator('.font-mono').first().click()
+  const panel = page.getByTestId('table-recent-prompts')
+  await expect(panel.getByRole('heading',{name:'Recent prompts'})).toBeVisible()
+  await expect(panel.locator('li')).toHaveCount(5)
+  await panel.getByRole('button',{name:'Show more',exact:true}).click()
+  await expect(panel.locator('li')).toHaveCount(7)
+  await expect(panel.getByRole('button',{name:'Show more',exact:true})).toHaveCount(0)
+  await page.getByTestId('erd-details').evaluate(el => { el.scrollTop = 0 })
+  await page.screenshot({path:path.join(evidence,'after-recent-prompts.png')})
+  await node(page,'customers').locator('.font-mono').first().click()
+  await expect(panel).toContainText('No recorded prompts for this table.')
+  await expect(panel.locator('li')).toHaveCount(0)
+  let release!: () => void
+  const delayed = new Promise<void>(resolve => { release = resolve })
+  let intercepted!: () => void
+  const started = new Promise<void>(resolve => { intercepted = resolve })
+  let firstRequest = true
+  let delayedUrl = ''
+  await page.route('**/recent-prompts?**', async route => {
+    if (!firstRequest) { await route.continue(); return }
+    firstRequest = false
+    delayedUrl = route.request().url()
+    intercepted()
+    await delayed
+    await route.fulfill({json:{items:[{execution_id:'stale',prompt:'Stale table prompt',used_at:'2026-09-01T00:00:00Z',success:true}],next_offset:null}})
+  })
+  await node(page,'orders').locator('.font-mono').first().click()
+  await started
+  await expect(panel.getByRole('status')).toContainText('Loading prompts')
+  await node(page,'customers').locator('.font-mono').first().click()
+  const responseFinished = page.waitForResponse(response => response.url() === delayedUrl)
+  release()
+  await (await responseFinished).finished()
+  await page.unroute('**/recent-prompts?**')
+  await expect(panel).toContainText('No recorded prompts for this table.')
+  await expect(panel).not.toContainText('Stale table prompt')
+  await page.route('**/recent-prompts?**', route => route.fulfill({status:503,json:{detail:'Synthetic failure'}}))
+  await node(page,'orders').locator('.font-mono').first().click()
+  await expect(panel.getByRole('alert')).toContainText('Could not load prompts.')
+  await page.unroute('**/recent-prompts?**')
+  await panel.getByRole('button',{name:'Retry',exact:true}).click()
+  await expect(panel.locator('li')).toHaveCount(5)
+  await page.evaluate(()=>{localStorage.setItem('bow.locale','he');localStorage.setItem('nuxt-color-mode','dark')})
+  await page.reload()
+  await page.getByRole('button',{name:'חזותי',exact:true}).click()
+  await page.getByRole('button',{name:'מסך מלא',exact:true}).click()
+  await node(page,'orders').locator('.font-mono').first().click()
+  await expect(panel.getByRole('heading',{name:'בקשות אחרונות'})).toBeVisible()
+  await expect(panel.locator('li')).toHaveCount(5)
+  const rtlFlow = await page.locator('.erd-flow').boundingBox()
+  const rtlDetails = await page.getByTestId('erd-details').boundingBox()
+  expect(rtlFlow!.x).toBeGreaterThanOrEqual(rtlDetails!.x + rtlDetails!.width)
+  await page.screenshot({path:path.join(evidence,'after-recent-prompts-he.png')})
+})
+
+test('visual spinner stays until catalog and diagram are ready', async ({page}) => {
+  let release!: () => void
+  const gate = new Promise<void>(resolve => { release = resolve })
+  await page.route('**/full_schema?**', async route => {
+    if (route.request().url().includes('page_size=500')) await gate
+    await route.continue()
+  })
+  await page.goto(`/agents/${id}/tables`)
+  await page.getByRole('button',{name:'Visual',exact:true}).click()
+  const spinner = page.getByTestId('erd-loading')
+  try {
+    await expect(spinner).toBeVisible()
+    await expect(spinner.locator('svg')).toBeVisible()
+    await expect(spinner.locator('..')).toHaveAttribute('aria-busy','true')
+    await page.screenshot({path:path.join(evidence,'after-visual-loading.png')})
+  } finally { release() }
+  await expect(node(page,'orders')).toBeVisible()
+  await expect(spinner).toHaveCount(0)
+  await expect(page.getByTestId('tables-erd')).toHaveCSS('opacity','1')
+  await page.screenshot({path:path.join(evidence,'after-visual-ready.png')})
 })

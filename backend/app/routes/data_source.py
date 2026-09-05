@@ -12,6 +12,7 @@ from app.dependencies import get_current_organization
 from app.services.custom_query_service import is_accelerable_type
 from app.services.data_source_service import DataSourceService
 from app.schemas.data_source_schema import DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate, DataSourceMembershipCreate, DataSourceListItemSchema
+from app.schemas.table_prompt_schema import TablePromptsResponse
 from app.schemas.metadata_indexing_job_schema import MetadataIndexingJobSchema
 from app.schemas.data_source_schema import DataSourceMembershipSchema
 from app.schemas.datasource_table_schema import (
@@ -774,3 +775,18 @@ async def export_agent_instructions(
             )
         },
     )
+
+
+@router.get('/data_sources/{data_source_id}/tables/{table_id}/recent-prompts', response_model=TablePromptsResponse)
+@requires_resource_permission('data_source', 'manage')
+async def get_table_recent_prompts(
+    data_source_id: str,
+    table_id: str,
+    offset: int = Query(0, ge=0, le=10000),
+    limit: int = Query(5, ge=1, le=20),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    from app.services.table_prompt_service import get_table_prompts
+    return await get_table_prompts(db, str(organization.id), data_source_id, table_id, offset, limit)

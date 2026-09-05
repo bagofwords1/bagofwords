@@ -4831,6 +4831,13 @@
     "reset": "Réinitialiser"
   },
   "tableErd": {
+    "recentPrompts": "Demandes récentes",
+    "thisAgentOnly": "Utilisation enregistrée de cet agent uniquement",
+    "promptUnavailable": "Demande indisponible",
+    "promptsError": "Impossible de charger les demandes.",
+    "noPrompts": "Aucune demande enregistrée pour cette table.",
+    "morePrompts": "Afficher plus",
+    "loadingPrompts": "Chargement des demandes…",
     "selectedCount": "{count} sélectionnées",
     "selectTables": "Sélectionner des tables",
     "customQuery": "Requête personnalisée",

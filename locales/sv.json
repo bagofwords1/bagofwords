@@ -4831,6 +4831,13 @@
     "reset": "Återställ"
   },
   "tableErd": {
+    "recentPrompts": "Senaste frågor",
+    "thisAgentOnly": "Endast registrerad tabellanvändning för denna agent",
+    "promptUnavailable": "Frågan är inte tillgänglig",
+    "promptsError": "Kunde inte läsa in frågor.",
+    "noPrompts": "Inga registrerade frågor för denna tabell.",
+    "morePrompts": "Visa fler",
+    "loadingPrompts": "Läser in frågor…",
     "selectedCount": "{count} valda",
     "selectTables": "Välj tabeller",
     "customQuery": "Anpassad fråga",

@@ -4831,6 +4831,13 @@
     "reset": "إعادة تعيين"
   },
   "tableErd": {
+    "recentPrompts": "الطلبات الأخيرة",
+    "thisAgentOnly": "استخدام الجدول المسجل لهذا الوكيل فقط",
+    "promptUnavailable": "الطلب غير متاح",
+    "promptsError": "تعذر تحميل الطلبات.",
+    "noPrompts": "لا توجد طلبات مسجلة لهذا الجدول.",
+    "morePrompts": "عرض المزيد",
+    "loadingPrompts": "جارٍ تحميل الطلبات…",
     "selectedCount": "تم اختيار {count}",
     "selectTables": "اختيار الجداول",
     "customQuery": "استعلام مخصص",
