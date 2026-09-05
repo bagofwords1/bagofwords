@@ -4,11 +4,14 @@ These live in `integrations/` because they need Docker, not because they need
 credentials — unlike `ds_clients.py` they are self-contained and skip cleanly
 when no daemon is reachable.
 
-Postgres and SQL Server are the pair under test because they exercise *one*
-code path (`fk_reflection.attach_foreign_keys`, reached through
+Postgres and SQL Server are the primary pair because they exercise *one* code
+path (`fk_reflection.attach_foreign_keys`, reached through
 `engine_pool.get_engine`) across two dialects and two drivers — psycopg and
-pyodbc. Passing on both is what makes the other pooled clients credible without
-a container each.
+pyodbc. MySQL is here for a different reason: it names tables bare rather than
+`schema.table`, so it is the only coverage of the `key_fn` branch, where a
+tuple-shaped lookup against a bare-keyed dict would match nothing and yield no
+edges at all — silently, since an empty result is indistinguishable from a
+schema with no constraints.
 
 What each assertion is defending, since the shape of an FK test invites
 tautology:
@@ -103,6 +106,28 @@ MSSQL_SEED = [
 ]
 
 
+MYSQL_SEED = [
+    "CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100))",
+    "CREATE TABLE regions (code VARCHAR(8), sub_code VARCHAR(8), label VARCHAR(64),"
+    " PRIMARY KEY (code, sub_code))",
+    "CREATE TABLE orders ("
+    "  id INT PRIMARY KEY,"
+    "  customer_id INT,"
+    "  region_code VARCHAR(8),"
+    "  region_sub_code VARCHAR(8),"
+    "  FOREIGN KEY (customer_id) REFERENCES customers(id),"
+    "  FOREIGN KEY (region_code, region_sub_code) REFERENCES regions(code, sub_code)"
+    ")",
+    "CREATE TABLE line_items ("
+    "  id INT PRIMARY KEY,"
+    "  order_id INT,"
+    "  sku VARCHAR(32),"
+    "  FOREIGN KEY (order_id) REFERENCES orders(id)"
+    ")",
+    "CREATE TABLE audit_log (id INT PRIMARY KEY, message VARCHAR(200))",
+]
+
+
 def _seed(url: str, statements: list[str]) -> None:
     engine = sqlalchemy.create_engine(url)
     try:
@@ -153,6 +178,24 @@ def mssql_client():
             password=container.password,
             schema="sales,ref",
             encrypt=False,
+        )
+
+
+@pytest.fixture(scope="module")
+def mysql_client():
+    from testcontainers.mysql import MySqlContainer
+
+    from app.data_sources.clients.mysql_client import MysqlClient
+
+    with MySqlContainer("mysql:8") as container:
+        url = container.get_connection_url().replace("mysql://", "mysql+pymysql://", 1)
+        _seed(url, MYSQL_SEED)
+        yield MysqlClient(
+            host=container.get_container_host_ip(),
+            port=container.get_exposed_port(3306),
+            database=container.dbname,
+            user=container.username,
+            password=container.password,
         )
 
 
@@ -253,3 +296,41 @@ class TestMssqlForeignKeys:
 
     def test_basic_path_also_carries_relationships(self, mssql_client):
         _assert_relationships_discovered(mssql_client._get_tables_basic())
+
+
+@requires_docker
+class TestMysqlForeignKeys:
+    """MySQL names tables bare, so the expected strings differ from the pair above.
+
+    Same helper, same assertions in spirit — what is being proved here is that
+    the reference string follows the client's own convention rather than a
+    qualified one it never uses.
+    """
+
+    def test_relationships_are_discovered(self, mysql_client):
+        by_name = _by_name(mysql_client.get_tables())
+        edges = _edges(by_name["orders"])
+
+        assert ("customer_id", "customers", "id") in edges, edges
+        assert ("region_code", "regions", "code") in edges, edges
+        assert ("region_sub_code", "regions", "sub_code") in edges, edges
+        assert ("order_id", "orders", "id") in _edges(by_name["line_items"])
+
+    def test_references_are_unqualified_like_the_table_names(self, mysql_client):
+        """A `schema.table` reference here would resolve to nothing downstream."""
+        tables = mysql_client.get_tables()
+        for table in tables:
+            for fk in table.fks or []:
+                assert "." not in fk.references_name, fk.references_name
+
+    def test_references_resolve_to_known_tables(self, mysql_client):
+        _assert_references_resolve(mysql_client.get_tables())
+
+    def test_tables_without_constraints_stay_empty(self, mysql_client):
+        by_name = _by_name(mysql_client.get_tables())
+        assert not (by_name["audit_log"].fks or [])
+        assert not (by_name["customers"].fks or [])
+
+    def test_basic_path_also_carries_relationships(self, mysql_client):
+        by_name = _by_name(mysql_client._get_tables_basic())
+        assert ("customer_id", "customers", "id") in _edges(by_name["orders"])

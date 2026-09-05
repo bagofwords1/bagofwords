@@ -27,7 +27,7 @@ Two things callers must get right, both enforced by the signature:
 from __future__ import annotations
 
 import logging
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Sequence
 
 import sqlalchemy
 
@@ -54,7 +54,9 @@ def _dtype_of(table: Table | None, column_name: str) -> str | None:
 
 
 def _resolve_target(
-    tables: dict[TableKey, Table],
+    tables: dict,
+    key_fn: Callable[[str, str], object],
+    candidate_schemas: Sequence[str | None],
     referred_schema: str | None,
     referred_table: str,
     source_schema: str,
@@ -78,12 +80,15 @@ def _resolve_target(
     if referred_schema:
         return (referred_schema, referred_table)
 
-    if (source_schema, referred_table) in tables:
+    if key_fn(source_schema, referred_table) in tables:
         return (source_schema, referred_table)
 
-    candidates = [key for key in tables if key[1] == referred_table]
+    candidates = [
+        sch for sch in candidate_schemas
+        if sch is not None and key_fn(sch, referred_table) in tables
+    ]
     if len(candidates) == 1:
-        return candidates[0]
+        return (candidates[0], referred_table)
 
     return (source_schema, referred_table)
 
@@ -118,9 +123,10 @@ def _reflect_schema(
 
 def attach_foreign_keys(
     connection: sqlalchemy.engine.Connection,
-    tables: dict[TableKey, Table],
+    tables: dict,
     schemas: Sequence[str] | None,
     name_fn: Callable[[str, str], str],
+    key_fn: Callable[[str, str], object] | None = None,
 ) -> int:
     """Populate `Table.fks` in place. Returns the number of edges attached.
 
@@ -132,6 +138,11 @@ def attach_foreign_keys(
     `ForeignKey` holds a single column, so a two-column constraint becomes two
     edges. That is lossy (the pair is no longer known to travel together) and is
     the reason a renderer should group edges by target before drawing them.
+
+    `key_fn` maps a (schema, table) pair onto the caller's own dict key, because
+    the clients do not agree on one. The schema-qualified ones key by tuple
+    (the default); the single-database ones — MySQL, MariaDB — key by bare table
+    name, and would silently match nothing against a tuple lookup.
     """
     if not tables:
         return 0
@@ -142,20 +153,23 @@ def attach_foreign_keys(
         logger.warning("Could not build inspector for FK reflection", exc_info=True)
         return 0
 
-    # Reflect only what the caller kept. With no explicit schema list the tables
-    # dict still names its own schemas, so derive them rather than walking the
-    # whole catalog.
-    target_schemas: Iterable[str | None]
+    key_fn = key_fn or (lambda schema, table: (schema, table))
+
+    # Reflect only what the caller kept. Given no explicit schema list, a
+    # tuple-keyed caller still names its own schemas, so derive them rather than
+    # walking the whole catalog; a bare-keyed caller addresses one database, so
+    # the dialect's default schema is the whole of it.
+    target_schemas: Sequence[str | None]
     if schemas:
         target_schemas = list(schemas)
     else:
-        derived = {sch for sch, _ in tables if sch}
+        derived = {k[0] for k in tables if isinstance(k, tuple) and k[0]}
         target_schemas = sorted(derived) if derived else [None]
 
     attached = 0
     for schema in target_schemas:
         for key, fk_list in _reflect_schema(inspector, schema).items():
-            table = tables.get(key)
+            table = tables.get(key_fn(*key))
             if table is None:
                 continue
             if table.fks is None:
@@ -168,10 +182,11 @@ def attach_foreign_keys(
                 if not (constrained and referred and referred_table):
                     continue
                 target_key = _resolve_target(
-                    tables, fk.get("referred_schema"), referred_table, key[0]
+                    tables, key_fn, target_schemas,
+                    fk.get("referred_schema"), referred_table, key[0],
                 )
                 target_name = name_fn(*target_key)
-                target_table = tables.get(target_key)
+                target_table = tables.get(key_fn(*target_key))
 
                 # strict=False on purpose: a dialect returning mismatched
                 # column lists is malformed input, not a reason to abort a

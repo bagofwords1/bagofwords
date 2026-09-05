@@ -36,6 +36,38 @@ FAST_CLIENT_SUFFIX = "::fast"
 _REDACTED_SOURCE_METADATA_KEYS = ("configuredBy", "reports")
 
 
+def _prune_unresolvable_fks(normalized):
+    """Drop edges pointing outside the tables this context actually emits.
+
+    A foreign key is rendered as DDL — `foreign key (region_code) references
+    ref.regions(code)` — which the agent reads as a fact about what it can
+    join. If the referenced table was deselected by the agent's owner, filtered
+    out, or hidden from this user by an access overlay, that line invites a
+    join no query can satisfy: the agent writes it, execution fails, and
+    nothing in the context explains why.
+
+    Reachable only since SQL sources began reporting foreign keys. Previously
+    just semantic sources carried edges, and their tables tend to be selected
+    as a unit; now any partial selection of a relational schema produces
+    dangling ones, which is the normal case rather than the exotic one.
+
+    Applied to the finished list so the invariant holds for both population
+    paths from one place — the per-user overlay branch filters against its own
+    visible set as well, and this is a no-op there. Mutates in place; only ever
+    removes edges leaving the emitted set.
+    """
+    emitted_names = {item.get("name") for item in normalized}
+    for item in normalized:
+        item_fks = item.get("fks") or []
+        if not item_fks:
+            continue
+        item["fks"] = [
+            fk for fk in item_fks
+            if (fk.get("references_name") if isinstance(fk, dict)
+                else getattr(fk, "references_name", None)) in emitted_names
+        ]
+
+
 def _redact_source_metadata(metadata_json):
     """Strip owner identity and artefact inventories from per-user schema.
 
@@ -513,6 +545,8 @@ class SchemaContextBuilder:
                         "cached_next_refresh": cached_next_refresh,
                         "description": cached_description,
                     })
+
+            _prune_unresolvable_fks(normalized)
 
             # Batch-query instruction reference counts for all tables in this data source
             instruction_ref_counts: Dict[str, int] = {}
