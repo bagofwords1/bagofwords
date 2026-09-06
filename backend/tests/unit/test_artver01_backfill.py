@@ -133,7 +133,7 @@ def test_backfill_gives_every_version_row_its_own_parent(tmp_path):
 
 
 def test_artver01_upgrade_downgrade_round_trip(tmp_path):
-    """officejs01 → seed old-shape rows → artver01 → downgrade officejs01.
+    """ldapsecurity01 → seed old-shape rows → artver01 → downgrade ldapsecurity01.
 
     The downgrade is the production rollback path; it must restore the exact
     original shape and values, not merely something that parses.
@@ -154,7 +154,7 @@ def test_artver01_upgrade_downgrade_round_trip(tmp_path):
     settings.TEST_DATABASE_URL = db_url
     os.environ["TEST_DATABASE_URL"] = db_url
     try:
-        command.upgrade(cfg, "officejs01")
+        command.upgrade(cfg, "ldapsecurity01")
 
         engine = sa.create_engine(db_url)
         seed = [
@@ -185,7 +185,7 @@ def test_artver01_upgrade_downgrade_round_trip(tmp_path):
         assert n_null == 0
         assert "title" not in version_cols and "mode" not in version_cols
 
-        command.downgrade(cfg, "officejs01")
+        command.downgrade(cfg, "ldapsecurity01")
         with engine.connect() as conn:
             back = conn.execute(sa.text(
                 "SELECT id, title, mode, version, deleted_at FROM artifacts ORDER BY id"

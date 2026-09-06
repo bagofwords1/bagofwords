@@ -1,7 +1,7 @@
 """normalize artifacts into parent artifacts + artifact_versions
 
 Revision ID: artver01
-Revises: officejs01
+Revises: ldapsecurity01
 Create Date: 2026-09-03 12:00:00.000000
 
 Until now every row in ``artifacts`` was ONE VERSION of a dashboard / deck /
@@ -37,7 +37,7 @@ import uuid
 
 # revision identifiers, used by Alembic.
 revision: str = 'artver01'
-down_revision: Union[str, Sequence[str], None] = 'officejs01'
+down_revision: Union[str, Sequence[str], None] = 'ldapsecurity01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
