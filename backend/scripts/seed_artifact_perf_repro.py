@@ -40,7 +40,6 @@ from app.models.widget import Widget  # noqa: E402
 from app.models.query import Query  # noqa: E402
 from app.models.step import Step  # noqa: E402
 from app.models.visualization import Visualization  # noqa: E402
-from app.models.artifact import ArtifactVersion  # noqa: E402
 from app.services.artifact_service import new_artifact  # noqa: E402
 from app.services.artifact_codegen import (  # noqa: E402
     generate_echart_option_code,

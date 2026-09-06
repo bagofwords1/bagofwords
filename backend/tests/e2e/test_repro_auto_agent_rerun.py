@@ -28,7 +28,6 @@ import uuid
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import ArtifactVersion
 from tests.fixtures.artifact import seed_artifact
 from app.models.organization import Organization
 from app.models.query import Query

@@ -39,7 +39,6 @@ from app.models.widget import Widget
 from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
-from app.models.artifact import ArtifactVersion
 from tests.fixtures.artifact import seed_artifact
 
 
