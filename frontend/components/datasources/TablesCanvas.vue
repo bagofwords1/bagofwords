@@ -1,5 +1,5 @@
 <template>
-  <div ref="canvasElement" class="relative overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-950/30" :style="{ height: `${canvasHeight}px` }" data-testid="tables-erd">
+  <div ref="canvasElement" class="relative overflow-hidden rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-950/30" :style="fill ? undefined : { height: `${canvasHeight}px` }" data-testid="tables-erd">
     <div class="absolute top-3 start-3 end-3 z-10 flex items-start justify-between gap-2 pointer-events-none">
       <div class="flex flex-wrap items-center gap-1 rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 p-1 shadow-sm pointer-events-auto">
         <USelectMenu v-if="canUpdate" v-model="menuSelection" :options="menuOptions" multiple searchable value-attribute="id" option-attribute="name"
@@ -83,7 +83,7 @@ import { TABLE_NODE_WIDTH, TABLE_NODE_HEIGHT, tableGraph, tableId, visibleTableI
 import TableCanvasNode from './TableCanvasNode.vue'
 import TableRecentPrompts from './TableRecentPrompts.vue'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
-const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean; bottomInset?: number }>()
+const props = defineProps<{ agentId?: string; canViewPrompts?: boolean; tables: GraphTable[]; activeIds: Set<string>; matchIds: Set<string>; filtering: boolean; canUpdate: boolean; showStats: boolean; editableQueryIds?: Set<string>; fullscreen?: boolean; bottomInset?: number; fill?: boolean }>()
 const emit = defineEmits<{ toggle: [id: string, value: boolean]; editQuery: [id: string]; toggleFullscreen: []; ready: [] }>()
 const { t, locale } = useI18n()
 const flowId = `table-erd-${useId()}`
@@ -93,6 +93,11 @@ const canvasHeight = ref(460)
 const { width: canvasWidth } = useElementSize(canvasElement)
 function resizeCanvas() {
   if (!canvasElement.value) return
+  // In `fill` mode the parent's flex column decides the height. Measuring the
+  // window instead would feed back on itself inside a centered modal: a taller
+  // canvas re-centers the modal, which moves the canvas up, which measures
+  // taller again, until the modal's header scrolls out of view.
+  if (props.fill) { canvasHeight.value = canvasElement.value.clientHeight; return }
   canvasHeight.value = Math.max(320, window.innerHeight - Math.max(0, canvasElement.value.getBoundingClientRect().top) - (props.bottomInset || 72))
 }
 onMounted(() => nextTick(resizeCanvas))

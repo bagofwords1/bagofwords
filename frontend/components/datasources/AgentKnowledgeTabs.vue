@@ -1,27 +1,27 @@
 <template>
-  <div>
+  <div :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''">
     <div v-if="!ready" class="py-10 text-center text-gray-400 text-sm">Loading…</div>
-    <div v-else>
+    <div v-else :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''">
       <!-- Category tabs — only the ones this agent has (Files always available). -->
-      <div v-if="tabs.length > 1" class="flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-4">
+      <div v-if="tabs.length > 1" class="shrink-0 flex gap-1 border-b border-gray-200 dark:border-gray-700 mb-4">
         <button v-for="tab in tabs" :key="tab.key" type="button"
           class="px-3 py-2 text-sm font-medium -mb-px border-b-2 transition-colors"
           :class="active === tab.key ? 'border-blue-600 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700 dark:text-gray-400'"
           @click="active = tab.key">{{ tab.label }}</button>
       </div>
 
-      <div v-show="active === 'tables'" class="bg-white dark:bg-gray-900 rounded-lg">
+      <div v-show="active === 'tables'" class="bg-white dark:bg-gray-900 rounded-lg" :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''">
         <TablesSelector ref="tablesRef" :ds-id="dsId" schema="full" :connection-filter="tableConnectionIds"
-          :fullscreen-in-place="fullscreenInPlace" @fullscreen-change="$emit('fullscreen-change', $event)" :can-update="true" :show-refresh="true" :show-save="false" :show-header="true"
+          :fill="fill" :fullscreen-in-place="fullscreenInPlace" @fullscreen-change="$emit('fullscreen-change', $event)" :can-update="true" :show-refresh="true" :show-save="false" :show-header="true"
           header-title="Select tables" header-subtitle="Choose which tables to enable. Start focused, you can always add more later."
           :show-stats="true" :skip-refresh-on-save="true" />
       </div>
 
-      <div v-show="active === 'files'" class="bg-white dark:bg-gray-900 rounded-lg px-1">
+      <div v-show="active === 'files'" class="bg-white dark:bg-gray-900 rounded-lg px-1" :class="fill ? 'flex-1 min-h-0 overflow-y-auto' : ''">
         <AgentFilesPanel :ds-id="dsId" :can-update="true" @edit-connection="(c) => $emit('edit-connection', c)" />
       </div>
 
-      <div v-show="active === 'tools'" class="bg-white dark:bg-gray-900 rounded-lg">
+      <div v-show="active === 'tools'" class="bg-white dark:bg-gray-900 rounded-lg" :class="fill ? 'flex-1 min-h-0 overflow-y-auto' : ''">
         <ToolsSelector
           :ds-id="dsId" :connections="toolConns" :can-update="true"
           @edit-connection="(c) => $emit('edit-connection', c)"
@@ -31,7 +31,7 @@
         />
       </div>
 
-      <div v-if="showContinue" class="mt-4 flex items-center gap-3 justify-start rtl:flex-row-reverse">
+      <div v-if="showContinue" class="shrink-0 mt-4 flex items-center gap-3 justify-start rtl:flex-row-reverse">
         <button type="button" :disabled="saving" @click="saveAndContinue"
           class="px-4 py-2 text-sm font-medium text-white rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400">
           {{ saving ? 'Saving…' : continueLabel }}
@@ -47,7 +47,9 @@ import TablesSelector from '@/components/datasources/TablesSelector.vue'
 import AgentFilesPanel from '@/components/datasources/AgentFilesPanel.vue'
 import ToolsSelector from '@/components/datasources/ToolsSelector.vue'
 
-const props = withDefaults(defineProps<{ dsId: string; fullscreenInPlace?: boolean; showContinue?: boolean; continueLabel?: string }>(), {
+// `fill`: stretch to the parent's height (a bounded flex column) and let the
+// active panel scroll or grow inside it, instead of sizing to content.
+const props = withDefaults(defineProps<{ dsId: string; fill?: boolean; fullscreenInPlace?: boolean; showContinue?: boolean; continueLabel?: string }>(), {
   showContinue: true, continueLabel: 'Save & Continue',
 })
 const emit = defineEmits(['saved', 'fullscreen-change', 'edit-connection', 'add-mcp', 'add-custom-api', 'delete-connection'])
