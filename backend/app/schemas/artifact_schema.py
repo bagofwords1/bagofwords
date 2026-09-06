@@ -48,8 +48,13 @@ class ArtifactUpdate(BaseModel):
 
 
 class ArtifactSchema(ArtifactBase):
-    """Full artifact schema for API responses."""
+    """Full artifact schema for API responses.
+
+    `id` is a VERSION id; `artifact_id` is the parent identity shared by all
+    versions of the same dashboard/deck/doc — the UI groups by it.
+    """
     id: str
+    artifact_id: str
     report_id: str
     user_id: str
     organization_id: str
@@ -86,8 +91,12 @@ class ArtifactSchema(ArtifactBase):
 
 
 class ArtifactListSchema(BaseModel):
-    """Schema for listing artifacts (lighter weight)."""
+    """Schema for listing artifacts (lighter weight).
+
+    `id` is a VERSION id; `artifact_id` groups versions of the same artifact.
+    """
     id: str
+    artifact_id: str
     report_id: str
     title: Optional[str]
     mode: str
