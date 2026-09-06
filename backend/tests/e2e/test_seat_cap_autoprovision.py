@@ -18,6 +18,7 @@ as test_license_limits.py) — no signing key needed.
 """
 import contextlib
 import uuid
+from types import SimpleNamespace
 from datetime import datetime, timezone, timedelta
 
 import pytest
@@ -238,9 +239,12 @@ async def test_ldap_ensure_memberships_fills_up_to_cap(create_user, login_user, 
 
     with _license(max_users=3):
         async with async_session_maker() as db:
-            # _ensure_org_memberships doesn't touch self; skip the LDAPConfig-heavy
-            # __init__ and call it on a bare instance.
+            # Skip the LDAPConfig-heavy __init__ and call it on a bare instance.
+            # The only thing _ensure_org_memberships reads from self is the
+            # connection's provider_id, which it stamps on each new membership
+            # as directory_provider — so give it one.
             svc = object.__new__(LDAPGroupSyncService)
+            svc.connection = SimpleNamespace(provider_id="ldap:test")
             await svc._ensure_org_memberships(db, org_id, user_ids)
             await db.commit()
 
