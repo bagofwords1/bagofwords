@@ -150,25 +150,27 @@ async def test_disabled_default_stays_disabled(create_user, login_user, whoami, 
 @pytest.mark.e2e
 @pytest.mark.asyncio
 async def test_backfill_installs_missing_defaults_for_an_existing_org(
-    create_user, login_user, whoami, test_client
+    create_user, login_user, whoami, test_client, monkeypatch
 ):
-    """An org that predates a default (simulated by hard-deleting the rows the
-    creation path installed) gets it on the next backfill, authored by the
-    org's admin, and a second backfill is a no-op."""
-    from sqlalchemy import delete
+    """An org created before any default existed gets them on the next
+    backfill, authored by the org's admin, and a second backfill is a no-op.
+
+    The pre-flag org is produced the way it really happened — the catalog had
+    no defaults when the org was created — by emptying list_default_skills
+    for the creation call only. (Hard-deleting the rows the creation path
+    installed is not an option: build_contents references them, and
+    PostgreSQL enforces that foreign key where SQLite does not.)
+    """
+    import app.services.skill_catalog_service as skill_catalog_service
     from app.dependencies import async_session_maker
-    from app.models.instruction import Instruction
     from app.services.skill_catalog_service import SkillCatalogService
 
+    monkeypatch.setattr(skill_catalog_service, "list_default_skills", lambda: [])
     token, org_id = _new_admin(create_user, login_user, whoami)
-    default_keys = [s.key for s in list_default_skills()]
+    monkeypatch.undo()
 
-    async with async_session_maker() as db:
-        await db.execute(delete(Instruction).where(
-            Instruction.organization_id == org_id,
-            Instruction.catalog_key.in_(default_keys),
-        ))
-        await db.commit()
+    default_keys = [s.key for s in list_default_skills()]
+    assert default_keys
     assert all(not e["installed"] for e in _catalog(test_client, token, org_id).values())
 
     async with async_session_maker() as db:
