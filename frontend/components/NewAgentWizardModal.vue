@@ -1,6 +1,10 @@
 <template>
-  <UModal v-model="isOpen" :transition="false" :ui="{ width: expanded ? 'sm:max-w-[calc(100vw-2rem)]' : step === 'schema' ? 'sm:max-w-6xl' : 'sm:max-w-3xl' }" :prevent-close="step !== 'connect'">
-    <div class="p-5 max-h-[calc(100dvh-2rem)] overflow-y-auto" data-testid="new-agent-wizard">
+  <!-- One width for every step; the table step gets room through the canvas's
+       own expand control, which widens the whole modal in place. The table
+       step is a fixed-height column so the list or diagram fills it instead
+       of pushing the header off screen. -->
+  <UModal v-model="isOpen" :transition="false" :ui="{ width: expanded ? 'sm:max-w-[calc(100vw-2rem)]' : 'sm:max-w-3xl', margin: 'sm:my-4' }" :prevent-close="step !== 'connect'">
+    <div class="p-5 overflow-y-auto" :class="step === 'schema' ? 'h-[calc(100dvh-2rem)] flex flex-col' : 'max-h-[calc(100dvh-2rem)]'" data-testid="new-agent-wizard">
       <!-- Header -->
       <div v-show="!expanded" class="flex items-center justify-between mb-1">
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white">Create Data Agent</h3>
@@ -137,10 +141,9 @@
       </div>
 
       <!-- ── Step 2: Configure knowledge (tables / files / tools) ──── -->
-      <div v-else-if="step === 'schema'">
-        <p v-show="!expanded" class="text-sm text-gray-500 dark:text-gray-400 text-center mb-4">Pick tables for databases, review the file scope for directories — each source its own way.</p>
-        <div class="bg-white dark:bg-gray-900 rounded-lg">
-          <AgentKnowledgeTabs :ds-id="dsId" fullscreen-in-place continue-label="Save & Continue" @fullscreen-change="expanded = $event" @saved="expanded = false; step = 'context'">
+      <div v-else-if="step === 'schema'" class="flex-1 min-h-0 flex flex-col">
+        <div class="flex-1 min-h-0 flex flex-col bg-white dark:bg-gray-900 rounded-lg">
+          <AgentKnowledgeTabs :ds-id="dsId" fill fullscreen-in-place continue-label="Save & Continue" @fullscreen-change="expanded = $event" @saved="expanded = false; step = 'context'">
             <template #continue-actions><button type="button" class="text-sm text-gray-500 hover:text-gray-700 dark:text-gray-400" @click="isOpen = false">{{ $t('common.cancel') }}</button></template>
           </AgentKnowledgeTabs>
         </div>

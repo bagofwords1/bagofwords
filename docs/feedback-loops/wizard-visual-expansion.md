@@ -12,7 +12,7 @@ The reported wizard expansion put the diagram behind the modal overlay. Table an
 
 ## Fix
 
-The wizard grows to 1152px on the table step and nearly the viewport width when expanded. Its selector stays inside the same modal. The wizard keeps its own Save & Continue and Cancel controls and reserves space for them below the canvas. Dropdown Escape closes the dropdown first; a subsequent Escape inside the selector exits expansion.
+The wizard keeps one width (768px) on every step and grows to nearly the viewport width only when expanded; a per-step width made the table step read as a different dialog, and its header, stepper and hint were laid out for the narrow width. The table step is a fixed-height flex column (`fill` on `AgentKnowledgeTabs`, `TablesSelector` and `TablesCanvas`), so the list or diagram grows into the remaining height and the Save & Continue and Cancel controls stay at the bottom. The canvas no longer measures the window in that mode: inside a centered modal a taller canvas re-centered the modal, moved the canvas up, and measured taller again until the title scrolled out of view. The modal's vertical margin is also reduced to `sm:my-4` so the viewport-capped body fits without an outer scroll. Its selector stays inside the same modal. Dropdown Escape closes the dropdown first; a subsequent Escape inside the selector exits expansion.
 
 Cards use shared 360×224 geometry for rendering, layout and viewport fitting. The initial minimum zoom is reduced to keep wider neighboring cards in view. Table and source names each allow two lines; the full table name remains available in its title. Selected connection chips also allow longer names. Primary actions precede Cancel on the physical left, including Hebrew.
 

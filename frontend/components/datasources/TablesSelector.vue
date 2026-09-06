@@ -1,11 +1,11 @@
 <template>
   <Teleport to="body" :disabled="!fullscreen || fullscreenInPlace">
-  <div @keydown.esc.capture="onEmbeddedEscape" ref="selectorElement" :role="fullscreen && !fullscreenInPlace ? 'dialog' : undefined" :aria-modal="(fullscreen && !fullscreenInPlace) || undefined" :aria-label="fullscreen ? t('tableErd.erd') : undefined" tabindex="-1" class="w-full" :class="fullscreen && !fullscreenInPlace ? 'fixed inset-0 z-40 overflow-auto bg-white dark:bg-gray-900 p-4' : ''">
-    <div v-if="showHeader" class="mb-3">
+  <div @keydown.esc.capture="onEmbeddedEscape" ref="selectorElement" :role="fullscreen && !fullscreenInPlace ? 'dialog' : undefined" :aria-modal="(fullscreen && !fullscreenInPlace) || undefined" :aria-label="fullscreen ? t('tableErd.erd') : undefined" tabindex="-1" class="w-full" :class="[fullscreen && !fullscreenInPlace ? 'fixed inset-0 z-40 overflow-auto bg-white dark:bg-gray-900 p-4' : '', fill ? 'flex-1 min-h-0 flex flex-col' : '']">
+    <div v-if="showHeader" class="shrink-0 mb-3">
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
-    <div class="mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
+    <div class="shrink-0 mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
       <div class="flex items-center gap-4">
         <slot name="reload-left" />
         <div class="flex items-center gap-4" :aria-label="t('tableErd.view')" role="group">
@@ -53,7 +53,7 @@
     />
 
     <!-- Search and filters row -->
-    <div>
+    <div class="shrink-0">
       <div class="relative flex items-center gap-1.5">
         <input 
           v-model="searchInput" 
@@ -270,18 +270,18 @@
       </div>
     </div>
 
-    <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative isolate" :aria-busy="!diagramReady && !catalogError">
-      <div v-if="!catalogLoaded && !catalogError" class="h-[460px]" />
+    <div v-if="erdOpened" v-show="tableView === 'erd'" class="relative isolate" :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''" :aria-busy="!diagramReady && !catalogError">
+      <div v-if="!catalogLoaded && !catalogError" :class="fill ? 'flex-1 min-h-[240px]' : 'h-[460px]'" />
       <div v-if="!diagramReady && !catalogError" class="absolute inset-0 z-20 flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-950" role="status" :aria-label="t('tableErd.loading')" data-testid="erd-loading">
         <Spinner class="w-6 h-6 text-gray-400" aria-hidden="true" />
       </div>
       <div v-if="catalogError" class="py-4 text-xs text-gray-500" role="alert">{{ t('tableErd.loadError') }} <button class="text-blue-600 underline" @click="loadCatalog()">{{ t('tableErd.retry') }}</button></div>
-      <TablesCanvas v-if="catalogLoaded" :class="{ 'opacity-0 pointer-events-none': !diagramReady }" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
+      <TablesCanvas v-if="catalogLoaded" :class="[{ 'opacity-0 pointer-events-none': !diagramReady }, fill ? 'flex-1 min-h-[240px]' : '']" :fill="fill" @ready="diagramReady = true" :agent-id="dsId" :can-view-prompts="canUpdate" :tables="catalog" :active-ids="canvasActiveIds" :match-ids="canvasMatchIds"
         :filtering="hasActiveFilters" :can-update="canUpdate && !saving" :show-stats="showStats"
         :bottom-inset="fullscreenInPlace ? 120 : 72" :fullscreen="fullscreen" @toggle-fullscreen="toggleFullscreen" :editable-query-ids="editableQueryIds" @toggle="onTableToggle" @edit-query="editQueryTable" />
     </div>
 
-    <div v-show="tableView === 'table'">
+    <div v-show="tableView === 'table'" :class="fill ? 'flex-1 min-h-0 flex flex-col' : ''">
     <!-- Loading state -->
     <div v-if="loading" class="text-sm text-gray-500 dark:text-gray-400 py-10 flex items-center justify-center">
       <Spinner class="w-4 h-4 me-2" />
@@ -289,7 +289,7 @@
     </div>
 
     <!-- Tables list -->
-    <div v-else class="flex-1 flex flex-col h-full">
+    <div v-else class="flex-1 flex flex-col" :class="fill ? 'min-h-0' : 'h-full'">
       <!-- Delegated (OBO) connection, caller not signed in yet: explain instead
            of an unexplained empty list, and offer the sign-in right here. -->
       <div v-if="tables.length === 0 && connectRequiredConn" class="py-8 flex flex-col items-center gap-1.5 text-center">
@@ -318,7 +318,7 @@
         </p>
       </div>
       <div v-else-if="tables.length === 0" class="text-sm text-gray-500 dark:text-gray-400 py-4">No {{ props.itemNoun.plural }} found.</div>
-      <div v-else class="flex-1 flex flex-col min-h-full">
+      <div v-else class="flex-1 flex flex-col" :class="fill ? 'min-h-0' : 'min-h-full'">
         <!-- Admin/owner viewing the canonical catalog without a personal token:
              selection works, but queries need their own sign-in. -->
         <div v-if="connectRequiredConn" class="mt-2 flex items-center justify-between gap-3 rounded-md bg-blue-50 dark:bg-blue-500/10 px-3 py-2">
@@ -336,7 +336,7 @@
             Connect
           </button>
         </div>
-        <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="{ maxHeight }">
+        <div class="flex-1 overflow-y-auto min-h-0 mt-2" :style="fill ? undefined : { maxHeight }">
           <ul class="divide-y divide-gray-100 dark:divide-gray-800">
             <li v-for="table in tables" :key="tableKey(table)" class="py-2 px-2" :data-testid="table.custom_query_id ? `cq-row-${table.name}` : undefined">
               <div class="flex items-center">
@@ -674,6 +674,10 @@ type PaginatedResponse = {
 const props = withDefaults(defineProps<{
   dsId: string;
   fullscreenInPlace?: boolean;
+  // Fill the parent's height (a bounded flex column): the list and the
+  // diagram grow into the remaining space instead of a fixed `maxHeight`
+  // or a window-measured canvas height.
+  fill?: boolean;
   schema: 'full' | 'user';
   canUpdate?: boolean;
   showRefresh?: boolean;
