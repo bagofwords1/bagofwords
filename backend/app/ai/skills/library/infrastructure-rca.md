@@ -3,7 +3,7 @@ key: infrastructure-rca
 title: Infrastructure root cause analysis
 description: Use when something broke or degraded in the infrastructure — find the event, build a timeline from logs, metrics and alerts, then separate cause from symptom.
 category: general
-version: "1.0"
+version: "1.1"
 modes: [chat]
 tags: [observability, diagnostics]
 ---
@@ -93,8 +93,10 @@ sawtooth is a restart loop.
 Narrow to the smallest set of hosts, nodes, tiers or services that shows the
 problem, and check what they share — a rack, an availability zone, a version, a
 config, an upstream dependency. **What is unaffected is as informative as what
-is affected**: if only one tier degraded, everything shared by all tiers is
-ruled out.
+is affected**: if only one tier degraded, anything shared by all tiers needs
+an explanation for why it hit only one. It is not ruled out (a shared database
+can hurt one tier through a query, a lock or a pool the others never touch),
+but it is no longer sufficient on its own.
 
 Use topology rather than inference where you have it: Aria `relationships`,
 AppDynamics `service_flows`, Jaeger `dependencies`. Follow the call graph
@@ -107,9 +109,12 @@ Most infrastructure incidents are caused by a change. Look for deploys, config
 pushes, feature flags, scaling actions, certificate expiries, scheduled jobs,
 and ServiceNow change records in the window.
 
-Then rule out. A change is not the cause if it **predates the first deviation**,
-or if it landed on hosts that did **not** degrade. State the ruled-out changes —
-half the value of an RCA is the list of things it is safely not.
+Then rule out. A change is not the cause if it landed **after the first
+deviation** (allow a few minutes of slack for scrape intervals, alert
+evaluation delay and clock skew — the observed first deviation lags the real
+one), or if it landed only on hosts that did **not** degrade. State the
+ruled-out changes — half the value of an RCA is the list of things it is
+safely not.
 
 ## 6. Separate cause from symptom
 
