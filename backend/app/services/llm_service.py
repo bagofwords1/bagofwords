@@ -947,7 +947,12 @@ class LLMService:
                 LLMProvider.organization_id == organization.id
             )
         )
-        provider = provider.scalar_one_or_none()
+        # .unique() is required: LLMProvider.models is lazy="joined", so the
+        # result carries one row per model and scalar_one_or_none() raises
+        # InvalidRequestError without it (every sibling query here does the
+        # same). Without it this endpoint 500s for every provider, so a
+        # provider could never be enabled or disabled from the UI.
+        provider = provider.unique().scalar_one_or_none()
 
         if not provider:
             raise HTTPException(status_code=404, detail="Provider not found")

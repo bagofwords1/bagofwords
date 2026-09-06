@@ -268,3 +268,68 @@ def test_preset_openai_sync_migrates_to_gpt_56_models(test_client, create_user, 
     assert by_model_id["gpt-5.5"]["max_output_tokens"] == 128000
     assert by_model_id["gpt-5.4-mini"]["is_enabled"] is False
     assert by_model_id["gpt-5.4-mini"]["is_small_default"] is False
+
+
+@pytest.mark.e2e
+def test_toggle_provider_enables_and_disables(create_user, login_user, whoami, test_client):
+    """POST /llm/providers/{id}/toggle flips is_enabled instead of 500ing.
+
+    Regression: LLMProvider.models is lazy="joined", so the SELECT returns one
+    row per model and `scalar_one_or_none()` raised
+    "The unique() method must be invoked on this Result" — every call to this
+    endpoint 500'd, so a provider could never be disabled from the UI.
+    """
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+    headers = {"Authorization": f"Bearer {user_token}", "X-Organization-Id": org_id}
+
+    created = test_client.post(
+        "/api/llm/providers",
+        json={
+            "name": "toggle provider",
+            "provider_type": "openai",
+            "credentials": {"api_key": "sk-not-used-by-this-test"},
+            "models": [
+                {"model_id": "gpt-5.6-sol", "name": "GPT-5.6 Sol", "is_custom": False},
+                {"model_id": "gpt-5.6-terra", "name": "GPT-5.6 Terra", "is_custom": False},
+            ],
+        },
+        headers=headers,
+    )
+    assert created.status_code == 200, created.text
+    provider_id = created.json()["id"]
+
+    def _provider():
+        """The listing only returns enabled providers, so absence == disabled."""
+        providers = test_client.get("/api/llm/providers", headers=headers).json()
+        return next((p for p in providers if p["id"] == provider_id), None)
+
+    assert _provider() is not None and _provider()["is_enabled"] is True
+
+    response = test_client.post(
+        f"/api/llm/providers/{provider_id}/toggle?enabled=false", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert response.json() == {"success": True}
+    assert _provider() is None
+
+    response = test_client.post(
+        f"/api/llm/providers/{provider_id}/toggle?enabled=true", headers=headers
+    )
+    assert response.status_code == 200, response.text
+    assert _provider() is not None and _provider()["is_enabled"] is True
+
+
+@pytest.mark.e2e
+def test_toggle_provider_rejects_unknown_provider(create_user, login_user, whoami, test_client):
+    """An id that isn't this org's provider is a 404, not a 500."""
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)["organizations"][0]["id"]
+
+    response = test_client.post(
+        "/api/llm/providers/00000000-0000-0000-0000-000000000000/toggle?enabled=false",
+        headers={"Authorization": f"Bearer {user_token}", "X-Organization-Id": org_id},
+    )
+    assert response.status_code == 404
