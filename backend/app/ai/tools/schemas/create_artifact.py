@@ -49,6 +49,15 @@ class CreateArtifactInput(BaseModel):
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt. Must be viewer-agnostic: never a person's name/email or a possessive built from one ('Yochay's Catalog' -> 'Album Catalog') — artifacts are shared, and per-viewer personalization happens inside the artifact via current_user, not in its title.")
     mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
+    replaces_artifact_id: Optional[str] = Field(default=None, description=(
+        "REBUILD TARGET. When this call rebuilds/redesigns an EXISTING artifact from scratch "
+        "(Step A cases (b)/(c)), pass `<current_artifact>.<artifact_id>` — the result is saved "
+        "as the next VERSION of that artifact, keeping its history in one chain. OMIT for a "
+        "brand-new artifact (case (a)): it starts its own history at v1 even when the report "
+        "already has other artifacts. Must reference an artifact of the same report and the "
+        "same mode; otherwise the tool creates a new artifact and notes the fallback in its "
+        "observation."
+    ))
     file_ids: Optional[List[str]] = Field(
         default=None,
         description=(

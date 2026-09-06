@@ -29,6 +29,7 @@ from app.ai.tools.schemas.create_artifact import CreateArtifactInput, CreateArti
 from app.ai.llm import LLM
 from app.ai.llm.types import ImageInput, Message, TextDeltaEvent
 from app.models.artifact import Artifact, ArtifactVersion
+from app.services.artifact_service import new_artifact, new_version
 from app.models.visualization import Visualization
 from app.dependencies import async_session_maker
 from app.services.thumbnail_service import ThumbnailService
@@ -1199,18 +1200,56 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         except Exception:
             pass
 
+        # Rebuild-over-existing: an explicit replace target makes this call the
+        # next VERSION of that artifact. Without it, always a NEW artifact —
+        # even when the report already has one (decision D3).
+        replace_source = None
+        replace_fallback_note = ""
+        if getattr(data, "replaces_artifact_id", None):
+            from app.services.artifact_service import ArtifactService
+            candidate = await ArtifactService().get(db, str(data.replaces_artifact_id))
+            if (
+                candidate is not None
+                and report is not None
+                and str(candidate.report_id) == str(report.id)
+                and (organization is None or str(candidate.organization_id) == str(organization.id))
+                and candidate.mode == data.mode
+            ):
+                replace_source = candidate
+            else:
+                logger.warning(
+                    "create_artifact: replaces_artifact_id=%s does not match an artifact of "
+                    "report %s / mode %s — falling back to a new artifact",
+                    data.replaces_artifact_id, getattr(report, "id", None), data.mode,
+                )
+                replace_fallback_note = (
+                    " NOTE: replaces_artifact_id did not match an existing artifact of this "
+                    "report and mode, so a NEW artifact was created instead."
+                )
+
         # Create artifact early with pending status so frontend can show it
-        artifact = await new_artifact(
-            db,
-            report_id=str(report.id) if report else None,
-            user_id=str(user.id) if user else None,
-            organization_id=str(organization.id) if organization else None,
-            mode=data.mode,
-            title=data.title or "Untitled Artifact",
-            content={},  # Empty content initially
-            generation_prompt=data.prompt,
-            status="pending",
-        )
+        if replace_source is not None:
+            artifact = await new_version(
+                db,
+                replace_source,
+                user_id=str(user.id) if user else None,
+                title=data.title,
+                content={},  # Empty content initially
+                generation_prompt=data.prompt,
+                status="pending",
+            )
+        else:
+            artifact = await new_artifact(
+                db,
+                report_id=str(report.id) if report else None,
+                user_id=str(user.id) if user else None,
+                organization_id=str(organization.id) if organization else None,
+                mode=data.mode,
+                title=data.title or "Untitled Artifact",
+                content={},  # Empty content initially
+                generation_prompt=data.prompt,
+                status="pending",
+            )
         await db.commit()
 
         # Notify frontend that artifact is created (pending)
@@ -1238,7 +1277,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # of the same mode, its code goes into the prompt as the preservation
         # baseline — a rebuild must reproduce everything the request doesn't name.
         prior_code = ""
-        if data.mode == "page" and report is not None:
+        if data.mode == "page" and replace_source is not None and isinstance(replace_source.content, dict):
+            prior_code = replace_source.content.get("code") or ""
+        elif data.mode == "page" and report is not None:
             try:
                 _prev_res = await db.execute(
                     select(ArtifactVersion)
@@ -1702,7 +1743,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         }
 
         # Build observation message
-        summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
+        if replace_source is not None:
+            summary_msg = (
+                f"Created v{artifact.version} of artifact '{artifact.title or 'Untitled'}' "
+                f"with {len(code)} characters of code"
+            )
+        else:
+            summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
+        summary_msg += replace_fallback_note
         if data.mode == "slides":
             if pptx_repair_attempts:
                 summary_msg += f". PPTX execution passed after {pptx_repair_attempts} in-tool repair attempt(s)."
