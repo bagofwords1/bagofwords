@@ -29,7 +29,6 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import ArtifactVersion
 from tests.fixtures.artifact import seed_artifact
 from app.models.query import Query
 from app.models.report import Report

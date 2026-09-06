@@ -749,10 +749,14 @@ class ReportService:
             )
         )
         report_schema.query_count = qc_result.scalar() or 0
+        # Count ARTIFACTS (parent identities), not version rows — the list
+        # path derives the same field from report.artifacts (parents), and a
+        # dashboard edited four times is still one artifact.
+        from app.models.artifact import Artifact as ArtifactParent
         ac_result = await db.execute(
-            select(func.count(ArtifactVersion.id)).where(
-                ArtifactVersion.report_id == report.id,
-                ArtifactVersion.deleted_at.is_(None),
+            select(func.count(ArtifactParent.id)).where(
+                ArtifactParent.report_id == report.id,
+                ArtifactParent.deleted_at.is_(None),
             )
         )
         report_schema.artifact_count = ac_result.scalar() or 0

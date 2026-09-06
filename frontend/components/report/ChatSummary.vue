@@ -45,7 +45,7 @@
                 <div class="flex items-center gap-1.5">
                   <span class="text-sm text-gray-700 dark:text-gray-300 truncate">{{ group.latest.title || $t('prompt.untitled') }}</span>
                   <span v-if="group.latest.version" class="text-[10px] font-medium text-gray-400 flex-shrink-0">v{{ group.latest.version }}</span>
-                  <span v-if="group.latest.id === artifactList[0]?.id" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
+                  <span v-if="group.latest.id === defaultArtifactId" class="inline-flex items-center text-[10px] font-medium text-blue-600 bg-blue-50 dark:bg-blue-950 px-1.5 py-0.5 rounded flex-shrink-0">{{ $t('chatSummary.default') }}</span>
                 </div>
                 <div v-if="group.latest.mode" class="text-[11px] text-gray-400 mt-0.5">{{ group.latest.mode === 'doc' ? $t('chatSummary.document') : group.latest.mode }}</div>
               </div>
@@ -273,6 +273,14 @@ watch(() => [props.queryExecutions.length, props.artifactList.length], loadNotes
 defineExpose({ reloadNotes: loadNotes })
 
 const showAllArtifacts = ref(false)
+
+// The artifact the report page actually opens by default: the newest
+// dashboard/deck row (docs never take the default slot — same rule as the
+// backend's get_latest_by_report and the public share page).
+const defaultArtifactId = computed(() => {
+  const rows = props.artifactList || []
+  return (rows.find((a: any) => a?.mode !== 'doc') || rows[0])?.id
+})
 
 // One row per ARTIFACT, not per version — and not per kind either. Grouping
 // by mode (the previous rule) merged two different dashboards of the same

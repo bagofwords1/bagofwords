@@ -4,7 +4,6 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import defer, lazyload, load_only
 
 from app.models.artifact import Artifact, ArtifactVersion
-from app.models.report import Report
 from app.schemas.artifact_schema import (
     ArtifactCreate,
     ArtifactUpdate,
@@ -347,14 +346,35 @@ class ArtifactService:
         return artifact
 
     async def delete(self, db: AsyncSession, artifact_id: str) -> bool:
-        """Soft delete an artifact."""
+        """Soft delete a version; the parent follows when nothing is left.
+
+        An artifact "exists" iff it has a live version — identity-level scans
+        (has_artifacts, artifact_mode filters, chat-summary rows) read the
+        parent table, so a parent whose last version is deleted must be
+        soft-deleted with it or those scans would keep resurrecting it.
+        """
         artifact = await self.get(db, artifact_id)
         if not artifact:
             return False
 
         from datetime import datetime
-        artifact.deleted_at = datetime.utcnow()
+        now = datetime.utcnow()
+        artifact.deleted_at = now
         db.add(artifact)
+
+        remaining = (await db.execute(
+            select(func.count(ArtifactVersion.id)).where(
+                ArtifactVersion.artifact_id == str(artifact.artifact_id),
+                ArtifactVersion.id != str(artifact.id),
+                ArtifactVersion.deleted_at.is_(None),
+            )
+        )).scalar() or 0
+        if remaining == 0:
+            parent = await db.get(Artifact, str(artifact.artifact_id))
+            if parent is not None and parent.deleted_at is None:
+                parent.deleted_at = now
+                db.add(parent)
+
         await db.commit()
         return True
 

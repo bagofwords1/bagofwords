@@ -58,15 +58,6 @@ _OLD_INDEXES = (
 _CHUNK = 500
 
 
-def _versions_table_lite() -> sa.Table:
-    """Just the columns the backfill touches — not the full model."""
-    return sa.table(
-        'artifact_versions',
-        sa.column('id', sa.String(36)),
-        sa.column('artifact_id', sa.String(36)),
-    )
-
-
 def _parents_table_lite() -> sa.Table:
     # Timestamp columns deliberately untyped: the backfill re-inserts whatever
     # the raw SELECT returned — datetime objects on Postgres, strings on

@@ -24,7 +24,6 @@ for _stmt in re.findall(r"^from app\.models\S* import \([^)]*\)|^from app\.model
     exec(_stmt)  # noqa: S102 -- test-only, mirrors alembic/env.py
 
 from app.ai.context.builders.files_context_builder import FilesContextBuilder
-from app.models.artifact import ArtifactVersion
 from tests.fixtures.artifact import seed_artifact
 from app.models.base import Base
 from app.models.completion import Completion

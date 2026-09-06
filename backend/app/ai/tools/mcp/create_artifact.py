@@ -13,7 +13,6 @@ from app.ai.tools.mcp.context import build_rich_context
 from app.ai.llm import LLM
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.artifact import ArtifactVersion
 from app.services.artifact_service import new_artifact
 from app.models.visualization import Visualization
 from app.models.query import Query

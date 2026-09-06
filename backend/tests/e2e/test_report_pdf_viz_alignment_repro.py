@@ -56,7 +56,6 @@ from app.dependencies import async_session_maker
 from app.models.organization import Organization
 from app.models.user import User
 from app.models.report import Report
-from app.models.artifact import ArtifactVersion
 from tests.fixtures.artifact import seed_artifact
 from app.models.visualization import Visualization
 from app.models.query import Query

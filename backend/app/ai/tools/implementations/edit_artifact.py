@@ -13,6 +13,8 @@ from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
 from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import lazyload
 
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
@@ -101,7 +103,18 @@ class EditArtifactTool(Tool):
         report = runtime_ctx.get("report")
         user = runtime_ctx.get("user")
 
-        artifact = await db.get(ArtifactVersion, str(data.artifact_id))
+        # Not db.get(): read_report may have left a load_only-partial instance
+        # of this row in the session's identity map, and get() would return it
+        # as-is — first .content/.report_id access then lazy-loads and raises
+        # MissingGreenlet under async. A real SELECT fills the missing columns.
+        artifact = (await db.execute(
+            select(ArtifactVersion)
+            .options(lazyload("*"))
+            .where(
+                ArtifactVersion.id == str(data.artifact_id),
+                ArtifactVersion.deleted_at.is_(None),
+            )
+        )).scalar_one_or_none()
         if artifact is None or (report is not None and str(artifact.report_id) != str(report.id)):
             yield self._fail(None, "not_found", f"Artifact {data.artifact_id} not found in this report.")
             return
