@@ -108,6 +108,92 @@ async def test_revert_numbers_within_the_artifact_kind(report_context):
 
 
 @pytest.mark.asyncio
+async def test_two_same_mode_artifacts_number_independently(report_context):
+    """A second dashboard in the same report starts and grows its OWN chain.
+
+    Pre-normalization this was impossible to get right: max(version) could
+    only be scoped report+mode, so a second dashboard borrowed the first
+    one's numbers. Now the chain is the parent's alone.
+    """
+    db, _doc_v1_id, report_id, user_id = report_context
+    from app.services.artifact_service import new_artifact, new_version
+
+    doc_v1 = await ArtifactService().get(db, _doc_v1_id)
+    second = await new_artifact(
+        db,
+        report_id=report_id,
+        organization_id=str(doc_v1.organization_id),
+        user_id=user_id,
+        mode="page",
+        title="Second dashboard",
+        content={"code": "function App() {}", "visualization_ids": []},
+    )
+    assert second.version == 1, (
+        f"a NEW dashboard must start at v1 even beside a v7 chain, got v{second.version}"
+    )
+
+    grown = await new_version(db, second, user_id=user_id, content={"code": "x", "visualization_ids": []})
+    assert grown.version == 2
+    assert grown.artifact_id == second.artifact_id
+
+
+@pytest.mark.asyncio
+async def test_soft_deleted_top_version_number_is_never_reissued(report_context):
+    """Soft-deleting the newest version must not free its number — the
+    UNIQUE(artifact_id, version) spans deleted rows, so reissuing it would
+    be an IntegrityError (or a silent history rewrite)."""
+    db, doc_v1_id, _report_id, user_id = report_context
+    from datetime import datetime
+
+    from app.services.artifact_service import new_version
+
+    doc_v1 = await ArtifactService().get(db, doc_v1_id)
+    doc_v3 = await new_version(db, doc_v1, user_id=user_id, content={"markdown": "v3"})
+    doc_v3.deleted_at = datetime.utcnow()
+    await db.commit()
+
+    after_delete = await new_version(db, doc_v1, user_id=user_id, content={"markdown": "next"})
+    assert after_delete.version == 4, (
+        f"expected v4 (v3 is soft-deleted but its number stays reserved), got v{after_delete.version}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_rename_via_new_version_retitles_only_that_artifact(report_context):
+    """title lives on the parent: a rename applies to every version of THAT
+    artifact and to no other artifact of the report."""
+    db, doc_v1_id, report_id, user_id = report_context
+    from app.services.artifact_service import new_version
+
+    doc_v1 = await ArtifactService().get(db, doc_v1_id)
+    renamed = await new_version(
+        db, doc_v1, user_id=user_id, content={"markdown": "v3"}, title="Renamed report"
+    )
+    await db.commit()
+
+    # A fresh request sees the rename immediately; inside this session the
+    # pre-rename instances sit in the identity map with their stale loaded
+    # title, so expire them the way a new request's empty session would.
+    db.expire_all()
+    listed = await ArtifactService().list_by_report(db, report_id)
+    doc_titles = {a.title for a in listed if a.mode == "doc"}
+    page_titles = {a.title for a in listed if a.mode == "page"}
+    assert doc_titles == {"Renamed report"}, (
+        "every version of the renamed doc reads the parent's new title"
+    )
+    assert page_titles == {"Revenue by artist"}, "the dashboard must keep its own title"
+    assert renamed.title == "Renamed report"
+
+
+def test_constructor_refuses_title_and_mode():
+    """column_property would swallow these silently — fail loudly instead."""
+    with pytest.raises(TypeError, match="parent Artifact"):
+        ArtifactVersion(title="sneaky")
+    with pytest.raises(TypeError, match="parent Artifact"):
+        ArtifactVersion(mode="page")
+
+
+@pytest.mark.asyncio
 async def test_revert_never_collides_with_an_existing_version(report_context):
     """Whatever the scope, the new number must be free within its own kind."""
     db, doc_v1_id, report_id, user_id = report_context
