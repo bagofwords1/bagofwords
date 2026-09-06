@@ -19,7 +19,10 @@ from app.schemas.console_schema import (
     AgentExecutionSummaryItem, AgentExecutionSummariesResponse,
     LLMUsageMetrics, LLMUsageItem,
     DiagnosisStatusPoint, DiagnosisTimeSeriesMetrics,
-    DiagnosisUser, DiagnosisUsersResponse
+    DiagnosisUser, DiagnosisUsersResponse,
+    DiagnosisTool, DiagnosisToolsResponse,
+    DiagnosisTable, DiagnosisTablesResponse,
+    DiagnosisErrorGroup, DiagnosisErrorGroupsResponse
 )
 from typing import Optional, Dict, Any, List
 from datetime import datetime, timedelta, timezone
@@ -56,6 +59,8 @@ from app.models.usage_policy import UsageEvent
 from app.models.instruction_build import InstructionBuild
 from app.models.report_data_source_association import report_data_source_association
 from app.models.data_source import DataSource
+from app.models.table_usage_event import TableUsageEvent
+from app.models.datasource_table import DataSourceTable
 from app.models.group import Group
 from app.models.group_membership import GroupMembership
 from app.schemas.console_schema import CostMetrics, CostBreakdownItem, CostTimeSeriesPoint
@@ -83,6 +88,14 @@ _NON_TURN_USAGE_SCOPES = (
     "tool_call_judge",
     "webhook_classifier",
 )
+
+# Internal/meta tools hidden from the diagnosis UI — they are invoked by
+# training/observability agents, not by a user-facing run, so they only add
+# noise to the per-run tool chips and the tool-filter facet.
+_INTERNAL_TOOL_NAMES = frozenset({
+    'list_agent_executions', 'search_instructions', 'edit_instruction',
+    'create_instruction', 'run_eval', 'search_evals', 'create_eval',
+})
 
 
 def _turn_usage_scope_clause():
@@ -169,6 +182,52 @@ class ConsoleService:
             self._parse_data_source_ids(params.data_source_ids),
             self._parse_data_source_ids(params.scope_data_source_ids)
             if params.scope_data_source_ids is not None else None,
+        )
+
+    def _diagnosis_slice_subqueries(self, params: MetricsQueryParams) -> list:
+        """Subqueries of agent-execution ids matching the diagnosis slice
+        filters (tool / table), one per active filter — empty when none.
+
+        Callers AND them together (``AgentExecution.id.in_(subq)`` for each), so
+        a run must match every active slice. Two subqueries rather than one so a
+        run qualifies when the selected tool and the selected table were touched
+        by *different* tool calls of the same run — slicing runs, not calls.
+        """
+        subqueries = []
+        tool_names = [t.strip() for t in (params.tool_names or '').split(',') if t.strip()]
+        if tool_names:
+            q = select(ToolExecution.agent_execution_id).where(ToolExecution.tool_name.in_(tool_names))
+            if params.tool_failed_only:
+                q = q.where(ToolExecution.success == False)
+            subqueries.append(q)
+        elif params.tool_failed_only:
+            # No tool selected: "failed only" means runs where ANY tool failed.
+            subqueries.append(
+                select(ToolExecution.agent_execution_id).where(ToolExecution.success == False)
+            )
+        table_ids = [t.strip() for t in (params.table_ids or '').split(',') if t.strip()]
+        if table_ids:
+            subqueries.append(
+                select(ToolExecution.agent_execution_id)
+                .join(TableUsageEvent, TableUsageEvent.step_id == ToolExecution.created_step_id)
+                .where(TableUsageEvent.datasource_table_id.in_(table_ids))
+            )
+        return subqueries
+
+    def _prompt_search_completion_subquery(self, prompt_search: Optional[str]):
+        """System-completion ids whose parent user completion's prompt matches
+        the free-text search, or None when there is no search. AgentExecution
+        rows carry the *system* completion id, so callers filter with
+        ``AgentExecution.completion_id.in_(this)``."""
+        if not prompt_search:
+            return None
+        from sqlalchemy import Text, cast as sa_cast
+        SystemCompletion = aliased(Completion)
+        UserCompletion = aliased(Completion)
+        return (
+            select(SystemCompletion.id)
+            .join(UserCompletion, UserCompletion.id == SystemCompletion.parent_id)
+            .where(sa_cast(UserCompletion.prompt, Text).ilike(f'%{prompt_search}%'))
         )
 
     def _to_utc_naive(self, dt: Optional[datetime]) -> Optional[datetime]:
@@ -2524,6 +2583,10 @@ class ConsoleService:
                 AgentExecution.report_id.in_(self._reports_of_data_sources([], scope_ids))
             )
 
+        # Tool / table slice filters (diagnosis dropdowns)
+        for slice_subq in self._diagnosis_slice_subqueries(params):
+            base_query = base_query.where(AgentExecution.id.in_(slice_subq))
+
         total_q = select(func.count()).select_from(base_query.subquery())
         total_res = await db.execute(total_q)
         total_items = int(total_res.scalar() or 0)
@@ -2674,7 +2737,7 @@ class ConsoleService:
                 te_counts[str(ae_id)] = {'total': total, 'success': successes, 'failed': failures}
 
             # Distinct tool names per AE (ordered by first call, excluding internal/meta tools)
-            _skip_tools = {'list_agent_executions', 'search_instructions', 'edit_instruction', 'create_instruction', 'run_eval', 'search_evals', 'create_eval'}
+            _skip_tools = _INTERNAL_TOOL_NAMES
             tn_q = (
                 select(ToolExecution.agent_execution_id, ToolExecution.tool_name)
                 .where(ToolExecution.agent_execution_id.in_(ae_ids))
@@ -2801,11 +2864,18 @@ class ConsoleService:
         # Build data source filter subquery if needed
         ds_filter_subquery = self._reports_in_scope(params)
 
+        slice_subqueries = self._diagnosis_slice_subqueries(params)
+        prompt_subquery = self._prompt_search_completion_subquery(params.prompt_search)
+
         def apply_common_filters(query):
             if ds_filter_subquery is not None:
                 query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
             if parsed_user_ids:
                 query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
+            for slice_subq in slice_subqueries:
+                query = query.where(AgentExecution.id.in_(slice_subq))
+            if prompt_subquery is not None:
+                query = query.where(AgentExecution.completion_id.in_(prompt_subquery))
             return query
 
         # Count failed queries (create_data tool failures - includes internal + MCP)
@@ -2921,11 +2991,18 @@ class ConsoleService:
 
         ds_filter_subquery = self._reports_in_scope(params)
 
+        slice_subqueries = self._diagnosis_slice_subqueries(params)
+        prompt_subquery = self._prompt_search_completion_subquery(params.prompt_search)
+
         def apply_common_filters(query):
             if ds_filter_subquery is not None:
                 query = query.where(AgentExecution.report_id.in_(ds_filter_subquery))
             if parsed_user_ids:
                 query = query.where(AgentExecution.user_id.in_(parsed_user_ids))
+            for slice_subq in slice_subqueries:
+                query = query.where(AgentExecution.id.in_(slice_subq))
+            if prompt_subquery is not None:
+                query = query.where(AgentExecution.completion_id.in_(prompt_subquery))
             return query
 
         # Fetch all agent executions in range (id, created_at, status)
@@ -3016,3 +3093,133 @@ class ConsoleService:
             for r in res.all()
         ]
         return DiagnosisUsersResponse(users=users)
+
+    async def get_diagnosis_tools(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        scope_data_source_ids: Optional[List[str]] = None,
+    ) -> DiagnosisToolsResponse:
+        """Distinct tool names invoked by agent executions in this org, with
+        total/failed counts (facet for the diagnosis tool filter). Like the
+        users facet: deliberately unscoped by date, scoped to the caller's
+        readable reports, and hiding internal/meta tools."""
+        q = (
+            select(
+                ToolExecution.tool_name,
+                func.count(ToolExecution.id).label('total'),
+                func.sum(case((ToolExecution.success == False, 1), else_=0)).label('failed'),
+            )
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                ToolExecution.tool_name.notin_(_INTERNAL_TOOL_NAMES),
+            )
+            .group_by(ToolExecution.tool_name)
+            .order_by(ToolExecution.tool_name)
+        )
+        ds_filter_subquery = self._reports_of_data_sources([], scope_data_source_ids)
+        if ds_filter_subquery is not None:
+            q = q.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        res = await db.execute(q)
+        tools = [
+            DiagnosisTool(name=r.tool_name, total=int(r.total or 0), failed=int(r.failed or 0))
+            for r in res.all()
+        ]
+        return DiagnosisToolsResponse(tools=tools)
+
+    async def get_diagnosis_tables(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        scope_data_source_ids: Optional[List[str]] = None,
+    ) -> DiagnosisTablesResponse:
+        """Distinct data tables touched by runs in this org (facet for the
+        diagnosis table filter). Keyed by datasource_table_id — a bare table
+        name is not unique across data sources — and labeled with the data
+        source name so two `orders` tables stay distinguishable."""
+        q = (
+            select(
+                DataSourceTable.id,
+                DataSourceTable.name,
+                DataSource.id.label('data_source_id'),
+                DataSource.name.label('data_source_name'),
+            )
+            .select_from(TableUsageEvent)
+            .join(DataSourceTable, DataSourceTable.id == TableUsageEvent.datasource_table_id)
+            .join(DataSource, DataSource.id == DataSourceTable.datasource_id)
+            .where(TableUsageEvent.org_id == organization.id)
+            .group_by(DataSourceTable.id, DataSourceTable.name, DataSource.id, DataSource.name)
+            .order_by(DataSource.name, DataSourceTable.name)
+        )
+        ds_filter_subquery = self._reports_of_data_sources([], scope_data_source_ids)
+        if ds_filter_subquery is not None:
+            q = q.where(TableUsageEvent.report_id.in_(ds_filter_subquery))
+        res = await db.execute(q)
+        tables = [
+            DiagnosisTable(
+                id=str(r.id),
+                name=r.name,
+                data_source_id=str(r.data_source_id),
+                data_source_name=r.data_source_name or '',
+            )
+            for r in res.all()
+        ]
+        return DiagnosisTablesResponse(tables=tables)
+
+    async def get_diagnosis_error_groups(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        params: MetricsQueryParams,
+        limit: int = 5,
+    ) -> DiagnosisErrorGroupsResponse:
+        """Failed tool calls grouped by (tool, error message), most frequent
+        first — the "top errors" panel. Counts distinct runs, and honors every
+        diagnosis filter so the groups always describe the same slice the
+        table shows."""
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        parsed_user_ids = self._parse_user_ids(params.user_ids)
+        ds_filter_subquery = self._reports_in_scope(params)
+        slice_subqueries = self._diagnosis_slice_subqueries(params)
+        prompt_subquery = self._prompt_search_completion_subquery(params.prompt_search)
+
+        error_expr = func.coalesce(ToolExecution.error_message, '')
+        count_expr = func.count(func.distinct(ToolExecution.agent_execution_id))
+        q = (
+            select(
+                ToolExecution.tool_name,
+                error_expr.label('error_message'),
+                count_expr.label('cnt'),
+            )
+            .join(AgentExecution, AgentExecution.id == ToolExecution.agent_execution_id)
+            .where(
+                AgentExecution.organization_id == organization.id,
+                AgentExecution.created_at >= start_date,
+                AgentExecution.created_at <= end_date,
+                ToolExecution.success == False,
+                ToolExecution.tool_name.notin_(_INTERNAL_TOOL_NAMES),
+            )
+            .group_by(ToolExecution.tool_name, error_expr)
+            .order_by(count_expr.desc())
+            .limit(limit)
+        )
+        if ds_filter_subquery is not None:
+            q = q.where(AgentExecution.report_id.in_(ds_filter_subquery))
+        if parsed_user_ids:
+            q = q.where(AgentExecution.user_id.in_(parsed_user_ids))
+        for slice_subq in slice_subqueries:
+            q = q.where(AgentExecution.id.in_(slice_subq))
+        if prompt_subquery is not None:
+            q = q.where(AgentExecution.completion_id.in_(prompt_subquery))
+
+        res = await db.execute(q)
+        groups = [
+            DiagnosisErrorGroup(
+                tool_name=r.tool_name,
+                error_message=r.error_message,
+                count=int(r.cnt or 0),
+            )
+            for r in res.all()
+        ]
+        return DiagnosisErrorGroupsResponse(groups=groups)

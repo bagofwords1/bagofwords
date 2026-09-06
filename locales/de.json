@@ -3781,7 +3781,16 @@
       "activityChartSuccess": "Erfolgreich",
       "activityChartTitle": "Aktivität der Agentenläufe",
       "activityChartTotal": "Gesamt",
-      "dayFilterLabel": "Zeigt {date}"
+      "dayFilterLabel": "Zeigt {date}",
+      "filterToolsAll": "Alle Tools",
+      "filterTablesAll": "Alle Tabellen",
+      "failedOnly": "Nur fehlgeschlagene",
+      "topErrors": "Häufigste Fehler",
+      "clearAll": "Alle Filter löschen",
+      "noErrorMessage": "Keine Fehlermeldung",
+      "colRuns": "Läufe",
+      "colError": "Fehler",
+      "noErrorsFound": "Keine fehlgeschlagenen Tool-Aufrufe in diesem Zeitraum"
     },
     "title": "Überwachung",
     "tabExplore": "Erkunden",

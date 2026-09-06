@@ -18,6 +18,12 @@ class MetricsQueryParams(BaseModel):
     scope_data_source_ids: Optional[str] = Field(
         None, exclude=True, description="Internal: caller's permitted data sources (server-set)"
     )
+    # Diagnosis slice filters. Only the diagnosis endpoints (summaries, metrics,
+    # timeseries) read these; other console endpoints ignore them.
+    tool_names: Optional[str] = Field(None, description="Comma-separated tool names — runs that invoked any of them")
+    tool_failed_only: Optional[bool] = Field(False, description="With tool_names: only runs where a selected tool failed")
+    table_ids: Optional[str] = Field(None, description="Comma-separated datasource_table ids — runs that touched any of them")
+    prompt_search: Optional[str] = Field(None, description="Free-text match against the run's user prompt")
 
 class SimpleMetrics(BaseModel):
     total_messages: int
@@ -83,6 +89,31 @@ class DiagnosisUser(BaseModel):
 
 class DiagnosisUsersResponse(BaseModel):
     users: List[DiagnosisUser]
+
+class DiagnosisTool(BaseModel):
+    name: str
+    total: int
+    failed: int
+
+class DiagnosisToolsResponse(BaseModel):
+    tools: List[DiagnosisTool]
+
+class DiagnosisTable(BaseModel):
+    id: str
+    name: str
+    data_source_id: str
+    data_source_name: str
+
+class DiagnosisTablesResponse(BaseModel):
+    tables: List[DiagnosisTable]
+
+class DiagnosisErrorGroup(BaseModel):
+    tool_name: str
+    error_message: str
+    count: int
+
+class DiagnosisErrorGroupsResponse(BaseModel):
+    groups: List[DiagnosisErrorGroup]
 
 class TableUsageData(BaseModel):
     table_name: str

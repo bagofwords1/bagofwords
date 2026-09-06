@@ -3781,7 +3781,16 @@
       "activityChartSuccess": "ناجحة",
       "activityChartTitle": "نشاط تشغيل الوكلاء",
       "activityChartTotal": "الإجمالي",
-      "dayFilterLabel": "عرض {date}"
+      "dayFilterLabel": "عرض {date}",
+      "filterToolsAll": "كل الأدوات",
+      "filterTablesAll": "كل الجداول",
+      "failedOnly": "الفاشلة فقط",
+      "topErrors": "الأخطاء الشائعة",
+      "clearAll": "مسح كل عوامل التصفية",
+      "noErrorMessage": "لا توجد رسالة خطأ",
+      "colRuns": "التشغيلات",
+      "colError": "خطأ",
+      "noErrorsFound": "لا توجد إخفاقات أدوات في هذا النطاق"
     },
     "title": "المراقبة",
     "tabExplore": "استكشاف",

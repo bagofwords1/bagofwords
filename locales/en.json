@@ -3946,7 +3946,16 @@
       "activityChartTotal": "Total",
       "dayFilterLabel": "Showing {date}",
       "filterUsersAll": "All users",
-      "searchPlaceholder": "Search prompts…"
+      "searchPlaceholder": "Search prompts…",
+      "filterToolsAll": "All tools",
+      "filterTablesAll": "All tables",
+      "failedOnly": "Failed only",
+      "topErrors": "Top Errors",
+      "clearAll": "Clear all filters",
+      "noErrorMessage": "No error message",
+      "colRuns": "Runs",
+      "colError": "Error",
+      "noErrorsFound": "No failed tool calls in this range"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",

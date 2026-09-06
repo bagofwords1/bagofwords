@@ -3781,7 +3781,16 @@
       "activityChartSuccess": "Lyckades",
       "activityChartTitle": "Aktivitet för agentkörningar",
       "activityChartTotal": "Totalt",
-      "dayFilterLabel": "Visar {date}"
+      "dayFilterLabel": "Visar {date}",
+      "filterToolsAll": "Alla verktyg",
+      "filterTablesAll": "Alla tabeller",
+      "failedOnly": "Endast misslyckade",
+      "topErrors": "Vanligaste felen",
+      "clearAll": "Rensa alla filter",
+      "noErrorMessage": "Inget felmeddelande",
+      "colRuns": "Körningar",
+      "colError": "Fel",
+      "noErrorsFound": "Inga misslyckade verktygsanrop i detta intervall"
     },
     "title": "Övervakning",
     "tabExplore": "Utforska",

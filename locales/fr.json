@@ -3781,7 +3781,16 @@
       "activityChartSuccess": "Succès",
       "activityChartTitle": "Activité d'exécution des agents",
       "activityChartTotal": "Total",
-      "dayFilterLabel": "Affichage du {date}"
+      "dayFilterLabel": "Affichage du {date}",
+      "filterToolsAll": "Tous les outils",
+      "filterTablesAll": "Toutes les tables",
+      "failedOnly": "Échecs uniquement",
+      "topErrors": "Erreurs principales",
+      "clearAll": "Effacer tous les filtres",
+      "noErrorMessage": "Pas de message d'erreur",
+      "colRuns": "Exécutions",
+      "colError": "Erreur",
+      "noErrorsFound": "Aucun échec d'outil sur cette période"
     },
     "title": "Supervision",
     "tabExplore": "Explorer",

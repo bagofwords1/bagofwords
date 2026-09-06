@@ -3878,7 +3878,16 @@
       "activityChartSuccess": "Éxito",
       "activityChartError": "Error",
       "activityChartTotal": "Total",
-      "dayFilterLabel": "Mostrando {date}"
+      "dayFilterLabel": "Mostrando {date}",
+      "filterToolsAll": "Todas las herramientas",
+      "filterTablesAll": "Todas las tablas",
+      "failedOnly": "Solo fallidas",
+      "topErrors": "Errores principales",
+      "clearAll": "Borrar todos los filtros",
+      "noErrorMessage": "Sin mensaje de error",
+      "colRuns": "Ejecuciones",
+      "colError": "Error",
+      "noErrorsFound": "No hay fallos de herramientas en este rango"
     },
     "title": "Monitoreo",
     "tabExplore": "Explorar",
