@@ -21,6 +21,9 @@ class ScheduledPrompt(BaseSchema):
     is_active = Column(Boolean, nullable=False, default=True)
     last_run_at = Column(DateTime, nullable=True, default=None)
     notification_subscribers = Column(JSON, nullable=True, default=None)  # [{type, id/address}]
+    # Provenance stamp: which built-in template created this task. Non-null
+    # locks prompt/title/spawn edits (schedule + notifications stay editable).
+    template_key = Column(String, nullable=True, index=True)
 
     report = relationship("Report", back_populates="scheduled_prompts", lazy='selectin')
     user = relationship("User", lazy='select')

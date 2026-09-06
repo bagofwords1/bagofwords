@@ -4224,6 +4224,32 @@
     "noAgents": "Inga",
     "project": "Projekt"
   },
+  "scheduledTemplates": {
+    "suggested": "Föreslagna",
+    "subtitle": "Färdiga schemalagda uppgifter — slå på en för att prova",
+    "enable": "Aktivera",
+    "disable": "Pausa",
+    "customize": "Anpassa",
+    "enabledToast": "{name} aktiverad",
+    "disabledToast": "{name} pausad — historiken sparas",
+    "actionFailed": "Kunde inte uppdatera mallen. Försök igen.",
+    "templateBadge": "Mall",
+    "promptLabel": "Vad den gör",
+    "agentsHint": "Uppgiften körs mot de valda agenterna. Allt — inklusive prompten — kan redigeras efter aktivering.",
+    "noAgents": "Inga agenter anslutna ännu — uppgiften letar efter tillgängliga data när den körs.",
+    "editHint": "Den här mallen är redan konfigurerad. Öppna dess uppgift under Mina uppgifter för att redigera prompt, schema, agenter eller aviseringar.",
+    "pausedHint": "Pausad — slå på igen för att fortsätta med historiken",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Veckovis datasammanfattning",
+        "description": "En kort veckosammanfattning av vad som ändrats i dina anslutna data, varje måndag morgon."
+      },
+      "monthly-trends-recap": {
+        "title": "Månatlig trendöversikt",
+        "description": "Trender månad för månad från dina data, med återkopplingar till tidigare månader, den 1:a varje månad."
+      }
+    }
+  },
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Sidan hittades inte",

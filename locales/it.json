@@ -4224,6 +4224,32 @@
     "noAgents": "Nessuno",
     "project": "Progetto"
   },
+  "scheduledTemplates": {
+    "suggested": "Suggerite",
+    "subtitle": "Attività pianificate pronte all’uso: attivane una per provarla",
+    "enable": "Attiva",
+    "disable": "Metti in pausa",
+    "customize": "Personalizza",
+    "enabledToast": "{name} attivata",
+    "disabledToast": "{name} in pausa — cronologia conservata",
+    "actionFailed": "Impossibile aggiornare il modello. Riprova.",
+    "templateBadge": "Modello",
+    "promptLabel": "Cosa farà",
+    "agentsHint": "L’attività verrà eseguita con gli agenti selezionati. Tutto — prompt incluso — è modificabile dopo l’attivazione.",
+    "noAgents": "Nessun agente ancora collegato — l’attività cercherà i dati disponibili all’esecuzione.",
+    "editHint": "Questo modello è già configurato. Apri la sua attività in Le mie attività per modificare prompt, pianificazione, agenti o notifiche.",
+    "pausedHint": "In pausa — riattivala per riprendere con la cronologia",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Digest settimanale dei dati",
+        "description": "Un riepilogo settimanale conciso di ciò che è cambiato nei tuoi dati connessi, ogni lunedì mattina."
+      },
+      "monthly-trends-recap": {
+        "title": "Riepilogo mensile delle tendenze",
+        "description": "Tendenze mese su mese dai tuoi dati, con richiami ai mesi precedenti, il 1° di ogni mese."
+      }
+    }
+  },
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Pagina non trovata",

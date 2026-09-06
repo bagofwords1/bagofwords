@@ -4224,6 +4224,32 @@
     "noAgents": "Keine",
     "project": "Projekt"
   },
+  "scheduledTemplates": {
+    "suggested": "Vorschläge",
+    "subtitle": "Vorgefertigte geplante Aufgaben — zum Ausprobieren einfach einschalten",
+    "enable": "Aktivieren",
+    "disable": "Pausieren",
+    "customize": "Anpassen",
+    "enabledToast": "{name} aktiviert",
+    "disabledToast": "{name} pausiert — Verlauf bleibt erhalten",
+    "actionFailed": "Vorlage konnte nicht aktualisiert werden. Bitte erneut versuchen.",
+    "templateBadge": "Vorlage",
+    "promptLabel": "Was sie tun wird",
+    "agentsHint": "Die Aufgabe läuft mit den ausgewählten Agenten. Alles — auch der Prompt — ist nach der Aktivierung bearbeitbar.",
+    "noAgents": "Noch keine Agenten verbunden — die Aufgabe sucht bei der Ausführung nach verfügbaren Daten.",
+    "editHint": "Diese Vorlage ist bereits eingerichtet. Öffnen Sie ihre Aufgabe unter „Meine Aufgaben“, um Prompt, Zeitplan, Agenten oder Benachrichtigungen zu bearbeiten.",
+    "pausedHint": "Pausiert — wieder einschalten, um mit Verlauf fortzufahren",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Wöchentlicher Daten-Digest",
+        "description": "Eine kompakte wöchentliche Zusammenfassung der Änderungen in Ihren verbundenen Daten, jeden Montagmorgen."
+      },
+      "monthly-trends-recap": {
+        "title": "Monatlicher Trend-Rückblick",
+        "description": "Trends im Monatsvergleich aus Ihren Daten, mit Bezug auf Vormonate, am 1. jedes Monats."
+      }
+    }
+  },
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Seite nicht gefunden",

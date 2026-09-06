@@ -399,6 +399,13 @@ const props = defineProps<{
     initialDataSources?: any[]
     draftContent?: string
     draftModel?: string
+    // Prefill for the template customize flow: the form opens in create mode
+    // seeded with the template's values, all fully editable.
+    draftTitle?: string
+    draftCron?: string
+    draftSpawnNewReport?: boolean
+    // Stamped onto the created task so it counts as that template's instance.
+    templateKey?: string
 }>()
 
 const emit = defineEmits(['saved', 'deleted'])
@@ -417,7 +424,7 @@ const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat
 const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || props.draftModel || '')
 const initialDataSources = computed(() => props.initialDataSources || [])
 
-const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
+const taskTitle = ref<string>(props.scheduledPrompt?.title || props.draftTitle || '')
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
 
 // An existing task opens read-only — you usually come here to check on it, not
@@ -535,7 +542,7 @@ function onCancel() {
 }
 // Output routing: false = run in this report (keeps cross-run memory),
 // true = spawn a fresh, dated report per run (clean snapshots).
-const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? false)
+const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? props.draftSpawnNewReport ?? false)
 
 // ---- Summary-email toggle + prompt-intent heuristic ----
 // Phrases that signal the prompt itself asks to email/notify the user. When the
@@ -613,6 +620,8 @@ function parseCronToStructured(cron: string) {
 // show e.g. "day at 08:00" instead of the task's saved time.
 if (props.scheduledPrompt?.cron_schedule) {
     parseCronToStructured(props.scheduledPrompt.cron_schedule)
+} else if (props.draftCron) {
+    parseCronToStructured(props.draftCron)
 }
 
 // Reset form when scheduledPrompt changes
@@ -783,6 +792,7 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
             body,
         })
     }
+    if (props.templateKey) body.template_key = props.templateKey
     return await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts`, {
         method: 'POST',
         body,

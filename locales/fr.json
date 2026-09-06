@@ -4224,6 +4224,32 @@
     "noAgents": "Aucun",
     "project": "Projet"
   },
+  "scheduledTemplates": {
+    "suggested": "Suggestions",
+    "subtitle": "Tâches planifiées prêtes à l’emploi — activez-en une pour essayer",
+    "enable": "Activer",
+    "disable": "Mettre en pause",
+    "customize": "Personnaliser",
+    "enabledToast": "{name} activée",
+    "disabledToast": "{name} en pause — historique conservé",
+    "actionFailed": "Impossible de mettre à jour le modèle. Veuillez réessayer.",
+    "templateBadge": "Modèle",
+    "promptLabel": "Ce qu’elle fera",
+    "agentsHint": "La tâche s’exécutera avec les agents sélectionnés. Tout — y compris le prompt — reste modifiable après activation.",
+    "noAgents": "Aucun agent connecté pour l’instant — la tâche cherchera les données disponibles à l’exécution.",
+    "editHint": "Ce modèle est déjà configuré. Ouvrez sa tâche dans Mes tâches pour modifier le prompt, la planification, les agents ou les notifications.",
+    "pausedHint": "En pause — réactivez pour reprendre avec l’historique",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Digest hebdomadaire des données",
+        "description": "Un résumé hebdomadaire concis des changements dans vos données connectées, chaque lundi matin."
+      },
+      "monthly-trends-recap": {
+        "title": "Récap mensuel des tendances",
+        "description": "Tendances mois par mois issues de vos données, avec rappels des mois précédents, le 1er de chaque mois."
+      }
+    }
+  },
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Page introuvable",
