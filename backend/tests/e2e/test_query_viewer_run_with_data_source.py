@@ -68,7 +68,7 @@ PARAM_SPEC = {
 }
 
 
-async def _seed_parameterized_query(report_id):
+async def _seed_parameterized_query(report_id, code=PARAM_CODE):
     """Seed the widget/query/step graph an AI-built dashboard produces.
 
     There is no public CRUD API for it, so it is written directly — the same
@@ -99,7 +99,7 @@ async def _seed_parameterized_query(report_id):
             status="success",
             widget_id=widget.id,
             query_id=query.id,
-            code=PARAM_CODE,
+            code=code,
             data={"rows": [{"ran_for": "2023", "client_count": 1}],
                   "columns": [{"field": "ran_for"}, {"field": "client_count"}]},
             applied_params={"BillingYear": "2023"},
@@ -155,3 +155,44 @@ def test_viewer_run_builds_clients_for_a_report_with_data_sources(
     # The attached data source produced at least one client. Zero means
     # construct_clients failed and the run just happened not to need it.
     assert rows[0]["client_count"] >= 1, rows
+
+
+@pytest.mark.e2e
+def test_concurrent_first_viewer_runs_share_one_cache_slot(
+    dynamic_sqlite_db, create_data_source, create_report, create_user,
+    login_user, whoami, test_client, monkeypatch,
+):
+    from concurrent.futures import ThreadPoolExecutor
+    from threading import Barrier
+    from app.data_sources.clients.sqlite_client import SqliteClient
+    user = create_user()
+    token = login_user(user["email"], user["password"])
+    org_id = whoami(token)["organizations"][0]["id"]
+    ds = create_data_source(name=f"concurrent-{uuid.uuid4().hex[:6]}", type="sqlite",
+                            config={"database": dynamic_sqlite_db}, credentials={},
+                            user_token=token, org_id=org_id)
+    report = create_report(title="Concurrent viewer runs", user_token=token,
+                           org_id=org_id, data_sources=[ds["id"]])
+    query_id = _run(_seed_parameterized_query(report["id"], """
+def generate_df(ds_clients, excel_files, params):
+    return next(iter(ds_clients.values())).execute_query('SELECT 73 AS marker')
+"""))
+    # Synchronize only the external query boundary, after both requests have
+    # checked the empty cache. No sleeps or mocked application/DB behavior.
+    barrier = Barrier(2, timeout=20)
+    execute = SqliteClient.execute_query
+    def concurrent_query(self, sql):
+        barrier.wait()
+        return execute(self, sql)
+    monkeypatch.setattr(SqliteClient, "execute_query", concurrent_query)
+    headers = {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
+    def run(_):
+        return test_client.post(f"/api/queries/{query_id}/run",
+            json={"mode": "viewer", "force_refresh": True, "params": {"BillingYear": "2025"}},
+            headers=headers)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        responses = list(pool.map(run, range(2)))
+    for response in responses:
+        assert response.status_code == 200
+        assert response.json()["status"] == "success"
+        assert response.json()["data"]["rows"] == [{"marker": 73}]

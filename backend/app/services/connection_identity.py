@@ -298,11 +298,10 @@ def supports_user_kerberos_sso(connection: Connection) -> bool:
 
 
 def resolve_kerberos_principal(user, row: UserConnectionCredentials | None = None) -> str | None:
-    """The AD principal (UPN) a member's queries impersonate.
+    """Resolve only a server-verified directory binding in the current scope.
 
-    Precedence: an explicit principal the member saved > their login identity.
-    Returns None when neither yields a UPN-shaped value (login isn't an AD UPN
-    and no override saved) — the member must set their principal explicitly.
+    Neither the login email nor a saved member-supplied principal authorizes
+    delegation. The caller must revalidate the directory object before use.
     """
     from app.settings.config import settings
     from app.ee.ldap.connection import LDAPConnectionManager
@@ -323,10 +322,10 @@ async def build_kerberos_sso_status(
 ):
     """Per-user status for a Kerberos-SSO connection (no stored secret).
 
-    A resolvable UPN → the member has delegated access (effective_auth="user"),
+    A verified directory binding → delegated access (effective_auth="user"),
     so their overlay builds by impersonating them. Connection health is "success"
-    once a verify/query has recorded the marker row, else "unknown". No UPN →
-    effective_auth="none" and connection="not_connected" (prompt for principal).
+    once a verify/query has recorded the marker row, else "unknown". No binding →
+    effective_auth="none" and connection="not_connected".
     """
     from app.schemas.data_source_schema import DataSourceUserStatus
 

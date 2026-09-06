@@ -887,22 +887,15 @@ class QueryService:
         # Upsert the per-viewer cached result. Errors are not cached — a
         # failed run must not pin a viewer to an error until force_refresh.
         if status == "success":
-            if existing is None:
-                existing = StepUserResult(
-                    step_id=str(step.id),
-                    user_id=str(caller.id),
-                    organization_id=str(organization_id or report.organization_id),
-                    report_id=str(report.id),
-                    params_fingerprint=fingerprint,
-                )
-            existing.status = "success"
-            existing.status_reason = None
-            existing.data = df
-            existing.applied_params = dict(resolved) if resolved else None
-            existing.executed_as = "viewer"
-            existing.last_run_at = _dt.utcnow()
-            db.add(existing)
-            await db.commit()
+            from app.services.viewer_result_store import store_viewer_result
+            await store_viewer_result(
+                db, step_id=str(step.id), user_id=str(caller.id),
+                organization_id=str(organization_id or report.organization_id),
+                report_id=str(report.id), params_fingerprint=fingerprint,
+                status="success", status_reason=None, data=df,
+                applied_params=dict(resolved) if resolved else None,
+                executed_as="viewer", last_run_at=_dt.utcnow(),
+            )
             return {
                 "data": df or {},
                 "applied_params": resolved,

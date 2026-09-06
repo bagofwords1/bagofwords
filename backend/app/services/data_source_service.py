@@ -3950,8 +3950,10 @@ class DataSourceService:
             ):
                 kwargs["progress_callback"] = progress_callback
             fresh = await client.aget_schemas(**kwargs)
-        if not fresh:
-            return []
+        if fresh is None:
+            # No snapshot is not an authoritative empty snapshot. A successful
+            # empty list must still reconcile and revoke the previous overlay.
+            raise ValueError("Schema discovery returned no snapshot")
 
         # Normalize
         from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
