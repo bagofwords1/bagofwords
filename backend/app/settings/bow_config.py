@@ -1,3 +1,4 @@
+import re
 from typing import List, Optional
 from pydantic import BaseModel, Field, validator, ConfigDict, AliasGenerator
 from pydantic.alias_generators import to_camel
@@ -113,6 +114,22 @@ def brand_for_issuer(issuer: Optional[str]) -> str:
     return "custom"
 
 
+# The sign-in page renders "Sign in with {label}" (and "Continue with {label}"
+# on sign-up), so `label` is the bare product name. Operators who followed the
+# older docs set it to the whole sentence — "Sign in with Microsoft" — which
+# rendered as "Sign in with Sign in with Microsoft". Drop such a verb prefix so
+# either form of config produces one sentence.
+_SIGN_IN_VERB_PREFIX = re.compile(
+    r"^\s*(?:sign\s*in|log\s*in|login|continue)\s+with\s+",
+    re.IGNORECASE,
+)
+
+
+def _strip_sign_in_verb(label: str) -> str:
+    stripped = _SIGN_IN_VERB_PREFIX.sub("", label, count=1).strip()
+    return stripped or label.strip()
+
+
 class OIDCProvider(BaseModel):
     name: str
     enabled: bool = False
@@ -153,7 +170,7 @@ class OIDCProvider(BaseModel):
         its real product name and anything else falls back to the slug.
         """
         if self.label:
-            return self.label
+            return _strip_sign_in_verb(self.label)
         brand = self.brand()
         if brand == "microsoft":
             return "Microsoft"

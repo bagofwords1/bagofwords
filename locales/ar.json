@@ -458,6 +458,7 @@
     "signInWithProvider": "تسجيل الدخول باستخدام {provider}",
     "continueWithProvider": "المتابعة باستخدام {provider}",
     "invalidCredentials": "بيانات الاعتماد غير صحيحة",
+    "credentialsRequired": "أدخل بريدك الإلكتروني وكلمة المرور",
     "signInFailed": "فشل تسجيل الدخول. يرجى المحاولة مرة أخرى.",
     "registrationError": "حدث خطأ أثناء التسجيل.",
     "googleInitError": "تعذّر بدء تسجيل الدخول باستخدام Google",

@@ -142,7 +142,7 @@ config:
   # oidcProviders:
   #   - name: entra
   #     enabled: true
-  #     label: "Sign in with Microsoft"
+  #     label: "Microsoft"   # optional — the button renders as "Sign in with <label>"
   #     icon: microsoft
   #     issuer: https://login.microsoftonline.com/<tenant-id>/v2.0
   #     clientId: "<entra-client-id>"

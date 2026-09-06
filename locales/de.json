@@ -458,6 +458,7 @@
     "signInWithProvider": "Mit {provider} anmelden",
     "continueWithProvider": "Mit {provider} fortfahren",
     "invalidCredentials": "Ungültige Anmeldedaten",
+    "credentialsRequired": "Gib deine E-Mail-Adresse und dein Passwort ein",
     "signInFailed": "Anmeldung fehlgeschlagen. Bitte versuchen Sie es erneut.",
     "registrationError": "Bei der Registrierung ist ein Fehler aufgetreten.",
     "googleInitError": "Google-Anmeldung konnte nicht initialisiert werden",

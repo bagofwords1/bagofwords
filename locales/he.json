@@ -472,6 +472,7 @@
     "signInWithProvider": "התחברות עם {provider}",
     "continueWithProvider": "המשך עם {provider}",
     "invalidCredentials": "פרטי התחברות לא תקינים",
+    "credentialsRequired": "הזן את האימייל והסיסמה שלך",
     "signInFailed": "ההתחברות נכשלה. אנא נסה שוב.",
     "registrationError": "אירעה שגיאה במהלך ההרשמה.",
     "googleInitError": "לא ניתן להפעיל התחברות עם Google",

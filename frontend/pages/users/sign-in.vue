@@ -35,7 +35,7 @@
       <form v-if="showCredentials" @submit.prevent="signInWithCredentials()" :class="showSso ? '' : 'mt-7'">
         <div>
           <label for="email" :class="labelClass">{{ $t('auth.email') }}</label>
-          <input id="email" v-model="email" type="email" autocomplete="email" :class="inputClass" />
+          <input id="email" v-model="email" type="email" autocomplete="email" required :class="inputClass" />
         </div>
 
         <div class="mt-4">
@@ -49,7 +49,7 @@
               {{ $t('auth.forgotPassword') }}
             </NuxtLink>
           </div>
-          <input id="password" v-model="password" type="password" autocomplete="current-password" :class="inputClass" />
+          <input id="password" v-model="password" type="password" autocomplete="current-password" required :class="inputClass" />
         </div>
 
         <button type="submit" :disabled="isSubmitting" :class="primaryButtonClass">
@@ -319,8 +319,16 @@
   }
 
   async function signInWithCredentials() {
-    isSubmitting.value = true
     error_message.value = ''
+    // The inputs are `required`, so a normal click never gets here empty; this
+    // covers programmatic submits and browsers that skip constraint validation.
+    // Without it an empty POST comes back as a 422 whose per-field pydantic
+    // messages ("Field required" twice) were shown verbatim.
+    if (!email.value.trim() || !password.value) {
+      error_message.value = t('auth.credentialsRequired')
+      return
+    }
+    isSubmitting.value = true
     const route = useRoute();
     const redirectedFrom = safeRedirectTarget(route.query.redirect)
 
