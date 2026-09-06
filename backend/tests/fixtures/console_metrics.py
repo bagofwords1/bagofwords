@@ -232,7 +232,7 @@ def get_agent_execution_summaries(test_client):
     def _get_agent_execution_summaries(user_token=None, org_id=None, start_date=None, end_date=None,
                                       page=1, page_size=20, filter=None, user_ids=None, prompt_search=None,
                                       data_source_ids=None, tool_names=None, tool_failed_only=None,
-                                      table_ids=None):
+                                      table_ids=None, tool_error=None):
         headers = {}
         if user_token:
             headers["Authorization"] = f"Bearer {user_token}"
@@ -258,6 +258,8 @@ def get_agent_execution_summaries(test_client):
             params["tool_failed_only"] = tool_failed_only
         if table_ids:
             params["table_ids"] = table_ids
+        if tool_error is not None:
+            params["tool_error"] = tool_error
 
         response = test_client.get(
             "/api/console/agent_executions/summaries",

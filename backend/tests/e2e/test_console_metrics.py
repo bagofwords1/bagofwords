@@ -554,6 +554,12 @@ def test_diagnosis_filters_by_tool_and_table(
     assert filtered_errors.status_code == 200
     assert filtered_errors.json()["groups"] == []
 
+    # Top-errors drill-down: exact error message narrows to just those runs
+    exact = summaries(tool_names="create_data", tool_error="relation orders_x does not exist")
+    assert exact["total_items"] == 1
+    assert exact["items"][0]["prompt"] == "orders broken"
+    assert summaries(tool_names="create_data", tool_error="some other error")["total_items"] == 0
+
     # Filter by table
     assert summaries(table_ids=orders["table_id"])["total_items"] == 2
     assert summaries(table_ids=customers["table_id"])["total_items"] == 1

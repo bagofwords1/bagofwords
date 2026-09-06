@@ -195,9 +195,20 @@ class ConsoleService:
         """
         subqueries = []
         tool_names = [t.strip() for t in (params.tool_names or '').split(',') if t.strip()]
-        if tool_names:
-            q = select(ToolExecution.agent_execution_id).where(ToolExecution.tool_name.in_(tool_names))
-            if params.tool_failed_only:
+        # Top Errors drill-down: an exact error message always implies failure.
+        # Compared through coalesce so the "(no error message)" group — stored
+        # as NULL — is addressable too.
+        tool_error = params.tool_error if params.tool_error is not None else None
+        if tool_names or tool_error is not None:
+            q = select(ToolExecution.agent_execution_id)
+            if tool_names:
+                q = q.where(ToolExecution.tool_name.in_(tool_names))
+            if tool_error is not None:
+                q = q.where(
+                    ToolExecution.success == False,
+                    func.coalesce(ToolExecution.error_message, '') == tool_error,
+                )
+            elif params.tool_failed_only:
                 q = q.where(ToolExecution.success == False)
             subqueries.append(q)
         elif params.tool_failed_only:

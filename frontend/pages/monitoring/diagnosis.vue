@@ -475,6 +475,9 @@ const dashboardMetrics = ref<any>(null)
 // Top errors tab (failed tool calls grouped by tool + message)
 interface DiagnosisErrorGroup { tool_name: string; error_message: string; count: number }
 const errorGroups = ref<DiagnosisErrorGroup[]>([])
+// Exact-error drill-down set by clicking a Top Errors row ('' = the
+// no-error-message group; null = no error filter)
+const selectedToolError = ref<string | null>(null)
 
 // Activity chart timeseries (daily agent runs by status)
 interface DiagnosisStatusPoint { date: string; success: number; error: number }
@@ -781,6 +784,10 @@ const appendScopeParams = (params: URLSearchParams) => {
     if (toolFailedOnly.value) {
         params.append('tool_failed_only', 'true')
     }
+    // Exact error message from the Top Errors drill-down ('' is meaningful)
+    if (selectedToolError.value !== null) {
+        params.append('tool_error', selectedToolError.value)
+    }
     if (selectedTables.value.length > 0) {
         params.append('table_ids', selectedTables.value.map(t => t.id).join(','))
     }
@@ -855,14 +862,15 @@ const fetchErrorGroups = async () => {
 // multi-field change triggers exactly one refetch round.
 let bulkFilterChange = false
 
-// Clicking a top-error row narrows the screen to that tool's failures and
-// jumps back to the runs list to show the matching runs
+// Clicking a top-error row narrows the screen to exactly that error — the
+// tool AND the specific message — and jumps back to the runs list
 const applyErrorGroupFilter = (group: DiagnosisErrorGroup) => {
     const opt = toolOptions.value.find(t => t.name === group.tool_name)
         || { name: group.tool_name, total: 0, failed: 0 }
     bulkFilterChange = true
     toolFailedOnly.value = true
     selectedTools.value = [opt]
+    selectedToolError.value = group.error_message
     selectedFilter.value = { label: filterLabelFor('all'), value: 'all' }
     nextTick(() => { bulkFilterChange = false; refreshAll() })
 }
@@ -882,6 +890,13 @@ const activeFilterChips = computed(() => {
     }
     if (toolFailedOnly.value) {
         chips.push({ key: 'failed-only', label: t('monitoring.diagnosis.failedOnly'), clear: () => { toolFailedOnly.value = false } })
+    }
+    if (selectedToolError.value !== null) {
+        chips.push({
+            key: 'tool-error',
+            label: selectedToolError.value || t('monitoring.diagnosis.noErrorMessage'),
+            clear: () => { selectedToolError.value = null }
+        })
     }
     for (const tbl of selectedTables.value) {
         chips.push({ key: `table-${tbl.id}`, label: tbl.name, clear: () => { selectedTables.value = selectedTables.value.filter(x => x.id !== tbl.id) } })
@@ -908,6 +923,7 @@ const clearAllFilters = () => {
     selectedUsers.value = []
     selectedTools.value = []
     toolFailedOnly.value = false
+    selectedToolError.value = null
     selectedTables.value = []
     searchQuery.value = ''
     selectedDay.value = null
@@ -1091,10 +1107,23 @@ watch(selectedTools, () => {
         selectedTools.value = []
         return
     }
+    // A manual tool change invalidates the exact-error drill-down — the
+    // message belongs to the tool it was clicked under. Suppressed so its own
+    // watcher doesn't fire a second refresh on top of this one.
+    if (selectedToolError.value !== null) {
+        bulkFilterChange = true
+        selectedToolError.value = null
+        nextTick(() => { bulkFilterChange = false })
+    }
     refreshAll()
 }, { deep: true })
 
 watch(toolFailedOnly, () => {
+    if (bulkFilterChange) return
+    refreshAll()
+})
+
+watch(selectedToolError, () => {
     if (bulkFilterChange) return
     refreshAll()
 })

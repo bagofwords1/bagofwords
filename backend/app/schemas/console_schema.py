@@ -24,6 +24,7 @@ class MetricsQueryParams(BaseModel):
     tool_failed_only: Optional[bool] = Field(False, description="With tool_names: only runs where a selected tool failed")
     table_ids: Optional[str] = Field(None, description="Comma-separated datasource_table ids — runs that touched any of them")
     prompt_search: Optional[str] = Field(None, description="Free-text match against the run's user prompt")
+    tool_error: Optional[str] = Field(None, description="Exact error message — runs where a tool failed with it (set by the Top Errors drill-down)")
 
 class SimpleMetrics(BaseModel):
     total_messages: int
