@@ -44,7 +44,7 @@
             >
                 <template #label>
                     <span v-if="selectedTools.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.filterToolsAll') }}</span>
-                    <span v-else class="truncate max-w-[180px]">{{ selectedTools.map(t => t.name).join(', ') }}</span>
+                    <span v-else class="truncate max-w-[180px]">{{ selectedTools.map(t => displayToolName(t.name)).join(', ') }}</span>
                 </template>
                 <template #option="{ option }">
                     <span v-if="option.name === ALL_SENTINEL" class="block w-full -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-200 dark:border-gray-700">{{ option.label }}</span>
@@ -226,7 +226,7 @@
                             <span class="inline-flex items-center justify-center min-w-[28px] px-1.5 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300 rounded-full text-xs font-semibold">{{ group.count }}</span>
                         </td>
                         <td class="px-4 py-3">
-                            <span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]">{{ group.tool_name }}</span>
+                            <span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]">{{ displayToolName(group.tool_name) }}</span>
                         </td>
                         <td class="px-4 py-3">
                             <span class="block truncate text-gray-700 dark:text-gray-300">{{ group.error_message || $t('monitoring.diagnosis.noErrorMessage') }}</span>
@@ -523,6 +523,10 @@ interface DiagnosisUserOption { id: string; name: string; email: string }
 const userOptions = ref<DiagnosisUserOption[]>([])
 const selectedUsers = ref<DiagnosisUserOption[]>([])
 
+// Friendly display form of a tool name — underscores read as code, spaces
+// read as a label. The raw name stays the filter value sent to the API.
+const displayToolName = (name: string) => (name || '').split('_').join(' ')
+
 // Tool filter state
 interface DiagnosisToolOption { name: string; total: number; failed: number }
 const toolOptions = ref<DiagnosisToolOption[]>([])
@@ -545,7 +549,7 @@ const userMenuOptions = computed(() => [
 ])
 const toolMenuOptions = computed(() => [
     { name: ALL_SENTINEL, label: t('monitoring.diagnosis.filterToolsAll') },
-    ...toolOptions.value.map(o => ({ ...o, label: o.name }))
+    ...toolOptions.value.map(o => ({ ...o, label: displayToolName(o.name) }))
 ])
 const tableMenuOptions = computed(() => {
     // Attach the owning agent so each table row can show its agent's logo
@@ -886,7 +890,7 @@ const activeFilterChips = computed(() => {
         chips.push({ key: `user-${u.id}`, label: u.name, clear: () => { selectedUsers.value = selectedUsers.value.filter(x => x.id !== u.id) } })
     }
     for (const tool of selectedTools.value) {
-        chips.push({ key: `tool-${tool.name}`, label: tool.name, clear: () => { selectedTools.value = selectedTools.value.filter(x => x.name !== tool.name) } })
+        chips.push({ key: `tool-${tool.name}`, label: displayToolName(tool.name), clear: () => { selectedTools.value = selectedTools.value.filter(x => x.name !== tool.name) } })
     }
     if (toolFailedOnly.value) {
         chips.push({ key: 'failed-only', label: t('monitoring.diagnosis.failedOnly'), clear: () => { toolFailedOnly.value = false } })
