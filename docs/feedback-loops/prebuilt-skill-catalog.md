@@ -154,6 +154,15 @@ A default install is byte-for-byte the row an admin's Enable creates
 carries `default_enabled` so the panel can label the row **Default** with a
 hint explaining why a fresh org already has it on.
 
+**Tests.** Seeding seven published rows into every new org broke nine e2e
+tests that count what they created in a fresh organization (list totals,
+the "All instructions" badge, a changelog's removal count). Rather than
+teach each of them the catalog's size, `tests/conftest.py` has an autouse
+`no_default_skills` fixture that patches `list_default_skills` to empty, and
+`@pytest.mark.default_skills` (module-level in `test_skill_catalog.py` and
+the RBAC gate test) switches the real creation path back on where it is the
+thing under test.
+
 ---
 
 ## Environment

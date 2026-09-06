@@ -17,6 +17,10 @@ from app.ai.skills.catalog import (
     list_prebuilt_skills,
 )
 
+# A new org here gets the default_enabled skills, as it does in production
+# (the suite-wide no_default_skills fixture turns that off elsewhere).
+pytestmark = pytest.mark.default_skills
+
 
 def _auth(token, org_id):
     return {"Authorization": f"Bearer {token}", "X-Organization-Id": str(org_id)}
