@@ -34,6 +34,10 @@ docker run -d --name bow-mssql -e ACCEPT_EULA=Y -e MSSQL_SA_PASSWORD=... -p 1433
   mcr.microsoft.com/mssql/server:2022-latest
 ```
 
+The container serves SQL Server's auto-generated self-signed certificate, so
+this run connected with **Encrypt off** — see finding 4 for why that is a
+sandbox artefact and not a product limitation.
+
 `SalesDB` fixture: `dbo.Orders` (10 rows, total 9 600 — US 4 200 / EMEA 2 950 /
 APAC 2 450) and `dbo.Customers` (5 rows). Three SQL logins, deliberately
 unequal so per-user auth has something to prove:
@@ -229,14 +233,46 @@ docstring ("must match the initiating domain"), but consulting
 `X-Forwarded-Host` — as `derive_base_url` in the same module already does —
 would close the gap.
 
-### 4. MSSQL cannot use an encrypted connection to a self-signed server
+### 4. MSSQL + a private certificate: NOT a defect (this finding was wrong)
 
-`MSSQLClient` pins `TrustServerCertificate=no` and lists it as a protected ODBC
-key, so a SQL Server presenting a self-signed or internal-CA certificate (the
-default for a container, and common on-prem) can only be reached by turning
-**Encrypt off** entirely. The safer middle setting — encrypt, don't verify — is
-unreachable, so the operator's only option is the least safe one. This run had
-to disable encryption to connect at all.
+The first pass of this document claimed the connector "cannot use an encrypted
+connection to a self-signed server", because `MSSQLClient` pins
+`TrustServerCertificate=no` and lists it among `PROTECTED_ODBC_KEYS`, so the
+Additional Connection Parameters escape hatch cannot re-enable it. The
+sandbox run did in fact have to turn **Encrypt off** to reach the container.
+
+Measured afterwards, that conclusion does not hold. The container was
+reconfigured to serve a certificate this run generated
+(`mssql.conf` `network.tlscert`/`tlskey`), and the same client was driven four
+ways with `encrypt=True`:
+
+| setup | result |
+|---|---|
+| issuing cert **not** trusted, no extra params | FAIL — `certificate verify failed` |
+| cert installed in the host trust store (`/usr/local/share/ca-certificates` + `update-ca-certificates`) | **OK — 10 rows / 9 600, `TrustServerCertificate=no` throughout** |
+| cert removed from trust store, `ServerCertificate=<pem>` via Additional Connection Parameters | FAIL — `certificate verify failed` |
+| same, DER form and with `HostNameInCertificate` | FAIL |
+
+So the encrypted-**and**-verified path works today and needs no code change:
+put the issuing CA in the container's trust store, which is what an on-prem
+deployment with an internal CA does anyway. `TrustServerCertificate=no` is a
+deliberate and correct choice, not a gap — and it is not a regression: the file
+carries this behaviour from its first appearance in the history available here
+(`6283a8e`, the squashed 0.0.539 release, which is also the repo's earliest
+reachable commit; no commit changes the value).
+
+Two narrower things are true and worth keeping:
+
+- A server presenting a certificate that chains to nothing in the trust store
+  (SQL Server's own auto-generated self-signed cert, i.e. the default for a
+  container) can only be reached by disabling encryption. That is a
+  documentation gap — nothing in the connector form tells the operator that the
+  fix is to trust the issuing CA rather than to flip the Encrypt toggle.
+- `ServerCertificate` and `HostNameInCertificate` are *not* in
+  `PROTECTED_ODBC_KEYS` and do reach the driver (verified in the generated
+  connection string), but pinning via `ServerCertificate` did not authenticate
+  the server in this test, in either PEM or DER form, with msodbcsql18 18.6.2.1.
+  Not chased further; noted so the next person does not assume it works.
 
 ### 5. Smaller observations
 
