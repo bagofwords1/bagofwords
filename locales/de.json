@@ -4842,7 +4842,9 @@
     "enabledEmpty": "Noch keine Skills aktiviert",
     "tabCatalog": "Katalog",
     "enabledSubtitle": "Skills, die diese Organisation aktiviert hat. Öffnen Sie einen zum Lesen oder Bearbeiten.",
-    "tabEnabled": "Aktiviert"
+    "tabEnabled": "Aktiviert",
+    "default": "Standard",
+    "defaultHint": "Für jede neue Organisation aktiviert. Ein Administrator kann sie deaktivieren."
   },
   "tableErd": {
     "recentPrompts": "Letzte Anfragen",

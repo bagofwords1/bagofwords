@@ -11,7 +11,15 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.ai.skills.catalog import get_prebuilt_skill, list_prebuilt_skills
+from app.ai.skills.catalog import (
+    get_prebuilt_skill,
+    list_default_skills,
+    list_prebuilt_skills,
+)
+
+# A new org here gets the default_enabled skills, as it does in production
+# (the suite-wide no_default_skills fixture turns that off elsewhere).
+pytestmark = pytest.mark.default_skills
 
 
 def _auth(token, org_id):
@@ -41,30 +49,140 @@ def _install(test_client, token, org_id, key):
 
 
 def _a_chat_skill_key() -> str:
-    """A catalog entry that is offered in chat — unscoped, or scoped to chat."""
+    """A catalog entry that is offered in chat — unscoped, or scoped to chat.
+
+    Deliberately one that is *not* enabled by default: the install/uninstall
+    lifecycle tests below start from "not installed", and a default is already
+    installed the moment the org exists.
+    """
     return next(
-        s.key for s in list_prebuilt_skills() if not s.modes or "chat" in s.modes
+        s.key for s in list_prebuilt_skills()
+        if (not s.modes or "chat" in s.modes) and not s.default_enabled
     )
 
 
 def _a_training_only_skill_key():
+    # A default is fine here: install is idempotent and the mode-scoping
+    # assertion holds whether the row came from the default or the click.
     return next((s.key for s in list_prebuilt_skills() if s.modes == ("training",)), None)
 
 
 @pytest.mark.e2e
-def test_catalog_lists_every_prebuilt_skill_as_uninstalled(
+def test_catalog_lists_every_prebuilt_skill_defaults_on_the_rest_off(
     create_user, login_user, whoami, test_client
 ):
     token, org_id = _new_admin(create_user, login_user, whoami)
     entries = _catalog(test_client, token, org_id)
 
     assert set(entries) == {s.key for s in list_prebuilt_skills()}
-    for entry in entries.values():
-        # A fresh org has nothing installed — enabling is a deliberate act.
-        assert entry["installed"] is False
-        assert entry["instruction_id"] is None
+    defaults = {s.key for s in list_default_skills()}
+    assert defaults, "the catalog ships at least one default skill"
+    for key, entry in entries.items():
+        # A default is on from the moment the org exists; anything else stays
+        # off until an admin enables it — a deliberate act.
+        assert entry["installed"] is (key in defaults), key
+        assert (entry["instruction_id"] is not None) is (key in defaults), key
+        assert entry["default_enabled"] is (key in defaults), key
         # The listing carries what the UI renders a card from.
         assert entry["title"] and entry["description"] and entry["version"]
+
+
+@pytest.mark.e2e
+def test_catalog_is_listed_in_catalog_order_train_agent_first(
+    create_user, login_user, whoami, test_client
+):
+    """The API preserves the catalog's order — the UI renders it as-is."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    resp = test_client.get("/api/instructions/skill-catalog", headers=_auth(token, org_id))
+    assert resp.status_code == 200
+    keys = [e["key"] for e in resp.json()]
+    assert keys[0] == "train-agent"
+    assert keys == [s.key for s in list_prebuilt_skills()]
+
+
+@pytest.mark.e2e
+def test_default_skills_are_real_published_instructions(
+    create_user, login_user, whoami, test_client
+):
+    """A default install is the same row an admin's Enable would create."""
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    entries = _catalog(test_client, token, org_id)
+    for skill in list_default_skills():
+        entry = entries[skill.key]
+        assert entry["installed_version"] == skill.version
+        assert entry["is_customized"] is False
+        assert entry["duplicate_count"] == 0
+        row = test_client.get(
+            f"/api/instructions/{entry['instruction_id']}", headers=_auth(token, org_id)
+        ).json()
+        assert row["kind"] == "skill"
+        assert row["status"] == "published"
+        assert row["load_mode"] == "intelligent"
+        assert row["text"].strip() == skill.body.strip()
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_disabled_default_stays_disabled(create_user, login_user, whoami, test_client):
+    """An admin's Disable must win over the default — on a repeat of the
+    default install (the startup backfill) the skill must not come back."""
+    from app.dependencies import async_session_maker
+    from app.services.skill_catalog_service import SkillCatalogService
+
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    key = list_default_skills()[0].key
+    assert _catalog(test_client, token, org_id)[key]["installed"] is True
+
+    resp = test_client.delete(
+        f"/api/instructions/skill-catalog/{key}", headers=_auth(token, org_id)
+    )
+    assert resp.status_code == 200, resp.json()
+
+    async with async_session_maker() as db:
+        outcome = await SkillCatalogService().backfill_defaults(db)
+    assert org_id not in outcome
+    assert _catalog(test_client, token, org_id)[key]["installed"] is False
+
+    # ...and an explicit re-enable still works afterwards.
+    assert _install(test_client, token, org_id, key)["installed"] is True
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_backfill_installs_missing_defaults_for_an_existing_org(
+    create_user, login_user, whoami, test_client, monkeypatch
+):
+    """An org created before any default existed gets them on the next
+    backfill, authored by the org's admin, and a second backfill is a no-op.
+
+    The pre-flag org is produced the way it really happened — the catalog had
+    no defaults when the org was created — by emptying list_default_skills
+    for the creation call only. (Hard-deleting the rows the creation path
+    installed is not an option: build_contents references them, and
+    PostgreSQL enforces that foreign key where SQLite does not.)
+    """
+    import app.services.skill_catalog_service as skill_catalog_service
+    from app.dependencies import async_session_maker
+    from app.services.skill_catalog_service import SkillCatalogService
+
+    monkeypatch.setattr(skill_catalog_service, "list_default_skills", lambda: [])
+    token, org_id = _new_admin(create_user, login_user, whoami)
+    monkeypatch.undo()
+
+    default_keys = [s.key for s in list_default_skills()]
+    assert default_keys
+    assert all(not e["installed"] for e in _catalog(test_client, token, org_id).values())
+
+    async with async_session_maker() as db:
+        outcome = await SkillCatalogService().backfill_defaults(db)
+    assert outcome.get(org_id) == default_keys
+
+    entries = _catalog(test_client, token, org_id)
+    assert all(entries[k]["installed"] for k in default_keys)
+
+    async with async_session_maker() as db:
+        again = await SkillCatalogService().backfill_defaults(db)
+    assert org_id not in again
 
 
 @pytest.mark.e2e

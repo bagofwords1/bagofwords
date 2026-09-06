@@ -4,6 +4,8 @@ title: Entity-relationship diagram (Mermaid ERD)
 description: Use when someone asks for an ERD, a schema diagram, or how tables relate — verify the relationships, then render a Mermaid erDiagram in a doc.
 category: data_modeling
 version: "1.1"
+order: 60
+default_enabled: true
 modes: [chat, training]
 tags: [schema, diagram, documentation]
 ---

@@ -4,6 +4,8 @@ title: Train an agent
 description: Use in training mode to teach an existing agent — read its tables, inspect real values, ask what the data cannot say, then write the instructions.
 category: general
 version: "1.0"
+order: 10
+default_enabled: true
 modes: [training]
 tags: [onboarding, instructions]
 ---

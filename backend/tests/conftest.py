@@ -129,11 +129,39 @@ def pytest_configure(config):
         "itself when the dependency is absent, so it is safe to leave in a "
         "default run.",
     )
+    config.addinivalue_line(
+        "markers",
+        "default_skills: let a new organization receive the pre-built skills "
+        "flagged default_enabled, as it does in production. Off everywhere "
+        "else — see no_default_skills.",
+    )
 
 @pytest.fixture(scope="session", autouse=True)
 def disable_telemetry_for_tests():
     """Disable telemetry during the entire pytest session via BowConfig only."""
     settings.bow_config.telemetry.enabled = False
+
+
+@pytest.fixture(scope="function", autouse=True)
+def no_default_skills(request, monkeypatch):
+    """Start every organization empty unless the test asks for the defaults.
+
+    In production a new organization is created with the catalog's
+    default_enabled skills already installed (seven published, global
+    ``kind='skill'`` rows). Most of this suite was written against an empty
+    organization and counts what it created — a list total, a badge, a
+    changelog's removal count — so seeding those rows into every test would
+    make each one carry the catalog's size. The seed is therefore off by
+    default and switched on per test with ``@pytest.mark.default_skills``,
+    which the skill-catalog tests use to cover the real creation path.
+    """
+    if request.node.get_closest_marker("default_skills"):
+        yield
+        return
+    import app.services.skill_catalog_service as skill_catalog_service
+
+    monkeypatch.setattr(skill_catalog_service, "list_default_skills", lambda: [])
+    yield
 
 from tests.fixtures.client import test_client
 from tests.fixtures.user import create_user

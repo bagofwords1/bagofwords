@@ -4866,7 +4866,9 @@
     "enabledEmpty": "Aún no hay habilidades activadas",
     "tabCatalog": "Catálogo",
     "enabledSubtitle": "Habilidades que esta organización tiene activadas. Abre una para leerla o editarla.",
-    "tabEnabled": "Activadas"
+    "tabEnabled": "Activadas",
+    "default": "Predeterminada",
+    "defaultHint": "Activada para cada organización nueva. Un administrador puede desactivarla."
   },
   "tableErd": {
     "recentPrompts": "Consultas recientes",

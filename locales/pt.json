@@ -4842,7 +4842,9 @@
     "enabledEmpty": "Ainda não há habilidades ativas",
     "tabCatalog": "Catálogo",
     "enabledSubtitle": "Habilidades que esta organização ativou. Abra uma para ler ou editar.",
-    "tabEnabled": "Ativas"
+    "tabEnabled": "Ativas",
+    "default": "Padrão",
+    "defaultHint": "Ativada para cada nova organização. Um administrador pode desativá-la."
   },
   "tableErd": {
     "recentPrompts": "Solicitações recentes",

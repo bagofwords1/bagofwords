@@ -4872,7 +4872,9 @@
     "enabledEmpty": "No skills enabled yet",
     "tabCatalog": "Catalog",
     "enabledSubtitle": "Skills this organization has turned on. Open one to read or edit it.",
-    "tabEnabled": "Enabled"
+    "tabEnabled": "Enabled",
+    "default": "Default",
+    "defaultHint": "Enabled for every new organization. An administrator can turn it off."
   },
   "tableErd": {
     "recentPrompts": "Recent prompts",

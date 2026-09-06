@@ -11,6 +11,13 @@ Copy-on-install (rather than referencing a global row) is what lets an admin
 tune a shipped skill for their org. The version stamp is what lets a later
 catalog bump be detected without matching on titles, and ``is_customized``
 tells the admin whether an update would overwrite their edits.
+
+Entries flagged ``default_enabled`` in their frontmatter are installed for an
+organization without anyone clicking Enable — on org creation, and once for
+organizations that predate the flag (``backfill_defaults``). Both go through
+``ensure_defaults_for_org``, which only installs a key the org has *never* had
+a row for: a soft-deleted row means an admin disabled it, and a default must
+not come back on the next restart.
 """
 
 from __future__ import annotations
@@ -22,8 +29,14 @@ from fastapi import HTTPException
 from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.skills.catalog import PrebuiltSkill, get_prebuilt_skill, list_prebuilt_skills
+from app.ai.skills.catalog import (
+    PrebuiltSkill,
+    get_prebuilt_skill,
+    list_default_skills,
+    list_prebuilt_skills,
+)
 from app.models.instruction import Instruction
+from app.models.membership import Membership
 from app.models.organization import Organization
 from app.models.user import User
 from app.schemas.instruction_schema import InstructionCreate, InstructionUpdate
@@ -201,6 +214,105 @@ class SkillCatalogService:
             raise HTTPException(status_code=500, detail="Skill install did not persist")
         return self._entry_state(skill, rows)
 
+    # ------------------------------------------------------------------
+    # Defaults
+    # ------------------------------------------------------------------
+
+    async def _keys_ever_installed(
+        self, db: AsyncSession, organization: Organization
+    ) -> set:
+        """Every catalog key the org has ever had a row for — live *or*
+        soft-deleted. A deleted row is an admin's Disable, and the one signal
+        that separates "never offered" from "offered and turned off"."""
+        result = await db.execute(
+            select(Instruction.catalog_key).where(
+                and_(
+                    Instruction.organization_id == organization.id,
+                    Instruction.catalog_key.isnot(None),
+                )
+            ).distinct()
+        )
+        return {row[0] for row in result.all() if row[0]}
+
+    async def ensure_defaults_for_org(
+        self,
+        db: AsyncSession,
+        organization: Organization,
+        current_user: User,
+    ) -> List[str]:
+        """Install every ``default_enabled`` catalog entry the org has never had.
+
+        Idempotent, and it respects an admin's choice: a key with any row —
+        including a soft-deleted one — is skipped, so disabling a default is
+        permanent until someone re-enables it. Returns the keys installed on
+        this call. A failure on one entry is logged and does not stop the
+        rest: a default skill is a convenience, never a reason an org cannot
+        be created or a worker cannot start.
+        """
+        defaults = list_default_skills()
+        if not defaults:
+            return []
+        seen = await self._keys_ever_installed(db, organization)
+        installed: List[str] = []
+        for skill in defaults:
+            if skill.key in seen:
+                continue
+            try:
+                await self.install(db, skill.key, current_user, organization)
+                installed.append(skill.key)
+            except Exception:
+                logger.exception(
+                    "could not install default skill %s for org %s", skill.key, organization.id,
+                )
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+        if installed:
+            logger.info(
+                "installed default skills %s for org %s", ", ".join(installed), organization.id,
+            )
+        return installed
+
+    async def backfill_defaults(self, db: AsyncSession) -> Dict[str, List[str]]:
+        """Give organizations created before a default existed the same start.
+
+        For each org, installs the missing defaults on behalf of its earliest
+        admin (an instruction row needs an author; the org's first admin is the
+        closest thing to "the product did this"). Orgs with no admin member are
+        skipped. Safe to run on every startup: once each default has a row —
+        live or deleted — it is a no-op for that org.
+        """
+        orgs = (await db.execute(
+            select(Organization).where(Organization.deleted_at.is_(None))
+        )).scalars().all()
+        outcome: Dict[str, List[str]] = {}
+        for org in orgs:
+            admin = (await db.execute(
+                select(User)
+                .join(Membership, Membership.user_id == User.id)
+                .where(
+                    and_(
+                        Membership.organization_id == org.id,
+                        Membership.role == "admin",
+                        Membership.user_id.isnot(None),
+                        Membership.deleted_at.is_(None),
+                    )
+                )
+                .order_by(Membership.created_at.asc())
+                .limit(1)
+            )).scalars().first()
+            if admin is None:
+                continue
+            try:
+                installed = await self.ensure_defaults_for_org(db, org, admin)
+            except Exception:
+                logger.exception("default skill backfill failed for org %s", org.id)
+                continue
+            if installed:
+                outcome[str(org.id)] = installed
+        return outcome
+
     async def uninstall(
         self,
         db: AsyncSession,
@@ -275,3 +387,25 @@ class SkillCatalogService:
             "updated pre-built skill %s to v%s for org %s", key, skill.version, organization.id,
         )
         return self._entry_state(skill, installed.get(key))
+
+
+async def run_default_skill_backfill() -> None:
+    """Startup entry point: install missing default skills for every org.
+
+    Runs once per process start on the scheduler leader (so N workers do not
+    race the same check-then-install). Opens its own session — it is a
+    background task, not a request. Any failure is logged and swallowed: a
+    worker must come up whether or not the catalog defaults could be applied.
+    """
+    from app.dependencies import async_session_maker
+
+    try:
+        async with async_session_maker() as db:
+            outcome = await SkillCatalogService().backfill_defaults(db)
+        if outcome:
+            logger.info(
+                "default skill backfill installed %d skill(s) across %d org(s)",
+                sum(len(v) for v in outcome.values()), len(outcome),
+            )
+    except Exception:
+        logger.exception("default skill backfill failed; continuing startup")
