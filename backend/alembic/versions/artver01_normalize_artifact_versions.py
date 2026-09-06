@@ -68,17 +68,20 @@ def _versions_table_lite() -> sa.Table:
 
 
 def _parents_table_lite() -> sa.Table:
+    # Timestamp columns deliberately untyped: the backfill re-inserts whatever
+    # the raw SELECT returned — datetime objects on Postgres, strings on
+    # SQLite — and a sa.DateTime() bind would reject the SQLite strings.
     return sa.table(
         'artifacts',
-        sa.column('id', sa.String(36)),
-        sa.column('report_id', sa.String(36)),
-        sa.column('organization_id', sa.String(36)),
-        sa.column('created_by', sa.String(36)),
-        sa.column('mode', sa.String(20)),
-        sa.column('title', sa.String(255)),
-        sa.column('created_at', sa.DateTime()),
-        sa.column('updated_at', sa.DateTime()),
-        sa.column('deleted_at', sa.DateTime()),
+        sa.column('id'),
+        sa.column('report_id'),
+        sa.column('organization_id'),
+        sa.column('created_by'),
+        sa.column('mode'),
+        sa.column('title'),
+        sa.column('created_at'),
+        sa.column('updated_at'),
+        sa.column('deleted_at'),
     )
 
 
