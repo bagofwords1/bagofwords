@@ -4,6 +4,8 @@ title: Review recent agent usage
 description: Use in training mode to review the last N days of agent activity — what was asked, what failed, and what to fix first.
 category: general
 version: "1.0"
+order: 50
+default_enabled: true
 modes: [training]
 tags: [quality, operations]
 ---

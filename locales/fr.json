@@ -4842,7 +4842,9 @@
     "enabledEmpty": "Aucune compétence activée",
     "tabCatalog": "Catalogue",
     "enabledSubtitle": "Compétences activées par cette organisation. Ouvrez-en une pour la lire ou la modifier.",
-    "tabEnabled": "Activées"
+    "tabEnabled": "Activées",
+    "default": "Par défaut",
+    "defaultHint": "Activée pour chaque nouvelle organisation. Un administrateur peut la désactiver."
   },
   "tableErd": {
     "recentPrompts": "Demandes récentes",

@@ -10,6 +10,8 @@ Python strings::
     description: Use when the user asks why a metric moved...
     category: general
     version: "1.0"
+    order: 10              # optional: position in the catalog (lower first)
+    default_enabled: true  # optional: installed for every new organization
     ---
     <body>
 
@@ -52,6 +54,11 @@ VALID_MODES = {"chat", "training", "knowledge"}
 #: Frontmatter keys every entry must declare.
 REQUIRED_FIELDS = ("key", "title", "description", "category", "version")
 
+#: Catalog position for an entry that declares no ``order``. Curated entries
+#: declare a small number to sit at the top; everything else follows, sorted
+#: by title, so a new file lands in a sensible place without touching the rest.
+DEFAULT_ORDER = 1000
+
 #: The catalog description doubles as the ONE line the planner sees in
 #: ``<available_skills>``; the builder truncates at 160 chars
 #: (``InstructionContextBuilder._skill_description``). Authoring a longer one is
@@ -76,6 +83,12 @@ class PrebuiltSkill:
     modes: tuple = ()
     #: Delivery channels this skill applies to. Empty = every channel.
     channels: tuple = ()
+    #: Position in the catalog listing (lower first; ties break on title).
+    order: int = DEFAULT_ORDER
+    #: Installed for every new organization without an admin enabling it.
+    #: An admin can still disable it; the install is a starting point, not a
+    #: lock. See ``SkillCatalogService.ensure_defaults_for_org``.
+    default_enabled: bool = False
 
     def to_dict(self) -> Dict:
         return {
@@ -88,6 +101,8 @@ class PrebuiltSkill:
             "tags": list(self.tags),
             "modes": list(self.modes),
             "channels": list(self.channels),
+            "order": self.order,
+            "default_enabled": self.default_enabled,
         }
 
 
@@ -173,6 +188,22 @@ def _parse_skill_file(path: Path) -> Optional[PrebuiltSkill]:
         )
         return None
 
+    order = meta.get("order", DEFAULT_ORDER)
+    # bool is an int subclass — ``order: true`` must not silently become 1.
+    if isinstance(order, bool) or not isinstance(order, int):
+        logger.error(
+            "skill catalog: %s declares order %r — it must be an integer", path.name, order,
+        )
+        return None
+
+    default_enabled = meta.get("default_enabled", False)
+    if not isinstance(default_enabled, bool):
+        logger.error(
+            "skill catalog: %s declares default_enabled %r — it must be true or false",
+            path.name, default_enabled,
+        )
+        return None
+
     return PrebuiltSkill(
         key=key,
         title=str(meta["title"]).strip(),
@@ -183,6 +214,8 @@ def _parse_skill_file(path: Path) -> Optional[PrebuiltSkill]:
         tags=_str_tuple("tags"),
         modes=modes,
         channels=_str_tuple("channels"),
+        order=order,
+        default_enabled=default_enabled,
     )
 
 
@@ -201,8 +234,17 @@ def _load_catalog() -> Dict[str, PrebuiltSkill]:
 
 
 def list_prebuilt_skills() -> List[PrebuiltSkill]:
-    """Every valid catalog entry, ordered by title."""
-    return sorted(_load_catalog().values(), key=lambda s: s.title.lower())
+    """Every valid catalog entry, in catalog order.
+
+    Explicit ``order`` first (lowest wins), then title — so the curated entries
+    lead the listing and everything else follows alphabetically.
+    """
+    return sorted(_load_catalog().values(), key=lambda s: (s.order, s.title.lower()))
+
+
+def list_default_skills() -> List[PrebuiltSkill]:
+    """The entries every new organization starts with, in catalog order."""
+    return [s for s in list_prebuilt_skills() if s.default_enabled]
 
 
 def get_prebuilt_skill(key: str) -> Optional[PrebuiltSkill]:

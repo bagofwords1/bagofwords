@@ -4,6 +4,8 @@ title: Audit the instruction set
 description: Use in training mode to check an agent's instructions against real usage — find gaps, contradictions and overfit rules, and rank what to fix.
 category: general
 version: "1.0"
+order: 20
+default_enabled: true
 modes: [training]
 tags: [quality, instructions]
 ---

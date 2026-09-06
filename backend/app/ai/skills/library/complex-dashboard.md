@@ -4,6 +4,8 @@ title: Complex parameterized dashboards
 description: Use when building or editing a dashboard with filters or several linked queries — plan the parameters first, then build, then verify the wiring.
 category: dashboard
 version: "1.0"
+order: 30
+default_enabled: true
 modes: [chat]
 tags: [dashboard, parameters, artifacts]
 ---

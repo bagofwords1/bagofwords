@@ -444,6 +444,18 @@ async def startup_event():
     if not is_scheduler_leader:
         logger.info("Scheduler leader lock not acquired — skipping job registration in this worker")
 
+    # Organizations created before a pre-built skill was flagged
+    # default_enabled get it installed once, here. Leader-only so multiple
+    # workers do not race the same check-then-install; a background task so a
+    # large multi-org deployment does not hold up the first request.
+    if is_scheduler_leader:
+        try:
+            import asyncio as _asyncio
+            from app.services.skill_catalog_service import run_default_skill_backfill
+            app.state.default_skill_backfill_task = _asyncio.create_task(run_default_skill_backfill())
+        except Exception as e:
+            logger.error(f"Failed to start default skill backfill: {e}")
+
     # Register daily maintenance jobs
     if is_scheduler_leader:
         try:

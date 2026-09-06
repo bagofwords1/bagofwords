@@ -26,6 +26,7 @@ from fastapi import HTTPException
 from sqlalchemy import delete, update
 from app.services.llm_service import LLMService
 from app.services.test_suite_service import TestSuiteService
+from app.services.skill_catalog_service import SkillCatalogService
 from app.settings.config import settings
 from fastapi import Request
 from typing import Optional
@@ -49,6 +50,8 @@ class OrganizationService:
         self.llm_service = LLMService()
         self.organization_settings_service = OrganizationSettingsService()
         self.test_suite_service = TestSuiteService()
+        self.skill_catalog_service = SkillCatalogService()
+
     async def create_organization(self, db: AsyncSession, organization_data: OrganizationCreate, current_user: User) -> OrganizationSchema:
 
         total_orgs = await db.execute(select(Organization))
@@ -85,6 +88,15 @@ class OrganizationService:
 
         # Create RBAC role_assignment for the admin system role
         await self._assign_system_role(db, organization.id, str(current_user.id), "admin")
+
+        # Pre-built skills flagged default_enabled start on. After the role
+        # assignment: installing goes through the normal instruction path,
+        # which resolves the creator's permissions to auto-publish the build.
+        try:
+            await self.skill_catalog_service.ensure_defaults_for_org(db, organization, current_user)
+        except Exception:
+            # A default skill is a convenience — never a reason org creation fails.
+            logger.exception("default skill install failed for new org %s", organization.id)
 
         return OrganizationSchema.from_orm(organization)
 

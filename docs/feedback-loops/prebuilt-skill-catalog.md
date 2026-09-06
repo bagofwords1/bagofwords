@@ -111,6 +111,49 @@ an entry scoped to either would install cleanly and then be invisible in every
 real mode; and `uninstall` removed only the first row for a key, so a duplicate
 from a raced install kept the playbook advertised after it was disabled.
 
+## Catalog order and defaults
+
+The catalog used to list alphabetically by title and every org started with
+nothing enabled, so the first thing an admin saw was "Company dashboard theme"
+and the training playbooks — the reason the catalog exists — sat mid-list, off.
+
+Two optional frontmatter fields fix both:
+
+- `order: <int>` — position in the listing, lowest first. Entries without it
+  take `DEFAULT_ORDER` (1000) and follow the curated block alphabetically, so
+  a new file lands in a sensible place without renumbering anything.
+- `default_enabled: true` — installed for the org without anyone clicking
+  Enable.
+
+The curated block, in order: **train-agent**, audit-instructions,
+complex-dashboard, migrate-bi-dashboard, usage-review, erd-mermaid,
+create-evals. All seven are `default_enabled`; the unit tests pin both the
+order and the rule that only default entries carry an explicit `order`
+(otherwise a stray `order:` would push a skill into the curated block without
+anyone deciding it belongs there). The `/skill-catalog` response keeps this
+order and the panel renders it as-is; the Enabled tab sorts installed rows by
+the same catalog rank, hand-authored skills after.
+
+**How a default gets installed.** `SkillCatalogService.ensure_defaults_for_org`
+installs every default the org has *never had a row for* — live or
+soft-deleted. A deleted row is an admin's Disable, and it is the one signal
+that separates "never offered" from "offered and turned off", so a disabled
+default stays off across restarts. It runs from two places:
+
+- `OrganizationService.create_organization`, after the admin role assignment
+  (the install goes through the normal instruction path, which resolves the
+  creator's permissions to auto-publish the build). Wrapped so a failure can
+  never make org creation fail.
+- `run_default_skill_backfill` at startup, leader-only and as a background
+  task, for organizations that predate the flag. It authors the rows as the
+  org's earliest admin, skips orgs with no admin, and is a no-op once every
+  default has a row.
+
+A default install is byte-for-byte the row an admin's Enable creates
+(`test_default_skills_are_real_published_instructions`), and the listing
+carries `default_enabled` so the panel can label the row **Default** with a
+hint explaining why a fresh org already has it on.
+
 ---
 
 ## Environment

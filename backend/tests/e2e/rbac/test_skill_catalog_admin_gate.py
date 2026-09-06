@@ -17,8 +17,10 @@ def _headers(token: str, org_id: str) -> dict:
 
 
 def _a_skill_key() -> str:
-    """Any catalog entry — the gate does not depend on mode scoping."""
-    return list_prebuilt_skills()[0].key
+    """Any catalog entry that is not enabled by default — the gate does not
+    depend on mode scoping, but these tests start from "not installed", and a
+    default is installed the moment the org exists."""
+    return next(s.key for s in list_prebuilt_skills() if not s.default_enabled)
 
 
 @pytest.fixture

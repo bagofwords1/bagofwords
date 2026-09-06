@@ -83,6 +83,12 @@
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-1.5 flex-wrap">
               <span class="text-[13px] text-gray-800 dark:text-gray-200">{{ row.title }}</span>
+              <!-- Explains why a fresh organization already has this one on. -->
+              <span
+                v-if="row.default_enabled"
+                class="text-[10px] text-gray-400 dark:text-gray-500"
+                :title="$t('skillCatalog.defaultHint')"
+              >{{ $t('skillCatalog.default') }}</span>
               <span
                 v-if="row.update_available"
                 class="inline-flex items-center px-1.5 h-4 rounded bg-amber-100 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 text-[10px] font-medium"
@@ -174,6 +180,10 @@ interface CatalogEntry {
   installed_version: string | null
   update_available: boolean
   is_customized: boolean
+  // Catalog position (server-side sort key) and whether every new
+  // organization starts with this skill on.
+  order: number
+  default_enabled: boolean
 }
 
 const emit = defineEmits<{
@@ -209,7 +219,17 @@ const expanded = ref<string | null>(null)
 // lists (the same skill appears in both, as different rows).
 const enabledRows = computed(() => {
   const byKey = new Map(catalog.value.map(c => [c.key, c]))
-  return installedRows.value.map((row) => {
+  // The catalog's own order (train agent first, then the rest of the curated
+  // set), so the Enabled tab reads the same way as the Catalog tab. The
+  // catalog response is already sorted, so position in it is the rank; a
+  // hand-authored skill has no catalog position and follows, newest first as
+  // the API returned it.
+  const rank = new Map(catalog.value.map((c, i) => [c.key, i]))
+  const ordered = installedRows.value
+    .map((row, i) => ({ row, i, rank: rank.get(row.catalog_key) ?? Number.MAX_SAFE_INTEGER }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map(x => x.row)
+  return ordered.map((row) => {
     const entry = row.catalog_key ? byKey.get(row.catalog_key) : undefined
     return {
       uid: `i:${row.id}`,
@@ -228,6 +248,7 @@ const enabledRows = computed(() => {
       installed: true,
       update_available: entry?.update_available || false,
       is_customized: entry?.is_customized || false,
+      default_enabled: entry?.default_enabled || false,
     }
   })
 })
@@ -248,6 +269,7 @@ const catalogRows = computed(() => catalog.value.map(c => ({
   installed: c.installed,
   update_available: c.update_available,
   is_customized: c.is_customized,
+  default_enabled: c.default_enabled,
 })))
 
 const matches = (s: Record<string, any>) => {

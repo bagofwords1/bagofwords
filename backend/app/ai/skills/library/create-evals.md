@@ -4,6 +4,8 @@ title: Create eval cases
 description: Use in training mode to turn a good answer into an eval case — confirm it with the user, then write a judge rubric that can actually fail.
 category: general
 version: "1.0"
+order: 70
+default_enabled: true
 modes: [training]
 tags: [evals, quality]
 ---

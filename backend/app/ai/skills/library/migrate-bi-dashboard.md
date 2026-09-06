@@ -4,6 +4,8 @@ title: Migrate a BI dashboard to the agent
 description: Use in training mode to turn a Tableau, Power BI, Qlik or BusinessObjects dashboard into agent knowledge — definitions, then eval cases.
 category: general
 version: "1.0"
+order: 40
+default_enabled: true
 modes: [training]
 tags: [migration, onboarding]
 ---
