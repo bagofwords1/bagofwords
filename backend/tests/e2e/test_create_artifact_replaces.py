@@ -216,9 +216,31 @@ def test_duplicate_and_list_speak_artifact_id(
     assert by_id[dash_v1]["artifact_id"] == by_id[dash_v2]["artifact_id"]
     assert by_id[other_v1]["artifact_id"] != by_id[dash_v1]["artifact_id"]
 
+    # Give Dash v1 a REAL thumbnail file first. The copy-thumbnail branch
+    # issues a second UPDATE-flush on the new row, which used to expire the
+    # title/mode read-throughs and crash response serialization with
+    # MissingGreenlet — the exact "Use this version" failure seen on real
+    # data, invisible while test artifacts had no thumbnail.
+    async def _give_thumbnail():
+        from app.services.thumbnail_service import ThumbnailService
+        from sqlalchemy import update
+        from app.models.artifact import ArtifactVersion
+        path = ThumbnailService.UPLOADS_DIR / f"{dash_v1}.png"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"\x89PNG\r\n\x1a\n")
+        async with async_session_maker() as db:
+            await db.execute(
+                update(ArtifactVersion)
+                .where(ArtifactVersion.id == dash_v1)
+                .values(thumbnail_path=f"thumbnails/{dash_v1}.png")
+            )
+            await db.commit()
+    _run(_give_thumbnail())
+
     # Revert to Dash v1: continues DASH's chain (v3), untouched by Other.
     reverted = test_client.post(f"/api/artifacts/{dash_v1}/duplicate", headers=headers)
     assert reverted.status_code == 200, reverted.text
     body = reverted.json()
     assert body["artifact_id"] == by_id[dash_v1]["artifact_id"]
     assert body["version"] == 3
+    assert body["title"] == "Dash", "title must survive the thumbnail-copy flush (expire_on_flush)"

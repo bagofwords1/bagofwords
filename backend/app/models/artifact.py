@@ -119,17 +119,29 @@ class ArtifactVersion(BaseSchema):
 
     # Read-through to the parent (declared after artifact_id on purpose:
     # the correlated subquery binds to the column defined above).
+    #
+    # expire_on_flush=False is load-bearing: by default SQLAlchemy expires
+    # SQL-expression properties whenever the instance is flushed with an
+    # UPDATE (it cannot know whether the subquery's value changed). Version
+    # rows are routinely mutated after creation — thumbnail_path, screenshot,
+    # status, pptx_path — and the next .title/.mode access would then
+    # lazy-load and raise MissingGreenlet under async (this crashed
+    # "Use this version" on any artifact that has a thumbnail). The parent's
+    # title only changes through the factory, which refreshes explicitly, so
+    # keeping the loaded value across unrelated flushes is correct.
     title = column_property(
         select(Artifact.title)
         .where(Artifact.id == artifact_id)
         .correlate_except(Artifact)
-        .scalar_subquery()
+        .scalar_subquery(),
+        expire_on_flush=False,
     )
     mode = column_property(
         select(Artifact.mode)
         .where(Artifact.id == artifact_id)
         .correlate_except(Artifact)
-        .scalar_subquery()
+        .scalar_subquery(),
+        expire_on_flush=False,
     )
 
     def __init__(self, **kw):
