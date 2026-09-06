@@ -705,12 +705,18 @@ On reconnect, the edge agent re-subscribes and re-advertises.
 ```
 authorization {
   users: [
-    # Control plane workers — internal TCP only
-    { user: "bow-worker", password: "$2a$11$..."
+    # Control plane worker — one credential per org, internal TCP only.
+    # Scoped to a single org's subtree so a worker can never address another
+    # tenant's subjects. A control plane serving several orgs holds one such
+    # credential (one NATS connection) per org.
+    { user: "bow-worker-cust-b", password: "$2a$11$..."
       permissions: {
-        publish:   ["tunnel.>"]
-        subscribe: ["_INBOX.bow.>", "tunnel.*.advertisements",
-                    "tunnel.*.*.progress.*", "tunnel.*.*.heartbeat"]
+        # Only the two subjects a worker ever publishes: the request and the
+        # cancel. It never publishes advertisements/heartbeat/progress (those
+        # are agent→worker), so it cannot forge registration or telemetry.
+        publish:   ["tunnel.cust-b.*.conn.*", "tunnel.cust-b.*.control"]
+        subscribe: ["_INBOX.bow.cust-b.>", "tunnel.cust-b.advertisements",
+                    "tunnel.cust-b.*.progress.*", "tunnel.cust-b.*.heartbeat"]
       }}
 
     # One entry per edge agent
@@ -726,6 +732,22 @@ authorization {
 
 **The user → org binding is the tenancy boundary, and the subject is how it is observed.** `edge-cust-b-nyc` can only name `tunnel.cust-b.*` subjects — including `tunnel.cust-b.advertisements`, which is why the advertisement subject carries the org token. The handler reads tenancy off `msg.subject`, which the broker refused to let the publisher lie about, rather than off the payload, which it would have been free to forge (A10). Grant each edge agent exactly one advertisement subject; a wildcard here would hand back the forgery it exists to prevent.
 
+**The worker is org-scoped too, not just the agents.** `bow-worker-cust-b` may only name `tunnel.cust-b.*`, so even though a worker is the trusted control plane it cannot publish a request into another org's subtree — the tenancy boundary holds on both sides of the tunnel. This is what makes a **shared broker safe for multiple tenants**: each customer's control plane connects with its own org-scoped credential (and its own `_INBOX.bow.<org_id>` prefix, below), so nothing a misconfigured or compromised worker does can cross into another org. The worker's publish is also narrowed to the two subjects it actually sends on — `conn.*` and `control` — so a worker credential carries no ability to forge an advertisement or spoof a heartbeat/progress report, which are the agent's to publish.
+
+**One Bow instance, several orgs — one NATS connection per org.** A single control plane can serve any number of orgs; each org just deploys its own edge agent(s) into its own network. Because a worker credential is scoped to one org (`tunnel.<org_id>.*`) and a NATS connection carries one credential, the instance opens **one org-scoped NATS connection per org it serves**, and routes each request to the right connection by the connection's `organization_id`:
+
+```
+Bow instance (control plane)
+├─ NATS conn (cred: bow-worker-orgA, prefix _INBOX.bow.orgA)
+│    subscribes tunnel.orgA.advertisements / .*.heartbeat / .*.progress.*
+│    publishes   tunnel.orgA.*.conn.* / .control        ── org A's edge agents
+└─ NATS conn (cred: bow-worker-orgB, prefix _INBOX.bow.orgB)
+     subscribes tunnel.orgB.advertisements / .*.heartbeat / .*.progress.*
+     publishes   tunnel.orgB.*.conn.* / .control        ── org B's edge agents
+```
+
+Nothing per *connection* changes — connections live below each agent's `>` wildcard — so serving another org is one more worker user in `nats.conf` plus one more scoped NATS connection on the instance. What this topology isolates is the **transport and the agents**: org A's agent cannot touch `tunnel.orgB.*` and A's replies cannot reach B's inbox. The control-plane process and its DB are still shared across the orgs it serves (it holds every served org's metadata, and forwards each org's `user_required` per-user tokens), which is inherent to one instance serving many orgs and is appropriate when they share one operator/trust domain. Orgs that must be isolated at the application layer as well get their own instance. The single all-org `tunnel.*` connection is the convenience form for when the instance and its orgs are one trust domain and per-org credential management isn't wanted; the per-org connections are the form that stays safe on a broker shared with *other* control planes.
+
 Note the edge agent's publish grant also covers its own `conn.*` subjects, which lets it publish requests to itself. Harmless — it is the only subscriber, it already holds the credentials, and narrowing the grant would mean enumerating connections in `nats.conf`, which is exactly the drift the single wildcard eliminates.
 
 **One wildcard per agent, not one line per connection.** Because `edge_agent_id` is a subject token (A3), an agent's entire surface is `tunnel.<org>.<edge_agent_id>.>`. The admin never enumerates connections in `nats.conf`, so the permission list cannot drift as connections are added and removed on the edge agent — it is written once when the agent is provisioned. This is why `edge_agent_id` must be admin-supplied and known before first boot: it is the thing the permission grant is written against.
@@ -734,7 +756,7 @@ Note the edge agent's publish grant also covers its own `conn.*` subjects, which
 
 This is why `index_timeout_seconds` exists as a real setting rather than an unbounded wait (A5, C4): `expires` has to be sized against *something*, and an operation with no budget cannot be sized against. Keep the ordering `index_timeout_seconds` (15m default) < the control plane's NATS request timeout for those operations < `expires` (20m), so the edge agent's own budget always fires first and the reply grant is still alive when it does. Raising the index budget means raising both of the others. `max: 1` means one reply per request, which is why A6 uses a single-message response.
 
-Workers set `inbox_prefix="_INBOX.bow"` on their NATS client so their subscribe permission is scoped rather than the global `_INBOX.>` wildcard. An edge agent is never granted subscribe on any `_INBOX` subject — otherwise it could read replies (including other orgs' result sets) destined for workers.
+Workers set `inbox_prefix="_INBOX.bow.<org_id>"` on their NATS client so their subscribe permission is scoped rather than the global `_INBOX.>` wildcard — and, per-org, so a worker for one org can never receive replies (result sets) destined for another org's worker on a shared broker. An edge agent is never granted subscribe on any `_INBOX` subject — otherwise it could read replies (including other orgs' result sets) destined for workers.
 
 **Operating it:**
 
@@ -745,7 +767,7 @@ Workers set `inbox_prefix="_INBOX.bow"` on their NATS client so their subscribe 
 
 **Transport security.** TLS is terminated at Caddy or the K8s ingress, and the websocket listener itself is `no_tls` (A1, E3) — edge agents reach it as `wss://tunnel.bow.com` on 443. Enable TLS on the internal `:4222` listener too — per-user OAuth tokens and result sets cross that hop. Note that NATS decrypts at the broker: it sees every payload in plaintext. That is acceptable while the broker is operated by the same party as the control plane; it is the property to revisit if a third party ever runs it.
 
-**v1 assumptions (explicit).** The system admin is responsible for: (a) provisioning one NATS user per edge agent with a correct, non-overlapping subject list; (b) ensuring no two edge agents are configured for the same connection subject; (c) running one instance per credential, stop-then-start. v1 is intended for **single-tenant / self-hosted** deployments — with static credentials the trust boundary already includes the admin. Multi-tenant SaaS requires v2.
+**v1 assumptions (explicit).** The system admin is responsible for: (a) provisioning one NATS user per edge agent with a correct, non-overlapping subject list; (b) provisioning one org-scoped worker credential per org (`tunnel.<org_id>.*` + `_INBOX.bow.<org_id>`); (c) ensuring no two edge agents are configured for the same connection subject; (d) running one instance per credential, stop-then-start. Because both the agents *and* the workers are org-scoped, a **shared broker can host several tenants** on this static model — the isolation is broker-enforced per org on both sides of the tunnel. What v1 does *not* solve is doing it at SaaS scale: the credentials and their non-overlapping subject lists are hand-managed in `nats.conf`, which is fine for a handful of tenants a known admin provisions but drifts as tenants multiply — which is what v2 addresses. v1 is intended for **single-tenant / self-hosted, or a small, admin-provisioned set of tenants**.
 
 **v2 (planned): JWT + NKey and auth callout.** Per-organization NATS accounts with `nsc`-minted credentials give cross-account isolation stronger than subject permissions. An auth callout — a small NATS client subscribed to `$SYS.REQ.USER.AUTH` that validates the Bow API key and mints a scoped user JWT from the DB — makes Bow's DB the single source of truth and removes config drift, at the cost of one new service and nkey management. A registration lease (request/reply grant before subscribing) closes the same-credential duplicate case that permissions cannot see. Not required for v1.
 
@@ -1627,11 +1649,14 @@ authorization {
   # v1: static users with scoped subject permissions (see A11).
   # Admin-managed; reload with `nats-server --signal reload` after edits.
   users: [
-    { user: "bow-worker", password: "$2a$11$..."
+    # One org-scoped worker credential per org (internal TCP only). Publishes
+    # only the request + cancel subjects; scoped so a shared broker isolates
+    # tenants on the worker side too. Multi-org control plane = one per org.
+    { user: "bow-worker-cust-b", password: "$2a$11$..."
       permissions: {
-        publish:   ["tunnel.>"]
-        subscribe: ["_INBOX.bow.>", "tunnel.*.advertisements",
-                    "tunnel.*.*.progress.*", "tunnel.*.*.heartbeat"]
+        publish:   ["tunnel.cust-b.*.conn.*", "tunnel.cust-b.*.control"]
+        subscribe: ["_INBOX.bow.cust-b.>", "tunnel.cust-b.advertisements",
+                    "tunnel.cust-b.*.progress.*", "tunnel.cust-b.*.heartbeat"]
       }}
 
     { user: "edge-cust-b-nyc", password: "$2a$11$..."
@@ -1710,7 +1735,7 @@ Status values:
 | Same-credential duplicate subscriber | Two processes sharing one NATS credential are indistinguishable to the broker; both receive and answer the same request. v1 mitigates by convention (one instance per credential, stop-then-start, optional `max_connections: 1`) plus the runtime `edge_agent_id` assertion in B3. The registration lease that would enforce it is v2 (A3, A11). | ⚪ Won't be solved |
 | `nats.conf` agent provisioning is manual | Adding or removing a *edge agent* means editing `nats.conf` and reloading the broker; the `edge_agent_id` there must match `BOW_EDGE_AGENT_AGENT_ID` on the agent. Connection-level drift is gone — an agent's grant is one wildcard (`tunnel.<org>.<edge_agent_id>.>`), so connections never appear in `nats.conf` and adding one needs no broker change. A mismatched `edge_agent_id` fails loudly at `subscribe`, not silently. The v2 auth callout removes the manual step entirely by minting credentials from Bow's DB (A11). | ⚪ Won't be solved |
 | Broker sees payloads in plaintext | NATS terminates TLS and decrypts at the broker, so it observes per-user OAuth tokens and result sets. Acceptable while the broker is operated by the same party as the control plane; the property to revisit if a third party ever runs it (A11). | ⚪ Won't be solved |
-| Multi-tenant SaaS isolation | v1 isolates orgs by subject naming plus per-user permission lists, weaker than account-level separation. v1 targets single-tenant / self-hosted, where the trust boundary already includes the admin. Per-org NATS accounts with JWT+NKey are v2 (A11). | ⚪ Won't be solved |
+| Multi-tenant SaaS isolation | v1 isolates orgs by subject naming plus per-user permission lists on **both** sides — each edge agent and each worker credential is scoped to one org's `tunnel.<org_id>.*` subtree (A11), so a shared broker isolates tenants at the broker. This is weaker than account-level separation (one over-broad grant leaks; same account shares one JetStream/limits namespace) and, more to the point, the credentials are hand-managed in `nats.conf` — fine for a small admin-provisioned tenant set, not for SaaS scale. Per-org NATS **accounts** with JWT+NKey (stronger separation) and a DB-driven auth callout (removes the manual provisioning) are v2 (A11). | 🟡 Static per-org scoping done; account-level + dynamic is v2 |
 | Multi-connection routing | Resolved by the client proxy: routing happens per call at the `ds_clients` dict lookup, inside the sandbox, where the connection identity is known. Code spanning two edge agents — or mixing tunneled and direct connections in one `generate_df` — executes correctly with no routing decision to make (B2). | 🟢 Solved |
 | Control plane holding system credentials | The tunnel branch is taken immediately after `resolve_client_class` and before `resolve_credentials()` at all three construction sites (B2). For `system_only` tunneled connections there is no code path on which the control plane obtains the credential. | 🟢 Solved |
 | `org_id` provenance | Read from the **subject**, never from the advertisement payload (A3, A10, A11). The earlier form of this row said "from the authenticated NATS identity", which is not something core NATS offers: a subscriber receives subject, headers, reply and bytes, with no field naming the publishing user — so a handler on a single global `tunnel.advertisements` would have had nothing but the payload to trust, on a subject every edge agent must be granted publish. Fixed by scoping the subject: `tunnel.<org_id>.advertisements`, one granted per edge agent, org read out of `msg.subject`. The connection subjects always had this property; the advertisement subject was the one place it silently did not. | 🟢 Solved |

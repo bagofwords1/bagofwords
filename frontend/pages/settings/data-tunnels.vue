@@ -234,13 +234,13 @@ const configYaml = computed(() => {
   const org = orgId.value || '<organization-id>'
   return [
     '# Bow Data Edge Agent — config.yaml',
+    '# org_id is your unique and system generated identifier, do not change it.',
     `org_id: ${org}`,
     `edge_agent_id: ${id}`,
     // quote the name: it can contain spaces
     `edge_agent_name: ${JSON.stringify(name)}`,
     '',
-    "# The tunnel endpoint your Bow instance exposes to edge agents (wss:// in",
-    "# production, TLS terminated at the ingress). Replace with your host:",
+    '# Tunnel endpoint URL',
     'tunnel_endpoint_url: wss://tunnel.example.com',
   ].join('\n')
 })
