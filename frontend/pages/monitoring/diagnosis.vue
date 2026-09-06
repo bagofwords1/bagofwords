@@ -26,7 +26,12 @@
                     <span v-else class="truncate max-w-[180px]">{{ selectedUsers.map(u => u.name).join(', ') }}</span>
                 </template>
                 <template #option="{ option }">
-                    <span v-if="option.id === ALL_SENTINEL" class="block w-full -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-200 dark:border-gray-700">{{ option.name }}</span>
+                    <span v-if="option.id === ALL_SENTINEL"
+                          class="flex items-center justify-between gap-2 w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedUsers.length === 0 ? 'text-indigo-700' : ''">
+                        {{ option.name }}
+                        <UIcon v-if="selectedUsers.length === 0" name="i-heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    </span>
                     <span v-else class="block truncate">{{ option.name }}</span>
                 </template>
             </USelectMenu>
@@ -47,7 +52,12 @@
                     <span v-else class="truncate max-w-[180px]">{{ selectedTools.map(t => displayToolName(t.name)).join(', ') }}</span>
                 </template>
                 <template #option="{ option }">
-                    <span v-if="option.name === ALL_SENTINEL" class="block w-full -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-200 dark:border-gray-700">{{ option.label }}</span>
+                    <span v-if="option.name === ALL_SENTINEL"
+                          class="flex items-center justify-between gap-2 w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedTools.length === 0 ? 'text-indigo-700' : ''">
+                        {{ option.label }}
+                        <UIcon v-if="selectedTools.length === 0" name="i-heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    </span>
                     <span v-else class="block truncate">{{ option.label }}</span>
                 </template>
             </USelectMenu>
@@ -68,7 +78,12 @@
                     <span v-else class="truncate max-w-[180px]">{{ selectedTables.map(t => t.name).join(', ') }}</span>
                 </template>
                 <template #option="{ option }">
-                    <span v-if="option.id === ALL_SENTINEL" class="block w-full -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-200 dark:border-gray-700">{{ option.label }}</span>
+                    <span v-if="option.id === ALL_SENTINEL"
+                          class="flex items-center justify-between gap-2 w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedTables.length === 0 ? 'text-indigo-700' : ''">
+                        {{ option.label }}
+                        <UIcon v-if="selectedTables.length === 0" name="i-heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    </span>
                     <span v-else class="flex items-center gap-1.5 min-w-0">
                         <DataSourceIcon
                             v-if="option.agent"

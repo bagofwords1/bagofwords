@@ -10,7 +10,20 @@
                 @update:model-value="onPeriodSelect"
                 size="sm"
                 class="min-w-[140px]"
-            />
+            >
+                <!-- "All Time" is this menu's "select all" — styled like the
+                     All row in the other console filters (agent-selector
+                     pattern: emphasized first row + divider). The component's
+                     own check marks the selection. -->
+                <template #option="{ option }">
+                    <span v-if="option.value === 'all_time'"
+                          class="block w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedPeriod.value === 'all_time' ? 'text-indigo-700' : ''">
+                        {{ option.label }}
+                    </span>
+                    <span v-else class="block truncate">{{ option.label }}</span>
+                </template>
+            </USelectMenu>
 
             <!-- Exact day: single date input -->
             <input
