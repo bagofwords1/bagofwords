@@ -5,29 +5,8 @@
            markup of its own — it hosts the details/customize modals. -->
       <SuggestedTemplates ref="suggestedRef" variant="menu" @changed="onTemplatesChanged" />
 
-      <!-- Full-page empty state (no tasks, no active search) -->
-      <div v-if="!isLoading && tasks.length === 0 && !searchTerm && statusFilter === 'all'" class="flex flex-col items-center justify-center text-center py-10 px-4">
-        <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-xs opacity-90 select-none pointer-events-none" />
-        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('scheduled.empty') }}</h3>
-        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('scheduled.emptyDescription') }}</p>
-
-        <button
-          @click="openNewTask"
-          :disabled="creatingTask"
-          class="mt-5 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-        >
-          <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
-          <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
-          {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
-        </button>
-
-        <!-- Or start from a template: the ones not set up yet, right here. -->
-        <div class="mt-8 w-full max-w-2xl">
-          <SuggestedTemplates ref="suggestedEmptyRef" variant="cards" @changed="onTemplatesChanged" />
-        </div>
-      </div>
-
-      <template v-else>
+      <!-- Header row (description + New task + From template) shows in every
+           state, so the actions sit in the same place with or without tasks. -->
       <div class="mb-5">
         <div class="flex items-center justify-between">
           <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('automations.scheduledDescription') }}</div>
@@ -54,8 +33,24 @@
             </button>
           </div>
         </div>
+      </div>
 
-        <div class="mt-3 flex items-center gap-2">
+      <!-- Full-page empty state (no tasks, no active search) -->
+      <div v-if="!isLoading && tasks.length === 0 && !searchTerm && statusFilter === 'all'" class="flex flex-col items-center justify-center text-center py-10 px-4">
+        <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-xs opacity-90 select-none pointer-events-none" />
+        <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('scheduled.empty') }}</h3>
+        <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('scheduled.emptyDescription') }}</p>
+
+        <!-- New task lives in the header row above; here, the templates not
+             set up yet as a starting point. -->
+        <div class="mt-6 w-full max-w-2xl">
+          <SuggestedTemplates ref="suggestedEmptyRef" variant="cards" @changed="onTemplatesChanged" />
+        </div>
+      </div>
+
+      <template v-else>
+      <div class="mb-5">
+        <div class="flex items-center gap-2">
           <input v-model="searchTerm" type="text" :placeholder="$t('scheduled.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
         </div>
 
