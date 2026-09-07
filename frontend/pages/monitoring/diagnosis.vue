@@ -13,7 +13,7 @@
             <!-- User filter -->
             <USelectMenu
                 v-model="selectedUsers"
-                :options="userOptions"
+                :options="userMenuOptions"
                 multiple
                 searchable
                 by="id"
@@ -25,7 +25,87 @@
                     <span v-if="selectedUsers.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.filterUsersAll') }}</span>
                     <span v-else class="truncate max-w-[180px]">{{ selectedUsers.map(u => u.name).join(', ') }}</span>
                 </template>
+                <template #option="{ option }">
+                    <span v-if="option.id === ALL_SENTINEL"
+                          class="flex items-center justify-between gap-2 w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedUsers.length === 0 ? 'text-indigo-700' : ''">
+                        {{ option.name }}
+                        <UIcon v-if="selectedUsers.length === 0" name="i-heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    </span>
+                    <span v-else class="block truncate">{{ option.name }}</span>
+                </template>
             </USelectMenu>
+
+            <!-- Tool filter -->
+            <USelectMenu
+                v-model="selectedTools"
+                :options="toolMenuOptions"
+                multiple
+                searchable
+                by="name"
+                option-attribute="label"
+                size="sm"
+                class="min-w-[160px]"
+            >
+                <template #label>
+                    <span v-if="selectedTools.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.filterToolsAll') }}</span>
+                    <span v-else class="truncate max-w-[180px]">{{ selectedTools.map(t => displayToolName(t.name)).join(', ') }}</span>
+                </template>
+                <template #option="{ option }">
+                    <span v-if="option.name === ALL_SENTINEL"
+                          class="flex items-center justify-between gap-2 w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedTools.length === 0 ? 'text-indigo-700' : ''">
+                        {{ option.label }}
+                        <UIcon v-if="selectedTools.length === 0" name="i-heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    </span>
+                    <span v-else class="block truncate">{{ option.label }}</span>
+                </template>
+            </USelectMenu>
+
+            <!-- Table filter -->
+            <USelectMenu
+                v-model="selectedTables"
+                :options="tableMenuOptions"
+                multiple
+                searchable
+                by="id"
+                option-attribute="label"
+                size="sm"
+                class="min-w-[160px]"
+            >
+                <template #label>
+                    <span v-if="selectedTables.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.filterTablesAll') }}</span>
+                    <span v-else class="truncate max-w-[180px]">{{ selectedTables.map(t => t.name).join(', ') }}</span>
+                </template>
+                <template #option="{ option }">
+                    <span v-if="option.id === ALL_SENTINEL"
+                          class="flex items-center justify-between gap-2 w-full whitespace-nowrap -mx-1.5 px-1.5 -my-1.5 py-1.5 font-medium border-b border-gray-100 dark:border-gray-800"
+                          :class="selectedTables.length === 0 ? 'text-indigo-700' : ''">
+                        {{ option.label }}
+                        <UIcon v-if="selectedTables.length === 0" name="i-heroicons-check" class="w-3.5 h-3.5 text-indigo-600 flex-shrink-0" />
+                    </span>
+                    <span v-else class="flex items-center gap-1.5 min-w-0">
+                        <DataSourceIcon
+                            v-if="option.agent"
+                            :type="option.agent.connections?.[0]?.type"
+                            :connector-key="option.agent.connections?.[0]?.connector_key"
+                            :icon="option.agent.icon"
+                            class="h-3.5 w-3.5 flex-shrink-0"
+                        />
+                        <span class="truncate">{{ option.name }}</span>
+                        <span class="text-gray-400 dark:text-gray-500 truncate text-xs">{{ option.data_source_name }}</span>
+                    </span>
+                </template>
+            </USelectMenu>
+
+            <!-- Failed-only toggle. Always visible: with tools selected it means
+                 "runs where a selected tool failed"; with none it means "runs
+                 where any tool failed". -->
+            <UCheckbox
+                v-model="toolFailedOnly"
+                :label="$t('monitoring.diagnosis.failedOnly')"
+                :ui="{ label: 'text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap' }"
+            />
 
             <!-- Free-text prompt search -->
             <UInput
@@ -90,7 +170,7 @@
             <div class="border-b border-gray-200 dark:border-gray-700">
                 <nav class="-mb-px flex space-x-8">
                     <button
-                        v-for="filter in filterOptions"
+                        v-for="filter in tabOptions"
                         :key="filter.value"
                         @click="handleFilterChange(filter)"
                         :class="[
@@ -117,14 +197,23 @@
             </div>
         </div>
 
-        <!-- Day filter indicator (set by clicking a bar in the activity chart) -->
-        <div v-if="selectedDay" class="mb-4 -mt-2">
+        <!-- Active filter chips: one per selected value, each removable -->
+        <div v-if="activeFilterChips.length > 0" class="mb-4 -mt-2 flex flex-wrap items-center gap-2">
             <button
-                @click="clearDayFilter"
-                class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950 text-blue-700 border border-blue-200 rounded-full text-xs font-medium hover:bg-blue-100"
+                v-for="chip in activeFilterChips"
+                :key="chip.key"
+                @click="chip.clear()"
+                class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950 text-blue-700 border border-blue-200 rounded-full text-xs font-medium hover:bg-blue-100 max-w-[240px]"
             >
-                {{ $t('monitoring.diagnosis.dayFilterLabel', { date: formatDate(selectedDay) }) }}
-                <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                <span class="truncate">{{ chip.label }}</span>
+                <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5 flex-shrink-0" />
+            </button>
+            <button
+                v-if="activeFilterChips.length > 1"
+                @click="clearAllFilters"
+                class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 underline"
+            >
+                {{ $t('monitoring.diagnosis.clearAll') }}
             </button>
         </div>
 
@@ -136,27 +225,60 @@
             </div>
         </div>
 
+        <!-- Top Errors tab: failed tool calls grouped by tool + message; click narrows to that tool's failed runs -->
+        <div v-else-if="selectedFilter.value === 'top_errors'" class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
+            <table class="w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
+                <thead class="bg-gray-50 dark:bg-gray-900">
+                    <tr>
+                        <th class="w-[10%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colRuns') }}</th>
+                        <th class="w-[20%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
+                        <th class="w-[70%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colError') }}</th>
+                    </tr>
+                </thead>
+                <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
+                    <tr v-for="(group, idx) in errorGroups" :key="idx" class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" @click="applyErrorGroupFilter(group)">
+                        <td class="px-4 py-3">
+                            <span class="inline-flex items-center justify-center min-w-[28px] px-1.5 py-0.5 bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300 rounded-full text-xs font-semibold">{{ group.count }}</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]">{{ displayToolName(group.tool_name) }}</span>
+                        </td>
+                        <td class="px-4 py-3">
+                            <span class="block truncate text-gray-700 dark:text-gray-300">{{ group.error_message || $t('monitoring.diagnosis.noErrorMessage') }}</span>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div v-if="errorGroups.length === 0" class="text-center py-12">
+                <UIcon name="i-heroicons-check-circle" class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" />
+                <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.noErrorsFound') }}</p>
+            </div>
+        </div>
+
         <!-- Agent Executions Table -->
         <div v-else class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
             <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <!-- Fixed layout so column widths are stable and predictable;
+                     min-w keeps them readable, the wrapper scrolls horizontally
+                     on narrow screens. -->
+                <table class="w-full min-w-[1080px] table-fixed divide-y divide-gray-200 dark:divide-gray-700">
                     <thead class="bg-gray-50 dark:bg-gray-900">
                         <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[320px] w-[320px]">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
+                            <th class="w-[24%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
+                            <th class="w-[9%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
+                            <th class="w-[8%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
+                            <th class="w-[17%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
+                            <th class="w-[9%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
+                            <th class="w-[11%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
+                            <th class="w-[12%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
+                            <th class="w-[10%] px-4 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
                         </tr>
                     </thead>
                     <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
                         <tr v-for="item in executionItems" :key="item.agent_execution_id" class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" @click="openTraceFromAE(item)">
-                            <td class="px-6 py-4">
+                            <td class="px-4 py-3">
                                 <div class="text-xs text-gray-900 dark:text-white">
-                                    <div class="relative group max-w-[320px] w-[320px]">
+                                    <div class="relative group max-w-full">
                                         <p class="truncate flex items-center gap-1.5">
                                             <UTooltip v-if="platformOf(item)" :text="platformOf(item).label">
                                                 <img v-if="platformOf(item).img" :src="platformOf(item).img" class="h-3.5 w-3.5 inline flex-shrink-0" :alt="platformOf(item).label" />
@@ -170,10 +292,10 @@
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-2 py-1">
-                                <div class="text-xs text-gray-900 dark:text-white">{{ item.user_name || '—' }}</div>
+                            <td class="px-4 py-3">
+                                <div class="text-xs text-gray-900 dark:text-white truncate">{{ item.user_name || '—' }}</div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
+                            <td class="px-4 py-3 whitespace-nowrap">
                                 <div class="relative inline-block group">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
                                           :class="item.agent_execution_status === 'error' ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800'">
@@ -184,16 +306,15 @@
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
-                                <div class="flex flex-wrap gap-1 max-w-md">
-                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]"
-                                          @click.stop="openTraceFromAE(item)">
+                            <td class="px-4 py-3">
+                                <div class="flex flex-wrap gap-1">
+                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px] max-w-full truncate">
                                         {{ title }}
                                     </span>
                                     <span v-if="(item.step_titles || []).length === 0" class="text-gray-400 dark:text-gray-600">{{ $t('monitoring.diagnosis.none') }}</span>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
+                            <td class="px-4 py-3">
                                 <div class="text-xs text-gray-900 dark:text-white">{{ $t('monitoring.diagnosis.totalPrefix', { n: item.total_tools }) }}</div>
                                 <div class="flex items-center space-x-4 mt-1">
                                     <div class="flex items-center space-x-1 text-green-600">
@@ -206,26 +327,26 @@
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4">
+                            <td class="px-4 py-3">
                                 <div class="flex flex-col">
                                     <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
                                           :class="item.feedback_direction > 0 ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800'">
                                         {{ item.feedback_direction > 0 ? $t('monitoring.diagnosis.feedbackPositive') : (item.feedback_direction < 0 ? $t('monitoring.diagnosis.feedbackNegative') : $t('monitoring.diagnosis.feedbackNone')) }}
                                     </span>
-                                    <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-sm">
+                                    <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-full">
                                         <UTooltip :text="item.feedback_message">
-                                            <span class="truncate cursor-help">{{ truncate(item.feedback_message, 120) }}</span>
+                                            <span class="block truncate cursor-help">{{ truncate(item.feedback_message, 120) }}</span>
                                         </UTooltip>
                                     </div>
                                 </div>
                             </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <NuxtLink v-if="item.report_link" :to="item.report_link" class="text-blue-600 hover:underline" @click.stop>
+                            <td class="px-4 py-3">
+                                <NuxtLink v-if="item.report_link" :to="item.report_link" class="block truncate text-blue-600 hover:underline" @click.stop>
                                     {{ item.report_name || item.report_id }}
                                 </NuxtLink>
-                                <span v-else>{{ item.report_name || item.report_id }}</span>
+                                <span v-else class="block truncate">{{ item.report_name || item.report_id }}</span>
                             </td>
-                            <td class="px-3 py-1">
+                            <td class="px-4 py-3">
                                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(item.created_at as any) }}</span>
                             </td>
                         </tr>
@@ -246,8 +367,8 @@
             </div>
         </div>
 
-        <!-- Pagination -->
-        <div v-if="executionItems.length > 0" class="mt-6 flex items-center justify-between">
+        <!-- Pagination (runs list only) -->
+        <div v-if="executionItems.length > 0 && selectedFilter.value !== 'top_errors'" class="mt-6 flex items-center justify-between">
             <div class="text-sm text-gray-700 dark:text-gray-300">
                 {{ $t('monitoring.diagnosis.paginationRange', { start: (currentPage - 1) * pageSize + 1, end: Math.min(currentPage * pageSize, totalItems), total: totalItems }) }}
             </div>
@@ -308,7 +429,7 @@ import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.
 const { isJudgeEnabled } = useOrgSettings()
 // The console is scoped to the agents the user manages, so the filter it sends
 // is the selection narrowed to that set — never the raw chat-context selection.
-const { consoleSelectedAgents, consoleSelectionKey, initAgent } = useAgent()
+const { consoleSelectedAgents, consoleSelectionKey, initAgent, agents, selectedAgents, selectAgents } = useAgent()
 const { t } = useI18n()
 
 definePageMeta({
@@ -366,6 +487,13 @@ const instructionsEffectiveness = ref<number | null>(null)
 const executionItems = ref<any[]>([])
 const dashboardMetrics = ref<any>(null)
 
+// Top errors tab (failed tool calls grouped by tool + message)
+interface DiagnosisErrorGroup { tool_name: string; error_message: string; count: number }
+const errorGroups = ref<DiagnosisErrorGroup[]>([])
+// Exact-error drill-down set by clicking a Top Errors row ('' = the
+// no-error-message group; null = no error filter)
+const selectedToolError = ref<string | null>(null)
+
 // Activity chart timeseries (daily agent runs by status)
 interface DiagnosisStatusPoint { date: string; success: number; error: number }
 const timeseriesPoints = ref<DiagnosisStatusPoint[] | null>(null)
@@ -381,6 +509,7 @@ const filterLabelFor = (value: string): string => {
         case 'failed_queries': return t('monitoring.diagnosis.filterFailed')
         case 'low_confidence': return t('monitoring.diagnosis.filterLowConfidence')
         case 'low_instruction_coverage': return t('monitoring.diagnosis.filterLowCoverage')
+        case 'top_errors': return t('monitoring.diagnosis.topErrors')
         default: return value
     }
 }
@@ -393,6 +522,13 @@ const filterOptions = ref([
     { label: filterLabelFor('low_instruction_coverage'), value: 'low_instruction_coverage', count: 0 }
 ])
 
+// The tab strip = the metrics-driven tabs plus the grouped-errors tab, whose
+// count is the number of distinct error patterns in the current slice
+const tabOptions = computed(() => [
+    ...filterOptions.value,
+    { label: filterLabelFor('top_errors'), value: 'top_errors', count: errorGroups.value.length }
+])
+
 // Add these to the state section
 const showTraceModal = ref(false)
 const selectedTraceItem = ref<any | null>(null)
@@ -401,6 +537,43 @@ const selectedTraceItem = ref<any | null>(null)
 interface DiagnosisUserOption { id: string; name: string; email: string }
 const userOptions = ref<DiagnosisUserOption[]>([])
 const selectedUsers = ref<DiagnosisUserOption[]>([])
+
+// Friendly display form of a tool name — underscores read as code, spaces
+// read as a label. The raw name stays the filter value sent to the API.
+const displayToolName = (name: string) => (name || '').split('_').join(' ')
+
+// Tool filter state
+interface DiagnosisToolOption { name: string; total: number; failed: number }
+const toolOptions = ref<DiagnosisToolOption[]>([])
+const selectedTools = ref<DiagnosisToolOption[]>([])
+const toolFailedOnly = ref(false)
+
+// Data-table filter state (label carries the data source name — two sources
+// can both have an `orders` table)
+interface DiagnosisTableOption { id: string; name: string; data_source_id: string; data_source_name: string; label: string }
+const tableOptions = ref<DiagnosisTableOption[]>([])
+const selectedTables = ref<DiagnosisTableOption[]>([])
+
+// "Select all" row at the top of each facet dropdown, mirroring the agent
+// selector: picking it clears the selection (empty selection = no filter).
+// The sentinel never stays selected — the watchers swap it for a clear.
+const ALL_SENTINEL = '__all__'
+const userMenuOptions = computed(() => [
+    { id: ALL_SENTINEL, name: t('monitoring.diagnosis.filterUsersAll'), email: '' },
+    ...userOptions.value
+])
+const toolMenuOptions = computed(() => [
+    { name: ALL_SENTINEL, label: t('monitoring.diagnosis.filterToolsAll') },
+    ...toolOptions.value.map(o => ({ ...o, label: displayToolName(o.name) }))
+])
+const tableMenuOptions = computed(() => {
+    // Attach the owning agent so each table row can show its agent's logo
+    const agentById = new Map((agents.value || []).map((a: any) => [String(a.id), a]))
+    return [
+        { id: ALL_SENTINEL, label: t('monitoring.diagnosis.filterTablesAll') } as any,
+        ...tableOptions.value.map(o => ({ ...o, agent: agentById.get(o.data_source_id) || null }))
+    ]
+})
 
 // Free-text prompt search (debounced)
 const searchQuery = ref('')
@@ -494,10 +667,11 @@ const handleRangeChange = (range: DateRange) => {
 const refreshAll = () => {
     currentPage.value = 1
     selectedDay.value = null
-    // Refresh overall metrics, timeseries, and diagnosis data when filters change
+    // Refresh overall metrics, timeseries, error groups, and diagnosis data when filters change
     Promise.all([
         fetchOverallMetrics(),
         fetchTimeseries(),
+        fetchErrorGroups(),
         fetchDiagnosisData()
     ])
 }
@@ -520,11 +694,6 @@ const fetchDiagnosisData = async () => {
         }
 
         appendScopeParams(params)
-
-        // Free-text search against the user prompt
-        if (searchQuery.value.trim()) {
-            params.append('prompt_search', searchQuery.value.trim())
-        }
 
         debugInfo.value = `Fetching with params: ${params.toString()}`
 
@@ -627,6 +796,25 @@ const appendScopeParams = (params: URLSearchParams) => {
     if (selectedUsers.value.length > 0) {
         params.append('user_ids', selectedUsers.value.map(u => u.id).join(','))
     }
+    if (selectedTools.value.length > 0) {
+        params.append('tool_names', selectedTools.value.map(t => t.name).join(','))
+    }
+    // Standalone: without tools it filters to runs where any tool failed
+    if (toolFailedOnly.value) {
+        params.append('tool_failed_only', 'true')
+    }
+    // Exact error message from the Top Errors drill-down ('' is meaningful)
+    if (selectedToolError.value !== null) {
+        params.append('tool_error', selectedToolError.value)
+    }
+    if (selectedTables.value.length > 0) {
+        params.append('table_ids', selectedTables.value.map(t => t.id).join(','))
+    }
+    // Free-text prompt search filters everything (table, KPI cards, chart),
+    // like every other filter here — not just the table.
+    if (searchQuery.value.trim()) {
+        params.append('prompt_search', searchQuery.value.trim())
+    }
 }
 
 const appendDateParams = (params: URLSearchParams) => {
@@ -675,6 +863,92 @@ const fetchOverallMetrics = async () => {
         console.error('Failed to fetch overall metrics:', error)
     }
 }
+
+const fetchErrorGroups = async () => {
+    try {
+        const params = new URLSearchParams({ limit: '20' })
+        appendDateParams(params)
+        appendScopeParams(params)
+        const response = await useMyFetch<any>(`/api/console/diagnosis/errors?${params}`)
+        errorGroups.value = response.data.value?.groups || []
+    } catch (error) {
+        console.error('Failed to fetch diagnosis error groups:', error)
+        errorGroups.value = []
+    }
+}
+
+// Guard for bulk filter mutations: watchers skip their per-change refresh so a
+// multi-field change triggers exactly one refetch round.
+let bulkFilterChange = false
+
+// Clicking a top-error row narrows the screen to exactly that error — the
+// tool AND the specific message — and jumps back to the runs list
+const applyErrorGroupFilter = (group: DiagnosisErrorGroup) => {
+    const opt = toolOptions.value.find(t => t.name === group.tool_name)
+        || { name: group.tool_name, total: 0, failed: 0 }
+    bulkFilterChange = true
+    toolFailedOnly.value = true
+    selectedTools.value = [opt]
+    selectedToolError.value = group.error_message
+    selectedFilter.value = { label: filterLabelFor('all'), value: 'all' }
+    nextTick(() => { bulkFilterChange = false; refreshAll() })
+}
+
+// Active-filter chips: one per selected value, each removable, plus clear-all
+const activeFilterChips = computed(() => {
+    const chips: { key: string; label: string; clear: () => void }[] = []
+    const agentName = (id: string) => (agents.value || []).find((a: any) => String(a.id) === id)?.name || id
+    for (const id of consoleSelectedAgents.value) {
+        chips.push({ key: `agent-${id}`, label: agentName(id), clear: () => removeAgentFromSelection(id) })
+    }
+    for (const u of selectedUsers.value) {
+        chips.push({ key: `user-${u.id}`, label: u.name, clear: () => { selectedUsers.value = selectedUsers.value.filter(x => x.id !== u.id) } })
+    }
+    for (const tool of selectedTools.value) {
+        chips.push({ key: `tool-${tool.name}`, label: displayToolName(tool.name), clear: () => { selectedTools.value = selectedTools.value.filter(x => x.name !== tool.name) } })
+    }
+    if (toolFailedOnly.value) {
+        chips.push({ key: 'failed-only', label: t('monitoring.diagnosis.failedOnly'), clear: () => { toolFailedOnly.value = false } })
+    }
+    if (selectedToolError.value !== null) {
+        chips.push({
+            key: 'tool-error',
+            label: selectedToolError.value || t('monitoring.diagnosis.noErrorMessage'),
+            clear: () => { selectedToolError.value = null }
+        })
+    }
+    for (const tbl of selectedTables.value) {
+        chips.push({ key: `table-${tbl.id}`, label: tbl.name, clear: () => { selectedTables.value = selectedTables.value.filter(x => x.id !== tbl.id) } })
+    }
+    if (searchQuery.value.trim()) {
+        chips.push({ key: 'search', label: `"${searchQuery.value.trim()}"`, clear: () => { searchQuery.value = '' } })
+    }
+    if (selectedDay.value) {
+        chips.push({ key: 'day', label: t('monitoring.diagnosis.dayFilterLabel', { date: formatDate(selectedDay.value) }), clear: clearDayFilter })
+    }
+    return chips
+})
+
+// Dropping one agent id mirrors AgentSelector.selectAll: only in-scope ids are
+// touched, so a chat-context selection outside monitoring survives.
+const removeAgentFromSelection = (id: string) => {
+    selectAgents([...selectedAgents.value].filter(a => a !== id))
+}
+
+const clearAllFilters = () => {
+    bulkFilterChange = true
+    const scoped = new Set<string>(consoleSelectedAgents.value)
+    selectAgents([...selectedAgents.value].filter(id => !scoped.has(id)))
+    selectedUsers.value = []
+    selectedTools.value = []
+    toolFailedOnly.value = false
+    selectedToolError.value = null
+    selectedTables.value = []
+    searchQuery.value = ''
+    selectedDay.value = null
+    nextTick(() => { bulkFilterChange = false; refreshAll() })
+}
+
 
 const fetchTimeseries = async () => {
     isTimeseriesLoading.value = true
@@ -758,7 +1032,10 @@ const truncate = (text: string, length: number) => {
 const handleFilterChange = (filter: { label: string, value: string }) => {
     selectedFilter.value = filter
     currentPage.value = 1
-    fetchDiagnosisData()
+    // The top-errors tab renders the already-fetched groups, not the runs list
+    if (filter.value !== 'top_errors') {
+        fetchDiagnosisData()
+    }
 }
 
 // Activity chart bar click -> filter the KPI cards + table to that day (toggle off if same day)
@@ -767,6 +1044,7 @@ const handleDaySelect = (date: string) => {
     currentPage.value = 1
     Promise.all([
         fetchOverallMetrics(),
+        fetchErrorGroups(),
         fetchDiagnosisData()
     ])
 }
@@ -776,6 +1054,7 @@ const clearDayFilter = () => {
     currentPage.value = 1
     Promise.all([
         fetchOverallMetrics(),
+        fetchErrorGroups(),
         fetchDiagnosisData()
     ])
 }
@@ -793,6 +1072,31 @@ const fetchUserOptions = async () => {
     }
 }
 
+// Tools facet for the tool filter dropdown
+const fetchToolOptions = async () => {
+    try {
+        const response = await useMyFetch<any>('/api/console/diagnosis/tools')
+        toolOptions.value = response.data.value?.tools || []
+    } catch (error) {
+        console.error('Failed to fetch diagnosis tools:', error)
+        toolOptions.value = []
+    }
+}
+
+// Tables facet for the data-table filter dropdown
+const fetchTableOptions = async () => {
+    try {
+        const response = await useMyFetch<any>('/api/console/diagnosis/tables')
+        tableOptions.value = (response.data.value?.tables || []).map((t: any) => ({
+            ...t,
+            label: t.data_source_name ? `${t.name} · ${t.data_source_name}` : t.name
+        }))
+    } catch (error) {
+        console.error('Failed to fetch diagnosis tables:', error)
+        tableOptions.value = []
+    }
+}
+
 // Watch for page changes
 watch(currentPage, () => {
     fetchDiagnosisData()
@@ -801,20 +1105,63 @@ watch(currentPage, () => {
 // Watch for agent selection changes (also fires once the agent list and the
 // permission map land, which is what turns a raw selection into a scoped one)
 watch(consoleSelectionKey, () => {
+    if (bulkFilterChange) return
     refreshAll()
 }, { deep: true })
 
 // Watch for user filter changes
 watch(selectedUsers, () => {
+    if (bulkFilterChange) return
+    if (selectedUsers.value.some(u => u.id === ALL_SENTINEL)) {
+        selectedUsers.value = []
+        return
+    }
     refreshAll()
 }, { deep: true })
 
-// Debounced free-text search — narrows the table only
+// Watch for tool / data-table filter changes
+watch(selectedTools, () => {
+    if (bulkFilterChange) return
+    if (selectedTools.value.some(t => t.name === ALL_SENTINEL)) {
+        selectedTools.value = []
+        return
+    }
+    // A manual tool change invalidates the exact-error drill-down — the
+    // message belongs to the tool it was clicked under. Suppressed so its own
+    // watcher doesn't fire a second refresh on top of this one.
+    if (selectedToolError.value !== null) {
+        bulkFilterChange = true
+        selectedToolError.value = null
+        nextTick(() => { bulkFilterChange = false })
+    }
+    refreshAll()
+}, { deep: true })
+
+watch(toolFailedOnly, () => {
+    if (bulkFilterChange) return
+    refreshAll()
+})
+
+watch(selectedToolError, () => {
+    if (bulkFilterChange) return
+    refreshAll()
+})
+
+watch(selectedTables, () => {
+    if (bulkFilterChange) return
+    if (selectedTables.value.some(t => t.id === ALL_SENTINEL)) {
+        selectedTables.value = []
+        return
+    }
+    refreshAll()
+}, { deep: true })
+
+// Debounced free-text search — filters everything, like the other filters
 watch(searchQuery, () => {
+    if (bulkFilterChange) return
     if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
     searchDebounceTimer = setTimeout(() => {
-        currentPage.value = 1
-        fetchDiagnosisData()
+        refreshAll()
     }, 400)
 })
 
@@ -827,8 +1174,11 @@ onMounted(async () => {
     await Promise.all([
         fetchOverallMetrics(),
         fetchTimeseries(),
+        fetchErrorGroups(),
         fetchDiagnosisData(),
-        fetchUserOptions()
+        fetchUserOptions(),
+        fetchToolOptions(),
+        fetchTableOptions()
     ])
 })
 </script>

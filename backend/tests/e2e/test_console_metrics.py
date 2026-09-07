@@ -434,8 +434,152 @@ def test_diagnosis_filters_by_user_time_and_prompt(
     points = ts.json()["points"]
     assert sum(p["success"] + p["error"] for p in points) == 2
 
+    # KPI cards and timeseries respect the prompt search too — the search
+    # filters the whole screen, not just the table
+    metrics = get_diagnosis_dashboard_metrics(user_token=owner_token, org_id=org_id, prompt_search="revenue")
+    assert metrics.status_code == 200
+    assert metrics.json()["total_items"] == 2
+    ts = get_diagnosis_timeseries(user_token=owner_token, org_id=org_id, prompt_search="revenue")
+    assert ts.status_code == 200
+    assert sum(p["success"] + p["error"] for p in ts.json()["points"]) == 2
+
     # Users facet lists exactly the users with executions in this org
     users_resp = get_diagnosis_users(user_token=owner_token, org_id=org_id)
     assert users_resp.status_code == 200
     facet_ids = {u["id"] for u in users_resp.json()["users"]}
     assert facet_ids == {owner_id, member_id}
+
+
+def test_diagnosis_filters_by_tool_and_table(
+    get_agent_execution_summaries,
+    get_diagnosis_dashboard_metrics,
+    get_diagnosis_timeseries,
+    get_diagnosis_tools,
+    get_diagnosis_tables,
+    get_diagnosis_errors,
+    seed_agent_executions,
+    seed_data_table,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+):
+    """The diagnosis tool/table slice filters: both facets, summaries filtered
+    by tool_names / tool_failed_only / table_ids (alone and combined), and the
+    KPI metrics + timeseries honoring the same filters."""
+    owner = create_user()
+    owner_token = login_user(owner["email"], owner["password"])
+    owner_info = whoami(owner_token)
+    org_id = owner_info["organizations"][0]["id"]
+    owner_id = owner_info["id"]
+
+    report = create_report(title="Tool/Table Filter Report", user_token=owner_token, org_id=org_id)
+
+    orders = seed_data_table(org_id, "orders")
+    customers = seed_data_table(org_id, "customers")
+
+    now = datetime.utcnow()
+    # Five runs covering the whole matrix:
+    #   1. create_data succeeded, touched orders
+    #   2. create_data FAILED, touched orders
+    #   3. create_data succeeded + describe_tables, touched customers
+    #   4. no tools at all
+    #   5. internal tool only — must stay out of the tools facet
+    seed_agent_executions(org_id, report["id"], [
+        {"user_id": owner_id, "prompt": "orders ok", "created_at": now,
+         "tools": [{"name": "create_data", "success": True, "table_id": orders["table_id"], "table_fqn": "orders",
+                    "duration_ms": 500.0}]},
+        {"user_id": owner_id, "prompt": "orders broken", "created_at": now,
+         "tools": [{"name": "create_data", "success": False, "table_id": orders["table_id"], "table_fqn": "orders",
+                    "duration_ms": 300.0, "error": "relation orders_x does not exist"}]},
+        {"user_id": owner_id, "prompt": "customers ok", "created_at": now,
+         "tools": [{"name": "describe_tables", "success": True, "duration_ms": 100.0},
+                   {"name": "create_data", "success": True, "table_id": customers["table_id"], "table_fqn": "customers",
+                    "duration_ms": 200.0}]},
+        {"user_id": owner_id, "prompt": "no tools", "created_at": now},
+        {"user_id": owner_id, "prompt": "internal only", "created_at": now,
+         "tools": [{"name": "list_agent_executions", "success": True}]},
+    ])
+
+    def summaries(**kw):
+        resp = get_agent_execution_summaries(user_token=owner_token, org_id=org_id, **kw)
+        assert resp.status_code == 200, resp.json()
+        return resp.json()
+
+    # Baseline
+    assert summaries()["total_items"] == 5
+
+    # Tools facet: seeded tools with per-tool total/failed counts, internal tools hidden
+    tools_resp = get_diagnosis_tools(user_token=owner_token, org_id=org_id)
+    assert tools_resp.status_code == 200
+    tools = {t["name"]: t for t in tools_resp.json()["tools"]}
+    assert "list_agent_executions" not in tools
+    assert tools["create_data"]["total"] == 3
+    assert tools["create_data"]["failed"] == 1
+    assert tools["describe_tables"] == {"name": "describe_tables", "total": 1, "failed": 0}
+
+    # Tables facet: both seeded tables, labeled with their data source
+    tables_resp = get_diagnosis_tables(user_token=owner_token, org_id=org_id)
+    assert tables_resp.status_code == 200
+    tables = {t["id"]: t for t in tables_resp.json()["tables"]}
+    assert set(tables) == {orders["table_id"], customers["table_id"]}
+    assert tables[orders["table_id"]]["name"] == "orders"
+    assert tables[orders["table_id"]]["data_source_id"] == orders["data_source_id"]
+    assert tables[orders["table_id"]]["data_source_name"]
+
+    # Filter by tool name (single, multiple, unknown)
+    assert summaries(tool_names="create_data")["total_items"] == 3
+    assert summaries(tool_names="describe_tables")["total_items"] == 1
+    assert summaries(tool_names="create_data,describe_tables")["total_items"] == 3
+    assert summaries(tool_names="no_such_tool")["total_items"] == 0
+
+    # Failed-only narrows to runs where the selected tool actually failed
+    failed = summaries(tool_names="create_data", tool_failed_only=True)
+    assert failed["total_items"] == 1
+    assert failed["items"][0]["prompt"] == "orders broken"
+
+    # Failed-only without a tool selection = runs where ANY tool failed
+    any_failed = summaries(tool_failed_only=True)
+    assert any_failed["total_items"] == 1
+    assert any_failed["items"][0]["prompt"] == "orders broken"
+
+    # Top-errors tab: failures grouped by tool + message, honoring filters
+    errors_resp = get_diagnosis_errors(user_token=owner_token, org_id=org_id)
+    assert errors_resp.status_code == 200
+    groups = errors_resp.json()["groups"]
+    assert groups == [{"tool_name": "create_data",
+                       "error_message": "relation orders_x does not exist", "count": 1}]
+    filtered_errors = get_diagnosis_errors(user_token=owner_token, org_id=org_id,
+                                           table_ids=customers["table_id"])
+    assert filtered_errors.status_code == 200
+    assert filtered_errors.json()["groups"] == []
+
+    # Top-errors drill-down: exact error message narrows to just those runs
+    exact = summaries(tool_names="create_data", tool_error="relation orders_x does not exist")
+    assert exact["total_items"] == 1
+    assert exact["items"][0]["prompt"] == "orders broken"
+    assert summaries(tool_names="create_data", tool_error="some other error")["total_items"] == 0
+
+    # Filter by table
+    assert summaries(table_ids=orders["table_id"])["total_items"] == 2
+    assert summaries(table_ids=customers["table_id"])["total_items"] == 1
+    assert summaries(table_ids=f"{orders['table_id']},{customers['table_id']}")["total_items"] == 3
+
+    # Combined: tool AND table
+    assert summaries(tool_names="create_data", table_ids=orders["table_id"])["total_items"] == 2
+    assert summaries(tool_names="create_data", tool_failed_only=True, table_ids=customers["table_id"])["total_items"] == 0
+
+    # KPI cards honor the slice: within the orders runs, one create_data failure
+    metrics = get_diagnosis_dashboard_metrics(user_token=owner_token, org_id=org_id, table_ids=orders["table_id"])
+    assert metrics.status_code == 200
+    body = metrics.json()
+    assert body["total_items"] == 2
+    assert body["failed_queries"] == 1
+
+    # Timeseries honors the slice, and the failed run is bucketed as an error
+    ts = get_diagnosis_timeseries(user_token=owner_token, org_id=org_id,
+                                  tool_names="create_data", tool_failed_only=True)
+    assert ts.status_code == 200
+    points = ts.json()["points"]
+    assert sum(p["success"] + p["error"] for p in points) == 1
+    assert sum(p["error"] for p in points) == 1

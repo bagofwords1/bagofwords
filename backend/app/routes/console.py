@@ -7,7 +7,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.console_access import ConsoleScope, console_scope
 from app.ee.license import require_enterprise
-from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, DiagnosisUsersResponse, CostMetrics
+from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, DiagnosisUsersResponse, DiagnosisToolsResponse, DiagnosisTablesResponse, DiagnosisErrorGroupsResponse, CostMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from app.models.step import Step
@@ -258,6 +258,47 @@ async def get_diagnosis_users(
     """Distinct users with agent executions — facet list for the diagnosis user filter."""
     _result = await console_service.get_diagnosis_users(
         db, organization, scope_data_source_ids=scope.data_source_ids)
+    await release_request_db(db)
+    return _result
+
+@router.get("/console/diagnosis/tools", response_model=DiagnosisToolsResponse)
+async def get_diagnosis_tools(
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    scope: ConsoleScope = Depends(console_scope)
+):
+    """Distinct tools invoked by agent executions — facet list for the diagnosis tool filter."""
+    _result = await console_service.get_diagnosis_tools(
+        db, organization, scope_data_source_ids=scope.data_source_ids)
+    await release_request_db(db)
+    return _result
+
+@router.get("/console/diagnosis/tables", response_model=DiagnosisTablesResponse)
+async def get_diagnosis_tables(
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    scope: ConsoleScope = Depends(console_scope)
+):
+    """Distinct data tables touched by runs — facet list for the diagnosis table filter."""
+    _result = await console_service.get_diagnosis_tables(
+        db, organization, scope_data_source_ids=scope.data_source_ids)
+    await release_request_db(db)
+    return _result
+
+@router.get("/console/diagnosis/errors", response_model=DiagnosisErrorGroupsResponse)
+async def get_diagnosis_error_groups(
+    params: MetricsQueryParams = Depends(),
+    limit: int = 5,
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    scope: ConsoleScope = Depends(console_scope)
+):
+    """Failed tool calls grouped by tool + error message — the diagnosis top-errors panel."""
+    _result = await console_service.get_diagnosis_error_groups(
+        db, organization, scope.scoped_params(params), limit)
     await release_request_db(db)
     return _result
 

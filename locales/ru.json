@@ -3781,7 +3781,16 @@
       "activityChartSuccess": "Успешно",
       "activityChartTitle": "Активность запусков агентов",
       "activityChartTotal": "Всего",
-      "dayFilterLabel": "Показано за {date}"
+      "dayFilterLabel": "Показано за {date}",
+      "filterToolsAll": "Все инструменты",
+      "filterTablesAll": "Все таблицы",
+      "failedOnly": "Только неудачные",
+      "topErrors": "Частые ошибки",
+      "clearAll": "Сбросить все фильтры",
+      "noErrorMessage": "Нет сообщения об ошибке",
+      "colRuns": "Запуски",
+      "colError": "Ошибка",
+      "noErrorsFound": "Нет сбоев инструментов за этот период"
     },
     "title": "Мониторинг",
     "tabExplore": "Исследовать",

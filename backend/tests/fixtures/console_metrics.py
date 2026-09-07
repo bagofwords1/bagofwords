@@ -194,7 +194,8 @@ def get_recent_negative_feedback(test_client):
 
 @pytest.fixture
 def get_diagnosis_dashboard_metrics(test_client):
-    def _get_diagnosis_dashboard_metrics(user_token=None, org_id=None, start_date=None, end_date=None, user_ids=None):
+    def _get_diagnosis_dashboard_metrics(user_token=None, org_id=None, start_date=None, end_date=None, user_ids=None,
+                                         tool_names=None, tool_failed_only=None, table_ids=None, prompt_search=None):
         headers = {}
         if user_token:
             headers["Authorization"] = f"Bearer {user_token}"
@@ -208,7 +209,15 @@ def get_diagnosis_dashboard_metrics(test_client):
             params["end_date"] = end_date.isoformat()
         if user_ids:
             params["user_ids"] = user_ids
-        
+        if tool_names:
+            params["tool_names"] = tool_names
+        if tool_failed_only is not None:
+            params["tool_failed_only"] = tool_failed_only
+        if table_ids:
+            params["table_ids"] = table_ids
+        if prompt_search:
+            params["prompt_search"] = prompt_search
+
         response = test_client.get(
             "/api/console/diagnosis/metrics",
             headers=headers,
@@ -222,7 +231,8 @@ def get_diagnosis_dashboard_metrics(test_client):
 def get_agent_execution_summaries(test_client):
     def _get_agent_execution_summaries(user_token=None, org_id=None, start_date=None, end_date=None,
                                       page=1, page_size=20, filter=None, user_ids=None, prompt_search=None,
-                                      data_source_ids=None):
+                                      data_source_ids=None, tool_names=None, tool_failed_only=None,
+                                      table_ids=None, tool_error=None):
         headers = {}
         if user_token:
             headers["Authorization"] = f"Bearer {user_token}"
@@ -242,6 +252,14 @@ def get_agent_execution_summaries(test_client):
             params["prompt_search"] = prompt_search
         if data_source_ids:
             params["data_source_ids"] = data_source_ids
+        if tool_names:
+            params["tool_names"] = tool_names
+        if tool_failed_only is not None:
+            params["tool_failed_only"] = tool_failed_only
+        if table_ids:
+            params["table_ids"] = table_ids
+        if tool_error is not None:
+            params["tool_error"] = tool_error
 
         response = test_client.get(
             "/api/console/agent_executions/summaries",
@@ -254,7 +272,8 @@ def get_agent_execution_summaries(test_client):
 
 @pytest.fixture
 def get_diagnosis_timeseries(test_client):
-    def _get_diagnosis_timeseries(user_token=None, org_id=None, start_date=None, end_date=None, user_ids=None):
+    def _get_diagnosis_timeseries(user_token=None, org_id=None, start_date=None, end_date=None, user_ids=None,
+                                  tool_names=None, tool_failed_only=None, table_ids=None, prompt_search=None):
         headers = {}
         if user_token:
             headers["Authorization"] = f"Bearer {user_token}"
@@ -268,6 +287,14 @@ def get_diagnosis_timeseries(test_client):
             params["end_date"] = end_date.isoformat()
         if user_ids:
             params["user_ids"] = user_ids
+        if tool_names:
+            params["tool_names"] = tool_names
+        if tool_failed_only is not None:
+            params["tool_failed_only"] = tool_failed_only
+        if table_ids:
+            params["table_ids"] = table_ids
+        if prompt_search:
+            params["prompt_search"] = prompt_search
 
         response = test_client.get(
             "/api/console/diagnosis/timeseries",
@@ -296,6 +323,58 @@ def get_diagnosis_users(test_client):
     return _get_diagnosis_users
 
 @pytest.fixture
+def get_diagnosis_tools(test_client):
+    def _get_diagnosis_tools(user_token=None, org_id=None):
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+
+        response = test_client.get(
+            "/api/console/diagnosis/tools",
+            headers=headers,
+        )
+        return response
+
+    return _get_diagnosis_tools
+
+@pytest.fixture
+def get_diagnosis_tables(test_client):
+    def _get_diagnosis_tables(user_token=None, org_id=None):
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+
+        response = test_client.get(
+            "/api/console/diagnosis/tables",
+            headers=headers,
+        )
+        return response
+
+    return _get_diagnosis_tables
+
+@pytest.fixture
+def get_diagnosis_errors(test_client):
+    def _get_diagnosis_errors(user_token=None, org_id=None, **params):
+        headers = {}
+        if user_token:
+            headers["Authorization"] = f"Bearer {user_token}"
+        if org_id:
+            headers["X-Organization-Id"] = str(org_id)
+
+        response = test_client.get(
+            "/api/console/diagnosis/errors",
+            headers=headers,
+            params={k: v for k, v in params.items() if v is not None},
+        )
+        return response
+
+    return _get_diagnosis_errors
+
+@pytest.fixture
 def seed_agent_executions():
     """Insert agent executions (each with its user→system completion pair)
     directly into the test database.
@@ -305,10 +384,21 @@ def seed_agent_executions():
     must not cross), so there is no API surface that can create them.
     """
     def _seed(org_id, report_id, runs):
+        """Each run may carry ``tools``: a list of ``{name, success, table_id?,
+        table_fqn?}`` dicts. Every entry becomes a ToolExecution; one with a
+        ``table_id`` also gets a Widget+Step and a TableUsageEvent pointing at
+        that datasource table, mirroring how a real create_data call records
+        table lineage (ToolExecution.created_step_id → TableUsageEvent.step_id).
+        """
+        import uuid as _uuid
         from sqlalchemy import create_engine
         from sqlalchemy.orm import Session
         from app.models.completion import Completion
         from app.models.agent_execution import AgentExecution
+        from app.models.tool_execution import ToolExecution
+        from app.models.widget import Widget
+        from app.models.step import Step
+        from app.models.table_usage_event import TableUsageEvent
 
         url = os.environ["TEST_DATABASE_URL"]
         sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
@@ -352,10 +442,93 @@ def seed_agent_executions():
                     session.add(ae)
                     session.flush()
                     created_ids.append(ae.id)
+
+                    for tool in run.get("tools", []):
+                        success = bool(tool.get("success", True))
+                        step_id = None
+                        if tool.get("table_id"):
+                            widget = Widget(
+                                title="seeded widget",
+                                slug=f"seed-w-{_uuid.uuid4().hex}",
+                                report_id=report_id,
+                            )
+                            session.add(widget)
+                            session.flush()
+                            step = Step(
+                                title=tool.get("step_title", "Seeded step"),
+                                slug=f"seed-s-{_uuid.uuid4().hex}",
+                                widget_id=widget.id,
+                                status="success" if success else "error",
+                                created_at=created_at,
+                            )
+                            session.add(step)
+                            session.flush()
+                            step_id = step.id
+                            session.add(TableUsageEvent(
+                                org_id=org_id,
+                                report_id=report_id,
+                                step_id=step_id,
+                                user_id=run.get("user_id"),
+                                table_fqn=tool.get("table_fqn", "seeded_table"),
+                                datasource_table_id=tool["table_id"],
+                                source_type="sql",
+                                success=success,
+                                used_at=created_at,
+                            ))
+                        session.add(ToolExecution(
+                            agent_execution_id=ae.id,
+                            tool_name=tool["name"],
+                            status="success" if success else "error",
+                            success=success,
+                            created_step_id=step_id,
+                            arguments_json={},
+                            duration_ms=tool.get("duration_ms"),
+                            error_message=tool.get("error"),
+                            created_at=created_at,
+                        ))
                 session.commit()
         finally:
             engine.dispose()
         return created_ids
+
+    return _seed
+
+@pytest.fixture
+def seed_data_table():
+    """Insert a DataSource + DataSourceTable pair directly into the test
+    database, for exercising the diagnosis table facet/filter. Direct DB
+    writes for the same reason as seed_agent_executions: creating a real
+    data source and indexing its schema crosses a live-connection boundary
+    e2e tests must not cross.
+
+    Returns {"data_source_id", "table_id", "name"}.
+    """
+    def _seed(org_id, table_name, data_source_name=None):
+        import uuid as _uuid
+        from sqlalchemy import create_engine
+        from sqlalchemy.orm import Session
+        from app.models.data_source import DataSource
+        from app.models.datasource_table import DataSourceTable
+
+        url = os.environ["TEST_DATABASE_URL"]
+        sync_url = url.replace("sqlite+aiosqlite:", "sqlite:").replace("postgresql+asyncpg:", "postgresql:")
+        engine = create_engine(sync_url)
+        try:
+            with Session(engine) as session:
+                ds = DataSource(
+                    name=data_source_name or f"seeded_ds_{_uuid.uuid4().hex[:6]}",
+                    organization_id=org_id,
+                )
+                session.add(ds)
+                session.flush()
+                table = DataSourceTable(name=table_name, datasource_id=ds.id)
+                session.add(table)
+                session.flush()
+                result = {"data_source_id": str(ds.id), "table_id": str(table.id), "name": table_name}
+                session.commit()
+        finally:
+            engine.dispose()
+        return result
 
     return _seed
 

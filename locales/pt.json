@@ -3781,7 +3781,16 @@
       "activityChartSuccess": "Sucesso",
       "activityChartTitle": "Atividade de execução dos agentes",
       "activityChartTotal": "Total",
-      "dayFilterLabel": "Exibindo {date}"
+      "dayFilterLabel": "Exibindo {date}",
+      "filterToolsAll": "Todas as ferramentas",
+      "filterTablesAll": "Todas as tabelas",
+      "failedOnly": "Apenas falhas",
+      "topErrors": "Principais erros",
+      "clearAll": "Limpar todos os filtros",
+      "noErrorMessage": "Sem mensagem de erro",
+      "colRuns": "Execuções",
+      "colError": "Erro",
+      "noErrorsFound": "Nenhuma falha de ferramenta neste período"
     },
     "title": "Monitoramento",
     "tabExplore": "Explorar",

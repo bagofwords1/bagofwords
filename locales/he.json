@@ -3878,7 +3878,16 @@
       "activityChartSuccess": "הצלחה",
       "activityChartError": "שגיאה",
       "activityChartTotal": "סה״כ",
-      "dayFilterLabel": "מציג {date}"
+      "dayFilterLabel": "מציג {date}",
+      "filterToolsAll": "כל הכלים",
+      "filterTablesAll": "כל הטבלאות",
+      "failedOnly": "נכשלו בלבד",
+      "topErrors": "שגיאות נפוצות",
+      "clearAll": "נקה את כל הפילטרים",
+      "noErrorMessage": "אין הודעת שגיאה",
+      "colRuns": "ריצות",
+      "colError": "שגיאה",
+      "noErrorsFound": "אין כישלונות כלים בטווח הנבחר"
     },
     "title": "ניטור",
     "tabExplore": "סקירה",
