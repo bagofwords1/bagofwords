@@ -11,12 +11,14 @@ asserts the behavior that matters:
   flattened into role=dimension / role=measure columns (SAP's list-or-dict
   collapsing tolerated).
 - Query: execute_query resolves the universe, posts the result objects, and
-  normalizes both tabular and columnar result payloads into a DataFrame.
+  executes the XML/OData lifecycle and maps paged results into a DataFrame.
 - test_connection classifies success / zero-universe / auth failure.
 """
 from __future__ import annotations
 
 import json
+import xml.etree.ElementTree as ET
+from urllib.parse import urlparse, parse_qs
 from unittest.mock import MagicMock
 
 import pandas as pd
@@ -97,11 +99,33 @@ class FakeSession:
         if url.endswith("/logoff"):
             return _resp(200, {})
         if "/sl/v1/queries" in url:
-            return _resp(200, self._query_result)
+            if "data" not in kwargs:
+                return _resp(400, text="XML query required")
+            root = ET.fromstring(kwargs["data"])
+            self.selected = [e.attrib["id"] for e in root.iter() if e.tag.endswith("resultObject")]
+            assert root.attrib["dataSourceId"] == "101"
+            return _resp(200, text="<success><id>query-1</id></success>")
         return _resp(404, {}, text="not found")
 
     def get(self, url, **kwargs):
         self.get_calls.append((url, kwargs))
+        if "/data.svc/$metadata" in url:
+            names = {"o1": "Country", "o2": "Store_name", "o3": "Salesrevenue"}
+            props = ''.join('<Property Name="'+names[i]+'" Type="Edm.String" />' for i in self.selected)
+            return _resp(200, text='<Schema><EntityType Name="Flow"><Key><PropertyRef Name="Id" /></Key><Property Name="Id" />'+props+'</EntityType><EntityContainer><EntitySet Name="Flows0" EntityType="Flow" /></EntityContainer></Schema>')
+        if url.endswith("/data.svc"):
+            return _resp(200, text='<service><collection href="Flows0" /></service>')
+        if url.endswith('/data.svc/Flows0/$count'):
+            return _resp(200, text=str(len(self._query_result.get('rows', []))))
+        if "/data.svc/Flows0" in url:
+            rows = self._query_result.get("rows", [])
+            cols = self._query_result.get("columns", [])
+            if rows and "cells" in rows[0]:
+                rows = [dict(zip([c["name"] for c in cols], r["cells"])) for r in rows]
+            rows = [{k.replace(" ", ""): v for k,v in r.items()} for r in rows]
+            params = kwargs.get("params", {})
+            skip, top = int(params.get("$skip",0)), int(params.get("$top",50))
+            return _resp(200, {"value": rows[skip:skip+top]})
         if "/sl/v1/universes/101" in url:
             return _resp(200, UNIVERSE_101_DETAIL)
         if "/sl/v1/universes/102" in url:
@@ -109,6 +133,10 @@ class FakeSession:
         if "/sl/v1/universes" in url:
             return _resp(200, UNIVERSES)
         return _resp(404, {}, text="not found")
+
+    def delete(self, url, **kwargs):
+        self.deleted = True
+        return _resp(200, text="<success />")
 
 
 def _client(session=None, **kw):
@@ -241,11 +269,8 @@ class TestQuery:
         c = _client(session=session)
         df = c.execute_query("Country,Sales revenue", "eFashion")
         assert list(df["Country"]) == ["US", "FR"]
-        # The query POST references the universe id and the result objects.
-        q_url, q_kwargs = next((u, k) for u, k in session.post_calls if "/sl/v1/queries" in u)
-        spec = q_kwargs["json"]["queryData"]
-        assert spec["universe"]["id"] == "101"
-        assert [o["name"] for o in spec["resultObjects"]] == ["Country", "Sales revenue"]
+        assert list(df["Sales revenue"]) == [100, 60]
+        assert session.deleted
 
     def test_execute_query_normalizes_columnar_payload(self):
         session = FakeSession(query_result={
@@ -282,9 +307,9 @@ class TestQuery:
         assert list(df.columns) == ["Country", "Sales revenue"]
 
     def test_max_rows_caps_result(self):
-        session = FakeSession(query_result={"rows": [{"n": i} for i in range(50)]})
+        session = FakeSession(query_result={"rows": [{"Country": str(i)} for i in range(50)]})
         c = _client(session=session)
-        df = c.execute_query("n", "eFashion", max_rows=10)
+        df = c.execute_query("Country", "eFashion", max_rows=10)
         assert len(df) == 10
 
 
@@ -323,3 +348,132 @@ class TestConnectionAndPrompt:
     def test_description_includes_query_guide(self):
         c = _client()
         assert "BusinessObjects Query Guide" in c.description
+
+
+@pytest.mark.parametrize("dtype,expected", [("Numeric", "number"), ("Date", "datetime"), ("DateTime", "datetime")])
+def test_sap_attribute_data_types(dtype, expected):
+    session = FakeSession()
+    original = session.get
+    def get(url, **kwargs):
+        if "/universes/101" in url:
+            return _resp(200, {"universe": {"outline": {"item": {"id": "typed", "name": "Value", "@type": "Dimension", "@dataType": dtype}}}})
+        return original(url, **kwargs)
+    session.get = get
+    assert _client(session).get_schema("eFashion").columns[0].dtype == expected
+
+
+def test_query_pages_all_results():
+    c = _client(FakeSession(query_result={"rows": [{"Country": str(i)} for i in range(7)]}), page_size=2)
+    assert list(c.execute_query("Country", "eFashion")["Country"]) == [str(i) for i in range(7)]
+
+
+def test_unknown_object_rejected_before_query():
+    with pytest.raises(ValueError):
+        _client().execute_query("Forbidden", "eFashion")
+
+
+@pytest.mark.parametrize('status', [403, 500])
+def test_query_failure_cleans_up_temporary_resource(status):
+    session = FakeSession()
+    original = session.get
+    def get(url, **kwargs):
+        if url.endswith('/data.svc'):
+            return _resp(status, text='denied or unavailable')
+        return original(url, **kwargs)
+    session.get = get
+    with pytest.raises(RuntimeError, match=str(status)):
+        _client(session).execute_query('Country', 'eFashion')
+    assert session.deleted
+
+
+def test_failed_schema_discovery_can_be_retried():
+    session = FakeSession()
+    original = session.get
+    failed = False
+    def get(url, **kwargs):
+        nonlocal failed
+        if '/universes/101' in url and not failed:
+            failed = True
+            return _resp(503)
+        return original(url, **kwargs)
+    session.get = get
+    c = _client(session)
+    with pytest.raises(RuntimeError):
+        c.get_tables()
+    assert len(c.get_schema('eFashion').columns) == 3
+
+
+def test_same_named_objects_remain_distinct():
+    session = FakeSession()
+    original = session.get
+    def get(url, **kwargs):
+        if '/universes/101' in url:
+            return _resp(200, {'universe': {'outline': {'item': [
+                {'id': 'left', 'name': 'Code', '@type': 'Dimension', '@dataType': 'String'},
+                {'id': 'right', 'name': 'Code', '@type': 'Dimension', '@dataType': 'Numeric'},
+            ]}}})
+        return original(url, **kwargs)
+    session.get = get
+    cols = _client(session).get_schema('eFashion').columns
+    assert len({c.name for c in cols}) == 2
+    assert {c.metadata['object_id'] for c in cols} == {'left', 'right'}
+
+
+@pytest.mark.parametrize('token,status', [('restricted-token',403), ('allowed-token',200)])
+def test_query_uses_callers_identity(token, status):
+    session = FakeSession(query_result={'rows': [{'Country': 'US'}]})
+    original = session.get
+    def get(url, **kwargs):
+        if '/data.svc' in url:
+            assert kwargs['headers']['X-SAP-LogonToken'] == '"'+token+'"'
+            if status == 403:
+                return _resp(403)
+        return original(url, **kwargs)
+    session.get = get
+    c = _client(session, logon_token=token)
+    if status == 403:
+        with pytest.raises(RuntimeError, match='403'):
+            c.execute_query('Country', 'eFashion')
+    else:
+        assert c.execute_query('Country', 'eFashion')['Country'].tolist() == ['US']
+    assert session.deleted
+
+
+def test_legacy_odata_envelope():
+    session = FakeSession(query_result={'rows': [{'Country': 'FR'}]})
+    original = session.get
+    def get(url, **kwargs):
+        response = original(url, **kwargs)
+        if url.endswith('/data.svc/Flows0'):
+            return _resp(200, {'d': {'results': response.json()['value']}})
+        return response
+    session.get = get
+    assert _client(session).execute_query('Country', 'eFashion')['Country'].tolist() == ['FR']
+
+
+@pytest.mark.parametrize('body', ['<service />', '<service><collection href="A"/><collection href="B"/></service>', '<service><collection href="https://other.invalid/data"/></service>'])
+def test_unsupported_flows_fail_without_partial_results(body):
+    session = FakeSession()
+    original = session.get
+    def get(url, **kwargs):
+        if url.endswith('/data.svc'):
+            return _resp(200, text=body)
+        return original(url, **kwargs)
+    session.get = get
+    with pytest.raises((RuntimeError, ValueError)):
+        _client(session).execute_query('Country', 'eFashion')
+    assert session.deleted
+
+
+@pytest.mark.parametrize('total,page_size', [(4,2),(5,2),(0,2)])
+def test_paging_never_requests_past_sap_row_count(total,page_size):
+    session = FakeSession(query_result={'rows':[{'Country':str(i)} for i in range(total)]})
+    original=session.get
+    def get(url, **kwargs):
+        if url.endswith('/data.svc/Flows0'):
+            offset=kwargs.get('params',{}).get('$skip',0)
+            if offset >= total:
+                return _resp(400,text='Only available rows may be requested')
+        return original(url,**kwargs)
+    session.get=get
+    assert len(_client(session,page_size=page_size).execute_query('Country','eFashion'))==total

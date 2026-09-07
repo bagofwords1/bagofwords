@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional, List
+from typing import Optional, List, Literal
 
 from pydantic import BaseModel, Field, model_validator
 
@@ -207,11 +207,11 @@ class BusinessObjectsCredentials(BaseModel):
         description="",
         json_schema_extra={"ui:type": "password"},
     )
-    auth_type: str = Field(
+    auth_type: Literal["secEnterprise", "secLDAP", "secWinAD", "secSAPR3"] = Field(
         "secEnterprise",
         title="Authentication Type",
         description="CMS authentication plugin: secEnterprise (native), secLDAP, secWinAD (Active Directory), or secSAPR3 (SAP).",
-        json_schema_extra={"ui:type": "string"},
+        json_schema_extra={"ui:type": "select", "ui:options": ["secEnterprise", "secLDAP", "secWinAD", "secSAPR3"]},
     )
 
 
