@@ -3518,7 +3518,14 @@
     "viewAs": "View as",
     "anonymousUser": "Anonymous user",
     "versionSetDefault": "Version set as default",
-    "versionSetDefaultFailed": "Failed to set version as default."
+    "versionSetDefaultFailed": "Failed to set version as default.",
+    "rename": "Rename dashboard",
+    "renamePlaceholder": "Dashboard name",
+    "renamed": "Dashboard renamed",
+    "renameFailed": "Could not rename the dashboard.",
+    "more": "More",
+    "schedule": "Schedule refresh",
+    "exportAs": "Export as {format}"
   },
   "filter": {
     "addFilters": "Add Filters",

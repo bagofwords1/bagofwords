@@ -3353,7 +3353,14 @@
     "viewAs": "Просмотр от имени",
     "anonymousUser": "Анонимный пользователь",
     "versionSetDefault": "Версия назначена по умолчанию",
-    "versionSetDefaultFailed": "Не удалось назначить версию по умолчанию."
+    "versionSetDefaultFailed": "Не удалось назначить версию по умолчанию.",
+    "rename": "Переименовать дашборд",
+    "renamePlaceholder": "Название дашборда",
+    "renamed": "Дашборд переименован",
+    "renameFailed": "Не удалось переименовать дашборд.",
+    "more": "Ещё",
+    "schedule": "Запланировать обновление",
+    "exportAs": "Экспорт в {format}"
   },
   "filter": {
     "addFilters": "Добавить фильтры",

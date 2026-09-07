@@ -3353,7 +3353,14 @@
     "viewAs": "Visa som",
     "anonymousUser": "Anonym användare",
     "versionSetDefault": "Versionen angavs som standard",
-    "versionSetDefaultFailed": "Det gick inte att ange versionen som standard."
+    "versionSetDefaultFailed": "Det gick inte att ange versionen som standard.",
+    "rename": "Byt namn på instrumentpanelen",
+    "renamePlaceholder": "Instrumentpanelens namn",
+    "renamed": "Instrumentpanelen har fått nytt namn",
+    "renameFailed": "Det gick inte att byta namn på instrumentpanelen.",
+    "more": "Mer",
+    "schedule": "Schemalägg uppdatering",
+    "exportAs": "Exportera som {format}"
   },
   "filter": {
     "addFilters": "Lägg till filter",

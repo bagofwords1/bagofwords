@@ -3353,7 +3353,14 @@
     "viewAs": "العرض باسم",
     "anonymousUser": "مستخدم مجهول",
     "versionSetDefault": "تم تعيين النسخة كافتراضية",
-    "versionSetDefaultFailed": "فشل تعيين النسخة كافتراضية."
+    "versionSetDefaultFailed": "فشل تعيين النسخة كافتراضية.",
+    "rename": "إعادة تسمية لوحة المعلومات",
+    "renamePlaceholder": "اسم لوحة المعلومات",
+    "renamed": "تمت إعادة تسمية لوحة المعلومات",
+    "renameFailed": "تعذّر إعادة تسمية لوحة المعلومات.",
+    "more": "المزيد",
+    "schedule": "جدولة التحديث",
+    "exportAs": "تصدير بصيغة {format}"
   },
   "filter": {
     "addFilters": "إضافة عوامل تصفية",

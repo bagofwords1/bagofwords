@@ -11,8 +11,46 @@
 
         <!-- Artifact Selector Dropdown -->
         <div class="flex items-center gap-2">
+          <!-- Rename (owner only): the selector becomes an input in place so
+               the toolbar keeps its width. Enter saves, Escape cancels. -->
+          <form
+            v-if="isRenaming"
+            class="flex items-center gap-1"
+            @submit.prevent="saveRename"
+          >
+            <UInput
+              ref="renameInputRef"
+              v-model="renameDraft"
+              size="xs"
+              class="min-w-[280px]"
+              :maxlength="255"
+              :disabled="isSavingRename"
+              :placeholder="$t('artifactFrame.renamePlaceholder')"
+              @keydown.escape.prevent="cancelRename"
+            />
+            <UTooltip :text="$t('common.save')">
+              <button
+                type="submit"
+                :disabled="isSavingRename || !renameDraft.trim()"
+                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                <Spinner v-if="isSavingRename" class="w-3.5 h-3.5 text-gray-500" />
+                <Icon v-else name="heroicons:check" class="w-3.5 h-3.5 text-emerald-600" />
+              </button>
+            </UTooltip>
+            <UTooltip :text="$t('common.cancel')">
+              <button
+                type="button"
+                :disabled="isSavingRename"
+                @click="cancelRename"
+                class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700 disabled:opacity-50"
+              >
+                <Icon name="heroicons:x-mark" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+              </button>
+            </UTooltip>
+          </form>
           <USelectMenu
-            v-if="artifactsList.length > 0"
+            v-else-if="artifactsList.length > 0"
             v-model="selectedArtifactId"
             :options="artifactOptions"
             value-attribute="value"
@@ -80,18 +118,21 @@
       <div class="flex items-center gap-2">
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
-        <!-- Query manager: the dashboard's queries with last-run status;
-             attach/detach report queries (each creates a new version and
-             broadcasts artifact:created/open, which refreshes this frame) -->
+        <!-- Query manager and scheduler keep their modals mounted here but
+             render no trigger: both are opened from the overflow menu. -->
         <DataModal
           v-if="report"
+          ref="dataModalRef"
+          hide-trigger
           :report-id="reportId"
           :artifact-id="selectedArtifact?.id"
           :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
           :artifact-mode="selectedArtifact?.mode"
         />
+        <CronModal v-if="report" ref="cronModalRef" hide-trigger :report="report" />
 
-        <!-- Refresh Dashboard (rerun + refresh).
+        <!-- Refresh Dashboard (rerun + refresh). The one everyday action, so
+             it stays a visible button.
              Disabled while previewing as someone else: neither refresh
              endpoint takes run_as_user_id, so the rerun would resolve
              identity params as YOU and replace what is on screen while the
@@ -107,47 +148,41 @@
           </button>
         </UTooltip>
 
-        <!-- Schedule -->
-        <CronModal v-if="report" :report="report" />
-
-        <!-- The .md source download is doc-only, so it lives here; PDF is in
-             the shared ExportMenu below with every other artifact's exports.
-             (The owner edits by default and gets both in the editor toolbar.) -->
-        <template v-if="isDocMode && !isEditingDoc">
-          <UTooltip :text="t('docViewer.exportMarkdown')">
-            <button
-              @click="exportDocMarkdown"
-              class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded"
-            >
-              <Icon name="heroicons:arrow-down-tray" class="w-3.5 h-3.5 text-blue-600" />
-              <span class="text-xs text-blue-600 font-medium">.md</span>
-            </button>
-          </UTooltip>
-        </template>
-
-        <!-- Every export behind one button; the list comes from
-             useArtifactExports so this toolbar and the public share page
-             agree on what a given artifact can produce. -->
+        <!-- Download stays a visible button (also listed under ⋯). The list
+             comes from useArtifactExports so this toolbar and the public
+             share page agree on what a given artifact can produce. -->
         <ExportMenu
           :options="availableExports"
           :busy="isExporting"
           @select="handleExport"
         />
 
-        <!-- Fullscreen -->
-        <UTooltip :text="$t('artifactFrame.fullScreen')">
-          <button @click="openFullscreen" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
-            <Icon name="heroicons:arrows-pointing-out" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-          </button>
-        </UTooltip>
-
-        <!-- Open in new tab. Always shown: /r/{id} itself enforces access —
-             an unshared report is still viewable there by its owner -->
-        <UTooltip :text="$t('artifactFrame.openInNewTab')" v-if="report">
-          <a :href="`/r/${report.id}`" target="_blank" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
-            <Icon name="heroicons:arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
-          </a>
-        </UTooltip>
+        <!-- Everything used less than daily lives behind one ⋯ with labelled
+             rows: rename, data, schedule, every export, full screen, new tab.
+             Icon-only buttons for all of these made the bar unreadable. -->
+        <UDropdown
+          v-if="moreMenuItems.length"
+          :items="moreMenuItems"
+          :popper="{ placement: 'bottom-end' }"
+          :ui="{ width: 'w-auto min-w-[11rem]', item: { padding: 'px-2 py-1.5' } }"
+        >
+          <UTooltip :text="$t('artifactFrame.more')">
+            <button
+              type="button"
+              :aria-label="$t('artifactFrame.more')"
+              class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors"
+            >
+              <Spinner v-if="isExporting" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+              <Icon v-else name="heroicons:ellipsis-horizontal" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
+            </button>
+          </UTooltip>
+          <template #item="{ item }">
+            <div class="flex items-center gap-2 text-start w-full">
+              <UIcon :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+              <span class="text-xs font-medium text-gray-900 dark:text-white">{{ item.label }}</span>
+            </div>
+          </template>
+        </UDropdown>
 
         <!-- View as (page artifacts only): preview the dashboard as another
              viewer — anonymous or any org member, searchable by name/email.
@@ -1323,6 +1358,146 @@ const isReportOwner = computed(() => {
 });
 const isEditingDoc = ref(false);
 const docEditorRef = ref<any>(null);
+
+// --- Rename the dashboard ------------------------------------------------
+// "The dashboard" is two records to the user: the report (its card on
+// /dashboards, the sidebar entry, the browser tab) and the selected artifact
+// version (the label in the dropdown above, the /r/{id} tab). Renaming one
+// without the other looked like the rename silently failed, so both are
+// written. Both endpoints are owner-only (update_reports + owner_only), so
+// the pencil is hidden for everyone else rather than failing on click.
+const isRenaming = ref(false);
+const renameDraft = ref('');
+const isSavingRename = ref(false);
+const renameInputRef = ref<any>(null);
+
+const canRename = computed(() =>
+  isReportOwner.value && !!selectedArtifactId.value && !isPendingArtifact.value);
+
+function currentArtifactTitle(): string {
+  const item = artifactsList.value.find(a => a.id === selectedArtifactId.value);
+  const title = item?.title || selectedArtifact.value?.title || '';
+  // The model default is a placeholder, not a name worth editing around.
+  return title === 'Untitled Artifact' ? '' : title;
+}
+
+async function startRename() {
+  if (!canRename.value) return;
+  renameDraft.value = currentArtifactTitle();
+  isRenaming.value = true;
+  await nextTick();
+  const el = renameInputRef.value?.$el?.querySelector?.('input') || renameInputRef.value?.input;
+  el?.focus?.();
+  el?.select?.();
+}
+
+function cancelRename() {
+  if (isSavingRename.value) return;
+  isRenaming.value = false;
+  renameDraft.value = '';
+}
+
+async function saveRename() {
+  const id = selectedArtifactId.value;
+  const title = renameDraft.value.trim();
+  if (!id || !title || isSavingRename.value) return;
+  if (title === currentArtifactTitle()) { cancelRename(); return; }
+
+  isSavingRename.value = true;
+  try {
+    const { data, error } = await useMyFetch(`/api/artifacts/${id}`, {
+      method: 'PATCH',
+      body: { title },
+    });
+    if (error.value) throw error.value;
+
+    const saved = (data.value as any)?.title || title;
+
+    // The report title is what every list renders (see /dashboards). Keep it
+    // in step, then tell the page and the sidebar — the same event
+    // loadReport() fires when the server generates a title.
+    if (props.report?.id) {
+      const { error: reportError } = await useMyFetch(`/api/reports/${props.report.id}`, {
+        method: 'PUT',
+        body: { title: saved },
+      });
+      if (reportError.value) throw reportError.value;
+      window.dispatchEvent(new CustomEvent('report:updated', {
+        detail: { id: props.report.id, title: saved },
+      }));
+    }
+    // Patch local state instead of refetching: the list endpoint is the same
+    // one the report page seeds us from, and a refetch would race an
+    // in-flight generation and could snap the selection.
+    artifactsList.value = artifactsList.value.map(a => a.id === id ? { ...a, title: saved } : a);
+    if (selectedArtifact.value?.id === id) {
+      selectedArtifact.value = { ...selectedArtifact.value, title: saved };
+    }
+    isRenaming.value = false;
+    renameDraft.value = '';
+    toast.add({ title: t('artifactFrame.renamed'), color: 'green' });
+  } catch (e: any) {
+    console.error('[ArtifactFrame] Failed to rename artifact:', e);
+    toast.add({
+      title: t('artifactFrame.error'),
+      description: e?.data?.detail?.message || e?.data?.detail || t('artifactFrame.renameFailed'),
+      color: 'red',
+    });
+  } finally {
+    isSavingRename.value = false;
+  }
+}
+
+// Switching versions mid-edit would silently retarget the save.
+watch(selectedArtifactId, () => { if (isRenaming.value) cancelRename(); });
+
+// --- Overflow (⋯) menu ---------------------------------------------------
+const dataModalRef = ref<any>(null);
+const cronModalRef = ref<any>(null);
+
+type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean };
+
+// Groups render with dividers between them (Nuxt UI takes an array of
+// arrays). Empty groups are dropped so no divider ever leads nowhere.
+const moreMenuItems = computed<MenuItem[][]>(() => {
+  const edit: MenuItem[] = [];
+  if (canRename.value) {
+    edit.push({ label: t('artifactFrame.rename'), icon: 'i-heroicons-pencil', click: startRename });
+  }
+
+  const manage: MenuItem[] = [];
+  if (props.report) {
+    manage.push({ label: t('artifactFrame.viewData'), icon: 'i-heroicons-circle-stack', click: () => dataModalRef.value?.open?.() });
+    manage.push({ label: t('artifactFrame.schedule'), icon: 'i-heroicons-clock', click: () => cronModalRef.value?.open?.() });
+  }
+
+  // The .md source download is doc-only; PDF/PPTX/HTML come from
+  // useArtifactExports so this menu and the public share page agree on what
+  // a given artifact can produce.
+  const exports: MenuItem[] = [];
+  if (isDocMode.value && !isEditingDoc.value) {
+    exports.push({ label: t('docViewer.exportMarkdown'), icon: 'i-heroicons-arrow-down-tray', click: exportDocMarkdown });
+  }
+  for (const option of availableExports.value) {
+    exports.push({
+      label: t('artifactFrame.exportAs', { format: option.label }),
+      icon: option.icon,
+      disabled: isExporting.value,
+      click: () => handleExport(option.format),
+    });
+  }
+
+  const view: MenuItem[] = [
+    { label: t('artifactFrame.fullScreen'), icon: 'i-heroicons-arrows-pointing-out', click: openFullscreen },
+  ];
+  if (props.report) {
+    // /r/{id} itself enforces access — an unshared report is still viewable
+    // there by its owner.
+    view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
+  }
+
+  return [edit, manage, exports, view].filter(g => g.length > 0);
+});
 
 // --- Viewer-run gate state (per-user dashboards viewed by a non-owner) ---
 // True when the backend hid the shared snapshot from this reader

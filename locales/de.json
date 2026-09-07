@@ -3353,7 +3353,14 @@
     "viewAs": "Anzeigen als",
     "anonymousUser": "Anonymer Nutzer",
     "versionSetDefault": "Version als Standard festgelegt",
-    "versionSetDefaultFailed": "Version konnte nicht als Standard festgelegt werden."
+    "versionSetDefaultFailed": "Version konnte nicht als Standard festgelegt werden.",
+    "rename": "Dashboard umbenennen",
+    "renamePlaceholder": "Dashboard-Name",
+    "renamed": "Dashboard umbenannt",
+    "renameFailed": "Das Dashboard konnte nicht umbenannt werden.",
+    "more": "Mehr",
+    "schedule": "Aktualisierung planen",
+    "exportAs": "Als {format} exportieren"
   },
   "filter": {
     "addFilters": "Filter hinzufügen",

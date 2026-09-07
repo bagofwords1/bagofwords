@@ -4317,6 +4317,7 @@ onMounted(() => {
     // session event server-side — reload the timeline so its strip appears.
     // Scoped to this report; reuses the debounced, mid-stream-safe reload.
     window.addEventListener('report:mutated', onReportMutated as EventListener)
+    window.addEventListener('report:updated', onReportUpdatedEvent as EventListener)
     markdownAutoDir.value = useMarkdownAutoDir()
 })
 
@@ -4326,6 +4327,16 @@ onMounted(() => {
 // selectedAgents is read-only here; selectAgents writes it, tripping the
 // debounced PUT /users/me/default_agents watcher in useAgent.
 const { selectAgents, selectedAgents } = useAgent()
+
+// A child (the dashboard pane's rename) changed this report's title. The
+// page owns `report` and passes it down as a prop, so it is the one that
+// has to absorb the new title — the tab (useHead) and the pane follow.
+function onReportUpdatedEvent(ev: CustomEvent) {
+    const detail = ev?.detail || {}
+    if (!detail.id || String(detail.id) !== String(report_id)) return
+    if (typeof detail.title !== 'string' || !report.value) return
+    if (report.value.title !== detail.title) report.value = { ...report.value, title: detail.title }
+}
 
 function onReportMutated(ev: CustomEvent) {
     const rid = ev?.detail?.reportId
@@ -4344,6 +4355,7 @@ function onReportMutated(ev: CustomEvent) {
 }
 onBeforeUnmount(() => {
     window.removeEventListener('report:mutated', onReportMutated as EventListener)
+    window.removeEventListener('report:updated', onReportUpdatedEvent as EventListener)
 })
 
 // When a tool finishes saving a new step, broadcast the default step change if we have enough info

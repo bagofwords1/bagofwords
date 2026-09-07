@@ -1,5 +1,7 @@
 <template>
-  <UTooltip :text="$t('artifactFrame.viewData')">
+  <!-- The trigger is optional: ArtifactFrame lists "Data" in its overflow
+       menu and opens this modal through the exposed open() instead. -->
+  <UTooltip v-if="!hideTrigger" :text="$t('artifactFrame.viewData')">
     <button @click="openModal" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
       <Icon name="heroicons:circle-stack" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
     </button>
@@ -189,6 +191,8 @@ const props = defineProps<{
   artifactId?: string | null
   artifactVizIds?: string[]
   artifactMode?: string | null
+  /** Render only the modal; the parent supplies its own trigger via open(). */
+  hideTrigger?: boolean
 }>()
 
 const { t } = useI18n()
@@ -232,6 +236,8 @@ function openModal() {
   loadQueries()
   loadArtifactUsage()
 }
+
+defineExpose({ open: openModal })
 
 // Fetch the artifact to learn which viz ids its code actually renders. Also
 // refreshes membership — the server copy beats possibly-stale props.

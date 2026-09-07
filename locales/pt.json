@@ -3353,7 +3353,14 @@
     "viewAs": "Visualizar como",
     "anonymousUser": "Usuário anônimo",
     "versionSetDefault": "Versão definida como padrão",
-    "versionSetDefaultFailed": "Não foi possível definir a versão como padrão."
+    "versionSetDefaultFailed": "Não foi possível definir a versão como padrão.",
+    "rename": "Renomear painel",
+    "renamePlaceholder": "Nome do painel",
+    "renamed": "Painel renomeado",
+    "renameFailed": "Não foi possível renomear o painel.",
+    "more": "Mais",
+    "schedule": "Agendar atualização",
+    "exportAs": "Exportar como {format}"
   },
   "filter": {
     "addFilters": "Adicionar filtros",

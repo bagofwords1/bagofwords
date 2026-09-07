@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, model_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import datetime
 
@@ -42,9 +42,24 @@ class ArtifactCreate(ArtifactBase):
 
 class ArtifactUpdate(BaseModel):
     """Schema for updating an existing artifact."""
-    title: Optional[str] = None
+    title: Optional[str] = Field(default=None, max_length=255)
     content: Optional[dict] = None
     generation_prompt: Optional[str] = None
+
+    @field_validator("title")
+    @classmethod
+    def _title_not_blank(cls, v: Optional[str]) -> Optional[str]:
+        # A rename from the UI must never leave the dashboard nameless: the
+        # column is nullable and the service writes whatever it gets, so an
+        # empty/whitespace title would render as a blank dropdown label and
+        # a blank browser tab on the share page. Omitting the field (None)
+        # still means "leave the title alone".
+        if v is None:
+            return None
+        v = v.strip()
+        if not v:
+            raise ValueError("title must not be blank")
+        return v
 
 
 class ArtifactSchema(ArtifactBase):
