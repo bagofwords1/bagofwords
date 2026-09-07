@@ -43,6 +43,8 @@ from app.schemas.data_sources.configs import (
     MondayConfig,
     ServiceNowConfig,
     ZabbixConfig,
+    KubernetesConfig,
+    KubernetesAccessFileCredentials,
     ZabbixTokenCredentials,
     ZabbixUserPassCredentials,
     AppDynamicsConfig,
@@ -251,10 +253,30 @@ class AuthOptions(BaseModel):
         arbitrary_types_allowed = True
 
 
+class SetupStep(BaseModel):
+    """One step of a connector's setup guide, rendered by the connect form above
+    the fields (numbered, with a copy button on `code`). For sources whose
+    credentials must be *produced* on the remote system first (a Kubernetes
+    service-account token, an API key minted in an admin UI) rather than
+    typed from memory (host/port/user/password).
+
+    `title`/`body` are English defaults; the frontend prefers the locale
+    catalog key `data.setupGuides.<type>.<n>.{title,body}` when it exists.
+    `code` is never localized.
+    """
+
+    title: str
+    body: str = ""
+    code: Optional[str] = None
+    language: str = "bash"
+
+
 class DataSourceRegistryEntry(BaseModel):
     type: str
     title: str
     description: str
+    # Optional numbered setup guide shown above the connect form (see SetupStep).
+    setup_guide: Optional[List[SetupStep]] = None
     status: str = "active"
     version: str = "1.0.0"
     # Deprecated entries stay resolvable (existing connections keep working) but
@@ -406,6 +428,105 @@ def _entry_visible(entry: DataSourceRegistryEntry) -> bool:
     if not entry.dev_only:
         return True
     return _is_dev_environment()
+
+
+# Step 2 of the Kubernetes setup guide. Identical to
+# tools/kubernetes/print_access_file.sh — keep the two in sync (a unit test pins it).
+# tools/kubernetes/rbac.yaml, verbatim — step 1 of the Kubernetes setup guide
+# shows the admin the exact manifest they are about to apply (a cluster-wide
+# read-only role deserves to be read before it is granted) instead of pointing
+# at a remote file. Pinned to the file by a unit test.
+KUBERNETES_RBAC_MANIFEST = r"""# Bag of Words — Kubernetes connector access.
+#
+# Creates a service account with CLUSTER-WIDE READ-ONLY access (cluster-admin
+# minus the write verbs) and a long-lived token Secret. One wildcard rule, so
+# every built-in kind, every CRD group and every aggregated API
+# (metrics-server) is covered without editing this file when the cluster
+# gains an operator.
+#
+# NOTE: RBAC has no "everything except" syntax, so this role can read Secrets
+# with kubectl. The connector itself never reads them (no secrets table, the
+# escape hatch refuses secrets paths, configmap values are hidden), but treat
+# the token like a database superuser password: it is encrypted at rest and
+# rotated by deleting the Secret below.
+#
+#   kubectl apply -f rbac.yaml
+#   bash print_access_file.sh > access.yaml   # paste into the connect form
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bagofwords
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bagofwords-reader
+  namespace: bagofwords
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bagofwords-cluster-reader
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["*"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bagofwords-cluster-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bagofwords-cluster-reader
+subjects:
+  - kind: ServiceAccount
+    name: bagofwords-reader
+    namespace: bagofwords
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bagofwords-reader-token
+  namespace: bagofwords
+  annotations:
+    kubernetes.io/service-account.name: bagofwords-reader
+type: kubernetes.io/service-account-token
+"""
+
+KUBERNETES_PRINT_ACCESS_FILE_SCRIPT = r"""#!/usr/bin/env bash
+# Prints the Bag of Words cluster access file for the bagofwords-reader service account.
+set -euo pipefail
+NS="${BOW_NAMESPACE:-bagofwords}"; SECRET="${BOW_SECRET:-bagofwords-reader-token}"
+TOKEN=""
+for _ in $(seq 1 30); do
+  TOKEN="$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.data.token}' 2>/dev/null | base64 -d || true)"
+  [ -n "$TOKEN" ] && break; sleep 1
+done
+[ -n "$TOKEN" ] || { echo "no token in secret $NS/$SECRET yet — apply rbac.yaml first" >&2; exit 1; }
+CA="$(kubectl -n "$NS" get secret "$SECRET" -o jsonpath='{.data.ca\.crt}')"
+SERVER="$(kubectl config view --minify --raw -o jsonpath='{.clusters[0].cluster.server}')"
+cat <<EOF
+apiVersion: v1
+kind: Config
+clusters:
+- name: bagofwords
+  cluster:
+    server: ${SERVER}
+    certificate-authority-data: ${CA}
+users:
+- name: bagofwords-reader
+  user:
+    token: ${TOKEN}
+contexts:
+- name: bagofwords
+  context: {cluster: bagofwords, user: bagofwords-reader}
+current-context: bagofwords
+EOF
+"""
 
 
 # Central registry for data sources
@@ -720,6 +841,39 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=ZabbixUserPassCredentials, scopes=["system", "user"]),
         }),
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
+        requires_license="enterprise",
+    ),
+    "kubernetes": DataSourceRegistryEntry(
+        type="kubernetes",
+        category="infra",
+        title="Kubernetes",
+        description="Investigate a Kubernetes cluster: workloads, nodes, events, networking, storage, custom resources, live usage and pod logs — read-only, through the API server.",
+        config_schema=KubernetesConfig,
+        credentials_auth=AuthOptions(default="access_file", by_auth={
+            # ONE mechanism: the bearer token of a long-lived service-account
+            # token Secret, delivered inside the access file that
+            # tools/kubernetes/print_access_file.sh prints. No kubeconfig
+            # parsing beyond that shape, no exec plugins, no per-user scope.
+            "access_file": AuthVariant(title="Cluster access file", schema=KubernetesAccessFileCredentials, scopes=["system"]),
+        }),
+        setup_guide=[
+            SetupStep(
+                title="Grant read access on the cluster",
+                body="Review the manifest, then run it with cluster-admin rights. It creates the bagofwords namespace, a service account, a cluster-wide read-only role, its binding and a long-lived token.",
+                code="kubectl apply -f - <<'EOF'\n" + KUBERNETES_RBAC_MANIFEST + "EOF",
+            ),
+            SetupStep(
+                title="Print the access file",
+                body="Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach.",
+                code=KUBERNETES_PRINT_ACCESS_FILE_SCRIPT,
+            ),
+            SetupStep(
+                title="Paste it below and test the connection",
+                body="Paste the whole output into the Cluster access file field, then click Test connection.",
+            ),
+        ],
+        client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
+        version="beta",
         requires_license="enterprise",
     ),
     "aria_operations": DataSourceRegistryEntry(
@@ -2049,6 +2203,7 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
             "catalog_ownership": e.catalog_ownership,
             "ui_form": e.ui_form,
             "category": e.category,
+            "setup_guide": [s.model_dump() for s in e.setup_guide] if e.setup_guide else None,
         }
         for e in REGISTRY.values()
         if (
@@ -2187,6 +2342,20 @@ def requires_no_credentials(ds_type: str) -> bool:
         return get_entry(ds_type).credentials_auth.default == "none"
     except ValueError:
         return False
+
+
+def supports_user_auth(ds_type: str) -> bool:
+    """True when at least one auth variant is allowed in the `user` scope —
+    i.e. the connector can run under a `user_required` policy where each
+    member signs in with their own credentials. Single-mechanism, system-only
+    connectors (Kubernetes: one service-account token) return False, and the
+    connect form hides the "Require user authentication" toggle for them.
+    Unknown types default to True (never hide a control by accident)."""
+    try:
+        variants = get_entry(ds_type).credentials_auth.by_auth or {}
+    except ValueError:
+        return True
+    return any("user" in (v.scopes or []) for v in variants.values())
 
 
 def default_credentials_schema_for(ds_type: str) -> Type[BaseModel]:

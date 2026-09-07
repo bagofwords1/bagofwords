@@ -1,0 +1,89 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "PersistentVolumeClaim",
+   "metadata": {
+    "annotations": {
+     "pv.kubernetes.io/bind-completed": "yes",
+     "pv.kubernetes.io/bound-by-controller": "yes",
+     "volume.beta.kubernetes.io/storage-provisioner": "rancher.io/local-path",
+     "volume.kubernetes.io/selected-node": "bow-k8s-worker",
+     "volume.kubernetes.io/storage-provisioner": "rancher.io/local-path"
+    },
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "finalizers": [
+     "kubernetes.io/pvc-protection"
+    ],
+    "labels": {
+     "app": "catalog-db"
+    },
+    "name": "data-catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1758",
+    "uid": "633204eb-a853-45dc-9006-fd86753f4393"
+   },
+   "spec": {
+    "accessModes": [
+     "ReadWriteOnce"
+    ],
+    "resources": {
+     "requests": {
+      "storage": "1Gi"
+     }
+    },
+    "storageClassName": "standard",
+    "volumeMode": "Filesystem",
+    "volumeName": "pvc-633204eb-a853-45dc-9006-fd86753f4393"
+   },
+   "status": {
+    "accessModes": [
+     "ReadWriteOnce"
+    ],
+    "capacity": {
+     "storage": "1Gi"
+    },
+    "phase": "Bound"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "PersistentVolumeClaim",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"PersistentVolumeClaim\",\"metadata\":{\"annotations\":{},\"name\":\"ledger-archive\",\"namespace\":\"payments\"},\"spec\":{\"accessModes\":[\"ReadWriteMany\"],\"resources\":{\"requests\":{\"storage\":\"50Gi\"}},\"storageClassName\":\"slow-nfs\"}}\n",
+     "volume.beta.kubernetes.io/storage-provisioner": "nfs.example.com/provisioner",
+     "volume.kubernetes.io/storage-provisioner": "nfs.example.com/provisioner"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "finalizers": [
+     "kubernetes.io/pvc-protection"
+    ],
+    "name": "ledger-archive",
+    "namespace": "payments",
+    "resourceVersion": "636",
+    "uid": "a472a89d-7b58-4168-8900-356dfd860209"
+   },
+   "spec": {
+    "accessModes": [
+     "ReadWriteMany"
+    ],
+    "resources": {
+     "requests": {
+      "storage": "50Gi"
+     }
+    },
+    "storageClassName": "slow-nfs",
+    "volumeMode": "Filesystem"
+   },
+   "status": {
+    "phase": "Pending"
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

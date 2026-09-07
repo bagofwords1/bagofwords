@@ -1,0 +1,346 @@
+Main Org
+New report
+Automations
+Dashboards
+Notifications
+Agents
+Prompts
+Monitoring
+PROJECTS
+View all
+New project
+REPORTS
+View all
+Cluster Pod Restarts and Warnings
+bow-runtime-app Pod Logs
+bow-test Namespace Deployment Status
+New report
+Admin
+A
+Agent Admin
+v0.0.555
+Cluster Pod Restarts and Warnings
+Share
+Sidebar
+Which pods in the cluster have restarted at least once, and what do the recent Warning events say?
+A
+Copy
+Sep 7, 2:02 PM
+Created Data
+pods
+10.0s
+Pods with Restarts
+Edit
+ee230f4c
+20 rows
+Data
+Code
+namespace
+...
+type
+...
+involved_kind
+...
+involved_name
+...
+involved_namespace
+...
+reason
+...
+message
+...
+bow-test
+Warning
+Pod
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv
+bow-test
+Failed
+Error: ImagePullBackOff
+bow-test
+Warning
+Pod
+mysql-778b6d9479-8lgbf
+bow-test
+Failed
+Error: ImagePullBackOff
+bow-test
+Warning
+Pod
+mysql-778b6d9479-8lgbf
+bow-test
+Failed
+Failed to pull image "mysql:8.4-0asdsd": rpc error: code = NotFound desc = get image config descriptor: unexpected media type text/html for sha256:c29d0c8455947970a3771f94324cdf4385d1336164eb0d307af9d5da7f663b90: not found
+bow-test
+Warning
+Pod
+mysql-778b6d9479-8lgbf
+bow-test
+Failed
+Error: ErrImagePull
+bow-test
+Warning
+Pod
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv
+bow-test
+Failed
+Failed to pull image "localhost:32000/bagofwords:dev-mcp-1": rpc error: code = NotFound desc = failed to pull and unpack image "localhost:32000/bagofwords:dev-mcp-1": failed to resolve image: localhost:32000/bagofwords:dev-mcp-1: not found
+bow-test
+Warning
+Pod
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv
+bow-test
+Failed
+Error: ErrImagePull
+kube-system
+Warning
+Pod
+hostpath-provisioner-7f665d64f6-tz4nr
+kube-system
+BackOff
+Back-off restarting failed container hostpath-provisioner in pod hostpath-provisioner-7f665d64f6-tz4nr_kube-system(94f62499-9c7c-430c-aded-ca190f58732e)
+agent-sandbox-system
+Warning
+Pod
+agent-sandbox-controller-57bdb55877-hr5zx
+agent-sandbox-system
+BackOff
+Back-off restarting failed container agent-sandbox-controller in pod agent-sandbox-controller-57bdb55877-hr5zx_agent-sandbox-system(731ecc97-0735-456e-a9f7-d49c865c5c14)
+kube-system
+Warning
+Pod
+calico-kube-controllers-676854dc5d-kzvlk
+kube-system
+Unhealthy
+Liveness probe failed: Error verifying datastore: Post "https://10.152.183.1:443/apis/crd.projectcalico.org/v1/tiers": context deadline exceeded
+envoy-gateway-system
+Warning
+Pod
+envoy-gateway-748f78f575-9xf2k
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.137:8081/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+envoy-gateway-system
+Warning
+Pod
+envoy-bow-test-bow-runtime-app-gw-fb995eb3-857867c645-ttg49
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.153:19003/ready": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+envoy-gateway-system
+Warning
+Pod
+envoy-openshell-openshell-fa45ea6a-69ffc846d5-6h8jg
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.172:19003/ready": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+openshell
+Warning
+Pod
+openshell-0
+openshell
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.135:8081/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+envoy-gateway-system
+Warning
+Pod
+envoy-gateway-748f78f575-9xf2k
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.137:8081/readyz": dial tcp 10.1.90.137:8081: connect: connection refused
+envoy-gateway-system
+Warning
+Pod
+envoy-gateway-748f78f575-9xf2k
+envoy-gateway-system
+Unhealthy
+Liveness probe failed: Get "http://10.1.90.137:8081/healthz": dial tcp 10.1.90.137:8081: connect: connection refused
+envoy-gateway-system
+Warning
+Pod
+envoy-bow-test-bow-runtime-app-gw-fb995eb3-857867c645-ttg49
+envoy-gateway-system
+Unhealthy
+Liveness probe failed: Get "http://10.1.90.153:19002/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+Add to Dashboard
+Save Query
+Created Data
+events
+10.5s
+Recent Warning Events
+Edit
+750874a8
+16 rows
+Data
+Code
+namespace
+...
+type
+...
+involved_kind
+...
+involved_name
+...
+involved_namespace
+...
+reason
+...
+message
+...
+bow-test
+Warning
+Pod
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv
+bow-test
+Failed
+Error: ImagePullBackOff
+bow-test
+Warning
+Pod
+mysql-778b6d9479-8lgbf
+bow-test
+Failed
+Error: ImagePullBackOff
+bow-test
+Warning
+Pod
+mysql-778b6d9479-8lgbf
+bow-test
+Failed
+Failed to pull image "mysql:8.4-0asdsd": rpc error: code = NotFound desc = get image config descriptor: unexpected media type text/html for sha256:c29d0c8455947970a3771f94324cdf4385d1336164eb0d307af9d5da7f663b90: not found
+bow-test
+Warning
+Pod
+mysql-778b6d9479-8lgbf
+bow-test
+Failed
+Error: ErrImagePull
+bow-test
+Warning
+Pod
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv
+bow-test
+Failed
+Failed to pull image "localhost:32000/bagofwords:dev-mcp-1": rpc error: code = NotFound desc = failed to pull and unpack image "localhost:32000/bagofwords:dev-mcp-1": failed to resolve image: localhost:32000/bagofwords:dev-mcp-1: not found
+bow-test
+Warning
+Pod
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv
+bow-test
+Failed
+Error: ErrImagePull
+kube-system
+Warning
+Pod
+hostpath-provisioner-7f665d64f6-tz4nr
+kube-system
+BackOff
+Back-off restarting failed container hostpath-provisioner in pod hostpath-provisioner-7f665d64f6-tz4nr_kube-system(94f62499-9c7c-430c-aded-ca190f58732e)
+agent-sandbox-system
+Warning
+Pod
+agent-sandbox-controller-57bdb55877-hr5zx
+agent-sandbox-system
+BackOff
+Back-off restarting failed container agent-sandbox-controller in pod agent-sandbox-controller-57bdb55877-hr5zx_agent-sandbox-system(731ecc97-0735-456e-a9f7-d49c865c5c14)
+kube-system
+Warning
+Pod
+calico-kube-controllers-676854dc5d-kzvlk
+kube-system
+Unhealthy
+Liveness probe failed: Error verifying datastore: Post "https://10.152.183.1:443/apis/crd.projectcalico.org/v1/tiers": context deadline exceeded
+envoy-gateway-system
+Warning
+Pod
+envoy-gateway-748f78f575-9xf2k
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.137:8081/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+envoy-gateway-system
+Warning
+Pod
+envoy-bow-test-bow-runtime-app-gw-fb995eb3-857867c645-ttg49
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.153:19003/ready": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+envoy-gateway-system
+Warning
+Pod
+envoy-openshell-openshell-fa45ea6a-69ffc846d5-6h8jg
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.172:19003/ready": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+openshell
+Warning
+Pod
+openshell-0
+openshell
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.135:8081/readyz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+envoy-gateway-system
+Warning
+Pod
+envoy-gateway-748f78f575-9xf2k
+envoy-gateway-system
+Unhealthy
+Readiness probe failed: Get "http://10.1.90.137:8081/readyz": dial tcp 10.1.90.137:8081: connect: connection refused
+envoy-gateway-system
+Warning
+Pod
+envoy-gateway-748f78f575-9xf2k
+envoy-gateway-system
+Unhealthy
+Liveness probe failed: Get "http://10.1.90.137:8081/healthz": dial tcp 10.1.90.137:8081: connect: connection refused
+envoy-gateway-system
+Warning
+Pod
+envoy-bow-test-bow-runtime-app-gw-fb995eb3-857867c645-ttg49
+envoy-gateway-system
+Unhealthy
+Liveness probe failed: Get "http://10.1.90.153:19002/healthz": context deadline exceeded (Client.Timeout exceeded while awaiting headers)
+Add to Dashboard
+Save Query
+
+Here’s what the cluster data shows (from the pods and events tables):
+
+Pods with restarts — 20 pods, all currently Running
+
+Top restarters (all on node dev):
+
+Pod	Namespace	Restarts
+mcp-server-d68bb78c-fvp8f	openshell	14
+agent-sandbox-controller-57bdb55877-hr5zx	agent-sandbox-system	13
+hostpath-provisioner-7f665d64f6-tz4nr	kube-system	12
+calico-node-wpwwk	kube-system	12
+coredns-78894c95f4-bpvgg	kube-system	11
+calico-kube-controllers-676854dc5d-kzvlk	kube-system	11
+
+The rest range from 1–9 restarts, spread across bow-test, envoy-gateway-system, metallb-system, and container-registry. Despite the restart counts, every pod is currently Running and ready — the pattern (many system pods restarting around the same startup window on Sept 1) suggests node reboots/restarts rather than individual crash loops.
+
+Recent Warning events — 16 events, all from today ~10:33–10:36 UTC
+
+Three distinct problem clusters:
+
+Image pull failures (bow-test) — the most active issue:
+
+mysql-778b6d9479-8lgbf can’t pull mysql:8.4-0asdsd — image tag not found (looks like a typo’d tag), now in ImagePullBackOff.
+
+bow-runtime-data-edge-agent-845f7fc65d-9xdpv can’t pull localhost:32000/bagofwords:dev-mcp-1 — image not found in the local registry, also ImagePullBackOff.
+
+Readiness/liveness probe failures — envoy-gateway, two envoy proxy pods, openshell-0, and calico-kube-controllers all failed probes with timeouts or connection refused in the same ~1-minute window. Combined with the crash back-off events below, this looks like a brief cluster-wide disruption (likely the node coming back up) rather than per-service issues.
+
+Crash back-offs — hostpath-provisioner and agent-sandbox-controller each hit “Back-off restarting failed container” once, consistent with their high restart counts.
+
+Bottom line: the two ImagePullBackOff pods in bow-test are the real actionable problems — one bad image tag (mysql:8.4-0asdsd) and one missing image in the local registry (bagofwords:dev-mcp-1). Everything else appears to be transient fallout from a node/cluster restart and has since recovered.
+
+Sep 7, 2:02 PM
+Follow up
+Show container logs for mysql-778b6d9479-8lgbf to confirm the image tag issue
+What images are available in the localhost:32000 registry?
+Check the deployment spec for mysql in bow-test — is the tag typo in the manifest?
+Are there any other pods in bow-test with ImagePullBackOff or failed image pulls?
+List all events from the node restart on Sept 1 to understand the timeline
+Kubernetes (microk8s)
+Chat
+Usage this month
+Claude Fable 5

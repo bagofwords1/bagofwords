@@ -1,0 +1,54 @@
+Main Org
+New report
+Automations
+Dashboards
+Notifications
+Agents
+Prompts
+Monitoring
+PROJECTS
+View all
+New project
+REPORTS
+View all
+bow-test Namespace Deployment Status
+Cluster Pod Restarts and Warnings
+bow-runtime-app Pod Logs
+bow-test Namespace Deployment Status
+New report
+Admin
+A
+Agent Admin
+v0.0.555
+bow-test Namespace Deployment Status
+Share
+Sidebar
+List all deployments in the bow-test namespace with their ready and desired replica counts.
+A
+Copy
+Sep 7, 2:04 PM
+Created Data
+deployments
+7.9s
+
+The bow-test namespace has 4 deployments, all with their desired replica count met (1/1 ready each):
+
+Deployment	Ready / Desired	Image
+bow-runtime-app	1 / 1	localhost:32000/bagofwords:dev-mcp
+bow-runtime-data-edge-agent	1 / 1	localhost:32000/bagofwords:dev-mcp-1
+mysql	1 / 1	mysql:8.4-0asdsd
+nats-box	1 / 1	natsio/nats-box:0.19.7
+
+One thing worth flagging: bow-runtime-data-edge-agent and mysql both report unavailable = 1 even though ready = 1 — this usually indicates a rollout in progress or a recently restarted/flapping replica. Also, the mysql image tag 8.4-0asdsd looks like a typo and may fail to pull on the next restart.
+
+Sep 7, 2:04 PM
+Follow up
+Show pods in bow-test namespace with restart counts and state reasons
+Check events in bow-test namespace for the last hour
+List all images used in bow-test and flag any with invalid tags
+Compare current vs desired replicas across all namespaces
+Inspect mysql deployment logs to diagnose the unavailable replica
+Kubernetes (microk8s)
+Chat
+Usage this month
+Claude Fable 5

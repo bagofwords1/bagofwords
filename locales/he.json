@@ -3121,7 +3121,27 @@
       "urlsHelp": "תבנית אחת בכל שורה, לדוגמה https://portal.vendor.com/**. הסוכן יוכל לגשת רק לכתובות שתואמות."
     },
     "catPopular": "פופולריים",
-    "catCustom": "מותאם אישית"
+    "catCustom": "מותאם אישית",
+    "setupGuideTitle": "שלבי הגדרה",
+    "setupGuideCopy": "העתק",
+    "setupGuideCopied": "הועתק",
+    "setupGuides": {
+      "kubernetes": [
+        {
+          "title": "הענקת הרשאת קריאה באשכול",
+          "body": "עברו על המניפסט והריצו אותו עם הרשאות cluster-admin. הוא יוצר את ה-namespace‏ bagofwords, חשבון שירות, תפקיד קריאה בלבד לכל האשכול, את הקישור שלו וטוקן ארוך טווח."
+        },
+        {
+          "title": "הדפסת קובץ הגישה",
+          "body": "שמרו כ-print_access_file.sh והריצו. הסקריפט ממתין לטוקן ומדפיס קובץ אחד עצמאי (כתובת שרת ה-API, ‏CA של האשכול, טוקן). אמתו עם: kubectl --kubeconfig access.yaml get nodes. אם כתובת השרת פרטית לרשת שלכם, ערכו אותה לכתובת שמופע Bag of Words הזה יכול להגיע אליה."
+        },
+        {
+          "title": "הדביקו למטה ובדקו את החיבור",
+          "body": "הדביקו את כל הפלט בשדה קובץ גישה לאשכול ולחצו על בדיקת חיבור."
+        }
+      ]
+    },
+    "setupGuideCopyFailed": "ההעתקה נכשלה — סמנו את הטקסט"
   },
   "share": {
     "shareDashboard": "שיתוף דשבורד",

@@ -1,0 +1,15 @@
+# Instances of the sample CRD (applied after the CRD is established).
+apiVersion: example.com/v1
+kind: Widget
+metadata:
+  name: blue-widget
+  namespace: payments
+  labels: {tier: gold}
+spec: {size: large, replicas: 3, owner: payments}
+---
+apiVersion: example.com/v1
+kind: Widget
+metadata:
+  name: red-widget
+  namespace: inventory
+spec: {size: small, replicas: 1, owner: supply-chain}

@@ -1,0 +1,36 @@
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: inventory-quota
+  namespace: inventory
+spec:
+  hard: {pods: "10", requests.cpu: "2", requests.memory: 2Gi}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: catalog-config
+  namespace: inventory
+data:
+  DATABASE_URL: postgres://catalog:hunter2@catalog-db:5432/catalog   # must never be exposed
+  FEATURE_FLAGS: "new-search,bulk-import"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: catalog-api
+  namespace: inventory
+spec:
+  replicas: 1
+  selector:
+    matchLabels: {app: catalog-api}
+  template:
+    metadata:
+      labels: {app: catalog-api, app.kubernetes.io/name: catalog-api}
+    spec:
+      containers:
+        - name: api
+          image: nginx:1.27-alpine
+          resources:
+            requests: {cpu: 20m, memory: 16Mi}
+            limits: {cpu: 100m, memory: 64Mi}

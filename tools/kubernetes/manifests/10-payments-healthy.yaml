@@ -1,0 +1,76 @@
+# Healthy deployment + service (+ endpoint slices) + HPA + ingress with a
+# MISSING ingress class + a network policy isolating the namespace.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: checkout
+  namespace: payments
+  labels: {app.kubernetes.io/name: checkout, team: payments}
+spec:
+  replicas: 2
+  selector:
+    matchLabels: {app: checkout}
+  template:
+    metadata:
+      labels: {app: checkout, app.kubernetes.io/name: checkout, team: payments}
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27-alpine
+          ports: [{containerPort: 80, name: http}]
+          resources:
+            requests: {cpu: 50m, memory: 32Mi}
+            limits: {cpu: 250m, memory: 64Mi}
+          env:
+            - {name: APP_ENV, value: staging}
+            - {name: PAYMENT_API_KEY, value: sk-live-should-be-redacted}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: checkout
+  namespace: payments
+spec:
+  selector: {app: checkout}
+  ports: [{name: http, port: 80, targetPort: http}]
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: checkout
+  namespace: payments
+spec:
+  scaleTargetRef: {apiVersion: apps/v1, kind: Deployment, name: checkout}
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource: {name: cpu, target: {type: Utilization, averageUtilization: 70}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: checkout
+  namespace: payments
+spec:
+  ingressClassName: public-nginx      # deliberately absent from ingress_classes
+  tls: [{hosts: [shop.example.com], secretName: shop-tls}]
+  rules:
+    - host: shop.example.com
+      http:
+        paths:
+          - path: /checkout
+            pathType: Prefix
+            backend: {service: {name: checkout, port: {number: 80}}}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: payments
+spec:
+  podSelector: {}
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector: {matchLabels: {team: payments}}

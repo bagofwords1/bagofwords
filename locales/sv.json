@@ -3033,7 +3033,27 @@
     "unitHours": "timmar",
     "unitMinutes": "minuter",
     "catPopular": "Populära",
-    "catCustom": "Anpassad"
+    "catCustom": "Anpassad",
+    "setupGuideTitle": "Installationssteg",
+    "setupGuideCopy": "Kopiera",
+    "setupGuideCopied": "Kopierat",
+    "setupGuides": {
+      "kubernetes": [
+        {
+          "title": "Ge läsbehörighet i klustret",
+          "body": "Granska manifestet och kör det sedan med cluster-admin-rättigheter. Det skapar namnrymden bagofwords, ett tjänstekonto, en klusteromfattande skrivskyddad roll, dess bindning och en långlivad token."
+        },
+        {
+          "title": "Skriv ut åtkomstfilen",
+          "body": "Spara som print_access_file.sh och kör. Skriptet väntar på token och skriver sedan ut en fristående fil (API-serverns URL, klustrets CA, token). Verifiera med: kubectl --kubeconfig access.yaml get nodes. Om server-URL:en är privat för ditt nätverk, ändra den till adressen som denna Bag of Words-instans kan nå."
+        },
+        {
+          "title": "Klistra in nedan och testa anslutningen",
+          "body": "Klistra in hela utdatan i fältet Klusteråtkomstfil och klicka på Testa anslutning."
+        }
+      ]
+    },
+    "setupGuideCopyFailed": "Kopiering misslyckades — markera texten"
   },
   "share": {
     "shareDashboard": "Dela instrumentpanel",

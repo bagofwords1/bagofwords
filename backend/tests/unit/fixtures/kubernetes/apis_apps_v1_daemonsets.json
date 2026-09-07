@@ -1,0 +1,321 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "deprecated.daemonset.template.generation": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:14Z",
+    "generation": 1,
+    "labels": {
+     "app": "kindnet",
+     "k8s-app": "kindnet",
+     "tier": "node"
+    },
+    "name": "kindnet",
+    "namespace": "kube-system",
+    "resourceVersion": "466",
+    "uid": "96a6eb9d-f1e3-49d6-b3e5-c0e66b6ee692"
+   },
+   "spec": {
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "kindnet"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "kindnet",
+       "k8s-app": "kindnet",
+       "tier": "node"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "env": [
+         {
+          "name": "HOST_IP",
+          "valueFrom": {
+           "fieldRef": {
+            "apiVersion": "v1",
+            "fieldPath": "status.hostIP"
+           }
+          }
+         },
+         {
+          "name": "POD_IP",
+          "valueFrom": {
+           "fieldRef": {
+            "apiVersion": "v1",
+            "fieldPath": "status.podIP"
+           }
+          }
+         },
+         {
+          "name": "POD_SUBNET",
+          "value": "10.244.0.0/16"
+         },
+         {
+          "name": "CONTROL_PLANE_ENDPOINT",
+          "value": "bow-k8s-control-plane:6443"
+         }
+        ],
+        "image": "docker.io/kindest/kindnetd:v20260528-9350166c",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "kindnet-cni",
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "50Mi"
+         },
+         "requests": {
+          "cpu": "100m",
+          "memory": "50Mi"
+         }
+        },
+        "securityContext": {
+         "capabilities": {
+          "add": [
+           "NET_RAW",
+           "NET_ADMIN"
+          ]
+         },
+         "privileged": false
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/cni/net.d",
+          "name": "cni-cfg"
+         },
+         {
+          "mountPath": "/run/xtables.lock",
+          "name": "xtables-lock"
+         },
+         {
+          "mountPath": "/lib/modules",
+          "name": "lib-modules",
+          "readOnly": true
+         },
+         {
+          "mountPath": "/var/run/nri",
+          "name": "nri-plugin"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "hostNetwork": true,
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-node-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "kindnet",
+      "serviceAccountName": "kindnet",
+      "terminationGracePeriodSeconds": 30,
+      "tolerations": [
+       {
+        "operator": "Exists"
+       }
+      ],
+      "volumes": [
+       {
+        "hostPath": {
+         "path": "/etc/cni/net.d",
+         "type": ""
+        },
+        "name": "cni-cfg"
+       },
+       {
+        "hostPath": {
+         "path": "/run/xtables.lock",
+         "type": "FileOrCreate"
+        },
+        "name": "xtables-lock"
+       },
+       {
+        "hostPath": {
+         "path": "/lib/modules",
+         "type": ""
+        },
+        "name": "lib-modules"
+       },
+       {
+        "hostPath": {
+         "path": "/var/run/nri",
+         "type": ""
+        },
+        "name": "nri-plugin"
+       }
+      ]
+     }
+    },
+    "updateStrategy": {
+     "rollingUpdate": {
+      "maxSurge": 0,
+      "maxUnavailable": 1
+     },
+     "type": "RollingUpdate"
+    }
+   },
+   "status": {
+    "currentNumberScheduled": 2,
+    "desiredNumberScheduled": 2,
+    "numberAvailable": 2,
+    "numberMisscheduled": 0,
+    "numberReady": 2,
+    "observedGeneration": 1,
+    "updatedNumberScheduled": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "DaemonSet",
+   "metadata": {
+    "annotations": {
+     "deprecated.daemonset.template.generation": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "generation": 1,
+    "labels": {
+     "k8s-app": "kube-proxy"
+    },
+    "name": "kube-proxy",
+    "namespace": "kube-system",
+    "resourceVersion": "461",
+    "uid": "eff6ca51-f638-4a8e-960e-93e0a4a380de"
+   },
+   "spec": {
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "k8s-app": "kube-proxy"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "k8s-app": "kube-proxy"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "/usr/local/bin/kube-proxy",
+         "--config=/var/lib/kube-proxy/config.conf",
+         "--hostname-override=$(NODE_NAME)"
+        ],
+        "env": [
+         {
+          "name": "NODE_NAME",
+          "valueFrom": {
+           "fieldRef": {
+            "apiVersion": "v1",
+            "fieldPath": "spec.nodeName"
+           }
+          }
+         }
+        ],
+        "image": "registry.k8s.io/kube-proxy:v1.36.1",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "kube-proxy",
+        "resources": {},
+        "securityContext": {
+         "privileged": true
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/var/lib/kube-proxy",
+          "name": "kube-proxy"
+         },
+         {
+          "mountPath": "/run/xtables.lock",
+          "name": "xtables-lock"
+         },
+         {
+          "mountPath": "/lib/modules",
+          "name": "lib-modules",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "hostNetwork": true,
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-node-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "kube-proxy",
+      "serviceAccountName": "kube-proxy",
+      "terminationGracePeriodSeconds": 30,
+      "tolerations": [
+       {
+        "operator": "Exists"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "name": "kube-proxy"
+        },
+        "name": "kube-proxy"
+       },
+       {
+        "hostPath": {
+         "path": "/run/xtables.lock",
+         "type": "FileOrCreate"
+        },
+        "name": "xtables-lock"
+       },
+       {
+        "hostPath": {
+         "path": "/lib/modules",
+         "type": ""
+        },
+        "name": "lib-modules"
+       }
+      ]
+     }
+    },
+    "updateStrategy": {
+     "rollingUpdate": {
+      "maxSurge": 0,
+      "maxUnavailable": 1
+     },
+     "type": "RollingUpdate"
+    }
+   },
+   "status": {
+    "currentNumberScheduled": 2,
+    "desiredNumberScheduled": 2,
+    "numberAvailable": 2,
+    "numberMisscheduled": 0,
+    "numberReady": 2,
+    "observedGeneration": 1,
+    "updatedNumberScheduled": 2
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

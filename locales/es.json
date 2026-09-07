@@ -3121,7 +3121,27 @@
       "urlsHelp": "Un patrón por línea, p. ej. https://portal.vendor.com/**. El agente solo podrá visitar las URL que coincidan."
     },
     "catPopular": "Populares",
-    "catCustom": "Personalizado"
+    "catCustom": "Personalizado",
+    "setupGuideTitle": "Pasos de configuración",
+    "setupGuideCopy": "Copiar",
+    "setupGuideCopied": "Copiado",
+    "setupGuides": {
+      "kubernetes": [
+        {
+          "title": "Concede acceso de lectura en el clúster",
+          "body": "Revisa el manifiesto y ejecútalo con permisos de cluster-admin. Crea el namespace bagofwords, una cuenta de servicio, un rol de solo lectura para todo el clúster, su binding y un token de larga duración."
+        },
+        {
+          "title": "Imprime el archivo de acceso",
+          "body": "Guárdalo como print_access_file.sh y ejecútalo. Espera el token y luego imprime un único archivo autocontenido (URL del servidor API, CA del clúster, token). Verifícalo con: kubectl --kubeconfig access.yaml get nodes. Si la URL del servidor es privada de tu red, cámbiala por la dirección que esta instancia de Bag of Words puede alcanzar."
+        },
+        {
+          "title": "Pégalo abajo y prueba la conexión",
+          "body": "Pega toda la salida en el campo Archivo de acceso al clúster y pulsa Probar conexión."
+        }
+      ]
+    },
+    "setupGuideCopyFailed": "Error al copiar — selecciona el texto"
   },
   "share": {
     "shareDashboard": "Compartir panel",

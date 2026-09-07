@@ -1,0 +1,318 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "addressType": "IPv4",
+   "apiVersion": "discovery.k8s.io/v1",
+   "endpoints": [
+    {
+     "addresses": [
+      "172.18.0.3"
+     ],
+     "conditions": {
+      "ready": true
+     }
+    }
+   ],
+   "kind": "EndpointSlice",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:12Z",
+    "generation": 1,
+    "labels": {
+     "kubernetes.io/service-name": "kubernetes"
+    },
+    "name": "kubernetes",
+    "namespace": "default",
+    "resourceVersion": "208",
+    "uid": "2778421d-7df3-4534-8804-ae608a3bfb38"
+   },
+   "ports": [
+    {
+     "name": "https",
+     "port": 6443,
+     "protocol": "TCP"
+    }
+   ]
+  },
+  {
+   "addressType": "IPv4",
+   "apiVersion": "discovery.k8s.io/v1",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.1.14"
+     ],
+     "conditions": {
+      "ready": true,
+      "serving": true,
+      "terminating": false
+     },
+     "hostname": "catalog-db-0",
+     "nodeName": "bow-k8s-worker",
+     "targetRef": {
+      "kind": "Pod",
+      "name": "catalog-db-0",
+      "namespace": "inventory",
+      "uid": "31281a65-24e2-4a03-a4b1-63b674061ae0"
+     }
+    }
+   ],
+   "kind": "EndpointSlice",
+   "metadata": {
+    "annotations": {
+     "endpoints.kubernetes.io/last-change-trigger-time": "2026-09-06T16:18:28Z"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generateName": "catalog-db-",
+    "generation": 2,
+    "labels": {
+     "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io",
+     "kubernetes.io/service-name": "catalog-db",
+     "service.kubernetes.io/headless": ""
+    },
+    "name": "catalog-db-cllr5",
+    "namespace": "inventory",
+    "ownerReferences": [
+     {
+      "apiVersion": "v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Service",
+      "name": "catalog-db",
+      "uid": "a1a1a007-0cb2-48b3-8a03-ae3f6c01c77f"
+     }
+    ],
+    "resourceVersion": "1770",
+    "uid": "cc6eb276-2d4f-42ff-9e7f-f7a3a357c4c2"
+   },
+   "ports": [
+    {
+     "name": "pg",
+     "port": 5432,
+     "protocol": "TCP"
+    }
+   ]
+  },
+  {
+   "addressType": "IPv4",
+   "apiVersion": "discovery.k8s.io/v1",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.0.3"
+     ],
+     "conditions": {
+      "ready": true,
+      "serving": true,
+      "terminating": false
+     },
+     "nodeName": "bow-k8s-control-plane",
+     "targetRef": {
+      "kind": "Pod",
+      "name": "coredns-589f44dc88-nrsc6",
+      "namespace": "kube-system",
+      "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+     }
+    },
+    {
+     "addresses": [
+      "10.244.0.2"
+     ],
+     "conditions": {
+      "ready": true,
+      "serving": true,
+      "terminating": false
+     },
+     "nodeName": "bow-k8s-control-plane",
+     "targetRef": {
+      "kind": "Pod",
+      "name": "coredns-589f44dc88-wz2tq",
+      "namespace": "kube-system",
+      "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+     }
+    }
+   ],
+   "kind": "EndpointSlice",
+   "metadata": {
+    "annotations": {
+     "endpoints.kubernetes.io/last-change-trigger-time": "2026-09-06T16:11:33Z"
+    },
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "generateName": "kube-dns-",
+    "generation": 5,
+    "labels": {
+     "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io",
+     "k8s-app": "kube-dns",
+     "kubernetes.io/cluster-service": "true",
+     "kubernetes.io/name": "CoreDNS",
+     "kubernetes.io/service-name": "kube-dns"
+    },
+    "name": "kube-dns-wjtdk",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Service",
+      "name": "kube-dns",
+      "uid": "00d17202-72fd-41a2-bc73-2a135afebdc7"
+     }
+    ],
+    "resourceVersion": "520",
+    "uid": "0bb02dd1-5361-4ae4-b3ed-71db0ec0dd93"
+   },
+   "ports": [
+    {
+     "name": "dns",
+     "port": 53,
+     "protocol": "UDP"
+    },
+    {
+     "name": "dns-tcp",
+     "port": 53,
+     "protocol": "TCP"
+    },
+    {
+     "name": "metrics",
+     "port": 9153,
+     "protocol": "TCP"
+    }
+   ]
+  },
+  {
+   "addressType": "IPv4",
+   "apiVersion": "discovery.k8s.io/v1",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.1.3"
+     ],
+     "conditions": {
+      "ready": true,
+      "serving": true,
+      "terminating": false
+     },
+     "nodeName": "bow-k8s-worker",
+     "targetRef": {
+      "kind": "Pod",
+      "name": "metrics-server-5b58578978-2wsjt",
+      "namespace": "kube-system",
+      "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+     }
+    }
+   ],
+   "kind": "EndpointSlice",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generateName": "metrics-server-",
+    "generation": 6,
+    "labels": {
+     "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io",
+     "k8s-app": "metrics-server",
+     "kubernetes.io/service-name": "metrics-server"
+    },
+    "name": "metrics-server-sklch",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Service",
+      "name": "metrics-server",
+      "uid": "034e6b52-fd4a-4fa4-aebb-0cf36ce32561"
+     }
+    ],
+    "resourceVersion": "923",
+    "uid": "be2d3f97-e904-4d28-bcc9-2b9874715f97"
+   },
+   "ports": [
+    {
+     "appProtocol": "https",
+     "name": "https",
+     "port": 10250,
+     "protocol": "TCP"
+    }
+   ]
+  },
+  {
+   "addressType": "IPv4",
+   "apiVersion": "discovery.k8s.io/v1",
+   "endpoints": [
+    {
+     "addresses": [
+      "10.244.1.2"
+     ],
+     "conditions": {
+      "ready": true,
+      "serving": true,
+      "terminating": false
+     },
+     "nodeName": "bow-k8s-worker",
+     "targetRef": {
+      "kind": "Pod",
+      "name": "checkout-7c7d9c6b8c-ctl5s",
+      "namespace": "payments",
+      "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+     }
+    },
+    {
+     "addresses": [
+      "10.244.1.5"
+     ],
+     "conditions": {
+      "ready": true,
+      "serving": true,
+      "terminating": false
+     },
+     "nodeName": "bow-k8s-worker",
+     "targetRef": {
+      "kind": "Pod",
+      "name": "checkout-7c7d9c6b8c-vgkdg",
+      "namespace": "payments",
+      "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+     }
+    }
+   ],
+   "kind": "EndpointSlice",
+   "metadata": {
+    "annotations": {
+     "endpoints.kubernetes.io/last-change-trigger-time": "2026-09-06T16:11:49Z"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generateName": "checkout-",
+    "generation": 3,
+    "labels": {
+     "endpointslice.kubernetes.io/managed-by": "endpointslice-controller.k8s.io",
+     "kubernetes.io/service-name": "checkout"
+    },
+    "name": "checkout-2ctnf",
+    "namespace": "payments",
+    "ownerReferences": [
+     {
+      "apiVersion": "v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Service",
+      "name": "checkout",
+      "uid": "cbd900e2-14ef-4db3-b745-e70c05a9ea46"
+     }
+    ],
+    "resourceVersion": "766",
+    "uid": "c77f5376-2739-46dc-b0b1-02dc3f100918"
+   },
+   "ports": [
+    {
+     "name": "http",
+     "port": 80,
+     "protocol": "TCP"
+    }
+   ]
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

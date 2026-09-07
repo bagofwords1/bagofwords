@@ -1,0 +1,42 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "storage.k8s.io/v1",
+   "kind": "StorageClass",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"storage.k8s.io/v1\",\"kind\":\"StorageClass\",\"metadata\":{\"annotations\":{},\"name\":\"slow-nfs\"},\"provisioner\":\"nfs.example.com/provisioner\",\"reclaimPolicy\":\"Retain\",\"volumeBindingMode\":\"Immediate\"}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "slow-nfs",
+    "resourceVersion": "633",
+    "uid": "ca49f34f-e7b3-416a-85f5-2a311da3efd5"
+   },
+   "provisioner": "nfs.example.com/provisioner",
+   "reclaimPolicy": "Retain",
+   "volumeBindingMode": "Immediate"
+  },
+  {
+   "apiVersion": "storage.k8s.io/v1",
+   "kind": "StorageClass",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"storage.k8s.io/v1\",\"kind\":\"StorageClass\",\"metadata\":{\"annotations\":{\"storageclass.kubernetes.io/is-default-class\":\"true\"},\"name\":\"standard\"},\"provisioner\":\"rancher.io/local-path\",\"reclaimPolicy\":\"Delete\",\"volumeBindingMode\":\"WaitForFirstConsumer\"}\n",
+     "storageclass.kubernetes.io/is-default-class": "true"
+    },
+    "creationTimestamp": "2026-09-06T16:11:15Z",
+    "name": "standard",
+    "resourceVersion": "282",
+    "uid": "4822ea79-2dc9-4f88-a646-51dec0a70b30"
+   },
+   "provisioner": "rancher.io/local-path",
+   "reclaimPolicy": "Delete",
+   "volumeBindingMode": "WaitForFirstConsumer"
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

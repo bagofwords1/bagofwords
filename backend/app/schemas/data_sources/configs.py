@@ -850,6 +850,70 @@ class ZabbixUserPassCredentials(BaseModel):
     password: str = Field(..., title="Password", description="", json_schema_extra={"ui:type": "password"})
 
 
+class KubernetesAccessFileCredentials(BaseModel):
+    access_file: str = Field(
+        ...,
+        title="Cluster access file",
+        description=(
+            "Paste the output of print_access_file.sh (step 2 of the setup guide). It embeds the API "
+            "server URL, the cluster CA and the read-only service-account token. Personal kubeconfigs "
+            "(exec plugins, client certificates) are not accepted."
+        ),
+        json_schema_extra={"ui:type": "textarea"},
+    )
+
+
+class KubernetesConfig(BaseModel):
+    namespaces: str = Field(
+        "",
+        title="Namespaces",
+        description="Optional allowlist, comma-separated (e.g. payments, inventory). Leave empty to expose every namespace the token can see.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify TLS",
+        description="Always on in practice — the cluster CA from the access file is used. Disable only for a dev cluster whose CA is missing from the file.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
+    )
+    discover_crds: bool = Field(
+        True,
+        title="Discover custom resources",
+        description="Expose populated CustomResourceDefinitions as crd::<group>/<Kind> tables.",
+        json_schema_extra={"ui:type": "boolean", "ui:hidden": True},
+    )
+    max_crd_tables: int = Field(
+        40, ge=0, le=500,
+        title="Max CRD tables",
+        description="Cap on discovered custom-resource tables; the rest stay queryable by name.",
+        json_schema_extra={"ui:type": "number", "ui:hidden": True},
+    )
+    log_tail_default: int = Field(
+        500, ge=1, le=100000,
+        title="Default log lines",
+        description="tail_lines when a logs query omits it.",
+        json_schema_extra={"ui:type": "number", "ui:hidden": True},
+    )
+    log_tail_max: int = Field(
+        5000, ge=1, le=100000,
+        title="Max log lines",
+        description="Hard cap on log lines per pod per query.",
+        json_schema_extra={"ui:type": "number", "ui:hidden": True},
+    )
+    max_log_pods: int = Field(
+        10, ge=1, le=100,
+        title="Max pods per logs query",
+        description="Fan-out cap when logs are queried by label selector.",
+        json_schema_extra={"ui:type": "number", "ui:hidden": True},
+    )
+    request_timeout: int = Field(
+        60, ge=1, le=600,
+        title="Request timeout (s)",
+        description="Seconds per API call.",
+        json_schema_extra={"ui:type": "number", "ui:hidden": True},
+    )
+
+
 class ZabbixConfig(BaseModel):
     url: str = Field(
         ...,

@@ -1,0 +1,193 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"annotations\":{},\"name\":\"bagofwords\"}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "labels": {
+     "kubernetes.io/metadata.name": "bagofwords"
+    },
+    "name": "bagofwords",
+    "resourceVersion": "566",
+    "uid": "e3d15be6-b84b-438f-a874-a0a6ab176bc6"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:11Z",
+    "labels": {
+     "kubernetes.io/metadata.name": "default"
+    },
+    "name": "default",
+    "resourceVersion": "21",
+    "uid": "78498ca9-4cfb-4377-9074-ada7a316a994"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"annotations\":{},\"labels\":{\"env\":\"staging\",\"team\":\"supply-chain\"},\"name\":\"inventory\"}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "labels": {
+     "env": "staging",
+     "kubernetes.io/metadata.name": "inventory",
+     "team": "supply-chain"
+    },
+    "name": "inventory",
+    "resourceVersion": "579",
+    "uid": "4ea8d360-7693-44c4-861b-9b50d3340802"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:11Z",
+    "labels": {
+     "kubernetes.io/metadata.name": "kube-node-lease"
+    },
+    "name": "kube-node-lease",
+    "resourceVersion": "28",
+    "uid": "bcc62b50-dacc-43b5-82be-07e0d16a2915"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:11Z",
+    "labels": {
+     "kubernetes.io/metadata.name": "kube-public"
+    },
+    "name": "kube-public",
+    "resourceVersion": "15",
+    "uid": "9216a392-96bd-457d-9836-91f32a2684b3"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:11Z",
+    "labels": {
+     "kubernetes.io/metadata.name": "kube-system"
+    },
+    "name": "kube-system",
+    "resourceVersion": "4",
+    "uid": "39de8d08-0a07-4ecd-9f6b-89d11dd3a459"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"annotations\":{},\"name\":\"local-path-storage\"}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:15Z",
+    "labels": {
+     "kubernetes.io/metadata.name": "local-path-storage"
+    },
+    "name": "local-path-storage",
+    "resourceVersion": "275",
+    "uid": "20a43dec-17d7-4f7c-8129-4fd42c953151"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  },
+  {
+   "apiVersion": "v1",
+   "kind": "Namespace",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"v1\",\"kind\":\"Namespace\",\"metadata\":{\"annotations\":{},\"labels\":{\"env\":\"staging\",\"team\":\"payments\"},\"name\":\"payments\"}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "labels": {
+     "env": "staging",
+     "kubernetes.io/metadata.name": "payments",
+     "team": "payments"
+    },
+    "name": "payments",
+    "resourceVersion": "576",
+    "uid": "9389510e-fd56-4356-b100-26951764eadd"
+   },
+   "spec": {
+    "finalizers": [
+     "kubernetes"
+    ]
+   },
+   "status": {
+    "phase": "Active"
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

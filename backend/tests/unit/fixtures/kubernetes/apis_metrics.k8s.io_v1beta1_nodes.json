@@ -1,0 +1,53 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "metrics.k8s.io/v1beta1",
+   "kind": "NodeMetrics",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:19:13Z",
+    "labels": {
+     "beta.kubernetes.io/arch": "arm64",
+     "beta.kubernetes.io/os": "linux",
+     "kubernetes.io/arch": "arm64",
+     "kubernetes.io/hostname": "bow-k8s-control-plane",
+     "kubernetes.io/os": "linux",
+     "node-role.kubernetes.io/control-plane": "",
+     "node.kubernetes.io/exclude-from-external-load-balancers": ""
+    },
+    "name": "bow-k8s-control-plane"
+   },
+   "timestamp": "2026-09-06T16:18:53Z",
+   "usage": {
+    "cpu": "101001298n",
+    "memory": "680552Ki"
+   },
+   "window": "10.011s"
+  },
+  {
+   "apiVersion": "metrics.k8s.io/v1beta1",
+   "kind": "NodeMetrics",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:19:13Z",
+    "labels": {
+     "beta.kubernetes.io/arch": "arm64",
+     "beta.kubernetes.io/os": "linux",
+     "kubernetes.io/arch": "arm64",
+     "kubernetes.io/hostname": "bow-k8s-worker",
+     "kubernetes.io/os": "linux"
+    },
+    "name": "bow-k8s-worker"
+   },
+   "timestamp": "2026-09-06T16:18:55Z",
+   "usage": {
+    "cpu": "25501298n",
+    "memory": "243260Ki"
+   },
+   "window": "10.012s"
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

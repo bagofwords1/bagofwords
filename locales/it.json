@@ -3033,7 +3033,27 @@
     "unitHours": "ore",
     "unitMinutes": "minuti",
     "catPopular": "Popolari",
-    "catCustom": "Personalizzato"
+    "catCustom": "Personalizzato",
+    "setupGuideTitle": "Passaggi di configurazione",
+    "setupGuideCopy": "Copia",
+    "setupGuideCopied": "Copiato",
+    "setupGuides": {
+      "kubernetes": [
+        {
+          "title": "Concedi l'accesso in lettura sul cluster",
+          "body": "Controlla il manifest, poi eseguilo con i permessi cluster-admin. Crea il namespace bagofwords, un service account, un ruolo di sola lettura a livello di cluster, il relativo binding e un token a lunga durata."
+        },
+        {
+          "title": "Stampa il file di accesso",
+          "body": "Salvalo come print_access_file.sh ed eseguilo. Attende il token e poi stampa un unico file autonomo (URL del server API, CA del cluster, token). Verificalo con: kubectl --kubeconfig access.yaml get nodes. Se l'URL del server è privato della tua rete, modificalo con l'indirizzo che questa istanza di Bag of Words può raggiungere."
+        },
+        {
+          "title": "Incollalo qui sotto e testa la connessione",
+          "body": "Incolla tutto l'output nel campo File di accesso al cluster, poi fai clic su Testa connessione."
+        }
+      ]
+    },
+    "setupGuideCopyFailed": "Copia non riuscita — seleziona il testo"
   },
   "share": {
     "shareDashboard": "Condividi dashboard",

@@ -1,0 +1,5545 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:13Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:13Z",
+   "message": "Starting kubelet.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "name": "bow-k8s-control-plane.18d2c73e9a1a9886",
+    "namespace": "default",
+    "resourceVersion": "228",
+    "uid": "73a34022-b124-4c57-89b6-73dc8d1fe0e4"
+   },
+   "reason": "Starting",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:13Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:13Z",
+   "message": "Updated Node Allocatable limit across pods",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "name": "bow-k8s-control-plane.18d2c73e9c1dac17",
+    "namespace": "default",
+    "resourceVersion": "231",
+    "uid": "3ea94fa1-6453-4837-95e9-fccae5d15d3a"
+   },
+   "reason": "NodeAllocatableEnforced",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:13Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:13Z",
+   "message": "Node bow-k8s-control-plane status is now: NodeHasSufficientMemory",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "name": "bow-k8s-control-plane.18d2c73ea219dd9c",
+    "namespace": "default",
+    "resourceVersion": "236",
+    "uid": "60a806b7-0897-4571-b925-3bf312ced213"
+   },
+   "reason": "NodeHasSufficientMemory",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:13Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:13Z",
+   "message": "Node bow-k8s-control-plane status is now: NodeHasNoDiskPressure",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "name": "bow-k8s-control-plane.18d2c73ea21a64c0",
+    "namespace": "default",
+    "resourceVersion": "237",
+    "uid": "e6b5f143-5f5d-4c91-b7ff-a0f7872363c6"
+   },
+   "reason": "NodeHasNoDiskPressure",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:13Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:13Z",
+   "message": "Node bow-k8s-control-plane status is now: NodeHasSufficientPID",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "name": "bow-k8s-control-plane.18d2c73ea21a7753",
+    "namespace": "default",
+    "resourceVersion": "238",
+    "uid": "36caf61d-a97e-47b8-9bf6-f6e4c40cc522"
+   },
+   "reason": "NodeHasSufficientPID",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:20Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane",
+    "uid": "d2f2d7a6-7121-4a4f-8925-8f0260631e48"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:20Z",
+   "message": "Node bow-k8s-control-plane event: Registered Node bow-k8s-control-plane in Controller",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:20Z",
+    "name": "bow-k8s-control-plane.18d2c74014219c67",
+    "namespace": "default",
+    "resourceVersion": "325",
+    "uid": "0bc08479-be87-4f56-ae6a-493abe442351"
+   },
+   "reason": "RegisteredNode",
+   "reportingComponent": "node-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "node-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "action": "StartKubeProxy",
+   "apiVersion": "v1",
+   "eventTime": "2026-09-06T16:11:22.054198Z",
+   "firstTimestamp": null,
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": null,
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:22Z",
+    "name": "bow-k8s-control-plane.18d2c7408ba526d4",
+    "namespace": "default",
+    "resourceVersion": "406",
+    "uid": "56f3fedd-013a-4de4-9200-de2e10109f00"
+   },
+   "reason": "Starting",
+   "reportingComponent": "kube-proxy",
+   "reportingInstance": "kube-proxy-bow-k8s-control-plane",
+   "source": {},
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-control-plane"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Node bow-k8s-control-plane status is now: NodeReady",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "bow-k8s-control-plane.18d2c742e95d3204",
+    "namespace": "default",
+    "resourceVersion": "475",
+    "uid": "8ca0009e-5aab-4028-b029-7dc4ecf0e569"
+   },
+   "reason": "NodeReady",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 3,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Node bow-k8s-worker status is now: NodeHasSufficientMemory",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "bow-k8s-worker.18d2c741676d6af6",
+    "namespace": "default",
+    "resourceVersion": "428",
+    "uid": "1bfef352-c578-451b-ae7a-53160cfce903"
+   },
+   "reason": "NodeHasSufficientMemory",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 3,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Node bow-k8s-worker status is now: NodeHasNoDiskPressure",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "bow-k8s-worker.18d2c741676d7c95",
+    "namespace": "default",
+    "resourceVersion": "430",
+    "uid": "6854f516-93ca-4123-a25f-2614fe514c90"
+   },
+   "reason": "NodeHasNoDiskPressure",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 3,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Node bow-k8s-worker status is now: NodeHasSufficientPID",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "bow-k8s-worker.18d2c741676d8346",
+    "namespace": "default",
+    "resourceVersion": "438",
+    "uid": "09c77ebf-123b-4d6e-b65b-d7faf52c576a"
+   },
+   "reason": "NodeHasSufficientPID",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Updated Node Allocatable limit across pods",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "bow-k8s-worker.18d2c7416cccb363",
+    "namespace": "default",
+    "resourceVersion": "426",
+    "uid": "baa01190-ad4f-465a-9dfd-29dcb1b946ab"
+   },
+   "reason": "NodeAllocatableEnforced",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "action": "StartKubeProxy",
+   "apiVersion": "v1",
+   "eventTime": "2026-09-06T16:11:28.551185Z",
+   "firstTimestamp": null,
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker"
+   },
+   "kind": "Event",
+   "lastTimestamp": null,
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "bow-k8s-worker.18d2c7420ee54dc0",
+    "namespace": "default",
+    "resourceVersion": "463",
+    "uid": "1a8ca7da-e0e2-42ad-ada9-11ee49e278d0"
+   },
+   "reason": "Starting",
+   "reportingComponent": "kube-proxy",
+   "reportingInstance": "kube-proxy-bow-k8s-worker",
+   "source": {},
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:29Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker",
+    "uid": "c98cbdc5-6777-43f1-bf9f-a497531145c2"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:29Z",
+   "message": "Node bow-k8s-worker event: Registered Node bow-k8s-worker in Controller",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:29Z",
+    "name": "bow-k8s-worker.18d2c7426189644f",
+    "namespace": "default",
+    "resourceVersion": "471",
+    "uid": "157609ec-c805-422f-a882-8eb9005fc134"
+   },
+   "reason": "RegisteredNode",
+   "reportingComponent": "node-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "node-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Node",
+    "name": "bow-k8s-worker"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Node bow-k8s-worker status is now: NodeReady",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "bow-k8s-worker.18d2c74474e869e2",
+    "namespace": "default",
+    "resourceVersion": "687",
+    "uid": "cb83d873-3fdc-4095-b5e8-a32ee993da26"
+   },
+   "reason": "NodeReady",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:35Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "catalog-api-6498598784-d98f2",
+    "namespace": "inventory",
+    "resourceVersion": "664",
+    "uid": "1be24cee-6636-47a4-a2d9-1b2a3e1d15f1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:35Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "name": "catalog-api-6498598784-d98f2.18d2c74390946e7d",
+    "namespace": "inventory",
+    "resourceVersion": "668",
+    "uid": "5ad85e80-5903-46b1-916f-ffc1bcef3bb6"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "catalog-api-6498598784-d98f2",
+    "namespace": "inventory",
+    "resourceVersion": "671",
+    "uid": "1be24cee-6636-47a4-a2d9-1b2a3e1d15f1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned inventory/catalog-api-6498598784-d98f2 to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "catalog-api-6498598784-d98f2.18d2c74476d21700",
+    "namespace": "inventory",
+    "resourceVersion": "709",
+    "uid": "b66ea0c8-2880-4a32-8a45-204126b5b773"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{api}",
+    "kind": "Pod",
+    "name": "catalog-api-6498598784-d98f2",
+    "namespace": "inventory",
+    "resourceVersion": "699",
+    "uid": "1be24cee-6636-47a4-a2d9-1b2a3e1d15f1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"nginx:1.27-alpine\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "catalog-api-6498598784-d98f2.18d2c7449ab47b37",
+    "namespace": "inventory",
+    "resourceVersion": "727",
+    "uid": "3b74fc87-cb42-4cf3-9199-0298b8afc02b"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:54Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{api}",
+    "kind": "Pod",
+    "name": "catalog-api-6498598784-d98f2",
+    "namespace": "inventory",
+    "resourceVersion": "699",
+    "uid": "1be24cee-6636-47a4-a2d9-1b2a3e1d15f1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:54Z",
+   "message": "Successfully pulled image \"nginx:1.27-alpine\" in 930ms (15.1s including waiting). Image size: 21832241 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:54Z",
+    "name": "catalog-api-6498598784-d98f2.18d2c7481818f3a1",
+    "namespace": "inventory",
+    "resourceVersion": "813",
+    "uid": "63f9ea99-ec7c-45d3-8073-b899e9e05b91"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:54Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{api}",
+    "kind": "Pod",
+    "name": "catalog-api-6498598784-d98f2",
+    "namespace": "inventory",
+    "resourceVersion": "699",
+    "uid": "1be24cee-6636-47a4-a2d9-1b2a3e1d15f1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:54Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:54Z",
+    "name": "catalog-api-6498598784-d98f2.18d2c74818c1176d",
+    "namespace": "inventory",
+    "resourceVersion": "814",
+    "uid": "a22b731a-d58d-49ba-9783-3dcd829c5da2"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:54Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{api}",
+    "kind": "Pod",
+    "name": "catalog-api-6498598784-d98f2",
+    "namespace": "inventory",
+    "resourceVersion": "699",
+    "uid": "1be24cee-6636-47a4-a2d9-1b2a3e1d15f1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:54Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:54Z",
+    "name": "catalog-api-6498598784-d98f2.18d2c7481e71fcf1",
+    "namespace": "inventory",
+    "resourceVersion": "815",
+    "uid": "bd93e7fc-ebaa-4a30-8e16-8beddec6ad06"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "catalog-api-6498598784",
+    "namespace": "inventory",
+    "resourceVersion": "658",
+    "uid": "4d8a2e72-1716-4a98-9022-63fcf4bcbac1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:35Z",
+   "message": "Created pod: catalog-api-6498598784-d98f2",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "name": "catalog-api-6498598784.18d2c7439094c3c3",
+    "namespace": "inventory",
+    "resourceVersion": "669",
+    "uid": "66ca7c26-ef6f-4fdd-841b-5cf41b27ee10"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "catalog-api",
+    "namespace": "inventory",
+    "resourceVersion": "656",
+    "uid": "2e80df17-00c6-4763-845c-7c485877f0b1"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:35Z",
+   "message": "Scaled up replica set catalog-api-6498598784 from 0 to 1",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "name": "catalog-api.18d2c7439022ae1f",
+    "namespace": "inventory",
+    "resourceVersion": "660",
+    "uid": "cb53b9d3-412f-4dad-b6dd-95a88ebdd4f4"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1732",
+    "uid": "31281a65-24e2-4a03-a4b1-63b674061ae0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:28Z",
+   "message": "Successfully assigned inventory/catalog-db-0 to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:28Z",
+    "name": "catalog-db-0.18d2c7a3bc42ce23",
+    "namespace": "inventory",
+    "resourceVersion": "1762",
+    "uid": "32a4ac92-94c7-4733-a33f-e36ed3a37d6a"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{db}",
+    "kind": "Pod",
+    "name": "catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1761",
+    "uid": "31281a65-24e2-4a03-a4b1-63b674061ae0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:28Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:28Z",
+    "name": "catalog-db-0.18d2c7a3d11f700d",
+    "namespace": "inventory",
+    "resourceVersion": "1764",
+    "uid": "688e098e-e028-49dc-a285-92f1af5c6640"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{db}",
+    "kind": "Pod",
+    "name": "catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1761",
+    "uid": "31281a65-24e2-4a03-a4b1-63b674061ae0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:28Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:28Z",
+    "name": "catalog-db-0.18d2c7a3d17e02b3",
+    "namespace": "inventory",
+    "resourceVersion": "1766",
+    "uid": "9c70a327-e6a6-4f17-8383-dde9d4c2dd4b"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{db}",
+    "kind": "Pod",
+    "name": "catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1761",
+    "uid": "31281a65-24e2-4a03-a4b1-63b674061ae0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:28Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:28Z",
+    "name": "catalog-db-0.18d2c7a3d34d5c1b",
+    "namespace": "inventory",
+    "resourceVersion": "1767",
+    "uid": "120d2b48-ce8f-4b29-848d-52df149bc10d"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "name": "catalog-db",
+    "namespace": "inventory",
+    "resourceVersion": "646",
+    "uid": "0e630c22-1d1c-4012-b4ec-c43f8e87eb8a"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:35Z",
+   "message": "Create Claim data-catalog-db-0 Pod catalog-db-0 in StatefulSet catalog-db success",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "name": "catalog-db.18d2c7438f67a38b",
+    "namespace": "inventory",
+    "resourceVersion": "653",
+    "uid": "fb62257a-0754-4542-9c4f-0741b0585440"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "statefulset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "statefulset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 17,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:35Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "name": "catalog-db",
+    "namespace": "inventory",
+    "resourceVersion": "646",
+    "uid": "0e630c22-1d1c-4012-b4ec-c43f8e87eb8a"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:01Z",
+   "message": "Create Pod catalog-db-0 in StatefulSet catalog-db failed error: pods \"catalog-db-0\" is forbidden: failed quota: inventory-quota: must specify requests.cpu for: db; requests.memory for: db",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "name": "catalog-db.18d2c7438f7a867e",
+    "namespace": "inventory",
+    "resourceVersion": "1545",
+    "uid": "5866c64b-e198-4764-b2bf-d48522d2dbf3"
+   },
+   "reason": "FailedCreate",
+   "reportingComponent": "statefulset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "statefulset-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:25Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "StatefulSet",
+    "name": "catalog-db",
+    "namespace": "inventory",
+    "resourceVersion": "1729",
+    "uid": "0e630c22-1d1c-4012-b4ec-c43f8e87eb8a"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:25Z",
+   "message": "Create Pod catalog-db-0 in StatefulSet catalog-db successful",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:25Z",
+    "name": "catalog-db.18d2c7a308e2f540",
+    "namespace": "inventory",
+    "resourceVersion": "1734",
+    "uid": "08823371-df04-4427-a744-cd8c4f8f50a5"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "statefulset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "statefulset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 26,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:35Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "name": "data-catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "650",
+    "uid": "633204eb-a853-45dc-9006-fd86753f4393"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:49Z",
+   "message": "waiting for first consumer to be created before binding",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "name": "data-catalog-db-0.18d2c7438f692b52",
+    "namespace": "inventory",
+    "resourceVersion": "1644",
+    "uid": "2bbf965f-d649-4dfd-bf89-523b93eb1477"
+   },
+   "reason": "WaitForFirstConsumer",
+   "reportingComponent": "persistentvolume-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "persistentvolume-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "name": "data-catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1738",
+    "uid": "633204eb-a853-45dc-9006-fd86753f4393"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:25Z",
+   "message": "External provisioner is provisioning volume for claim \"inventory/data-catalog-db-0\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:25Z",
+    "name": "data-catalog-db-0.18d2c7a30940402d",
+    "namespace": "inventory",
+    "resourceVersion": "1739",
+    "uid": "453ab2fa-9210-430b-a605-2358ce7a899e"
+   },
+   "reason": "Provisioning",
+   "reportingComponent": "rancher.io/local-path_local-path-provisioner-855c7b7774-tlsng_403c9063-f7b2-4acf-be45-bd608b21f05d",
+   "reportingInstance": "",
+   "source": {
+    "component": "rancher.io/local-path_local-path-provisioner-855c7b7774-tlsng_403c9063-f7b2-4acf-be45-bd608b21f05d"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:27Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "name": "data-catalog-db-0",
+    "namespace": "inventory",
+    "resourceVersion": "1738",
+    "uid": "633204eb-a853-45dc-9006-fd86753f4393"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:27Z",
+   "message": "Successfully provisioned volume pvc-633204eb-a853-45dc-9006-fd86753f4393",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:27Z",
+    "name": "data-catalog-db-0.18d2c7a3859eb91e",
+    "namespace": "inventory",
+    "resourceVersion": "1755",
+    "uid": "ffe1c844-1afd-4a23-8aad-cbe76dda1874"
+   },
+   "reason": "ProvisioningSucceeded",
+   "reportingComponent": "rancher.io/local-path_local-path-provisioner-855c7b7774-tlsng_403c9063-f7b2-4acf-be45-bd608b21f05d",
+   "reportingInstance": "",
+   "source": {
+    "component": "rancher.io/local-path_local-path-provisioner-855c7b7774-tlsng_403c9063-f7b2-4acf-be45-bd608b21f05d"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-nrsc6",
+    "namespace": "kube-system",
+    "resourceVersion": "381",
+    "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "coredns-589f44dc88-nrsc6.18d2c74062791318",
+    "namespace": "kube-system",
+    "resourceVersion": "388",
+    "uid": "035da582-009e-43a5-9e12-7628f87ac292"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-nrsc6",
+    "namespace": "kube-system",
+    "resourceVersion": "389",
+    "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Successfully assigned kube-system/coredns-589f44dc88-nrsc6 to bow-k8s-control-plane",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "coredns-589f44dc88-nrsc6.18d2c742ea4e1a97",
+    "namespace": "kube-system",
+    "resourceVersion": "482",
+    "uid": "1f8a7686-f9a7-4c69-a3e3-dca527cafbce"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-nrsc6",
+    "namespace": "kube-system",
+    "resourceVersion": "479",
+    "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Container image \"registry.k8s.io/coredns/coredns:v1.14.2\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "coredns-589f44dc88-nrsc6.18d2c74303d7a274",
+    "namespace": "kube-system",
+    "resourceVersion": "490",
+    "uid": "e493080c-edc2-4f90-98c9-a03d14518f86"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-nrsc6",
+    "namespace": "kube-system",
+    "resourceVersion": "479",
+    "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "coredns-589f44dc88-nrsc6.18d2c743198fa74a",
+    "namespace": "kube-system",
+    "resourceVersion": "498",
+    "uid": "ad6e05cc-24c9-4dcd-9eb0-892cd0e793a9"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-nrsc6",
+    "namespace": "kube-system",
+    "resourceVersion": "479",
+    "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "coredns-589f44dc88-nrsc6.18d2c7431d1a27e9",
+    "namespace": "kube-system",
+    "resourceVersion": "504",
+    "uid": "c48c2239-71b4-42cc-9eaa-c4ac7c9c429a"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-nrsc6",
+    "namespace": "kube-system",
+    "resourceVersion": "479",
+    "uid": "248a554e-22a6-44cd-a304-1d45ef9317a7"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Readiness probe failed: Get \"http://10.244.0.3:8181/ready\": dial tcp 10.244.0.3:8181: connect: connection refused",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "coredns-589f44dc88-nrsc6.18d2c7431d35e2b2",
+    "namespace": "kube-system",
+    "resourceVersion": "506",
+    "uid": "bbfcbda8-ac38-459c-9826-53e76d9a0214"
+   },
+   "reason": "Unhealthy",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-wz2tq",
+    "namespace": "kube-system",
+    "resourceVersion": "377",
+    "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "coredns-589f44dc88-wz2tq.18d2c74062110db0",
+    "namespace": "kube-system",
+    "resourceVersion": "379",
+    "uid": "e4c25f16-4bf1-4588-94e8-563cf7ee8912"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-wz2tq",
+    "namespace": "kube-system",
+    "resourceVersion": "383",
+    "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Successfully assigned kube-system/coredns-589f44dc88-wz2tq to bow-k8s-control-plane",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "coredns-589f44dc88-wz2tq.18d2c742ea3cc64b",
+    "namespace": "kube-system",
+    "resourceVersion": "481",
+    "uid": "0450cf8a-a8cb-41da-9e45-4f8d060b397f"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-wz2tq",
+    "namespace": "kube-system",
+    "resourceVersion": "478",
+    "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Container image \"registry.k8s.io/coredns/coredns:v1.14.2\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "coredns-589f44dc88-wz2tq.18d2c74303a109a0",
+    "namespace": "kube-system",
+    "resourceVersion": "487",
+    "uid": "d99f0182-5e08-4014-978d-33cbf4a486f0"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-wz2tq",
+    "namespace": "kube-system",
+    "resourceVersion": "478",
+    "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "coredns-589f44dc88-wz2tq.18d2c743192529c9",
+    "namespace": "kube-system",
+    "resourceVersion": "497",
+    "uid": "761a6e09-8768-4d84-a99f-b4a2117ae81a"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-wz2tq",
+    "namespace": "kube-system",
+    "resourceVersion": "478",
+    "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "coredns-589f44dc88-wz2tq.18d2c7431d179980",
+    "namespace": "kube-system",
+    "resourceVersion": "503",
+    "uid": "dcad29ad-0d8a-4f8d-812c-6b8c6933909a"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{coredns}",
+    "kind": "Pod",
+    "name": "coredns-589f44dc88-wz2tq",
+    "namespace": "kube-system",
+    "resourceVersion": "478",
+    "uid": "d597f8f0-df1a-4f83-aee1-2e708e37318d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Readiness probe failed: Get \"http://10.244.0.2:8181/ready\": dial tcp 10.244.0.2:8181: connect: connection refused",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "coredns-589f44dc88-wz2tq.18d2c7431d5e9269",
+    "namespace": "kube-system",
+    "resourceVersion": "509",
+    "uid": "1bec1b78-60b5-47f0-9b57-347785ddbb6e"
+   },
+   "reason": "Unhealthy",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "coredns-589f44dc88",
+    "namespace": "kube-system",
+    "resourceVersion": "349",
+    "uid": "76553378-3d8f-4eb2-8f09-7a9147294993"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Created pod: coredns-589f44dc88-wz2tq",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "coredns-589f44dc88.18d2c740620efd7d",
+    "namespace": "kube-system",
+    "resourceVersion": "380",
+    "uid": "3d95d877-2297-44b3-99dc-5e1ba071ef0b"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "coredns-589f44dc88",
+    "namespace": "kube-system",
+    "resourceVersion": "349",
+    "uid": "76553378-3d8f-4eb2-8f09-7a9147294993"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Created pod: coredns-589f44dc88-nrsc6",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "coredns-589f44dc88.18d2c74062530c3d",
+    "namespace": "kube-system",
+    "resourceVersion": "387",
+    "uid": "6558b892-0097-46ba-ba0f-f09937e0a569"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "coredns",
+    "namespace": "kube-system",
+    "resourceVersion": "242",
+    "uid": "181f8bdb-d29b-4858-a705-2328f0927eb2"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Scaled up replica set coredns-589f44dc88 from 0 to 2",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "coredns.18d2c74052dd1a0b",
+    "namespace": "kube-system",
+    "resourceVersion": "353",
+    "uid": "feb0c0d3-8f44-4fb0-8437-d07b5c1a871f"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "kindnet-rnns9",
+    "namespace": "kube-system",
+    "resourceVersion": "432",
+    "uid": "156a50db-ab63-447b-8876-a6a0a5285acb"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Successfully assigned kube-system/kindnet-rnns9 to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "kindnet-rnns9.18d2c74172ff33f4",
+    "namespace": "kube-system",
+    "resourceVersion": "442",
+    "uid": "0c4d0838-e46c-473a-8923-711e3b787364"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kindnet-cni}",
+    "kind": "Pod",
+    "name": "kindnet-rnns9",
+    "namespace": "kube-system",
+    "resourceVersion": "439",
+    "uid": "156a50db-ab63-447b-8876-a6a0a5285acb"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:28Z",
+   "message": "Container image \"docker.io/kindest/kindnetd:v20260528-9350166c\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "kindnet-rnns9.18d2c741f65208a8",
+    "namespace": "kube-system",
+    "resourceVersion": "456",
+    "uid": "b52687de-23d6-49e7-8121-ae467b729811"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kindnet-cni}",
+    "kind": "Pod",
+    "name": "kindnet-rnns9",
+    "namespace": "kube-system",
+    "resourceVersion": "439",
+    "uid": "156a50db-ab63-447b-8876-a6a0a5285acb"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:28Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "kindnet-rnns9.18d2c7420ae16144",
+    "namespace": "kube-system",
+    "resourceVersion": "462",
+    "uid": "ed8d2fdf-1418-4855-92e2-b41f9f1af601"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kindnet-cni}",
+    "kind": "Pod",
+    "name": "kindnet-rnns9",
+    "namespace": "kube-system",
+    "resourceVersion": "439",
+    "uid": "156a50db-ab63-447b-8876-a6a0a5285acb"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:28Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "kindnet-rnns9.18d2c742138cab38",
+    "namespace": "kube-system",
+    "resourceVersion": "464",
+    "uid": "083aa376-4554-41d2-a128-9d4edd85fb73"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "kindnet-sllh4",
+    "namespace": "kube-system",
+    "resourceVersion": "364",
+    "uid": "674601e8-615b-46f3-9dc1-c75233f2e2a8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Successfully assigned kube-system/kindnet-sllh4 to bow-k8s-control-plane",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kindnet-sllh4.18d2c7405c1fd136",
+    "namespace": "kube-system",
+    "resourceVersion": "373",
+    "uid": "152c0206-2512-44b0-8002-c628ec537d1d"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kindnet-cni}",
+    "kind": "Pod",
+    "name": "kindnet-sllh4",
+    "namespace": "kube-system",
+    "resourceVersion": "370",
+    "uid": "674601e8-615b-46f3-9dc1-c75233f2e2a8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Container image \"docker.io/kindest/kindnetd:v20260528-9350166c\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kindnet-sllh4.18d2c74077415a0d",
+    "namespace": "kube-system",
+    "resourceVersion": "397",
+    "uid": "b883b9c8-ea52-400f-855a-f348c30c71e0"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kindnet-cni}",
+    "kind": "Pod",
+    "name": "kindnet-sllh4",
+    "namespace": "kube-system",
+    "resourceVersion": "370",
+    "uid": "674601e8-615b-46f3-9dc1-c75233f2e2a8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kindnet-sllh4.18d2c7408668df44",
+    "namespace": "kube-system",
+    "resourceVersion": "405",
+    "uid": "aecf12cc-a3fa-41f5-a0bf-0fbf5defad02"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:22Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kindnet-cni}",
+    "kind": "Pod",
+    "name": "kindnet-sllh4",
+    "namespace": "kube-system",
+    "resourceVersion": "370",
+    "uid": "674601e8-615b-46f3-9dc1-c75233f2e2a8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:22Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:22Z",
+    "name": "kindnet-sllh4.18d2c7408ec956d0",
+    "namespace": "kube-system",
+    "resourceVersion": "407",
+    "uid": "7b5dc5ac-cb52-4eac-a783-79c2c3512bd6"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "name": "kindnet",
+    "namespace": "kube-system",
+    "resourceVersion": "260",
+    "uid": "96a6eb9d-f1e3-49d6-b3e5-c0e66b6ee692"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Created pod: kindnet-sllh4",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kindnet.18d2c7405bbfa655",
+    "namespace": "kube-system",
+    "resourceVersion": "366",
+    "uid": "0fcfc9b1-7f57-45bf-b357-aeb42a34468d"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "daemonset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "daemonset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "name": "kindnet",
+    "namespace": "kube-system",
+    "resourceVersion": "409",
+    "uid": "96a6eb9d-f1e3-49d6-b3e5-c0e66b6ee692"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Created pod: kindnet-rnns9",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "kindnet.18d2c7417296e87a",
+    "namespace": "kube-system",
+    "resourceVersion": "441",
+    "uid": "1ba365b0-42f7-40d0-b334-5c0c5f7bf23d"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "daemonset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "daemonset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:20Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "kube-controller-manager-bow-k8s-control-plane",
+    "namespace": "kube-system",
+    "resourceVersion": "253",
+    "uid": "e8be9b97-9578-4ed0-8cb0-49963c283a17"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:20Z",
+   "message": "Node is not ready",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:20Z",
+    "name": "kube-controller-manager-bow-k8s-control-plane.18d2c740149c1532",
+    "namespace": "kube-system",
+    "resourceVersion": "328",
+    "uid": "9f0a2110-fa3e-41e8-be7c-93201ed37754"
+   },
+   "reason": "NodeNotReady",
+   "reportingComponent": "node-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "node-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:15Z",
+   "involvedObject": {
+    "apiVersion": "coordination.k8s.io/v1",
+    "kind": "Lease",
+    "name": "kube-controller-manager",
+    "namespace": "kube-system",
+    "resourceVersion": "261",
+    "uid": "c34eec67-265e-4df0-b2ab-b40689b860a3"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:15Z",
+   "message": "bow-k8s-control-plane_c62e026e-0704-4140-9f92-d7572c576920 became leader",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:15Z",
+    "name": "kube-controller-manager.18d2c73ee9bda27e",
+    "namespace": "kube-system",
+    "resourceVersion": "262",
+    "uid": "ed00eff5-7551-4df9-8056-3a38b4bd1767"
+   },
+   "reason": "LeaderElection",
+   "reportingComponent": "kube-controller-manager",
+   "reportingInstance": "",
+   "source": {
+    "component": "kube-controller-manager"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "kube-proxy-fh8n5",
+    "namespace": "kube-system",
+    "resourceVersion": "431",
+    "uid": "8e1531fa-6f3c-4b75-8292-492eb58c54fc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Successfully assigned kube-system/kube-proxy-fh8n5 to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "kube-proxy-fh8n5.18d2c74172f08cad",
+    "namespace": "kube-system",
+    "resourceVersion": "440",
+    "uid": "68e0fb21-fbe8-4e63-987c-45d3ab3b81d6"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-proxy}",
+    "kind": "Pod",
+    "name": "kube-proxy-fh8n5",
+    "namespace": "kube-system",
+    "resourceVersion": "434",
+    "uid": "8e1531fa-6f3c-4b75-8292-492eb58c54fc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:28Z",
+   "message": "Container image \"registry.k8s.io/kube-proxy:v1.36.1\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "kube-proxy-fh8n5.18d2c741f50c1ac4",
+    "namespace": "kube-system",
+    "resourceVersion": "454",
+    "uid": "a426f4c6-ba5e-4df5-8f68-29b9644c7fd8"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-proxy}",
+    "kind": "Pod",
+    "name": "kube-proxy-fh8n5",
+    "namespace": "kube-system",
+    "resourceVersion": "434",
+    "uid": "8e1531fa-6f3c-4b75-8292-492eb58c54fc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:28Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "kube-proxy-fh8n5.18d2c741fdf138b8",
+    "namespace": "kube-system",
+    "resourceVersion": "458",
+    "uid": "00f4b949-4f3d-44f5-bb58-eb8a9f5a6863"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:28Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-proxy}",
+    "kind": "Pod",
+    "name": "kube-proxy-fh8n5",
+    "namespace": "kube-system",
+    "resourceVersion": "434",
+    "uid": "8e1531fa-6f3c-4b75-8292-492eb58c54fc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:28Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:28Z",
+    "name": "kube-proxy-fh8n5.18d2c742024625b1",
+    "namespace": "kube-system",
+    "resourceVersion": "459",
+    "uid": "04cc11f3-b9e9-4458-a3a7-e590062bd4f7"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "kube-proxy-zqxqm",
+    "namespace": "kube-system",
+    "resourceVersion": "365",
+    "uid": "c8b2b854-8da1-455a-a9bb-b0e5760278cc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Successfully assigned kube-system/kube-proxy-zqxqm to bow-k8s-control-plane",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kube-proxy-zqxqm.18d2c7405c2113b8",
+    "namespace": "kube-system",
+    "resourceVersion": "374",
+    "uid": "80625b1d-e9dc-42bd-8d09-03721367cf99"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-proxy}",
+    "kind": "Pod",
+    "name": "kube-proxy-zqxqm",
+    "namespace": "kube-system",
+    "resourceVersion": "369",
+    "uid": "c8b2b854-8da1-455a-a9bb-b0e5760278cc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Container image \"registry.k8s.io/kube-proxy:v1.36.1\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kube-proxy-zqxqm.18d2c74073c6a389",
+    "namespace": "kube-system",
+    "resourceVersion": "395",
+    "uid": "bb8388cb-ce9e-470c-8bf3-8ab140d640cd"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-proxy}",
+    "kind": "Pod",
+    "name": "kube-proxy-zqxqm",
+    "namespace": "kube-system",
+    "resourceVersion": "369",
+    "uid": "c8b2b854-8da1-455a-a9bb-b0e5760278cc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kube-proxy-zqxqm.18d2c7407b7317f5",
+    "namespace": "kube-system",
+    "resourceVersion": "399",
+    "uid": "c093262f-39ea-45cc-b01f-61840a62f1ce"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-proxy}",
+    "kind": "Pod",
+    "name": "kube-proxy-zqxqm",
+    "namespace": "kube-system",
+    "resourceVersion": "369",
+    "uid": "c8b2b854-8da1-455a-a9bb-b0e5760278cc"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kube-proxy-zqxqm.18d2c7407f969306",
+    "namespace": "kube-system",
+    "resourceVersion": "400",
+    "uid": "8728eff0-ffd1-4e15-9132-118b016d27fa"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "name": "kube-proxy",
+    "namespace": "kube-system",
+    "resourceVersion": "246",
+    "uid": "eff6ca51-f638-4a8e-960e-93e0a4a380de"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Created pod: kube-proxy-zqxqm",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "kube-proxy.18d2c7405bc036c2",
+    "namespace": "kube-system",
+    "resourceVersion": "371",
+    "uid": "9272fe7a-24ee-43d5-a5c9-7cd6655adf2c"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "daemonset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "daemonset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:25Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "DaemonSet",
+    "name": "kube-proxy",
+    "namespace": "kube-system",
+    "resourceVersion": "402",
+    "uid": "eff6ca51-f638-4a8e-960e-93e0a4a380de"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:25Z",
+   "message": "Created pod: kube-proxy-fh8n5",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:25Z",
+    "name": "kube-proxy.18d2c7417295d0d3",
+    "namespace": "kube-system",
+    "resourceVersion": "435",
+    "uid": "2df7305e-4b5d-48f6-82f9-6dbd7d6356c6"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "daemonset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "daemonset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 4,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:14Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{kube-scheduler}",
+    "kind": "Pod",
+    "name": "kube-scheduler-bow-k8s-control-plane",
+    "namespace": "kube-system",
+    "uid": "7b25c49f66e5512fa238d9fa61e73cfe"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:15Z",
+   "message": "Readiness probe failed: HTTP probe failed with statuscode: 500",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:14Z",
+    "name": "kube-scheduler-bow-k8s-control-plane.18d2c73ec92e1964",
+    "namespace": "kube-system",
+    "resourceVersion": "288",
+    "uid": "84a42484-de97-4ce0-907b-1e5ded8df592"
+   },
+   "reason": "Unhealthy",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:15Z",
+   "involvedObject": {
+    "apiVersion": "coordination.k8s.io/v1",
+    "kind": "Lease",
+    "name": "kube-scheduler",
+    "namespace": "kube-system",
+    "resourceVersion": "290",
+    "uid": "a424170b-5f0a-43d3-9f67-31588fcf40a9"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:15Z",
+   "message": "bow-k8s-control-plane_96564bdc-8b30-4323-a246-4aac81b56639 became leader",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:15Z",
+    "name": "kube-scheduler.18d2c73f1eff659d",
+    "namespace": "kube-system",
+    "resourceVersion": "291",
+    "uid": "f65adc44-a35f-47f9-9b8e-3ba741e31c3c"
+   },
+   "reason": "LeaderElection",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "metrics-server-5b58578978-2wsjt",
+    "namespace": "kube-system",
+    "resourceVersion": "557",
+    "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "metrics-server-5b58578978-2wsjt.18d2c7435c8b0dac",
+    "namespace": "kube-system",
+    "resourceVersion": "560",
+    "uid": "2c2ed05d-34d9-4b78-a90a-ea27c05ac1db"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "metrics-server-5b58578978-2wsjt",
+    "namespace": "kube-system",
+    "resourceVersion": "561",
+    "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned kube-system/metrics-server-5b58578978-2wsjt to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "metrics-server-5b58578978-2wsjt.18d2c74475adc773",
+    "namespace": "kube-system",
+    "resourceVersion": "701",
+    "uid": "0734e9b5-a62d-439b-b799-c25e7819d61d"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-5b58578978-2wsjt",
+    "namespace": "kube-system",
+    "resourceVersion": "691",
+    "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"registry.k8s.io/metrics-server/metrics-server:v0.9.0\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "metrics-server-5b58578978-2wsjt.18d2c7448f9e3ad7",
+    "namespace": "kube-system",
+    "resourceVersion": "717",
+    "uid": "1f7e15c8-6537-4a93-9228-7fde75d1f615"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:48Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-5b58578978-2wsjt",
+    "namespace": "kube-system",
+    "resourceVersion": "691",
+    "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:48Z",
+   "message": "Successfully pulled image \"registry.k8s.io/metrics-server/metrics-server:v0.9.0\" in 4.966s (9.102s including waiting). Image size: 20915021 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:48Z",
+    "name": "metrics-server-5b58578978-2wsjt.18d2c746ae2999be",
+    "namespace": "kube-system",
+    "resourceVersion": "753",
+    "uid": "72c8f4ce-0c0d-48e9-ae5e-9d45a80ed62b"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:48Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-5b58578978-2wsjt",
+    "namespace": "kube-system",
+    "resourceVersion": "691",
+    "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:48Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:48Z",
+    "name": "metrics-server-5b58578978-2wsjt.18d2c746aef93069",
+    "namespace": "kube-system",
+    "resourceVersion": "754",
+    "uid": "a0020e8b-611a-4617-b550-c045034b30c9"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:48Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-5b58578978-2wsjt",
+    "namespace": "kube-system",
+    "resourceVersion": "691",
+    "uid": "6baf0856-f8d7-43f5-bb20-e4af2e417672"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:48Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:48Z",
+    "name": "metrics-server-5b58578978-2wsjt.18d2c746b3edf63b",
+    "namespace": "kube-system",
+    "resourceVersion": "755",
+    "uid": "548a3236-d2d4-441d-ae9a-a5e264b0b77d"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "metrics-server-5b58578978",
+    "namespace": "kube-system",
+    "resourceVersion": "555",
+    "uid": "a6b5e3ef-816f-45a6-a8f6-e41f88c30760"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Created pod: metrics-server-5b58578978-2wsjt",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "metrics-server-5b58578978.18d2c7435c85182d",
+    "namespace": "kube-system",
+    "resourceVersion": "559",
+    "uid": "0a3def4f-3787-4767-ba3e-c337824d1e59"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "545",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c743588a59fd",
+    "namespace": "kube-system",
+    "resourceVersion": "548",
+    "uid": "b3ff6afd-faa0-49c2-907b-9f9dfa9261b1"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "550",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned kube-system/metrics-server-687f9dc499-qvrrh to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c74475c93c5f",
+    "namespace": "kube-system",
+    "resourceVersion": "705",
+    "uid": "5f733207-c701-4fe3-ad29-d28c07c3633b"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "694",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"registry.k8s.io/metrics-server/metrics-server:v0.9.0\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c74492f5167b",
+    "namespace": "kube-system",
+    "resourceVersion": "723",
+    "uid": "9bf3a1cd-27f2-434e-983f-09925f2c1125"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "694",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:52Z",
+   "message": "Successfully pulled image \"registry.k8s.io/metrics-server/metrics-server:v0.9.0\" in 584ms (13.379s including waiting). Image size: 20915021 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c747a9cb7350",
+    "namespace": "kube-system",
+    "resourceVersion": "788",
+    "uid": "a846b938-27d2-4f81-9bd8-6dd25f46f03c"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "694",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:52Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c747ab68c9fc",
+    "namespace": "kube-system",
+    "resourceVersion": "789",
+    "uid": "4f08d630-00ce-4d5b-a824-8f2779720c52"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "694",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:52Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c747af698ce7",
+    "namespace": "kube-system",
+    "resourceVersion": "792",
+    "uid": "0ccbc708-ff6a-418c-90fd-7249be43a0d5"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:08Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{metrics-server}",
+    "kind": "Pod",
+    "name": "metrics-server-687f9dc499-qvrrh",
+    "namespace": "kube-system",
+    "resourceVersion": "694",
+    "uid": "2f7794d1-0f52-42dd-a834-c2d53c773a5d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:08Z",
+   "message": "Stopping container metrics-server",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:08Z",
+    "name": "metrics-server-687f9dc499-qvrrh.18d2c74b62597763",
+    "namespace": "kube-system",
+    "resourceVersion": "909",
+    "uid": "1ec97b30-1b27-443e-adeb-ce8e173a70c1"
+   },
+   "reason": "Killing",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "metrics-server-687f9dc499",
+    "namespace": "kube-system",
+    "resourceVersion": "541",
+    "uid": "53d06c7d-2389-46e1-81ba-47ab93dac8c2"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Created pod: metrics-server-687f9dc499-qvrrh",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "metrics-server-687f9dc499.18d2c743588ad936",
+    "namespace": "kube-system",
+    "resourceVersion": "547",
+    "uid": "81ee4b52-5f64-4851-b762-c950683de361"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:08Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "metrics-server-687f9dc499",
+    "namespace": "kube-system",
+    "resourceVersion": "901",
+    "uid": "53d06c7d-2389-46e1-81ba-47ab93dac8c2"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:08Z",
+   "message": "Deleted pod: metrics-server-687f9dc499-qvrrh",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:08Z",
+    "name": "metrics-server-687f9dc499.18d2c74b624bf42b",
+    "namespace": "kube-system",
+    "resourceVersion": "905",
+    "uid": "f5ed3317-6a8f-4fc4-bf89-39cf57039109"
+   },
+   "reason": "SuccessfulDelete",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "metrics-server",
+    "namespace": "kube-system",
+    "resourceVersion": "540",
+    "uid": "16328efc-ef57-40b5-9bbd-702becd81e84"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Scaled up replica set metrics-server-687f9dc499 from 0 to 1",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "metrics-server.18d2c743584fa374",
+    "namespace": "kube-system",
+    "resourceVersion": "543",
+    "uid": "0fddf36e-c934-4491-b21b-fe0363b4328a"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "metrics-server",
+    "namespace": "kube-system",
+    "resourceVersion": "554",
+    "uid": "16328efc-ef57-40b5-9bbd-702becd81e84"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Scaled up replica set metrics-server-5b58578978 from 0 to 1",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "metrics-server.18d2c7435c4a32db",
+    "namespace": "kube-system",
+    "resourceVersion": "556",
+    "uid": "c9c3bc57-0865-4ed9-89ab-32e846395986"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:08Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "metrics-server",
+    "namespace": "kube-system",
+    "resourceVersion": "565",
+    "uid": "16328efc-ef57-40b5-9bbd-702becd81e84"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:08Z",
+   "message": "Scaled down replica set metrics-server-687f9dc499 from 1 to 0",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:08Z",
+    "name": "metrics-server.18d2c74b61fb298d",
+    "namespace": "kube-system",
+    "resourceVersion": "902",
+    "uid": "18db0f09-2643-4539-a7da-560ac96c7014"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{helper-pod}",
+    "kind": "Pod",
+    "name": "helper-pod-create-pvc-633204eb-a853-45dc-9006-fd86753f4393",
+    "namespace": "local-path-storage",
+    "resourceVersion": "1740",
+    "uid": "7e37da58-fc89-482b-9d54-f73680d1602c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:25Z",
+   "message": "Container image \"docker.io/kindest/local-path-helper:v20260131-7181c60a\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:25Z",
+    "name": "helper-pod-create-pvc-633204eb-a853-45dc-9006-fd86753f4393.18d2c7a3228d97db",
+    "namespace": "local-path-storage",
+    "resourceVersion": "1742",
+    "uid": "98edacdf-d661-4982-ab0c-2b61586b1d30"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{helper-pod}",
+    "kind": "Pod",
+    "name": "helper-pod-create-pvc-633204eb-a853-45dc-9006-fd86753f4393",
+    "namespace": "local-path-storage",
+    "resourceVersion": "1740",
+    "uid": "7e37da58-fc89-482b-9d54-f73680d1602c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:25Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:25Z",
+    "name": "helper-pod-create-pvc-633204eb-a853-45dc-9006-fd86753f4393.18d2c7a325ce20eb",
+    "namespace": "local-path-storage",
+    "resourceVersion": "1744",
+    "uid": "6b00bbf2-40f7-4da5-a9b8-cf8aadb1fa54"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:25Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{helper-pod}",
+    "kind": "Pod",
+    "name": "helper-pod-create-pvc-633204eb-a853-45dc-9006-fd86753f4393",
+    "namespace": "local-path-storage",
+    "resourceVersion": "1740",
+    "uid": "7e37da58-fc89-482b-9d54-f73680d1602c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:25Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:25Z",
+    "name": "helper-pod-create-pvc-633204eb-a853-45dc-9006-fd86753f4393.18d2c7a3276a3bb2",
+    "namespace": "local-path-storage",
+    "resourceVersion": "1745",
+    "uid": "0b7c7d2d-3420-4835-9dfa-0d26bfb3f1e2"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "local-path-provisioner-855c7b7774-tlsng",
+    "namespace": "local-path-storage",
+    "resourceVersion": "378",
+    "uid": "a8650f49-44ed-4209-b5c4-89f65cb7bd14"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "0/1 nodes are available: 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/1 nodes are available: 1 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "local-path-provisioner-855c7b7774-tlsng.18d2c74062bc510c",
+    "namespace": "local-path-storage",
+    "resourceVersion": "392",
+    "uid": "540f0e31-8509-49b9-8467-7e107848b265"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "local-path-provisioner-855c7b7774-tlsng",
+    "namespace": "local-path-storage",
+    "resourceVersion": "393",
+    "uid": "a8650f49-44ed-4209-b5c4-89f65cb7bd14"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Successfully assigned local-path-storage/local-path-provisioner-855c7b7774-tlsng to bow-k8s-control-plane",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "local-path-provisioner-855c7b7774-tlsng.18d2c742ea4feaf8",
+    "namespace": "local-path-storage",
+    "resourceVersion": "483",
+    "uid": "10f707e3-ee97-43ea-a462-75b2fcf27ab8"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{local-path-provisioner}",
+    "kind": "Pod",
+    "name": "local-path-provisioner-855c7b7774-tlsng",
+    "namespace": "local-path-storage",
+    "resourceVersion": "480",
+    "uid": "a8650f49-44ed-4209-b5c4-89f65cb7bd14"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Container image \"docker.io/kindest/local-path-provisioner:v20260521-9fb22683\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "local-path-provisioner-855c7b7774-tlsng.18d2c74303b38106",
+    "namespace": "local-path-storage",
+    "resourceVersion": "488",
+    "uid": "626ac72d-78fe-482c-a5e9-481bb192d4c7"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:32Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{local-path-provisioner}",
+    "kind": "Pod",
+    "name": "local-path-provisioner-855c7b7774-tlsng",
+    "namespace": "local-path-storage",
+    "resourceVersion": "480",
+    "uid": "a8650f49-44ed-4209-b5c4-89f65cb7bd14"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:32Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:32Z",
+    "name": "local-path-provisioner-855c7b7774-tlsng.18d2c743164dec4b",
+    "namespace": "local-path-storage",
+    "resourceVersion": "496",
+    "uid": "42ae86df-3a59-49fc-908d-bda938b4e6f4"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:33Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{local-path-provisioner}",
+    "kind": "Pod",
+    "name": "local-path-provisioner-855c7b7774-tlsng",
+    "namespace": "local-path-storage",
+    "resourceVersion": "480",
+    "uid": "a8650f49-44ed-4209-b5c4-89f65cb7bd14"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:33Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:33Z",
+    "name": "local-path-provisioner-855c7b7774-tlsng.18d2c7431a518998",
+    "namespace": "local-path-storage",
+    "resourceVersion": "499",
+    "uid": "8db33b71-4b72-4c45-be95-21a94e735198"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-control-plane",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-control-plane"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "local-path-provisioner-855c7b7774",
+    "namespace": "local-path-storage",
+    "resourceVersion": "348",
+    "uid": "def5b660-cb0f-46d6-be6e-babb12ac6ba4"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Created pod: local-path-provisioner-855c7b7774-tlsng",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "local-path-provisioner-855c7b7774.18d2c740620f5a20",
+    "namespace": "local-path-storage",
+    "resourceVersion": "384",
+    "uid": "aded44b9-1bf4-48a2-8e92-6ebc75b91212"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:21Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "local-path-provisioner",
+    "namespace": "local-path-storage",
+    "resourceVersion": "281",
+    "uid": "0ac57154-0d3b-477f-b29e-e57b72b33002"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:21Z",
+   "message": "Scaled up replica set local-path-provisioner-855c7b7774 from 0 to 1",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "name": "local-path-provisioner.18d2c74052d1ce6c",
+    "namespace": "local-path-storage",
+    "resourceVersion": "350",
+    "uid": "243f8870-4208-434d-984e-855dd0e0c44e"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 6,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "archiver",
+    "namespace": "payments",
+    "resourceVersion": "635",
+    "uid": "39f88bd6-846d-49ee-8c38-3a86799954c8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:27Z",
+   "message": "0/2 nodes are available: pod has unbound immediate PersistentVolumeClaims. not found",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "archiver.18d2c7438dc6beac",
+    "namespace": "payments",
+    "resourceVersion": "1759",
+    "uid": "a5a65a8f-c0d9-424b-b4f3-321d7b486801"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-ctl5s",
+    "namespace": "payments",
+    "resourceVersion": "590",
+    "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "checkout-7c7d9c6b8c-ctl5s.18d2c743893bd0ba",
+    "namespace": "payments",
+    "resourceVersion": "596",
+    "uid": "94bbd0e5-9b3e-4662-b3f6-250dd23809a8"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-ctl5s",
+    "namespace": "payments",
+    "resourceVersion": "597",
+    "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned payments/checkout-7c7d9c6b8c-ctl5s to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "checkout-7c7d9c6b8c-ctl5s.18d2c7447590bee6",
+    "namespace": "payments",
+    "resourceVersion": "698",
+    "uid": "18412e0c-55b3-475a-a13e-e545b09cfaa4"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-ctl5s",
+    "namespace": "payments",
+    "resourceVersion": "690",
+    "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"nginx:1.27-alpine\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "checkout-7c7d9c6b8c-ctl5s.18d2c7448e145d82",
+    "namespace": "payments",
+    "resourceVersion": "715",
+    "uid": "c7d31f86-a6a9-4431-b310-9890b9c59ec0"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:43Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-ctl5s",
+    "namespace": "payments",
+    "resourceVersion": "690",
+    "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:43Z",
+   "message": "Successfully pulled image \"nginx:1.27-alpine\" in 4.162s (4.162s including waiting). Image size: 21832241 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:43Z",
+    "name": "checkout-7c7d9c6b8c-ctl5s.18d2c745862883a3",
+    "namespace": "payments",
+    "resourceVersion": "737",
+    "uid": "a951ca6e-a77f-4f65-80eb-67a5a3955217"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:43Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-ctl5s",
+    "namespace": "payments",
+    "resourceVersion": "690",
+    "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:43Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:43Z",
+    "name": "checkout-7c7d9c6b8c-ctl5s.18d2c74586af20db",
+    "namespace": "payments",
+    "resourceVersion": "738",
+    "uid": "72fdb19c-480c-4e6e-af0b-8553ef2284c5"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:43Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-ctl5s",
+    "namespace": "payments",
+    "resourceVersion": "690",
+    "uid": "9ed8078b-c732-47c7-9252-fa1a541e6357"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:43Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:43Z",
+    "name": "checkout-7c7d9c6b8c-ctl5s.18d2c7458a7411ea",
+    "namespace": "payments",
+    "resourceVersion": "739",
+    "uid": "0db18362-9acd-4c43-94a9-f6b340ed235c"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-vgkdg",
+    "namespace": "payments",
+    "resourceVersion": "586",
+    "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "checkout-7c7d9c6b8c-vgkdg.18d2c74388e7112a",
+    "namespace": "payments",
+    "resourceVersion": "589",
+    "uid": "e21a3871-369a-481b-a632-066339e6f6b8"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-vgkdg",
+    "namespace": "payments",
+    "resourceVersion": "592",
+    "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned payments/checkout-7c7d9c6b8c-vgkdg to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "checkout-7c7d9c6b8c-vgkdg.18d2c74475ae3590",
+    "namespace": "payments",
+    "resourceVersion": "702",
+    "uid": "456edda5-e683-477a-9568-9f5687632061"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-vgkdg",
+    "namespace": "payments",
+    "resourceVersion": "693",
+    "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"nginx:1.27-alpine\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "checkout-7c7d9c6b8c-vgkdg.18d2c74491b21c17",
+    "namespace": "payments",
+    "resourceVersion": "719",
+    "uid": "e694086a-0f2d-42a9-a09f-41e906c8dec8"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:49Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-vgkdg",
+    "namespace": "payments",
+    "resourceVersion": "693",
+    "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:49Z",
+   "message": "Successfully pulled image \"nginx:1.27-alpine\" in 889ms (9.957s including waiting). Image size: 21832241 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:49Z",
+    "name": "checkout-7c7d9c6b8c-vgkdg.18d2c746dc90839d",
+    "namespace": "payments",
+    "resourceVersion": "760",
+    "uid": "094a25c9-8b55-46b9-b4dd-469b88f5c052"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:49Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-vgkdg",
+    "namespace": "payments",
+    "resourceVersion": "693",
+    "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:49Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:49Z",
+    "name": "checkout-7c7d9c6b8c-vgkdg.18d2c746dd5677d2",
+    "namespace": "payments",
+    "resourceVersion": "761",
+    "uid": "1bc35ff5-baf8-428f-aef2-23d934f77cfd"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:49Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{web}",
+    "kind": "Pod",
+    "name": "checkout-7c7d9c6b8c-vgkdg",
+    "namespace": "payments",
+    "resourceVersion": "693",
+    "uid": "986e8b51-b58b-4ffb-8452-b71502637b10"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:49Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:49Z",
+    "name": "checkout-7c7d9c6b8c-vgkdg.18d2c746e11e5efe",
+    "namespace": "payments",
+    "resourceVersion": "762",
+    "uid": "924b38ba-cfe2-40d9-a503-3af6f73f17ca"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "checkout-7c7d9c6b8c",
+    "namespace": "payments",
+    "resourceVersion": "583",
+    "uid": "2100e115-083c-4524-b34e-a958ff3fe5c6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Created pod: checkout-7c7d9c6b8c-vgkdg",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "checkout-7c7d9c6b8c.18d2c74388e5409b",
+    "namespace": "payments",
+    "resourceVersion": "591",
+    "uid": "3393dcd3-cd12-4701-888d-924ace6cd5c7"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "checkout-7c7d9c6b8c",
+    "namespace": "payments",
+    "resourceVersion": "583",
+    "uid": "2100e115-083c-4524-b34e-a958ff3fe5c6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Created pod: checkout-7c7d9c6b8c-ctl5s",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "checkout-7c7d9c6b8c.18d2c743894b1e74",
+    "namespace": "payments",
+    "resourceVersion": "598",
+    "uid": "d8ce88d1-67ff-4f01-a34c-5c3790d0f9de"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "checkout",
+    "namespace": "payments",
+    "resourceVersion": "582",
+    "uid": "bf85deb5-4ef2-4e32-87c7-31f9b0d6229a"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Scaled up replica set checkout-7c7d9c6b8c from 0 to 2",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "checkout.18d2c74388940b2d",
+    "namespace": "payments",
+    "resourceVersion": "584",
+    "uid": "b08bfebd-806a-4ddb-b2c6-87428efad721"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 2,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:49Z",
+   "involvedObject": {
+    "apiVersion": "autoscaling/v2",
+    "kind": "HorizontalPodAutoscaler",
+    "name": "checkout",
+    "namespace": "payments",
+    "resourceVersion": "600",
+    "uid": "cf5aa587-01a0-400f-b797-a1b72194ec23"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:04Z",
+   "message": "failed to get cpu utilization: unable to get metrics for resource cpu: unable to fetch metrics from resource metrics API: the server is currently unable to handle the request (get pods.metrics.k8s.io)",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:49Z",
+    "name": "checkout.18d2c74701b076ec",
+    "namespace": "payments",
+    "resourceVersion": "873",
+    "uid": "7d3a7430-ea3e-4229-b70f-748fd69b038b"
+   },
+   "reason": "FailedGetResourceMetric",
+   "reportingComponent": "horizontal-pod-autoscaler",
+   "reportingInstance": "",
+   "source": {
+    "component": "horizontal-pod-autoscaler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 2,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:49Z",
+   "involvedObject": {
+    "apiVersion": "autoscaling/v2",
+    "kind": "HorizontalPodAutoscaler",
+    "name": "checkout",
+    "namespace": "payments",
+    "resourceVersion": "600",
+    "uid": "cf5aa587-01a0-400f-b797-a1b72194ec23"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:04Z",
+   "message": "invalid metrics (1 invalid out of 1), first error is: failed to get cpu resource metric value: failed to get cpu utilization: unable to get metrics for resource cpu: unable to fetch metrics from resource metrics API: the server is currently unable to handle the request (get pods.metrics.k8s.io)",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:49Z",
+    "name": "checkout.18d2c74701d9b955",
+    "namespace": "payments",
+    "resourceVersion": "874",
+    "uid": "2d710121-1de6-4825-bfad-a9ea64b02e83"
+   },
+   "reason": "FailedComputeMetricsReplicas",
+   "reportingComponent": "horizontal-pod-autoscaler",
+   "reportingInstance": "",
+   "source": {
+    "component": "horizontal-pod-autoscaler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "608",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c7438b615afd",
+    "namespace": "payments",
+    "resourceVersion": "612",
+    "uid": "b904059c-9078-4fcf-824c-ee41b468d39e"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "614",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned payments/fraud-scorer-6df8cd6775-r9tss to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c74475ae6115",
+    "namespace": "payments",
+    "resourceVersion": "704",
+    "uid": "a99ed543-ca3c-48ce-831f-b15cbb86efcf"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{scorer}",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "692",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"busybox:1.36\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c744920bb924",
+    "namespace": "payments",
+    "resourceVersion": "721",
+    "uid": "bf86d001-bb80-455b-8193-5538562f5636"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{scorer}",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "692",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:52Z",
+   "message": "Successfully pulled image \"busybox:1.36\" in 2.858s (12.81s including waiting). Image size: 1906887 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c74786f25a5a",
+    "namespace": "payments",
+    "resourceVersion": "776",
+    "uid": "cd7339d4-f7f2-4285-8b2a-a6fa789dcbfd"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 7,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{scorer}",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "692",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:28Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c747877e8ecf",
+    "namespace": "payments",
+    "resourceVersion": "1592",
+    "uid": "8b161d46-ec3a-429f-89a4-7b10e6af7c02"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 7,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{scorer}",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "692",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:28Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c7478cf7ea64",
+    "namespace": "payments",
+    "resourceVersion": "1594",
+    "uid": "69c5ae57-0c82-4235-a91e-d0cde5935d98"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 6,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:52Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{scorer}",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "692",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:28Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:52Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c747a758fe94",
+    "namespace": "payments",
+    "resourceVersion": "1591",
+    "uid": "54b8d633-1920-4894-b42d-3d55d99a6104"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 11,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:53Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{scorer}",
+    "kind": "Pod",
+    "name": "fraud-scorer-6df8cd6775-r9tss",
+    "namespace": "payments",
+    "resourceVersion": "692",
+    "uid": "3375dd9a-ee34-4551-aa56-ce7b6579ca0c"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:59Z",
+   "message": "Back-off restarting failed container scorer in pod fraud-scorer-6df8cd6775-r9tss_payments(3375dd9a-ee34-4551-aa56-ce7b6579ca0c)",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:53Z",
+    "name": "fraud-scorer-6df8cd6775-r9tss.18d2c747e31f0181",
+    "namespace": "payments",
+    "resourceVersion": "1820",
+    "uid": "adf1dc17-820c-454c-99d7-20408090a98c"
+   },
+   "reason": "BackOff",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "fraud-scorer-6df8cd6775",
+    "namespace": "payments",
+    "resourceVersion": "606",
+    "uid": "5fac97da-97fa-40f5-8bcd-48c01e687aa0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Created pod: fraud-scorer-6df8cd6775-r9tss",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "fraud-scorer-6df8cd6775.18d2c7438b5bd645",
+    "namespace": "payments",
+    "resourceVersion": "611",
+    "uid": "817b057e-0e48-4f5d-94bb-17b3d39b3fb9"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "fraud-scorer",
+    "namespace": "payments",
+    "resourceVersion": "605",
+    "uid": "37e546fc-bddd-4b32-9320-091ee87f6622"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Scaled up replica set fraud-scorer-6df8cd6775 from 0 to 1",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "fraud-scorer.18d2c7438b27c462",
+    "namespace": "payments",
+    "resourceVersion": "607",
+    "uid": "14b19e35-a13d-4fb7-888a-81e76f42d538"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "gpu-batch",
+    "namespace": "payments",
+    "resourceVersion": "624",
+    "uid": "4731e62d-c154-4383-99ec-672b6a9e38a9"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "gpu-batch.18d2c7438c19b2f7",
+    "namespace": "payments",
+    "resourceVersion": "627",
+    "uid": "ffb3ed8c-3f55-4011-b94d-4e20e6243bc2"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 2,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "gpu-batch",
+    "namespace": "payments",
+    "resourceVersion": "629",
+    "uid": "4731e62d-c154-4383-99ec-672b6a9e38a9"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:45Z",
+   "message": "0/2 nodes are available: 1 node(s) didn't match Pod's node affinity/selector, 1 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "gpu-batch.18d2c744756ee9a0",
+    "namespace": "payments",
+    "resourceVersion": "1515",
+    "uid": "cd680c73-6b65-4e8c-8459-98a647f30b3d"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 26,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "PersistentVolumeClaim",
+    "name": "ledger-archive",
+    "namespace": "payments",
+    "resourceVersion": "636",
+    "uid": "a472a89d-7b58-4168-8900-356dfd860209"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:34Z",
+   "message": "Waiting for a volume to be created either by the external provisioner 'nfs.example.com/provisioner' or manually by the system administrator. If volume creation is delayed, please verify that the provisioner is running and correctly registered.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "ledger-archive.18d2c7438dcabf7e",
+    "namespace": "payments",
+    "resourceVersion": "1618",
+    "uid": "ab579e5b-3c1f-40b4-ab32-c48211f203cc"
+   },
+   "reason": "ExternalProvisioning",
+   "reportingComponent": "persistentvolume-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "persistentvolume-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811852-wpl2v",
+    "namespace": "payments",
+    "resourceVersion": "846",
+    "uid": "0ec772eb-b43e-4af5-99c7-9f155397a1c0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:00Z",
+   "message": "Successfully assigned payments/nightly-reconcile-29811852-wpl2v to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:00Z",
+    "name": "nightly-reconcile-29811852-wpl2v.18d2c749688bbdc3",
+    "namespace": "payments",
+    "resourceVersion": "850",
+    "uid": "c4562ad9-2ccd-41ae-a583-76a2f7fb84ef"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811852-wpl2v",
+    "namespace": "payments",
+    "resourceVersion": "848",
+    "uid": "0ec772eb-b43e-4af5-99c7-9f155397a1c0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:00Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:00Z",
+    "name": "nightly-reconcile-29811852-wpl2v.18d2c7497f86e701",
+    "namespace": "payments",
+    "resourceVersion": "852",
+    "uid": "71077047-0918-467d-9739-16e9f3877768"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811852-wpl2v",
+    "namespace": "payments",
+    "resourceVersion": "848",
+    "uid": "0ec772eb-b43e-4af5-99c7-9f155397a1c0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:00Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:00Z",
+    "name": "nightly-reconcile-29811852-wpl2v.18d2c749802597cc",
+    "namespace": "payments",
+    "resourceVersion": "854",
+    "uid": "616fb3cb-8ea1-40d5-a164-37a8a461e36e"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811852-wpl2v",
+    "namespace": "payments",
+    "resourceVersion": "848",
+    "uid": "0ec772eb-b43e-4af5-99c7-9f155397a1c0"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:00Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:00Z",
+    "name": "nightly-reconcile-29811852-wpl2v.18d2c7498348f678",
+    "namespace": "payments",
+    "resourceVersion": "855",
+    "uid": "890e25ca-7c73-4025-ba72-2e58ffc2af2d"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811852",
+    "namespace": "payments",
+    "resourceVersion": "843",
+    "uid": "fc02bd75-8c7c-479e-99a8-d426bb961b67"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:00Z",
+   "message": "Created pod: nightly-reconcile-29811852-wpl2v",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:00Z",
+    "name": "nightly-reconcile-29811852.18d2c749686621f0",
+    "namespace": "payments",
+    "resourceVersion": "847",
+    "uid": "4e0a031c-9f78-4746-aab2-15d6afa84c32"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:02Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811852",
+    "namespace": "payments",
+    "resourceVersion": "863",
+    "uid": "fc02bd75-8c7c-479e-99a8-d426bb961b67"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:02Z",
+   "message": "Job has reached the specified backoff limit",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:02Z",
+    "name": "nightly-reconcile-29811852.18d2c74a01bde6e1",
+    "namespace": "payments",
+    "resourceVersion": "868",
+    "uid": "f014fc0b-3c0a-4b3c-b703-ee30d2ed15a6"
+   },
+   "reason": "BackoffLimitExceeded",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811854-tbbjz",
+    "namespace": "payments",
+    "resourceVersion": "1169",
+    "uid": "b3ee84ba-700d-4b9d-9765-aec160ec7982"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:00Z",
+   "message": "Successfully assigned payments/nightly-reconcile-29811854-tbbjz to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:00Z",
+    "name": "nightly-reconcile-29811854-tbbjz.18d2c765588cdee0",
+    "namespace": "payments",
+    "resourceVersion": "1173",
+    "uid": "6df12d83-2106-47d2-b386-19072c4b1130"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811854-tbbjz",
+    "namespace": "payments",
+    "resourceVersion": "1170",
+    "uid": "b3ee84ba-700d-4b9d-9765-aec160ec7982"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:00Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:00Z",
+    "name": "nightly-reconcile-29811854-tbbjz.18d2c7656f4aaa22",
+    "namespace": "payments",
+    "resourceVersion": "1175",
+    "uid": "658050de-199b-4f18-992b-0c6f35b08ce2"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811854-tbbjz",
+    "namespace": "payments",
+    "resourceVersion": "1170",
+    "uid": "b3ee84ba-700d-4b9d-9765-aec160ec7982"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:00Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:00Z",
+    "name": "nightly-reconcile-29811854-tbbjz.18d2c7656fe107fb",
+    "namespace": "payments",
+    "resourceVersion": "1177",
+    "uid": "412bbf5e-3b0c-426f-be4d-2dff94340cb4"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811854-tbbjz",
+    "namespace": "payments",
+    "resourceVersion": "1170",
+    "uid": "b3ee84ba-700d-4b9d-9765-aec160ec7982"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:00Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:00Z",
+    "name": "nightly-reconcile-29811854-tbbjz.18d2c76572803ecf",
+    "namespace": "payments",
+    "resourceVersion": "1178",
+    "uid": "0648d24b-a50e-4774-b64c-750ccd20f80e"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811854",
+    "namespace": "payments",
+    "resourceVersion": "1166",
+    "uid": "bb031eb3-4a77-4f68-8a73-ec774a918200"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:00Z",
+   "message": "Created pod: nightly-reconcile-29811854-tbbjz",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:00Z",
+    "name": "nightly-reconcile-29811854.18d2c76558626477",
+    "namespace": "payments",
+    "resourceVersion": "1172",
+    "uid": "a44a8f92-a329-4547-b4fd-f44332042fa2"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811854",
+    "namespace": "payments",
+    "resourceVersion": "1189",
+    "uid": "bb031eb3-4a77-4f68-8a73-ec774a918200"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:03Z",
+   "message": "Job has reached the specified backoff limit",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:03Z",
+    "name": "nightly-reconcile-29811854.18d2c7660cd65b6f",
+    "namespace": "payments",
+    "resourceVersion": "1193",
+    "uid": "51979093-64cf-4ff9-aec1-2689577a40d4"
+   },
+   "reason": "BackoffLimitExceeded",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811856-djm88",
+    "namespace": "payments",
+    "resourceVersion": "1416",
+    "uid": "c8e18b63-720e-4f7d-8b08-2f97215180dd"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:00Z",
+   "message": "Successfully assigned payments/nightly-reconcile-29811856-djm88 to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:00Z",
+    "name": "nightly-reconcile-29811856-djm88.18d2c781490f537b",
+    "namespace": "payments",
+    "resourceVersion": "1420",
+    "uid": "c7dc968b-7b4c-484a-a965-6294a79ae0f9"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811856-djm88",
+    "namespace": "payments",
+    "resourceVersion": "1418",
+    "uid": "c8e18b63-720e-4f7d-8b08-2f97215180dd"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:00Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:00Z",
+    "name": "nightly-reconcile-29811856-djm88.18d2c7815f250092",
+    "namespace": "payments",
+    "resourceVersion": "1423",
+    "uid": "cb02da08-0c10-49bf-9615-8cf722dda325"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811856-djm88",
+    "namespace": "payments",
+    "resourceVersion": "1418",
+    "uid": "c8e18b63-720e-4f7d-8b08-2f97215180dd"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:00Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:00Z",
+    "name": "nightly-reconcile-29811856-djm88.18d2c7815fd01897",
+    "namespace": "payments",
+    "resourceVersion": "1425",
+    "uid": "3f7b2a34-c1b9-445f-a5a8-230612d6e87a"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811856-djm88",
+    "namespace": "payments",
+    "resourceVersion": "1418",
+    "uid": "c8e18b63-720e-4f7d-8b08-2f97215180dd"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:00Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:00Z",
+    "name": "nightly-reconcile-29811856-djm88.18d2c781630b20ff",
+    "namespace": "payments",
+    "resourceVersion": "1426",
+    "uid": "60761db2-9718-4d2b-a1a8-140a7e5c82c0"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811856",
+    "namespace": "payments",
+    "resourceVersion": "1413",
+    "uid": "c009609c-9088-4749-b703-1c2f13a92cfd"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:00Z",
+   "message": "Created pod: nightly-reconcile-29811856-djm88",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:00Z",
+    "name": "nightly-reconcile-29811856.18d2c78148f3f7d8",
+    "namespace": "payments",
+    "resourceVersion": "1417",
+    "uid": "5c499b44-8691-46fc-a97a-8995186c2cd4"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811856",
+    "namespace": "payments",
+    "resourceVersion": "1437",
+    "uid": "c009609c-9088-4749-b703-1c2f13a92cfd"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:03Z",
+   "message": "Job has reached the specified backoff limit",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:03Z",
+    "name": "nightly-reconcile-29811856.18d2c781fd456dfa",
+    "namespace": "payments",
+    "resourceVersion": "1441",
+    "uid": "2a34cda9-eec3-4b25-b29f-cdcc4d4d4537"
+   },
+   "reason": "BackoffLimitExceeded",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811858-htdnb",
+    "namespace": "payments",
+    "resourceVersion": "1664",
+    "uid": "dbb6b398-64bb-407b-b8c4-8e5b5c90e5f8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:00Z",
+   "message": "Successfully assigned payments/nightly-reconcile-29811858-htdnb to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:00Z",
+    "name": "nightly-reconcile-29811858-htdnb.18d2c79d39bbd677",
+    "namespace": "payments",
+    "resourceVersion": "1668",
+    "uid": "4833e700-a20d-4e0e-a2b3-938450bb9d2c"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811858-htdnb",
+    "namespace": "payments",
+    "resourceVersion": "1665",
+    "uid": "dbb6b398-64bb-407b-b8c4-8e5b5c90e5f8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:00Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:00Z",
+    "name": "nightly-reconcile-29811858-htdnb.18d2c79d611d050c",
+    "namespace": "payments",
+    "resourceVersion": "1670",
+    "uid": "eec08d1e-cfb8-4c5f-94b4-dec3ceb0b95a"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811858-htdnb",
+    "namespace": "payments",
+    "resourceVersion": "1665",
+    "uid": "dbb6b398-64bb-407b-b8c4-8e5b5c90e5f8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:00Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:00Z",
+    "name": "nightly-reconcile-29811858-htdnb.18d2c79d61816f96",
+    "namespace": "payments",
+    "resourceVersion": "1672",
+    "uid": "cda7c13e-d95b-4c03-8a76-29b2893ea6dd"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:00Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{reconcile}",
+    "kind": "Pod",
+    "name": "nightly-reconcile-29811858-htdnb",
+    "namespace": "payments",
+    "resourceVersion": "1665",
+    "uid": "dbb6b398-64bb-407b-b8c4-8e5b5c90e5f8"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:00Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:00Z",
+    "name": "nightly-reconcile-29811858-htdnb.18d2c79d63481421",
+    "namespace": "payments",
+    "resourceVersion": "1673",
+    "uid": "8f8baf3e-8970-41dd-be7a-28ab7e07893b"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811858",
+    "namespace": "payments",
+    "resourceVersion": "1661",
+    "uid": "fb2d6b7e-a35c-4234-a66a-4de4f78a926d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:00Z",
+   "message": "Created pod: nightly-reconcile-29811858-htdnb",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:00Z",
+    "name": "nightly-reconcile-29811858.18d2c79d39a09858",
+    "namespace": "payments",
+    "resourceVersion": "1667",
+    "uid": "45297c1b-2db8-4bb4-9ea8-7ae200bf481f"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "Job",
+    "name": "nightly-reconcile-29811858",
+    "namespace": "payments",
+    "resourceVersion": "1686",
+    "uid": "fb2d6b7e-a35c-4234-a66a-4de4f78a926d"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:03Z",
+   "message": "Job has reached the specified backoff limit",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:03Z",
+    "name": "nightly-reconcile-29811858.18d2c79dee3d7a57",
+    "namespace": "payments",
+    "resourceVersion": "1689",
+    "uid": "40cd0efe-f249-4c5e-a1db-37caafb2933e"
+   },
+   "reason": "BackoffLimitExceeded",
+   "reportingComponent": "job-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "job-controller"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "631",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:00Z",
+   "message": "Created job nightly-reconcile-29811852",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:00Z",
+    "name": "nightly-reconcile.18d2c74967eaaf03",
+    "namespace": "payments",
+    "resourceVersion": "844",
+    "uid": "525ec8d6-0c6a-4dbe-b032-f396e0e66671"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:12:02Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "845",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:12:02Z",
+   "message": "Saw completed job: nightly-reconcile-29811852, condition: Failed",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:12:02Z",
+    "name": "nightly-reconcile.18d2c74a01bdbfb1",
+    "namespace": "payments",
+    "resourceVersion": "867",
+    "uid": "313e37b8-f8b9-4d2c-b23a-3af0cca37ca7"
+   },
+   "reason": "SawCompletedJob",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "869",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:00Z",
+   "message": "Created job nightly-reconcile-29811854",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:00Z",
+    "name": "nightly-reconcile.18d2c765582c42ca",
+    "namespace": "payments",
+    "resourceVersion": "1167",
+    "uid": "45f030db-9205-49a9-a967-7198239161f9"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:14:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "1168",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:14:03Z",
+   "message": "Saw completed job: nightly-reconcile-29811854, condition: Failed",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:14:03Z",
+    "name": "nightly-reconcile.18d2c7660cd684f5",
+    "namespace": "payments",
+    "resourceVersion": "1192",
+    "uid": "4ab23fd6-a2e7-438a-8ec7-26c42ad02c75"
+   },
+   "reason": "SawCompletedJob",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "1194",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:00Z",
+   "message": "Created job nightly-reconcile-29811856",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:00Z",
+    "name": "nightly-reconcile.18d2c78148ba021a",
+    "namespace": "payments",
+    "resourceVersion": "1414",
+    "uid": "24cea894-a641-4e05-a342-e7abebe23658"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:16:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "1415",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:16:03Z",
+   "message": "Saw completed job: nightly-reconcile-29811856, condition: Failed",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:16:03Z",
+    "name": "nightly-reconcile.18d2c781fd45eb2d",
+    "namespace": "payments",
+    "resourceVersion": "1440",
+    "uid": "143a0a1c-cf98-4e98-85cf-a8e20c221769"
+   },
+   "reason": "SawCompletedJob",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:00Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "1442",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:00Z",
+   "message": "Created job nightly-reconcile-29811858",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:00Z",
+    "name": "nightly-reconcile.18d2c79d3960dbdd",
+    "namespace": "payments",
+    "resourceVersion": "1662",
+    "uid": "be2c37ab-cede-4255-b0d3-e07c1b635dbd"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "1663",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:03Z",
+   "message": "Deleted job nightly-reconcile-29811852",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:03Z",
+    "name": "nightly-reconcile.18d2c79dee54f751",
+    "namespace": "payments",
+    "resourceVersion": "1691",
+    "uid": "cb0b6cca-4976-462e-a39d-dc128d326baa"
+   },
+   "reason": "SuccessfulDelete",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:18:03Z",
+   "involvedObject": {
+    "apiVersion": "batch/v1",
+    "kind": "CronJob",
+    "name": "nightly-reconcile",
+    "namespace": "payments",
+    "resourceVersion": "1663",
+    "uid": "f9b60bfb-dc6c-41ad-83cc-337427620ba6"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:03Z",
+   "message": "Saw completed job: nightly-reconcile-29811858, condition: Failed",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:18:03Z",
+    "name": "nightly-reconcile.18d2c79dee550f6a",
+    "namespace": "payments",
+    "resourceVersion": "1693",
+    "uid": "de5dc5c4-6285-4eac-a47a-98692b8cf9f0"
+   },
+   "reason": "SawCompletedJob",
+   "reportingComponent": "cronjob-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "cronjob-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "619",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "0/2 nodes are available: 2 node(s) had untolerated taint(s). no new claims to deallocate, preemption: 0/2 nodes are available: 2 Preemption is not helpful for scheduling.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c7438bdb23a9",
+    "namespace": "payments",
+    "resourceVersion": "621",
+    "uid": "f3d15f57-ab39-415a-bc19-5a98959ad810"
+   },
+   "reason": "FailedScheduling",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:38Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "626",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:38Z",
+   "message": "Successfully assigned payments/report-builder-587f986544-4zqtp to bow-k8s-worker",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:38Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c744768cd3eb",
+    "namespace": "payments",
+    "resourceVersion": "706",
+    "uid": "d2f7266b-3c7d-4136-9e9c-69afefdb3ce3"
+   },
+   "reason": "Scheduled",
+   "reportingComponent": "default-scheduler",
+   "reportingInstance": "",
+   "source": {
+    "component": "default-scheduler"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:39Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{builder}",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "696",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:39Z",
+   "message": "Pulling image \"busybox:1.36\"",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:39Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c744948b01ad",
+    "namespace": "payments",
+    "resourceVersion": "725",
+    "uid": "d108f83c-00d1-4bf4-bc41-9d7720486c68"
+   },
+   "reason": "Pulling",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:53Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{builder}",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "696",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:53Z",
+   "message": "Successfully pulled image \"busybox:1.36\" in 920ms (14.273s including waiting). Image size: 1906887 bytes.",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:53Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c747e0a7ec7e",
+    "namespace": "payments",
+    "resourceVersion": "801",
+    "uid": "74438a4d-6ec8-426d-9327-22203afaf8be"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 7,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:53Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{builder}",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "696",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:33Z",
+   "message": "Container created",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:53Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c747e1665640",
+    "namespace": "payments",
+    "resourceVersion": "1612",
+    "uid": "5ab099c4-4542-4b5a-a996-3890a34067cf"
+   },
+   "reason": "Created",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 7,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:53Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{builder}",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "696",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:33Z",
+   "message": "Container started",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:53Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c747e43d2db2",
+    "namespace": "payments",
+    "resourceVersion": "1613",
+    "uid": "e5ffc75c-1d34-410e-8b22-e528fa85a1fe"
+   },
+   "reason": "Started",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 6,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:54Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{builder}",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "696",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:17:33Z",
+   "message": "Container image \"busybox:1.36\" already present on machine and can be accessed by the pod",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:54Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c7481ed90664",
+    "namespace": "payments",
+    "resourceVersion": "1611",
+    "uid": "1c2574ee-e822-494b-ba14-c526cc191059"
+   },
+   "reason": "Pulled",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 10,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:56Z",
+   "involvedObject": {
+    "apiVersion": "v1",
+    "fieldPath": "spec.containers{builder}",
+    "kind": "Pod",
+    "name": "report-builder-587f986544-4zqtp",
+    "namespace": "payments",
+    "resourceVersion": "696",
+    "uid": "acb7a52a-0612-4e01-84b1-b3f80cb7ad65"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:18:47Z",
+   "message": "Back-off restarting failed container builder in pod report-builder-587f986544-4zqtp_payments(acb7a52a-0612-4e01-84b1-b3f80cb7ad65)",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:56Z",
+    "name": "report-builder-587f986544-4zqtp.18d2c7489646b450",
+    "namespace": "payments",
+    "resourceVersion": "1801",
+    "uid": "686339aa-b4f2-4db3-9fe4-c30fc5a62b7b"
+   },
+   "reason": "BackOff",
+   "reportingComponent": "kubelet",
+   "reportingInstance": "bow-k8s-worker",
+   "source": {
+    "component": "kubelet",
+    "host": "bow-k8s-worker"
+   },
+   "type": "Warning"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "ReplicaSet",
+    "name": "report-builder-587f986544",
+    "namespace": "payments",
+    "resourceVersion": "615",
+    "uid": "2420edc0-da87-421f-a187-bf395b0913e4"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Created pod: report-builder-587f986544-4zqtp",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "report-builder-587f986544.18d2c7438bd978b2",
+    "namespace": "payments",
+    "resourceVersion": "622",
+    "uid": "8b2427ef-45b2-4c01-8535-c676a72eb50d"
+   },
+   "reason": "SuccessfulCreate",
+   "reportingComponent": "replicaset-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "replicaset-controller"
+   },
+   "type": "Normal"
+  },
+  {
+   "apiVersion": "v1",
+   "count": 1,
+   "eventTime": null,
+   "firstTimestamp": "2026-09-06T16:11:34Z",
+   "involvedObject": {
+    "apiVersion": "apps/v1",
+    "kind": "Deployment",
+    "name": "report-builder",
+    "namespace": "payments",
+    "resourceVersion": "610",
+    "uid": "fce9448d-6599-4709-a7ab-1e8c26a86b30"
+   },
+   "kind": "Event",
+   "lastTimestamp": "2026-09-06T16:11:34Z",
+   "message": "Scaled up replica set report-builder-587f986544 from 0 to 1",
+   "metadata": {
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "name": "report-builder.18d2c7438baabeb5",
+    "namespace": "payments",
+    "resourceVersion": "618",
+    "uid": "bc6fbbfa-c2b7-474d-91e8-797c9e91ee4e"
+   },
+   "reason": "ScalingReplicaSet",
+   "reportingComponent": "deployment-controller",
+   "reportingInstance": "",
+   "source": {
+    "component": "deployment-controller"
+   },
+   "type": "Normal"
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}
