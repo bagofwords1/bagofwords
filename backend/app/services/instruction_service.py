@@ -1099,6 +1099,8 @@ class InstructionService:
             db, instruction, instruction_data, current_user, organization, user_permissions
         )
 
+        status_before_edit = instruction.status
+
         # Handle the update based on type
         if update_type == "admin_edit":
             await self._handle_admin_edit(instruction, instruction_data, current_user)
@@ -1118,6 +1120,8 @@ class InstructionService:
         # edit handlers run so a kind→skill change (or a skill whose load_mode
         # was passed as 'always'/'disabled') is normalized before versioning.
         self._enforce_skill_load_mode(instruction)
+
+        self._track_manual_deactivation(instruction, status_before_edit)
 
         # Handle data source associations
         if instruction_data.data_source_ids is not None:
@@ -3138,7 +3142,9 @@ class InstructionService:
                 
                 # Update status (simplified - no dual-status handling) - CONTENT CHANGE
                 if bulk_update.status:
+                    status_before_bulk = instruction.status
                     instruction.status = bulk_update.status
+                    self._track_manual_deactivation(instruction, status_before_bulk)
                     content_modified = True
                 
                 # Update load mode - CONTENT CHANGE
@@ -3708,6 +3714,24 @@ class InstructionService:
         if instruction.user_id == current_user.id:
             return "owner_edit"
         return "no_permission"
+
+    @staticmethod
+    def _track_manual_deactivation(instruction: Instruction, status_before: Optional[str]) -> None:
+        """Record user-driven on/off transitions on the row itself.
+
+        'draft' is overloaded: a new suggestion awaiting review and a published
+        instruction the user switched OFF both carry it, and only this
+        timestamp tells them apart. published→draft stamps it; any return to
+        published clears it. Same-status updates never touch it, so editing a
+        deactivated instruction's text keeps it deactivated.
+        """
+        status_after = instruction.status
+        if status_after == status_before:
+            return
+        if status_before == "published" and status_after == "draft":
+            instruction.deactivated_at = datetime.utcnow()
+        elif status_after == "published":
+            instruction.deactivated_at = None
 
     async def _handle_admin_edit(self, instruction: Instruction, instruction_data: InstructionUpdate, admin_user: User):
         """Handle admin editing any instruction (not review)"""

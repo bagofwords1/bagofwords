@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, Table, JSON
+from sqlalchemy import Column, String, Text, Integer, Boolean, DateTime, ForeignKey, Table, JSON
 from sqlalchemy.orm import relationship
 
 from app.models.base import BaseSchema
@@ -23,6 +23,14 @@ class Instruction(BaseSchema):
     
     # Overall status for visibility/usability
     status = Column(String(50), nullable=False, default="draft")
+
+    # 'draft' is overloaded: a new suggestion awaiting review and a published
+    # instruction the user switched OFF both carry it. This timestamp is the
+    # only durable record of the second meaning — set when a user moves
+    # published→draft, cleared on re-publish. Session-scoped surfaces (e.g.
+    # search_instructions' own-drafts widening) use it to keep switched-off
+    # instructions out of the agent's view.
+    deactivated_at = Column(DateTime, nullable=True)
     
     # Categorization
     category = Column(String(50), nullable=False, default="general")

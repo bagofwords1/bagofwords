@@ -140,6 +140,118 @@ async def test_chat_mode_forces_report_scope(
 
 @pytest.mark.e2e
 @pytest.mark.asyncio
+async def test_training_mode_scopes_own_drafts_to_report_agents(
+    create_user, login_user, whoami, test_client, create_data_source
+):
+    """The own-drafts widening must respect the session's agent scope.
+
+    Author-scoping alone is not enough: the same user works across agents, and
+    an unfiltered drafts query leaks e.g. a hospital agent's draft into a music
+    store training session (where a keyword hit then presents it as an existing
+    instruction)."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    ds_a = create_data_source(
+        name="ds_a", type="sqlite", config={"database": str(_SQLITE_DB)},
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    ds_b = create_data_source(
+        name="ds_b", type="sqlite", config={"database": str(_SQLITE_DB)},
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    draft = _create(
+        test_client, token, org_id,
+        text="Draft margin rule for agent A.", title="A-margins",
+        load_mode="intelligent", status="draft", data_source_ids=[ds_a["id"]],
+    )
+
+    out_b = await _run(
+        {"query": ["margin"]}, user_id=uid, org_id=org_id,
+        mode="training", scope_ds_ids=[ds_b["id"]],
+    )
+    assert out_b["success"] is True, out_b
+    assert not any(i["id"] == draft["id"] for i in out_b["instructions"]), (
+        "another agent's draft must not surface in this session"
+    )
+
+    out_a = await _run(
+        {"query": ["margin"]}, user_id=uid, org_id=org_id,
+        mode="training", scope_ds_ids=[ds_a["id"]],
+    )
+    assert any(i["id"] == draft["id"] for i in out_a["instructions"]), out_a
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_training_mode_global_drafts_stay_visible(
+    create_user, login_user, whoami, test_client, create_data_source
+):
+    """A draft with no agent association is global and must keep surfacing in
+    a scoped session (mirrors the main query's include_global semantics)."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    ds = create_data_source(
+        name="ds_scope", type="sqlite", config={"database": str(_SQLITE_DB)},
+        credentials={}, user_token=token, org_id=org_id,
+    )
+    draft = _create(
+        test_client, token, org_id,
+        text="Global draft rule about margins.", title="Global-margins",
+        load_mode="intelligent", status="draft",
+    )
+
+    out = await _run(
+        {"query": ["margin"]}, user_id=uid, org_id=org_id,
+        mode="training", scope_ds_ids=[ds["id"]],
+    )
+    assert out["success"] is True, out
+    assert any(i["id"] == draft["id"] for i in out["instructions"]), out
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_training_mode_hides_user_deactivated_instructions(
+    create_user, login_user, whoami, test_client
+):
+    """A user switching an instruction OFF (published→draft) must stick.
+
+    'draft' also means "awaiting review", which the own-drafts widening
+    deliberately surfaces — so without the deactivated_at marker a switched-off
+    rule reappears in training searches and the agent presents it as live
+    knowledge. Re-publishing clears the marker and restores visibility."""
+    token, uid, org_id = _new_admin(create_user, login_user, whoami)
+    inst = _create(
+        test_client, token, org_id,
+        text="Margin rule the user will switch off.", title="Off-margins",
+        load_mode="intelligent",
+    )
+
+    def _set_status(status):
+        resp = test_client.put(
+            f"/api/instructions/{inst['id']}",
+            json={"status": status},
+            headers=_auth(token, org_id),
+        )
+        assert resp.status_code == 200, resp.json()
+        return resp.json()
+
+    # Published → visible in training search.
+    out = await _run({"query": ["margin"]}, user_id=uid, org_id=org_id, mode="training")
+    assert any(i["id"] == inst["id"] for i in out["instructions"]), out
+
+    # User switches it off: published→draft must NOT resurface via own-drafts.
+    _set_status("draft")
+    out_off = await _run({"query": ["margin"]}, user_id=uid, org_id=org_id, mode="training")
+    assert not any(i["id"] == inst["id"] for i in out_off["instructions"]), (
+        "a switched-off instruction must not surface in training searches"
+    )
+
+    # Switching it back on clears the marker and restores visibility.
+    _set_status("published")
+    out_on = await _run({"query": ["margin"]}, user_id=uid, org_id=org_id, mode="training")
+    assert any(i["id"] == inst["id"] for i in out_on["instructions"]), out_on
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
 async def test_training_mode_keeps_full_text(create_user, login_user, whoami, test_client):
     token, uid, org_id = _new_admin(create_user, login_user, whoami)
     long_body = "Margin rule. " + "More margin detail. " * 30

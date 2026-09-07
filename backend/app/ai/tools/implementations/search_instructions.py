@@ -391,6 +391,10 @@ class SearchInstructionsTool(Tool):
             # edit them within the same session.
             training_build_id = runtime_ctx.get("training_build_id")
             if training_build_id and not chat_mode:
+                # effective_ds_ids, not data.data_source_ids: the build is a
+                # snapshot of the whole org's instruction set (all agents), so
+                # trusting the model-supplied filter here reopens exactly the
+                # cross-agent widening the forced scope above exists to block.
                 draft_result = await service.get_instructions(
                     db=db,
                     organization=organization,
@@ -399,7 +403,7 @@ class SearchInstructionsTool(Tool):
                     limit=window,
                     status=None,
                     categories=categories,
-                    data_source_ids=data.data_source_ids,
+                    data_source_ids=effective_ds_ids,
                     search=None,
                     include_global=True,
                     build_id=training_build_id,
@@ -419,15 +423,30 @@ class SearchInstructionsTool(Tool):
             # which read as "the instruction disappeared" to the agent that had
             # just created it. Only the author's drafts: no org-wide widening.
             if not chat_mode:
-                from sqlalchemy import select as _select, and_ as _and
+                from sqlalchemy import select as _select, and_ as _and, or_ as _or
                 from app.models.instruction import Instruction as _Instruction
+                from app.models.data_source import DataSource as _DataSource
+                conditions = [
+                    _Instruction.organization_id == organization.id,
+                    _Instruction.user_id == str(user.id),
+                    _Instruction.status == "draft",
+                    _Instruction.deleted_at.is_(None),
+                ]
+                # Author-scoping alone is not enough: the same user works
+                # across agents, and without this an unrelated agent's drafts
+                # leak into every training session. Mirror the main query's
+                # scoping — attached to one of this session's data sources, or
+                # global (no associations). None means the scope itself is
+                # unresolved (e.g. knowledge mode with no ids) — leave as-is.
+                if effective_ds_ids is not None:
+                    conditions.append(_or(
+                        _Instruction.data_sources.any(
+                            _DataSource.id.in_([str(i) for i in effective_ds_ids])
+                        ),
+                        ~_Instruction.data_sources.any(),
+                    ))
                 own_drafts = (await db.execute(
-                    _select(_Instruction).where(_and(
-                        _Instruction.organization_id == organization.id,
-                        _Instruction.user_id == str(user.id),
-                        _Instruction.status == "draft",
-                        _Instruction.deleted_at.is_(None),
-                    )).limit(window)
+                    _select(_Instruction).where(_and(*conditions)).limit(window)
                 )).unique().scalars().all()
                 if own_drafts:
                     seen_ids = {str(getattr(c, "id", None)) for c in candidates}
@@ -435,6 +454,24 @@ class SearchInstructionsTool(Tool):
                         if str(row.id) not in seen_ids:
                             candidates.append(row)
                             candidate_total += 1
+
+            # Switched-off instructions: a user deactivating an instruction
+            # moves it published→draft, which the widening branches above then
+            # re-surface — the agent presents a rule the user explicitly turned
+            # OFF as live knowledge. deactivated_at is the only marker that
+            # separates "switched off" from "awaiting review" (both are
+            # status='draft'), so drop the former across every merge path
+            # (schema objects from the build query carry the field too).
+            if not chat_mode:
+                kept = [
+                    c for c in candidates
+                    if not (
+                        getattr(c, "status", None) == "draft"
+                        and getattr(c, "deactivated_at", None)
+                    )
+                ]
+                candidate_total -= len(candidates) - len(kept)
+                candidates = kept
 
             # Drafts the reviewer already decided on are gone from every
             # build-scoped surface, but their rows survive a reject — so the

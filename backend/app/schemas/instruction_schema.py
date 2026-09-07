@@ -173,6 +173,11 @@ class InstructionSchema(InstructionBase):
     agent_execution_id: Optional[str] = None
     trigger_reason: Optional[str] = None
 
+    # When a user switched this instruction OFF (published→draft). Distinguishes
+    # a deactivated instruction from a draft awaiting review — both share
+    # status='draft'. None for never-deactivated rows.
+    deactivated_at: Optional[UTCDatetime] = None
+
     # === Build System fields ===
     current_version_id: Optional[str] = None
 
