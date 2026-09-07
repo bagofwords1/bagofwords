@@ -3,6 +3,10 @@ from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional, Any
 import requests
 import pandas as pd
+import logging
+import xml.etree.ElementTree as ET
+from collections import Counter
+from urllib.parse import quote
 
 
 # BusinessObjects Semantic-Layer object kinds. Dimensions/attributes are
@@ -271,40 +275,40 @@ class BusinessObjectsClient(DataSourceClient):
         return universes
 
     def _universe_columns(self, universe_id: str) -> List[TableColumn]:
-        """Fetch a universe's outline (``GET /sl/v1/universes/{id}``) and flatten
-        its objects into TableColumns. Best-effort: a universe whose detail can't
-        be read still yields a table (no columns) rather than failing discovery."""
-        try:
-            resp = self._get(f"/sl/v1/universes/{universe_id}")
-            if resp.status_code >= 300:
-                return []
-            payload = resp.json() or {}
-        except Exception:
-            return []
+        """Fetch the outline; never cache an incomplete schema after a failure."""
+        resp = self._get(f"/sl/v1/universes/{universe_id}")
+        self._check_response(resp, "Universe detail")
+        payload = resp.json()
 
         root = payload.get("universe") if isinstance(payload, dict) else None
         root = root if isinstance(root, dict) else payload
         columns: List[TableColumn] = []
         seen = set()
-        for obj in _walk_universe_objects(root):
+        objects = list(_walk_universe_objects(root))
+        counts = Counter(o.get("name") for o in objects)
+        for obj in objects:
             oname = obj.get("name") or obj.get("id")
-            if not oname or oname in seen:
+            identity = obj.get("id") or obj.get("path") or oname
+            if not oname or identity in seen:
                 continue
             kind = str(obj.get("@type") or obj.get("type") or obj.get("qualification") or "").lower()
             if kind in _MEASURE_KINDS:
                 role, dtype = "measure", "measure"
             elif kind in _DIMENSION_KINDS:
-                role, dtype = "dimension", _bo_dtype(obj.get("dataType") or obj.get("type"))
+                role, dtype = "dimension", _bo_dtype(obj.get("@dataType") or obj.get("dataType"))
             else:
                 # Skip filters / conditions / folders that aren't result objects.
                 continue
-            seen.add(oname)
+            seen.add(identity)
+            if counts[oname] > 1:
+                oname = f"{oname} [{identity}]"
             columns.append(TableColumn(
                 name=oname,
                 dtype=dtype,
-                description=obj.get("description") or None,
+                description="; ".join(filter(None, [obj.get("description"), f"Universe path: {obj['path']}" if obj.get("path") else None])) or None,
                 metadata={"role": role, "object_id": obj.get("id"),
-                          "data_type": obj.get("dataType")},
+                          "path": obj.get("path"),
+                          "data_type": obj.get("@dataType") or obj.get("dataType")},
             ))
         return columns
 
@@ -383,61 +387,135 @@ class BusinessObjectsClient(DataSourceClient):
     def _run_universe_query(
         self, universe_id: str, result_objects: List[str], max_rows: Optional[int]
     ) -> List[Dict]:
-        """Create a query on the universe and return its rows.
-
-        Uses the Semantic Layer query resource: POST a query specification
-        referencing the universe and its result objects, then read the flattened
-        result set. The response's ``rows``/``columns`` (or ``dataset``) is
-        normalized into a list of ``{objectName: value}`` dicts.
-
-        NOTE: the exact SL query JSON is BusinessObjects-version-specific; this
-        implements the documented 4.x shape and is exercised by mocked tests
-        (Loop A). Confirm against a live tenant before production (Loop B).
-        """
-        spec = {
-            "queryData": {
-                "universe": {"id": universe_id},
-                "resultObjects": [{"name": name} for name in result_objects],
-            }
-        }
-        resp = self._post("/sl/v1/queries", json_body=spec)
-        if resp.status_code >= 300:
-            raise RuntimeError(
-                f"Query creation failed: HTTP {resp.status_code} {self._body_snippet(resp)}"
+        """Use the BO 4.2/4.3 XML query and OData result lifecycle."""
+        table = self.get_schema(universe_id)
+        by_name = {column.name: column for column in table.columns}
+        query = ET.Element("query", {
+            "xmlns": "http://www.sap.com/rws/sl/universe",
+            "dataSourceType": (table.metadata_json["businessobjects"].get("type") or "unx"),
+            "dataSourceId": universe_id,
+        })
+        spec = ET.SubElement(query, "querySpecification", {"version": "1.0"})
+        results = ET.SubElement(ET.SubElement(spec, "queryData"), "resultObjects")
+        if len(set(result_objects)) != len(result_objects):
+            raise ValueError("Select each result object only once.")
+        for name in result_objects:
+            column = by_name.get(name)
+            if column is None or not column.metadata.get("object_id"):
+                raise ValueError(f"Unknown or unavailable result object: {name}")
+            attrs = {"id": str(column.metadata["object_id"])}
+            if column.metadata.get("path"):
+                attrs["path"] = column.metadata["path"]
+            ET.SubElement(results, "resultObject", attrs)
+        headers = self._headers("application/xml")
+        headers["Content-Type"] = "application/xml"
+        response = self._session().post(
+            f"{self.base_url}/sl/v1/queries", data=ET.tostring(query),
+            headers=headers, timeout=self.timeout_sec,
+        )
+        self._check_response(response, "Query creation")
+        root = ET.fromstring(response.text)
+        query_id = next((e.text for e in root.iter() if e.tag.split("}")[-1] == "id"), None)
+        if not query_id:
+            raise RuntimeError("SAP did not return a query identifier.")
+        path = f"{self.base_url}/sl/v1/queries/{quote(query_id, safe='')}"
+        try:
+            response = self._session().get(path + "/data.svc", headers=headers, timeout=self.timeout_sec)
+            self._check_response(response, "Query execution (check required prompts/contexts)")
+            service = ET.fromstring(response.text)
+            flows = [e.attrib["href"] for e in service.iter()
+                     if e.tag.split("}")[-1] == "collection" and "href" in e.attrib]
+            if not flows:
+                raise RuntimeError("SAP returned no result flow.")
+            if len(flows) > 1:
+                response = self._session().get(path + "/data.svc/$metadata", headers=headers, timeout=self.timeout_sec)
+                self._check_response(response, "Result metadata")
+                metadata = ET.fromstring(response.text)
+                groups = []
+                for entity in metadata.iter():
+                    if entity.tag.split("}")[-1] != "EntityType":
+                        continue
+                    labels = []
+                    for prop in entity:
+                        if prop.tag.split("}")[-1] == "Property":
+                            for annotation in prop:
+                                if annotation.attrib.get("Term") == "sap.label":
+                                    labels.extend(e.text for e in annotation if e.text)
+                    if labels:
+                        groups.append(", ".join(labels))
+                raise ValueError(
+                    "SAP returned separate result flows with different grains. "
+                    "Query one compatible group at a time; do not join by OData Id. "
+                    "Available result groups: " + "; ".join(groups)
+                )
+            flow = flows[0]
+            if not flow or any(c in flow for c in "/:?\\"):
+                raise RuntimeError("Invalid SAP result flow name.")
+            response = self._session().get(path + "/data.svc/$metadata", headers=headers, timeout=self.timeout_sec)
+            self._check_response(response, "Result metadata")
+            metadata = ET.fromstring(response.text)
+            entity_name = next((e.attrib.get("EntityType", "").split(".")[-1]
+                                for e in metadata.iter() if e.tag.split("}")[-1] == "EntitySet"
+                                and e.attrib.get("Name") == flow), None)
+            entity = next((e for e in metadata.iter() if e.tag.split("}")[-1] == "EntityType"
+                           and e.attrib.get("Name") == entity_name), None)
+            if entity is None:
+                raise RuntimeError("SAP result metadata is missing the flow entity type.")
+            keys = {e.attrib["Name"] for e in entity.iter() if e.tag.split("}")[-1] == "PropertyRef"}
+            # SAP exposes selected objects in query order, with an extra OData key.
+            fields = [e.attrib["Name"] for e in entity if e.tag.split("}")[-1] == "Property"
+                      and e.attrib["Name"] not in keys]
+            if len(fields) != len(result_objects):
+                raise RuntimeError("SAP result columns do not match selected objects.")
+            response = self._session().get(
+                path + "/data.svc/" + quote(flow, safe="") + "/$count",
+                headers=self._headers("text/plain"), timeout=self.timeout_sec,
             )
-        payload = resp.json() or {}
-        return self._normalize_result_rows(payload, result_objects)
+            self._check_response(response, "Result row count")
+            total = int(response.text.strip())
+            if total < 0:
+                raise RuntimeError("SAP returned an invalid row count.")
+            rows = []
+            limit = min(total, max_rows) if max_rows is not None and max_rows > 0 else total
+            if limit == 0:
+                return rows
+            for _ in range(100000):
+                size = min(self.page_size, limit - len(rows)) if limit else self.page_size
+                response = self._session().get(
+                    path + "/data.svc/" + quote(flow, safe=""), headers=self._headers(),
+                    params={"$skip": len(rows), "$top": size}, timeout=self.timeout_sec,
+                )
+                self._check_response(response, "Result retrieval")
+                payload = response.json()
+                batch = payload.get("value")
+                if batch is None and isinstance(payload.get("d"), dict):
+                    batch = payload["d"].get("results")
+                if not isinstance(batch, list):
+                    raise RuntimeError("SAP returned an unsupported OData result shape.")
+                if not batch:
+                    raise RuntimeError("SAP ended the result before its reported row count.")
+                for row in batch[:size]:
+                    if not isinstance(row, dict) or any(field not in row for field in fields):
+                        raise RuntimeError("SAP result row is missing selected fields.")
+                    rows.append(dict(zip(result_objects, (row[field] for field in fields))))
+                if limit and len(rows) >= limit:
+                    return rows
+            raise RuntimeError("SAP result exceeded the pagination safety limit.")
+        finally:
+            # Preserve the original query error if cleanup also fails.
+            try:
+                response = self._session().delete(path, headers=headers, timeout=self.timeout_sec)
+                self._check_response(response, "Query cleanup")
+            except Exception:
+                logging.getLogger(__name__).warning("Could not delete temporary SAP query")
 
     @staticmethod
-    def _normalize_result_rows(payload: Dict, result_objects: List[str]) -> List[Dict]:
-        """Normalize a SL result payload into row dicts.
-
-        Handles the common shapes: a columnar ``{"columns": [...], "rows":
-        [[...], ...]}`` block, or an already-tabular ``{"rows": [{...}, ...]}``.
-        """
-        data = payload
-        for key in ("queryData", "dataProvider", "result", "dataset"):
-            if isinstance(data, dict) and isinstance(data.get(key), dict):
-                data = data[key]
-        rows = data.get("rows") if isinstance(data, dict) else None
-        if not rows:
-            return []
-        first = rows[0]
-        # Already tabular: a dict of {objectName: value} (no positional cells).
-        if isinstance(first, dict) and "cells" not in first:
-            return rows
-        # Columnar: rows are positional cell lists (or {"cells": [...]}); map each
-        # cell to its column name.
-        columns = data.get("columns") or result_objects
-        col_names = [
-            (c.get("name") if isinstance(c, dict) else c) for c in columns
-        ]
-        out: List[Dict] = []
-        for r in rows:
-            cells = r.get("cells") if isinstance(r, dict) else r
-            out.append({col_names[i] if i < len(col_names) else f"col{i}": v
-                        for i, v in enumerate(cells or [])})
-        return out
+    def _check_response(response, operation: str):
+        if response.status_code >= 300:
+            raise RuntimeError(
+                f"{operation} failed: HTTP {response.status_code} "
+                f"{BusinessObjectsClient._body_snippet(response)}"
+            )
 
     # ------------------------------------------------------------------
     # Connection test & prompt
@@ -499,6 +577,39 @@ df = db_clients['businessobjects'].execute_query(
 ### Rules
 - FIRST arg = comma-separated result objects; SECOND arg = the universe name
   exactly as shown in the schema.
+- Optional row cap is `max_rows=1000`, never `limit=`. Keep the exact
+  universe name, including `.unx`, as table_name.
+- A universe is a semantic catalog, not a flat physical table. Its objects
+  may belong to incompatible fact tables. Inspect object paths/descriptions;
+  begin with the few objects needed, not every sales/product/date field.
+- For a product listing, query product dimensions only. For product sales,
+  select product dimensions and a relevant measure; this returns aggregates
+  at that grain, not raw transaction records.
+- If SAP reports incompatible tables, remove unrelated object groups.
+  If separate flows are reported, use the listed compatible result groups
+  as separate queries AND separate output tables. Do not automatically merge
+  them in pandas to work around the connector's rejection. Never join flows
+  on their generated OData Id.
+- A shared column name (SKU, store, date, etc.) does not establish a valid
+  relationship. Combine groups only when source metadata or explicit business
+  instructions establish the relationship, grain, and complete join keys.
+  Then check key uniqueness and use pandas merge(validate=...) with the
+  expected cardinality; verify unmatched keys and preservation of measures.
+  Independently capped samples cannot establish complete matching coverage.
+- Never use drop_duplicates(keep='first'/'last'), arbitrary aggregation, or
+  fillna(0) to make incompatible groups join. Multiple labels/promotions may
+  be legitimate distinct records. An unmatched promotion is unknown, not
+  evidence that there was no promotion.
+- For broad requests such as "show sales and promotions", start with a small
+  coherent sales query and a separate promotions table. Explain their grains;
+  do not invent a combined transaction-level dataset. If only one output table
+  is possible, return one coherent group and disclose what it excludes.
+- max_rows caps retrieval BEFORE any pandas sorting or filtering. Sorting a
+  capped result and taking head(N) gives the top/latest N within that sample,
+  not across the universe. Label it as a sample. For a global latest/top-N
+  claim, retrieve the complete relevant result before sorting, or explain that
+  the current query interface cannot establish it. Do not claim missing sampled
+  rows or null joined values prove absence in the source.
 - List the dimensions to group by plus the measures to return. Measures
   aggregate over the selected dimensions automatically.
 - Prefer the universe's defined measures — do not recompute an aggregate the
