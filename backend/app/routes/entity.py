@@ -18,6 +18,7 @@ from app.schemas.entity_schema import (
     EntityFromStepCreate,
     EntityRunPayload,
     EntityPreviewPayload,
+    EntityCodePreviewPayload,
 )
 from app.services.entity_service import EntityService
 
@@ -102,22 +103,79 @@ async def _require_entity_view_access(db, entity_id: str, organization, user) ->
         await _require_ds_access(db, user, organization, ds_ids)
 
 
+async def _resolve_create_tier(db, user, organization, ds_ids: List[str]) -> bool:
+    """The two tiers of the report's "Save Query", for a query written by hand.
+
+    Returns ``can_publish``:
+    - PUBLISH directly: per-DS `create_entities` on every listed agent (agent
+      owners via `manage`, org `manage_entities`, full admins). With no agent
+      the query is org-wide, which stays an org-admin capability.
+    - SUGGEST (draft pending admin approval): any member who can ACCESS every
+      listed agent. Raises 403 when they cannot, or when there is no agent.
+    """
+    if ds_ids:
+        if await _holds_create_entities(db, user, organization, ds_ids):
+            return True
+        await _require_ds_access(db, user, organization, ds_ids)
+        return False
+    from app.core.permission_resolver import resolve_permissions
+    resolved = await resolve_permissions(db, str(user.id), str(organization.id))
+    if resolved.has_org_permission("manage_entities"):
+        return True
+    raise HTTPException(
+        status_code=403,
+        detail="A query without an agent is org-wide and needs 'manage_entities'. "
+               "Attach it to an agent you can access to suggest it for review.",
+    )
+
+
 @router.post("", response_model=EntitySchema)
-@requires_permission('create_entities', resource_scoped=True)
+@requires_permission('create_reports')
 async def create_private_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
 ):
-    """Create a new private entity (auto-published) - Private Published: published, null, published"""
-    if payload.data_source_ids:
-        await check_resource_permissions(
-            db, str(current_user.id), str(organization.id),
-            "data_source", payload.data_source_ids, "create_entities",
-        )
-    entity = await service.create_entity(db, payload, current_user, organization)
+    """Create an entity by hand (the agent panel's "New query").
+
+    Same two tiers as ``/from_step``: holders of per-agent `create_entities`
+    publish (or keep a draft) directly; any other member with access to the
+    agents saves a SUGGESTION — `(published, suggested, draft)` — that an
+    admin reviews, regardless of the `status` they sent.
+    """
+    ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
+    can_publish = await _resolve_create_tier(db, current_user, organization, ds_ids)
+    entity = await service.create_entity(
+        db, payload, current_user, organization, creator_can_publish=can_publish,
+    )
     return EntitySchema.model_validate(entity)
+
+
+@router.post("/preview")
+@requires_permission('create_reports')
+async def preview_code(
+    payload: EntityCodePreviewPayload,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Run code against the chosen agents WITHOUT an entity row — the "try
+    before save" step of the "New query" form. Same tiers as creating one:
+    anyone who may at least suggest a query on these agents (access to every
+    one of them) may preview it; execution always uses the CALLER's
+    credentials, and nothing is persisted. Declared before the
+    `/{entity_id}/...` routes on purpose."""
+    ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
+    await _resolve_create_tier(db, current_user, organization, ds_ids)
+    if not (payload.code or "").strip():
+        raise HTTPException(status_code=400, detail="Code is required")
+    try:
+        return await service.preview_code(
+            db, payload.code, ds_ids, organization, current_user=current_user,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.post("/global", response_model=EntitySchema)

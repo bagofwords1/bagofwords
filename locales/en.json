@@ -3302,6 +3302,15 @@
     }
   },
   "queries": {
+    "newQuery": "New query",
+    "codeLabel": "Code",
+    "run": "Run",
+    "running": "Running…",
+    "runFailed": "Failed to run",
+    "resultsHeading": "Results",
+    "previewRows": "{n} rows",
+    "editQuery": "Edit query",
+    "save": "Save",
     "title": "Queries",
     "published": "Published",
     "draftSuggested": "Draft / Suggested",

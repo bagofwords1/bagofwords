@@ -52,6 +52,9 @@ class EntityBase(BaseModel):
 
 
 class EntityCreate(EntityBase):
+    # Optional on create: the service derives one from the title (unique per
+    # org) when the caller — the manual "New query" form — doesn't send one.
+    slug: Optional[str] = None
     data_source_ids: Optional[List[str]] = []
 
 
@@ -171,5 +174,12 @@ class EntityRunPayload(BaseModel):
 
 class EntityPreviewPayload(BaseModel):
     code: str
+
+
+class EntityCodePreviewPayload(BaseModel):
+    """Stateless preview for the manual "New query" flow: run `code` against
+    the listed agents without any Entity row existing yet."""
+    code: str
+    data_source_ids: List[str] = Field(default_factory=list)
 
 

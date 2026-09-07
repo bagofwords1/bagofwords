@@ -22,7 +22,19 @@
         />
       </div>
       <span class="text-xs text-gray-400 dark:text-gray-500 tabular-nums ms-auto">{{ visible.length }}</span>
+      <button
+        type="button"
+        data-testid="agent-query-new"
+        class="shrink-0 inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+        @click="showCreate = true"
+      >
+        <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
+        {{ $t('queries.newQuery') }}
+      </button>
     </div>
+
+    <!-- "New query" by hand: the same form as the report's Save Query. -->
+    <EntityEditModal v-model="showCreate" :entity-id="null" :detail="null" :ds-id="dsId" @saved="onCreated" />
 
     <div v-if="loading" class="flex items-center gap-2 py-8 justify-center text-xs text-gray-400 dark:text-gray-500">
       <Spinner class="w-3.5 h-3.5" /><span>{{ $t('queries.loading') }}</span>
@@ -84,8 +96,11 @@
 </template>
 
 <script setup lang="ts">
+import { computed, onMounted, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import LibraryIcon from '~/components/icons/LibraryIcon.vue'
+import EntityEditModal from '~/components/entity/EntityEditModal.vue'
+import { useMyFetch } from '~/composables/useMyFetch'
 
 type QueryEntity = {
   id: string
@@ -102,7 +117,22 @@ type QueryEntity = {
 }
 
 const props = defineProps<{ dsId: string }>()
-defineEmits<{ (e: 'select', entity: QueryEntity): void }>()
+const emit = defineEmits<{
+  (e: 'select', entity: QueryEntity): void
+  (e: 'created', entity: QueryEntity): void
+}>()
+
+// Same tiers as the report's Save Query: anyone who can see this agent may
+// at least SUGGEST a query on it (the backend enforces access), entity
+// managers publish — so the affordance shows for every viewer.
+const showCreate = ref(false)
+
+// A new row goes to the top of the list and is handed upward so the explorer
+// can open it (and bump the tree badge) the same way a click would.
+async function onCreated(entity?: QueryEntity) {
+  await load()
+  if (entity?.id) emit('created', entity)
+}
 
 const { t } = useI18n()
 const items = ref<QueryEntity[]>([])
