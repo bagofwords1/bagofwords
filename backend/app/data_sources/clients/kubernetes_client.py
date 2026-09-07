@@ -28,7 +28,9 @@ credential plugins, client certificates, auth providers and the like by name.
 
 Security posture: the token is cluster-wide read-only, so the CONNECTOR is the
 guard against Secrets, not RBAC. There is no `secrets` table, the raw-path
-escape hatch refuses `secrets`/`exec`/`attach`/`portforward`/`proxy` paths,
+escape hatch refuses `secrets`/`exec`/`attach`/`portforward`/`proxy` paths
+(compared after rejecting percent-encoding, since the API server decodes the
+path before routing) and the `watch`/`follow` parameters that open a stream,
 `configmaps` exposes key names only, `raw: true` redacts container env
 literals, and the `kubectl.kubernetes.io/last-applied-configuration`
 annotation is dropped everywhere (it embeds the full spec, env included).
@@ -80,6 +82,18 @@ _INTERNAL_CRD_GROUPS = ("metrics.k8s.io", "apiregistration.k8s.io", "apiextensio
 # Path segments the escape hatch refuses (case-insensitive): Secrets, and
 # subresources that reach INTO a workload rather than describing it.
 _FORBIDDEN_SEGMENTS = {"secrets", "exec", "attach", "portforward", "proxy"}
+
+# Query parameters the escape hatch refuses (case-insensitive): each turns a
+# bounded GET into a stream the API server keeps open for minutes (watch) or
+# forever (follow), which `resp.data` would buffer in memory the whole time.
+_FORBIDDEN_PARAMS = {"watch", "follow", "timeoutseconds", "allowwatchbookmarks", "sendinitialevents"}
+
+# What one path segment may look like. Kubernetes names, groups and versions
+# are DNS labels/subdomains, so nothing legitimate needs `%`, `?`, `#` or
+# whitespace — and the API server percent-DECODES the path before routing, so
+# an encoded `%73ecrets` would slip past a literal comparison. Refusing the
+# characters outright is simpler than decoding and safer than trusting it.
+_PATH_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 _RELATIVE_RE = re.compile(r"^-?(\d+)\s*([smhdw])$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
@@ -1068,13 +1082,37 @@ class KubernetesClient(DataSourceClient):
     def _assert_path_allowed(path: str) -> None:
         if not isinstance(path, str) or not path.startswith("/"):
             raise ValueError("`path` must be an absolute API path such as /apis/apps/v1/deployments.")
-        segments = [s.lower() for s in path.split("?", 1)[0].split("/") if s]
-        bad = _FORBIDDEN_SEGMENTS.intersection(segments)
+        if any(ch in path for ch in "?#"):
+            raise ValueError(
+                f"Path '{path}' is not allowed: query strings are not accepted in `path` — "
+                "pass them in `params` instead."
+            )
+        segments = [s for s in path.split("/") if s]
+        for seg in segments:
+            if not _PATH_SEGMENT_RE.match(seg):
+                raise ValueError(
+                    f"Path '{path}' is not allowed: segment '{seg}' contains characters this connector "
+                    "refuses (only letters, digits, '.', '_' and '-' are accepted; no percent-encoding)."
+                )
+        bad = _FORBIDDEN_SEGMENTS.intersection(s.lower() for s in segments)
         if bad:
             raise ValueError(
                 f"Path '{path}' is not allowed: '{sorted(bad)[0]}' is refused by this connector "
                 "(Secrets and workload subresources are never read)."
             )
+
+    @staticmethod
+    def _assert_name_token(value: Any, field: str) -> str:
+        """A spec value that gets interpolated into an API path (`name`,
+        `namespace`, `pod`) must be a plain Kubernetes name: no '/', '%', '?',
+        '..' or anything else that could re-route the request."""
+        text = str(value)
+        if not _PATH_SEGMENT_RE.match(text):
+            raise ValueError(
+                f"`{field}` value '{text[:100]}' is not a valid Kubernetes name (letters, digits, '.', '_' and "
+                "'-' only)."
+            )
+        return text
 
     def _get(self, api, path: str, params: Optional[dict] = None, *, accept: str = "application/json") -> Any:
         """One GET. Returns parsed JSON (or text for non-JSON bodies). Raises a
@@ -1316,7 +1354,11 @@ class KubernetesClient(DataSourceClient):
             if progress_callback:
                 progress_callback("custom resources", spec["table"], i, total)
             try:
-                probe = self._list_objects(api, spec["api"], spec["plural"], spec["namespaced"], None, {}, limit=1)
+                # Probe inside the connection's namespace allowlist (the same
+                # scope every later query gets), so a kind populated only
+                # outside it is not advertised as a table that never returns rows.
+                probe = self._list_objects(api, spec["api"], spec["plural"], spec["namespaced"],
+                                           list(self.namespaces) or None, {}, limit=1)
             except RuntimeError:
                 continue
             if not probe:
@@ -1411,7 +1453,7 @@ class KubernetesClient(DataSourceClient):
         raw = spec.get("namespace")
         if raw in (None, "", "all", "*"):
             return list(self.namespaces) if self.namespaces else None
-        wanted = self._normalize_namespaces(raw)
+        wanted = [self._assert_name_token(n, "namespace") for n in self._normalize_namespaces(raw)]
         if self.namespaces:
             outside = [n for n in wanted if n not in self.namespaces]
             if outside:
@@ -1437,6 +1479,7 @@ class KubernetesClient(DataSourceClient):
         namespaces = self._resolve_namespaces(spec) if namespaced else None
         name = spec.get("name")
         if name:
+            name = self._assert_name_token(name, "name")
             if not namespaced:
                 return [self._get(api, f"{api_path}/{plural}/{name}")]
             if namespaces and len(namespaces) == 1:
@@ -1485,7 +1528,16 @@ class KubernetesClient(DataSourceClient):
 
     def _query_path(self, api, spec: dict, limit: int) -> pd.DataFrame:
         path = spec["path"]
-        params = dict(spec.get("params") or {})
+        params = spec.get("params") or {}
+        if not isinstance(params, dict):
+            raise ValueError('`params` must be a JSON object of query parameters, e.g. {"labelSelector": "app=x"}.')
+        params = dict(params)
+        streaming = sorted(k for k in params if str(k).lower() in _FORBIDDEN_PARAMS)
+        if streaming:
+            raise ValueError(
+                f"Query parameter(s) {', '.join(streaming)} are not allowed: they turn the request into an "
+                "open-ended stream (watch/follow) instead of a bounded list."
+            )
         body = self._get(api, path, params) if "limit" in params else None
         if body is None:
             body = {}
@@ -1557,6 +1609,8 @@ class KubernetesClient(DataSourceClient):
         pod, selector = spec.get("pod"), spec.get("label_selector")
         if not pod and not selector:
             raise ValueError('The "logs" table requires a "pod" name (with "namespace") or a "label_selector".')
+        if pod:
+            pod = self._assert_name_token(pod, "pod")
         namespaces = self._resolve_namespaces(spec)
         params = {"labelSelector": selector}
         if pod:
@@ -1572,7 +1626,12 @@ class KubernetesClient(DataSourceClient):
         tail = min(int(spec.get("tail_lines") or self.log_tail_default), self.log_tail_max)
         since = parse_duration_seconds(spec.get("since"))
         previous = bool(spec.get("previous"))
-        grep = re.compile(spec["grep"]) if spec.get("grep") else None
+        grep = None
+        if spec.get("grep"):
+            try:
+                grep = re.compile(str(spec["grep"]))
+            except re.error as e:
+                raise ValueError(f"`grep` is not a valid regular expression ({e}): {str(spec['grep'])[:100]}") from None
         wanted_container = spec.get("container")
 
         rows: List[dict] = []
@@ -1647,7 +1706,8 @@ class KubernetesClient(DataSourceClient):
            "container": "app", "since": "-30m", "tail_lines": 500, "previous": false, "grep": "ERROR|timeout"}
         - Escape hatch — any GET list path:
           {"path": "/apis/apps/v1/namespaces/payments/deployments", "params": {"labelSelector": "app=x"}}.
-          Secrets and exec/attach/portforward/proxy paths are refused.
+          Secrets and exec/attach/portforward/proxy paths are refused, as are the streaming
+          parameters watch/follow. Put query parameters in `params`, never in `path`.
 
         IMPORTANT specifics:
         - Quantities are normalized: cpu in MILLICORES (250m → 250, 2 → 2000), memory/storage
@@ -1683,7 +1743,3 @@ class KubernetesClient(DataSourceClient):
         ```
         """
 
-
-# Alias so dynamic naming ("Kubernetes" → "KubernetesClient") and the explicit
-# client_path both resolve to the same class.
-KubernetesClient = KubernetesClient

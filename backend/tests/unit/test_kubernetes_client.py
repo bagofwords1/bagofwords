@@ -15,7 +15,8 @@ Covers:
   flattening, endpoint-slice readiness, events `since`), server-side
   selectors passed through, namespace allowlist enforcement, single-object
   fetch, `raw` redaction, logs fan-out / caps / previous / grep, metrics rows,
-  the escape hatch and what it refuses
+  the escape hatch and what it refuses (forbidden segments, percent-encoded
+  or query-string smuggling of them, and the watch/follow streaming params)
 - test_connection(): counts on success, the not-cluster-wide 403, expired 401,
   TLS/transport failures
 - registry: entry, single system-scoped auth variant, three-step setup guide,
@@ -472,6 +473,20 @@ class TestCatalog:
         assert not [t for t in make_client(discover_crds=False).get_schemas() if t.name.startswith(kc.CRD_TABLE_PREFIX)]
         assert not [t for t in make_client(max_crd_tables=0).get_schemas() if t.name.startswith(kc.CRD_TABLE_PREFIX)]
 
+    def test_crd_probe_is_scoped_to_the_namespace_allowlist(self, fake_api):
+        # Widgets live in `payments` and `inventory` only. A connection
+        # allowlisted to another namespace must not advertise the table (every
+        # query it could run is scoped to the allowlist and would come back
+        # empty), and the probe must hit the namespaced path, never the
+        # cluster-wide one.
+        names = {t.name for t in make_client(namespaces="kube-system").get_schemas()}
+        assert "crd::example.com/Widget" not in names
+        widget_calls = [p for p, _, _ in fake_api.calls if p.endswith("/widgets")]
+        assert widget_calls and all("/namespaces/kube-system/" in p for p in widget_calls)
+        # …and allowlisting the populated namespace keeps it.
+        names = {t.name for t in make_client(namespaces="payments").get_schemas()}
+        assert "crd::example.com/Widget" in names
+
     def test_discovery_reports_progress_and_survives_crd_errors(self, fake_api):
         seen = []
         make_client().get_schemas(progress_callback=lambda phase, item, done, total: seen.append((phase, item)))
@@ -562,6 +577,15 @@ class TestPods:
         with pytest.raises(RuntimeError) as e:
             c.execute_query('{"table": "deployments", "namespace": "payments", "name": "missing"}')
         assert "not found" in str(e.value).lower()
+
+    @pytest.mark.parametrize("field, value", [
+        ("name", "../secrets/tls"), ("name", "checkout%2Fsecrets"), ("name", "x?watch=true"),
+        ("namespace", "default/secrets"), ("namespace", "%64efault"), ("namespace", ".."),
+    ])
+    def test_name_and_namespace_cannot_smuggle_path_segments(self, fake_api, field, value):
+        with pytest.raises(ValueError, match=field):
+            make_client().execute_query(json.dumps({"table": "pods", "namespace": "payments", field: value}))
+        assert not fake_api.calls                      # refused before any request
 
     def test_cluster_scoped_kinds_ignore_namespace(self, fake_api):
         make_client().execute_query('{"table": "storage_classes", "namespace": "payments"}')
@@ -701,6 +725,16 @@ class TestLogs:
         list_call = next(q for p, q, _ in fake_api.calls if p == "/api/v1/namespaces/payments/pods")
         assert list_call["labelSelector"] == "app=checkout" and list_call["limit"] == 1
 
+    def test_invalid_grep_is_a_named_value_error(self, fake_api):
+        with pytest.raises(ValueError, match="grep"):
+            make_client().execute_query(json.dumps({"table": "logs", "namespace": "payments", "pod": seeded_pod("fraud-scorer"), "grep": "error("}))
+        assert not [p for p, _, _ in fake_api.calls if p.endswith("/log")]   # rejected before fetching
+
+    def test_pod_name_cannot_smuggle_path_segments(self, fake_api):
+        with pytest.raises(ValueError, match="pod"):
+            make_client().execute_query('{"table": "logs", "namespace": "payments", "pod": "p/../../secrets"}')
+        assert not fake_api.calls
+
     def test_missing_previous_run_becomes_a_row_not_an_error(self, fake_api):
         df = make_client().execute_query('{"table": "logs", "namespace": "payments", "pod": "gpu-batch"}')
         assert len(df) == 1 and df.iloc[0]["line"].startswith("<no logs")
@@ -716,6 +750,31 @@ class TestEscapeHatch:
         with pytest.raises(ValueError):
             make_client().execute_query(json.dumps({"path": path}))
         assert not [p for p, _, _ in fake_api.calls if "secret" in p or "exec" in p or "proxy" in p]
+
+    @pytest.mark.parametrize("path", [
+        "/api/v1/namespaces/default/%73ecrets",          # the API server decodes %73 → 's' before routing
+        "/api/v1/namespaces/default%2Fsecrets",           # %2F → '/' splits into a secrets segment server-side
+        "/api/v1/SECRETS", "/api/v1/namespaces/x/pods/p/EXEC",
+        "/api/v1/pods?watch=true", "/api/v1/pods#x", "/api/v1/../secrets", "/api/v1/pods/a b",
+    ])
+    def test_encoded_query_string_and_dot_segments_refused(self, fake_api, path):
+        with pytest.raises(ValueError):
+            make_client().execute_query(json.dumps({"path": path}))
+        assert not fake_api.calls
+
+    @pytest.mark.parametrize("params", [
+        {"watch": "true", "limit": 1}, {"watch": "1"}, {"Watch": "true"}, {"follow": "true"},
+        {"timeoutSeconds": 3600}, {"allowWatchBookmarks": "true"}, {"sendInitialEvents": "true"},
+    ])
+    def test_streaming_params_refused(self, fake_api, params):
+        with pytest.raises(ValueError, match="stream"):
+            make_client().execute_query(json.dumps({"path": "/api/v1/events", "params": params}))
+        assert not fake_api.calls
+
+    def test_params_must_be_an_object(self, fake_api):
+        with pytest.raises(ValueError, match="params"):
+            make_client().execute_query('{"path": "/api/v1/events", "params": "watch=true"}')
+        assert not fake_api.calls
 
     def test_list_path_returns_rows_with_metadata(self, fake_api):
         df = make_client().execute_query('{"path": "/apis/apps/v1/namespaces/payments/deployments", "params": {"labelSelector": "app.kubernetes.io/name=checkout"}}')
@@ -786,6 +845,7 @@ class TestRegistry:
 
         entry = get_entry("kubernetes")
         assert resolve_client_class("kubernetes") is KubernetesClient
+        assert kc.KubernetesClient is KubernetesClient   # the module attribute itself, no alias needed
         assert list(entry.credentials_auth.by_auth) == ["access_file"]
         assert entry.credentials_auth.by_auth["access_file"].scopes == ["system"]
         assert entry.category == "infra" and entry.requires_license == "enterprise" and entry.is_connection
