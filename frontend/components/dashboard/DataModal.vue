@@ -2,7 +2,7 @@
   <!-- The trigger is optional: ArtifactFrame lists "Data" in its overflow
        menu and opens this modal through the exposed open() instead. -->
   <UTooltip v-if="!hideTrigger" :text="$t('artifactFrame.viewData')">
-    <button @click="openModal" class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
+    <button @click="openModal" class="p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center">
       <Icon name="heroicons:circle-stack" class="w-3.5 h-3.5 text-gray-500 dark:text-gray-400" />
     </button>
   </UTooltip>

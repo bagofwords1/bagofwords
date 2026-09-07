@@ -118,21 +118,8 @@
       <div class="flex items-center gap-2">
         <span v-if="isLoading" class="text-xs text-gray-400">{{ t('artifactFrame.loading') }}</span>
 
-        <!-- Query manager and scheduler keep their modals mounted here but
-             render no trigger: both are opened from the overflow menu. -->
-        <DataModal
-          v-if="report"
-          ref="dataModalRef"
-          hide-trigger
-          :report-id="reportId"
-          :artifact-id="selectedArtifact?.id"
-          :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
-          :artifact-mode="selectedArtifact?.mode"
-        />
-        <CronModal v-if="report" ref="cronModalRef" hide-trigger :report="report" />
-
-        <!-- Refresh Dashboard (rerun + refresh). The one everyday action, so
-             it stays a visible button.
+        <!-- Refresh Dashboard (rerun + refresh). Everyday action, so it stays
+             a visible button.
              Disabled while previewing as someone else: neither refresh
              endpoint takes run_as_user_id, so the rerun would resolve
              identity params as YOU and replace what is on screen while the
@@ -148,17 +135,20 @@
           </button>
         </UTooltip>
 
-        <!-- Download stays a visible button (also listed under ⋯). The list
-             comes from useArtifactExports so this toolbar and the public
-             share page agree on what a given artifact can produce. -->
-        <ExportMenu
-          :options="availableExports"
-          :busy="isExporting"
-          @select="handleExport"
+        <!-- Data (query manager) and Schedule stay visible next to Refresh:
+             the three things a dashboard owner touches routinely. Each
+             component renders its own trigger and keeps its modal mounted. -->
+        <DataModal
+          v-if="report"
+          :report-id="reportId"
+          :artifact-id="selectedArtifact?.id"
+          :artifact-viz-ids="selectedArtifact?.content?.visualization_ids || []"
+          :artifact-mode="selectedArtifact?.mode"
         />
+        <CronModal v-if="report" :report="report" compact />
 
         <!-- Everything used less than daily lives behind one ⋯ with labelled
-             rows: rename, data, schedule, every export, full screen, new tab.
+             rows: rename, every export (download), full screen, new tab.
              Icon-only buttons for all of these made the bar unreadable. -->
         <UDropdown
           v-if="moreMenuItems.length"
@@ -1452,9 +1442,6 @@ async function saveRename() {
 watch(selectedArtifactId, () => { if (isRenaming.value) cancelRename(); });
 
 // --- Overflow (⋯) menu ---------------------------------------------------
-const dataModalRef = ref<any>(null);
-const cronModalRef = ref<any>(null);
-
 type MenuItem = { label: string; icon: string; click: () => void; disabled?: boolean };
 
 // Groups render with dividers between them (Nuxt UI takes an array of
@@ -1463,12 +1450,6 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
   const edit: MenuItem[] = [];
   if (canRename.value) {
     edit.push({ label: t('artifactFrame.rename'), icon: 'i-heroicons-pencil', click: startRename });
-  }
-
-  const manage: MenuItem[] = [];
-  if (props.report) {
-    manage.push({ label: t('artifactFrame.viewData'), icon: 'i-heroicons-circle-stack', click: () => dataModalRef.value?.open?.() });
-    manage.push({ label: t('artifactFrame.schedule'), icon: 'i-heroicons-clock', click: () => cronModalRef.value?.open?.() });
   }
 
   // The .md source download is doc-only; PDF/PPTX/HTML come from
@@ -1496,7 +1477,7 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
     view.push({ label: t('artifactFrame.openInNewTab'), icon: 'i-heroicons-arrow-top-right-on-square', click: () => window.open(`/r/${props.report.id}`, '_blank', 'noopener') });
   }
 
-  return [edit, manage, exports, view].filter(g => g.length > 0);
+  return [edit, exports, view].filter(g => g.length > 0);
 });
 
 // --- Viewer-run gate state (per-user dashboards viewed by a non-owner) ---
