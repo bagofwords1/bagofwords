@@ -1,67 +1,78 @@
 <template>
-  <div v-if="templates.length > 0" class="mb-6">
-    <button
-      class="w-full flex items-center justify-between text-start group"
-      @click="toggleCollapsed"
-    >
-      <div>
-        <div class="text-xs font-semibold text-gray-700 dark:text-gray-300 uppercase tracking-wide">
-          {{ $t('scheduledTemplates.suggested') }}
-        </div>
-        <div v-if="!collapsed" class="mt-0.5 text-[11px] text-gray-400 dark:text-gray-500">
-          {{ $t('scheduledTemplates.subtitle') }}
-        </div>
-      </div>
-      <UIcon
-        name="heroicons-chevron-down"
-        class="w-4 h-4 text-gray-400 transition-transform"
-        :class="{ '-rotate-90': collapsed }"
-      />
-    </button>
-
-    <div v-if="!collapsed" class="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div
-        v-for="entry in templates"
-        :key="entry.key"
-        class="border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 cursor-pointer hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all"
-        :data-testid="`template-card-${entry.key}`"
-        @click="openDetails(entry)"
-      >
-        <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0 flex-1">
-            <div class="flex items-center gap-1.5">
-              <UIcon v-if="entry.icon" :name="entry.icon" class="w-4 h-4 text-blue-500 shrink-0" />
-              <span class="text-sm font-medium text-gray-900 dark:text-white truncate">
-                {{ entryTitle(entry) }}
-              </span>
-            </div>
-            <p class="mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-2">
-              {{ entryDescription(entry) }}
-            </p>
-            <div class="mt-2 flex items-center gap-2 text-[11px] text-gray-400 dark:text-gray-500">
-              <UIcon name="heroicons-clock" class="w-3 h-3 shrink-0" />
-              {{ getCronLabel(entry.cron_schedule || entry.default_cron) }}
-              <span v-if="entry.paused" class="text-amber-500">{{ $t('scheduledTemplates.pausedHint') }}</span>
-            </div>
-          </div>
-          <UTooltip :text="entry.enabled ? $t('scheduledTemplates.disable') : $t('scheduledTemplates.enable')">
-            <button
-              @click.stop="toggle(entry)"
-              :disabled="busyKey === entry.key"
-              class="relative inline-flex h-4 w-7 items-center rounded-full transition-colors disabled:opacity-50 shrink-0 mt-0.5"
-              :class="entry.enabled ? 'bg-blue-500' : 'bg-gray-300 dark:bg-gray-700'"
-              :aria-pressed="entry.enabled"
-              :data-testid="`template-toggle-${entry.key}`"
-            >
-              <span
-                class="inline-block h-3 w-3 rounded-full bg-white transition-transform"
-                :class="entry.enabled ? 'translate-x-3.5' : 'translate-x-0.5'"
-              />
-            </button>
-          </UTooltip>
-        </div>
+  <div>
+    <!-- Cards (variant "cards"): the templates not set up yet, inside the
+         empty state. Once a template is enabled it lives in the task list
+         only, under its "Template" badge — never in two places. -->
+    <div v-if="variant === 'cards' && available.length" data-testid="suggested-templates">
+      <div class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-2 text-center">{{ $t('scheduledTemplates.startWith') }}</div>
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-start">
+        <TemplateCard v-for="entry in available" :key="entry.key" :entry="entry" />
       </div>
     </div>
+
+    <!-- Drawer: "From template" in the toolbar. A quiet side panel — the
+         templates not set up yet as a gallery, each with its schedule and
+         one-click Enable; clicking a card opens the New task form prefilled
+         from the template, every field editable. -->
+    <USlideover v-model="showDrawer" :ui="{ width: 'max-w-md' }">
+      <!-- The onboarding/license banner is fixed above every overlay (z-1000);
+           the drawer is full-height, so its header would sit under it. -->
+      <div class="h-full flex flex-col bg-white dark:bg-gray-900" :style="showTopBanner ? { paddingTop: bannerHeight } : undefined" data-testid="template-drawer">
+        <div class="relative px-5 pt-5 pb-4 border-b border-gray-100 dark:border-gray-800 overflow-hidden">
+          <div class="absolute inset-0 bg-gradient-to-br from-blue-50/80 via-transparent to-transparent dark:from-blue-500/10 pointer-events-none" />
+          <div class="relative flex items-start justify-between gap-3">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-blue-50 dark:bg-blue-500/15 text-blue-500">
+                  <UIcon name="heroicons-sparkles" class="w-4 h-4" />
+                </span>
+                <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('scheduledTemplates.drawerTitle') }}</h3>
+              </div>
+              <p class="mt-2 text-xs leading-relaxed text-gray-500 dark:text-gray-400 max-w-xs">{{ $t('scheduledTemplates.drawerSubtitle') }}</p>
+            </div>
+            <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark-20-solid" size="xs" @click="showDrawer = false" />
+          </div>
+        </div>
+
+        <div class="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          <div
+            v-for="(entry, i) in available"
+            :key="entry.key"
+            class="tpl-enter group rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 hover:border-blue-200 dark:hover:border-blue-500/40 hover:shadow-[0_6px_24px_-12px_rgba(37,99,235,0.35)] transition-all cursor-pointer"
+            :style="{ animationDelay: `${i * 60}ms` }"
+            :data-testid="`template-drawer-card-${entry.key}`"
+            @click="customize(entry)"
+          >
+            <div class="flex items-start gap-3">
+              <span class="shrink-0 inline-flex items-center justify-center w-9 h-9 rounded-lg bg-blue-50 dark:bg-blue-500/15 text-blue-500 group-hover:bg-blue-100 dark:group-hover:bg-blue-500/25 transition-colors">
+                <UIcon :name="entry.icon || 'heroicons-sparkles'" class="w-4.5 h-4.5" />
+              </span>
+              <div class="min-w-0 flex-1">
+                <div class="text-sm font-medium text-gray-900 dark:text-white">{{ entryTitle(entry) }}</div>
+                <p class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ entryDescription(entry) }}</p>
+              </div>
+            </div>
+            <div class="mt-3 flex items-center justify-between gap-2">
+              <span class="inline-flex items-center gap-1 text-[11px] text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-full px-2 py-0.5">
+                <UIcon name="heroicons-clock" class="w-3 h-3" />
+                {{ getCronLabel(entry.cron_schedule || entry.default_cron) }}
+              </span>
+              <div class="flex items-center gap-1">
+                <button
+                  type="button"
+                  class="h-7 px-3 rounded-md text-xs font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-600 dark:text-blue-300 hover:bg-blue-100 dark:hover:bg-blue-500/25 transition-colors disabled:opacity-50"
+                  :disabled="busyKey === entry.key"
+                  :data-testid="`template-drawer-enable-${entry.key}`"
+                  @click.stop="enableFromDrawer(entry)"
+                >{{ busyKey === entry.key ? $t('scheduled.creating') : $t('scheduledTemplates.enable') }}</button>
+              </div>
+            </div>
+          </div>
+
+          <p v-if="!available.length" class="py-10 text-center text-xs text-gray-400 dark:text-gray-500">{{ $t('scheduledTemplates.allEnabled') }}</p>
+        </div>
+      </div>
+    </USlideover>
 
     <!-- Details: full prompt + schedule, and (pre-enable) the agent scope -->
     <UModal v-model="showDetails">
@@ -173,6 +184,7 @@
 </template>
 
 <script setup lang="ts">
+import { computed, defineComponent, h, resolveComponent, type PropType } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ScheduledPromptModal from '~/components/ScheduledPromptModal.vue'
 
@@ -192,6 +204,11 @@ interface TemplateEntry {
   duplicate_count: number
 }
 
+const props = withDefaults(defineProps<{
+  /** cards: grid inside the empty state · menu: modals only (the "From
+   *  template" menu in ScheduledTab lists `available` and calls openDetails) */
+  variant?: 'cards' | 'menu'
+}>(), { variant: 'menu' })
 const emit = defineEmits<{ (e: 'changed'): void }>()
 
 const toast = useToast()
@@ -202,14 +219,6 @@ const templates = ref<TemplateEntry[]>([])
 // Server state drives the toggles: the switch flips only once enable/disable
 // lands, so a failed request never shows a template as enabled.
 const busyKey = ref<string | null>(null)
-
-const COLLAPSE_KEY = 'bow:suggestedTemplatesCollapsed'
-const collapsed = ref(false)
-try { collapsed.value = localStorage.getItem(COLLAPSE_KEY) === '1' } catch { /* private mode */ }
-const toggleCollapsed = () => {
-  collapsed.value = !collapsed.value
-  try { localStorage.setItem(COLLAPSE_KEY, collapsed.value ? '1' : '0') } catch { /* ignore */ }
-}
 
 // Registry copy ships in English; translate by key when the locale has it.
 const entryTitle = (entry: TemplateEntry) => {
@@ -222,6 +231,46 @@ const entryDescription = (entry: TemplateEntry) => {
 }
 
 const hasInstance = (entry: TemplateEntry) => entry.enabled || entry.paused
+// Only templates not set up yet are offered; set-up ones are tasks in the list.
+const available = computed(() => templates.value.filter((e) => !hasInstance(e)))
+
+// One card in the empty state: click opens the New task form prefilled,
+// the Enable button enables with template defaults. A single action per
+// surface — no switch inside a clickable card.
+const TemplateCard = defineComponent({
+  props: { entry: { type: Object as PropType<TemplateEntry>, required: true } },
+  setup(cardProps) {
+    return () => {
+      const entry = cardProps.entry
+      return h('div', {
+        class: 'border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-900 rounded-lg p-4 cursor-pointer hover:shadow-md hover:border-gray-200 dark:hover:border-gray-700 transition-all',
+        'data-testid': `template-card-${entry.key}`,
+        onClick: () => customize(entry),
+      }, [
+        h('div', { class: 'flex items-start justify-between gap-3' }, [
+          h('div', { class: 'min-w-0 flex-1' }, [
+            h('div', { class: 'flex items-center gap-1.5' }, [
+              entry.icon ? h(resolveComponent('UIcon'), { name: entry.icon, class: 'w-4 h-4 text-blue-500 shrink-0' }) : null,
+              h('span', { class: 'text-sm font-medium text-gray-900 dark:text-white truncate' }, entryTitle(entry)),
+            ]),
+            h('p', { class: 'mt-1 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 line-clamp-2' }, entryDescription(entry)),
+            h('div', { class: 'mt-2 flex items-center gap-1.5 text-[11px] text-gray-400 dark:text-gray-500' }, [
+              h(resolveComponent('UIcon'), { name: 'heroicons-clock', class: 'w-3 h-3 shrink-0' }),
+              getCronLabel(entry.cron_schedule || entry.default_cron),
+            ]),
+          ]),
+          h('button', {
+            type: 'button',
+            class: 'shrink-0 h-7 px-2.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50',
+            disabled: busyKey.value === entry.key,
+            'data-testid': `template-enable-${entry.key}`,
+            onClick: (e: Event) => { e.stopPropagation(); toggle(entry) },
+          }, busyKey.value === entry.key ? t('scheduled.creating') : t('scheduledTemplates.enable')),
+        ]),
+      ])
+    }
+  },
+})
 
 // ── Details modal + pre-enable agent scope ─────────────────────────────────
 const showDetails = ref(false)
@@ -302,6 +351,16 @@ const toggle = (entry: TemplateEntry) => {
   callTemplateAction(entry, entry.enabled ? 'disable' : 'enable')
 }
 
+// ── Drawer ("From template") ───────────────────────────────────────────────
+const showDrawer = ref(false)
+const { showTopBanner, bannerHeight } = useTopBanner()
+const openDrawer = () => { showDrawer.value = true }
+const enableFromDrawer = async (entry: TemplateEntry) => {
+  const ok = await callTemplateAction(entry, 'enable')
+  // The last template enabled: nothing left to offer, so close.
+  if (ok && !available.value.length) showDrawer.value = false
+}
+
 // Enable from the details modal: honor the agent picker. Only sent when a
 // fresh instance is being created — resuming a paused one ignores scope.
 const enableFromDetails = async () => {
@@ -329,26 +388,33 @@ const customizeEntry = ref<TemplateEntry | null>(null)
 const customizeAgents = ref<{ id: string; name: string }[]>([])
 
 // Same shape as ScheduledTab.openNewTask: a task needs a host report, so
-// create one first (scoped to the picked agents) and open the modal on it.
-const customizeFromDetails = async () => {
-  const entry = detailsEntry.value
+// create one first (scoped to the picked agents) and open the modal on it,
+// prefilled from the template with every field editable.
+const customize = async (entry: TemplateEntry, agentIds?: string[]) => {
   if (!entry || customizing.value) return
   customizing.value = true
   try {
+    // A card click has no picker: default to every usable agent, the same
+    // scope one-click Enable uses.
+    if (!agentIds) {
+      await fetchAgents()
+      agentIds = agents.value.map((a) => a.id)
+    }
     const response = await useMyFetch('/reports', {
       method: 'POST',
       body: JSON.stringify({
         title: entryTitle(entry),
         files: [],
-        data_sources: selectedAgentIds.value,
+        data_sources: agentIds,
       }),
     })
     if ((response as any).error?.value) throw new Error('Report creation failed')
     const report = (response as any).data?.value as any
     customizeEntry.value = entry
-    customizeAgents.value = agents.value.filter((a) => selectedAgentIds.value.includes(a.id))
+    customizeAgents.value = agents.value.filter((a) => agentIds!.includes(a.id))
     customizeReportId.value = report.id
     showDetails.value = false
+    showDrawer.value = false
     showCustomize.value = true
   } catch (error) {
     console.error('Error starting template customization:', error)
@@ -356,6 +422,9 @@ const customizeFromDetails = async () => {
   } finally {
     customizing.value = false
   }
+}
+const customizeFromDetails = () => {
+  if (detailsEntry.value) customize(detailsEntry.value, selectedAgentIds.value)
 }
 
 const onCustomizeSaved = () => {
@@ -376,7 +445,7 @@ const fetchTemplates = async () => {
   }
 }
 
-defineExpose({ refresh: fetchTemplates })
+defineExpose({ refresh: fetchTemplates, available, openDetails, openDrawer, customize })
 
 onMounted(fetchTemplates)
 </script>
@@ -388,5 +457,16 @@ onMounted(fetchTemplates)
   line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+</style>
+
+<style scoped>
+.tpl-enter { animation: tpl-in 320ms cubic-bezier(.2,.7,.2,1) both; }
+@keyframes tpl-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .tpl-enter { animation: none; }
 }
 </style>

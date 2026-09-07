@@ -4390,8 +4390,6 @@
     "project": "Project"
   },
   "scheduledTemplates": {
-    "suggested": "Suggested",
-    "subtitle": "Ready-made scheduled tasks — flip one on to try it",
     "enable": "Enable",
     "disable": "Pause",
     "customize": "Customize",
@@ -4413,7 +4411,12 @@
         "title": "Monthly trends recap",
         "description": "Month-over-month trends from your data, with callbacks to previous months, on the 1st of each month."
       }
-    }
+    },
+    "startWith": "Start with a template",
+    "fromTemplate": "From template",
+    "drawerTitle": "Templates",
+    "drawerSubtitle": "Ready-made scheduled tasks. Enable one as is, or click it to edit everything first.",
+    "allEnabled": "All templates are set up."
   },
   "errorPage": {
     "notFoundTitle": "404",
