@@ -3308,7 +3308,7 @@ class DataSourceService:
         # with the conditional joins below). NULL connection_table_id (legacy
         # tables) is kept.
         _FILE_SOURCE_TYPES = [
-            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "onedrive", "google_drive",
+            "network_dir", "s3", "sharepoint", "sharepoint_onprem", "documentum", "onedrive", "google_drive",
             "outlook_mail", "gmail_mail",
         ]
         _file_ct_subq = None

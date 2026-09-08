@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.557 (September 8, 2026)
+- Added an OpenText Documentum file connector, shipping as beta: browse, search and read documents from a repository over Documentum REST Services, scoped to a root folder, with repository username/password, an OTDS client, per-user OTDS impersonation, or OTDS sign-in (#1097)
+
 ## Version 0.0.556 (September 8, 2026)
 - Added a read-only Kubernetes connector (infra, enterprise): workloads, nodes, events, networking, storage, discovered CRDs, metrics-server usage and pod logs are cataloged as tables, authenticated with a service-account bearer token and a cluster-wide read-only RBAC manifest. The connect form can now render a numbered setup guide with copy buttons above the fields, and hides the "Require user authentication" toggle for connectors without a per-user auth variant (#1087)
 - Postgres data sources gain an `sslmode` setting, so providers that reject unencrypted logins (such as AWS RDS with IAM auth) can be connected with `require` or stricter; the default `prefer` leaves existing connections unchanged (#1089)
