@@ -141,6 +141,17 @@ def test_registry_gates_tools_to_training_mode():
             assert not (new_tools & names), (mode, new_tools & names)
 
 
+def test_registry_offers_artifact_tools_in_training_mode():
+    from app.ai.registry import ToolRegistry
+    r = ToolRegistry()
+    artifact_tools = {"create_doc", "create_artifact"}
+    for mode in ("chat", "training"):
+        names = {t["name"] for t in r.get_catalog_for_plan_type("action", mode=mode)}
+        assert artifact_tools <= names, (mode, artifact_tools - names)
+    names = {t["name"] for t in r.get_catalog_for_plan_type("action", mode="knowledge")}
+    assert not (artifact_tools & names), artifact_tools & names
+
+
 @pytest.mark.asyncio
 async def test_list_connections_scoped_to_create_tier():
     ids = await _seed()
