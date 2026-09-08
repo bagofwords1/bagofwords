@@ -21,12 +21,13 @@ class PostgresqlClient(DataSourceClient):
     # of literal dates that go stale when saved code is re-executed.
     relative_date_hint = "Relative dates (PostgreSQL): CURRENT_DATE, CURRENT_DATE - INTERVAL '7 days', date_trunc('month', CURRENT_DATE); the clock is the DB server's."
 
-    def __init__(self, host, port, database, user, password="", schema=None):
+    def __init__(self, host, port, database, user, password="", schema=None, sslmode="prefer"):
         self.host = host
         self.port = port
         self.database = database
         self.user = user
         self.password = password
+        self.sslmode = sslmode
         # Optional schema or comma-separated list of schemas
         self.schema = schema
         self._schemas = []
@@ -54,7 +55,7 @@ class PostgresqlClient(DataSourceClient):
         """Yield a connection to a Postgres db."""
         conn = None
         try:
-            engine = get_engine(self.pg_uri)
+            engine = get_engine(self.pg_uri, connect_args={"sslmode": self.sslmode})
             conn = engine.connect()
             # Set search_path if schemas are provided
             if self._schemas:
