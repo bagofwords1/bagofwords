@@ -3834,7 +3834,14 @@
       "emptyTitle": "Inga körningar matchar",
       "emptySubtitle": "Prova ett bredare intervall, eller något av dessa:",
       "showingOf": "Visar {n} av {total}",
-      "loadMore": "Ladda fler"
+      "loadMore": "Ladda fler",
+      "statusStale": "hängande",
+      "staleHelp": "Fortfarande markerad som pågående efter en timme; körningen avslutades aldrig.",
+      "notIndexed": "Inte indexerad ännu",
+      "unindexedNote": "{n} körningar inte indexerade ännu",
+      "unindexedHelp": "Svepet indexerar fortfarande äldre körningar. Kostnad, tokens, verktyg och betyg visas allt eftersom.",
+      "openCall": "Öppna detta anrop i spårningen",
+      "tableTitle": "Filtrera till körningar som frågade {table}"
     },
     "title": "Övervakning",
     "tabExplore": "Utforska",

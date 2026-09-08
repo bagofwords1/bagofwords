@@ -42,6 +42,7 @@
             :sort="dq.sort.value"
             :dir="dq.dir.value"
             @open="openTrace"
+            @open-call="openCall"
             @expand="loadCalls"
             @pivot="terms => terms && addTerms(terms)"
             @sort="onSort"
@@ -53,6 +54,7 @@
             v-model="showTrace"
             :report-id="traceItem?.report.id || ''"
             :completion-id="traceItem?.completion_id || ''"
+            :tool-execution-id="traceCallId || undefined"
         />
     </div>
 </template>
@@ -141,8 +143,16 @@ const loadCalls = (item: RunItem) => {
 
 const showTrace = ref(false)
 const traceItem = ref<RunItem | null>(null)
+const traceCallId = ref<string | null>(null)
 const openTrace = (item: RunItem) => {
     traceItem.value = item
+    traceCallId.value = null
+    showTrace.value = true
+}
+// A tool call row opens the same modal, landed on that call.
+const openCall = (item: RunItem, call: ToolCall) => {
+    traceItem.value = item
+    traceCallId.value = call.id
     showTrace.value = true
 }
 </script>

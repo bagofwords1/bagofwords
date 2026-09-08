@@ -3834,7 +3834,14 @@
       "emptyTitle": "Nenhuma execução corresponde",
       "emptySubtitle": "Tente um período maior, ou uma destas:",
       "showingOf": "Mostrando {n} de {total}",
-      "loadMore": "Carregar mais"
+      "loadMore": "Carregar mais",
+      "statusStale": "travado",
+      "staleHelp": "Ainda marcado como em execução após uma hora; esta execução nunca terminou.",
+      "notIndexed": "Ainda não indexado",
+      "unindexedNote": "{n} execuções ainda não indexadas",
+      "unindexedHelp": "A varredura ainda está indexando execuções antigas. Custo, tokens, ferramentas e notas aparecem conforme são indexados.",
+      "openCall": "Abrir esta chamada no rastreamento",
+      "tableTitle": "Filtrar execuções que consultaram {table}"
     },
     "title": "Monitoramento",
     "tabExplore": "Explorar",

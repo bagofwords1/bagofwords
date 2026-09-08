@@ -7,6 +7,12 @@
                     {{ $t('monitoring.diagnosis.summaryLine', { total: totalInRange.toLocaleString(), range: rangeLabel, errors: summary.errors.toLocaleString(), p50: fmtDuration(summary.p50_ms), cost: fmtCost(summary.cost_usd), users: summary.users }) }}
                     <span v-if="ms != null" class="text-gray-300"> · {{ ms }}ms</span>
                 </span>
+                <UTooltip v-if="summary && summary.unindexed > 0" :text="$t('monitoring.diagnosis.unindexedHelp')">
+                    <span class="inline-flex items-center gap-1 text-[11px] px-1.5 py-0.5 rounded bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300 whitespace-nowrap" data-testid="unindexed-note">
+                        <span class="animate-spin rounded-full h-2.5 w-2.5 border-b-2 border-amber-500"></span>
+                        {{ $t('monitoring.diagnosis.unindexedNote', { n: summary.unindexed.toLocaleString() }) }}
+                    </span>
+                </UTooltip>
             </div>
             <div class="flex items-center gap-4 text-xs whitespace-nowrap">
                 <div class="flex items-center gap-1.5"><span class="inline-block w-2.5 h-2.5 rounded-sm" style="background:#22c55e"></span><span class="text-gray-500">{{ $t('monitoring.diagnosis.legendMatched') }}</span></div>

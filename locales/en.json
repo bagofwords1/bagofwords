@@ -3999,7 +3999,14 @@
       "emptyTitle": "No runs match",
       "emptySubtitle": "Try a wider time range, or one of these:",
       "showingOf": "Showing {n} of {total}",
-      "loadMore": "Load more"
+      "loadMore": "Load more",
+      "statusStale": "stale",
+      "staleHelp": "Still marked running after an hour; this run never finished.",
+      "notIndexed": "Not indexed yet",
+      "unindexedNote": "{n} runs not yet indexed",
+      "unindexedHelp": "The rollup sweep is still indexing older runs. Cost, tokens, tools and scores appear as they are indexed.",
+      "openCall": "Open this call in the trace",
+      "tableTitle": "Filter to runs that queried {table}"
     },
     "title": "Monitoring",
     "tabExplore": "Explore",

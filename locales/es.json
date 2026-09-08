@@ -3931,7 +3931,14 @@
       "emptyTitle": "Ninguna ejecución coincide",
       "emptySubtitle": "Prueba un rango más amplio, o uno de estos:",
       "showingOf": "Mostrando {n} de {total}",
-      "loadMore": "Cargar más"
+      "loadMore": "Cargar más",
+      "statusStale": "obsoleto",
+      "staleHelp": "Sigue marcado como en ejecución tras una hora; esta ejecución nunca terminó.",
+      "notIndexed": "Aún no indexado",
+      "unindexedNote": "{n} ejecuciones sin indexar",
+      "unindexedHelp": "El barrido sigue indexando ejecuciones antiguas. Coste, tokens, herramientas y puntuaciones aparecen a medida que se indexan.",
+      "openCall": "Abrir esta llamada en la traza",
+      "tableTitle": "Filtrar ejecuciones que consultaron {table}"
     },
     "title": "Monitoreo",
     "tabExplore": "Explorar",

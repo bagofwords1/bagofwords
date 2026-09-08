@@ -1833,6 +1833,408 @@
    "tokens": []
   },
   {
+   "q": "status:stale",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "stale",
+       "s": "stale"
+      }
+     ]
+    }
+   },
+   "canonical": "status:stale",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 12
+    }
+   ]
+  },
+  {
+   "q": "status:(in_progress OR stale)",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "any",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "in_progress",
+       "s": "in_progress"
+      },
+      {
+       "kind": "word",
+       "raw": "stale",
+       "s": "stale"
+      }
+     ]
+    }
+   },
+   "canonical": "status:(in_progress OR stale)",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "paren",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 19
+    },
+    {
+     "type": "keyword",
+     "start": 20,
+     "end": 22
+    },
+    {
+     "type": "value",
+     "start": 23,
+     "end": 28
+    },
+    {
+     "type": "paren",
+     "start": 28,
+     "end": 29
+    }
+   ]
+  },
+  {
+   "q": "tool.status:stopped",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "tool.status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "stopped",
+       "s": "stopped"
+      }
+     ]
+    }
+   },
+   "canonical": "tool.status:stopped",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 11
+    },
+    {
+     "type": "colon",
+     "start": 11,
+     "end": 12
+    },
+    {
+     "type": "value",
+     "start": 12,
+     "end": 19
+    }
+   ]
+  },
+  {
+   "q": "table:orders",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "table",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "orders",
+       "s": "orders"
+      }
+     ]
+    }
+   },
+   "canonical": "table:orders",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 5
+    },
+    {
+     "type": "colon",
+     "start": 5,
+     "end": 6
+    },
+    {
+     "type": "value",
+     "start": 6,
+     "end": 12
+    }
+   ]
+  },
+  {
+   "q": "table:public.*",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "table",
+     "op": "wild",
+     "values": [
+      {
+       "kind": "wild",
+       "raw": "public.*",
+       "s": "public.*"
+      }
+     ]
+    }
+   },
+   "canonical": "table:public.*",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 5
+    },
+    {
+     "type": "colon",
+     "start": 5,
+     "end": 6
+    },
+    {
+     "type": "value",
+     "start": 6,
+     "end": 14
+    }
+   ]
+  },
+  {
+   "q": "tool:create_data tool.args:\"region_name\" table:orders",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "tool",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "create_data",
+         "s": "create_data"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "tool.args",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "phrase",
+         "raw": "region_name",
+         "s": "region_name"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "table",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "orders",
+         "s": "orders"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "tool:create_data AND tool.args:\"region_name\" AND table:orders",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 4
+    },
+    {
+     "type": "colon",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "value",
+     "start": 5,
+     "end": 16
+    },
+    {
+     "type": "field",
+     "start": 17,
+     "end": 26
+    },
+    {
+     "type": "colon",
+     "start": 26,
+     "end": 27
+    },
+    {
+     "type": "phrase",
+     "start": 27,
+     "end": 40
+    },
+    {
+     "type": "field",
+     "start": 41,
+     "end": 46
+    },
+    {
+     "type": "colon",
+     "start": 46,
+     "end": 47
+    },
+    {
+     "type": "value",
+     "start": 47,
+     "end": 53
+    }
+   ]
+  },
+  {
+   "q": "tool.output:rows",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "tool.output",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "rows",
+       "s": "rows"
+      }
+     ]
+    }
+   },
+   "canonical": "tool.output:rows",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 11
+    },
+    {
+     "type": "colon",
+     "start": 11,
+     "end": 12
+    },
+    {
+     "type": "value",
+     "start": 12,
+     "end": 16
+    }
+   ]
+  },
+  {
+   "q": "has:table",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "table",
+     "op": "has",
+     "values": []
+    }
+   },
+   "canonical": "has:table",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 3
+    },
+    {
+     "type": "colon",
+     "start": 3,
+     "end": 4
+    },
+    {
+     "type": "value",
+     "start": 4,
+     "end": 9
+    }
+   ]
+  },
+  {
+   "q": "status:SIGKILL",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "SIGKILL",
+       "s": "sigkill"
+      }
+     ]
+    }
+   },
+   "canonical": "status:sigkill",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 14
+    }
+   ]
+  },
+  {
    "q": "status:",
    "error": {
     "position": 7,
@@ -1862,11 +2264,13 @@
    "q": "status:failed",
    "error": {
     "position": 7,
-    "message": "Unknown value \"failed\" for status. Expected one of: success, error, in_progress",
+    "message": "Unknown value \"failed\" for status. Expected one of: success, error, in_progress, stale, sigkill",
     "suggestions": [
      "success",
      "error",
-     "in_progress"
+     "in_progress",
+     "stale",
+     "sigkill"
     ]
    }
   },
@@ -2041,7 +2445,8 @@
     "message": "Unknown field \"toolz\"",
     "suggestions": [
      "tool",
-     "tools"
+     "tools",
+     "table"
     ]
    }
   },

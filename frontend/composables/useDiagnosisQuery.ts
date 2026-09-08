@@ -5,15 +5,27 @@
 // URL load). A stale response never overwrites a newer one.
 import { tryParse, type ParseResult, type QueryError } from '~/utils/diagnosisQuery'
 
+export interface Agent {
+  id: string
+  name: string
+  type: string | null
+  connector_key: string | null
+  icon: string | null
+}
+
 export interface RunItem {
   id: string
   created_at: string
+  // success | error | in_progress | stale | sigkill
   status: string
+  // False until the finish hook or the startup sweep has written the rollup
+  // columns: cost, tokens, model, tools, judge and feedback are unknown, not zero.
+  indexed: boolean
   prompt: string
   error: string | null
   platform: string
   user: { id: string | null; name: string | null; email: string | null }
-  agents: string[]
+  agents: Agent[]
   report: { id: string | null; title: string | null; turn: number | null; turns: number | null }
   completion_id: string | null
   model: string | null
@@ -41,11 +53,15 @@ export interface ToolCall {
   started_at: string | null
   error: string | null
   result_summary: string | null
+  args_preview: string | null
+  output_preview: string | null
+  tables: string[]
+  step_id: string | null
 }
 
 export interface Bucket { bucket: string; total: number; matched: number; matched_errors: number }
 export interface ToolStat { tool: string; calls: number; errors: number; avg_ms: number | null }
-export interface Summary { matched: number; errors: number; users: number; cost_usd: number; p50_ms: number | null }
+export interface Summary { matched: number; errors: number; users: number; cost_usd: number; p50_ms: number | null; unindexed: number }
 export interface Facet { value: string; label: string; count: number }
 
 export type RangePreset = '24h' | '7d' | '30d' | '90d' | 'custom'

@@ -3834,7 +3834,14 @@
       "emptyTitle": "Keine passenden Läufe",
       "emptySubtitle": "Versuchen Sie einen größeren Zeitraum oder eine dieser Abfragen:",
       "showingOf": "{n} von {total} angezeigt",
-      "loadMore": "Mehr laden"
+      "loadMore": "Mehr laden",
+      "statusStale": "hängend",
+      "staleHelp": "Nach einer Stunde noch als laufend markiert; dieser Lauf wurde nie beendet.",
+      "notIndexed": "Noch nicht indiziert",
+      "unindexedNote": "{n} Läufe noch nicht indiziert",
+      "unindexedHelp": "Der Durchlauf indiziert noch ältere Läufe. Kosten, Tokens, Tools und Bewertungen erscheinen nach und nach.",
+      "openCall": "Diesen Aufruf im Trace öffnen",
+      "tableTitle": "Auf Läufe filtern, die {table} abgefragt haben"
     },
     "title": "Überwachung",
     "tabExplore": "Erkunden",

@@ -3834,7 +3834,14 @@
       "emptyTitle": "Aucune exécution ne correspond",
       "emptySubtitle": "Essayez une période plus large, ou l'un de ceux-ci :",
       "showingOf": "{n} sur {total} affichés",
-      "loadMore": "Charger plus"
+      "loadMore": "Charger plus",
+      "statusStale": "bloqué",
+      "staleHelp": "Toujours marqué en cours après une heure ; cette exécution ne s'est jamais terminée.",
+      "notIndexed": "Pas encore indexé",
+      "unindexedNote": "{n} exécutions non indexées",
+      "unindexedHelp": "Le balayage indexe encore les anciennes exécutions. Coût, jetons, outils et scores apparaissent au fur et à mesure.",
+      "openCall": "Ouvrir cet appel dans la trace",
+      "tableTitle": "Filtrer les exécutions ayant interrogé {table}"
     },
     "title": "Supervision",
     "tabExplore": "Explorer",

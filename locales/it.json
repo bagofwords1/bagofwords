@@ -3834,7 +3834,14 @@
       "emptyTitle": "Nessuna esecuzione corrisponde",
       "emptySubtitle": "Prova un intervallo più ampio, o uno di questi:",
       "showingOf": "Mostrate {n} di {total}",
-      "loadMore": "Carica altro"
+      "loadMore": "Carica altro",
+      "statusStale": "bloccato",
+      "staleHelp": "Ancora segnato come in esecuzione dopo un'ora; questa esecuzione non è mai terminata.",
+      "notIndexed": "Non ancora indicizzato",
+      "unindexedNote": "{n} esecuzioni non ancora indicizzate",
+      "unindexedHelp": "La scansione sta ancora indicizzando le esecuzioni più vecchie. Costo, token, strumenti e punteggi compaiono man mano.",
+      "openCall": "Apri questa chiamata nella traccia",
+      "tableTitle": "Filtra le esecuzioni che hanno interrogato {table}"
     },
     "title": "Monitoraggio",
     "tabExplore": "Esplora",

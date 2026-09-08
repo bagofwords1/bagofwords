@@ -712,6 +712,9 @@ interface Props {
     modelValue: boolean
     reportId: string
     completionId?: string
+    // Preselect this tool call's block once the turn's trace is loaded (the
+    // diagnosis explorer opens a run straight on the call the user clicked).
+    toolExecutionId?: string
 }
 
 const props = defineProps<Props>()
@@ -868,6 +871,10 @@ const fetchConversation = async () => {
             const initial = wanted || fallback
             if (initial?.completion_id) {
                 await selectTurn(initial)
+                if (props.toolExecutionId) {
+                    const block = (traceData.value?.completion_blocks || []).find((b: any) => b.tool_execution?.id === props.toolExecutionId)
+                    if (block) selectBlock(block)
+                }
             }
         }
     } catch (error) {

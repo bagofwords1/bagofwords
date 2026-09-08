@@ -70,7 +70,7 @@
                 <span v-if="s.type" class="text-[11px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ s.type }}</span>
                 <span v-if="s.help" class="text-xs text-gray-500 truncate flex-grow">{{ s.help }}</span>
                 <span v-if="s.count != null" class="text-xs text-gray-400 tabular-nums ms-auto">{{ s.count.toLocaleString() }}</span>
-                <span v-if="i === active" class="text-[11px] text-gray-400">Tab</span>
+                <span v-if="i === active" class="text-[11px] text-gray-400 whitespace-nowrap">Tab · ↵</span>
             </button>
             <div v-if="ctx.kind === 'field'" class="px-2.5 pt-1.5 pb-1 border-t border-gray-100 dark:border-gray-800 mt-1 text-[11px] text-gray-400">
                 {{ $t('monitoring.diagnosis.suggestFooter') }}
@@ -247,7 +247,9 @@ const onKeydown = (e: KeyboardEvent) => {
     if (open.value && suggestions.value.length) {
         if (e.key === 'ArrowDown') { e.preventDefault(); active.value = (active.value + 1) % suggestions.value.length; return }
         if (e.key === 'ArrowUp') { e.preventDefault(); active.value = (active.value - 1 + suggestions.value.length) % suggestions.value.length; return }
-        if (e.key === 'Tab' || (e.key === 'Enter' && ctx.value.kind === 'field')) { e.preventDefault(); accept(suggestions.value[active.value]); return }
+        // Tab and Enter both take the highlighted suggestion (field or value);
+        // Enter runs the query only once nothing is being suggested.
+        if (e.key === 'Tab' || e.key === 'Enter') { e.preventDefault(); accept(suggestions.value[active.value]); return }
         if (e.key === 'Escape') { e.preventDefault(); open.value = false; return }
     }
     if (e.key === 'Enter') {

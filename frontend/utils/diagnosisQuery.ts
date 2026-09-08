@@ -53,7 +53,7 @@ function f(
 
 /** Mirrors fields.FIELDS — same order, same names, same types. */
 export const FIELDS: FieldSpec[] = [
-  f('status', 'enum', 'run', 'Run outcome', { values: ['success', 'error', 'in_progress'], facetable: true }),
+  f('status', 'enum', 'run', 'Run outcome (stale = still running after an hour, i.e. never finished)', { values: ['success', 'error', 'in_progress', 'stale', 'sigkill'], facetable: true }),
   f('user', 'text', 'run', 'Who ran it (name or email)', { facetable: true }),
   f('agent', 'text', 'run', 'Agent (data source) the run drew on', { facetable: true }),
   f('platform', 'enum', 'run', 'Where the prompt came from', { values: ['web', 'slack', 'teams', 'email', 'mcp', 'api'], facetable: true }),
@@ -82,10 +82,13 @@ export const FIELDS: FieldSpec[] = [
   f('error', 'text', 'run', 'Run error message'),
   f('tool', 'text', 'tool', 'Tool name', { aliases: ['tool.name'], facetable: true }),
   f('tool.action', 'text', 'tool', 'Tool action', { facetable: true }),
-  f('tool.status', 'enum', 'tool', 'Tool call outcome', { values: ['success', 'error', 'in_progress'], facetable: true }),
+  f('tool.status', 'enum', 'tool', 'Tool call outcome', { values: ['success', 'error', 'in_progress', 'stopped'], facetable: true }),
   f('tool.attempt', 'number', 'tool', 'Attempt number (retries start at 2)'),
   f('tool.duration', 'duration', 'tool', 'Tool call wall time'),
   f('tool.error', 'text', 'tool', 'Tool error message'),
+  f('table', 'text', 'tool', 'Table the tool call queried (schema.table or table)', { facetable: true }),
+  f('tool.args', 'text', 'tool', "Text anywhere in the tool call's arguments"),
+  f('tool.output', 'text', 'tool', "Text in the tool call's result summary"),
 ]
 
 const BY_NAME = new Map<string, FieldSpec>()

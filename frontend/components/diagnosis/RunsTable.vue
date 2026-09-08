@@ -18,7 +18,10 @@
                         <tr class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" data-testid="run-row" @click="$emit('open', item)">
                             <td class="px-3 py-3 whitespace-nowrap text-gray-500 dark:text-gray-400 align-top tabular-nums">{{ fmtWhen(item.created_at, locale) }}</td>
                             <td class="px-3 py-3 align-top">
-                                <span class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="statusClass(item.status)">{{ item.status }}</span>
+                                <UTooltip v-if="item.status === 'stale'" :text="$t('monitoring.diagnosis.staleHelp')">
+                                    <span class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="statusClass(item.status)">{{ $t('monitoring.diagnosis.statusStale') }}</span>
+                                </UTooltip>
+                                <span v-else class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="statusClass(item.status)">{{ item.status }}</span>
                             </td>
                             <!-- w-full + max-w-0 lets this column absorb the remaining width and
                                  truncate, so the fixed columns to its right always fit. -->
@@ -52,14 +55,27 @@
                             <td class="px-3 py-3 whitespace-nowrap align-top text-gray-900 dark:text-white max-w-[120px] truncate">
                                 <button type="button" class="hover:underline truncate max-w-full" :title="item.user.email || ''" @click.stop="$emit('pivot', item.user.name ? `user:${quote(item.user.name)}` : '')">{{ item.user.name || '—' }}</button>
                             </td>
-                            <td class="px-3 py-3 whitespace-nowrap align-top text-gray-900 dark:text-white max-w-[140px] truncate" :title="item.agents.join(', ')">
-                                <template v-if="item.agents.length">
-                                    <button v-for="(a, i) in item.agents" :key="a" type="button" class="hover:underline" @click.stop="$emit('pivot', `agent:${quote(a)}`)">{{ a }}<span v-if="i < item.agents.length - 1">, </span></button>
-                                </template>
+                            <td class="px-3 py-3 whitespace-nowrap align-top text-gray-900 dark:text-white max-w-[160px]" :title="item.agents.map(a => a.name).join(', ')">
+                                <div v-if="item.agents.length" class="flex items-center gap-1.5 min-w-0">
+                                    <button
+                                        v-for="a in item.agents"
+                                        :key="a.id"
+                                        type="button"
+                                        class="inline-flex items-center gap-1 min-w-0 hover:underline"
+                                        :class="item.agents.length > 1 ? 'max-w-[72px]' : 'max-w-full'"
+                                        :title="a.name"
+                                        data-testid="agent-chip"
+                                        @click.stop="$emit('pivot', `agent:${quote(a.name)}`)"
+                                    >
+                                        <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="h-3.5 w-3.5 flex-shrink-0" />
+                                        <span class="truncate">{{ a.name }}</span>
+                                    </button>
+                                </div>
                                 <span v-else class="text-gray-400">—</span>
                             </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top">
-                                <div v-if="item.tools.total" class="flex items-center gap-2">
+                                <UTooltip v-if="!item.indexed" :text="$t('monitoring.diagnosis.notIndexed')"><span class="text-gray-300 dark:text-gray-600">…</span></UTooltip>
+                                <div v-else-if="item.tools.total" class="flex items-center gap-2">
                                     <div class="flex gap-0.5">
                                         <span v-for="i in Math.min(item.tools.total, 6)" :key="i" class="inline-block w-2 h-2 rounded-sm" :class="i <= item.tools.failed ? 'bg-red-500' : 'bg-green-500'"></span>
                                     </div>
@@ -69,7 +85,10 @@
                                 <span v-else class="text-gray-400">—</span>
                             </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white">{{ fmtDuration(item.duration_ms) }}</td>
-                            <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white" :title="item.model ? `${item.model} · ${fmtTokens(item.tokens)} tokens` : ''">{{ fmtCost(item.cost_usd, item.cost_is_partial) }}</td>
+                            <td class="px-3 py-3 whitespace-nowrap align-top text-end tabular-nums text-gray-900 dark:text-white" :title="item.model ? `${item.model} · ${fmtTokens(item.tokens)} tokens` : (item.indexed ? '' : $t('monitoring.diagnosis.notIndexed'))">
+                                <span v-if="!item.indexed" class="text-gray-300 dark:text-gray-600">…</span>
+                                <template v-else>{{ fmtCost(item.cost_usd, item.cost_is_partial) }}</template>
+                            </td>
                             <td class="px-3 py-3 whitespace-nowrap align-top">
                                 <UTooltip :text="judgeText(item)">
                                     <span v-if="item.feedback !== 'none'" class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="item.feedback === 'positive' ? 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300' : 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300'">
@@ -87,17 +106,33 @@
                                 <div
                                     v-for="c in calls[item.id]"
                                     :key="c.id"
-                                    class="flex items-center gap-4 h-9 ps-10 pe-4 border-s-2 ms-4 text-xs"
-                                    :class="matched(item, c) ? 'bg-red-50/60 dark:bg-red-950/30 border-red-300 dark:border-red-800' : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700'"
+                                    class="flex items-center gap-4 h-9 ps-10 pe-4 border-s-2 ms-4 text-xs cursor-pointer group"
+                                    :class="matched(item, c) ? 'bg-red-50/60 dark:bg-red-950/30 border-red-300 dark:border-red-800 hover:bg-red-50' : 'bg-gray-50 dark:bg-gray-800/50 border-gray-200 dark:border-gray-700 hover:bg-gray-100 dark:hover:bg-gray-800'"
+                                    :title="$t('monitoring.diagnosis.openCall')"
                                     data-testid="tool-call-row"
+                                    @click.stop="$emit('openCall', item, c)"
                                 >
                                     <span class="w-[64px] flex-shrink-0 text-gray-500 tabular-nums whitespace-nowrap">{{ fmtTime(c.started_at, locale) }}</span>
                                     <span class="w-[70px] flex-shrink-0"><span class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="statusClass(c.status)">{{ c.status === 'success' ? 'ok' : c.status }}</span></span>
-                                    <span class="w-[220px] flex-shrink-0 font-mono text-gray-900 dark:text-white truncate">{{ c.tool }}<span v-if="c.action" class="text-gray-400"> · </span><span v-if="c.action" class="text-gray-500">{{ c.action }}</span></span>
+                                    <span class="w-[200px] flex-shrink-0 font-mono text-gray-900 dark:text-white truncate">{{ c.tool }}<span v-if="c.action" class="text-gray-400"> · </span><span v-if="c.action" class="text-gray-500">{{ c.action }}</span></span>
                                     <span class="w-11 flex-shrink-0 text-end text-gray-500 tabular-nums">{{ c.attempt }}<span v-if="c.max_retries"> / {{ c.max_retries + 1 }}</span></span>
                                     <span class="w-14 flex-shrink-0 text-end tabular-nums text-gray-900 dark:text-white">{{ fmtDuration(c.duration_ms) }}</span>
-                                    <span v-if="c.error" class="font-mono text-[11px] text-red-700 dark:text-red-400 truncate" :title="c.error">{{ c.error }}</span>
-                                    <span v-else-if="c.result_summary" class="text-[11px] text-gray-500 truncate" :title="c.result_summary">{{ c.result_summary }}</span>
+                                    <!-- What the tool was asked, the tables it touched, and what it said -->
+                                    <span class="flex items-center gap-2 min-w-0 flex-grow">
+                                        <span v-if="c.args_preview" class="font-mono text-[11px] text-gray-600 dark:text-gray-300 truncate max-w-[45%]" :title="c.args_preview" data-testid="call-args">{{ c.args_preview }}</span>
+                                        <button
+                                            v-for="tbl in c.tables"
+                                            :key="tbl"
+                                            type="button"
+                                            class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-mono whitespace-nowrap hover:bg-blue-100 flex-shrink-0"
+                                            :title="$t('monitoring.diagnosis.tableTitle', { table: tbl })"
+                                            data-testid="call-table"
+                                            @click.stop="$emit('pivot', `table:${quote(tbl)}`)"
+                                        ><UIcon name="i-heroicons-table-cells" class="w-3 h-3" />{{ tbl }}</button>
+                                        <span v-if="c.error" class="font-mono text-[11px] text-red-700 dark:text-red-400 truncate" :title="c.error">{{ c.error }}</span>
+                                        <span v-else-if="c.output_preview" class="text-[11px] text-gray-500 truncate" :title="c.result_summary || c.output_preview" data-testid="call-output">→ {{ c.output_preview }}</span>
+                                    </span>
+                                    <UIcon name="i-heroicons-arrow-top-right-on-square" class="w-3.5 h-3.5 text-gray-300 group-hover:text-gray-500 flex-shrink-0" />
                                 </div>
                             </td>
                         </tr>
@@ -123,6 +158,7 @@
 </template>
 
 <script setup lang="ts">
+import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { fmtCost, fmtDuration, fmtTime, fmtTokens, fmtWhen, type RunItem, type ToolCall } from '~/composables/useDiagnosisQuery'
 
 const props = defineProps<{
@@ -137,6 +173,7 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
     (e: 'open', item: RunItem): void
+    (e: 'openCall', item: RunItem, call: ToolCall): void
     (e: 'expand', item: RunItem): void
     (e: 'pivot', terms: string): void
     (e: 'sort', key: string): void
@@ -184,8 +221,9 @@ const matched = (item: RunItem, c: ToolCall) => item.matched_tool_call_ids.inclu
 const quote = (v: string) => (/[\s()"]/.test(v) ? `"${v}"` : v)
 
 const statusClass = (s: string) => {
-    if (s === 'error') return 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300'
+    if (s === 'error' || s === 'sigkill') return 'bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300'
     if (s === 'success') return 'bg-green-100 dark:bg-green-900/50 text-green-800 dark:text-green-300'
+    if (s === 'stale' || s === 'stopped') return 'bg-amber-100 dark:bg-amber-900/40 text-amber-800 dark:text-amber-300'
     return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300'
 }
 
