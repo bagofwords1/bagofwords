@@ -2205,6 +2205,111 @@ class SharePointOnpremKerberosCredentials(BaseModel):
         return self
 
 
+# OpenText Documentum (Documentum REST Services, read-only file connector).
+class DocumentumConfig(BaseModel):
+    rest_url: str = Field(
+        ...,
+        title="REST Services URL",
+        description="Documentum REST Services base URL, e.g. https://dctm.example.com/dctm-rest (also accepts a D2 REST root).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    repository: str = Field(
+        ...,
+        title="Repository",
+        description="Repository (docbase) name, e.g. corp_docs. One connection reads one repository.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    root_path: str = Field(
+        "/",
+        title="Root Folder",
+        description=(
+            "Cabinet or folder path that bounds this connection, e.g. /Finance/Reports. "
+            "Everything outside it is invisible and unreadable. Use '/' for every cabinet the identity can see."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    include_globs: Optional[str] = Field(
+        None,
+        title="Include Patterns (globs)",
+        description=(
+            "Glob patterns relative to the root folder — the connection's scope. When set, ONLY matching "
+            "documents are visible AND readable. '2026/**/*.pdf' (PDFs under 2026), '**/*.xlsx' (all Excel "
+            "files). Comma-separated; '**' crosses subfolders, '*' is one segment. Leave blank to allow the whole root."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    object_types: Optional[str] = Field(
+        None,
+        title="Object Types",
+        description=(
+            "Comma-separated Documentum document types to expose (e.g. 'bow_invoice, dm_document'). "
+            "Leave blank (or include dm_document) for every document type."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    recursive: bool = Field(
+        True,
+        title="Include Subfolders",
+        description="Recursively enumerate subfolders when listing and indexing.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    index_mode: str = Field(
+        "metadata",
+        title="Indexing",
+        description=(
+            "How much to cache from the repository. 'none' → nothing cached; the agent lists and reads "
+            "live every time. 'metadata' → cache the document list on a schedule. Reads are always live."
+        ),
+        json_schema_extra={
+            "ui:type": "select",
+            "enum": ["none", "metadata"],
+            "ui:enumLabels": {"none": "None (live only)", "metadata": "Document list"},
+        },
+    )
+    max_catalog_objects: int = Field(5000, ge=1, le=50000, title="Max Documents",
+        description="Safety cap on how many documents are enumerated into the catalog. Narrow the root folder or include patterns instead of raising this.",
+        json_schema_extra={"ui:type": "number"})
+    max_file_size_mb: int = Field(50, ge=1, le=250, title="Max file size (MB)",
+        description="Reject oversized downloads before parsing; files are never silently truncated.",
+        json_schema_extra={"ui:type": "number"})
+    allow_http: bool = Field(False, title="Allow HTTP (test labs only)",
+        description="Allow unencrypted HTTP for an isolated lab. Use HTTPS with a trusted certificate for customer deployments.",
+        json_schema_extra={"ui:type": "boolean"})
+
+
+class DocumentumUserPassCredentials(BaseModel):
+    """Repository (or OTDS-synchronized) username and password — HTTP Basic."""
+    username: str = Field(..., min_length=1, title="Username",
+        description="Documentum login name (user_login_name). For OTDS-backed repositories this is usually the UPN or userid@partition.",
+        json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., min_length=1, title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class DocumentumOtdsClientCredentials(BaseModel):
+    """A confidential OTDS OAuth client. Alone it acts as the client's service
+    user (client-credentials grant); combined with the per-user impersonation
+    overlay it mints tokens for each BOW user (RFC 8693 token exchange)."""
+    otds_url: str = Field(..., title="OTDS URL",
+        description="OpenText Directory Services base URL, e.g. https://otds.example.com (the /otdsws suffix is optional).",
+        json_schema_extra={"ui:type": "string"})
+    client_id: str = Field(..., min_length=1, title="OAuth client ID",
+        description="Confidential OTDS OAuth client. Enable 'Allow impersonation' on it (and on the repository resource) for per-user access.",
+        json_schema_extra={"ui:type": "string"})
+    client_secret: str = Field(..., min_length=1, title="OAuth client secret", json_schema_extra={"ui:type": "password"})
+    partition: Optional[str] = Field(None, title="OTDS partition",
+        description="Partition the users live in (appended as userid@partition when a login has no '@'). Leave blank if logins already carry it.",
+        json_schema_extra={"ui:type": "string"})
+
+
+class DocumentumImpersonationCredentials(BaseModel):
+    """Per-user identity for OTDS impersonation (overlay over the connection's
+    OTDS client). Holds NO secret: the admin's OAuth client stays on the
+    connection and Documentum evaluates every call with this user's ACLs."""
+    documentum_login: str = Field(..., min_length=1, title="Documentum login",
+        description="Your Documentum user (user_login_name), e.g. jane.doe@corp.example.com or jdoe@Corp. Usually your work email or UPN.",
+        json_schema_extra={"ui:type": "string"})
+
+
 # SharePoint Lists (Microsoft Graph — same auth as SharePoint, but surfaces
 # the site's LISTS as queryable tables instead of its libraries as files).
 class SharePointListsCredentials(SharePointCredentials):

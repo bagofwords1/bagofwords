@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.556 (September 8, 2026)
+- Added an OpenText Documentum file connector, shipping as beta: browse, search and read documents from a repository over Documentum REST Services, scoped to a root folder, with repository username/password, an OTDS client, per-user OTDS impersonation, or OTDS sign-in
+
 ## Version 0.0.555 (September 5, 2026)
 - Document artifacts can now be exported as PDF, rendered through the real document viewer in headless Chromium instead of the browser print dialog (#1060)
 - Queries moved from their own page into the agents knowledge tree: each agent has a Queries row that opens its saved queries in the side panel, and unpublished queries are no longer served to members who don't own or manage them (#1061)
