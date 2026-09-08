@@ -80,7 +80,7 @@ class CreateArtifactTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["artifact",  "dashboard", "slides"],
-            allowed_modes=["chat"],
+            allowed_modes=["chat", "training"],
         )
 
     @property
