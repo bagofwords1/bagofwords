@@ -960,6 +960,7 @@
     "steered": "Steered",
     "steeringApplied": "Steering applied",
     "steerQueuedFallback": "The run just finished — your message was queued instead",
+    "jumpToLatest": "Jump to latest",
     "steerFailed": "Failed to steer the running completion",
     "instructionUnavailableTitle": "Instruction unavailable",
     "instructionUnavailableBody": "It may have been deleted, or you may not have access to it.",

@@ -920,6 +920,7 @@
     "steered": "Orientado",
     "steeringApplied": "Orientação aplicada",
     "steerQueuedFallback": "A execução acabou de terminar — sua mensagem foi colocada na fila",
+    "jumpToLatest": "Ir para o mais recente",
     "steerFailed": "Falha ao orientar a resposta em andamento",
     "instructionUnavailableTitle": "Instrução indisponível",
     "instructionUnavailableBody": "Pode ter sido excluída, ou você pode não ter acesso a ela.",

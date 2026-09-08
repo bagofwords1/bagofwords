@@ -739,6 +739,21 @@
 			</div>
 		</div>
 
+		<!-- Jump-to-latest pill. A zero-height sibling of the scroll area (not a
+		     child, which would scroll away with the content) so it floats over
+		     the bottom edge of the timeline, above the prompt box. -->
+		<div v-if="showJumpToLatest" class="relative h-0 shrink-0 z-10">
+			<button
+				type="button"
+				data-testid="jump-to-latest"
+				@click="jumpToLatest"
+				class="absolute bottom-3 left-1/2 -translate-x-1/2 inline-flex items-center gap-1.5 rounded-full border border-gray-200 bg-white/95 px-3 py-1.5 text-xs font-medium text-gray-700 shadow-md backdrop-blur hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800/95 dark:text-gray-200 dark:hover:bg-gray-700"
+			>
+				<UIcon name="i-heroicons-arrow-down" class="w-3.5 h-3.5" />
+				{{ $t('reportView.jumpToLatest') }}
+			</button>
+		</div>
+
 		<!-- Minimal reconnect banner while polling after refresh (bottom, above prompt) -->
 		<div v-if="isPolling" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
@@ -1593,15 +1608,28 @@ const visibleMessages = computed(() => {
 const copiedMessageId = ref<string | null>(null)
 let currentController: AbortController | null = null
 const scrollContainer = ref<HTMLElement | null>(null)
-const scrollAnchor = ref<HTMLElement | null>(null)
-// No absolute prompt box; no padding ref needed
-// Scroll state tracking
-const isUserAtBottom = ref<boolean>(true)
-const suppressAutoScroll = ref<boolean>(false)
-const lastScrollTop = ref<number>(0)
-// Hysteresis thresholds
-const NEAR_BOTTOM_PX = 96
-const RETURN_TO_BOTTOM_PX = 12
+// === Sticky-bottom follow mode ===
+// The timeline follows new content only while the reader is at the bottom.
+// `isFollowing` is derived from scroll POSITION alone (see onScroll): it flips
+// off the moment the user scrolls away and back on when they return, or when
+// they press the "jump to latest" pill. It deliberately does not depend on
+// isStreaming — a run resumed after a refresh, started from another tab, a
+// schedule or a webhook is streamed through the watch/poll paths with
+// isStreaming=false, and those used to scroll unconditionally on every
+// background reload (the "it keeps yanking me back down" bug).
+//
+// Contract: while !isFollowing nothing programmatic touches scrollTop, except
+// the two intentional scrolls (initial load, the user sending a message) and
+// the pill, which all go through forceScrollToBottom().
+const isFollowing = ref<boolean>(true)
+// Last observed scrollTop, so onScroll can tell "the reader moved up" from
+// "our own pin landed while new content was still pushing the bottom away".
+let lastScrollTop = 0
+// Scrolling within this gap of the bottom counts as "at the bottom". Roomy
+// enough that a reader who nudged up a line is still followed (ChatGPT/Open
+// WebUI use ~50px), and far larger than the sub-pixel jitter fractional DPI
+// scaling and classic scrollbars produce.
+const FOLLOW_ZONE_PX = 48
 // Treat the view as "already at the bottom" within this gap. It must be larger
 // than the sub-pixel/scrollbar height jitter that fractional display scaling
 // (e.g. Windows at 125%) and classic scrollbars produce, so a 1–2px wobble in a
@@ -1610,6 +1638,10 @@ const AT_BOTTOM_EPS = 4
 // Debounced scroll scheduling during streaming
 const pendingScroll = ref<boolean>(false)
 let scrollRAF: number | null = null
+// The pill is shown whenever the reader has scrolled away from the bottom
+// (ChatGPT behaviour); it is the only way, besides scrolling back down, to
+// re-engage following.
+const showJumpToLatest = computed(() => isFollowing.value === false)
 
 // Trace modal state
 const showTraceModal = ref(false)
@@ -2796,9 +2828,10 @@ watch(
 	{ deep: true }
 )
 
-// Watch for split screen changes and scroll to bottom to maintain position
+// Split screen toggles reflow the chat column; keep the bottom pinned only
+// when the reader was already following.
 watch(() => isSplitScreen.value, () => {
-    nextTick(() => setTimeout(safeScrollToBottom, 80))
+    nextTick(() => setTimeout(followScrollToBottom, 80))
 })
 
 // Adjust left panel width based on active right panel tab
@@ -2872,10 +2905,14 @@ function scrollToMessage(messageId: string, stepId?: string) {
 	}
 }
 
-function scrollToBottom() {
-  // Single-pass scroll: go to max scroll position
+// Single-pass scroll to the max position after the next layout. `force`
+// scrolls regardless of follow state; otherwise the follow flag is re-checked
+// at execution time, so a wheel-up that lands between scheduling and the
+// 40ms timer still wins.
+function scrollToBottom({ force = false }: { force?: boolean } = {}) {
   nextTick(() => {
     setTimeout(() => {
+      if (!force && !isFollowing.value) return
       const container = scrollContainer.value
       if (!container) return
       container.offsetHeight // force reflow
@@ -2889,53 +2926,43 @@ function scrollToBottom() {
   })
 }
 
-// Guarded scroll that respects user upward scrolling during streaming
-function safeScrollToBottom() {
-  if (isStreaming.value && suppressAutoScroll.value) return
+// Intentional scroll: initial load, the user sending/steering a message, the
+// jump pill. Re-engages following.
+function forceScrollToBottom() {
+  isFollowing.value = true
+  scrollToBottom({ force: true })
+}
+
+// Background scroll: new tokens/blocks, a timeline reload, a reflow. Only
+// pins when the reader is already following; never moves a reader who has
+// scrolled away.
+function followScrollToBottom() {
+  if (!isFollowing.value) return
   scrollToBottom()
 }
 
-// Only auto-scroll when the user is already near the bottom to avoid jumpiness
-function autoScrollIfNearBottom() {
-  const container = scrollContainer.value
-  if (!container) return
-  const threshold = NEAR_BOTTOM_PX
-  const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
-  if (suppressAutoScroll.value && isStreaming.value) return
-  // Only scroll when genuinely below the fold. When already effectively at the
-  // bottom (within AT_BOTTOM_EPS), re-pinning is what produces the jitter bounce
-  // on fractional-DPI / classic-scrollbar layouts, so skip it.
-  if (distanceFromBottom > AT_BOTTOM_EPS && distanceFromBottom <= threshold) {
-    scrollToBottom()
+// Coalesce a burst of stream events into one pin per animation frame.
+function scheduleFollowScroll() {
+  if (pendingScroll.value) return
+  pendingScroll.value = true
+  if (typeof window !== 'undefined') {
+    scrollRAF = window.requestAnimationFrame(() => {
+      followScrollToBottom()
+      pendingScroll.value = false
+    })
+  } else {
+    followScrollToBottom()
+    pendingScroll.value = false
   }
+}
+
+function jumpToLatest() {
+  forceScrollToBottom()
 }
 
 function scheduleInitialScroll() {
     const delays = [0, 80, 160, 320, 640]
-    for (const delay of delays) setTimeout(safeScrollToBottom, delay)
-}
-
-// Keep scrolling to bottom across successive layout passes until height stabilizes
-function settleScrollToBottom(maxFrames = 24) {
-    const container = scrollContainer.value
-    if (!container) return
-    let frames = 0
-    let lastHeight = -1
-    const tick = () => {
-        if (!scrollContainer.value) return
-        const h = scrollContainer.value.scrollHeight
-        if (h !== lastHeight) {
-            lastHeight = h
-            scrollContainer.value.scrollTop = h
-            frames = 0
-        } else {
-            frames++
-        }
-        if (frames < 3 && maxFrames-- > 0) {
-            requestAnimationFrame(tick)
-        }
-    }
-    requestAnimationFrame(tick)
+    for (const delay of delays) setTimeout(forceScrollToBottom, delay)
 }
 
 // Resolve which completion block a tool.* streaming event targets.
@@ -3957,7 +3984,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 		// Place the compaction boundary from server state
 		compactionWatermarkId.value = response?.compaction?.covers_until_completion_id || null
         await nextTick()
-        safeScrollToBottom()
+        followScrollToBottom()
 		if (!skipEstimate) {
 			await promptBoxRef.value?.refreshContextEstimate?.()
 		}
@@ -4204,20 +4231,21 @@ function onScroll() {
         }
     }
 
-    // Update bottom proximity and user intent
-    const distanceFromBottom = container.scrollHeight - (container.scrollTop + container.clientHeight)
-    isUserAtBottom.value = distanceFromBottom <= RETURN_TO_BOTTOM_PX
-
-    const isScrollingUp = container.scrollTop < lastScrollTop.value
-    // Suppress auto-scroll on any upward scroll, regardless of proximity
-    if (isScrollingUp) {
-        suppressAutoScroll.value = true
-    }
-    // Re-enable only when the user returns to within tight bottom threshold
-    if (!isScrollingUp && distanceFromBottom <= RETURN_TO_BOTTOM_PX) {
-        suppressAutoScroll.value = false
-    }
-    lastScrollTop.value = container.scrollTop
+    // Follow mode is positional. Content growth doesn't fire scroll events
+    // (scrollTop is unchanged), so this runs for user scrolling, our own pins
+    // and the prepend anchor adjustment above.
+    //   - at the bottom → following (a pin landing, or the reader returning);
+    //   - scrollTop moved UP → the reader left; stop following;
+    //   - scrollTop moved DOWN but not to the bottom → keep the current state.
+    //     This is the pin-vs-growth race: a pin lands, a tall block renders in
+    //     the same frame, and the event reads "far from bottom" although the
+    //     reader never touched the wheel — the next pin catches up. It is also
+    //     the prepend adjustment (state already false, stays false).
+    const top = container.scrollTop
+    const distanceFromBottom = container.scrollHeight - (top + container.clientHeight)
+    if (distanceFromBottom <= FOLLOW_ZONE_PX) isFollowing.value = true
+    else if (top < lastScrollTop) isFollowing.value = false
+    lastScrollTop = top
 }
 
 async function loadReport() {
@@ -4445,7 +4473,7 @@ function toggleSplitScreen() {
 			leftPanelWidth.value = leftWidthFor(rightPanelView.value)
 			collapseSidebar()
 		}
-        safeScrollToBottom()
+        followScrollToBottom()
 	})
 }
 
@@ -4468,7 +4496,7 @@ function handleResize(e: MouseEvent) {
 	const newWidth = initialPanelWidth.value + (isRtl.value ? -dx : dx)
 	leftPanelWidth.value = Math.min(Math.max(newWidth, minWidth), maxWidth)
 	// Trigger scroll to bottom during live resize to maintain scroll position
-    safeScrollToBottom()
+    followScrollToBottom()
 }
 
 function stopResize() {
@@ -4488,7 +4516,7 @@ onUnmounted(() => {
 	document.removeEventListener('mousemove', handleResize)
 	document.removeEventListener('mouseup', stopResize)
 	document.body.style.userSelect = 'auto'
-    window.removeEventListener('resize', safeScrollToBottom)
+    window.removeEventListener('resize', followScrollToBottom)
 	try { scrollContainer.value?.removeEventListener('scroll', onScroll) } catch {}
 	if (loadMoreTopUpTimer !== null) { clearTimeout(loadMoreTopUpTimer); loadMoreTopUpTimer = null }
 	// Cancel any pending animation frame for scroll
@@ -4552,7 +4580,7 @@ async function handleAddWidgetFromPreview(payload: { widget?: any, step?: any, v
         } catch {}
 		// Scroll to bottom when dashboard opens after adding widget
 		await nextTick()
-        safeScrollToBottom()
+        followScrollToBottom()
     } catch (e) {
         console.error('Failed to add widget from preview:', e)
     }
@@ -4720,7 +4748,7 @@ async function onSteerQueuedPrompt(queuedId: string) {
 					created_at: new Date().toISOString().replace('Z', ''),
 				}
 				messages.value = newMessages
-				scrollToBottom()
+				forceScrollToBottom()
 			}
 		} else if (r?.status === 'queued') {
 			toast.add({ title: t('reportView.steerQueuedFallback'), color: 'amber' })
@@ -4838,7 +4866,7 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)
-	scrollToBottom()
+	forceScrollToBottom()
 
 	// Stop any background polling/watching and start streaming
 	stopPollingInProgressCompletion()
@@ -4946,19 +4974,7 @@ async function startStreaming(requestBody: any, sysId: string) {
 						const idx = ensureSys()
 						if (idx !== -1) {
 							await handleStreamingEvent(currentEvent, payload, idx)
-							// Debounced scroll: batch multiple token events into a single frame
-							if (!pendingScroll.value) {
-								pendingScroll.value = true
-								if (typeof window !== 'undefined') {
-									scrollRAF = window.requestAnimationFrame(() => {
-										autoScrollIfNearBottom()
-										pendingScroll.value = false
-									})
-								} else {
-									autoScrollIfNearBottom()
-									pendingScroll.value = false
-								}
-							}
+							scheduleFollowScroll()
 						}
 					} catch (e) {
 						// ignore non-JSON data lines
@@ -5229,7 +5245,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 					loadReport()
 					loadReportSummary()
 					promptBoxRef.value?.refreshContextEstimate?.()
-					autoScrollIfNearBottom()
+					followScrollToBottom()
 					return { sawDone: true, gotEvents: true }
 				}
 				try {
@@ -5239,13 +5255,7 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 					if (idx !== -1) {
 						gotEvents = true
 						await handleStreamingEvent(currentEvent, payload, idx, { ownStream: false })
-						if (!pendingScroll.value) {
-							pendingScroll.value = true
-							window.requestAnimationFrame(() => {
-								autoScrollIfNearBottom()
-								pendingScroll.value = false
-							})
-						}
+						scheduleFollowScroll()
 					}
 				} catch (e) {
 					// ignore non-JSON data lines
@@ -5306,7 +5316,6 @@ async function startPollingInProgressCompletion() {
 		}
 		try {
 			await loadCompletions({ skipEstimate: true })
-			autoScrollIfNearBottom()
 			const still = getLastInProgressSystem()
 			if (!still) {
 				stopPollingInProgressCompletion()
@@ -5347,7 +5356,6 @@ function startScheduledCompletionsPoll() {
 			const newLastId = list.length > 0 ? list[list.length - 1].id : null
 			if (newLastId && newLastId !== lastId) {
 				await loadCompletions()
-				autoScrollIfNearBottom()
 			}
 		} catch {}
 		scheduledPollHandle = window.setTimeout(tick, scheduledPollIntervalMs)
@@ -5442,19 +5450,9 @@ onMounted(async () => {
 	
     // Aggressive initial scroll to handle async content mounting
 	scheduleInitialScroll()
-    window.addEventListener('resize', safeScrollToBottom)
-	// Attach scroll listener for infinite scroll up
+    window.addEventListener('resize', followScrollToBottom)
+	// Attach scroll listener for infinite scroll up / follow-mode tracking
 	try { scrollContainer.value?.addEventListener('scroll', onScroll) } catch {}
-    // Initialize scroll position state
-    try {
-        const c = scrollContainer.value
-        if (c) {
-            lastScrollTop.value = c.scrollTop
-            const dist = c.scrollHeight - (c.scrollTop + c.clientHeight)
-            isUserAtBottom.value = dist <= RETURN_TO_BOTTOM_PX
-            suppressAutoScroll.value = false
-        }
-    } catch {}
 })
 
 </script>
