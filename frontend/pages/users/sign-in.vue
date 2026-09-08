@@ -125,6 +125,20 @@
     if (!target || !target.includes('?') || !query) return ''
     return new URLSearchParams(query).get('login_hint') || ''
   })
+  // True only when this page was reached from the OAuth consent page: an
+  // embedding app sent the browser to /authorize, the global auth middleware
+  // bounced it here, and the consent URL rides along as `redirect`. That is
+  // the one flow that wants a zero-click SSO hop. Every other arrival — a
+  // logout landing here, an expired session, a typed URL — has no such
+  // redirect and must show the button, or a signed-out user is quietly
+  // signed straight back in while their provider session is still alive.
+  const embeddedAuthorizeFlow = computed(() => {
+    if (loginHint.value) return true
+    const target = safeRedirectTarget(route.query.redirect)
+    if (!target) return false
+    const path = target.split('?')[0].split('#')[0].replace(/\/+$/, '')
+    return path === '/authorize'
+  })
 
   // `?local=true` is the escape hatch that lets an admin reach the password
   // form on an sso_only instance.
@@ -274,16 +288,23 @@
       return
     }
 
-    // Single-provider SSO: the button would be the only thing on the page, so
-    // press it. This is what lets an embedding app open BOW with no visible
-    // sign-in step when the user already has a live session at the provider.
+    // Single-provider SSO on the embedded flow: the button would be the only
+    // thing on the page, so press it. This is what lets an embedding app open
+    // BOW with no visible sign-in step when the user already has a live
+    // session at the provider.
     //
-    // The guards are what keep it from becoming a redirect loop: a failed
-    // round trip comes back with ?error and must be able to show it, and
-    // ?local=true stays an escape hatch to the password form when the
+    // It is scoped to that flow on purpose (`embeddedAuthorizeFlow`). Left
+    // unscoped it fired on every visit, so signing out bounced the user here
+    // and straight back into the provider, which — still holding its own
+    // session — signed them in again without a prompt.
+    //
+    // The remaining guards are what keep it from becoming a redirect loop: a
+    // failed round trip comes back with ?error and must be able to show it,
+    // and ?local=true stays an escape hatch to the password form when the
     // provider is unreachable.
     if (
       authMode.value === 'sso_only'
+      && embeddedAuthorizeFlow.value
       && !localOverride.value
       && !ldapEnabled.value
       && !inviteError

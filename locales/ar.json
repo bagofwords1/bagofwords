@@ -920,6 +920,7 @@
     "steered": "تم التوجيه",
     "steeringApplied": "تم تطبيق التوجيه",
     "steerQueuedFallback": "انتهى التشغيل للتو — تمت إضافة رسالتك إلى قائمة الانتظار بدلاً من ذلك",
+    "jumpToLatest": "الانتقال إلى الأحدث",
     "steerFailed": "تعذّر توجيه الإكمال الجاري",
     "instructionUnavailableTitle": "التعليمة غير متاحة",
     "instructionUnavailableBody": "ربما تم حذفها، أو ليس لديك صلاحية الوصول إليها.",

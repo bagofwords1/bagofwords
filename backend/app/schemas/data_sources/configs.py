@@ -296,6 +296,12 @@ class PostgreSQLConfig(BaseModel):
         description="Optional schema or comma-separated list of schemas",
         json_schema_extra={"ui:type": "string"}
     )
+    sslmode: str = Field(
+        "prefer",
+        title="SSL Mode",
+        description="libpq sslmode: disable, allow, prefer, require, verify-ca, verify-full. Use 'require' for IAM-authenticated connections (e.g. AWS RDS), which reject unencrypted logins.",
+        json_schema_extra={"ui:type": "select", "ui:options": ["disable", "allow", "prefer", "require", "verify-ca", "verify-full"]}
+    )
 
 
 # SQLite (local file database)
