@@ -226,6 +226,15 @@ null `scope_ref_id`; it has no link to the agent execution. Add:
 - Tool-level cost: `tool_executions.total_cost_usd` and `total_tokens` written
   by the tool runner from the records attributed during the call (the
   contextvar carries `tool_execution_id` for the duration of the call).
+- Prior art: `TraceModal` already shows a per-report total (sum of
+  `llm_usage_records` by `report_id`) and a per-turn figure from
+  `usage_events` (the quota ledger, keyed by user completion id, written by
+  `UsageLimitContext`, only on instances licensed for usage limits; elsewhere
+  the turn falls back to the planner-only `token_usage_json` and shows no
+  cost). `UsageLimitContext` is therefore the natural place to set the new
+  attribution, since it already knows the run. Once the rollup columns exist,
+  the trace endpoint reads per-turn tokens and cost from the run row, so the
+  page and the modal agree and the license-gated fallback goes away.
 
 ### Modules
 
