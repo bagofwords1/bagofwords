@@ -1,0 +1,18 @@
+# Mock OpenText Documentum REST Services + OTDS — see mock_documentum_server.py.
+# A real Documentum cannot be redistributed (OpenText entitlement required), so
+# this serves the exact API surface DocumentumClient touches, stdlib only.
+#
+#   docker compose up -d
+#   curl -u alice:alice123 http://localhost:8081/dctm-rest/repositories/bow_demo/cabinets
+services:
+  documentum-mock:
+    image: python:3.12-slim
+    working_dir: /srv
+    volumes:
+      - ./mock_documentum_server.py:/srv/mock_documentum_server.py:ro
+    command: python mock_documentum_server.py
+    environment:
+      DCTM_MOCK_PORT: "8081"
+      # Shrink to make Bearer refresh-on-401 observable: DCTM_MOCK_TOKEN_TTL: "10"
+    ports:
+      - "8081:8081"

@@ -6,6 +6,26 @@
 # test suites, immutable migration history, vendored JS bundles, false-
 # positive sites in i18n keymaps, local dev helpers.
 version: v1.0.0
+# Open-source vulnerability ignores (client-side policy applied by `snyk test`).
+ignore:
+  # Improper Verification of Cryptographic Signature in node-forge (CVSS 8.7).
+  # Pulled in ONLY as a build/dev-tooling transitive:
+  #   nuxt > @nuxt/cli > listhen > node-forge
+  # listhen uses node-forge solely to mint a self-signed cert for the local
+  # `nuxt dev --https` server. node-forge is NOT part of the production runtime:
+  # `nuxt build` emits `.output/`, which the prod image runs directly, and the
+  # Nuxt CLI / listhen / node-forge never ship in that artifact. Every published
+  # node-forge version is flagged (semver: '*') and there is no upstream fix or
+  # patch available (fixedIn: []), so no upgrade can remediate it. Time-boxed so
+  # it is re-evaluated once an upstream fix lands or the dep chain drops it.
+  SNYK-JS-NODEFORGE-19635204:
+    - '*':
+        reason: >-
+          Dev/build-only transitive (nuxt dev CLI self-signed cert generation via
+          listhen); not present in the production .output runtime. No fixed
+          node-forge version exists (all versions affected, no patch). Re-review
+          on expiry.
+        expires: 2026-12-07T00:00:00.000Z
 exclude:
   code:
     - 'backend/tests'

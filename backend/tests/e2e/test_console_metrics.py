@@ -349,8 +349,6 @@ def test_agent_execution_summaries(
 def test_diagnosis_filters_by_user_time_and_prompt(
     get_agent_execution_summaries,
     get_diagnosis_dashboard_metrics,
-    get_diagnosis_timeseries,
-    get_diagnosis_users,
     seed_agent_executions,
     create_report,
     create_user,
@@ -427,15 +425,3 @@ def test_diagnosis_filters_by_user_time_and_prompt(
     metrics = get_diagnosis_dashboard_metrics(user_token=owner_token, org_id=org_id, user_ids=member_id)
     assert metrics.status_code == 200
     assert metrics.json()["total_items"] == 2
-
-    # Timeseries respects the user filter
-    ts = get_diagnosis_timeseries(user_token=owner_token, org_id=org_id, user_ids=member_id)
-    assert ts.status_code == 200
-    points = ts.json()["points"]
-    assert sum(p["success"] + p["error"] for p in points) == 2
-
-    # Users facet lists exactly the users with executions in this org
-    users_resp = get_diagnosis_users(user_token=owner_token, org_id=org_id)
-    assert users_resp.status_code == 200
-    facet_ids = {u["id"] for u in users_resp.json()["users"]}
-    assert facet_ids == {owner_id, member_id}

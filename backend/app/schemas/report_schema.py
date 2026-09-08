@@ -18,6 +18,9 @@ class ReportCreate(ReportBase):
     # Create the report directly inside a project (folder). Validated against
     # the creator's project access at create time.
     project_id: Optional[str] = None
+    # Start the report in a mode (the home prompt box's Chat/Training picker).
+    # Omit for chat. Training is gated exactly like ReportUpdate.mode.
+    mode: Optional[Literal["chat", "training"]] = None
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None

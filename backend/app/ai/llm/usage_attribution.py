@@ -26,6 +26,9 @@ class UsageAttribution(TypedDict, total=False):
     user_id: Optional[str]
     report_id: Optional[str]
     data_source_id: Optional[str]
+    # The agent run the call belongs to, set by AgentV2 once the run row
+    # exists. Drives the diagnosis explorer's per-run cost/token/model rollup.
+    agent_execution_id: Optional[str]
     # Auto model routing: set when the run started under the Auto router so the
     # cost console can compute realized savings vs the baseline (default) model.
     routed: Optional[bool]

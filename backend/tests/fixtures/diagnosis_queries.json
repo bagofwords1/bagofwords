@@ -1,0 +1,2478 @@
+{
+ "v": 1,
+ "cases": [
+  {
+   "q": "status:error tool:create_data",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "status",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "error",
+         "s": "error"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "tool",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "create_data",
+         "s": "create_data"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "status:error AND tool:create_data",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 12
+    },
+    {
+     "type": "field",
+     "start": 13,
+     "end": 17
+    },
+    {
+     "type": "colon",
+     "start": 17,
+     "end": 18
+    },
+    {
+     "type": "value",
+     "start": 18,
+     "end": 29
+    }
+   ]
+  },
+  {
+   "q": "revenue \"gross margin\" -user:dana",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "text",
+       "phrase": false,
+       "s": "revenue"
+      },
+      {
+       "t": "text",
+       "phrase": true,
+       "s": "gross margin"
+      },
+      {
+       "t": "not",
+       "c": {
+        "t": "term",
+        "field": "user",
+        "op": "eq",
+        "values": [
+         {
+          "kind": "word",
+          "raw": "dana",
+          "s": "dana"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "canonical": "revenue AND \"gross margin\" AND NOT user:dana",
+   "tokens": [
+    {
+     "type": "text",
+     "start": 0,
+     "end": 7
+    },
+    {
+     "type": "phrase",
+     "start": 8,
+     "end": 22
+    },
+    {
+     "type": "keyword",
+     "start": 23,
+     "end": 24
+    },
+    {
+     "type": "field",
+     "start": 24,
+     "end": 28
+    },
+    {
+     "type": "colon",
+     "start": 28,
+     "end": 29
+    },
+    {
+     "type": "value",
+     "start": 29,
+     "end": 33
+    }
+   ]
+  },
+  {
+   "q": "user:(yochay OR dana) AND feedback:negative",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "user",
+       "op": "any",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "yochay",
+         "s": "yochay"
+        },
+        {
+         "kind": "word",
+         "raw": "dana",
+         "s": "dana"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "feedback",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "negative",
+         "s": "negative"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "user:(yochay OR dana) AND feedback:negative",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 4
+    },
+    {
+     "type": "colon",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "paren",
+     "start": 5,
+     "end": 6
+    },
+    {
+     "type": "value",
+     "start": 6,
+     "end": 12
+    },
+    {
+     "type": "keyword",
+     "start": 13,
+     "end": 15
+    },
+    {
+     "type": "value",
+     "start": 16,
+     "end": 20
+    },
+    {
+     "type": "paren",
+     "start": 20,
+     "end": 21
+    },
+    {
+     "type": "keyword",
+     "start": 22,
+     "end": 25
+    },
+    {
+     "type": "field",
+     "start": 26,
+     "end": 34
+    },
+    {
+     "type": "colon",
+     "start": 34,
+     "end": 35
+    },
+    {
+     "type": "value",
+     "start": 35,
+     "end": 43
+    }
+   ]
+  },
+  {
+   "q": "duration:>30s cost:>=$0.50 tokens:1000..5k",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "duration",
+       "op": "gt",
+       "values": [
+        {
+         "kind": "duration",
+         "raw": "30s",
+         "ms": 30000.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "cost",
+       "op": "gte",
+       "values": [
+        {
+         "kind": "money",
+         "raw": "$0.50",
+         "usd": 0.5
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "tokens",
+       "op": "range",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "1000",
+         "n": 1000.0
+        },
+        {
+         "kind": "number",
+         "raw": "5k",
+         "n": 5000.0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "duration:>30s AND cost:>=$0.50 AND tokens:1000..5k",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 8
+    },
+    {
+     "type": "colon",
+     "start": 8,
+     "end": 9
+    },
+    {
+     "type": "op",
+     "start": 9,
+     "end": 10
+    },
+    {
+     "type": "value",
+     "start": 10,
+     "end": 13
+    },
+    {
+     "type": "field",
+     "start": 14,
+     "end": 18
+    },
+    {
+     "type": "colon",
+     "start": 18,
+     "end": 19
+    },
+    {
+     "type": "op",
+     "start": 19,
+     "end": 21
+    },
+    {
+     "type": "value",
+     "start": 21,
+     "end": 26
+    },
+    {
+     "type": "field",
+     "start": 27,
+     "end": 33
+    },
+    {
+     "type": "colon",
+     "start": 33,
+     "end": 34
+    },
+    {
+     "type": "value",
+     "start": 34,
+     "end": 42
+    }
+   ]
+  },
+  {
+   "q": "created:2025-09-05 OR created:-7d",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "or",
+     "c": [
+      {
+       "t": "term",
+       "field": "created",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "date",
+         "raw": "2025-09-05",
+         "s": "2025-09-05",
+         "gran": "day"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "created",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "reldate",
+         "raw": "-7d",
+         "n": -7,
+         "unit": "d"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "created:2025-09-05 OR created:-7d",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 7
+    },
+    {
+     "type": "colon",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 18
+    },
+    {
+     "type": "keyword",
+     "start": 19,
+     "end": 21
+    },
+    {
+     "type": "field",
+     "start": 22,
+     "end": 29
+    },
+    {
+     "type": "colon",
+     "start": 29,
+     "end": 30
+    },
+    {
+     "type": "value",
+     "start": 30,
+     "end": 33
+    }
+   ]
+  },
+  {
+   "q": "NOT (status:error OR tool.status:error) has:feedback",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "not",
+       "c": {
+        "t": "or",
+        "c": [
+         {
+          "t": "term",
+          "field": "status",
+          "op": "eq",
+          "values": [
+           {
+            "kind": "word",
+            "raw": "error",
+            "s": "error"
+           }
+          ]
+         },
+         {
+          "t": "term",
+          "field": "tool.status",
+          "op": "eq",
+          "values": [
+           {
+            "kind": "word",
+            "raw": "error",
+            "s": "error"
+           }
+          ]
+         }
+        ]
+       }
+      },
+      {
+       "t": "term",
+       "field": "feedback",
+       "op": "has",
+       "values": []
+      }
+     ]
+    }
+   },
+   "canonical": "NOT (status:error OR tool.status:error) AND has:feedback",
+   "tokens": [
+    {
+     "type": "keyword",
+     "start": 0,
+     "end": 3
+    },
+    {
+     "type": "paren",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "field",
+     "start": 5,
+     "end": 11
+    },
+    {
+     "type": "colon",
+     "start": 11,
+     "end": 12
+    },
+    {
+     "type": "value",
+     "start": 12,
+     "end": 17
+    },
+    {
+     "type": "keyword",
+     "start": 18,
+     "end": 20
+    },
+    {
+     "type": "field",
+     "start": 21,
+     "end": 32
+    },
+    {
+     "type": "colon",
+     "start": 32,
+     "end": 33
+    },
+    {
+     "type": "value",
+     "start": 33,
+     "end": 38
+    },
+    {
+     "type": "paren",
+     "start": 38,
+     "end": 39
+    },
+    {
+     "type": "field",
+     "start": 40,
+     "end": 43
+    },
+    {
+     "type": "colon",
+     "start": 43,
+     "end": 44
+    },
+    {
+     "type": "value",
+     "start": 44,
+     "end": 52
+    }
+   ]
+  },
+  {
+   "q": "tool:*sql* confidence:<3",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "tool",
+       "op": "wild",
+       "values": [
+        {
+         "kind": "wild",
+         "raw": "*sql*",
+         "s": "*sql*"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "judge.confidence",
+       "op": "lt",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "3",
+         "n": 3.0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "tool:*sql* AND judge.confidence:<3",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 4
+    },
+    {
+     "type": "colon",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "value",
+     "start": 5,
+     "end": 10
+    },
+    {
+     "type": "field",
+     "start": 11,
+     "end": 21
+    },
+    {
+     "type": "colon",
+     "start": 21,
+     "end": 22
+    },
+    {
+     "type": "op",
+     "start": 22,
+     "end": 23
+    },
+    {
+     "type": "value",
+     "start": 23,
+     "end": 24
+    }
+   ]
+  },
+  {
+   "q": "eval:true turn:>3 platform:slack",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "eval",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "bool",
+         "raw": "true",
+         "b": true
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "turn",
+       "op": "gt",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "3",
+         "n": 3.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "platform",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "slack",
+         "s": "slack"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "eval:true AND turn:>3 AND platform:slack",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 4
+    },
+    {
+     "type": "colon",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "value",
+     "start": 5,
+     "end": 9
+    },
+    {
+     "type": "field",
+     "start": 10,
+     "end": 14
+    },
+    {
+     "type": "colon",
+     "start": 14,
+     "end": 15
+    },
+    {
+     "type": "op",
+     "start": 15,
+     "end": 16
+    },
+    {
+     "type": "value",
+     "start": 16,
+     "end": 17
+    },
+    {
+     "type": "field",
+     "start": 18,
+     "end": 26
+    },
+    {
+     "type": "colon",
+     "start": 26,
+     "end": 27
+    },
+    {
+     "type": "value",
+     "start": 27,
+     "end": 32
+    }
+   ]
+  },
+  {
+   "q": "status:(error OR in_progress)",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "any",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "error",
+       "s": "error"
+      },
+      {
+       "kind": "word",
+       "raw": "in_progress",
+       "s": "in_progress"
+      }
+     ]
+    }
+   },
+   "canonical": "status:(error OR in_progress)",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "paren",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 13
+    },
+    {
+     "type": "keyword",
+     "start": 14,
+     "end": 16
+    },
+    {
+     "type": "value",
+     "start": 17,
+     "end": 28
+    },
+    {
+     "type": "paren",
+     "start": 28,
+     "end": 29
+    }
+   ]
+  },
+  {
+   "q": "Status:ERROR",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "ERROR",
+       "s": "error"
+      }
+     ]
+    }
+   },
+   "canonical": "status:error",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 12
+    }
+   ]
+  },
+  {
+   "q": "a b c d",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "text",
+       "phrase": false,
+       "s": "a"
+      },
+      {
+       "t": "text",
+       "phrase": false,
+       "s": "b"
+      },
+      {
+       "t": "text",
+       "phrase": false,
+       "s": "c"
+      },
+      {
+       "t": "text",
+       "phrase": false,
+       "s": "d"
+      }
+     ]
+    }
+   },
+   "canonical": "a AND b AND c AND d",
+   "tokens": [
+    {
+     "type": "text",
+     "start": 0,
+     "end": 1
+    },
+    {
+     "type": "text",
+     "start": 2,
+     "end": 3
+    },
+    {
+     "type": "text",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "text",
+     "start": 6,
+     "end": 7
+    }
+   ]
+  },
+  {
+   "q": "created:2025-08..2025-09",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "created",
+     "op": "range",
+     "values": [
+      {
+       "kind": "date",
+       "raw": "2025-08",
+       "s": "2025-08",
+       "gran": "month"
+      },
+      {
+       "kind": "date",
+       "raw": "2025-09",
+       "s": "2025-09",
+       "gran": "month"
+      }
+     ]
+    }
+   },
+   "canonical": "created:2025-08..2025-09",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 7
+    },
+    {
+     "type": "colon",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 24
+    }
+   ]
+  },
+  {
+   "q": "report:\"weekly sales\"",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "report",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "phrase",
+       "raw": "weekly sales",
+       "s": "weekly sales"
+      }
+     ]
+    }
+   },
+   "canonical": "report:\"weekly sales\"",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "phrase",
+     "start": 7,
+     "end": 21
+    }
+   ]
+  },
+  {
+   "q": "status:error and user:dana or feedback:negative",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "or",
+     "c": [
+      {
+       "t": "and",
+       "c": [
+        {
+         "t": "term",
+         "field": "status",
+         "op": "eq",
+         "values": [
+          {
+           "kind": "word",
+           "raw": "error",
+           "s": "error"
+          }
+         ]
+        },
+        {
+         "t": "term",
+         "field": "user",
+         "op": "eq",
+         "values": [
+          {
+           "kind": "word",
+           "raw": "dana",
+           "s": "dana"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "feedback",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "negative",
+         "s": "negative"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "status:error AND user:dana OR feedback:negative",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 12
+    },
+    {
+     "type": "keyword",
+     "start": 13,
+     "end": 16
+    },
+    {
+     "type": "field",
+     "start": 17,
+     "end": 21
+    },
+    {
+     "type": "colon",
+     "start": 21,
+     "end": 22
+    },
+    {
+     "type": "value",
+     "start": 22,
+     "end": 26
+    },
+    {
+     "type": "keyword",
+     "start": 27,
+     "end": 29
+    },
+    {
+     "type": "field",
+     "start": 30,
+     "end": 38
+    },
+    {
+     "type": "colon",
+     "start": 38,
+     "end": 39
+    },
+    {
+     "type": "value",
+     "start": 39,
+     "end": 47
+    }
+   ]
+  },
+  {
+   "q": "(status:error OR feedback:negative) AND NOT tool:answer",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "or",
+       "c": [
+        {
+         "t": "term",
+         "field": "status",
+         "op": "eq",
+         "values": [
+          {
+           "kind": "word",
+           "raw": "error",
+           "s": "error"
+          }
+         ]
+        },
+        {
+         "t": "term",
+         "field": "feedback",
+         "op": "eq",
+         "values": [
+          {
+           "kind": "word",
+           "raw": "negative",
+           "s": "negative"
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "t": "not",
+       "c": {
+        "t": "term",
+        "field": "tool",
+        "op": "eq",
+        "values": [
+         {
+          "kind": "word",
+          "raw": "answer",
+          "s": "answer"
+         }
+        ]
+       }
+      }
+     ]
+    }
+   },
+   "canonical": "(status:error OR feedback:negative) AND NOT tool:answer",
+   "tokens": [
+    {
+     "type": "paren",
+     "start": 0,
+     "end": 1
+    },
+    {
+     "type": "field",
+     "start": 1,
+     "end": 7
+    },
+    {
+     "type": "colon",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 13
+    },
+    {
+     "type": "keyword",
+     "start": 14,
+     "end": 16
+    },
+    {
+     "type": "field",
+     "start": 17,
+     "end": 25
+    },
+    {
+     "type": "colon",
+     "start": 25,
+     "end": 26
+    },
+    {
+     "type": "value",
+     "start": 26,
+     "end": 34
+    },
+    {
+     "type": "paren",
+     "start": 34,
+     "end": 35
+    },
+    {
+     "type": "keyword",
+     "start": 36,
+     "end": 39
+    },
+    {
+     "type": "keyword",
+     "start": 40,
+     "end": 43
+    },
+    {
+     "type": "field",
+     "start": 44,
+     "end": 48
+    },
+    {
+     "type": "colon",
+     "start": 48,
+     "end": 49
+    },
+    {
+     "type": "value",
+     "start": 49,
+     "end": 55
+    }
+   ]
+  },
+  {
+   "q": "model:gpt-4.1 provider:openai cost:<0.01",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "model",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "gpt-4.1",
+         "s": "gpt-4.1"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "provider",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "openai",
+         "s": "openai"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "cost",
+       "op": "lt",
+       "values": [
+        {
+         "kind": "money",
+         "raw": "0.01",
+         "usd": 0.01
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "model:gpt-4.1 AND provider:openai AND cost:<0.01",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 5
+    },
+    {
+     "type": "colon",
+     "start": 5,
+     "end": 6
+    },
+    {
+     "type": "value",
+     "start": 6,
+     "end": 13
+    },
+    {
+     "type": "field",
+     "start": 14,
+     "end": 22
+    },
+    {
+     "type": "colon",
+     "start": 22,
+     "end": 23
+    },
+    {
+     "type": "value",
+     "start": 23,
+     "end": 29
+    },
+    {
+     "type": "field",
+     "start": 30,
+     "end": 34
+    },
+    {
+     "type": "colon",
+     "start": 34,
+     "end": 35
+    },
+    {
+     "type": "op",
+     "start": 35,
+     "end": 36
+    },
+    {
+     "type": "value",
+     "start": 36,
+     "end": 40
+    }
+   ]
+  },
+  {
+   "q": "judge.instructions:<=2 coverage:>4",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "judge.instructions",
+       "op": "lte",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "2",
+         "n": 2.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "judge.instructions",
+       "op": "gt",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "4",
+         "n": 4.0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "judge.instructions:<=2 AND judge.instructions:>4",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 18
+    },
+    {
+     "type": "colon",
+     "start": 18,
+     "end": 19
+    },
+    {
+     "type": "op",
+     "start": 19,
+     "end": 21
+    },
+    {
+     "type": "value",
+     "start": 21,
+     "end": 22
+    },
+    {
+     "type": "field",
+     "start": 23,
+     "end": 31
+    },
+    {
+     "type": "colon",
+     "start": 31,
+     "end": 32
+    },
+    {
+     "type": "op",
+     "start": 32,
+     "end": 33
+    },
+    {
+     "type": "value",
+     "start": 33,
+     "end": 34
+    }
+   ]
+  },
+  {
+   "q": "created:today",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "created",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "named",
+       "raw": "today",
+       "s": "today"
+      }
+     ]
+    }
+   },
+   "canonical": "created:today",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 7
+    },
+    {
+     "type": "colon",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 13
+    }
+   ]
+  },
+  {
+   "q": "created:>2025-09-01",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "created",
+     "op": "gt",
+     "values": [
+      {
+       "kind": "date",
+       "raw": "2025-09-01",
+       "s": "2025-09-01",
+       "gran": "day"
+      }
+     ]
+    }
+   },
+   "canonical": "created:>2025-09-01",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 7
+    },
+    {
+     "type": "colon",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "op",
+     "start": 8,
+     "end": 9
+    },
+    {
+     "type": "value",
+     "start": 9,
+     "end": 19
+    }
+   ]
+  },
+  {
+   "q": "tool.attempt:>1 tool.duration:>=2.5s",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "tool.attempt",
+       "op": "gt",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "1",
+         "n": 1.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "tool.duration",
+       "op": "gte",
+       "values": [
+        {
+         "kind": "duration",
+         "raw": "2.5s",
+         "ms": 2500.0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "tool.attempt:>1 AND tool.duration:>=2.5s",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 12
+    },
+    {
+     "type": "colon",
+     "start": 12,
+     "end": 13
+    },
+    {
+     "type": "op",
+     "start": 13,
+     "end": 14
+    },
+    {
+     "type": "value",
+     "start": 14,
+     "end": 15
+    },
+    {
+     "type": "field",
+     "start": 16,
+     "end": 29
+    },
+    {
+     "type": "colon",
+     "start": 29,
+     "end": 30
+    },
+    {
+     "type": "op",
+     "start": 30,
+     "end": 32
+    },
+    {
+     "type": "value",
+     "start": 32,
+     "end": 36
+    }
+   ]
+  },
+  {
+   "q": "tokens.in:>50k tokens.out:2000",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "tokens.in",
+       "op": "gt",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "50k",
+         "n": 50000.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "tokens.out",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "number",
+         "raw": "2000",
+         "n": 2000.0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "tokens.in:>50k AND tokens.out:2000",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 9
+    },
+    {
+     "type": "colon",
+     "start": 9,
+     "end": 10
+    },
+    {
+     "type": "op",
+     "start": 10,
+     "end": 11
+    },
+    {
+     "type": "value",
+     "start": 11,
+     "end": 14
+    },
+    {
+     "type": "field",
+     "start": 15,
+     "end": 25
+    },
+    {
+     "type": "colon",
+     "start": 25,
+     "end": 26
+    },
+    {
+     "type": "value",
+     "start": 26,
+     "end": 30
+    }
+   ]
+  },
+  {
+   "q": "has:user",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "user",
+     "op": "has",
+     "values": []
+    }
+   },
+   "canonical": "has:user",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 3
+    },
+    {
+     "type": "colon",
+     "start": 3,
+     "end": 4
+    },
+    {
+     "type": "value",
+     "start": 4,
+     "end": 8
+    }
+   ]
+  },
+  {
+   "q": "run_id:abc-123 report_id:(r1 OR r2)",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "run_id",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "abc-123",
+         "s": "abc-123"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "report_id",
+       "op": "any",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "r1",
+         "s": "r1"
+        },
+        {
+         "kind": "word",
+         "raw": "r2",
+         "s": "r2"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "run_id:abc-123 AND report_id:(r1 OR r2)",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 14
+    },
+    {
+     "type": "field",
+     "start": 15,
+     "end": 24
+    },
+    {
+     "type": "colon",
+     "start": 24,
+     "end": 25
+    },
+    {
+     "type": "paren",
+     "start": 25,
+     "end": 26
+    },
+    {
+     "type": "value",
+     "start": 26,
+     "end": 28
+    },
+    {
+     "type": "keyword",
+     "start": 29,
+     "end": 31
+    },
+    {
+     "type": "value",
+     "start": 32,
+     "end": 34
+    },
+    {
+     "type": "paren",
+     "start": 34,
+     "end": 35
+    }
+   ]
+  },
+  {
+   "q": "\"exact phrase only\"",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "text",
+     "phrase": true,
+     "s": "exact phrase only"
+    }
+   },
+   "canonical": "\"exact phrase only\"",
+   "tokens": [
+    {
+     "type": "phrase",
+     "start": 0,
+     "end": 19
+    }
+   ]
+  },
+  {
+   "q": "duration:1.5m thinking:250ms first_token:2h",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "duration",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "duration",
+         "raw": "1.5m",
+         "ms": 90000.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "thinking",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "duration",
+         "raw": "250ms",
+         "ms": 250.0
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "first_token",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "duration",
+         "raw": "2h",
+         "ms": 7200000.0
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "duration:1.5m AND thinking:250ms AND first_token:2h",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 8
+    },
+    {
+     "type": "colon",
+     "start": 8,
+     "end": 9
+    },
+    {
+     "type": "value",
+     "start": 9,
+     "end": 13
+    },
+    {
+     "type": "field",
+     "start": 14,
+     "end": 22
+    },
+    {
+     "type": "colon",
+     "start": 22,
+     "end": 23
+    },
+    {
+     "type": "value",
+     "start": 23,
+     "end": 28
+    },
+    {
+     "type": "field",
+     "start": 29,
+     "end": 40
+    },
+    {
+     "type": "colon",
+     "start": 40,
+     "end": 41
+    },
+    {
+     "type": "value",
+     "start": 41,
+     "end": 43
+    }
+   ]
+  },
+  {
+   "q": "",
+   "ast": {
+    "v": 1,
+    "root": null
+   },
+   "canonical": "",
+   "tokens": []
+  },
+  {
+   "q": "status:stale",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "stale",
+       "s": "stale"
+      }
+     ]
+    }
+   },
+   "canonical": "status:stale",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 12
+    }
+   ]
+  },
+  {
+   "q": "status:(in_progress OR stale)",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "any",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "in_progress",
+       "s": "in_progress"
+      },
+      {
+       "kind": "word",
+       "raw": "stale",
+       "s": "stale"
+      }
+     ]
+    }
+   },
+   "canonical": "status:(in_progress OR stale)",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "paren",
+     "start": 7,
+     "end": 8
+    },
+    {
+     "type": "value",
+     "start": 8,
+     "end": 19
+    },
+    {
+     "type": "keyword",
+     "start": 20,
+     "end": 22
+    },
+    {
+     "type": "value",
+     "start": 23,
+     "end": 28
+    },
+    {
+     "type": "paren",
+     "start": 28,
+     "end": 29
+    }
+   ]
+  },
+  {
+   "q": "tool.status:stopped",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "tool.status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "stopped",
+       "s": "stopped"
+      }
+     ]
+    }
+   },
+   "canonical": "tool.status:stopped",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 11
+    },
+    {
+     "type": "colon",
+     "start": 11,
+     "end": 12
+    },
+    {
+     "type": "value",
+     "start": 12,
+     "end": 19
+    }
+   ]
+  },
+  {
+   "q": "table:orders",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "table",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "orders",
+       "s": "orders"
+      }
+     ]
+    }
+   },
+   "canonical": "table:orders",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 5
+    },
+    {
+     "type": "colon",
+     "start": 5,
+     "end": 6
+    },
+    {
+     "type": "value",
+     "start": 6,
+     "end": 12
+    }
+   ]
+  },
+  {
+   "q": "table:public.*",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "table",
+     "op": "wild",
+     "values": [
+      {
+       "kind": "wild",
+       "raw": "public.*",
+       "s": "public.*"
+      }
+     ]
+    }
+   },
+   "canonical": "table:public.*",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 5
+    },
+    {
+     "type": "colon",
+     "start": 5,
+     "end": 6
+    },
+    {
+     "type": "value",
+     "start": 6,
+     "end": 14
+    }
+   ]
+  },
+  {
+   "q": "tool:create_data tool.args:\"region_name\" table:orders",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "and",
+     "c": [
+      {
+       "t": "term",
+       "field": "tool",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "create_data",
+         "s": "create_data"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "tool.args",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "phrase",
+         "raw": "region_name",
+         "s": "region_name"
+        }
+       ]
+      },
+      {
+       "t": "term",
+       "field": "table",
+       "op": "eq",
+       "values": [
+        {
+         "kind": "word",
+         "raw": "orders",
+         "s": "orders"
+        }
+       ]
+      }
+     ]
+    }
+   },
+   "canonical": "tool:create_data AND tool.args:\"region_name\" AND table:orders",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 4
+    },
+    {
+     "type": "colon",
+     "start": 4,
+     "end": 5
+    },
+    {
+     "type": "value",
+     "start": 5,
+     "end": 16
+    },
+    {
+     "type": "field",
+     "start": 17,
+     "end": 26
+    },
+    {
+     "type": "colon",
+     "start": 26,
+     "end": 27
+    },
+    {
+     "type": "phrase",
+     "start": 27,
+     "end": 40
+    },
+    {
+     "type": "field",
+     "start": 41,
+     "end": 46
+    },
+    {
+     "type": "colon",
+     "start": 46,
+     "end": 47
+    },
+    {
+     "type": "value",
+     "start": 47,
+     "end": 53
+    }
+   ]
+  },
+  {
+   "q": "tool.output:rows",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "tool.output",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "rows",
+       "s": "rows"
+      }
+     ]
+    }
+   },
+   "canonical": "tool.output:rows",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 11
+    },
+    {
+     "type": "colon",
+     "start": 11,
+     "end": 12
+    },
+    {
+     "type": "value",
+     "start": 12,
+     "end": 16
+    }
+   ]
+  },
+  {
+   "q": "has:table",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "table",
+     "op": "has",
+     "values": []
+    }
+   },
+   "canonical": "has:table",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 3
+    },
+    {
+     "type": "colon",
+     "start": 3,
+     "end": 4
+    },
+    {
+     "type": "value",
+     "start": 4,
+     "end": 9
+    }
+   ]
+  },
+  {
+   "q": "status:SIGKILL",
+   "ast": {
+    "v": 1,
+    "root": {
+     "t": "term",
+     "field": "status",
+     "op": "eq",
+     "values": [
+      {
+       "kind": "word",
+       "raw": "SIGKILL",
+       "s": "sigkill"
+      }
+     ]
+    }
+   },
+   "canonical": "status:sigkill",
+   "tokens": [
+    {
+     "type": "field",
+     "start": 0,
+     "end": 6
+    },
+    {
+     "type": "colon",
+     "start": 6,
+     "end": 7
+    },
+    {
+     "type": "value",
+     "start": 7,
+     "end": 14
+    }
+   ]
+  },
+  {
+   "q": "status:",
+   "error": {
+    "position": 7,
+    "message": "Expected a value after \"status:\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "duration:>abc",
+   "error": {
+    "position": 10,
+    "message": "Expected a duration for duration, got \"abc\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "durations:>3s",
+   "error": {
+    "position": 0,
+    "message": "Unknown field \"durations\"",
+    "suggestions": [
+     "duration"
+    ]
+   }
+  },
+  {
+   "q": "status:failed",
+   "error": {
+    "position": 7,
+    "message": "Unknown value \"failed\" for status. Expected one of: success, error, in_progress, stale, sigkill",
+    "suggestions": [
+     "success",
+     "error",
+     "in_progress",
+     "stale",
+     "sigkill"
+    ]
+   }
+  },
+  {
+   "q": "user:(a OR",
+   "error": {
+    "position": 10,
+    "message": "Expected a value after \"user:\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "(status:error",
+   "error": {
+    "position": 0,
+    "message": "Expected \")\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "status:error)",
+   "error": {
+    "position": 12,
+    "message": "Unexpected \")\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "\"unterminated",
+   "error": {
+    "position": 0,
+    "message": "Unterminated quote",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "tool.status:>2",
+   "error": {
+    "position": 12,
+    "message": "tool.status does not support \">\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "status:error AND",
+   "error": {
+    "position": 13,
+    "message": "Expected a term after \"AND\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "AND status:error",
+   "error": {
+    "position": 0,
+    "message": "Expected a term before \"AND\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "NOT",
+   "error": {
+    "position": 0,
+    "message": "Expected a term after \"NOT\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "OR",
+   "error": {
+    "position": 0,
+    "message": "Expected a term before \"OR\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "cost:>$x",
+   "error": {
+    "position": 6,
+    "message": "Expected an amount in USD for cost, got \"$x\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "created:2025-9-5",
+   "error": {
+    "position": 8,
+    "message": "Expected a date for created, got \"2025-9-5\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "eval:maybe",
+   "error": {
+    "position": 5,
+    "message": "Expected true or false for eval, got \"maybe\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "has:nothing",
+   "error": {
+    "position": 4,
+    "message": "Unknown field \"nothing\" after \"has:\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "status:(error OR",
+   "error": {
+    "position": 16,
+    "message": "Expected a value after \"status:\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "status:()",
+   "error": {
+    "position": 8,
+    "message": "Expected a value after \"status:\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "status:error OR )",
+   "error": {
+    "position": 13,
+    "message": "Expected a term after \"OR\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "tool:(a b)",
+   "error": {
+    "position": 8,
+    "message": "Expected \"OR\" or \")\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "status:error..success",
+   "error": {
+    "position": 7,
+    "message": "status does not support \"..\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "feedback:(positive OR negative OR maybe)",
+   "error": {
+    "position": 34,
+    "message": "Unknown value \"maybe\" for feedback. Expected one of: positive, negative, none",
+    "suggestions": [
+     "positive",
+     "negative",
+     "none"
+    ]
+   }
+  },
+  {
+   "q": "eval:(true OR false)",
+   "error": {
+    "position": 0,
+    "message": "eval does not support \"( OR )\"",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "toolz:x",
+   "error": {
+    "position": 0,
+    "message": "Unknown field \"toolz\"",
+    "suggestions": [
+     "tool",
+     "tools",
+     "table"
+    ]
+   }
+  },
+  {
+   "q": "a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a a",
+   "error": {
+    "position": 80,
+    "message": "Too many terms (max 40)",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "error": {
+    "position": 1000,
+    "message": "Query is too long (max 1000 characters)",
+    "suggestions": []
+   }
+  },
+  {
+   "q": "(((((status:error)))))",
+   "error": {
+    "position": 4,
+    "message": "Too much nesting (max 4 levels)",
+    "suggestions": []
+   }
+  }
+ ]
+}

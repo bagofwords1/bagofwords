@@ -94,6 +94,9 @@ def requires_permission(permission, model=None, owner_only=False, allow_public=F
                 await _audit_access_denied(db, user, organization, permission, func.__name__)
                 raise HTTPException(status_code=403, detail="User is not a member of this organization")
 
+            from app.services.bow_source_access import guard_route
+            await guard_route(db, user, kwargs)
+
             # If model is provided and object_id exists and is not None and is a valid UUID-like string, verify object belongs to organization
             obj = None
             if model and object_id is not None:

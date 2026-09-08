@@ -168,7 +168,10 @@ const testResult = ref<{ success: boolean, message?: string } | null>(null)
 async function onSave() {
   try {
     saving.value = true
-    const endpoint = connectionType.value === 'sharepoint_onprem'
+    // Manual-identity file connectors store per-user credentials on the
+    // connection row that runtime resolution reads (see
+    // ConnectionService.save_windows_user_credentials).
+    const endpoint = ['sharepoint_onprem', 'documentum'].includes(connectionType.value) && connectionId.value
       ? `/connections/${connectionId.value}/my-credentials`
       : `/data_sources/${ds.value.id}/my-credentials`
     const { error } = await useMyFetch(endpoint, { method: 'POST', body: form.value })

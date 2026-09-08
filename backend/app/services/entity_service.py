@@ -29,19 +29,20 @@ class EntityService:
     # Parameters (mirrors the step/query machinery)
     # ------------------------------------------------------------------
 
-    async def _resolve_entity_params(
-        self, db: AsyncSession, entity, run_user, organization,
+    async def _resolve_param_specs(
+        self, db: AsyncSession, raw_specs, run_user, organization,
         request_values: Optional[dict] = None,
     ) -> dict:
-        """Resolve the entity's declared params: defaults <- request values <-
-        the run user's identity bindings. {} when the entity declares none.
+        """Resolve declared params: defaults <- request values <- the run
+        user's identity bindings. {} when nothing is declared.
 
-        `request_values` are caller-supplied VALUES ({name: value}). Unknown
-        names and client values for identity-locked params are rejected
-        (ParamError), exactly like a query viewer run."""
+        `raw_specs` are ParamSpec dicts (an entity's saved list, or the ones a
+        form is about to save). `request_values` are caller-supplied VALUES
+        ({name: value}). Unknown names and client values for identity-locked
+        params are rejected (ParamError), exactly like a query viewer run."""
         from app.schemas.param_schema import parse_param_specs
         from app.ai.code_execution.query_params import ParamError, resolve_param_values
-        specs = parse_param_specs(getattr(entity, "parameters", None))
+        specs = parse_param_specs(raw_specs)
         if not specs:
             if request_values:
                 raise ParamError(
@@ -60,6 +61,35 @@ class EntityService:
             # column name, a script with a typo) can correct itself in one go.
             declared = ", ".join(s.name for s in specs)
             raise ParamError(f"{e} (declared parameters: {declared})") from e
+
+    async def _resolve_entity_params(
+        self, db: AsyncSession, entity, run_user, organization,
+        request_values: Optional[dict] = None,
+    ) -> dict:
+        """`_resolve_param_specs` over the entity's saved declarations."""
+        return await self._resolve_param_specs(
+            db, getattr(entity, "parameters", None), run_user, organization, request_values,
+        )
+
+    @staticmethod
+    def validate_param_specs(raw_specs) -> list:
+        """Strictly validate declarations a form is about to SAVE — the lenient
+        `parse_param_specs` used at run time skips bad rows, which would let a
+        typo'd declaration vanish silently. Raises ParamError."""
+        from app.schemas.param_schema import ParamSpec
+        from app.ai.code_execution.query_params import ParamError
+        out: list = []
+        seen: set = set()
+        for item in raw_specs or []:
+            try:
+                spec = ParamSpec.model_validate(item)
+            except Exception as e:
+                raise ParamError(f"invalid parameter declaration: {e}") from e
+            if spec.name in seen:
+                raise ParamError(f"duplicate parameter name: {spec.name}")
+            seen.add(spec.name)
+            out.append(spec.model_dump())
+        return out
 
     async def _upsert_entity_user_result(
         self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
@@ -105,6 +135,8 @@ class EntityService:
           with THEIR identity binding and cache it.
         - Anonymous readers of identity-scoped entities: None (withheld).
         """
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, getattr(entity, "bow_source_access", None), user)
         from app.services.identity_taint import entity_identity_scope
         has_identity, _upstream = await entity_identity_scope(db, entity)
         owner_id = str(getattr(entity, "owner_id", "") or "")
@@ -146,6 +178,8 @@ class EntityService:
         """
         from app.ai.code_execution.query_params import ParamError, params_fingerprint
         from app.models.entity_user_result import EntityUserResult
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, getattr(entity, "bow_source_access", None), user)
         from app.services.identity_taint import entity_identity_scope
 
         if user is None:
@@ -171,7 +205,7 @@ class EntityService:
         ):
             refreshed_at = upstream_refresh
         if (
-            not force_refresh
+            not force_refresh and not entity.bow_source_access
             and row is not None and row.status == "success"
             and (refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at)
         ):
@@ -183,7 +217,7 @@ class EntityService:
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         ds_list = list(entity.data_sources or [])
-        if not ds_list:
+        if not ds_list and not entity.bow_source_access:
             # DS-less entities (promoted from chat-created reports whose data
             # sources were agent-level, not report-associated): construct the
             # org's data sources — generated code addresses clients by
@@ -204,12 +238,17 @@ class EntityService:
         if not ds_clients and ds_errors:
             raise ValueError("; ".join(ds_errors[:2]))
         org_settings = await organization.get_settings(db) if organization else None
+        from app.services.bow_source_access import install_entity_client
+        await install_entity_client(db, organization, user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
         exec_df, _log, _ = await executor.execute_code_async(
             code=entity.code or "", ds_clients=ds_clients, excel_files=[],
             params=resolved,
         )
         df = executor.format_df_for_widget(exec_df)
+        if exec_df.attrs.get("bow_source"):
+            from app.services.bow_source_access import merge_access
+            entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
         await self._upsert_entity_user_result(db, entity, user, resolved, df)
         return {"data": df, "applied_params": resolved, "cached": False}
 
@@ -322,7 +361,11 @@ class EntityService:
         from app.services.viewer_data_policy import resolve_step_data
         resolution = await resolve_step_data(db, step, step.query.report, current_user)
 
+        from app.services.bow_source_access import step_access, assert_read
+        bow_access = await step_access(db, step)
+        await assert_read(db, bow_access, current_user)
         entity = Entity(
+            bow_source_access=bow_access,
             organization_id=str(organization.id),
             owner_id=str(current_user.id),
             type=ent_type,
@@ -426,13 +469,16 @@ class EntityService:
         payload: EntityCreate,
         current_user: User,
         organization: Organization,
+        *,
+        creator_can_publish: bool = True,
     ) -> Entity:
+        slug = await self._unique_slug(db, organization, payload.slug or payload.title)
         entity = Entity(
             organization_id=str(organization.id),
             owner_id=str(current_user.id),
             type=payload.type,
             title=payload.title,
-            slug=payload.slug,
+            slug=slug,
             description=payload.description,
             tags=payload.tags,
             code=payload.code,
@@ -446,6 +492,20 @@ class EntityService:
             parameters=list(payload.parameters or []) or None,
             applied_params=dict(payload.applied_params or {}) or None,
         )
+        # Same dual-status lifecycle as a from-step promotion (the route decided
+        # the tier): an entity manager gets a catalog row, published or held as
+        # a draft; anyone else gets a suggestion pending admin review.
+        if creator_can_publish:
+            entity.private_status = None
+            entity.global_status = "approved"
+            entity.published_at = (
+                payload.published_at or datetime.utcnow()
+            ) if payload.status == "published" else None
+        else:
+            entity.private_status = "published"
+            entity.global_status = "suggested"
+            entity.status = "draft"
+            entity.published_at = None
         db.add(entity)
         if payload.data_source_ids:
             from sqlalchemy import insert
@@ -505,6 +565,8 @@ class EntityService:
         skip: int = 0,
         limit: int = 100,
     ) -> List[Entity]:
+        from app.services.bow_source_access import visible_entities_clause
+        bow_visible = await visible_entities_clause(db, organization.id, current_user)
         # Get user's accessible data sources
         from sqlalchemy import exists, and_
         from app.core.permission_resolver import get_accessible_data_source_ids
@@ -540,6 +602,7 @@ class EntityService:
             .where(Entity.organization_id == str(organization.id))
             .where(Entity.deleted_at == None)
             .where(~has_inaccessible_ds)  # Exclude entities with any inaccessible data sources
+            .where(bow_visible)
         )
         
         if type:
@@ -630,6 +693,8 @@ class EntityService:
             db, str(current_user.id), str(organization.id)
         )
 
+        from app.services.bow_source_access import visible_entities_clause
+        bow_visible = await visible_entities_clause(db, organization.id, current_user)
         rows = await db.execute(
             select(
                 entity_data_source_association.c.data_source_id,
@@ -643,6 +708,7 @@ class EntityService:
             .where(Entity.organization_id == str(organization.id))
             .where(Entity.deleted_at == None)
             .where(~has_inaccessible_ds)
+            .where(bow_visible)
             # The tree hides archived rows, so the badge must not count them.
             .where(Entity.status != "archived")
             .where(or_(Entity.private_status == None, Entity.private_status != "archived"))
@@ -671,6 +737,9 @@ class EntityService:
         )
         entity = result.scalar_one_or_none()
         
+        from app.services.bow_source_access import can_read
+        if entity and not await can_read(db, entity.bow_source_access, current_user):
+            return None
         if not entity or not current_user:
             return entity
         
@@ -839,7 +908,7 @@ class EntityService:
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         ds_list = list(entity.data_sources or [])
-        if not ds_list:
+        if not ds_list and not entity.bow_source_access:
             # DS-less entities (promoted from chat-created reports): fall back
             # to the org's data sources — generated code addresses clients by
             # "<data source name>:<connection>" keys.
@@ -857,6 +926,8 @@ class EntityService:
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
+        from app.services.bow_source_access import install_entity_client
+        await install_entity_client(db, organization, current_user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 
         # Snapshot-identity guard: execution runs under the CALLER's
@@ -877,11 +948,15 @@ class EntityService:
         )
 
         try:
-            exec_df, execution_log, _ = executor.execute_code(
+            exec_df, execution_log, _ = await executor.execute_code_async(
                 code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
                 params=resolved_params,
             )
             df = executor.format_df_for_widget(exec_df)
+            if exec_df.attrs.get("bow_source"):
+                from app.services.bow_source_access import merge_access
+                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+
             if not persist_data:
                 # Transient run: the caller's own slice. Cache it per
                 # (entity, user, values) so load_entity and later reads reuse
@@ -929,27 +1004,52 @@ class EntityService:
             # Re-raise as ValueError for route to map to 404/400 as designed
             raise ValueError(str(e))
 
-    async def preview_entity(
+    @staticmethod
+    def slugify(text: str) -> str:
+        """`Monthly revenue (EU)` -> `monthly-revenue-eu`. Empty input -> `query`."""
+        import re
+        base = re.sub(r"[^a-z0-9]+", "-", (text or "").strip().lower()).strip("-")
+        return base[:80] or "query"
+
+    async def _unique_slug(self, db: AsyncSession, organization: Organization, text: str) -> str:
+        """Slug from `text`, suffixed `-2`, `-3`, ... until unused in the org.
+        The column has no unique constraint (comment says "unique per org"),
+        so uniqueness is enforced here for the manual create path."""
+        base = self.slugify(text)
+        candidate = base
+        n = 1
+        while True:
+            exists_stmt = select(Entity.id).where(
+                Entity.organization_id == str(organization.id),
+                Entity.slug == candidate,
+            ).limit(1)
+            if (await db.execute(exists_stmt)).scalar_one_or_none() is None:
+                return candidate
+            n += 1
+            candidate = f"{base}-{n}"
+
+    async def _execute_entity_code(
         self,
         db: AsyncSession,
-        entity_id: str,
-        payload,
+        code: str,
+        ds_list: list,
         organization: Organization,
-        current_user: Optional[User] = None,
+        current_user: Optional[User],
+        resolved_params: Optional[dict] = None,
+        entity: Optional[Entity] = None,
     ) -> dict:
-        """Execute provided code (or entity code) without persisting, return preview/result or error."""
-        result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
-        entity = result.scalar_one_or_none()
-        if not entity:
-            raise ValueError("Entity not found")
+        """Run `code` against `ds_list` (or every org agent when empty) without
+        persisting anything. Shared by the per-entity preview and the stateless
+        one the "New query" form uses before a row exists.
 
-        code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
-
+        `entity` is the saved row when there is one: its BOW source access
+        gates the run and is widened by what the run read."""
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
-        ds_list = list(entity.data_sources or [])
-        if not ds_list:
+        bow_access = getattr(entity, "bow_source_access", None) if entity is not None else None
+        ds_list = list(ds_list or [])
+        if not ds_list and not bow_access:
             # DS-less entities (promoted from chat-created reports): fall back
             # to the org's data sources — generated code addresses clients by
             # "<data source name>:<connection>" keys.
@@ -967,19 +1067,85 @@ class EntityService:
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
+        if entity is not None:
+            from app.services.bow_source_access import install_entity_client
+            await install_entity_client(db, organization, current_user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
-        resolved_params = await self._resolve_entity_params(
-            db, entity, current_user, organization
-        )
         try:
-            exec_df, execution_log, _ = executor.execute_code(
-                code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
-                params=resolved_params,
+            exec_df, execution_log, _ = await executor.execute_code_async(
+                code=code, ds_clients=ds_clients, excel_files=excel_files,
+                params=resolved_params or {},
             )
             df = executor.format_df_for_widget(exec_df)
+            if entity is not None and exec_df.attrs.get("bow_source"):
+                from app.services.bow_source_access import merge_access
+                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+
             return {"data": df, "execution_log": execution_log, "applied_params": resolved_params or None}
         except Exception as e:
             return {"data": None, "error": str(e)}
+
+    async def preview_entity(
+        self,
+        db: AsyncSession,
+        entity_id: str,
+        payload,
+        organization: Organization,
+        current_user: Optional[User] = None,
+    ) -> dict:
+        """Execute provided code (or entity code) without persisting, return preview/result or error."""
+        result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
+        entity = result.scalar_one_or_none()
+        if not entity:
+            raise ValueError("Entity not found")
+
+        code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
+        # The form may send the declarations it is about to save (edited
+        # params) and test values; otherwise the saved ones apply as-is.
+        sent_specs = getattr(payload, "parameters", None) if payload else None
+        raw_specs = sent_specs if sent_specs is not None else getattr(entity, "parameters", None)
+        resolved_params = await self._resolve_param_specs(
+            db, raw_specs, current_user, organization,
+            (getattr(payload, "params", None) if payload else None) or None,
+        )
+        return await self._execute_entity_code(
+            db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
+            entity=entity,
+        )
+
+    async def preview_code(
+        self,
+        db: AsyncSession,
+        code: str,
+        data_source_ids: list,
+        organization: Organization,
+        current_user: Optional[User] = None,
+        parameters: Optional[list] = None,
+        params: Optional[dict] = None,
+    ) -> dict:
+        """Stateless preview: run `code` against the given agents. No Entity row
+        is read or written — this is "try before save" for a manual query.
+
+        `parameters` are the ParamSpec dicts the form would save with the
+        query; `params` are test values for the input ones. They resolve
+        exactly as a saved entity's would (identity params bind to the
+        caller), so what Run shows is what Save will run."""
+        ds_list: list = []
+        if data_source_ids:
+            stmt = select(DataSource).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.deleted_at.is_(None),
+                DataSource.id.in_([str(i) for i in data_source_ids]),
+            )
+            ds_list = list((await db.execute(stmt)).scalars().unique().all())
+            if len(ds_list) != len({str(i) for i in data_source_ids}):
+                raise ValueError("Agent not found")
+        resolved_params = await self._resolve_param_specs(
+            db, parameters, current_user, organization, params or None,
+        )
+        return await self._execute_entity_code(
+            db, code or "", ds_list, organization, current_user, resolved_params,
+        )
 
     async def _get_owned_entity(
         self, db: AsyncSession, entity_id: str, current_user: User, organization: Organization,
@@ -1122,7 +1288,7 @@ class EntityService:
     async def _handle_owner_edit(self, entity: Entity, payload: EntityUpdate):
         """Handle owner editing their own private entity"""
         # Owner can edit most fields except status changes
-        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data']
+        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data', 'parameters']
         
         for field in allowed_fields:
             if hasattr(payload, field) and getattr(payload, field) is not None:
@@ -1130,5 +1296,4 @@ class EntityService:
         
         if payload.view is not None:
             entity.view = payload.view.model_dump() if hasattr(payload.view, 'model_dump') else payload.view
-
 

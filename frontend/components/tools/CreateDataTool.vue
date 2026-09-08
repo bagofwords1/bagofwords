@@ -17,6 +17,7 @@
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
             <span v-if="gidx > 0" class="ms-1 text-gray-300 dark:text-gray-600">|</span>
             <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.title" />
+            <span v-if="group.type === 'bow'" class="ms-1 text-gray-500 dark:text-gray-400">{{ $t('tools.createData.bowSource') }} ·</span>
             <span class="ms-1 text-gray-500 dark:text-gray-400 inline-flex items-center flex-wrap" :title="group.title">
               <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
                 <UIcon

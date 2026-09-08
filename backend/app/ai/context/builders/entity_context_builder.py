@@ -89,6 +89,8 @@ class EntityContextBuilder:
             else:
                 # No agents in play - return empty to avoid showing unrelated entities
                 return []
+        from app.services.bow_source_access import visible_entities_clause
+        stmt = stmt.where(await visible_entities_clause(self.db, self.organization.id, self.user))
         stmt_base = stmt
 
         recent_first = stmt_base.order_by(
@@ -157,6 +159,9 @@ class EntityContextBuilder:
             # cached rows are the OWNER's slice — withheld readers get the
             # entity without data (title/description/code stay discoverable).
             data = await resolve_entity_data(self.db, e, self.user)
+            if e.bow_source_access:
+                from app.services.bow_source_access import protect_report
+                await protect_report(self.db, getattr(self.report, "id", None), e.bow_source_access)
             items.append(
                 EntityItem(
                     id=str(e.id),

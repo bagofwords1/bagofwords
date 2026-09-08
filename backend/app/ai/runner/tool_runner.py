@@ -320,7 +320,7 @@ class ToolRunner:
                 sub_timings: dict = {
                     "total_ms": _total_ms,
                     "setup_ms": _setup_ms,
-                    "retry_count": attempt - 1,
+                    "retry_count": attempt - 1 + max(0, sum(stage in {"code_generation", "generating_code"} for stage, _ in _stage_timestamps) - 1),
                 }
                 if _stage_timestamps:
                     _run_end = time.monotonic()

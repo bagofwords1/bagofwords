@@ -35,6 +35,8 @@ async def list_queries(
         artifact_id=artifact_id,
         organization_id=str(organization.id) if organization else None,
     )
+    from app.services.bow_source_access import can_read, report_access
+    queries = [q for q in queries if await can_read(db, await report_access(db, q.report_id), current_user)]
     # Pydantic v2: model_validate for each, then apply the per-viewer step-data
     # policy so a non-owner never receives a withheld creator snapshot in the
     # embedded default_step.

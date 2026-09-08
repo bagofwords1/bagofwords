@@ -43,3 +43,16 @@ class TestNoDefault:
     @pytest.mark.parametrize("conn_type", ["postgresql", "mysql", "clickhouse"])
     def test_userpass_only_types_have_no_default(self, conn_type):
         assert default_user_auth_modes(conn_type, {}, {"oauth_client_id": "c"}) is None
+
+
+class TestDocumentum:
+    def test_otds_client_enables_impersonation_and_sign_in(self):
+        creds = {"otds_url": "https://otds.example.com", "client_id": "bow", "client_secret": "s", "partition": "Corp"}
+        modes = default_user_auth_modes("documentum", {"rest_url": "https://dctm/dctm-rest"}, creds)
+        assert modes == ["otds_impersonation", "oauth"]
+
+    def test_repository_password_leaves_members_to_bring_their_own(self):
+        assert default_user_auth_modes("documentum", {}, {"username": "svc", "password": "p"}) is None
+
+    def test_incomplete_otds_client_has_no_default(self):
+        assert default_user_auth_modes("documentum", {}, {"otds_url": "https://otds.example.com", "client_id": "bow"}) is None

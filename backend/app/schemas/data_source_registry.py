@@ -11,6 +11,11 @@ from app.schemas.data_sources.configs import (
     PostgreSQLConfig,
     SharePointOnpremConfig,
     SharePointOnpremNtlmCredentials,
+    DocumentumConfig,
+    DocumentumUserPassCredentials,
+    DocumentumOtdsClientCredentials,
+    DocumentumImpersonationCredentials,
+    OAuthDelegatedCredentials as _DocumentumOAuthCredentials,
     SharePointOnpremKerberosCredentials,
     SQLiteConfig,
     OracleConfig,
@@ -1507,6 +1512,41 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ),
         client_path="app.data_sources.clients.qlik_sense_onprem_client.QlikSenseOnPremClient",
         requires_license="enterprise",
+    ),
+    "documentum": DataSourceRegistryEntry(
+        type="documentum",
+        category="files",
+        title="OpenText Documentum",
+        description=(
+            "Read and search documents in an OpenText Documentum repository through Documentum REST "
+            "Services. Documentum ACLs apply to every read; per-user access via OTDS impersonation or sign-in."
+        ),
+        config_schema=DocumentumConfig,
+        credentials_auth=AuthOptions(
+            default="userpass",
+            by_auth={
+                # Repository user/password (HTTP Basic). Per user, this is the
+                # bring-your-own-password path; it does not work for Entra-only
+                # OTDS users, who have no password OTDS can validate.
+                "userpass": AuthVariant(title="Username / Password", schema=DocumentumUserPassCredentials, scopes=["system", "user"]),
+                # A confidential OTDS OAuth client acting as its service user.
+                # System scope only — the client secret is admin-equivalent.
+                "otds_client": AuthVariant(title="OTDS OAuth client (service identity)", schema=DocumentumOtdsClientCredentials, scopes=["system"]),
+                # Per-user overlay: the user contributes only their login; the
+                # connection's OTDS client mints a token FOR them (token
+                # exchange), so Documentum runs the session as that user.
+                "otds_impersonation": AuthVariant(title="OTDS impersonation (uses the connection's OAuth client)", schema=DocumentumImpersonationCredentials, scopes=["user"], overlay=True),
+                # Per-user OTDS sign-in (authorization code); needs the OTDS
+                # client on the connection's system credentials.
+                "oauth": AuthVariant(title="Sign in with OTDS", schema=_DocumentumOAuthCredentials, scopes=["user"]),
+            },
+        ),
+        client_path="app.data_sources.clients.documentum_client.DocumentumClient",
+        is_document_based=True,
+        data_shape="files",
+        catalog_ownership="shared",
+        requires_license="enterprise",
+        version="beta",
     ),
     "sharepoint_onprem": DataSourceRegistryEntry(
         type="sharepoint_onprem",

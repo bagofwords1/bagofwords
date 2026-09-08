@@ -28,7 +28,7 @@ from app.data_sources.clients.base import Capability
 from ._file_tool_common import resolve_file_client, resolve_file_data_source
 
 # Keys under a catalog row's metadata_json that may carry a keyword index.
-_FILE_METADATA_KEYS = ("network_dir", "graph", "sharepoint_onprem", "google_drive", "s3")
+_FILE_METADATA_KEYS = ("network_dir", "graph", "sharepoint_onprem", "documentum", "google_drive", "s3")
 # Query tokens keep digit runs (case numbers, IDs) — unlike the indexer's
 # body tokenizer — so "6044534" scores against a name/path that carries it.
 _WORD_RE = re.compile(r"[^\W_]{2,}", re.UNICODE)
@@ -192,9 +192,10 @@ class SearchFilesTool(Tool):
                     tables = (await runtime_ctx["db"].execute(
                         select(ConnectionTable).where(ConnectionTable.connection_id == str(conn_id))
                     )).scalars().all()
-                    if connection_type == "sharepoint_onprem":
-                        # Always check the caller's Windows identity live. Do
-                        # not fall back to a shared inventory on auth failure.
+                    if connection_type in ("sharepoint_onprem", "documentum"):
+                        # Always check the caller's identity live (Windows /
+                        # Documentum ACLs). Do not fall back to a shared
+                        # inventory on auth failure.
                         tables = []
                     entries = _index_search(tables, data.query, data.max_results)
                     used_index = any(

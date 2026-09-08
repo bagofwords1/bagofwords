@@ -7,7 +7,7 @@ from app.models.organization import Organization
 from app.core.auth import current_user
 from app.core.console_access import ConsoleScope, console_scope
 from app.ee.license import require_enterprise
-from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, DiagnosisTimeSeriesMetrics, DiagnosisUsersResponse, CostMetrics
+from app.schemas.console_schema import SimpleMetrics, MetricsQueryParams, MetricsComparison, TimeSeriesMetrics, TableUsageData, TableUsageMetrics, TableJoinsHeatmap, TableJoinData, ToolUsageMetrics, LLMUsageMetrics, CostMetrics
 from typing import Optional, List, Dict
 from datetime import datetime, timedelta
 from app.models.step import Step
@@ -19,7 +19,7 @@ import logging
 import re
 from collections import Counter, defaultdict
 import json
-from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, TraceData, CompactIssuesResponse, AgentExecutionSummariesResponse
+from app.schemas.console_schema import TopUsersMetrics, RecentNegativeFeedbackMetrics, TraceData, AgentExecutionSummariesResponse
 from app.schemas.agent_execution_trace_schema import AgentExecutionTraceResponse
 
 logger = logging.getLogger(__name__)
@@ -198,23 +198,6 @@ async def get_trace_data(
     await release_request_db(db)
     return _result
 
-@router.get("/console/issues/compact", response_model=CompactIssuesResponse)
-async def get_compact_issues(
-    params: MetricsQueryParams = Depends(),
-    page: int = 1,
-    page_size: int = 50,
-    filter: Optional[str] = None,
-    organization: Organization = Depends(get_current_organization),
-    current_user: User = Depends(current_user),
-    db: AsyncSession = Depends(get_async_db),
-    scope: ConsoleScope = Depends(console_scope)
-):
-    """Compact completion-anchored issues list (tool errors or negative feedback)."""
-    _result = await console_service.get_compact_issues(db, organization, scope.scoped_params(params), page, page_size, filter)
-    await release_request_db(db)
-    return _result
-
-
 @router.get("/console/agent_executions/summaries", response_model=AgentExecutionSummariesResponse)
 async def get_agent_execution_summaries(
     params: MetricsQueryParams = Depends(),
@@ -248,28 +231,99 @@ async def get_diagnosis_dashboard_metrics(
     await release_request_db(db)
     return _result
 
-@router.get("/console/diagnosis/users", response_model=DiagnosisUsersResponse)
-async def get_diagnosis_users(
+
+# ---------------------------------------------------------------------------
+# Diagnosis explorer — one query language over agent runs and their tool calls
+# (see app/services/diagnosis and docs/design/diagnosis-explorer.md)
+# ---------------------------------------------------------------------------
+from fastapi import HTTPException, Query  # noqa: E402
+from app.services.diagnosis.service import (  # noqa: E402
+    BadQuery, BadRequest, RunQueryParams, diagnosis_service,
+)
+
+
+def _diag_params(
+    q: str = "",
+    start: Optional[datetime] = None,
+    end: Optional[datetime] = None,
+    tz: int = 0,
+    cursor: Optional[str] = None,
+    limit: int = 25,
+    sort: str = "created",
+    dir: str = "desc",
+    include: Optional[str] = None,
+) -> RunQueryParams:
+    parts = {p.strip() for p in (include or "").split(",") if p.strip()}
+    params = RunQueryParams(
+        q=q or "", start=start, end=end, tz_offset_minutes=tz, cursor=cursor,
+        limit=limit, sort=sort, sort_dir=dir,
+    )
+    if parts:
+        params.include = parts
+    return params
+
+
+def _diag_error(exc: Exception) -> HTTPException:
+    return HTTPException(status_code=400, detail=getattr(exc, "detail", {"code": "bad_request", "message": str(exc)}))
+
+
+@router.get("/console/diagnosis/runs")
+async def diagnosis_runs(
+    params: RunQueryParams = Depends(_diag_params),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
-    scope: ConsoleScope = Depends(console_scope)
+    scope: ConsoleScope = Depends(console_scope),
 ):
-    """Distinct users with agent executions — facet list for the diagnosis user filter."""
-    _result = await console_service.get_diagnosis_users(
-        db, organization, scope_data_source_ids=scope.data_source_ids)
+    """A page of agent runs for a query, plus the summary line, the histogram
+    and the per-tool strip (``include=items`` on cursor pages skips those)."""
+    try:
+        _result = await diagnosis_service.run_query(db, str(organization.id), scope.data_source_ids, params)
+    except (BadQuery, BadRequest) as exc:
+        raise _diag_error(exc)
     await release_request_db(db)
     return _result
 
-@router.get("/console/diagnosis/timeseries", response_model=DiagnosisTimeSeriesMetrics)
-async def get_diagnosis_timeseries(
-    params: MetricsQueryParams = Depends(),
+
+@router.get("/console/diagnosis/runs/tool_calls")
+async def diagnosis_tool_calls(
+    run_ids: str = Query(..., description="Comma-separated run ids (≤100)"),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
-    scope: ConsoleScope = Depends(console_scope)
+    scope: ConsoleScope = Depends(console_scope),
 ):
-    """Get agent executions bucketed daily by status for the diagnosis activity chart."""
-    _result = await console_service.get_diagnosis_timeseries(db, organization, scope.scoped_params(params))
+    """Tool calls for the runs on one page, keyed by run id. Runs outside the
+    caller's scope are silently absent."""
+    ids = [r.strip() for r in run_ids.split(",") if r.strip()]
+    _result = await diagnosis_service.tool_calls(db, str(organization.id), scope.data_source_ids, ids)
     await release_request_db(db)
     return _result
+
+
+@router.get("/console/diagnosis/facets/{field_name}")
+async def diagnosis_facets(
+    field_name: str,
+    prefix: str = "",
+    params: RunQueryParams = Depends(_diag_params),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    scope: ConsoleScope = Depends(console_scope),
+):
+    """Top values for a field within the time range and the rest of the query."""
+    try:
+        _result = await diagnosis_service.facets(db, str(organization.id), scope.data_source_ids, field_name, params, prefix)
+    except (BadQuery, BadRequest) as exc:
+        raise _diag_error(exc)
+    await release_request_db(db)
+    return _result
+
+
+@router.get("/console/diagnosis/fields")
+async def diagnosis_fields(
+    current_user: User = Depends(current_user),
+    scope: ConsoleScope = Depends(console_scope),
+):
+    """The field registry: powers the filter builder, suggestions and syntax help."""
+    return diagnosis_service.fields()

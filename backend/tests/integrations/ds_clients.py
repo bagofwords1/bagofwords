@@ -88,6 +88,14 @@ DATA_SOURCES = [
     #               "username": "BWUSER", "password": "...", "catalog": "0D_NW_C01"}}
     "businessobjects",
     "sap_bw",
+    # Remote mode: no redistributable Documentum Content Server exists (licensed
+    # OpenText binaries), so integrations.json points at either a live
+    # `/dctm-rest` + OTDS pair or the spec-shaped simulator:
+    # `tools/documentum/docker-compose.yaml` (mock_documentum_server.py) —
+    #   {"documentum": {"enabled": true, "rest_url": "http://localhost:8081/dctm-rest",
+    #                   "repository": "bow_demo", "allow_http": true,
+    #                   "username": "dmadmin", "password": "dmadmin123"}}
+    "documentum",
     # Remote mode: monday.com has no self-hostable server, so this runs only
     # against a live account configured in integrations.json (skips otherwise):
     #   {"monday": {"enabled": true, "api_token": "..."}}

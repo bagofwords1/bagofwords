@@ -25,17 +25,17 @@ clusters rather than recounting them.
 Three limits shape every conclusion here. State them in the report rather than
 working around them:
 
-- **You cannot read the agent's answers.** `list_agent_executions` returns the
+- **You cannot read the agent's answers.** `create_data` targeting the built-in `builtin:bow` source (`bow.runs` or `bow.tool_calls`) returns the
   prompt, status, tools called, step titles and feedback — never the completion
   text, and the report-reading tools are chat-only, not available in training
   mode. So "the answer was wrong" is knowable only from a thumbs-down or a
   failed tool, never by reading it yourself.
 - **You cannot see which instruction a run used.** No tool exposes
-  per-instruction usage. A run's `tool_names` may show `read_instruction` was
+  per-instruction usage. The `tool` column of `bow.tool_calls` may show `read_instruction` was
   called, but not which id came back. So **never report that an instruction is
   unused** — you have no evidence for it, and deleting on that basis destroys
   working knowledge.
-- **You cannot see what the agent asked.** A `clarify` in `tool_names` tells
+- **You cannot see what the agent asked.** A `clarify` in the `tool` column of `bow.tool_calls` tells
   you the agent stopped to ask; it does not tell you the question. The user's
   prompt plus the topic is the whole of the evidence.
 
@@ -97,12 +97,12 @@ useless:
 
 ## 3. Pull the usage window and cluster it
 
-`list_agent_executions` over the last 30 days by default — a shorter window
-finds noise, not gaps. Scope with `data_source_ids` when auditing one agent,
-page to the end of the window, and state the exact dates.
+`create_data` targeting the built-in `builtin:bow` source (`bow.runs` or `bow.tool_calls`) over the last 30 days by default — a shorter window
+finds noise, not gaps. Scope with an `agent:"Name"` query predicate when auditing one agent,
+use server-side aggregates over the entire window, and state the exact dates.
 
 Cluster the prompts by what is being asked, not by wording. For each cluster
-record: how many runs, how many failed (`status`, `total_failed_tools`), how
+record: how many runs, how many failed (`status`, `failed_tool_count`), how
 many carried a negative `feedback_direction`, and how many called `clarify`.
 
 ## 4. Match clusters against the instruction set

@@ -24,6 +24,7 @@ class LLMUsageRecorderService:
         user_id: str | None = None,
         report_id: str | None = None,
         data_source_id: str | None = None,
+        agent_execution_id: str | None = None,
         routed: bool = False,
         baseline_model_id: str | None = None,
     ) -> LLMUsageRecord:
@@ -48,6 +49,7 @@ class LLMUsageRecorderService:
             user_id=user_id,
             report_id=report_id,
             data_source_id=data_source_id,
+            agent_execution_id=agent_execution_id,
             llm_model_id=str(llm_model.id),
             model_id=llm_model.model_id,
             provider_type=provider_type,

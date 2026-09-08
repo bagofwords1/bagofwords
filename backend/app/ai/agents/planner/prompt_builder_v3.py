@@ -191,10 +191,17 @@ class PromptBuilderV3:
             training_mode_text = (
                 "TRAINING MODE: Your purpose is to improve this AI system — review its "
                 "performance, curate instructions and saved prompts, and build agents. "
-                "list_agent_executions gives you the platform's own execution history: no data "
-                "source, no schema, and no clarification needed — answer performance questions "
-                "('bad answers', 'failed queries', 'negative feedback') straight from it, with "
-                "no capability disclaimer and no schema inspection first.\n"
+                "BOW is a built-in training source (id builtin:bow). Use create_data "
+                "with tables_by_source=[{data_source_id:'builtin:bow',tables:['bow.runs']}] "
+                "for performance questions ('bad answers', 'failed queries', 'negative feedback'). "
+                "Use bow.tool_calls for individual calls. No connection setup or clarification is needed. "
+                "Produce ordinary saved tables and charts; reuse them through load_step/read_query. "
+                "The source enforces your current agent management permissions. Its query uses the "
+                "Diagnosis grammar; aggregates operate over all matching data, not a preview. "
+                "Use agent_names for one row per run; scalar agent_name expands rows per agent. "
+                "Use exact agent names or a wildcard (agent:sap*) in the server query. "
+                "State the time window in the table description and answer; defaults cover 30 days. "
+                "For all-history requests use the supported maximum 366-day window and disclose it.\n"
                 "Curation:\n"
                 "- Check for existing coverage before writing: instructions already in context "
                 "count; search_instructions / search_prompts when they might exist unseen.\n"
@@ -219,8 +226,8 @@ class PromptBuilderV3:
                 "- Tone: brief and warm. Celebrate the result in one sentence and point at the "
                 "agent card ('expand Tables on the card to fine-tune').\n\n"
                 "Examples:\n"
-                "- \"show low confidence responses\" → list_agent_executions(filter='low_confidence') "
-                "(other performance asks map to the tool's filters the same way)\n"
+                "- \"show low confidence responses\" → create_data on bow.runs with query judge.confidence:<3 "
+                "(use the diagnosis query grammar to filter other performance requests)\n"
                 "- \"add a prompt for monthly revenue\" → create_prompt(text='...', is_starter=true)\n"
                 "- \"create an agent on <connection> with just the sales schema\" → "
                 "get_connection(...) then create_agent(name='...', connection_ids=[...], schemas=['sales'])\n"
@@ -357,7 +364,7 @@ Sources are **published** unless marked otherwise — resolve ordinary ambiguity
 - **published**: clarify ONLY when truly blocked — a core business term with several materially different meanings ("active users", "churn", "best performer") and no schema/instruction hint; a request with no identifiable subject at all ("show me the data"); or required data you can't infer. One clarify turn beats building the wrong thing.
 - **published + training** (`reliability value="training"`): same bar, but for a genuinely ambiguous business term PROPOSE a definition via `create_instruction` (one-line `evidence`; a reviewer sees it) and proceed on that assumption instead of stalling.
 - **draft** (still being built): clarify freely to capture definitions — an undefined business term, an ask for "the data" with no subject, ambiguous scope/window/threshold/granularity, or data that only partially covers the ask all warrant it. Never silently pick one of several plausible interpretations. **disabled**: don't rely on it.
-{"EXCEPTION — training mode: requests about agent runs, AI responses, response quality, confidence, feedback, or instruction gaps are NOT ambiguous — they route directly to list_agent_executions. Never clarify for these. See the training mode routing examples above." + chr(10) + chr(10) if planner_input.mode == "training" else ""}Writing the call: the ENTIRE user-facing question goes in the `question` argument (pre-tool text ≤1 sentence, never repeating it). One numbered question per ambiguity; when 2-4 plausible interpretations exist, list them as bullets grounded in schema/instructions, ending with "or specify your own."; leave open answer spaces (dates, names, thresholds) bullet-free. Set `multi_select: true` when several options can apply at once. `context` is an internal note, not shown.
+{"EXCEPTION — training mode: requests about agent runs, AI responses, response quality, confidence, feedback, or instruction gaps are NOT ambiguous — they route directly to create_data targeting builtin:bow. Never clarify for these. See the training mode routing examples above." + chr(10) + chr(10) if planner_input.mode == "training" else ""}Writing the call: the ENTIRE user-facing question goes in the `question` argument (pre-tool text ≤1 sentence, never repeating it). One numbered question per ambiguity; when 2-4 plausible interpretations exist, list them as bullets grounded in schema/instructions, ending with "or specify your own."; leave open answer spaces (dates, names, thresholds) bullet-free. Set `multi_select: true` when several options can apply at once. `context` is an internal note, not shown.
 
 ERROR HANDLING
 - If the immediately preceding call failed, acknowledge it once — "The previous attempt failed: <specific error>" — then adjust. Don't mention it again after recovering.

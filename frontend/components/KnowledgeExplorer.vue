@@ -640,6 +640,7 @@
               :key="'queries-' + panelView.agentId"
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
+              @created="onQueryCreated(panelView.agentId, $event)"
             />
             <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
@@ -1311,7 +1312,7 @@ const agentTools = ref<Record<string, any[]>>({})
 const agentFiles = ref<Record<string, any[]>>({})
 // File-source connections per agent, with their include-glob rules — shown in
 // the Files tree next to uploads.
-const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
+const FILE_CONN_TYPES = new Set(['network_dir', 's3', 'sharepoint', 'sharepoint_onprem', 'documentum', 'onedrive', 'google_drive', 'outlook_mail', 'gmail_mail'])
 const agentFileConns = ref<Record<string, any[]>>({})
 const agentLoaded = ref<Set<string>>(new Set())
 
@@ -1628,6 +1629,12 @@ const openQuery = (agentId: string, q: any) => {
 // Approve / suggest / reject / rename rewrite the row's lifecycle, which is
 // what the list badge and the tree count show — refresh both.
 const onQueryChanged = () => { fetchQueryCounts() }
+// A query authored in the panel: count it in the tree and open it, as a click
+// on its new row would.
+const onQueryCreated = (agentId: string, q: any) => {
+  fetchQueryCounts()
+  openQuery(agentId, q)
+}
 const onQueryDeleted = () => {
   queryView.value = null
   fetchQueryCounts()
@@ -3292,7 +3299,9 @@ const expand = (key: string, force?: boolean) => {
   if (force) expanded.value.add(key)
   else if (expanded.value.has(key)) expanded.value.delete(key)
   else expanded.value.add(key)
-  if (key.startsWith('agent:') && expanded.value.has(key)) { const id = key.slice('agent:'.length); expanded.value.add('instr:' + id); loadAgentMeta(id) }
+  // Opening an agent loads its meta but leaves the Instructions group collapsed;
+  // it opens only on an explicit click (or openAgentSection / a fresh create).
+  if (key.startsWith('agent:') && expanded.value.has(key)) loadAgentMeta(key.slice('agent:'.length))
   // Lazy-load instruction rows on first expand of a group (rows arrive from the
   // backend; counts/badges were already loaded on mount).
   if (expanded.value.has(key)) {

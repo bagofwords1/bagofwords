@@ -117,6 +117,8 @@ class PowerBIClient(DataSourceClient):
         # dict ({datasetId, workspaceId, ...}). Lets execute_query resolve the
         # dataset GUID as a dict lookup instead of re-crawling the tenant.
         self._table_metadata_map: Dict[str, Dict] = {}
+        self._table_metadata_attached: bool = False
+        self._blocked_tables_by_dataset: dict[str, dict[str, str]] = {}
         # Live-discovery cache: get_schemas() is a full tenant crawl (workspaces,
         # datasets, admin scan, COLUMNSTATISTICS) — run it at most once per
         # client instance.
@@ -153,6 +155,113 @@ class PowerBIClient(DataSourceClient):
             except Exception:
                 continue
         self._table_metadata_map = mapping
+        # Once the platform has handed us its activated-table map, that map
+        # is the whole set of query targets: a name outside it is a table the
+        # agent manager did not activate, and a live tenant crawl must not
+        # quietly resolve it anyway.
+        self._table_metadata_attached = True
+
+    def attach_blocked_table_metadata(self, tables: list[dict]) -> None:
+        """Inject the catalog's NOT-activated tables (same shape as
+        `attach_table_metadata`). Activation is per `Dataset/Table`, but a DAX
+        query addresses a whole dataset — so a query targeting an activated
+        table could still read a sibling table the agent manager left out.
+        With this map `execute_query` refuses a DAX body that references such a
+        table. Called by DataSourceService.construct_clients."""
+        blocked: dict[str, dict[str, str]] = {}
+        for t in tables or []:
+            try:
+                name = (t.get("name") or "").strip()
+                meta = t.get("metadata_json") or {}
+                pbi = meta.get("powerbi") if isinstance(meta, dict) else None
+                if not (name and isinstance(pbi, dict) and pbi.get("datasetId")):
+                    continue
+                table_name = str(pbi.get("tableName") or name.split("/", 1)[-1]).strip()
+                if table_name:
+                    blocked.setdefault(str(pbi["datasetId"]), {})[table_name] = name
+            except Exception:
+                continue
+        self._blocked_tables_by_dataset = blocked
+
+    def _activated_tables_in_dataset(self, dataset_id: str) -> list[str]:
+        out = []
+        for name, meta in (self._table_metadata_map or {}).items():
+            if str(meta.get("datasetId") or "") == str(dataset_id):
+                out.append(name)
+        return sorted(out)
+
+    # DAX lexer for the activation guard. One token per match; group names
+    # say what it was. Order matters: comments and strings first so their
+    # contents never surface as identifiers.
+    _DAX_TOKEN_RE = re.compile(
+        r"(?P<block_comment>/\*.*?\*/)"
+        r"|(?P<line_comment>(?://|--)[^\n]*)"
+        r"|(?P<string>\"(?:[^\"]|\"\")*\")"
+        r"|(?P<quoted>'(?:[^']|'')*')"
+        r"|(?P<bracket>\[[^\]]*\])"
+        r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*)"
+        r"|(?P<other>\S)",
+        re.DOTALL,
+    )
+
+    @classmethod
+    def _dax_table_references(cls, dax: str) -> set[str]:
+        """Lower-cased table names a DAX text references.
+
+        A table is referenced either as a quoted identifier ('Sales Orders')
+        or as a bare word that is not a function call — in DAX a bare word
+        followed by `(` is always a function, and every other bare word in
+        expression position (`EVALUATE T`, `T[col]`, `FUNC(T, ...)`,
+        `T ORDER BY ...`, `START AT`, a DEFINE block) names a table or a
+        variable. Comments, string literals and bracketed column / measure
+        names are lexed away, so nothing inside them counts. Variables that
+        happen to share a blocked table's name are reported as references
+        (conservative)."""
+        refs: set[str] = set()
+        tokens = [
+            (m.lastgroup, m.group())
+            for m in cls._DAX_TOKEN_RE.finditer(dax or "")
+            if m.lastgroup not in ("block_comment", "line_comment", "string")
+        ]
+        for i, (kind, text) in enumerate(tokens):
+            if kind == "quoted":
+                refs.add(text[1:-1].replace("''", "'").strip().lower())
+            elif kind == "word":
+                nxt = tokens[i + 1][1] if i + 1 < len(tokens) else ""
+                if nxt != "(":
+                    refs.add(text.lower())
+        return refs
+
+    def _assert_dax_tables_activated(self, dax: str, dataset_id: str | None) -> None:
+        """Refuse a DAX body that references a table of `dataset_id` the agent
+        manager did not activate. Table references are found by lexing the
+        DAX (see `_dax_table_references`), so every clause — EVALUATE, ORDER
+        BY, START AT, DEFINE/VAR/MEASURE — and every expression position is
+        covered, while comments and string literals are ignored."""
+        if not dataset_id or not dax:
+            return
+        blocked = (getattr(self, "_blocked_tables_by_dataset", None) or {}).get(str(dataset_id))
+        if not blocked:
+            return
+        activated = {
+            str(meta.get("tableName") or name.split("/", 1)[-1]).strip().lower()
+            for name, meta in (self._table_metadata_map or {}).items()
+            if str(meta.get("datasetId") or "") == str(dataset_id)
+        }
+        refs = self._dax_table_references(dax)
+        hits = sorted({
+            schema_name
+            for table_name, schema_name in blocked.items()
+            # same internal name activated via another row → not blocked
+            if table_name.lower() not in activated and table_name.lower() in refs
+        })
+        if hits:
+            allowed = self._activated_tables_in_dataset(dataset_id)
+            raise ValueError(
+                f"DAX references table(s) not activated for this agent: {', '.join(hits)}. "
+                "Only activated tables may be queried. Activated tables in this semantic model: "
+                f"{', '.join(allowed) if allowed else '(none)'}. Rewrite the query using only those."
+            )
 
     def _resolve_ids_from_metadata(self, table_name: str) -> Optional[Dict]:
         """Resolve a table reference to its `powerbi` metadata using the
@@ -1807,6 +1916,22 @@ UNION(
             if meta:
                 dataset_id = meta.get("datasetId")
                 workspace_id = workspace_id or meta.get("workspaceId")
+            elif getattr(self, "_table_metadata_attached", False):
+                # The platform attached the activated-table map; a name it
+                # does not contain is not an activated table. Do not fall back
+                # to a live crawl, which would resolve tables the agent manager
+                # left out of this agent.
+                blocked_hit = self._blocked_schema_name(table_name)
+                if blocked_hit:
+                    allowed = self._activated_tables_in_dataset(
+                        self._blocked_dataset_for(table_name) or ""
+                    )
+                    raise ValueError(
+                        f"Table '{blocked_hit}' is not activated for this agent and cannot be queried. "
+                        "Activated tables in this semantic model: "
+                        f"{', '.join(allowed) if allowed else '(none)'}."
+                    )
+                lookup_error = "not an activated table of this agent"
             else:
                 try:
                     table = self.get_schema(table_name)
@@ -1838,7 +1963,28 @@ UNION(
                 f"metadata. Do not ask the user for these IDs.{hint}"
             )
 
+        self._assert_dax_tables_activated(query, dataset_id)
         return self._execute_dax_internal(workspace_id, dataset_id, query, max_rows=max_rows)
+
+    def _blocked_schema_name(self, table_name: str) -> str | None:
+        """Schema name ('Dataset/Table') of a NOT-activated catalog table that
+        `table_name` refers to, or None."""
+        lowered = (table_name or "").strip().lower()
+        if not lowered:
+            return None
+        for _ds_id, tables in (getattr(self, "_blocked_tables_by_dataset", None) or {}).items():
+            for internal, schema_name in tables.items():
+                if lowered in (schema_name.lower(), internal.lower()):
+                    return schema_name
+        return None
+
+    def _blocked_dataset_for(self, table_name: str) -> str | None:
+        lowered = (table_name or "").strip().lower()
+        for ds_id, tables in (getattr(self, "_blocked_tables_by_dataset", None) or {}).items():
+            for internal, schema_name in tables.items():
+                if lowered in (schema_name.lower(), internal.lower()):
+                    return ds_id
+        return None
 
     def _dataset_query_url(self, workspace_id: Optional[str], dataset_id: str) -> str:
         """The executeQueries URL to use for this dataset.

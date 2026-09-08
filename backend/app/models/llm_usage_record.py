@@ -21,6 +21,10 @@ class LLMUsageRecord(BaseSchema):
     user_id = Column(String, ForeignKey("users.id"), nullable=True, index=True)
     report_id = Column(String, ForeignKey("reports.id"), nullable=True, index=True)
     data_source_id = Column(String, ForeignKey("data_sources.id"), nullable=True, index=True)
+    # The agent run the call belongs to (set from the usage attribution
+    # contextvar once the run row exists). Lets the diagnosis explorer roll
+    # cost/tokens/model up per run without a report+time-window guess.
+    agent_execution_id = Column(String(36), nullable=True, index=True)
 
     llm_model_id = Column(String, ForeignKey("llm_models.id"), nullable=False)
     llm_model = relationship("LLMModel", lazy="selectin")
