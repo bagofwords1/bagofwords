@@ -464,7 +464,13 @@ class CodeSecurityVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute):
         # Check for direct access to forbidden attributes like obj.__class__
-        if node.attr in FORBIDDEN_ATTRIBUTES or node.attr.startswith("_"):
+        # Underscore-prefixed attributes are implementation surface (the
+        # `_bow_*` markers on clients and frames included). `__name__` is the
+        # one exception: it yields a plain string, and the coder prompt
+        # promotes `type(model).__name__` for reporting an estimator's class.
+        if node.attr in FORBIDDEN_ATTRIBUTES or (
+            node.attr.startswith("_") and node.attr != "__name__"
+        ):
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
 
