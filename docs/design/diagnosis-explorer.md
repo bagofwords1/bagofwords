@@ -54,6 +54,7 @@ Each of these is designed for but not built now. None changes the data model.
 | Time | `DateRangePicker` extended mode, default **Last 30 days**, never all-time by default. Clicking a histogram bar inserts a `created:` token. |
 | URL | `?q=…&range=…&cursor=…&sort=…` is the page state; links are shareable. |
 | Row click | Opens the existing `TraceModal`, unchanged. |
+| The report level | A report is a conversation; each run is one turn. Rows show the report name and "turn N of M"; clicking the report name inserts `report_id:x`, so the table becomes that conversation in order. No report-level nesting in the table, so sorting, paging and the histogram stay unambiguous. Report-level fields (`report.turns`, `report.errors`) are a later addition beside the run rollup. |
 
 ## Query language
 
@@ -113,6 +114,7 @@ wildcard   := word containing "*"
 | `duration` `thinking` `first_token` | duration | existing `*_ms` columns |
 | `tools` `tools.failed` | number | `tool_count` ★ `failed_tool_count` ★ |
 | `report` | text | join `reports.title` |
+| `turn` | number | `turn_index` ★ (1-based position of the run in its report; `turn:1` is first prompts) |
 | `report_id` `run_id` | text, exact | ids |
 | `version` | text | `bow_version` |
 | `created` | date | `created_at` |
@@ -143,7 +145,7 @@ are present as a top-level conjunction; clicking an active chip removes them.
 
 ### One rollup function
 
-Sixteen new columns on `agent_executions` (★ above, plus `cost_is_partial`),
+Seventeen new columns on `agent_executions` (★ above, plus `cost_is_partial`),
 all recomputed from their sources by **one** idempotent function:
 
 ```
@@ -219,7 +221,8 @@ Four endpoints under `/console/diagnosis/`, same gate and scope as today:
 | `GET fields` | the registry, for the builder, suggestions, syntax help and the TS parser check |
 
 A run item: id, created_at, status, prompt (200 chars), user, agents,
-platform, model, provider, tools `{total, failed}`, duration_ms, tokens,
+report `{id, title, turn, turns}`, platform, model, provider, tools
+`{total, failed}`, duration_ms, tokens,
 cost_usd, cost_is_partial, judge `{confidence, instructions, context}`,
 feedback, report_id, completion_id, matched_tool_call_ids. Nothing the table
 does not show.
@@ -253,7 +256,10 @@ Reused as they are: `DateRangePicker` (extended mode), `DiagnosisActivityChart`
 (matched/other series), `TraceModal`.
 
 Columns: Time · Status · Prompt · User · Agent · Tools · Duration · Cost ·
-Feedback. Judge scores on hover of the Feedback cell. Fixed columns in v1.
+Feedback. Under the prompt, a second line shows the report name (a link that
+inserts `report_id:x`) and "turn N of M"; `turns` is a count over the report's
+runs, fetched with the page. Judge scores on hover of the Feedback cell.
+Fixed columns in v1.
 
 Behaviour: parse on every keystroke, commit on Enter, chip, builder,
 histogram click, strip click, time change, or URL load. In-flight requests
