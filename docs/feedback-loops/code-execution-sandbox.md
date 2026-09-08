@@ -47,8 +47,8 @@ cancel kill, original-exception propagation, Arrow round trip and fallback,
 pptx round trip, Landlock ABI probe layout).
 
 `test_code_executions_overlap_without_global_lock` gained a warm-up call:
-it measures overlap, and the first execution in a process now pays the
-interpreter start.
+it measures overlap, and the first execution in a process now pays the fork
+server's start.
 
 ## Loop B — live stack, real data source (no LLM needed)
 

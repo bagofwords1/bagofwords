@@ -733,9 +733,9 @@ async def test_code_executions_overlap_without_global_lock():
             code=code, ds_clients={"src": SleepyClient()}, excel_files=[],
         )
 
-    # Warm-up: generated code runs in pre-spawned sandbox children; the very
-    # first execution in a process pays the interpreter start. This test
-    # measures overlap, not cold start, so fill the warm pool first.
+    # Warm-up: generated code runs in sandbox children forked from a
+    # per-process fork server; the very first execution pays that server's
+    # start. This test measures overlap, not cold start.
     await asyncio.gather(one(), one())
 
     started = time.monotonic()

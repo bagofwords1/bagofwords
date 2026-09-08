@@ -19,6 +19,8 @@ import pickle
 import select
 import shutil
 import signal
+import socket
+import struct
 import subprocess
 import sys
 import tempfile
@@ -172,15 +174,42 @@ def _fs_policy(job: SandboxJob, scratch_dir: str) -> Dict[str, List[str]]:
 # ---------------------------------------------------------------------------
 
 class _ChildProcess:
-    def __init__(self, scratch_dir: Optional[str] = None):
-        scratch_dir = scratch_dir or tempfile.mkdtemp(prefix="bow-sandbox-")
-        os.makedirs(os.path.join(scratch_dir, "mpl"), exist_ok=True)
+    """One sandboxed execution process plus the runner's ends of its pipes.
+
+    Created either by the fork server (`_Zygote.fork`, the default: a few
+    milliseconds) or by spawning a fresh interpreter (`spawn`, the fallback:
+    ~0.7s of imports). The isolation properties are identical — see zygote.py.
+    """
+
+    def __init__(self, pid: int, to_child: int, from_child: int, stderr_fd: int,
+                 scratch_dir: str, *, zygote: Optional["_Zygote"] = None,
+                 proc: Optional[subprocess.Popen] = None):
+        self.pid = pid
+        self.to_child = os.fdopen(to_child, "wb", buffering=0)
+        self.from_child = os.fdopen(from_child, "rb", buffering=0)
+        self.stderr_fd = stderr_fd
+        os.set_blocking(self.stderr_fd, False)
         self.scratch_dir = scratch_dir
-        self.spawned_at = time.monotonic()
+        self._zygote = zygote
+        self._proc = proc
+        self.stderr_tail: deque = deque(maxlen=64)
+        self._released = False
+
+    # -- construction ------------------------------------------------------
+
+    @staticmethod
+    def _scratch() -> str:
+        scratch_dir = tempfile.mkdtemp(prefix="bow-sandbox-")
+        os.makedirs(os.path.join(scratch_dir, "mpl"), exist_ok=True)
+        return scratch_dir
+
+    @classmethod
+    def spawn(cls) -> "_ChildProcess":
+        scratch_dir = cls._scratch()
         in_r, in_w = os.pipe()      # parent → child
         out_r, out_w = os.pipe()    # child → parent
         try:
-            self.proc = subprocess.Popen(
+            proc = subprocess.Popen(
                 [sys.executable, "-m", _CHILD_MODULE, "--in-fd", str(in_r), "--out-fd", str(out_w)],
                 cwd=scratch_dir,
                 env=_child_environment(scratch_dir),
@@ -194,155 +223,199 @@ class _ChildProcess:
         finally:
             os.close(in_r)
             os.close(out_w)
-        self.to_child = os.fdopen(in_w, "wb", buffering=0)
-        self.from_child = os.fdopen(out_r, "rb", buffering=0)
-        self.stderr_tail: deque = deque(maxlen=64)
-        self._stderr_bytes = 0
+        assert proc.stderr is not None
+        stderr_fd = os.dup(proc.stderr.fileno())
+        proc.stderr.close()
+        return cls(proc.pid, in_w, out_r, stderr_fd, scratch_dir, proc=proc)
+
+    # -- io ----------------------------------------------------------------
 
     def drain_stderr(self) -> None:
-        fd = self.proc.stderr
-        if fd is None:
-            return
         try:
-            chunk = os.read(fd.fileno(), 4096)
+            chunk = os.read(self.stderr_fd, 4096)
         except (BlockingIOError, OSError):
             return
         if chunk:
-            self._stderr_bytes += len(chunk)
             self.stderr_tail.append(chunk)
 
     def stderr_text(self) -> str:
         return b"".join(self.stderr_tail).decode("utf-8", "replace")[-_STDERR_TAIL_BYTES:]
 
+    # -- lifecycle ---------------------------------------------------------
+
     def kill(self) -> None:
+        """SIGKILL the child's whole session. Safe against pid reuse: a
+        forked child stays a zombie (pid reserved) until `close` reaps it,
+        and a spawned one is our own child."""
+        if self._released:
+            return
         try:
-            os.killpg(self.proc.pid, signal.SIGKILL)
+            os.killpg(self.pid, signal.SIGKILL)
         except ProcessLookupError:
             pass
-        except Exception:
+        except PermissionError:
             try:
-                self.proc.kill()
+                os.kill(self.pid, signal.SIGKILL)
             except Exception:
                 pass
 
-    def alive(self) -> bool:
-        return self.proc.poll() is None
-
     def close(self) -> None:
-        for f in (self.to_child, self.from_child, self.proc.stderr):
+        for f in (self.to_child, self.from_child):
             try:
-                if f is not None:
-                    f.close()
+                f.close()
             except Exception:
                 pass
         try:
-            self.proc.wait(timeout=2)
+            os.close(self.stderr_fd)
         except Exception:
-            self.kill()
-            try:
-                self.proc.wait(timeout=2)
-            except Exception:
-                pass
+            pass
+        if not self._released:
+            self._released = True
+            if self._proc is not None:
+                try:
+                    self._proc.wait(timeout=2)
+                except Exception:
+                    self.kill()
+                    try:
+                        self._proc.wait(timeout=2)
+                    except Exception:
+                        pass
+            elif self._zygote is not None:
+                self._zygote.reap(self.pid)
         shutil.rmtree(self.scratch_dir, ignore_errors=True)
 
 
-class _Prewarm:
-    """Keep a few idle children per API process so an execution does not pay
-    the interpreter + pandas import cost (~0.7s) on the critical path.
+class _Zygote:
+    """Runner-side handle on the fork server (see zygote.py).
 
-    A warm child has read nothing yet: it blocks on its job pipe with an
-    empty heap and the scrubbed environment, so pre-spawning changes nothing
-    about the isolation. The pool is filled lazily (first execution pays the
-    cold start), topped back up after each take, and drained after
-    `idle_seconds` without use so a quiet worker gives the memory back
-    (an idle child is ~60 MB RSS).
-
-    BOW_SANDBOX_PREWARM = number of warm children to keep (default 2, 0 off).
+    Spawned lazily on first use, once per API process, with the scrubbed
+    environment. `fork` hands it three pipe ends over a Unix socket and gets
+    a child pid back; `reap` releases the pid once the runner is done with
+    it. A dead zygote is replaced on the next call; if it cannot be started
+    at all the runner falls back to spawning a full interpreter per job.
     """
 
-    def __init__(self, idle_seconds: int = 600):
+    def __init__(self):
         self._lock = threading.Lock()
-        self._pool: List[_ChildProcess] = []
-        self._spawning = 0
-        self._last_used = time.monotonic()
-        self._idle_seconds = idle_seconds
-        self._reaper: Optional[threading.Thread] = None
-        raw = os.environ.get("BOW_SANDBOX_PREWARM", "2").strip()
+        self._proc: Optional[subprocess.Popen] = None
+        self._sock: Optional[socket.socket] = None
+        self._scratch: Optional[str] = None
+        self.enabled = os.environ.get("BOW_SANDBOX_ZYGOTE", "1").strip() != "0"
+
+    def _ensure(self) -> bool:
+        if self._proc is not None and self._proc.poll() is None:
+            return True
+        self._teardown()
         try:
-            self.size = max(0, min(8, int(raw)))
-        except ValueError:
-            self.size = 2
+            ours, theirs = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+            scratch = _ChildProcess._scratch()
+            proc = subprocess.Popen(
+                [sys.executable, "-m", _ZYGOTE_MODULE, "--sock-fd", str(theirs.fileno())],
+                cwd=scratch,
+                env=_child_environment(scratch),
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                pass_fds=(theirs.fileno(),),
+                close_fds=True,
+                start_new_session=True,
+            )
+            theirs.close()
+            self._proc, self._sock, self._scratch = proc, ours, scratch
+            logger.info("code sandbox: fork server started pid=%s", proc.pid)
+            return True
+        except Exception:
+            logger.warning("code sandbox: fork server unavailable, spawning per run", exc_info=True)
+            self._teardown()
+            return False
 
-    def take(self) -> Optional[_ChildProcess]:
-        child = None
-        with self._lock:
-            self._last_used = time.monotonic()
-            while self._pool:
-                cand = self._pool.pop()
-                if cand.alive():
-                    child = cand
-                    break
-                cand.close()
-        self._top_up()
-        return child
+    def _teardown(self) -> None:
+        if self._sock is not None:
+            try:
+                self._sock.close()
+            except Exception:
+                pass
+        if self._proc is not None:
+            try:
+                self._proc.kill()
+                self._proc.wait(timeout=2)
+            except Exception:
+                pass
+        if self._scratch:
+            shutil.rmtree(self._scratch, ignore_errors=True)
+        self._proc, self._sock, self._scratch = None, None, None
 
-    def _top_up(self) -> None:
+    def _call(self, kind: int, pid: int, fds: list) -> int:
+        assert self._sock is not None
+        socket.send_fds(self._sock, [_ZMSG.pack(kind, pid)], fds)
+        buf = b""
+        while len(buf) < _ZMSG.size:
+            chunk = self._sock.recv(_ZMSG.size - len(buf))
+            if not chunk:
+                raise EOFError("fork server closed")
+            buf += chunk
+        _kind, result = _ZMSG.unpack(buf)
+        return result
+
+    def fork(self) -> Optional[_ChildProcess]:
+        """Return a forked child, or None when the fork server is off/broken."""
+        if not self.enabled:
+            return None
         with self._lock:
-            missing = self.size - len(self._pool) - self._spawning
-            if missing <= 0:
+            if not self._ensure():
+                return None
+            scratch_dir = _ChildProcess._scratch()
+            in_r, in_w = os.pipe()
+            out_r, out_w = os.pipe()
+            err_r, err_w = os.pipe()
+            try:
+                pid = self._call(_ZKIND_FORK, 0, [in_r, out_w, err_w])
+            except Exception:
+                logger.warning("code sandbox: fork request failed, restarting fork server", exc_info=True)
+                self._teardown()
+                for fd in (in_r, in_w, out_r, out_w, err_r, err_w):
+                    os.close(fd)
+                shutil.rmtree(scratch_dir, ignore_errors=True)
+                return None
+            finally:
+                pass
+            for fd in (in_r, out_w, err_w):
+                os.close(fd)
+            if pid <= 0:
+                for fd in (in_w, out_r, err_r):
+                    os.close(fd)
+                shutil.rmtree(scratch_dir, ignore_errors=True)
+                return None
+            return _ChildProcess(pid, in_w, out_r, err_r, scratch_dir, zygote=self)
+
+    def reap(self, pid: int) -> None:
+        with self._lock:
+            if self._sock is None:
                 return
-            self._spawning += missing
-        for _ in range(missing):
-            threading.Thread(target=self._spawn_one, name="bow_sandbox_prewarm", daemon=True).start()
-
-    def _spawn_one(self) -> None:
-        fresh: Optional[_ChildProcess] = None
-        try:
-            fresh = _ChildProcess()
-        except Exception:  # pragma: no cover - defensive
-            logger.debug("code sandbox: prewarm spawn failed", exc_info=True)
-        with self._lock:
-            self._spawning -= 1
-            if fresh is not None and len(self._pool) < self.size:
-                self._pool.append(fresh)
-                fresh = None
-        if fresh is not None:
-            fresh.kill()
-            fresh.close()
-        self._ensure_reaper()
-
-    def _ensure_reaper(self) -> None:
-        with self._lock:
-            if self._reaper is not None and self._reaper.is_alive():
-                return
-            self._reaper = threading.Thread(target=self._reap_loop, name="bow_sandbox_reaper", daemon=True)
-            self._reaper.start()
-
-    def _reap_loop(self) -> None:
-        while True:
-            time.sleep(30)
-            with self._lock:
-                if not self._pool:
-                    return
-                if time.monotonic() - self._last_used < self._idle_seconds:
-                    continue
-                drained, self._pool = self._pool, []
-            for child in drained:
-                child.kill()
-                child.close()
-            return
+            try:
+                self._call(_ZKIND_REAP, pid, [])
+            except Exception:
+                logger.debug("code sandbox: reap failed; restarting fork server", exc_info=True)
+                self._teardown()
 
 
-_prewarm = _Prewarm()
+_ZYGOTE_MODULE = "app.ai.code_execution.sandbox.zygote"
+_ZMSG = struct.Struct("<ii")
+_ZKIND_FORK = 1
+_ZKIND_REAP = 2
+_zygote = _Zygote()
+
+
+def _acquire_child() -> _ChildProcess:
+    return _zygote.fork() or _ChildProcess.spawn()
 
 
 def _read_with_deadline(child: _ChildProcess, deadline: float, cancel_event: Optional[threading.Event], limits: SandboxLimits):
     """Block for the next child message, servicing stderr, the deadline and
-    cooperative cancellation while waiting."""
+    cooperative cancellation while waiting. A dead child shows up as EOF on
+    its result pipe (the kernel closes it), which `read_message` raises."""
     out_fd = child.from_child.fileno()
-    err_fd = child.proc.stderr.fileno() if child.proc.stderr else None
-    if err_fd is not None:
-        os.set_blocking(err_fd, False)
+    err_fd = child.stderr_fd
     while True:
         if cancel_event is not None and cancel_event.is_set():
             child.kill()
@@ -351,31 +424,19 @@ def _read_with_deadline(child: _ChildProcess, deadline: float, cancel_event: Opt
         if remaining <= 0:
             child.kill()
             raise SandboxTimeoutError(limits.timeout_seconds)
-        fds = [out_fd] + ([err_fd] if err_fd is not None else [])
-        ready, _, _ = select.select(fds, [], [], min(0.25, remaining))
-        if err_fd is not None and err_fd in ready:
+        ready, _, _ = select.select([out_fd, err_fd], [], [], min(0.25, remaining))
+        if err_fd in ready:
             child.drain_stderr()
         if out_fd in ready:
             return read_message(child.from_child)
-        if child.proc.poll() is not None and out_fd not in ready:
-            # Child exited; one last non-blocking check for a final frame.
-            r, _, _ = select.select([out_fd], [], [], 0)
-            if r:
-                return read_message(child.from_child)
-            raise EOFError("sandbox pipe closed")
 
 
 def _raise_for_child_death(child: _ChildProcess, limits: SandboxLimits) -> None:
-    code = child.proc.poll()
     tail = child.stderr_text().strip()
-    if code is not None and code < 0 and -code == signal.SIGKILL:
-        raise SandboxCrashError(
-            f"Code execution was killed (exit signal SIGKILL). This usually means it exceeded "
-            f"the {limits.memory_mb} MB sandbox memory limit. Process less data at once."
-            + (f"\n{tail}" if tail else "")
-        )
     raise SandboxCrashError(
-        f"Code execution process ended unexpectedly (exit code {code})."
+        "Code execution process ended unexpectedly before returning a result. "
+        f"This usually means it exceeded the {limits.memory_mb} MB sandbox memory limit "
+        "or was killed; process less data at once."
         + (f"\n{tail}" if tail else "")
     )
 
@@ -405,7 +466,7 @@ def run_job(
     result = SandboxResult()
     child: Optional[_ChildProcess] = None
     try:
-        child = _prewarm.take() or _ChildProcess()
+        child = _acquire_child()
         scratch_dir = child.scratch_dir
         payload = {
             "mode": job.mode,
@@ -541,6 +602,5 @@ def run_job(
     finally:
         if child is not None:
             child.drain_stderr()
-            if child.proc.poll() is None:
-                child.kill()
+            child.kill()
             child.close()

@@ -21,7 +21,7 @@ kill a runaway loop.
 ```
 API worker (trusted)                          sandbox child (untrusted)
 ─────────────────────────────                 ─────────────────────────────
-validate_python_code (AST)                    python -m …sandbox.child
+validate_python_code (AST)                    fork of …sandbox.zygote → child.run
 wrap_clients_for_capture      ── job ───────▶ scrubbed env, rlimits,
   QueryCapturingClientWrapper                 no_new_privs, Landlock
   (capture, timeout, quotas,   ◀── rpc ─────  exec(code); generate_df()
@@ -30,8 +30,10 @@ SafeHttpClient (SSRF policy)                    http.get / batch_get  → RPC
 format_df_for_widget           ◀── Arrow ───  DataFrame → Arrow IPC
 ```
 
-* The child is **spawned, never forked**. It starts with an empty heap: no
-  decrypted credentials, no ORM session, no encryption key.
+* The child is **never forked from the API worker**. It is forked from a
+  per-process fork server that was itself spawned with a scrubbed
+  environment and holds only the imported libraries (see *Cost*), so it
+  starts with no decrypted credentials, no ORM session, no encryption key.
 * Its environment is built from scratch (`runner._child_environment`). Not
   one variable of the API process is inherited.
 * Every data-source query the code issues is a request over a pipe. The
@@ -90,7 +92,7 @@ polls; the child is killed instead of running on.
 | `BOW_SANDBOX_MEMORY_MB` | `RLIMIT_AS` for the child, `0` disables | `4096` |
 | `BOW_SANDBOX_CPU_SECONDS` | `RLIMIT_CPU`, `0` disables | = timeout |
 | `BOW_SANDBOX_REQUIRE_LANDLOCK` | `1` → fail executions when Landlock cannot be applied | `0` |
-| `BOW_SANDBOX_PREWARM` | `0` disables the one idle pre-spawned child per API process | `1` |
+| `BOW_SANDBOX_ZYGOTE` | `0` disables the fork server (each run then spawns a full interpreter, ~0.7 s) | `1` |
 
 Thread-count hints (`OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`,
 `MKL_NUM_THREADS`, `NUMEXPR_MAX_THREADS`) are the only variables copied from
@@ -98,10 +100,19 @@ the API process into the child.
 
 ## Cost
 
-A cold child (interpreter + pandas/numpy/pyarrow import) costs ~0.7 s. Each
-API process keeps one idle pre-spawned child so the next execution starts
-immediately; it is reaped after 10 idle minutes. DataFrames cross the pipe as
-Arrow, which is a copy; very large results pay that once.
+A cold interpreter with pandas/numpy/pyarrow imported costs ~0.7 s. To keep
+that off every execution, each API process starts one **fork server**
+(`sandbox/zygote.py`): a spawned interpreter with the scrubbed environment
+that imports the libraries once and then only forks. Each execution is a
+fork of that clean process (a few milliseconds), followed by the child's own
+rlimits / no_new_privs / Landlock. The zygote never receives a job, a
+credential or a result, so a forked child starts from the same state a fresh
+spawn would. Finished children stay zombies until the runner reaps them
+through the zygote, so a pid can never be recycled while the runner still
+holds it (the SIGKILL on timeout cannot hit an unrelated process). If the
+fork server cannot start, the runner spawns a full interpreter per run.
+DataFrames cross the pipe as Arrow, which is a copy; very large results pay
+that once.
 
 ## Observability
 

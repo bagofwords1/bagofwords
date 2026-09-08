@@ -283,9 +283,17 @@ def _result_frame(value: Any, log: List[str]):
 
 
 def main(argv: Optional[List[str]] = None) -> int:
+    """Standalone entrypoint: one fresh interpreter per job (the fallback
+    when the fork server is disabled or unavailable)."""
     argv = list(sys.argv[1:] if argv is None else argv)
     in_fd = int(argv[argv.index("--in-fd") + 1])
     out_fd = int(argv[argv.index("--out-fd") + 1])
+    return run(in_fd, out_fd)
+
+
+def run(in_fd: int, out_fd: int) -> int:
+    """Serve one job over the given pipe fds. Called by `main` in a spawned
+    interpreter, or by the fork server in a freshly forked child."""
     reader = os.fdopen(in_fd, "rb", buffering=0)
     writer = os.fdopen(out_fd, "wb", buffering=0)
 

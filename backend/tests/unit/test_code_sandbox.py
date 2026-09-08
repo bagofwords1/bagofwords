@@ -183,6 +183,39 @@ def generate_df(ds_clients, excel_files):
     assert time.monotonic() - t0 < 10
 
 
+def test_fork_server_gives_each_run_a_fresh_process_quickly():
+    """Consecutive runs come from distinct processes (nothing survives from
+    one execution to the next) and, after the first, start in well under the
+    cost of a cold interpreter."""
+    code = """
+def generate_df(ds_clients, excel_files):
+    import os as _os
+    return pd.DataFrame({"pid": [_os.getpid()]})
+"""
+    first = run_job(SandboxJob(mode="data", code=code))
+    t0 = time.monotonic()
+    second = run_job(SandboxJob(mode="data", code=code))
+    elapsed = time.monotonic() - t0
+    assert int(first.df["pid"][0]) != int(second.df["pid"][0])
+    assert int(second.df["pid"][0]) != os.getpid()
+    assert elapsed < 0.5, f"second run took {elapsed:.2f}s"
+
+
+def test_spawn_fallback_when_fork_server_is_disabled(monkeypatch):
+    from app.ai.code_execution.sandbox import runner as r
+
+    monkeypatch.setattr(r._zygote, "enabled", False)
+    code = """
+def generate_df(ds_clients, excel_files):
+    import os as _os
+    return pd.DataFrame({"pid": [_os.getpid()], "key": ["BOW_ENCRYPTION_KEY" in _os.environ]})
+"""
+    monkeypatch.setenv("BOW_ENCRYPTION_KEY", "parent-secret")
+    result = run_job(SandboxJob(mode="data", code=code))
+    assert int(result.df["pid"][0]) != os.getpid()
+    assert bool(result.df["key"][0]) is False
+
+
 # ---------------------------------------------------------------------------
 # Error propagation
 # ---------------------------------------------------------------------------
@@ -229,6 +262,15 @@ def generate_df(ds_clients, excel_files):
 """
     df, _, _ = _run(code, {"main": client})
     assert df["err"].iloc[0] == "relation does not exist"
+
+
+def test_validator_allows_dunder_name_but_no_other_private_attributes():
+    from app.ai.code_execution.code_execution import validate_python_code
+
+    validate_python_code("def generate_df(a, b):\n    return pd.DataFrame({'m': [type(a).__name__]})")
+    for attr in ("_bow_access", "_private", "__dict__", "__class__"):
+        with pytest.raises(UnsafePythonError):
+            validate_python_code(f"def generate_df(a, b):\n    return a.{attr}")
 
 
 def test_ast_validation_still_runs_before_spawn():
