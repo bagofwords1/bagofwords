@@ -3470,7 +3470,14 @@
     "viewAs": "Ver como",
     "anonymousUser": "Usuario anónimo",
     "versionSetDefault": "Versión establecida como predeterminada",
-    "versionSetDefaultFailed": "No se pudo establecer la versión como predeterminada."
+    "versionSetDefaultFailed": "No se pudo establecer la versión como predeterminada.",
+    "rename": "Renombrar panel",
+    "renamePlaceholder": "Nombre del panel",
+    "renamed": "Panel renombrado",
+    "renameFailed": "No se pudo renombrar el panel.",
+    "more": "Más",
+    "schedule": "Programar actualización",
+    "exportAs": "Exportar como {format}"
   },
   "filter": {
     "addFilters": "Añadir filtros",

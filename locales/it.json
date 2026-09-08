@@ -3373,7 +3373,14 @@
     "viewAs": "Visualizza come",
     "anonymousUser": "Utente anonimo",
     "versionSetDefault": "Versione impostata come predefinita",
-    "versionSetDefaultFailed": "Impossibile impostare la versione come predefinita."
+    "versionSetDefaultFailed": "Impossibile impostare la versione come predefinita.",
+    "rename": "Rinomina dashboard",
+    "renamePlaceholder": "Nome della dashboard",
+    "renamed": "Dashboard rinominata",
+    "renameFailed": "Impossibile rinominare la dashboard.",
+    "more": "Altro",
+    "schedule": "Pianifica aggiornamento",
+    "exportAs": "Esporta come {format}"
   },
   "filter": {
     "addFilters": "Aggiungi filtri",

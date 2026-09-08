@@ -1,8 +1,12 @@
 <template>
-    <UTooltip text="Schedule or rerun report">
+    <!-- Trigger is optional: ArtifactFrame lists "Schedule" in its overflow
+         menu and opens this modal through the exposed open() instead. -->
+    <UTooltip v-if="!hideTrigger" :text="$t('artifactFrame.schedule')">
         <button @click="cronModalOpen = true"
-            class="text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded">
-            <Icon name="heroicons:clock" />
+            :class="compact
+                ? 'p-1.5 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center'
+                : 'text-lg items-center flex gap-1 hover:bg-gray-100 dark:hover:bg-gray-700 px-2 py-1 rounded'">
+            <Icon name="heroicons:clock" :class="compact ? 'w-3.5 h-3.5 text-gray-500 dark:text-gray-400' : ''" />
         </button>
     </UTooltip>
 
@@ -168,10 +172,15 @@ import { buildRecurringCron, parseRecurringCron, type RecurInterval } from '@/co
 import { refreshModeFromReport, refreshModeSettings, type RefreshMode } from '@/composables/useRefreshMode'
 
 const cronModalOpen = ref(false);
+defineExpose({ open: () => { cronModalOpen.value = true } });
 const toast = useToast();
 const { smtpEnabled } = useAppSettings();
 const props = defineProps<{
     report: any
+    /** Render only the modal; the parent supplies its own trigger via open(). */
+    hideTrigger?: boolean
+    /** Small icon button matching the artifact toolbar (ArtifactFrame). */
+    compact?: boolean
 }>();
 
 const report = ref(props.report);

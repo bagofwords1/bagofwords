@@ -3373,7 +3373,14 @@
     "viewAs": "Afficher en tant que",
     "anonymousUser": "Utilisateur anonyme",
     "versionSetDefault": "Version définie par défaut",
-    "versionSetDefaultFailed": "Impossible de définir la version par défaut."
+    "versionSetDefaultFailed": "Impossible de définir la version par défaut.",
+    "rename": "Renommer le tableau de bord",
+    "renamePlaceholder": "Nom du tableau de bord",
+    "renamed": "Tableau de bord renommé",
+    "renameFailed": "Impossible de renommer le tableau de bord.",
+    "more": "Plus",
+    "schedule": "Planifier l'actualisation",
+    "exportAs": "Exporter en {format}"
   },
   "filter": {
     "addFilters": "Ajouter des filtres",

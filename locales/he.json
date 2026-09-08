@@ -3470,7 +3470,14 @@
     "viewAs": "תצוגה בתור",
     "anonymousUser": "משתמש אנונימי",
     "versionSetDefault": "הגרסה הוגדרה כברירת מחדל",
-    "versionSetDefaultFailed": "הגדרת הגרסה כברירת מחדל נכשלה."
+    "versionSetDefaultFailed": "הגדרת הגרסה כברירת מחדל נכשלה.",
+    "rename": "שינוי שם הדשבורד",
+    "renamePlaceholder": "שם הדשבורד",
+    "renamed": "שם הדשבורד שונה",
+    "renameFailed": "לא ניתן לשנות את שם הדשבורד.",
+    "more": "עוד",
+    "schedule": "תזמון רענון",
+    "exportAs": "ייצוא כ-{format}"
   },
   "filter": {
     "addFilters": "הוסף מסננים",
