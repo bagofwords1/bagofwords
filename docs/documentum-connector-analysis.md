@@ -249,7 +249,8 @@ https://appworks-tips.com/2021/10/01/113_bring_life_in_the_documentum_connector/
 replace a password in DFC; using one as the Basic password against REST is plausible but
 unverified. Not needed for v1.
 
-**Per-user delegated auth, ranked for BOW:**
+**Per-user delegated auth, ranked for BOW** (superseded by the fuller design in
+[`documentum-auth.md`](documentum-auth.md), which adds OTDS impersonation as the primary option):
 1. Per-user Basic (repository or OTDS-synced username/password) — `scopes=["system","user"]`, exactly today's SharePoint Server "User-required NTLM" UX. Security trimming is then done by Content Server ACLs on every call, for free.
 2. OTDS OAuth2 authorization-code per user via the existing `OAuthDelegatedCredentials` flow — only when the customer has OTDS OAuth clients configured for REST (`oauth2` mode). Needs a lab to validate token transport (`Authorization: Bearer` vs `access_token` param).
 3. Shared service account (Basic or Kerberos keytab) — simplest, but every BOW user sees whatever the service account sees. Flag in the UI exactly as `sharepoint_onprem` does for Kerberos service mode.
