@@ -934,6 +934,7 @@
     "steered": "הוכוון",
     "steeringApplied": "ההכוונה הוחלה",
     "steerQueuedFallback": "הריצה הסתיימה זה עתה — ההודעה נוספה לתור במקום",
+    "jumpToLatest": "קפיצה לעדכון האחרון",
     "steerFailed": "הכוונת ההשלמה הרצה נכשלה",
     "instructionUnavailableTitle": "ההנחיה אינה זמינה",
     "instructionUnavailableBody": "ייתכן שהיא נמחקה, או שאין לך גישה אליה.",
