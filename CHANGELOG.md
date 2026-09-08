@@ -1,5 +1,17 @@
 # Release Notes
 
+## Version 0.0.556 (September 8, 2026)
+- Added a read-only Kubernetes connector (infra, enterprise): workloads, nodes, events, networking, storage, discovered CRDs, metrics-server usage and pod logs are cataloged as tables, authenticated with a service-account bearer token and a cluster-wide read-only RBAC manifest. The connect form can now render a numbered setup guide with copy buttons above the fields, and hides the "Require user authentication" toggle for connectors without a per-user auth variant (#1087)
+- Postgres data sources gain an `sslmode` setting, so providers that reject unencrypted logins (such as AWS RDS with IAM auth) can be connected with `require` or stricter; the default `prefer` leaves existing connections unchanged (#1089)
+- Fixed the SAP BusinessObjects connector: queries now follow SAP's XML query lifecycle instead of failing with HTTP 400, pagination stops cleanly at the last page, numeric and date object metadata is preserved, schema discovery failures are retried rather than cached as empty, and the authentication plugin is picked from a dropdown (#1086)
+- Dashboards can be renamed from the dashboard pane by the report owner, and the toolbar is decluttered: Data, Schedule, Export, Full screen, Open in new tab and Rename move into a `⋯` menu while Refresh, Download, View as and Share stay visible (#1085)
+- Seven catalog skills (train agent, audit instructions, complex dashboard, migrate BI dashboard, usage review, Mermaid ERD, create evals) are now enabled by default for new organizations and backfilled on startup for existing ones; an admin disabling one is respected, and the catalog lists these first (#1078)
+- Fixed two rule-out statements in the bundled infrastructure RCA skill (a change that lands after the first deviation is ruled out, not before it; a dependency shared across tiers is no longer ruled out on its own). The skill is bumped to 1.1 so installed copies are offered the update (#1082)
+- Fixed the single-provider SSO auto-start firing on every sign-in visit, which made sign-out on an `sso_only` instance land straight back in the app. It now runs only for the embedded `/authorize` flow or when a `login_hint` is present (#1091)
+- Fixed first-use Kerberos schema discovery for directory users, so their first SQL prompt no longer needs a manually warmed schema cache; an empty schema refresh now removes stale catalog access, and concurrent per-viewer runs no longer fail on a duplicate result-cache row (#1076)
+- The New Agent wizard keeps one width across steps and its table step fills the modal height, so the ERD and table list no longer push the header off-screen (#1077)
+- Security: bumped snowflake-connector-python from 4.7.1 to 4.7.3 to fix an improper certificate validation vulnerability (#1083)
+
 ## Version 0.0.555 (September 5, 2026)
 - Document artifacts can now be exported as PDF, rendered through the real document viewer in headless Chromium instead of the browser print dialog (#1060)
 - Queries moved from their own page into the agents knowledge tree: each agent has a Queries row that opens its saved queries in the side panel, and unpublished queries are no longer served to members who don't own or manage them (#1061)
