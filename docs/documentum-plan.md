@@ -55,4 +55,9 @@ Exit: remove `dev_only`, publish the verification boundary, CHANGELOG entry per 
 | Unofficial images tempting during Phase 1 | Rejected on EULA grounds; mock only |
 
 ## Estimate
-Engineering: Phase 1 ≈ 2–3 weeks, Phase 2 ≈ 2 weeks, Phase 3 ≈ 1–2 weeks once access exists. Elapsed time is dominated by Phase 0 (lab access), not code.
+Engineering is roughly **one week**, not six: the comparable `sharepoint_onprem` connector is a
+445-line client plus a 254-line unit test and landed in one commit. Client + schemas + registry
++ tests ≈ 1–2 days; mock ≈ 0.5 day; OTDS impersonation overlay ≈ 1–2 days; OAuth branch ≈ 0.5
+day; docs ≈ 0.5 day. Real-instance validation ≈ 1–2 days once access exists. Elapsed time is
+dominated entirely by Phase 0 (lab access), which is a waiting problem, not a building one.
+Build everything on the mock in week 1, ship `dev_only`, flip live the day a repository appears.
