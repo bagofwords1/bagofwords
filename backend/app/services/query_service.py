@@ -986,6 +986,13 @@ class QueryService:
             src = getattr(spec, "options_source", None)
             if src is None:
                 continue
+            if not src.query_id:
+                # Saved-query (entity) sources belong to catalog queries; no
+                # dashboard control resolves them, so refuse instead of
+                # persisting a reference that renders empty.
+                raise ParamError(
+                    f"param '{spec.name}': options_source must reference a query in this report"
+                )
             if str(src.query_id) == str(q.id):
                 raise ParamError(
                     f"param '{spec.name}': options_source must reference a different "

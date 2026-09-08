@@ -404,3 +404,52 @@ def test_context_builders_and_loadables_honor_withholding(user_scoped_world):
             assert w["entity"]["id"] in out2["entities"], "owner still loads their entity"
 
     _run(check())
+
+
+@pytest.mark.e2e
+def test_from_step_saves_edited_code_and_declarations(test_client, world):
+    """The Save Query form may edit code and parameters before promotion: the
+    entity carries them, drops the step's now-stale snapshot, and refuses
+    declarations the code does not read."""
+    report_id = _create_report(test_client, world["owner"]["token"], world["org_id"], [world["ds_public"]["id"]])
+    step_id = _run(_seed_step(report_id, data={"rows": [{"v": 1}], "columns": [{"field": "v"}]}))
+    hdr = _hdr(world["owner"]["token"], world["org_id"])
+    new_code = (
+        "def generate_df(ds_clients, excel_files, params):\n"
+        "    import pandas as pd\n"
+        "    rows = [{'country': 'IL'}, {'country': 'FR'}]\n"
+        "    c = params.get('country')\n"
+        "    return pd.DataFrame([r for r in rows if c is None or r['country'] == c])\n"
+    )
+    bad = test_client.post(
+        f"/api/entities/from_step/{step_id}",
+        json={"title": "edited", "publish": True, "data_source_ids": [world["ds_public"]["id"]],
+              "code": new_code, "parameters": [{"name": "region", "type": "string"}]},
+        headers=hdr,
+    )
+    assert bad.status_code == 400 and bad.json()["error_code"] == "entity.params_invalid"
+
+    ok = test_client.post(
+        f"/api/entities/from_step/{step_id}",
+        json={"title": "edited", "publish": True, "data_source_ids": [world["ds_public"]["id"]],
+              "code": new_code, "parameters": [{"name": "country", "type": "string"}]},
+        headers=hdr,
+    )
+    assert ok.status_code == 200, ok.text
+    body = ok.json()
+    assert body["code"] == new_code
+    assert [p["name"] for p in body["parameters"]] == ["country"]
+    assert body["source_step_id"] == step_id
+    assert not (body["data"] or {}).get("rows"), "the step's snapshot no longer matches the code"
+    run = test_client.post(f"/api/entities/{body['id']}/run", json={"params": {"country": "FR"}}, headers=hdr)
+    assert run.status_code == 200, run.text
+    assert [r["country"] for r in run.json()["data"]["rows"]] == ["FR"]
+
+    # Unchanged code keeps the step's snapshot.
+    same = test_client.post(
+        f"/api/entities/from_step/{step_id}",
+        json={"title": "same", "publish": True, "data_source_ids": [world["ds_public"]["id"]], "code": STEP_CODE},
+        headers=hdr,
+    )
+    assert same.status_code == 200, same.text
+    assert same.json()["data"]["rows"] == [{"v": 1}]

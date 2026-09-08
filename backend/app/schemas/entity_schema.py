@@ -66,6 +66,8 @@ class EntityUpdate(BaseModel):
     tags: Optional[List[str]] = None
     code: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+    # Declared ParamSpec dicts; validated against `code` (or the stored code).
+    parameters: Optional[list] = None
     view: Optional[ViewSchema] = None
     status: Optional[str] = None
     published_at: OptionalUTCDatetime = None
@@ -83,6 +85,10 @@ class EntityFromStepCreate(BaseModel):
     description: Optional[str] = None
     publish: Optional[bool] = False
     data_source_ids: Optional[List[str]] = None
+    # Edited in the Save Query form before promotion. Code that differs from
+    # the step's is saved without the step's snapshot (it no longer matches).
+    code: Optional[str] = None
+    parameters: Optional[list] = None
 
 
 class EntitySchema(EntityBase):
@@ -174,6 +180,10 @@ class EntityRunPayload(BaseModel):
 
 class EntityPreviewPayload(BaseModel):
     code: str
+    # Declarations being edited (None = the entity's saved ones) and test
+    # VALUES for the run; identity params always bind to the caller.
+    parameters: Optional[list] = None
+    params: Optional[Dict[str, Any]] = None
 
 
 class EntityCodePreviewPayload(BaseModel):
@@ -181,5 +191,7 @@ class EntityCodePreviewPayload(BaseModel):
     the listed agents without any Entity row existing yet."""
     code: str
     data_source_ids: List[str] = Field(default_factory=list)
+    parameters: Optional[list] = None
+    params: Optional[Dict[str, Any]] = None
 
 

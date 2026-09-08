@@ -21,6 +21,7 @@ from app.schemas.entity_schema import (
     EntityCodePreviewPayload,
 )
 from app.services.entity_service import EntityService
+from app.ai.code_execution.query_params import ParamError
 
 router = APIRouter(prefix="/entities", tags=["entities"])
 service = EntityService()
@@ -103,6 +104,23 @@ async def _require_entity_view_access(db, entity_id: str, organization, user) ->
         await _require_ds_access(db, user, organization, ds_ids)
 
 
+def _maps_param_errors(func):
+    """Turn a ParamError (bad declaration, value or options source) into a
+    typed 400 for every entity route that touches parameters. ParamError
+    subclasses ValueError, so this must sit closest to the handler, ahead of
+    any `except ValueError -> 404` inside it."""
+    from functools import wraps
+    from app.ai.code_execution.query_params import ParamError
+
+    @wraps(func)
+    async def wrapper(*args, **kwargs):
+        try:
+            return await func(*args, **kwargs)
+        except ParamError as e:
+            raise AppError.bad_request(ErrorCode.ENTITY_PARAMS_INVALID, str(e))
+    return wrapper
+
+
 async def _resolve_create_tier(db, user, organization, ds_ids: List[str]) -> bool:
     """The two tiers of the report's "Save Query", for a query written by hand.
 
@@ -122,15 +140,16 @@ async def _resolve_create_tier(db, user, organization, ds_ids: List[str]) -> boo
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if resolved.has_org_permission("manage_entities"):
         return True
-    raise HTTPException(
-        status_code=403,
-        detail="A query without an agent is org-wide and needs 'manage_entities'. "
-               "Attach it to an agent you can access to suggest it for review.",
+    raise AppError.forbidden(
+        ErrorCode.ENTITY_AGENT_REQUIRED,
+        "A query without an agent is org-wide and needs 'manage_entities'. "
+        "Attach it to an agent you can access to suggest it for review.",
     )
 
 
 @router.post("", response_model=EntitySchema)
 @requires_permission('create_reports')
+@_maps_param_errors
 async def create_private_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -154,6 +173,7 @@ async def create_private_entity(
 
 @router.post("/preview")
 @requires_permission('create_reports')
+@_maps_param_errors
 async def preview_code(
     payload: EntityCodePreviewPayload,
     db: AsyncSession = Depends(get_async_db),
@@ -169,17 +189,22 @@ async def preview_code(
     ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
     await _resolve_create_tier(db, current_user, organization, ds_ids)
     if not (payload.code or "").strip():
-        raise HTTPException(status_code=400, detail="Code is required")
+        raise AppError.bad_request(ErrorCode.ENTITY_CODE_REQUIRED, "Code is required")
+    from app.ai.code_execution.query_params import ParamError
     try:
         return await service.preview_code(
             db, payload.code, ds_ids, organization, current_user=current_user,
+            parameters=payload.parameters, params=payload.params,
         )
+    except ParamError:
+        raise  # -> typed 400 via _maps_param_errors (ParamError is a ValueError)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, str(e))
 
 
 @router.post("/global", response_model=EntitySchema)
 @requires_permission('create_entities', resource_scoped=True)
+@_maps_param_errors
 async def create_global_entity(
     payload: EntityCreate,
     db: AsyncSession = Depends(get_async_db),
@@ -275,6 +300,7 @@ async def get_entity(
 
 @router.put("/{entity_id}", response_model=EntitySchema)
 @requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
+@_maps_param_errors
 async def update_entity(
     entity_id: str,
     payload: EntityUpdate,
@@ -361,6 +387,7 @@ async def delete_entity(
 
 @router.post("/from_step/{step_id}", response_model=EntitySchema)
 @requires_permission('create_reports')
+@_maps_param_errors
 async def create_entity_from_step(
     step_id: str,
     payload: EntityFromStepCreate,
@@ -416,8 +443,12 @@ async def create_entity_from_step(
             # fallback) so the service attaches exactly what was checked.
             data_source_ids_override=(payload.data_source_ids or target_ds_ids or None),
             creator_can_publish=can_publish,
+            code_override=payload.code,
+            parameters_override=payload.parameters,
         )
         return EntitySchema.model_validate(entity)
+    except ParamError:
+        raise  # -> typed 400 via _maps_param_errors
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -458,6 +489,7 @@ async def run_entity(
 
 @router.post("/{entity_id}/preview")
 @requires_permission(['manage_entities', 'create_entities'], model=Entity, resource_scoped=True)
+@_maps_param_errors
 async def preview_entity(
     entity_id: str,
     payload: EntityPreviewPayload,
@@ -467,11 +499,31 @@ async def preview_entity(
 ):
     """Preview (execute without persisting) — same access tier as run."""
     await _require_entity_run_access(db, entity_id, organization, current_user)
+    from app.ai.code_execution.query_params import ParamError
     try:
         result = await service.preview_entity(db, entity_id, payload, organization, current_user=current_user)
         return result
+    except ParamError:
+        raise  # -> typed 400 via _maps_param_errors
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.get("/{entity_id}/param-options")
+@requires_permission('view_reports', model=Entity)
+async def get_param_options(
+    entity_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Choice lists for the entity's parameters — static ones and those taken
+    from another saved query's snapshot. Read access, like the entity itself."""
+    await _require_entity_view_access(db, entity_id, organization, current_user)
+    entity = await service.get_entity(db, entity_id, organization, current_user)
+    if not entity:
+        raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
+    return await service.get_param_options(db, entity, organization, current_user)
 
 
 # Suggestion workflow endpoints

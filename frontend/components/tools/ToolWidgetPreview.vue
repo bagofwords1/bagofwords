@@ -400,17 +400,18 @@
       </div>
     </Transition>
     <!-- Save as Entity Modal -->
-    <EntityCreateModal
-      :visible="openEntityModal"
-      :initialTitle="widgetTitle"
-      :initialCode="effectiveStep?.code || ''"
-      :initialView="visualization?.view || (effectiveStep?.view || null)"
-      :initialData="effectiveStep?.data || null"
-      :dataModel="effectiveStep?.data_model || null"
-      :stepId="effectiveStep?.id || null"
-      :initialDataSourceIds="reportDataSources"
-      :parameters="cardParamSpecs"
-      @close="openEntityModal = false"
+    <!-- Same form as the agent's New query / Edit: details, code, parameters. -->
+    <EntityEditModal
+      v-model="openEntityModal"
+      :entity-id="null"
+      :detail="null"
+      :step-id="effectiveStep?.id || null"
+      :initial-title="widgetTitle"
+      :initial-type="String((visualization?.view || effectiveStep?.view || {}).type || '') === 'count' ? 'metric' : 'model'"
+      :initial-code="effectiveStep?.code || ''"
+      :initial-data="effectiveStep?.data || null"
+      :initial-parameters="cardParamSpecs"
+      :initial-data-source-ids="reportDataSources"
       @saved="handleEntitySaved"
     />
   </div>
@@ -425,7 +426,7 @@ import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
 import { resolveEntryByType } from '@/components/dashboard/registry'
-import EntityCreateModal from '../entity/EntityCreateModal.vue'
+import EntityEditModal from '../entity/EntityEditModal.vue'
 import { useExcel } from '~/composables/useExcel'
 import VisualizationFilter from '@/components/dashboard/VisualizationFilter.vue'
 import {

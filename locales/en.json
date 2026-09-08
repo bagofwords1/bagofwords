@@ -3282,7 +3282,10 @@
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
-    }
+    },
+    "entity.params_invalid": "The query's parameters are invalid",
+    "entity.code_required": "Code is required",
+    "entity.agent_required": "A query without an agent needs the manage entities permission; attach it to an agent to suggest it"
   },
   "email": {
     "dashboardShare": {
@@ -3303,7 +3306,6 @@
   },
   "queries": {
     "newQuery": "New query",
-    "codeLabel": "Code",
     "run": "Run",
     "running": "Running…",
     "runFailed": "Failed to run",
@@ -3382,7 +3384,56 @@
       "paramListPlaceholder": "a, b, … (empty = All)",
       "errRunParams": "Run failed",
       "paramsCached": "served from cache"
-    }
+    },
+    "paramsLabel": "Parameters",
+    "addParam": "Add parameter",
+    "paramName": "name",
+    "paramLabel": "Label",
+    "paramRequired": "required",
+    "paramSourceInput": "Viewer input",
+    "paramSourceIdentity": "Locked to viewer",
+    "paramSourceInputIdentity": "Input, defaults to viewer",
+    "paramChoices": "Choices",
+    "paramChoicesNone": "Free input",
+    "paramChoicesStatic": "Fixed list",
+    "paramChoicesEntity": "From saved query",
+    "paramPickEntity": "Pick a saved query…",
+    "paramValueColumn": "Value column…",
+    "paramLabelColumn": "Label = value",
+    "paramBinding": "Bound to",
+    "paramTestValue": "Test value",
+    "paramAll": "All",
+    "paramRemove": "Remove",
+    "tabDetails": "Details",
+    "tabCode": "Code",
+    "paramSource": "Value comes from",
+    "paramMore": "More",
+    "paramFromViewer": "from the viewer",
+    "paramScaffoldedTitle": "Code updated to use :{name}",
+    "paramScaffoldedBody": "Added WHERE (:{name} IS NULL OR {name} = :{name}) — change the column name if it differs.",
+    "paramScaffoldedBodyNoSql": "Passed {name} to execute_query; add :{name} to the SQL where it applies.",
+    "paramsHint": "Typed inputs the code receives as params. In SQL write :name and pass params={\"name\": params[\"name\"]} to execute_query; in Python read params.get(\"name\"). Empty = All.",
+    "paramType": "Type",
+    "paramDefault": "Default (empty = All)",
+    "paramOptionsPlaceholder": "Comma-separated values",
+    "paramAttrPlaceholder": "or profile attribute (e.g. department)",
+    "paramRequiredLong": "A value is required (no \"All\")",
+    "noParams": "No parameters. Add one to let viewers filter this query.",
+    "paramSourceDesc": {
+      "input": "The viewer picks a value in the query's parameter bar.",
+      "identity": "Taken from the viewer's identity; the viewer cannot change it.",
+      "input_identity_default": "Starts from the viewer's identity; the viewer may change it."
+    },
+    "paramChoicesDesc": {
+      "none": "The viewer types any value.",
+      "static": "The viewer picks from a fixed list you write here.",
+      "entity": "The viewer picks from a column of another saved query."
+    },
+    "paramBindingDesc": "Which identity field the value is taken from.",
+    "paramDefaultDesc": "Used when the viewer leaves the value empty.",
+    "paramOptionsLabel": "Options",
+    "savedButRunFailed": "Saved, but the first run failed",
+    "showingFirst": "showing the first {n}"
   },
   "scheduled": {
     "title": "Scheduled Tasks",
@@ -4853,7 +4904,8 @@
     "description": "Description",
     "agents": "Agents",
     "selectAgents": "Select agents",
-    "status": "Status"
+    "status": "Status",
+    "allAgents": "All agents"
   },
   "skillCatalog": {
     "subtitle": "Curated playbooks the agent loads on demand. Enable the ones your team needs.",

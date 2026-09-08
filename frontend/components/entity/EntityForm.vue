@@ -46,7 +46,14 @@
           </div>
         </template>
         <template #option="{ option }">
-          <div class="flex items-center justify-between w-full py-1 pe-2">
+          <!-- First row: "All agents" — a toggle for the whole list, inside the menu. -->
+          <div v-if="option.id === ALL_ID" class="flex items-center justify-between w-full py-1 pe-2 border-b border-gray-100 dark:border-gray-800" data-testid="entity-form-agents-all">
+            <span class="text-xs font-medium">{{ option.name }}</span>
+            <!-- Display only: the click bubbles to the row, USelectMenu puts ALL_ID
+                 in the model, and the watcher below turns that into all/none. -->
+            <UCheckbox :model-value="allSelected" class="flex-shrink-0 ms-2 pointer-events-none" />
+          </div>
+          <div v-else class="flex items-center justify-between w-full py-1 pe-2">
             <div class="flex items-center">
               <DataSourceIcon :type="option.type" :icon="option.icon" class="h-3 me-2" />
               <span class="text-xs">{{ option.name }}</span>
@@ -96,6 +103,7 @@
 import { computed, ref, watch, onMounted } from 'vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { useI18n } from 'vue-i18n'
 
 interface DataSource {
   id: string
@@ -125,6 +133,7 @@ const emit = defineEmits<{
   (e: 'update:modelValue', value: EntityFormData): void
 }>()
 
+const { t } = useI18n()
 const availableDataSources = ref<DataSource[]>([])
 const selectedDataSourceIds = ref<string[]>([])
 
@@ -133,7 +142,17 @@ const localForm = computed({
   set: (value) => emit('update:modelValue', value)
 })
 
-const dataSourceOptions = computed(() => availableDataSources.value)
+// A synthetic first option toggles every agent. Picking it through the menu's
+// own selection puts ALL_ID in the model; the watcher below swaps it for the
+// real ids, so the emitted list never contains it.
+const ALL_ID = '__all__'
+const dataSourceOptions = computed(() => (
+  availableDataSources.value.length > 1
+    ? [{ id: ALL_ID, name: t('entityForm.allAgents'), type: '' } as DataSource, ...availableDataSources.value]
+    : availableDataSources.value
+))
+const allIds = computed(() => availableDataSources.value.map(d => String(d.id)))
+const allSelected = computed(() => allIds.value.length > 0 && allIds.value.every(id => selectedDataSourceIds.value.includes(id)))
 
 const selectedDataSourceObjects = computed(() => {
   return availableDataSources.value.filter(ds => selectedDataSourceIds.value.includes(ds.id))
@@ -220,6 +239,13 @@ const fetchDataSources = async () => {
 
 // Watch for changes in selected data sources and update the parent form
 watch(selectedDataSourceIds, (newIds) => {
+  if (newIds.includes(ALL_ID)) {
+    // The "All agents" row was clicked: it never stays in the list.
+    const others = newIds.filter(id => id !== ALL_ID)
+    const wasAll = allIds.value.every(id => others.includes(id))
+    selectedDataSourceIds.value = wasAll ? [] : [...allIds.value]
+    return
+  }
   emit('update:modelValue', {
     ...props.modelValue,
     data_source_ids: newIds

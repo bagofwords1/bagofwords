@@ -541,18 +541,31 @@ function seedParamValuesFromApplied() {
   }
 }
 
-function resolveParamOptions() {
-  const out: Record<string, Array<{ value: any; label: string }>> = {}
-  for (const spec of editableParamSpecs.value) {
-    if (Array.isArray(spec.options) && spec.options.length) {
-      out[spec.name] = spec.options.map((v: any) =>
-        (v && typeof v === 'object' && 'value' in v) ? v : { value: v, label: String(v) })
-    }
-  }
-  paramOptions.value = out
+// Choice lists come from GET .../param-options — static ones and those taken
+// from another saved query's snapshot alike — so the {value,label} shape has
+// one definition (the backend's) and the caller's access to a source query
+// is applied there.
+async function resolveParamOptions() {
+  paramOptions.value = {}
+  const anyChoices = editableParamSpecs.value.some((s: any) => (Array.isArray(s.options) && s.options.length) || s.options_source)
+  const forId = detail.value?.id
+  if (!anyChoices || !forId) return
+  try {
+    const { data } = await useMyFetch<any>(`/api/entities/${forId}/param-options`, { method: 'GET' })
+    if (detail.value?.id !== forId) return  // a later selection won; keep its lists
+    const served = (data.value || {}) as Record<string, Array<{ value: any; label: string }>>
+    paramOptions.value = Object.fromEntries(Object.entries(served).filter(([, v]) => Array.isArray(v) && v.length))
+  } catch { /* the control falls back to free input */ }
 }
 
-watch(paramSpecs, () => { seedParamValuesFromApplied(); resolveParamOptions() }, { immediate: true })
+// Keyed on the declarations themselves: a run or a workflow action swaps
+// `detail` for a fresh object but leaves the parameters as they were, and the
+// choice lists need no second round-trip for that.
+watch(
+  () => `${detail.value?.id || ''}:${JSON.stringify(detail.value?.parameters || [])}`,
+  () => { seedParamValuesFromApplied(); resolveParamOptions() },
+  { immediate: true },
+)
 
 async function runWithParams() {
   if (paramRunLoading.value) return

@@ -29,19 +29,85 @@ class EntityService:
     # Parameters (mirrors the step/query machinery)
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def validate_param_specs(code: str, raw_specs: Optional[list]) -> list:
+        """Parse declared ParamSpecs and check them against `code`: a bad spec,
+        a duplicate name, a declared-but-unread param or a read-but-undeclared
+        one is a ParamError — the same bar a report query's save enforces."""
+        from app.schemas.param_schema import ParamSpec
+        from app.ai.code_execution.query_params import ParamError, check_declarations_vs_code
+        specs = []
+        for raw in (raw_specs or []):
+            try:
+                specs.append(ParamSpec.model_validate(raw))
+            except Exception as e:
+                name = raw.get("name") if isinstance(raw, dict) else None
+                raise ParamError(f"invalid parameter{f' {name!r}' if name else ''}: {e}") from e
+        names = [sp.name for sp in specs]
+        dupes = sorted({n for n in names if names.count(n) > 1})
+        if dupes:
+            raise ParamError(f"duplicate parameter name(s): {', '.join(dupes)}")
+        # A `query_id` source (an entity promoted from a dashboard query keeps
+        # its report's filter-space reference) is left as declared; it cannot
+        # be resolved outside that report, so the control falls back to input.
+        #
+        # No declarations at all is not an inconsistency: a read of an
+        # undeclared name just yields None ("All"). The declared-vs-read check
+        # applies once something is declared, and the same rule holds for
+        # create, update and preview so Save never disagrees with Run.
+        if not specs:
+            return specs
+        problems = check_declarations_vs_code(code or "", specs)
+        if problems:
+            raise ParamError("; ".join(problems))
+        return specs
+
+    async def _validate_option_entities(
+        self, db: AsyncSession, specs: list, organization: Organization, current_user: Optional[User],
+        self_id: Optional[str] = None,
+    ) -> None:
+        """An entity-sourced option list must point at a saved query the caller
+        can see (not itself), and the named columns must exist in its snapshot
+        when it has one — a dead reference would render an empty control."""
+        from app.ai.code_execution.query_params import ParamError
+        for sp in specs:
+            src = getattr(sp, "options_source", None)
+            if src is None or not src.entity_id:
+                continue
+            if self_id and str(src.entity_id) == str(self_id):
+                raise ParamError(
+                    f"param '{sp.name}': options cannot come from the query they filter"
+                )
+            source = await self.get_entity(db, str(src.entity_id), organization, current_user)
+            if source is None:
+                raise ParamError(f"param '{sp.name}': options query not found")
+            cols = {
+                str(c.get("field") or c.get("headerName") or "")
+                for c in ((source.data or {}).get("columns") or []) if isinstance(c, dict)
+            }
+            if cols:
+                for col in filter(None, (src.value_column, src.label_column)):
+                    if col not in cols:
+                        raise ParamError(
+                            f"param '{sp.name}': column '{col}' not found in options query "
+                            f"'{source.title}' (has: {', '.join(sorted(cols))})"
+                        )
+
     async def _resolve_entity_params(
         self, db: AsyncSession, entity, run_user, organization,
         request_values: Optional[dict] = None,
+        specs_override: Optional[list] = None,
     ) -> dict:
         """Resolve the entity's declared params: defaults <- request values <-
         the run user's identity bindings. {} when the entity declares none.
 
         `request_values` are caller-supplied VALUES ({name: value}). Unknown
         names and client values for identity-locked params are rejected
-        (ParamError), exactly like a query viewer run."""
+        (ParamError), exactly like a query viewer run. `specs_override` lets a
+        preview test declarations that are not saved yet."""
         from app.schemas.param_schema import parse_param_specs
         from app.ai.code_execution.query_params import ParamError, resolve_param_values
-        specs = parse_param_specs(getattr(entity, "parameters", None))
+        specs = specs_override if specs_override is not None else parse_param_specs(getattr(entity, "parameters", None))
         if not specs:
             if request_values:
                 raise ParamError(
@@ -262,6 +328,8 @@ class EntityService:
         publish: bool = False,
         data_source_ids_override: Optional[List[str]] = None,
         creator_can_publish: Optional[bool] = None,
+        code_override: Optional[str] = None,
+        parameters_override: Optional[list] = None,
     ) -> Entity:
         """Create an Entity from a successful Step.
 
@@ -322,6 +390,20 @@ class EntityService:
         from app.services.viewer_data_policy import resolve_step_data
         resolution = await resolve_step_data(db, step, step.query.report, current_user)
 
+        # Edits made in the Save Query form: new code invalidates the step's
+        # snapshot (the rows were produced by other code), so the entity is
+        # saved without data and the caller runs it. Declarations are checked
+        # against whichever code will run.
+        step_code = step.code or ""
+        code = code_override if code_override is not None else step_code
+        code_changed = code_override is not None and code_override.strip() != step_code.strip()
+        raw_params = parameters_override if parameters_override is not None \
+            else (list(getattr(step.query, "parameters", None) or []) or None)
+        if parameters_override is not None or code_changed:
+            specs = self.validate_param_specs(code, raw_params)
+            await self._validate_option_entities(db, specs, organization, current_user)
+            raw_params = [sp.model_dump() for sp in specs] or None
+
         entity = Entity(
             organization_id=str(organization.id),
             owner_id=str(current_user.id),
@@ -330,17 +412,17 @@ class EntityService:
             slug=slug,
             description=description,
             tags=[],
-            code=step.code or "",
-            data=resolution.data or {},
+            code=code,
+            data={} if code_changed else (resolution.data or {}),
             original_data_model=step.data_model or {},
             view=(chosen_view or getattr(step, "view", None) or {"type": "table"}),
-            last_refreshed_at=step.updated_at,
+            last_refreshed_at=None if code_changed else step.updated_at,
             source_step_id=str(step_id),  # Link back to source step
             # Declarations travel with the promotion: the entity stays
             # parameterized (identity-scoped entities resolve per viewer),
             # and the promoted snapshot's values are recorded.
-            parameters=list(getattr(step.query, "parameters", None) or []) or None,
-            applied_params=getattr(step, "applied_params", None),
+            parameters=raw_params,
+            applied_params=None if code_changed else getattr(step, "applied_params", None),
         )
 
         # Apply dual-status workflow based on the publish verdict
@@ -429,7 +511,15 @@ class EntityService:
         *,
         creator_can_publish: bool = True,
     ) -> Entity:
-        slug = await self._unique_slug(db, organization, payload.slug or payload.title)
+        # An explicit slug is stored as sent (the API contract before the manual
+        # form); only a missing one is derived from the title and made unique.
+        slug = payload.slug or await self._unique_slug(db, organization, payload.title)
+        # Sent declarations — an empty list included — must match the code, so
+        # Save cannot accept what Run just refused.
+        if payload.parameters is not None:
+            specs = self.validate_param_specs(payload.code or "", payload.parameters)
+            await self._validate_option_entities(db, specs, organization, current_user)
+            payload.parameters = [sp.model_dump() for sp in specs]
         entity = Entity(
             organization_id=str(organization.id),
             owner_id=str(current_user.id),
@@ -455,9 +545,11 @@ class EntityService:
         if creator_can_publish:
             entity.private_status = None
             entity.global_status = "approved"
+            # Same clamp as a from-step promotion: published, else a draft.
+            entity.status = "published" if payload.status == "published" else "draft"
             entity.published_at = (
                 payload.published_at or datetime.utcnow()
-            ) if payload.status == "published" else None
+            ) if entity.status == "published" else None
         else:
             entity.private_status = "published"
             entity.global_status = "suggested"
@@ -737,6 +829,14 @@ class EntityService:
         if not user_permissions:
             raise HTTPException(status_code=403, detail="Permission denied: not an organization member")
 
+        # Declarations must match the code they will run with — the payload's
+        # new code when it changes, else the stored one.
+        if payload.parameters is not None:
+            code_for_check = payload.code if payload.code is not None else (entity.code or "")
+            specs = self.validate_param_specs(code_for_check, payload.parameters)
+            await self._validate_option_entities(db, specs, organization, current_user, self_id=str(entity.id))
+            payload.parameters = [sp.model_dump() for sp in specs]
+
         # Determine what type of update this is and check permissions
         from app.models.entity import Entity as EntityModel
         update_type = self._determine_update_type(
@@ -954,21 +1054,22 @@ class EntityService:
         return base[:80] or "query"
 
     async def _unique_slug(self, db: AsyncSession, organization: Organization, text: str) -> str:
-        """Slug from `text`, suffixed `-2`, `-3`, ... until unused in the org.
-        The column has no unique constraint (comment says "unique per org"),
-        so uniqueness is enforced here for the manual create path."""
+        """Slug from `text`, suffixed `-2`, `-3`, ... past every slug the org
+        already uses — one query, however many `Revenue`s exist. The column
+        has no unique constraint (the model comment says "unique per org"), so
+        this is where the manual create path enforces it."""
         base = self.slugify(text)
-        candidate = base
-        n = 1
-        while True:
-            exists_stmt = select(Entity.id).where(
-                Entity.organization_id == str(organization.id),
-                Entity.slug == candidate,
-            ).limit(1)
-            if (await db.execute(exists_stmt)).scalar_one_or_none() is None:
-                return candidate
+        taken_stmt = select(Entity.slug).where(
+            Entity.organization_id == str(organization.id),
+            or_(Entity.slug == base, Entity.slug.like(f"{base}-%")),
+        )
+        taken = {row for row in (await db.execute(taken_stmt)).scalars().all()}
+        if base not in taken:
+            return base
+        n = 2
+        while f"{base}-{n}" in taken:
             n += 1
-            candidate = f"{base}-{n}"
+        return f"{base}-{n}"
 
     async def _execute_entity_code(
         self,
@@ -1030,8 +1131,15 @@ class EntityService:
             raise ValueError("Entity not found")
 
         code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
+        raw_specs = getattr(payload, "parameters", None) if payload else None
+        specs_override = None
+        if raw_specs is not None:
+            specs_override = self.validate_param_specs(code_to_run, raw_specs)
+            await self._validate_option_entities(db, specs_override, organization, current_user, self_id=str(entity.id))
         resolved_params = await self._resolve_entity_params(
-            db, entity, current_user, organization
+            db, entity, current_user, organization,
+            request_values=(getattr(payload, "params", None) if payload else None),
+            specs_override=specs_override,
         )
         return await self._execute_entity_code(
             db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
@@ -1044,9 +1152,20 @@ class EntityService:
         data_source_ids: list,
         organization: Organization,
         current_user: Optional[User] = None,
+        parameters: Optional[list] = None,
+        params: Optional[dict] = None,
     ) -> dict:
         """Stateless preview: run `code` against the given agents. No Entity row
-        is read or written — this is "try before save" for a manual query."""
+        is read or written — this is "try before save" for a manual query.
+        `parameters` are the declarations being edited, `params` test values;
+        identity params bind to the caller exactly as a saved run would."""
+        specs = self.validate_param_specs(code or "", parameters)
+        await self._validate_option_entities(db, specs, organization, current_user)
+        # With no declarations this rejects any supplied values, same as a run.
+        resolved_params = await self._resolve_entity_params(
+            db, None, current_user, organization,
+            request_values=params, specs_override=specs,
+        )
         ds_list: list = []
         if data_source_ids:
             stmt = select(DataSource).where(
@@ -1058,8 +1177,53 @@ class EntityService:
             if len(ds_list) != len({str(i) for i in data_source_ids}):
                 raise ValueError("Agent not found")
         return await self._execute_entity_code(
-            db, code or "", ds_list, organization, current_user, {},
+            db, code or "", ds_list, organization, current_user, resolved_params,
         )
+
+    async def get_param_options(
+        self, db: AsyncSession, entity, organization: Organization, current_user: Optional[User],
+    ) -> dict:
+        """{param name: [{value, label}]} for every declared param that has a
+        choice list: static options as-is, entity-sourced ones from the source
+        query's snapshot (distinct values of value_column, labelled by
+        label_column). Sources the caller cannot see yield no list, so the
+        control falls back to free input instead of leaking values."""
+        from app.schemas.param_schema import parse_param_specs
+        out: dict = {}
+        for sp in parse_param_specs(getattr(entity, "parameters", None)):
+            if sp.options:
+                out[sp.name] = [
+                    o if isinstance(o, dict) and "value" in o else {"value": o, "label": str(o)}
+                    for o in sp.options
+                ]
+                continue
+            src = sp.options_source
+            if src is None or not src.entity_id:
+                continue
+            source = await self.get_entity(db, str(src.entity_id), organization, current_user)
+            if source is None:
+                continue
+            # The source snapshot is one identity's slice on a user-scoped
+            # agent: serve its values only to whom GET /entities/{id} would.
+            from app.services.viewer_data_policy import entity_data_withheld
+            if await entity_data_withheld(db, source, current_user):
+                continue
+            rows = (source.data or {}).get("rows") or []
+            seen, choices = set(), []
+            for row in rows:
+                if not isinstance(row, dict):
+                    continue
+                value = row.get(src.value_column)
+                if value is None:
+                    continue
+                key = str(value)
+                if key in seen:
+                    continue
+                seen.add(key)
+                label = row.get(src.label_column) if src.label_column else value
+                choices.append({"value": value, "label": str(label if label is not None else value)})
+            out[sp.name] = choices
+        return out
 
     async def _get_owned_entity(
         self, db: AsyncSession, entity_id: str, current_user: User, organization: Organization,
@@ -1176,7 +1340,7 @@ class EntityService:
             entity.reviewed_by_user_id = admin_user.id
         
         # Apply other changes from the form
-        allowed_fields = ['title', 'description', 'type', 'code', 'tags']
+        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'parameters']
         for field in allowed_fields:
             if hasattr(payload, field) and getattr(payload, field) is not None:
                 setattr(entity, field, getattr(payload, field))
@@ -1202,7 +1366,7 @@ class EntityService:
     async def _handle_owner_edit(self, entity: Entity, payload: EntityUpdate):
         """Handle owner editing their own private entity"""
         # Owner can edit most fields except status changes
-        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data']
+        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data', 'parameters']
         
         for field in allowed_fields:
             if hasattr(payload, field) and getattr(payload, field) is not None:

@@ -64,21 +64,60 @@ test('a query can be created by hand from the agent queries panel', async ({ pag
   // agent preselected), status — plus the code, seeded with the agent's real
   // client key. Save waits for a title.
   const create = page.getByTestId('entity-edit-save');
-  await expect(page.getByText('ds_clients["Manual Agent:main"]').first()).toBeVisible({ timeout: 15000 });
   await expect(page.getByTestId('entity-form-agents')).toContainText('Manual Agent');
   await expect(create).toBeDisabled();
   await page.getByPlaceholder('Revenue by month').fill('Hand-written revenue');
   await page.getByPlaceholder('Description').fill('Revenue, by hand');
   await expect(create).toBeEnabled();
 
+  // Code tab: the starter code addresses this agent's real client key.
+  await page.getByTestId('entity-edit-tab-code').click();
+  await expect(page.getByText('ds_clients["Manual Agent:main"]').first()).toBeVisible({ timeout: 15000 });
+
+  // Parameters (same tab): declaring one adds `params` to the signature, and
+  // its test value travels with the preview, like a dashboard query's controls.
+  await page.getByTestId('entity-edit-add-param').click();
+  await page.getByTestId('entity-param-name-0').fill('country');
+  await page.getByTestId('entity-param-test-0').fill('FR');
+  await expect(page.getByText('def generate_df(ds_clients, excel_files, params):').first()).toBeVisible();
+  // Naming the parameter scaffolds it into the SQL and the execute_query call.
+  await expect(page.getByText('WHERE (:country IS NULL OR country = :country)').first()).toBeVisible();
+
+  // A fixed choice list: the mode sticks before anything is typed, and the
+  // values travel with the declaration.
+  await page.getByTestId('entity-param-more-0').click();
+  await page.getByTestId('entity-param-choices-0').click();
+  await page.getByRole('option', { name: 'Fixed list' }).click();
+  await page.getByPlaceholder('IL, FR, DE').fill('IL, FR');
+  await page.getByTestId('entity-param-more-0').click();
+
   // Run previews against the agent without creating anything.
   await page.getByTestId('entity-edit-run').click();
   await expect.poll(() => previewBodies.length).toBe(1);
   expect(previewBodies[0].data_source_ids).toEqual([AGENT_ID]);
   expect(previewBodies[0].code).toContain('ds_clients["Manual Agent:main"]');
+  expect(previewBodies[0].parameters).toEqual([{ name: 'country', type: 'string', source: 'input', required: false, options: ['IL', 'FR'] }]);
+  expect(previewBodies[0].code).toContain('params={"country": params.get("country")}');
+  expect(previewBodies[0].params).toEqual({ country: 'FR' });
   expect(createBodies).toHaveLength(0);
   await expect(page.getByTestId('entity-edit-result')).toContainText('1 rows');
+  // The result scrolls itself into view; give the smooth scroll a moment.
+  await page.waitForTimeout(700);
+  await expect(page.getByTestId('entity-edit-result')).toBeInViewport({ ratio: 0.95 });
   await page.screenshot({ path: process.env.NEW_QUERY_SHOT || 'test-results/new-query.png' });
+  await page.getByTestId('entity-edit-params-toggle').click();
+  await page.getByTestId('entity-param-more-0').click();
+  await page.screenshot({ path: (process.env.NEW_QUERY_SHOT || 'test-results/new-query.png').replace('.png', '-params.png') });
+
+  // Removing a parameter takes its scaffold back out of the code (the block
+  // was reopened above for the screenshot).
+  await page.getByTestId('entity-edit-add-param').click();
+  await page.getByTestId('entity-param-name-1').fill('city');
+  await page.getByTestId('entity-param-name-1').press('Tab');
+  await expect(page.getByText('AND (:city IS NULL OR city = :city)').first()).toBeVisible();
+  await page.getByTestId('entity-param-row-1').getByTitle('Remove').click();
+  await expect(page.getByText('AND (:city IS NULL OR city = :city)')).toHaveCount(0);
+  await expect(page.getByText('WHERE (:country IS NULL OR country = :country)').first()).toBeVisible();
 
   // Create mints the row on this agent, then the panel opens it.
   await create.click();
@@ -87,7 +126,8 @@ test('a query can be created by hand from the agent queries panel', async ({ pag
     title: 'Hand-written revenue', description: 'Revenue, by hand', type: 'model', status: 'published',
     data_source_ids: [AGENT_ID],
   });
-  expect(createBodies[0].code).toContain('def generate_df(ds_clients, excel_files)');
+  expect(createBodies[0].code).toContain('def generate_df(ds_clients, excel_files, params)');
+  expect(createBodies[0].parameters).toEqual([{ name: 'country', type: 'string', source: 'input', required: false, options: ['IL', 'FR'] }]);
   await expect(page).toHaveURL(new RegExp(`/agents/queries/${created.id}`), { timeout: 15000 });
   await expect(page.getByText('Hand-written revenue').first()).toBeVisible();
 

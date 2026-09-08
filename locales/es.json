@@ -3214,7 +3214,10 @@
       "model_id_required": "El ID del modelo no puede estar vacío",
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
-    }
+    },
+    "entity.params_invalid": "Los parámetros de la consulta no son válidos",
+    "entity.code_required": "El código es obligatorio",
+    "entity.agent_required": "Una consulta sin agente requiere el permiso de gestionar entidades; asóciala a un agente para sugerirla"
   },
   "email": {
     "dashboardShare": {
@@ -3305,7 +3308,64 @@
       "paramListPlaceholder": "a, b, … (vacío = Todos)",
       "errRunParams": "La ejecución falló",
       "paramsCached": "desde la caché"
-    }
+    },
+    "newQuery": "Nueva consulta",
+    "run": "Ejecutar",
+    "running": "Ejecutando…",
+    "runFailed": "No se pudo ejecutar",
+    "resultsHeading": "Resultados",
+    "previewRows": "{n} filas",
+    "editQuery": "Editar consulta",
+    "save": "Guardar",
+    "paramsLabel": "Parámetros",
+    "addParam": "Añadir parámetro",
+    "paramName": "nombre",
+    "paramLabel": "Etiqueta",
+    "paramRequired": "obligatorio",
+    "paramSourceInput": "Entrada del usuario",
+    "paramSourceIdentity": "Fijado al usuario",
+    "paramSourceInputIdentity": "Entrada, por defecto del usuario",
+    "paramChoices": "Opciones",
+    "paramChoicesNone": "Entrada libre",
+    "paramChoicesStatic": "Lista fija",
+    "paramChoicesEntity": "De una consulta guardada",
+    "paramPickEntity": "Elige una consulta guardada…",
+    "paramValueColumn": "Columna de valor…",
+    "paramLabelColumn": "Etiqueta = valor",
+    "paramBinding": "Vinculado a",
+    "paramTestValue": "Valor de prueba",
+    "paramAll": "Todos",
+    "paramRemove": "Quitar",
+    "tabDetails": "Detalles",
+    "tabCode": "Código",
+    "paramSource": "El valor viene de",
+    "paramMore": "Más",
+    "paramFromViewer": "del usuario",
+    "paramScaffoldedTitle": "Código actualizado para usar :{name}",
+    "paramScaffoldedBody": "Se añadió WHERE (:{name} IS NULL OR {name} = :{name}); cambia el nombre de la columna si es distinto.",
+    "paramScaffoldedBodyNoSql": "{name} se pasó a execute_query; añade :{name} al SQL donde corresponda.",
+    "paramsHint": "Entradas tipadas que el código recibe como params. En SQL escribe :name y pasa params={\"name\": params[\"name\"]} a execute_query; en Python lee params.get(\"name\"). Vacío = Todos.",
+    "paramType": "Tipo",
+    "paramDefault": "Por defecto (vacío = Todos)",
+    "paramOptionsPlaceholder": "Valores separados por comas",
+    "paramAttrPlaceholder": "o atributo del perfil (p. ej. department)",
+    "paramRequiredLong": "Se requiere un valor (sin \"Todos\")",
+    "noParams": "Sin parámetros. Añade uno para que los usuarios puedan filtrar esta consulta.",
+    "paramSourceDesc": {
+      "input": "El usuario elige un valor en la barra de parámetros de la consulta.",
+      "identity": "Se toma de la identidad del usuario; el usuario no puede cambiarlo.",
+      "input_identity_default": "Parte de la identidad del usuario; el usuario puede cambiarlo."
+    },
+    "paramChoicesDesc": {
+      "none": "El usuario escribe cualquier valor.",
+      "static": "El usuario elige de una lista fija que escribes aquí.",
+      "entity": "El usuario elige de una columna de otra consulta guardada."
+    },
+    "paramBindingDesc": "De qué campo de identidad se toma el valor.",
+    "paramDefaultDesc": "Se usa cuando el usuario deja el valor vacío.",
+    "paramOptionsLabel": "Opciones",
+    "savedButRunFailed": "Guardado, pero la primera ejecución falló",
+    "showingFirst": "mostrando las primeras {n}"
   },
   "scheduled": {
     "title": "Tareas programadas",
@@ -4838,7 +4898,8 @@
     "description": "Descripción",
     "agents": "Agentes",
     "selectAgents": "Selecciona agentes",
-    "status": "Estado"
+    "status": "Estado",
+    "allAgents": "Todos los agentes"
   },
   "skillCatalog": {
     "subtitle": "Guías curadas que el agente carga cuando las necesita. Activa las que tu equipo necesite.",

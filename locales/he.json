@@ -3214,7 +3214,10 @@
       "model_id_required": "מזהה המודל לא יכול להיות ריק",
       "model_id_not_editable": "ניתן לערוך את מזהה המודל רק עבור מודלים מותאמים אישית בספקי Azure, AWS Bedrock או ספקים מותאמים (תואמי OpenAI)",
       "model_id_duplicate": "המודל '{model_id}' כבר קיים אצל ספק זה"
-    }
+    },
+    "entity.params_invalid": "הפרמטרים של ה-query אינם תקינים",
+    "entity.code_required": "נדרש קוד",
+    "entity.agent_required": "query ללא agent דורש הרשאת ניהול entities; שייכו אותו ל-agent כדי להציע אותו"
   },
   "email": {
     "dashboardShare": {
@@ -3235,7 +3238,6 @@
   },
   "queries": {
     "newQuery": "שאילתה חדשה",
-    "codeLabel": "קוד",
     "run": "הרץ",
     "running": "מריץ…",
     "runFailed": "ההרצה נכשלה",
@@ -3314,7 +3316,56 @@
       "paramListPlaceholder": "a, b, … (ריק = הכל)",
       "errRunParams": "ההרצה נכשלה",
       "paramsCached": "מהמטמון"
-    }
+    },
+    "paramsLabel": "פרמטרים",
+    "addParam": "הוספת פרמטר",
+    "paramName": "שם",
+    "paramLabel": "תווית",
+    "paramRequired": "חובה",
+    "paramSourceInput": "קלט של הצופה",
+    "paramSourceIdentity": "נעול לזהות הצופה",
+    "paramSourceInputIdentity": "קלט, ברירת מחדל מהצופה",
+    "paramChoices": "ערכים",
+    "paramChoicesNone": "קלט חופשי",
+    "paramChoicesStatic": "רשימה קבועה",
+    "paramChoicesEntity": "מ-query שמור",
+    "paramPickEntity": "בחירת query שמור…",
+    "paramValueColumn": "עמודת ערך…",
+    "paramLabelColumn": "תווית = ערך",
+    "paramBinding": "קשור ל",
+    "paramTestValue": "ערך לבדיקה",
+    "paramAll": "הכול",
+    "paramRemove": "הסרה",
+    "tabDetails": "פרטים",
+    "tabCode": "קוד",
+    "paramSource": "הערך מגיע מ",
+    "paramMore": "עוד",
+    "paramFromViewer": "מהצופה",
+    "paramScaffoldedTitle": "הקוד עודכן להשתמש ב-:{name}",
+    "paramScaffoldedBody": "נוסף WHERE (:{name} IS NULL OR {name} = :{name}). אם שם העמודה שונה, תקנו אותו.",
+    "paramScaffoldedBodyNoSql": "{name} הועבר ל-execute_query; הוסיפו :{name} ל-SQL במקום המתאים.",
+    "paramsHint": "קלטים שהקוד מקבל כ-params. ב-SQL כותבים :name ומעבירים params={\"name\": params[\"name\"]} ל-execute_query; ב-Python קוראים params.get(\"name\"). ריק = הכול.",
+    "paramType": "סוג",
+    "paramDefault": "ברירת מחדל (ריק = הכול)",
+    "paramOptionsPlaceholder": "ערכים מופרדים בפסיק",
+    "paramAttrPlaceholder": "או מאפיין פרופיל (למשל department)",
+    "paramRequiredLong": "חובה להזין ערך (אין \"הכול\")",
+    "noParams": "אין פרמטרים. הוסיפו אחד כדי לאפשר לצופים לסנן את ה-query.",
+    "paramSourceDesc": {
+      "input": "הצופה בוחר ערך בפס הפרמטרים של ה-query.",
+      "identity": "נלקח מזהות הצופה; הצופה לא יכול לשנות אותו.",
+      "input_identity_default": "מתחיל מזהות הצופה; הצופה יכול לשנות."
+    },
+    "paramChoicesDesc": {
+      "none": "הצופה מקליד כל ערך.",
+      "static": "הצופה בוחר מרשימה קבועה שכותבים כאן.",
+      "entity": "הצופה בוחר מעמודה של query שמור אחר."
+    },
+    "paramBindingDesc": "מאיזה שדה זהות נלקח הערך.",
+    "paramDefaultDesc": "משמש כשהצופה משאיר את הערך ריק.",
+    "paramOptionsLabel": "אפשרויות",
+    "savedButRunFailed": "נשמר, אבל ההרצה הראשונה נכשלה",
+    "showingFirst": "מוצגות {n} הראשונות"
   },
   "scheduled": {
     "title": "משימות מתוזמנות",
@@ -4847,7 +4898,8 @@
     "description": "תיאור",
     "agents": "סוכנים",
     "selectAgents": "בחר סוכנים",
-    "status": "סטטוס"
+    "status": "סטטוס",
+    "allAgents": "כל ה-agents"
   },
   "skillCatalog": {
     "subtitle": "מדריכים מוכנים שהסוכן טוען לפי הצורך. הפעילו את אלה שהצוות שלכם צריך.",

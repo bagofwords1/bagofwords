@@ -42,10 +42,20 @@ class ParamOptionsSource(BaseModel):
     The choices come from that query's current default-step result; the bound
     value is still a scalar and is validated server-side regardless of what
     the UI showed.
+
+    Two kinds of source, exactly one set:
+    - ``query_id``: a report query (dashboards — resolved within the report).
+    - ``entity_id``: a saved catalog query (agent-level queries — resolved from
+      the entity's stored snapshot).
     """
-    query_id: str
+    query_id: Optional[str] = None
+    entity_id: Optional[str] = None
     value_column: str
     label_column: Optional[str] = None
+
+    def model_post_init(self, __context) -> None:
+        if bool(self.query_id) == bool(self.entity_id):
+            raise ValueError("options_source needs exactly one of query_id or entity_id")
 
 
 class ParamSpec(BaseModel):
