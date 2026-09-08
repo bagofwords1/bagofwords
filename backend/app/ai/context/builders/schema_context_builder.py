@@ -391,6 +391,30 @@ class SchemaContextBuilder:
                     for t in enrich_q.scalars().all():
                         canonical_all_by_name.setdefault(t.name, t)
 
+                # Activation is inherited from the canonical row. The overlay
+                # answers "can this user reach the table upstream" (their own
+                # credentials); the canonical `is_active` flag answers "did the
+                # agent manager select it for this agent". A table has to pass
+                # BOTH: a user's broader upstream access must not widen the
+                # agent beyond what its manager activated. A user-discovered
+                # delegated table gets its canonical row created on sync (see
+                # DataSourceService._upsert_user_overlay), so there is always
+                # a row to activate in the tables wizard; a row that is still
+                # missing is treated as not activated.
+                if active_only:
+                    overlay_tables = [
+                        ot for ot in overlay_tables
+                        if bool(getattr(
+                            canonical_all_by_name.get(getattr(ot, 'table_name', '') or ''),
+                            'is_active', False,
+                        ))
+                    ]
+                    # Join targets are restricted to what survives the gate, so
+                    # a relationship never points at a table the agent hides.
+                    visible_table_names = {
+                        (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
+                    }
+
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
@@ -440,15 +464,10 @@ class SchemaContextBuilder:
                             "description": None,
                             "metadata": safe_meta,
                         })
-                    # The overlay is the per-user access authority: this table
-                    # came from the is_accessible==True overlay query above, so
-                    # the user can provably query it right now. The canonical
-                    # is_active flag is unreliable for a user_required source
-                    # (service principal has no access → canonical stays
-                    # inactive), so do NOT gate the user's own accessible table
-                    # on it — that dropped every delegated-source table and left
-                    # the agent with an empty schema. Emit as active.
-                    canonical_is_active = True
+                    # Reported activation is the canonical flag (already gated
+                    # above when active_only; with active_only=False inactive
+                    # rows are emitted and flagged, mirroring the system path).
+                    canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
                     pks = getattr(base, 'pks', []) if base is not None else []
                     fks = [
                         fk for fk in (getattr(base, 'fks', None) or [])

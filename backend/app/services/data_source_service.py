@@ -2716,16 +2716,16 @@ class DataSourceService:
             # Attaching an unlinked row to a sibling connection's client is
             # harmless — resolution is by name, and a name it does not own simply
             # will not match (this is what the old no-rows fallback already did).
-            # NB: no is_active filter. This map only resolves a query target
-            # (table name → dataset GUID); it grants no access — the delegated
-            # token still gates executeQueries. On a user_required source the
-            # canonical row for a delegated dataset is inactive (the service
-            # principal that indexed the catalog has no access to it), so an
-            # is_active filter left the map empty and every viewer run failed
-            # with "Could not resolve Power BI dataset". The GUID is present on
-            # the inactive row, so keep it.
+            # Only ACTIVATED rows resolve a query target. Activation is the
+            # agent manager's table selection and it must hold at query time
+            # too, not just in the prompt: a generated query naming a table the
+            # manager left out would otherwise still resolve its dataset GUID
+            # and run. A user-discovered delegated dataset gets its canonical
+            # row on overlay sync (see _upsert_user_overlay), so activating it
+            # in the tables wizard is what makes it queryable — the same rule
+            # as a service-principal-indexed table.
             rows = (await db.execute(
-                select(DataSourceTable.name, DataSourceTable.metadata_json)
+                select(DataSourceTable.name, DataSourceTable.metadata_json, DataSourceTable.is_active)
                 .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
                     DataSourceTable.datasource_id == str(data_source.id),
@@ -2735,13 +2735,22 @@ class DataSourceService:
                     ),
                 )
             )).all()
-            attach = {name: metadata_json for name, metadata_json in rows}
+            attach: dict[str, Any] = {}
+            blocked: dict[str, Any] = {}
+            for name, metadata_json, is_active in rows:
+                if is_active:
+                    attach[name] = metadata_json
+                    blocked.pop(name, None)
+                elif name not in attach:
+                    blocked[name] = metadata_json
 
-            # Merge the executing user's overlay metadata. A delegated dataset
-            # can enter the catalog ONLY through a user's own discovery, so for
-            # a viewer whose overlay carries the GUID but whose canonical row is
-            # missing entirely, the overlay is the sole source of the mapping.
-            # Overlay values win — they were discovered under this user's creds.
+            # Merge the executing user's overlay metadata for ACTIVATED tables.
+            # A delegated dataset is discovered under the user's own creds, so
+            # the overlay row can carry a GUID the canonical row lacks (e.g. the
+            # service principal never saw the model). Overlay values win for a
+            # name the manager activated; a name that is not activated is never
+            # made resolvable by the overlay — that would let a user's broader
+            # upstream access widen the agent past its manager's selection.
             if current_user is not None:
                 from app.models.user_data_source_overlay import UserDataSourceTable
                 ov = (await db.execute(
@@ -2753,12 +2762,20 @@ class DataSourceService:
                     )
                 )).all()
                 for name, metadata_json in ov:
-                    if metadata_json:
+                    if metadata_json and name in attach:
                         attach[name] = metadata_json
 
             client.attach_table_metadata(
                 [{"name": name, "metadata_json": metadata_json} for name, metadata_json in attach.items()]
             )
+            # Clients that address a whole model per query (Power BI: one
+            # dataset GUID, any table in its DAX body) also get the NOT
+            # activated tables of the catalog, so they can refuse a query body
+            # that reaches past the activated set. Opt-in hook.
+            if hasattr(client, "attach_blocked_table_metadata"):
+                client.attach_blocked_table_metadata(
+                    [{"name": name, "metadata_json": metadata_json} for name, metadata_json in blocked.items()]
+                )
         except Exception:
             # Non-fatal: the client falls back to live discovery.
             logger.debug("attach_stored_table_metadata failed", exc_info=True)
@@ -3079,10 +3096,19 @@ class DataSourceService:
                 # user_required sources (e.g. Fabric) that would leak tables the
                 # user can't actually query.
                 try:
-                    overlay = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                    _active_only = not include_inactive
+                    overlay = await self.read_user_data_source_schema(
+                        db=db, data_source=data_source, user=current_user, active_only=_active_only,
+                    )
                     if overlay:
                         return overlay
                     live = await self.get_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+                    if live and _active_only:
+                        # The live sync returns the user's whole upstream
+                        # catalog; re-read through the activation gate.
+                        return await self.read_user_data_source_schema(
+                            db=db, data_source=data_source, user=current_user, active_only=True,
+                        )
                     return live or []
                 except Exception:
                     return []
@@ -3822,13 +3848,19 @@ class DataSourceService:
             total_selected=total_selected,
         )
 
-    async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User):
+    async def read_user_data_source_schema(self, db: AsyncSession, data_source: DataSource, user: User, active_only: bool = False):
         """Return the user's catalog from persisted UserOverlayTable rows.
 
         Cache-first — does NOT touch the live source. Use this for every
         read-shaped surface: /mentions, prompt builds, /full_schema, list
         renderers. Refreshes happen explicitly via `get_user_data_source_schema`
         (post-OAuth, manual refresh, OBO auto-provision).
+
+        `active_only=True` additionally keeps only tables whose canonical
+        DataSourceTable row is activated — the agent manager's selection —
+        so a user's broader upstream access never widens an agent-facing
+        surface (mentions, prompt schema) past what the manager selected.
+        A table with no canonical row is treated as not activated.
 
         Empty list when the overlay hasn't been populated yet (first sign-in
         before the post-OAuth refresh completes). Callers can decide whether
@@ -3848,6 +3880,14 @@ class DataSourceService:
             )
         )
         overlay_rows = rows_q.scalars().all()
+        if overlay_rows and active_only:
+            active_names = set((await db.execute(
+                select(DataSourceTable.name).where(
+                    DataSourceTable.datasource_id == str(data_source.id),
+                    DataSourceTable.is_active.is_(True),
+                )
+            )).scalars().all())
+            overlay_rows = [r for r in overlay_rows if r.table_name in active_names]
         if not overlay_rows:
             return []
 
@@ -4976,7 +5016,7 @@ class DataSourceService:
         # User-required path uses per-user overlays — cache-first read, no
         # live walk on every prompt build.
         if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
-            tables = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user)
+            tables = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user, active_only=True)
             try:
                 from app.ai.prompt_formatters import TableFormatter
                 return TableFormatter(tables).table_str

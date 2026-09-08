@@ -301,8 +301,10 @@ class TestExecuteQueryResolution:
         args = c._execute_dax_internal.call_args[0]
         assert args[0] == "override-ws"
 
-    def test_falls_back_to_live_discovery_when_not_in_map(self):
-        c = self._client_with_map()
+    def test_falls_back_to_live_discovery_when_no_map_was_attached(self):
+        """A bare client (no platform-attached activation map) still resolves
+        by live discovery — e.g. direct/scripted use outside an agent."""
+        c = _mk_client()
         from app.ai.prompt_formatters import Table
         live = Table(name="NewModel/Things", columns=[], pks=[], fks=[], is_active=True,
                      metadata_json={"powerbi": {"datasetId": "live-ds", "workspaceId": "live-ws"}})
@@ -311,6 +313,19 @@ class TestExecuteQueryResolution:
         c.execute_query("EVALUATE Things", "NewModel/Things")
         args = c._execute_dax_internal.call_args[0]
         assert (args[0], args[1]) == ("live-ws", "live-ds")
+
+    def test_no_live_discovery_for_name_outside_attached_map(self):
+        """Once the platform attached the activated-table map, a name outside
+        it is a table the agent manager did not activate: no live crawl may
+        resolve it, and the error steers back to the activated tables."""
+        c = self._client_with_map()
+        c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
+        c._execute_dax_internal = MagicMock(return_value="df")
+        with pytest.raises(ValueError) as ei:
+            c.execute_query("EVALUATE Things", "NewModel/Things")
+        assert "NewModel/Things" in str(ei.value)
+        assert "SalesModel/Customers" in str(ei.value)
+        c._execute_dax_internal.assert_not_called()
 
     def test_unresolvable_table_error_names_table_and_known_tables(self):
         c = self._client_with_map()
@@ -652,3 +667,97 @@ class TestGeneratedDateTableRelationships:
         assert not PowerBIClient._is_system_table("LocalDates")
         assert not PowerBIClient._is_system_table("dim_date")
         assert not PowerBIClient._is_system_table("")
+
+
+class TestActivationEnforcement:
+    """Activation is per `Dataset/Table`, but DAX addresses a whole dataset.
+    With the NOT-activated rows attached, execute_query refuses both a
+    non-activated target and a DAX body that reaches a non-activated sibling
+    table of an activated target's dataset."""
+
+    def _client(self):
+        c = _mk_client()
+        c.attach_table_metadata([
+            {"name": "SalesModel/Customers", "metadata_json": PBI_META},
+        ])
+        c.attach_blocked_table_metadata([
+            {"name": "SalesModel/Orders", "metadata_json": {
+                "powerbi": {**PBI_META["powerbi"], "tableName": "Orders"}}},
+            {"name": "SalesModel/Date Table", "metadata_json": {
+                "powerbi": {**PBI_META["powerbi"], "tableName": "Date Table"}}},
+            {"name": "HRModel/Employees", "metadata_json": {
+                "powerbi": {"datasetId": "ds-guid-2", "workspaceId": "ws-guid-1",
+                             "datasetName": "HRModel", "tableName": "Employees"}}},
+        ])
+        c.get_schemas = MagicMock(side_effect=AssertionError("live discovery must not run"))
+        c._execute_dax_internal = MagicMock(return_value="df")
+        return c
+
+    def test_non_activated_target_is_refused_without_live_crawl(self):
+        c = self._client()
+        with pytest.raises(ValueError) as ei:
+            c.execute_query("EVALUATE Orders", "SalesModel/Orders")
+        msg = str(ei.value)
+        assert "SalesModel/Orders" in msg and "not activated" in msg
+        assert "SalesModel/Customers" in msg
+        c._execute_dax_internal.assert_not_called()
+
+    def test_non_activated_internal_name_is_refused(self):
+        c = self._client()
+        with pytest.raises(ValueError, match="not activated"):
+            c.execute_query("EVALUATE Orders", "Orders")
+        c._execute_dax_internal.assert_not_called()
+
+    def test_activated_target_runs(self):
+        c = self._client()
+        c.execute_query("EVALUATE Customers", "SalesModel/Customers")
+        c._execute_dax_internal.assert_called_once()
+
+    @pytest.mark.parametrize("dax", [
+        "EVALUATE Orders",
+        "EVALUATE SUMMARIZE(Orders, Orders[Region])",
+        "EVALUATE\nSUMMARIZECOLUMNS(Customers[Name], \"n\", COUNTROWS(Orders))",
+        "EVALUATE FILTER(Customers, RELATED(Orders[Amount]) > 1)",
+        "EVALUATE 'Date Table'",
+        "EVALUATE ADDCOLUMNS(Customers, \"d\", CALCULATE(MAX('Date Table'[Date])))",
+        "evaluate orders",
+    ])
+    def test_dax_body_reaching_non_activated_sibling_is_refused(self, dax):
+        c = self._client()
+        with pytest.raises(ValueError) as ei:
+            c.execute_query(dax, "SalesModel/Customers")
+        assert "not activated" in str(ei.value)
+        assert "SalesModel/Customers" in str(ei.value)
+        c._execute_dax_internal.assert_not_called()
+
+    def test_dax_body_reaching_non_activated_sibling_is_refused_with_explicit_ids(self):
+        c = self._client()
+        with pytest.raises(ValueError, match="not activated"):
+            c.execute_query("EVALUATE Orders", dataset_id="ds-guid-1", workspace_id="ws-guid-1")
+        c._execute_dax_internal.assert_not_called()
+
+    @pytest.mark.parametrize("dax", [
+        "EVALUATE Customers",
+        "EVALUATE FILTER(Customers, Customers[Orders] > 1)",          # a column named Orders
+        "EVALUATE FILTER(Customers, Customers[Name] = \"Orders\")",    # a string literal
+        "EVALUATE ROW(\"x\", [Orders])",                              # a measure named Orders
+        "EVALUATE SUMMARIZE(Customers, Customers[Region], \"n\", COUNTROWS(Customers))",
+    ])
+    def test_dax_body_using_only_activated_tables_runs(self, dax):
+        c = self._client()
+        c.execute_query(dax, "SalesModel/Customers")
+        c._execute_dax_internal.assert_called_once()
+
+    def test_other_dataset_blocked_names_do_not_affect_this_dataset(self):
+        c = self._client()
+        # "Employees" is blocked in HRModel only; a Customers column of that
+        # name in SalesModel is fine.
+        c.execute_query("EVALUATE FILTER(Customers, Customers[Employees] > 0)", "SalesModel/Customers")
+        c._execute_dax_internal.assert_called_once()
+
+    def test_without_blocked_map_dax_body_is_not_inspected(self):
+        c = _mk_client()
+        c.attach_table_metadata([{"name": "SalesModel/Customers", "metadata_json": PBI_META}])
+        c._execute_dax_internal = MagicMock(return_value="df")
+        c.execute_query("EVALUATE Orders", "SalesModel/Customers")
+        c._execute_dax_internal.assert_called_once()

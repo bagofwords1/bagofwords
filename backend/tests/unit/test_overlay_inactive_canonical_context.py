@@ -1,17 +1,16 @@
-"""A delegated (user_required) source must not vanish from the agent's schema
-context just because its canonical catalog is inactive.
+"""A delegated (user_required) source inherits table ACTIVATION from the
+canonical catalog: the per-user overlay decides what a user can reach
+upstream, the canonical `is_active` flag decides what the agent manager
+selected for this agent, and the agent sees the intersection.
 
-Root cause (confirmed end-to-end against a live Power BI verify-rls dataset):
-the org-level canonical catalog is indexed by the service principal, which by
-design has NO access to a delegated dataset — so the canonical DataSourceTable
-row is inactive (or absent). The overlay branch gated the user's own,
-provably-accessible overlay table on that canonical is_active flag and the
-active_only filter, so build() returned ZERO tables. The owner then could not
-build any query (the model correctly reported "no tables available").
-
-The overlay's is_accessible flag is the per-user access authority; this test
-pins that an accessible overlay table surfaces even when its canonical row is
-inactive.
+History: the overlay branch of SchemaContextBuilder used to ignore the
+canonical flag entirely (emitting every accessible overlay table as active).
+That was a workaround from when a user-discovered delegated model had no
+canonical row at all, so nothing could be activated and the agent went empty.
+`_upsert_user_overlay` now creates that canonical row on sync, so the wizard
+can activate it like any other table — and the agent must honor the flag,
+otherwise a user with broader upstream access than the agent's creator sees
+(and queries) tables the creator never put in the agent.
 """
 import pytest
 import pytest_asyncio
@@ -40,10 +39,12 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db):
+COLS = (("id", "Integer"), ("Region", "Text"), ("Amount", "Number"))
+
+
+async def _seed_source(db):
     org = Organization(name="o")
-    user = User(name="u", email="u@x.com", hashed_password="x")
-    db.add_all([org, user])
+    db.add(org)
     await db.flush()
     ds = DataSource(name="PowerBI verify-rls",
                     organization_id=str(org.id), is_active=True)
@@ -53,55 +54,170 @@ async def _seed(db):
                       auth_policy="user_required", organization_id=str(org.id))
     conn.data_sources.append(ds)  # M:N via domain_connection
     db.add(conn)
-    # Canonical row is INACTIVE — the service principal cannot see the
-    # delegated dataset, exactly as observed against verify-rls.
-    canon = DataSourceTable(
-        name="rls_sales/Sales", datasource_id=str(ds.id), is_active=False,
-        columns=[{"name": "id", "dtype": "Integer"},
-                 {"name": "Region", "dtype": "Text"},
-                 {"name": "Amount", "dtype": "Number"}],
-        pks=[], fks=[],
-    )
-    db.add(canon)
-    # The user's overlay: accessible.
-    ot = UserDataSourceTable(
-        data_source_id=str(ds.id), user_id=str(user.id),
-        table_name="rls_sales/Sales", is_accessible=True, status="accessible",
-    )
-    db.add(ot)
     await db.flush()
-    for cn, dt in (("id", "Integer"), ("Region", "Text"), ("Amount", "Number")):
-        db.add(UserDataSourceColumn(user_data_source_table_id=str(ot.id),
-                                    column_name=cn, is_accessible=True, data_type=dt))
-    await db.flush()
-    # connections must be loadable off the ds for _resolve_user_access / gating
     await db.refresh(ds, attribute_names=["connections"])
-    return org, user, ds
+    return org, ds
 
 
-@pytest.mark.asyncio
-async def test_accessible_overlay_table_surfaces_despite_inactive_canonical(db, monkeypatch):
-    org, user, ds = await _seed(db)
+def _canonical(ds, name, active):
+    return DataSourceTable(
+        name=name, datasource_id=str(ds.id), is_active=active,
+        columns=[{"name": n, "dtype": d} for n, d in COLS], pks=[], fks=[],
+    )
 
+
+async def _user_with_overlay(db, ds, email, table_names):
+    user = User(name=email.split("@")[0], email=email, hashed_password="x")
+    db.add(user)
+    await db.flush()
+    for name in table_names:
+        ot = UserDataSourceTable(
+            data_source_id=str(ds.id), user_id=str(user.id),
+            table_name=name, is_accessible=True, status="accessible",
+        )
+        db.add(ot)
+        await db.flush()
+        for cn, dt in COLS:
+            db.add(UserDataSourceColumn(user_data_source_table_id=str(ot.id),
+                                        column_name=cn, is_accessible=True, data_type=dt))
+    await db.flush()
+    return user
+
+
+async def _agent_tables(db, org, ds, user, monkeypatch, **build_kwargs):
     builder = SchemaContextBuilder(db, [ds], org, None, user=user)
-    # Isolate the overlay-rendering path under test: the user has proven
-    # access (own delegated creds), so _resolve_user_access → 'user'.
+
     async def _user_access(_ds):
         return "user"
     monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    ctx = await builder.build(with_stats=False, **build_kwargs)
+    return {getattr(t, "name", None)
+            for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])}
 
+
+@pytest.mark.asyncio
+async def test_inactive_canonical_hides_accessible_overlay_table(db, monkeypatch):
+    """Accessible upstream but NOT activated by the manager → not in the agent."""
+    org, ds = await _seed_source(db)
+    db.add(_canonical(ds, "rls_sales/Sales", active=False))
+    user = await _user_with_overlay(db, ds, "u@x.com", ["rls_sales/Sales"])
+
+    assert await _agent_tables(db, org, ds, user, monkeypatch) == set()
+
+
+@pytest.mark.asyncio
+async def test_activating_canonical_row_surfaces_overlay_table_with_user_columns(db, monkeypatch):
+    org, ds = await _seed_source(db)
+    db.add(_canonical(ds, "rls_sales/Sales", active=True))
+    user = await _user_with_overlay(db, ds, "u@x.com", ["rls_sales/Sales"])
+
+    builder = SchemaContextBuilder(db, [ds], org, None, user=user)
+
+    async def _user_access(_ds):
+        return "user"
+    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
     ctx = await builder.build(with_stats=False)
-
-    tables = [getattr(t, "name", None)
-              for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])]
-    assert "rls_sales/Sales" in tables, (
-        "accessible overlay table dropped because its canonical row is inactive")
-
-    # And the user's columns are carried through (from the overlay, enriched
-    # by the canonical dtypes).
+    tables = {getattr(t, "name", None)
+              for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])}
+    assert tables == {"rls_sales/Sales"}
     cols = [c
             for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])
             if getattr(t, "name", None) == "rls_sales/Sales"
             for c in (getattr(t, "columns", []) or [])]
-    names = {getattr(c, "name", None) for c in cols}
-    assert {"id", "Region", "Amount"} <= names
+    assert {"id", "Region", "Amount"} <= {getattr(c, "name", None) for c in cols}
+
+
+@pytest.mark.asyncio
+async def test_overlay_row_without_canonical_row_is_not_activated(db, monkeypatch):
+    """A pre-union overlay row that never got its canonical row: nothing to
+    activate, so it is not in the agent (the next sync creates the row)."""
+    org, ds = await _seed_source(db)
+    user = await _user_with_overlay(db, ds, "u@x.com", ["rls_sales/Sales"])
+
+    assert await _agent_tables(db, org, ds, user, monkeypatch) == set()
+
+
+@pytest.mark.asyncio
+async def test_admin_activates_three_user_reaches_two(db, monkeypatch):
+    """Manager selected {A, B, C}; user1's own creds reach {A, B, D}
+    → user1's agent is {A, B}."""
+    org, ds = await _seed_source(db)
+    for name, active in (("m/A", True), ("m/B", True), ("m/C", True), ("m/D", False)):
+        db.add(_canonical(ds, name, active))
+    user1 = await _user_with_overlay(db, ds, "u1@x.com", ["m/A", "m/B", "m/D"])
+
+    assert await _agent_tables(db, org, ds, user1, monkeypatch) == {"m/A", "m/B"}
+
+
+@pytest.mark.asyncio
+async def test_creator_activates_four_user_with_ten_sees_only_the_four(db, monkeypatch):
+    """user1 built the agent on 4 of their tables; user2 reaches 10 upstream
+    (the 4 plus 6 more that got inactive canonical rows from user2's own
+    sync) → user2's agent is exactly the 4."""
+    org, ds = await _seed_source(db)
+    four = [f"m/T{i}" for i in range(4)]
+    six = [f"m/T{i}" for i in range(4, 10)]
+    for name in four:
+        db.add(_canonical(ds, name, True))
+    for name in six:
+        db.add(_canonical(ds, name, False))
+    user1 = await _user_with_overlay(db, ds, "u1@x.com", four)
+    user2 = await _user_with_overlay(db, ds, "u2@x.com", four + six)
+
+    assert await _agent_tables(db, org, ds, user1, monkeypatch) == set(four)
+    assert await _agent_tables(db, org, ds, user2, monkeypatch) == set(four)
+
+
+@pytest.mark.asyncio
+async def test_user_with_no_upstream_access_sees_nothing(db, monkeypatch):
+    org, ds = await _seed_source(db)
+    for i in range(4):
+        db.add(_canonical(ds, f"m/T{i}", True))
+    user2 = await _user_with_overlay(db, ds, "u2@x.com", [])
+
+    assert await _agent_tables(db, org, ds, user2, monkeypatch) == set()
+
+
+@pytest.mark.asyncio
+async def test_relationship_targets_restricted_to_activated_tables(db, monkeypatch):
+    """A relationship from an activated table must not point at a table the
+    activation gate hides — that would hand the agent a join target it
+    cannot query and disclose the hidden name."""
+    org, ds = await _seed_source(db)
+    a = _canonical(ds, "m/A", True)
+    a.fks = [{"column": {"name": "b_id", "dtype": "Integer"},
+              "references_name": "m/B",
+              "references_column": {"name": "id", "dtype": "Integer"}}]
+    db.add(a)
+    db.add(_canonical(ds, "m/B", False))
+    user = await _user_with_overlay(db, ds, "u@x.com", ["m/A", "m/B"])
+
+    builder = SchemaContextBuilder(db, [ds], org, None, user=user)
+
+    async def _user_access(_ds):
+        return "user"
+    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    ctx = await builder.build(with_stats=False)
+    a_tables = [t for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])
+                if getattr(t, "name", None) == "m/A"]
+    assert len(a_tables) == 1
+    assert not (getattr(a_tables[0], "fks", None) or [])
+
+
+@pytest.mark.asyncio
+async def test_active_only_false_still_emits_inactive_overlay_table_flagged(db, monkeypatch):
+    """Management surfaces that ask for everything get the inactive table,
+    flagged inactive — the same contract as the service-account path."""
+    org, ds = await _seed_source(db)
+    db.add(_canonical(ds, "m/A", False))
+    user = await _user_with_overlay(db, ds, "u@x.com", ["m/A"])
+
+    builder = SchemaContextBuilder(db, [ds], org, None, user=user)
+
+    async def _user_access(_ds):
+        return "user"
+    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    ctx = await builder.build(with_stats=False, active_only=False)
+    rows = [t for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])]
+    assert [getattr(t, "name", None) for t in rows] == ["m/A"]
+    assert getattr(rows[0], "is_active", None) is False
