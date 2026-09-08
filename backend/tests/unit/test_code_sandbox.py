@@ -225,10 +225,10 @@ def generate_df(ds_clients, excel_files):
     try:
         return ds_clients["main"].execute_query("SELECT * FROM missing")
     except Exception as e:
-        return pd.DataFrame({"err": [type(e).__name__ + ": " + str(e)]})
+        return pd.DataFrame({"err": [str(e)]})
 """
     df, _, _ = _run(code, {"main": client})
-    assert df["err"].iloc[0] == "RuntimeError: relation does not exist"
+    assert df["err"].iloc[0] == "relation does not exist"
 
 
 def test_ast_validation_still_runs_before_spawn():
