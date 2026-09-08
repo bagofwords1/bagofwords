@@ -59,10 +59,15 @@ active filter for non-managers; activation writes only to the canonical row.
 
 - `backend/app/ai/context/builders/schema_context_builder.py` — the overlay
   branch gates each overlay table on its canonical row's `is_active` when
-  `active_only` (default). A missing canonical row counts as not activated. The
-  relationship-target set is recomputed from what survives, so an FK never
-  points at a hidden table. With `active_only=False` (management surfaces) the
-  row is emitted flagged inactive, like the service-account path.
+  `active_only` (default). The canonical row is found through the overlay's
+  `data_source_table_id` link first (matched on dataset/table identity at
+  sync time — after a Power BI dataset rename the overlay shows the new name
+  while the canonical row keeps the service-principal name), by name only for
+  unlinked legacy overlays. A missing canonical row counts as not activated.
+  The relationship-target set is recomputed from what survives (overlay and
+  canonical names), so an FK never points at a hidden table. With
+  `active_only=False` (management surfaces) the row is emitted flagged
+  inactive, like the service-account path.
 - `backend/app/services/data_source_service.py`
   - `_attach_stored_table_metadata`: only activated rows resolve a query
     target; the overlay may enrich an activated name but never adds a
@@ -76,9 +81,12 @@ active filter for non-managers; activation writes only to the canonical row.
     refused instead of live-crawled (`_table_metadata_attached`);
   - `attach_blocked_table_metadata` + `_assert_dax_tables_activated`: a DAX
     body referencing a non-activated table of the target dataset is refused
-    (`'Quoted Name'`, `EVALUATE T`, `T[col]`, `FUNC(T, …)`; string literals
-    ignored) with the activated tables listed in the error, so the coder can
-    rewrite.
+    with the activated tables listed in the error, so the coder can rewrite.
+    References are found by lexing the DAX (`_dax_table_references`): a
+    quoted identifier, or a bare word not followed by `(` — which covers
+    every clause (`EVALUATE T`, `T[col]`, `FUNC(T, …)`, `T ORDER BY …`,
+    `START AT`, `DEFINE VAR/MEASURE`), while `//`, `--`, `/* */` comments,
+    string literals and `[bracketed]` column/measure names are lexed away.
 
 Unit tests: `tests/unit/test_overlay_inactive_canonical_context.py` (the three
 user stories, FK pruning, `active_only=False`),
@@ -172,6 +180,9 @@ user3 []
                                                       -> REFUSED "DAX references table(s) not activated for this agent: SalesPush/Customers ..."
 [user-reachable, not activated ] rls_sales/Sales      -> REFUSED (both users)
 [activated, user1 no upstream  ] shared_orders/Orders -> user1: HTTP 401 from Power BI (delegated token gates it); user2: OK 2 rows
+[sibling + ORDER BY            ] EVALUATE Customers ORDER BY [CustomerID] via SalesPush/Sales -> REFUSED (review P1 regression)
+[activated + ORDER BY          ] EVALUATE TOPN(2, Sales) ORDER BY [OrderID]                   -> OK 2 rows
+[sibling only in a comment     ] EVALUATE TOPN(1, Sales) // not Customers                     -> OK 1 row
 ```
 
 Real chats (Claude 4.5 Haiku, Playwright-driven, real executeQueries):

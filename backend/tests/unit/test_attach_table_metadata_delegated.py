@@ -140,3 +140,81 @@ async def test_client_without_blocked_hook_still_gets_active_map(db):
     await DataSourceService()._attach_stored_table_metadata(
         db, client, ds, conn, current_user=user)
     assert {t["name"] for t in (client.attached or [])} == {"rls_sales/Sales"}
+
+
+@pytest.mark.asyncio
+async def test_renamed_overlay_linked_by_id_to_active_canonical_resolves_under_its_own_name(db):
+    """After a dataset rename the user's schema context shows `rls_salesV2/Sales`
+    (overlay name) while the activated canonical row is still `rls_sales/Sales`.
+    The overlay name must resolve too, and never end up in the blocked map."""
+    org, user, ds, conn = await _seed(db, canonical_active=True)
+    ot = (await db.execute(
+        UserDataSourceTable.__table__.select().where(
+            UserDataSourceTable.data_source_id == str(ds.id))
+    )).first()
+    canon = (await db.execute(
+        DataSourceTable.__table__.select().where(
+            DataSourceTable.datasource_id == str(ds.id))
+    )).first()
+    await db.execute(
+        UserDataSourceTable.__table__.update()
+        .where(UserDataSourceTable.id == ot.id)
+        .values(table_name="rls_salesV2/Sales", data_source_table_id=canon.id)
+    )
+    await db.flush()
+    client = _FakeClient()
+    await DataSourceService()._attach_stored_table_metadata(
+        db, client, ds, conn, current_user=user)
+    names = {t["name"] for t in (client.attached or [])}
+    assert {"rls_sales/Sales", "rls_salesV2/Sales"} <= names
+    assert {t["name"] for t in (client.blocked or [])} == set()
+
+
+@pytest.mark.asyncio
+async def test_renamed_overlay_linked_by_id_to_inactive_canonical_is_blocked(db):
+    org, user, ds, conn = await _seed(db, canonical_active=False)
+    ot = (await db.execute(
+        UserDataSourceTable.__table__.select().where(
+            UserDataSourceTable.data_source_id == str(ds.id))
+    )).first()
+    canon = (await db.execute(
+        DataSourceTable.__table__.select().where(
+            DataSourceTable.datasource_id == str(ds.id))
+    )).first()
+    await db.execute(
+        UserDataSourceTable.__table__.update()
+        .where(UserDataSourceTable.id == ot.id)
+        .values(table_name="rls_salesV2/Sales", data_source_table_id=canon.id)
+    )
+    await db.flush()
+    client = _FakeClient()
+    await DataSourceService()._attach_stored_table_metadata(
+        db, client, ds, conn, current_user=user)
+    assert {t["name"] for t in (client.attached or [])} == set()
+    assert {t["name"] for t in (client.blocked or [])} == {"rls_sales/Sales", "rls_salesV2/Sales"}
+
+
+@pytest.mark.asyncio
+async def test_read_user_schema_active_only_follows_id_link(db):
+    from app.services.data_source_service import DataSourceService as _S
+    org, user, ds, conn = await _seed(db, canonical_active=True)
+    ot = (await db.execute(
+        UserDataSourceTable.__table__.select().where(
+            UserDataSourceTable.data_source_id == str(ds.id))
+    )).first()
+    canon = (await db.execute(
+        DataSourceTable.__table__.select().where(
+            DataSourceTable.datasource_id == str(ds.id))
+    )).first()
+    await db.execute(
+        UserDataSourceTable.__table__.update()
+        .where(UserDataSourceTable.id == ot.id)
+        .values(table_name="rls_salesV2/Sales", data_source_table_id=canon.id)
+    )
+    await db.flush()
+    tables = await _S().read_user_data_source_schema(db=db, data_source=ds, user=user, active_only=True)
+    assert [t.name for t in tables] == ["rls_salesV2/Sales"]
+    await db.execute(DataSourceTable.__table__.update().values(is_active=False))
+    await db.flush()
+    tables = await _S().read_user_data_source_schema(db=db, data_source=ds, user=user, active_only=True)
+    assert tables == []

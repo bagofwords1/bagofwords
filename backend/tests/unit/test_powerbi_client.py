@@ -721,6 +721,19 @@ class TestActivationEnforcement:
         "EVALUATE 'Date Table'",
         "EVALUATE ADDCOLUMNS(Customers, \"d\", CALCULATE(MAX('Date Table'[Date])))",
         "evaluate orders",
+        # query clauses after the table reference
+        "EVALUATE Orders ORDER BY [Id]",
+        "EVALUATE Orders ORDER BY Orders[Id] DESC START AT 10",
+        "EVALUATE\n  Orders\nORDER BY\n  [Id]",
+        "EVALUATE TOPN(5, Orders) ORDER BY [Amount]",
+        # DEFINE block
+        "DEFINE VAR __n = COUNTROWS(Orders)\nEVALUATE ROW(\"n\", __n)",
+        "DEFINE MEASURE Orders[Total] = SUM(Orders[Amount])\nEVALUATE ROW(\"t\", [Total])",
+        # reference outside a comment still counts
+        "EVALUATE Orders // count them",
+        "/* header */ EVALUATE 'Date Table'",
+        # spacing / escaped quote
+        "EVALUATE  'Date Table'  ORDER BY 'Date Table'[Date]",
     ])
     def test_dax_body_reaching_non_activated_sibling_is_refused(self, dax):
         c = self._client()
@@ -742,6 +755,13 @@ class TestActivationEnforcement:
         "EVALUATE FILTER(Customers, Customers[Name] = \"Orders\")",    # a string literal
         "EVALUATE ROW(\"x\", [Orders])",                              # a measure named Orders
         "EVALUATE SUMMARIZE(Customers, Customers[Region], \"n\", COUNTROWS(Customers))",
+        "EVALUATE Customers ORDER BY [Orders]",                       # sorting by a measure named Orders
+        "EVALUATE Customers ORDER BY Customers[Orders] DESC",
+        "EVALUATE Customers // Orders would be nice",                 # line comment
+        "EVALUATE Customers -- see Orders",                           # SQL-style line comment
+        "/* Orders 'Date Table' */ EVALUATE Customers",               # block comment
+        "EVALUATE FILTER(Customers, Customers[Note] = \"see 'Date Table'\")",  # quoted name inside a string
+        "EVALUATE ROW(\"n\", DATE(2024, 1, 1))",                       # function named like nothing blocked
     ])
     def test_dax_body_using_only_activated_tables_runs(self, dax):
         c = self._client()
@@ -761,3 +781,32 @@ class TestActivationEnforcement:
         c._execute_dax_internal = MagicMock(return_value="df")
         c.execute_query("EVALUATE Orders", "SalesModel/Customers")
         c._execute_dax_internal.assert_called_once()
+
+
+class TestDaxTableReferences:
+    """The lexer behind the activation guard."""
+
+    def test_bare_and_quoted_references(self):
+        refs = PowerBIClient._dax_table_references(
+            "DEFINE VAR __x = COUNTROWS('Sales Orders')\n"
+            "EVALUATE SUMMARIZE(Customers, Customers[Region]) ORDER BY [Region] START AT \"A\""
+        )
+        assert {"sales orders", "customers"} <= refs
+        # function names, keywords-as-functions and column names are not tables
+        assert "countrows" not in refs and "summarize" not in refs and "region" not in refs
+
+    def test_keywords_are_present_but_harmless(self):
+        # EVALUATE / ORDER / BY are bare words too; they only matter if a
+        # blocked table carries such a name, which the guard tolerates.
+        refs = PowerBIClient._dax_table_references("EVALUATE T ORDER BY [x]")
+        assert "t" in refs
+
+    def test_comments_strings_and_brackets_are_ignored(self):
+        refs = PowerBIClient._dax_table_references(
+            "-- Orders\n// Orders\n/* 'Date Table' */ EVALUATE Customers ORDER BY [Orders] "
+            "START AT \"Orders\""
+        )
+        assert refs == {"evaluate", "customers", "order", "by", "start", "at"}
+
+    def test_escaped_quote_in_table_name(self):
+        assert "o'brien" in PowerBIClient._dax_table_references("EVALUATE 'O''Brien'")

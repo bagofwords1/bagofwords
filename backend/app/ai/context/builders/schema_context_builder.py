@@ -354,8 +354,23 @@ class SchemaContextBuilder:
                 # by name regardless of is_active rather than dropping the table.
                 overlay_names = [n for n in visible_table_names if n]
                 canonical_all_by_name: Dict[str, DataSourceTable] = dict(canonical_by_name)
+                # Canonical rows by id as well: an overlay row is linked to its
+                # canonical row by `data_source_table_id` (matched on dataset /
+                # table identity at sync time), and the two can carry different
+                # display names — a renamed Power BI dataset keeps the
+                # service-principal-indexed canonical name while the user's
+                # overlay shows the new one. The id link is the authority;
+                # the name is only a fallback for unlinked legacy overlays.
+                canonical_by_id: dict[str, DataSourceTable] = {
+                    str(t.id): t for t in canonical_by_name.values() if getattr(t, 'id', None)
+                }
+                linked_ids = {
+                    str(ot.data_source_table_id)
+                    for ot in overlay_tables if getattr(ot, 'data_source_table_id', None)
+                }
                 missing_names = [n for n in overlay_names if n not in canonical_all_by_name]
-                if missing_names:
+                missing_ids = [i for i in linked_ids if i not in canonical_by_id]
+                if missing_names or missing_ids:
                     enrich_query = (
                         select(DataSourceTable)
                         .options(
@@ -364,7 +379,10 @@ class SchemaContextBuilder:
                         )
                         .where(
                             DataSourceTable.datasource_id == str(ds.id),
-                            DataSourceTable.name.in_(missing_names),
+                            or_(
+                                DataSourceTable.name.in_(missing_names or [""]),
+                                DataSourceTable.id.in_(missing_ids or [""]),
+                            ),
                         )
                     )
                     # Honor the connection_ids contract the main query applies:
@@ -390,6 +408,15 @@ class SchemaContextBuilder:
                     # empty-string bucket collapsing distinct rows).
                     for t in enrich_q.scalars().all():
                         canonical_all_by_name.setdefault(t.name, t)
+                        canonical_by_id.setdefault(str(t.id), t)
+
+                def _canonical_for(ot, _by_id=canonical_by_id, _by_name=canonical_all_by_name):
+                    """The overlay row's canonical row: by id link first, by
+                    name for unlinked legacy overlays."""
+                    linked = getattr(ot, 'data_source_table_id', None)
+                    if linked and str(linked) in _by_id:
+                        return _by_id[str(linked)]
+                    return _by_name.get(getattr(ot, 'table_name', '') or '')
 
                 # Activation is inherited from the canonical row. The overlay
                 # answers "can this user reach the table upstream" (their own
@@ -404,21 +431,23 @@ class SchemaContextBuilder:
                 if active_only:
                     overlay_tables = [
                         ot for ot in overlay_tables
-                        if bool(getattr(
-                            canonical_all_by_name.get(getattr(ot, 'table_name', '') or ''),
-                            'is_active', False,
-                        ))
+                        if bool(getattr(_canonical_for(ot), 'is_active', False))
                     ]
                     # Join targets are restricted to what survives the gate, so
                     # a relationship never points at a table the agent hides.
-                    visible_table_names = {
-                        (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
-                    }
+                    # Relationships name the CANONICAL table, so carry that
+                    # name too when it differs from the overlay's.
+                    visible_table_names = set()
+                    for ot in overlay_tables:
+                        visible_table_names.add(getattr(ot, 'table_name', '') or '')
+                        _c = _canonical_for(ot)
+                        if _c is not None and getattr(_c, 'name', None):
+                            visible_table_names.add(_c.name)
 
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
-                    base = canonical_all_by_name.get(name)
+                    base = _canonical_for(ot)
                     # The overlay decides WHICH columns this user may see; the
                     # canonical row describes WHAT they are. Column descriptors
                     # (measure role, hidden flag, return type) are model-level

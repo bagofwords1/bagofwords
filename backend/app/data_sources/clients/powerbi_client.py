@@ -190,12 +190,54 @@ class PowerBIClient(DataSourceClient):
                 out.append(name)
         return sorted(out)
 
+    # DAX lexer for the activation guard. One token per match; group names
+    # say what it was. Order matters: comments and strings first so their
+    # contents never surface as identifiers.
+    _DAX_TOKEN_RE = re.compile(
+        r"(?P<block_comment>/\*.*?\*/)"
+        r"|(?P<line_comment>(?://|--)[^\n]*)"
+        r"|(?P<string>\"(?:[^\"]|\"\")*\")"
+        r"|(?P<quoted>'(?:[^']|'')*')"
+        r"|(?P<bracket>\[[^\]]*\])"
+        r"|(?P<word>[A-Za-z_][A-Za-z0-9_]*)"
+        r"|(?P<other>\S)",
+        re.DOTALL,
+    )
+
+    @classmethod
+    def _dax_table_references(cls, dax: str) -> set[str]:
+        """Lower-cased table names a DAX text references.
+
+        A table is referenced either as a quoted identifier ('Sales Orders')
+        or as a bare word that is not a function call — in DAX a bare word
+        followed by `(` is always a function, and every other bare word in
+        expression position (`EVALUATE T`, `T[col]`, `FUNC(T, ...)`,
+        `T ORDER BY ...`, `START AT`, a DEFINE block) names a table or a
+        variable. Comments, string literals and bracketed column / measure
+        names are lexed away, so nothing inside them counts. Variables that
+        happen to share a blocked table's name are reported as references
+        (conservative)."""
+        refs: set[str] = set()
+        tokens = [
+            (m.lastgroup, m.group())
+            for m in cls._DAX_TOKEN_RE.finditer(dax or "")
+            if m.lastgroup not in ("block_comment", "line_comment", "string")
+        ]
+        for i, (kind, text) in enumerate(tokens):
+            if kind == "quoted":
+                refs.add(text[1:-1].replace("''", "'").strip().lower())
+            elif kind == "word":
+                nxt = tokens[i + 1][1] if i + 1 < len(tokens) else ""
+                if nxt != "(":
+                    refs.add(text.lower())
+        return refs
+
     def _assert_dax_tables_activated(self, dax: str, dataset_id: str | None) -> None:
         """Refuse a DAX body that references a table of `dataset_id` the agent
-        manager did not activate. Best-effort lexical check: a table is
-        referenced as 'Quoted Name' or, for single-word names, as a bare
-        identifier in table position (`EVALUATE T`, `T[col]`, `FUNC(T, ...)`).
-        Double-quoted string literals are ignored."""
+        manager did not activate. Table references are found by lexing the
+        DAX (see `_dax_table_references`), so every clause — EVALUATE, ORDER
+        BY, START AT, DEFINE/VAR/MEASURE — and every expression position is
+        covered, while comments and string literals are ignored."""
         if not dataset_id or not dax:
             return
         blocked = (getattr(self, "_blocked_tables_by_dataset", None) or {}).get(str(dataset_id))
@@ -206,27 +248,17 @@ class PowerBIClient(DataSourceClient):
             for name, meta in (self._table_metadata_map or {}).items()
             if str(meta.get("datasetId") or "") == str(dataset_id)
         }
-        body = re.sub(r'"(?:[^"]|"")*"', '""', dax)
-        hits: list[str] = []
-        for table_name, schema_name in blocked.items():
-            if table_name.lower() in activated:
-                continue  # same internal name activated via another row
-            esc = re.escape(table_name)
-            quoted = re.compile(r"'" + esc + r"'", re.IGNORECASE)
-            if quoted.search(body):
-                hits.append(schema_name)
-                continue
-            if re.fullmatch(r"\w+", table_name):
-                bare = re.compile(
-                    r"(?<![\w\[\]'\.])" + esc + r"(?=\s*\[|\s*[,)]|\s*$|\s*\n)",
-                    re.IGNORECASE | re.MULTILINE,
-                )
-                if bare.search(body):
-                    hits.append(schema_name)
+        refs = self._dax_table_references(dax)
+        hits = sorted({
+            schema_name
+            for table_name, schema_name in blocked.items()
+            # same internal name activated via another row → not blocked
+            if table_name.lower() not in activated and table_name.lower() in refs
+        })
         if hits:
             allowed = self._activated_tables_in_dataset(dataset_id)
             raise ValueError(
-                f"DAX references table(s) not activated for this agent: {', '.join(sorted(set(hits)))}. "
+                f"DAX references table(s) not activated for this agent: {', '.join(hits)}. "
                 "Only activated tables may be queried. Activated tables in this semantic model: "
                 f"{', '.join(allowed) if allowed else '(none)'}. Rewrite the query using only those."
             )

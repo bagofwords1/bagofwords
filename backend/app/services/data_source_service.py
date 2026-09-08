@@ -2725,7 +2725,7 @@ class DataSourceService:
             # in the tables wizard is what makes it queryable — the same rule
             # as a service-principal-indexed table.
             rows = (await db.execute(
-                select(DataSourceTable.name, DataSourceTable.metadata_json, DataSourceTable.is_active)
+                select(DataSourceTable.id, DataSourceTable.name, DataSourceTable.metadata_json, DataSourceTable.is_active)
                 .outerjoin(ConnectionTable, DataSourceTable.connection_table_id == ConnectionTable.id)
                 .where(
                     DataSourceTable.datasource_id == str(data_source.id),
@@ -2737,12 +2737,16 @@ class DataSourceService:
             )).all()
             attach: dict[str, Any] = {}
             blocked: dict[str, Any] = {}
-            for name, metadata_json, is_active in rows:
+            active_by_id: dict[str, Any] = {}
+            blocked_by_id: dict[str, Any] = {}
+            for row_id, name, metadata_json, is_active in rows:
                 if is_active:
                     attach[name] = metadata_json
+                    active_by_id[str(row_id)] = metadata_json
                     blocked.pop(name, None)
                 elif name not in attach:
                     blocked[name] = metadata_json
+                    blocked_by_id[str(row_id)] = metadata_json
 
             # Merge the executing user's overlay metadata for ACTIVATED tables.
             # A delegated dataset is discovered under the user's own creds, so
@@ -2751,18 +2755,36 @@ class DataSourceService:
             # name the manager activated; a name that is not activated is never
             # made resolvable by the overlay — that would let a user's broader
             # upstream access widen the agent past its manager's selection.
+            #
+            # Activation follows the overlay's `data_source_table_id` link (the
+            # id was matched on dataset/table identity at sync time), with the
+            # name as a fallback for unlinked legacy overlays. After a dataset
+            # rename the overlay's display name differs from the canonical one
+            # the service principal indexed, and it is the overlay's name that
+            # the user's schema context shows — so that name must resolve too.
             if current_user is not None:
                 from app.models.user_data_source_overlay import UserDataSourceTable
                 ov = (await db.execute(
-                    select(UserDataSourceTable.table_name, UserDataSourceTable.metadata_json)
+                    select(
+                        UserDataSourceTable.table_name,
+                        UserDataSourceTable.metadata_json,
+                        UserDataSourceTable.data_source_table_id,
+                    )
                     .where(
                         UserDataSourceTable.data_source_id == str(data_source.id),
                         UserDataSourceTable.user_id == str(current_user.id),
                         UserDataSourceTable.is_accessible == True,
                     )
                 )).all()
-                for name, metadata_json in ov:
-                    if metadata_json and name in attach:
+                for name, metadata_json, linked_id in ov:
+                    linked_id = str(linked_id) if linked_id else None
+                    if linked_id and linked_id in active_by_id:
+                        attach[name] = metadata_json or active_by_id[linked_id]
+                        blocked.pop(name, None)
+                    elif linked_id and linked_id in blocked_by_id:
+                        if name not in attach:
+                            blocked[name] = metadata_json or blocked_by_id[linked_id]
+                    elif metadata_json and name in attach:
                         attach[name] = metadata_json
 
             client.attach_table_metadata(
@@ -3881,13 +3903,26 @@ class DataSourceService:
         )
         overlay_rows = rows_q.scalars().all()
         if overlay_rows and active_only:
-            active_names = set((await db.execute(
-                select(DataSourceTable.name).where(
+            # The overlay's `data_source_table_id` link is the authority (it
+            # was matched on dataset/table identity at sync time, and the two
+            # rows can carry different display names after a rename); the
+            # name is only a fallback for unlinked legacy overlays.
+            active_rows = (await db.execute(
+                select(DataSourceTable.id, DataSourceTable.name).where(
                     DataSourceTable.datasource_id == str(data_source.id),
                     DataSourceTable.is_active.is_(True),
                 )
-            )).scalars().all())
-            overlay_rows = [r for r in overlay_rows if r.table_name in active_names]
+            )).all()
+            active_ids = {str(i) for i, _ in active_rows}
+            active_names = {n for _, n in active_rows}
+            overlay_rows = [
+                r for r in overlay_rows
+                if (
+                    str(r.data_source_table_id) in active_ids
+                    if r.data_source_table_id
+                    else r.table_name in active_names
+                )
+            ]
         if not overlay_rows:
             return []
 

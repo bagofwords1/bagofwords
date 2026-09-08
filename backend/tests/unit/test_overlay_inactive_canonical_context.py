@@ -221,3 +221,59 @@ async def test_active_only_false_still_emits_inactive_overlay_table_flagged(db, 
     rows = [t for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])]
     assert [getattr(t, "name", None) for t in rows] == ["m/A"]
     assert getattr(rows[0], "is_active", None) is False
+
+
+@pytest.mark.asyncio
+async def test_renamed_dataset_overlay_linked_by_id_follows_canonical_activation(db, monkeypatch):
+    """A Power BI dataset rename leaves the user's overlay named
+    `SalesV2/Orders` linked by data_source_table_id to the activated canonical
+    row still named `Sales/Orders` (the sync matches on dataset/table identity
+    and keeps the service-principal name). Activation follows the id link."""
+    org, ds = await _seed_source(db)
+    canon = _canonical(ds, "Sales/Orders", True)
+    db.add(canon)
+    await db.flush()
+    user = User(name="u", email="u@x.com", hashed_password="x")
+    db.add(user)
+    await db.flush()
+    ot = UserDataSourceTable(
+        data_source_id=str(ds.id), user_id=str(user.id),
+        table_name="SalesV2/Orders", is_accessible=True, status="accessible",
+        data_source_table_id=str(canon.id),
+    )
+    db.add(ot)
+    await db.flush()
+    for cn, dt in COLS:
+        db.add(UserDataSourceColumn(user_data_source_table_id=str(ot.id),
+                                    column_name=cn, is_accessible=True, data_type=dt))
+    await db.flush()
+
+    assert await _agent_tables(db, org, ds, user, monkeypatch) == {"SalesV2/Orders"}
+
+    # ...and deactivating that canonical row hides it, name notwithstanding.
+    canon.is_active = False
+    db.add(canon)
+    await db.flush()
+    assert await _agent_tables(db, org, ds, user, monkeypatch) == set()
+
+
+@pytest.mark.asyncio
+async def test_id_link_wins_over_a_coincidental_name_match(db, monkeypatch):
+    """Overlay `m/A` linked by id to an INACTIVE canonical row must stay
+    hidden even if some other active canonical row happens to be named m/A."""
+    org, ds = await _seed_source(db)
+    inactive = _canonical(ds, "m/A-old", False)
+    db.add(inactive)
+    db.add(_canonical(ds, "m/A", True))
+    await db.flush()
+    user = User(name="u", email="u@x.com", hashed_password="x")
+    db.add(user)
+    await db.flush()
+    db.add(UserDataSourceTable(
+        data_source_id=str(ds.id), user_id=str(user.id),
+        table_name="m/A", is_accessible=True, status="accessible",
+        data_source_table_id=str(inactive.id),
+    ))
+    await db.flush()
+
+    assert await _agent_tables(db, org, ds, user, monkeypatch) == set()
