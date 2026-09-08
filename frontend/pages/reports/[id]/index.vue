@@ -3,7 +3,7 @@
 	<!-- Loading until report and completions are fetched. `redirectingToViewer`
 	     holds this state through the hand-off to /r/{id} for a viewer who only
 	     has the dashboard, so the workspace never paints behind the redirect. -->
-	<div v-if="(!reportLoaded || redirectingToViewer) && messages.length === 0 && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
+	<div v-if="(!report || ((!reportLoaded || redirectingToViewer) && messages.length === 0)) && !reportNotFound" class="h-dvh w-full flex items-center justify-center text-gray-500">
 		<Spinner class="w-5 h-5 me-2" />
 		<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 	</div>
@@ -1143,7 +1143,6 @@ import NotifyTool from '~/components/tools/NotifyTool.vue'
 import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.vue'
 import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
 import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
-import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import WebFetchTool from '~/components/tools/WebFetchTool.vue'
 import BrowserTool from '~/components/tools/BrowserTool.vue'
 import BrowserVisionTool from '~/components/tools/BrowserVisionTool.vue'
@@ -2584,8 +2583,6 @@ function getToolComponent(toolName: string) {
 			return CancelScheduledTaskTool
 		case 'edit_scheduled_task':
 			return EditScheduledTaskTool
-		case 'list_agent_executions':
-			return ListAgentExecutionsTool
 		case 'search_instructions':
 			return SearchInstructionsTool
 		case 'read_instruction':

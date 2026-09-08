@@ -194,6 +194,8 @@ class ProjectManager:
                 if not isinstance(group, dict):
                     continue
                 ds_id = group.get("data_source_id")
+                if str(ds_id).startswith("builtin:"):
+                    continue  # virtual source has no DataSource FK
                 tables = group.get("tables") or []
 
                 # Fallback to the sole report DS when not specified

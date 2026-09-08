@@ -949,6 +949,7 @@
       "code": "الكود"
     },
     "createData": {
+      "bowSource": "BOW",
       "creating": "جارٍ إنشاء البيانات",
       "created": "تم إنشاء البيانات",
       "create": "إنشاء بيانات",

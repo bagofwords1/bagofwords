@@ -963,6 +963,7 @@
       "code": "Código"
     },
     "createData": {
+      "bowSource": "BOW",
       "creating": "Creando datos",
       "created": "Datos creados",
       "create": "Crear datos",

@@ -35,6 +35,8 @@ from app.ai.code_execution.code_execution import FORBIDDEN_BUILTINS, FORBIDDEN_M
 
 tracer = get_tracer(__name__)
 
+_BOW_DATAFRAME_RULES = """- BOW DataFrame contract: ds_clients["bow"].execute_query accepts a typed dict and returns the requested columns (including empty results), numeric metrics, and requested ordering. Use that DataFrame directly unless the user needs an additional transformation. Do not add missing-column fallbacks, numeric coercion, repeated sorting, column reordering, or reset_index when the query already supplies them. Do not import pandas when unused. Keep genuine display transformations, such as filling a missing agent label; never replace unknown costs with zero. Follow the standard logging instructions below."""
+
 
 def _sandbox_rules_section() -> str:
     """Sandbox constraints for codegen prompts, derived from the validator's
@@ -448,6 +450,7 @@ class Coder:
            - The function should return the main dataframe that will answer the user prompt.
 
         2. **Data Source Usage**:
+           {_BOW_DATAFRAME_RULES}
            - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
              * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
@@ -877,6 +880,7 @@ class Coder:
                - The `http` parameter will be `None` if the organization disabled web fetch. Guard with `if http is None: raise RuntimeError("web fetch is disabled for this organization")` and return an empty DataFrame.
 
             2. **Data Source Usage**:
+               {_BOW_DATAFRAME_RULES}
                - Use `ds_clients["<client_key>"].execute_query("SOME QUERY")` to query non-Excel data sources.
                  * Use the exact `client_key` string from the <connection_clients> section — it is a literal string, not a variable.
                  * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`

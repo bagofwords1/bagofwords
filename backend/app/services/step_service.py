@@ -327,6 +327,8 @@ class StepService:
             db, org, report, current_user, code, enable_load_step=_ls_enabled
         )
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        from app.data_sources.clients.bow_client import install_bow_client
+        await install_bow_client(db, org, current_user, report, db_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 
         # Execution is fully synchronous (DB drivers + pandas):
@@ -444,6 +446,12 @@ class StepService:
         from app.models.step_user_result import StepUserResult
 
         step, report = await self._load_step_for_rerun(db, step_id, report)
+        from app.services.bow_source_access import report_access, assert_read
+        access = await report_access(db, report.id)
+        await assert_read(db, access, run_user)
+        if access:
+            credential_user = run_user
+            executed_as = "viewer"
 
         # What this viewer last ran this step with. They may hold one row per
         # parameter combination (the table's unique key includes the

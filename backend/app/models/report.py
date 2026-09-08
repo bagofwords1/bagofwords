@@ -21,6 +21,8 @@ class Report(BaseSchema):
     theme_name = Column(String, nullable=True, default=None)
     theme_overrides = Column(JSON, nullable=True, default=dict)
     mode = Column(String, nullable=False, default='chat')  # 'chat' | 'training'
+    # Trusted provenance for monitoring data, including prose and derived artifacts.
+    bow_source_access = Column(JSON, nullable=True)
     # Report-level LLM override. Soft reference to llm_models.id (no FK, same
     # convention as prompt.model_id / membership.default_llm_model_id): a stale
     # value — model disabled/restricted/deleted after being picked, or set by a

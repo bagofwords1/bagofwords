@@ -325,7 +325,6 @@ import CreateScheduledTaskTool from '~/components/tools/CreateScheduledTaskTool.
 import EditScheduledTaskTool from '~/components/tools/EditScheduledTaskTool.vue'
 import CancelScheduledTaskTool from '~/components/tools/CancelScheduledTaskTool.vue'
 import CancelWaitTool from '~/components/tools/CancelWaitTool.vue'
-import ListAgentExecutionsTool from '~/components/tools/ListAgentExecutionsTool.vue'
 import CreatePromptTool from '~/components/tools/CreatePromptTool.vue'
 import EditPromptTool from '~/components/tools/EditPromptTool.vue'
 import SearchPromptsTool from '~/components/tools/SearchPromptsTool.vue'
@@ -669,8 +668,6 @@ function getToolComponent(toolName: string) {
             return CancelScheduledTaskTool
         case 'cancel_wait':
             return CancelWaitTool
-        case 'list_agent_executions':
-            return ListAgentExecutionsTool
         case 'create_prompt':
             return CreatePromptTool
         case 'edit_prompt':

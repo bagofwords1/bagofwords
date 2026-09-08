@@ -949,6 +949,7 @@
       "code": "Code"
     },
     "createData": {
+      "bowSource": "BOW",
       "creating": "Daten werden erstellt",
       "created": "Daten erstellt",
       "create": "Daten erstellen",

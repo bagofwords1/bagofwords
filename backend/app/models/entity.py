@@ -30,6 +30,7 @@ class Entity(BaseSchema):
 
     # Execution and preview
     code = Column(Text, nullable=False)  # single source of truth (SQL or expression)
+    bow_source_access = Column(JSON, nullable=True)
     data = Column(EncryptedJSON, nullable=True, default=dict)
     # Declared ParamSpec dicts (app/schemas/param_schema.py), carried over
     # from the source query on promotion. The shared `data` snapshot is the
@@ -122,5 +123,4 @@ class Entity(BaseSchema):
     def can_be_reviewed(self) -> bool:
         """Returns True if the entity can be reviewed by admin"""
         return self.is_suggested
-
 

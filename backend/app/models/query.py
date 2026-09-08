@@ -14,6 +14,7 @@ class Query(BaseSchema):
     # The Query is the stable identity, so declarations live here; each Step
     # records the concrete values it ran with (Step.applied_params).
     parameters = Column(JSON, nullable=True, default=list)
+    source_refs = Column(JSON, nullable=True)
 
     # Owning report (optional). Allows global/public queries not tied to a report.
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=True, index=True)
@@ -39,4 +40,3 @@ class Query(BaseSchema):
 
     # Visualizations owned by this query
     visualizations = relationship("Visualization", back_populates="query", lazy="selectin")
-

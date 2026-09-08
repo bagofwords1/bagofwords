@@ -949,6 +949,7 @@
       "code": "Kod"
     },
     "createData": {
+      "bowSource": "BOW",
       "creating": "Skapar data",
       "created": "Data skapad",
       "create": "Skapa data",

@@ -88,6 +88,11 @@ def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
 
+    # BOW training tables use the same diagnosis data, with persisted access lineage.
+    for table, column in (("reports", "bow_source_access"), ("entities", "bow_source_access"), ("queries", "source_refs")):
+        if column not in _existing_columns(inspector, table):
+            op.add_column(table, sa.Column(column, sa.JSON(), nullable=True))
+
     ae_cols = _existing_columns(inspector, "agent_executions")
     with op.batch_alter_table("agent_executions") as batch_op:
         for col in _AE_COLUMNS:
@@ -112,6 +117,10 @@ def downgrade() -> None:
     for name, table, cols in reversed(_INDEXES):
         if name in _existing_indexes(inspector, table):
             op.drop_index(name, table)
+
+    for table, column in (("queries", "source_refs"), ("entities", "bow_source_access"), ("reports", "bow_source_access")):
+        if column in _existing_columns(inspector, table):
+            op.drop_column(table, column)
 
     usage_cols = _existing_columns(inspector, "llm_usage_records")
     if "agent_execution_id" in usage_cols:

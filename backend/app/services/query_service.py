@@ -273,7 +273,10 @@ class QueryService:
             await db.flush()
             widget_id = str(w.id)
 
+        from app.services.bow_source_access import report_access
+        bow_access = await report_access(db, report_id)
         q = Query(
+            source_refs=[{"id": "builtin:bow", "version": 1}] if bow_access else None,
             title=payload.title,
             description=getattr(payload, "description", None),
             report_id=report_id,
@@ -620,6 +623,8 @@ class QueryService:
         loadables = await resolve_loadables_for_code(
             db, org, report, run_user, step.code, enable_load_step=_ls_enabled
         )
+        from app.data_sources.clients.bow_client import install_bow_client
+        await install_bow_client(db, org, run_user, report, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
         try:
             captured_queries: list = []
@@ -782,7 +787,10 @@ class QueryService:
                 or existing.last_run_at >= freshness_floor
             )
         )
-        if cache_fresh:
+        from app.services.bow_source_access import report_access, assert_read
+        bow_access = await report_access(db, q.report_id)
+        await assert_read(db, bow_access, caller)
+        if cache_fresh and not bow_access:
             return {
                 "data": existing.data or {},
                 "applied_params": resolved,
@@ -810,11 +818,11 @@ class QueryService:
         # relations force viewer credentials; owners always run as themselves.
         credential_user = caller
         identity_mode = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
-        if identity_mode == 'creator' and str(caller.id) != str(report.user_id):
+        if identity_mode == 'creator' and str(caller.id) != str(report.user_id) and not bow_access:
             from app.services.viewer_data_policy import has_rls_relations
             if await has_rls_relations(db, str(report.id)):
                 identity_mode = 'viewer'
-        if identity_mode == 'creator' and str(caller.id) != str(report.user_id):
+        if identity_mode == 'creator' and str(caller.id) != str(report.user_id) and not bow_access:
             from app.models.membership import Membership
             member = (await db.execute(
                 select(Membership).where(
@@ -853,6 +861,8 @@ class QueryService:
         usage_context = self._usage_context(
             organization_id, str(caller.id), source="query_viewer_run", source_ref_id=query_id
         )
+        from app.data_sources.clients.bow_client import install_bow_client
+        await install_bow_client(db, org, caller, report, ds_clients)
         executor = StreamingCodeExecutor(
             organization_settings=org_settings, usage_context=usage_context
         )
@@ -1171,6 +1181,8 @@ class QueryService:
         from app.models.organization import Organization
         org = await db.get(Organization, str(organization_id or report.organization_id)) if (organization_id or getattr(report, "organization_id", None)) else None
         org_settings = await org.get_settings(db) if org else None
+        from app.data_sources.clients.bow_client import install_bow_client
+        await install_bow_client(db, org, run_user, report, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings, usage_context=usage_context)
 
         # Params: an explicit declarations list on the request is validated

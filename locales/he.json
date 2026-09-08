@@ -963,6 +963,7 @@
       "code": "קוד"
     },
     "createData": {
+      "bowSource": "BOW",
       "creating": "יוצר נתונים",
       "created": "הנתונים נוצרו",
       "create": "יצירת נתונים",

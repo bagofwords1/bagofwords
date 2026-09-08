@@ -279,6 +279,11 @@ class LoadablesResolver:
                     )
                     continue
                 result["steps"][key] = grid_to_df(resolution.data)
+                from app.services.bow_source_access import step_access, protect_report
+                access = await step_access(self.db, step)
+                if access:
+                    await protect_report(self.db, self.report.id, access)
+                    result["steps"][key].attrs["bow_source"] = access
 
         for ref in entity_refs or []:
             key = str(ref)
@@ -308,6 +313,11 @@ class LoadablesResolver:
                 )
                 continue
             result["entities"][key] = grid_to_df(data)
+            access = getattr(entity, "bow_source_access", None)
+            if access:
+                from app.services.bow_source_access import protect_report
+                await protect_report(self.db, getattr(self.report, "id", None), access)
+                result["entities"][key].attrs["bow_source"] = access
 
         return result
 

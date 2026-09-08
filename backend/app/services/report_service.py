@@ -68,6 +68,8 @@ class ReportService:
         visibility_field: 'artifact_visibility' or 'conversation_visibility'
         Raises 401 if login needed, 403 if denied, or passes silently if allowed.
         """
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, getattr(report, "bow_source_access", None), user)
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
 
@@ -280,6 +282,8 @@ class ReportService:
             if unknown:
                 raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
 
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, visibility == 'public')
         field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
         previous_visibility = getattr(report, field, None)
         setattr(report, field, visibility)
@@ -644,6 +648,9 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, report.bow_source_access, current_user)
+
         # Per-user starred state (same source of truth as the list view)
         from app.models.report_star import ReportStar
         star_result = await db.execute(
@@ -931,6 +938,8 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, report_data.status == 'published')
         if report_data.title:
             report.title = report_data.title
         if report_data.status:
@@ -991,6 +1000,15 @@ class ReportService:
                         for ds in training_ds_ids
                     )
                 )
+                if not can_train and not training_ds_ids:
+                    # Agent managers can train against BOW history without attaching
+                    # a business source. The source applies their manage scope.
+                    from app.core.console_access import resolve_console_scope
+                    try:
+                        await resolve_console_scope(db, organization, current_user)
+                        can_train = True
+                    except HTTPException:
+                        pass
                 if not can_train:
                     raise HTTPException(
                         status_code=403,
@@ -1434,6 +1452,9 @@ class ReportService:
             raise HTTPException(status_code=400, detail="Report owners refresh via the report rerun endpoint")
 
         identity = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        from app.services.bow_source_access import report_access
+        if await report_access(db, report.id):
+            identity = "viewer"
         # Defense in depth: RLS reports always run under the viewer's own
         # identity. set_visibility blocks setting creator mode on them, but a
         # relation could gain rls_enabled after the fact — never resolve the
@@ -1644,6 +1665,8 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, report.status != 'published')
         if report.status == 'published':
             report.status = 'draft'
             report.artifact_visibility = 'none'
@@ -2295,6 +2318,8 @@ class ReportService:
                 Report.status != 'archived',
             ]
 
+            from app.services.bow_source_access import visible_reports_clause
+            base_conditions.append(await visible_reports_clause(db, organization.id, current_user))
             base_conditions.append(Report.report_type == 'regular')
 
             # Optional filter by mode (chat/deep/training)
@@ -3291,6 +3316,8 @@ class ReportService:
         # Toggle the enabled state
         new_enabled = not report.conversation_share_enabled
         
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, new_enabled)
         if new_enabled:
             # Generate a new token if enabling and no token exists
             if not report.conversation_share_token:

@@ -32,7 +32,7 @@ export function groupToolTables(
 
   const groups: Record<string, string[]> = {}
   for (const group of aj.tables_by_source) {
-    let connType = 'resource'
+    let connType = group.data_source_id === 'builtin:bow' ? 'bow' : 'resource'
     if (group.data_source_id && dataSources?.length) {
       const ds = dataSources.find((d) => d.id === group.data_source_id)
       if (ds) {

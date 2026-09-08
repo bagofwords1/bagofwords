@@ -190,10 +190,11 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
         self.db = db
         self.organization = organization
         self.report = report
+        self.mode = mode if mode is not None else getattr(report, "mode", None)
         self.data_sources = data_sources
         self.user = user
         # Needed to resolve native MCP registration the same way the planner
@@ -767,6 +768,34 @@ class SchemaContextBuilder:
                     ),
                 )
             )
+
+        # Built-in source is a capability of training, not a persisted agent.
+        if self.mode == "training" and self.user is not None and not connection_ids:
+            from app.core.console_access import resolve_console_scope
+            from app.services.bow_source_service import catalog, column_type
+            from app.schemas.bow_source_schema import SOURCE_ID
+            from app.data_sources.clients.bow_client import BowClient
+            try:
+                await resolve_console_scope(self.db, self.organization, self.user)
+                bow_allowed = True
+            except Exception:
+                bow_allowed = False
+            if bow_allowed and (not ds_filter or SOURCE_ID in ds_filter):
+                bow_tables = []
+                for name, columns in catalog().items():
+                    if table_names and name not in table_names:
+                        continue
+                    if name_patterns and not any(re.search(p, name) for p in name_patterns):
+                        continue
+                    bow_tables.append(PromptTable(
+                        name=name, columns=[PromptTableColumn(name=c, dtype=column_type(c)) for c in columns],
+                        pks=[], fks=[], connection_name="bow", connection_type="bow",
+                        description="One row per " + ("run" if name == "bow.runs" else "tool call") + ". " + BowClient.description,
+                    ))
+                ds_sections.append(TablesSchemaContext.DataSource(
+                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description),
+                    tables=bow_tables,
+                ))
 
         self._apply_native_mcp_decision(ds_sections)
 
