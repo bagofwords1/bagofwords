@@ -136,7 +136,7 @@
           </template>
 
           <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
-            <UToggle color="blue" v-model="require_user_auth" @input="clearTestResult()" />
+            <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('data.requireUserAuth') }}</span>
           </div>
 
@@ -267,9 +267,12 @@ async function copyStep(code: string, i: number) {
       ta.style.position = 'fixed'
       ta.style.top = '-1000px'
       document.body.appendChild(ta)
-      ta.select()
-      ok = document.execCommand('copy')
-      document.body.removeChild(ta)
+      try {
+        ta.select()
+        ok = document.execCommand('copy')
+      } finally {
+        document.body.removeChild(ta)
+      }
     } catch {}
   }
   if (ok) {

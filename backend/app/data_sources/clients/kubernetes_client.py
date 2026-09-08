@@ -81,6 +81,30 @@ _INTERNAL_CRD_GROUPS = ("metrics.k8s.io", "apiregistration.k8s.io", "apiextensio
 # subresources that reach INTO a workload rather than describing it.
 _FORBIDDEN_SEGMENTS = {"secrets", "exec", "attach", "portforward", "proxy"}
 
+# Every path segment the connector builds or forwards — resource names,
+# namespaces, pod names, escape-hatch paths — must be a plain Kubernetes name.
+# No `%` (percent-encoding would let `%73ecrets` slip past the segment guard:
+# urllib3 sends escapes verbatim, the apiserver routes on the decoded path),
+# no `/` inside a name (`default%2Fsecrets`), no `..`, no `?`/`#`. Kubernetes
+# names never legitimately contain any of these, so rejecting is cheaper and
+# safer than decoding.
+_SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+# Query parameters that turn a request into a long-lived stream. urllib3's
+# read timeout only measures gaps between chunks, so a watch/follow on a busy
+# resource pins the worker thread and buffers the body for as long as the
+# apiserver keeps talking (30–60 min for watches).
+_STREAMING_PARAMS = {"watch", "follow", "timeoutseconds", "allowwatchbookmarks", "sendinitialevents"}
+
+
+def _check_segment(value: Any, field: str) -> str:
+    """Validate one path segment (a name/namespace/pod) and return it."""
+    if not isinstance(value, str) or value in (".", "..") or not _SEGMENT_RE.match(value):
+        raise ValueError(
+            f"`{field}` must be a plain Kubernetes name (letters, digits, '.', '_' and '-'; "
+            f"no '/', '%', '?', '#' or '..'), got {str(value)[:80]!r}."
+        )
+    return value
+
 _RELATIVE_RE = re.compile(r"^-?(\d+)\s*([smhdw])$", re.IGNORECASE)
 _UNIT_SECONDS = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
 _JWT_RE = re.compile(r"^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$")
@@ -1016,7 +1040,7 @@ class KubernetesClient(DataSourceClient):
             parts = [p.strip() for p in re.split(r"[,\s]+", value)]
         else:
             parts = [str(p).strip() for p in value]
-        return [p for p in parts if p]
+        return [_check_segment(p, "namespace") for p in parts if p]
 
     @property
     def description(self):
@@ -1068,7 +1092,15 @@ class KubernetesClient(DataSourceClient):
     def _assert_path_allowed(path: str) -> None:
         if not isinstance(path, str) or not path.startswith("/"):
             raise ValueError("`path` must be an absolute API path such as /apis/apps/v1/deployments.")
-        segments = [s.lower() for s in path.split("?", 1)[0].split("/") if s]
+        if any(ch in path for ch in "?#%"):
+            raise ValueError(
+                f"Path '{path[:120]}' is not allowed: query strings, fragments and percent-escapes are "
+                "refused — pass query parameters in `params`."
+            )
+        raw_segments = [s for s in path.split("/") if s]
+        for seg in raw_segments:
+            _check_segment(seg, "path")
+        segments = [s.lower() for s in raw_segments]
         bad = _FORBIDDEN_SEGMENTS.intersection(segments)
         if bad:
             raise ValueError(
@@ -1316,7 +1348,10 @@ class KubernetesClient(DataSourceClient):
             if progress_callback:
                 progress_callback("custom resources", spec["table"], i, total)
             try:
-                probe = self._list_objects(api, spec["api"], spec["plural"], spec["namespaced"], None, {}, limit=1)
+                # Same scope as every later query: a kind populated only outside
+                # the allowlist would otherwise be advertised and always return empty.
+                probe = self._list_objects(api, spec["api"], spec["plural"], spec["namespaced"],
+                                           list(self.namespaces) or None, {}, limit=1)
             except RuntimeError:
                 continue
             if not probe:
@@ -1437,6 +1472,7 @@ class KubernetesClient(DataSourceClient):
         namespaces = self._resolve_namespaces(spec) if namespaced else None
         name = spec.get("name")
         if name:
+            _check_segment(name, "name")
             if not namespaced:
                 return [self._get(api, f"{api_path}/{plural}/{name}")]
             if namespaces and len(namespaces) == 1:
@@ -1485,7 +1521,16 @@ class KubernetesClient(DataSourceClient):
 
     def _query_path(self, api, spec: dict, limit: int) -> pd.DataFrame:
         path = spec["path"]
-        params = dict(spec.get("params") or {})
+        raw_params = spec.get("params") or {}
+        if not isinstance(raw_params, dict):
+            raise ValueError("`params` must be a JSON object of query parameters.")
+        streaming = [k for k in raw_params if str(k).lower() in _STREAMING_PARAMS]
+        if streaming:
+            raise ValueError(
+                f"Query parameter(s) {', '.join(sorted(streaming))} are refused: they turn the request "
+                "into an open-ended stream. Use `limit` and re-query instead of watch/follow."
+            )
+        params = dict(raw_params)
         body = self._get(api, path, params) if "limit" in params else None
         if body is None:
             body = {}
@@ -1557,6 +1602,8 @@ class KubernetesClient(DataSourceClient):
         pod, selector = spec.get("pod"), spec.get("label_selector")
         if not pod and not selector:
             raise ValueError('The "logs" table requires a "pod" name (with "namespace") or a "label_selector".')
+        if pod:
+            _check_segment(pod, "pod")
         namespaces = self._resolve_namespaces(spec)
         params = {"labelSelector": selector}
         if pod:
@@ -1572,7 +1619,12 @@ class KubernetesClient(DataSourceClient):
         tail = min(int(spec.get("tail_lines") or self.log_tail_default), self.log_tail_max)
         since = parse_duration_seconds(spec.get("since"))
         previous = bool(spec.get("previous"))
-        grep = re.compile(spec["grep"]) if spec.get("grep") else None
+        grep = None
+        if spec.get("grep"):
+            try:
+                grep = re.compile(spec["grep"])
+            except re.error as e:
+                raise ValueError(f"`grep` is not a valid regular expression ({e}): {spec['grep']!r}") from None
         wanted_container = spec.get("container")
 
         rows: List[dict] = []
@@ -1682,8 +1734,3 @@ class KubernetesClient(DataSourceClient):
         sc = client.execute_query('{"table": "storage_classes"}')
         ```
         """
-
-
-# Alias so dynamic naming ("Kubernetes" → "KubernetesClient") and the explicit
-# client_path both resolve to the same class.
-KubernetesClient = KubernetesClient

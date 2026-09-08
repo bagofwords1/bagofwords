@@ -472,6 +472,24 @@ class TestCatalog:
         assert not [t for t in make_client(discover_crds=False).get_schemas() if t.name.startswith(kc.CRD_TABLE_PREFIX)]
         assert not [t for t in make_client(max_crd_tables=0).get_schemas() if t.name.startswith(kc.CRD_TABLE_PREFIX)]
 
+    def test_crd_probe_honours_namespace_allowlist(self, fake_api):
+        # A kind populated only OUTSIDE the allowlist must not be advertised.
+        crds = json.loads((FIXTURES / "apis_apiextensions.k8s.io_v1_customresourcedefinitions.json").read_text())
+        cert = json.loads(json.dumps(next(c for c in crds["items"] if c["spec"]["group"] == "example.com")))
+        cert["metadata"]["name"] = "certificates.cert-manager.io"
+        cert["spec"]["group"] = "cert-manager.io"
+        cert["spec"]["names"] = {"plural": "certificates", "singular": "certificate", "kind": "Certificate"}
+        fake_api.overrides["/apis/apiextensions.k8s.io/v1/customresourcedefinitions"] = {"items": crds["items"] + [cert], "metadata": {}}
+        fake_api.overrides["/apis/cert-manager.io/v1/certificates"] = {"items": [{"metadata": {"name": "c1", "namespace": "kube-system"}, "spec": {}}], "metadata": {}}
+        fake_api.overrides["/apis/cert-manager.io/v1/namespaces/payments/certificates"] = {"items": [], "metadata": {}}
+
+        scoped = {t.name for t in make_client(namespaces="payments").get_schemas()}
+        assert "crd::example.com/Widget" in scoped and "crd::cert-manager.io/Certificate" not in scoped
+        probes = [p for p, _, _ in fake_api.calls if "/certificates" in p or "/widgets" in p]
+        assert probes and all("/namespaces/payments/" in p for p in probes), probes
+        unscoped = {t.name for t in make_client().get_schemas()}
+        assert "crd::cert-manager.io/Certificate" in unscoped
+
     def test_discovery_reports_progress_and_survives_crd_errors(self, fake_api):
         seen = []
         make_client().get_schemas(progress_callback=lambda phase, item, done, total: seen.append((phase, item)))
@@ -701,6 +719,12 @@ class TestLogs:
         list_call = next(q for p, q, _ in fake_api.calls if p == "/api/v1/namespaces/payments/pods")
         assert list_call["labelSelector"] == "app=checkout" and list_call["limit"] == 1
 
+    def test_invalid_grep_is_a_named_value_error_without_a_request(self, fake_api):
+        with pytest.raises(ValueError) as e:
+            make_client().execute_query(json.dumps({"table": "logs", "namespace": "payments", "pod": seeded_pod("checkout"), "grep": "error("}))
+        assert "grep" in str(e.value)
+        assert not [p for p, _, _ in fake_api.calls if p.endswith("/log")]
+
     def test_missing_previous_run_becomes_a_row_not_an_error(self, fake_api):
         df = make_client().execute_query('{"table": "logs", "namespace": "payments", "pod": "gpu-batch"}')
         assert len(df) == 1 and df.iloc[0]["line"].startswith("<no logs")
@@ -716,6 +740,39 @@ class TestEscapeHatch:
         with pytest.raises(ValueError):
             make_client().execute_query(json.dumps({"path": path}))
         assert not [p for p, _, _ in fake_api.calls if "secret" in p or "exec" in p or "proxy" in p]
+
+    @pytest.mark.parametrize("path", [
+        "/api/v1/namespaces/default/%73ecrets",      # percent-encoded 'secrets'
+        "/api/v1/namespaces/default%2Fsecrets",      # encoded slash inside a segment
+        "/api/v1/pods?watch=true",                   # query string smuggled into the path
+        "/api/v1/pods#frag",
+        "/api/v1/namespaces/../secrets",
+    ])
+    def test_encoded_or_malformed_paths_refused_before_any_request(self, fake_api, path):
+        with pytest.raises(ValueError):
+            make_client().execute_query(json.dumps({"path": path}))
+        assert fake_api.calls == []
+
+    @pytest.mark.parametrize("params", [
+        {"watch": "true"}, {"WATCH": "1"}, {"follow": "true"}, {"timeoutSeconds": 600},
+        {"allowWatchBookmarks": "true"}, {"sendInitialEvents": "true"}, "limit=1",
+    ])
+    def test_streaming_params_refused(self, fake_api, params):
+        with pytest.raises(ValueError):
+            make_client().execute_query(json.dumps({"path": "/api/v1/events", "params": params}))
+        assert fake_api.calls == []
+
+    @pytest.mark.parametrize("spec", [
+        {"table": "pods", "namespace": "default", "name": "../secrets"},
+        {"table": "pods", "namespace": "default", "name": "x%2Fy"},
+        {"table": "pods", "namespace": "a%2Fb"},
+        {"table": "pods", "namespace": "payments", "name": "p?watch=true"},
+        {"table": "logs", "namespace": "payments", "pod": "p/../q"},
+    ])
+    def test_spec_names_are_plain_kubernetes_names(self, fake_api, spec):
+        with pytest.raises(ValueError):
+            make_client().execute_query(json.dumps(spec))
+        assert not [p for p, _, _ in fake_api.calls if "%" in p or ".." in p]
 
     def test_list_path_returns_rows_with_metadata(self, fake_api):
         df = make_client().execute_query('{"path": "/apis/apps/v1/namespaces/payments/deployments", "params": {"labelSelector": "app.kubernetes.io/name=checkout"}}')

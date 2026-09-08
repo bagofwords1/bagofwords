@@ -63,6 +63,28 @@ access file), with a numbered setup guide rendered above the connect form.
    (`LOG_ACCEPT`), pinned by `TestLogs.test_single_pod_all_containers_and_params`,
    and re-verified through the client against both clusters.
 
+## Review fixes (PR #1087)
+
+7. **Percent-encoded Secrets bypass** (reviewer confirmed on a real apiserver:
+   `/namespaces/default/%73ecrets` and `default%2Fsecrets` returned the Secret):
+   every path segment and every `name`/`namespace`/`pod` value must now be a
+   plain Kubernetes name; `?`, `#`, `%` and `..` are refused before any request.
+8. **Unbounded streams through the escape hatch**: `watch`, `follow`,
+   `timeoutSeconds`, `allowWatchBookmarks`, `sendInitialEvents` (any case) and
+   non-object `params` are refused.
+9. **CRD probe ignored the namespace allowlist** and advertised tables that
+   always returned empty — the probe is scoped like every other query.
+10. **Invalid `grep`** raised a raw `re.error`; now a `ValueError` naming `grep`,
+    with no log request issued.
+11. **Clipboard fallback** removes its temp textarea in a `finally`, so a
+    throwing `execCommand` cannot leak one per click; `UToggle` listener back
+    to `@change` (Nuxt UI's Toggle never emits `input`; the watcher already
+    clears the result); the no-op `KubernetesClient = KubernetesClient` alias
+    is gone.
+   Verified by 19 new unit tests (132 total), the kind cluster (legitimate
+   paths/names/logs/CRDs/escape hatch unchanged) and a Playwright run on an
+   insecure-context origin (0 leaked textareas even when `execCommand` throws).
+
 ## Loop A — deterministic (no cluster)
 
 ```bash

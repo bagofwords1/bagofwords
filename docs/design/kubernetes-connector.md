@@ -563,6 +563,20 @@ skill), mirroring `docs/feedback-loops/zabbix-connector.md`.
   application/vnd.kubernetes.protobuf are accepted", while `*/*` (what
   kubectl sends) returned the text; kind v1.36 accepted either. The wildcard
   fallback is pinned by a unit test.
+- **The Secrets guard must reject encoding, not just compare segments** —
+  review finding, confirmed on a real apiserver: `/namespaces/default/%73ecrets`
+  and `default%2Fsecrets` passed a literal segment check and returned the
+  Secret (urllib3 sends escapes verbatim; the apiserver routes on the decoded
+  path). Every path segment and every `name`/`namespace`/`pod` value must be
+  a plain Kubernetes name (`[A-Za-z0-9][A-Za-z0-9._-]*`, no `%`, `/`, `?`,
+  `#`, `..`) — rejecting is simpler and safer than decoding.
+- **Refuse streaming query parameters on the escape hatch** — `watch=true`
+  on a list or `follow=true` on a log path turns the request into an
+  open-ended chunked stream; urllib3's read timeout only measures gaps
+  between chunks, so the worker thread is pinned and the body buffered for
+  the apiserver's watch timeout (30–60 min). `watch`, `follow`,
+  `timeoutSeconds`, `allowWatchBookmarks`, `sendInitialEvents` are refused,
+  as is any `?` in `path`.
 - **Users will paste their laptop kubeconfig** — `parse_access_file`
   rejects `exec`/client-cert/auth-provider stanzas by name and the message
   points back at step 2 of the guide. A hand-built file carrying a
