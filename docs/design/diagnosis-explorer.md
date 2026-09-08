@@ -204,8 +204,16 @@ Writers (all idempotent, all in `backend/app/services/diagnosis/rollups.py`):
 | Usage record written after run finish (late judge calls) | `rollup_usage(agent_execution_id, record)` | cost/token increments, `cost_is_partial` |
 
 Backfill: `backend/scripts/backfill_agent_execution_rollups.py`, batched by
-1,000, resumable, safe to re-run. Historical cost is best-effort (next
-section).
+1,000, resumable, safe to re-run. What it recovers:
+
+| Columns | Source | Accuracy |
+|---|---|---|
+| prompt/error text, platform, judge scores | `completions` (system → parent user completion) | exact |
+| feedback | `completion_feedback` | exact |
+| tool counts, tool tokens | `tool_executions` | exact |
+| planner tokens, timings, version | the run row itself | exact |
+| cost, tokens, model, provider | `llm_usage_records` on the run's `report_id` with `created_at` inside `[started_at, completed_at]`; the planner-scope record gives `primary_model_id` | near-exact: runs on one report are sequential, so the window is the run. `cost_is_partial` is set when a record on the report falls outside every run's window (judge/follow-up calls) or two runs overlap. Where the usage-limits ledger (`usage_events`, keyed by user completion id) exists, it is the primary source and the window sum a cross-check. |
+| cost for runs before 2026-06-24 | none — usage records predate the attribution columns and carry no `report_id` | not recoverable; shown as unknown, not zero (same rows the Cost tab already reports as unattributed) |
 
 ### Cost and model attribution per run
 
