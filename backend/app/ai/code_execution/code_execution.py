@@ -18,7 +18,12 @@ from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, Frozen
 
 from app.ai.http.safe_client import SafeHttpClient
 from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
-from app.ai.code_execution.sandbox.namespace import (
+from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
+    # READ_TEXT_* and _build_read_text stay importable from this module: tests
+    # and callers reference them here, the sandbox child imports them from
+    # sandbox.namespace.
+    READ_TEXT_MAX_CHARS,
+    READ_TEXT_REFUSES as _READ_TEXT_REFUSES,
     build_loadable_closures as _build_loadable_closures_impl,
     build_read_text as _build_read_text,
     invoke_generate_df as _invoke_generate_df_impl,
