@@ -284,3 +284,111 @@ def test_agent_admin_eval_writes_are_scoped(test_client, training_world):
     assert _case(u["token"], [agent1]).status_code == 403
     # Control: full admin can still create a global eval.
     assert _case(admin["token"], []).status_code == 200
+
+
+# ── Entry gate on CREATE (home prompt box picks Training before a report exists) ──
+#
+# The home page creates the report and hands off to it; the mode picked there
+# must land on the report row itself (otherwise the report opens as chat and
+# every message after the first runs as chat). Same gate as the PUT path.
+
+def _create_report(test_client, token, org_id, ds_ids, mode=None):
+    body = {"title": "from home", "data_sources": ds_ids}
+    if mode is not None:
+        body["mode"] = mode
+    return test_client.post("/api/reports", json=body, headers=_hdr(token, org_id))
+
+
+def _get_report(test_client, token, org_id, report_id):
+    r = test_client.get(f"/api/reports/{report_id}", headers=_hdr(token, org_id))
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+@pytest.mark.e2e
+def test_create_report_defaults_to_chat_mode(test_client, training_world):
+    """Omitting mode on create yields a chat report (unchanged default)."""
+    org = training_world["org_id"]
+    u = training_world["u"]
+    r = _create_report(test_client, u["token"], org, [training_world["agent1"]["id"]])
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["mode"] == "chat"
+    assert _get_report(test_client, u["token"], org, r.json()["id"])["mode"] == "chat"
+
+
+@pytest.mark.e2e
+def test_agent_admin_can_create_report_in_training_mode(test_client, training_world):
+    """An agent admin who picks Training on the home prompt box gets a report
+    that IS in training mode — on the create response and when re-fetched."""
+    org = training_world["org_id"]
+    u = training_world["u"]
+    r = _create_report(test_client, u["token"], org, [training_world["agent2"]["id"]], mode="training")
+    assert r.status_code in (200, 201), r.text
+    assert r.json()["mode"] == "training"
+    assert _get_report(test_client, u["token"], org, r.json()["id"])["mode"] == "training"
+
+
+@pytest.mark.e2e
+def test_member_cannot_create_report_in_training_mode(test_client, training_world):
+    """A plain member is denied a training report on that agent (403), and no
+    report is left behind — but a chat report on the same agent still works."""
+    org = training_world["org_id"]
+    u = training_world["u"]
+    before = test_client.get("/api/reports", headers=_hdr(u["token"], org))
+    assert before.status_code == 200, before.text
+    before_total = before.json().get("total", len(before.json().get("items", [])))
+
+    denied = _create_report(test_client, u["token"], org, [training_world["agent1"]["id"]], mode="training")
+    assert denied.status_code == 403, denied.text
+
+    after = test_client.get("/api/reports", headers=_hdr(u["token"], org))
+    after_total = after.json().get("total", len(after.json().get("items", [])))
+    assert after_total == before_total
+
+    ok = _create_report(test_client, u["token"], org, [training_world["agent1"]["id"]], mode="chat")
+    assert ok.status_code in (200, 201), ok.text
+    assert ok.json()["mode"] == "chat"
+
+
+@pytest.mark.e2e
+def test_create_training_report_requires_manage_on_every_agent(test_client, training_world):
+    """Cross-agent: a user who manages agent2 but only views agent1 can create a
+    training report on agent2, not on agent1, and not on both together."""
+    org = training_world["org_id"]
+    u = training_world["u"]
+    a1, a2 = training_world["agent1"]["id"], training_world["agent2"]["id"]
+
+    assert _create_report(test_client, u["token"], org, [a2], mode="training").status_code in (200, 201)
+    assert _create_report(test_client, u["token"], org, [a1], mode="training").status_code == 403
+    assert _create_report(test_client, u["token"], org, [a1, a2], mode="training").status_code == 403
+
+
+@pytest.mark.e2e
+def test_full_admin_can_create_training_report_on_any_agent(test_client, training_world):
+    org = training_world["org_id"]
+    admin = training_world["admin"]
+    for agent in ("agent1", "agent2"):
+        r = _create_report(test_client, admin["token"], org, [training_world[agent]["id"]], mode="training")
+        assert r.status_code in (200, 201), f"{agent}: {r.text}"
+        assert r.json()["mode"] == "training"
+
+
+@pytest.mark.e2e
+def test_create_training_report_blocked_when_org_flag_disabled(
+    test_client, training_world, update_organization_settings
+):
+    """With enable_training_mode off, nobody can create a training report —
+    not the agent admin, not the full admin."""
+    org = training_world["org_id"]
+    admin = training_world["admin"]
+    u = training_world["u"]
+    update_organization_settings(
+        config={"enable_training_mode": {"value": False}},
+        user_token=admin["token"],
+        org_id=org,
+    )
+    a2 = training_world["agent2"]["id"]
+    assert _create_report(test_client, u["token"], org, [a2], mode="training").status_code == 400
+    assert _create_report(test_client, admin["token"], org, [a2], mode="training").status_code == 400
+    # Chat creation is unaffected by the flag.
+    assert _create_report(test_client, u["token"], org, [a2], mode="chat").status_code in (200, 201)

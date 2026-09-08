@@ -1732,7 +1732,11 @@ async function createReport() {
                 title: 'untitled report',
                 files: successfullyUploadedFiles.value?.map((file: any) => file.id) || [],
                 new_message: text.value,
-                data_sources: selectedDataSources.value?.map((ds: any) => ds.id) || []
+                data_sources: selectedDataSources.value?.map((ds: any) => ds.id) || [],
+                // Persist the picker's mode on the report itself. The query
+                // param below only shapes the FIRST completion; without this
+                // the report loads as chat and the picker snaps back.
+                mode: mode.value
             })
         })
         if ((response as any)?.error?.value) {
