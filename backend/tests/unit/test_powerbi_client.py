@@ -472,6 +472,30 @@ class TestInternalColumnFiltering:
         assert "RowNumber-<GUID>" in guide
         assert "cannot be determined" in guide
 
+    def test_dax_guide_pushes_filter_and_aggregation_into_dax(self):
+        """The guide must teach the efficient shape, not just valid syntax.
+
+        Observed in production and reproduced live: for "total quantity by
+        product in a date range" the coder ran `EVALUATE FILTER(Sales, ...)`
+        (every row, every column, over the REST API) and then `groupby` in
+        pandas - the whole-table transfer was the slow part. The guide has to
+        show the filter INSIDE SUMMARIZECOLUMNS/CALCULATETABLE, name the
+        anti-pattern, and warn about `AND` (a syntax error the coder also hit).
+        """
+        c = _mk_client()
+        guide = c.system_prompt()
+        assert "Query Efficiency" in guide
+        # Filtered aggregation in one query - both forms.
+        assert "FILTER(ALL(Sales[OrderDate])" in guide
+        assert "CALCULATETABLE(" in guide
+        assert "SELECTCOLUMNS(" in guide
+        # The anti-pattern is named explicitly so the coder recognises it.
+        assert "groupby" in guide
+        assert "SLOW" in guide
+        # Infix AND/OR is a DAX syntax error; && / || are the operators.
+        assert "`&&`" in guide and "`||`" in guide
+        assert "syntax error" in guide
+
 
 # ---------- Incremental discovery (prior_tables) ---------- #
 

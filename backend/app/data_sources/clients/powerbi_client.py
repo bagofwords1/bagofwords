@@ -1971,25 +1971,52 @@ Every table's `datasetId`/`workspaceId` are shown in the schema context — NEVE
 EVALUATE <table_expression>
 ```
 
+### Query Efficiency (read before writing any DAX)
+
+executeQueries streams every returned row through a REST API as JSON. A query's
+cost is the number of ROWS and COLUMNS it returns, not the work the engine does.
+Push filtering and aggregation INTO the DAX so only the answer comes back.
+
+- ONE query per result. Never run an exploratory query and then a second one
+  for the answer, and never fetch a table and then filter/group/sum it in
+  pandas - each round trip is a full API call and a full row transfer.
+- Aggregation asks ("total by X", "count per Y", "average") -> SUMMARIZECOLUMNS
+  with the date/dimension filter passed as a filter-table argument (see below).
+  `EVALUATE FILTER(Table, ...)` followed by `groupby` in Python is the slow path.
+- Filters go inside CALCULATETABLE or a SUMMARIZECOLUMNS filter argument, never
+  a client-side scan of the whole table.
+- Row listings -> project only the columns the answer needs with SELECTCOLUMNS,
+  filter inside CALCULATETABLE, and cap with TOPN when the ask is a top-N.
+  A bare `EVALUATE Table` is only for small dimension tables.
+- Cross-table: group by Dim[Column] with SUM(Fact[Value]) and let the model's
+  relationships join; do not call RELATED() row-by-row over a large fact table.
+- Logical operators are `&&` and `||`. `AND`/`OR` are functions (`AND(a, b)`),
+  not infix keywords - `a AND b` is a syntax error.
+
 ### Examples
 
 ```dax
--- Get all rows (quote table name if it has spaces)
-EVALUATE Customers
-EVALUATE 'Order Details'
-
--- Aggregate with grouping
+-- Total by group for a date range: ONE query, filter and aggregation inside
 EVALUATE
 SUMMARIZECOLUMNS(
-    Orders[Category],
-    "Total", SUM(Orders[Amount])
+    Sales[Product],
+    FILTER(ALL(Sales[OrderDate]),
+           Sales[OrderDate] >= DATE(2026, 1, 1) && Sales[OrderDate] <= DATE(2026, 3, 31)),
+    "TotalQuantity", SUM(Sales[Quantity])
 )
 
--- Filter data
+-- Same with CALCULATETABLE (filter over a single column)
 EVALUATE
-FILTER(
-    Customers,
-    Customers[Status] = "Active"
+CALCULATETABLE(
+    SUMMARIZECOLUMNS(Sales[Product], "TotalQuantity", SUM(Sales[Quantity])),
+    Sales[OrderDate] >= DATE(2026, 1, 1) && Sales[OrderDate] <= DATE(2026, 3, 31)
+)
+
+-- Row listing: only the needed columns, filtered in the engine
+EVALUATE
+SELECTCOLUMNS(
+    CALCULATETABLE(Sales, Sales[Status] = "Active"),
+    "OrderID", Sales[OrderID], "Product", Sales[Product], "Quantity", Sales[Quantity]
 )
 
 -- Top N results
@@ -1998,6 +2025,12 @@ TOPN(10,
     SUMMARIZECOLUMNS(Customers[Name], "Total", SUM(Orders[Value])),
     [Total], DESC
 )
+
+-- Small dimension table only (quote table names with spaces)
+EVALUATE 'Order Details'
+
+-- SLOW - do not do this: returns every row and column, then aggregates in pandas
+EVALUATE FILTER(Sales, Sales[OrderDate] >= DATE(2026, 1, 1))
 ```
 
 ### Key DAX Syntax Rules
