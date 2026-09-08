@@ -1,0 +1,55 @@
+Main Org
+New report
+Automations
+Dashboards
+Notifications
+Agents
+Prompts
+Monitoring
+PROJECTS
+View all
+New project
+REPORTS
+View all
+bow-runtime-app Pod Logs
+untitled report
+New report
+Admin
+A
+Agent Admin
+v0.0.555
+bow-runtime-app Pod Logs
+Share
+Sidebar
+Show me the last 20 log lines of the bow-runtime-app pod in the bow-test namespace.
+A
+Copy
+Sep 7, 2:00 PM
+2 steps · 1s
+Created Data
+logs
+, 
+pods
+13.7s
+
+The pod bow-runtime-app-645f777765-qdqxg (namespace bow-test, container server) only has 9 log lines available — that’s everything it has emitted, so fewer than the 20 you asked for. The table above shows them in chronological order.
+
+What they show:
+
+08:13 — server startup: Serving HTTP on 0.0.0.0 port 9191
+
+08:37 → 09:52 — four repeating request pairs: a GET / (200) followed ~2s later by a PUT /sources.tgz (201), at 08:37, 08:50, 08:59, and 09:52
+
+No errors, warnings, or restarts in the log — just healthy startup and periodic source-upload traffic.
+
+Sep 7, 2:00 PM
+Follow up
+Show logs from all pods in the bow-test namespace
+Check the deployment status of bow-runtime-app
+Are there any errors or warnings in recent Kubernetes events for bow-test?
+What other pods are running in the bow-test namespace?
+Show logs from the last hour instead of just the last 20 lines
+Kubernetes (microk8s)
+Chat
+Usage this month
+Claude Fable 5

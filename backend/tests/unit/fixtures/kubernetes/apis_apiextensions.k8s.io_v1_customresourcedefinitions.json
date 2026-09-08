@@ -1,0 +1,95 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "apiextensions.k8s.io/v1",
+   "kind": "CustomResourceDefinition",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apiextensions.k8s.io/v1\",\"kind\":\"CustomResourceDefinition\",\"metadata\":{\"annotations\":{},\"name\":\"widgets.example.com\"},\"spec\":{\"group\":\"example.com\",\"names\":{\"kind\":\"Widget\",\"plural\":\"widgets\",\"singular\":\"widget\"},\"scope\":\"Namespaced\",\"versions\":[{\"name\":\"v1\",\"schema\":{\"openAPIV3Schema\":{\"properties\":{\"spec\":{\"properties\":{\"owner\":{\"type\":\"string\"},\"replicas\":{\"type\":\"integer\"},\"size\":{\"type\":\"string\"}},\"type\":\"object\"},\"status\":{\"type\":\"object\",\"x-kubernetes-preserve-unknown-fields\":true}},\"type\":\"object\"}},\"served\":true,\"storage\":true}]}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "generation": 1,
+    "name": "widgets.example.com",
+    "resourceVersion": "672",
+    "uid": "448d7356-7083-4453-8b72-0f077bb70bf9"
+   },
+   "spec": {
+    "conversion": {
+     "strategy": "None"
+    },
+    "group": "example.com",
+    "names": {
+     "kind": "Widget",
+     "listKind": "WidgetList",
+     "plural": "widgets",
+     "singular": "widget"
+    },
+    "scope": "Namespaced",
+    "versions": [
+     {
+      "name": "v1",
+      "schema": {
+       "openAPIV3Schema": {
+        "properties": {
+         "spec": {
+          "properties": {
+           "owner": {
+            "type": "string"
+           },
+           "replicas": {
+            "type": "integer"
+           },
+           "size": {
+            "type": "string"
+           }
+          },
+          "type": "object"
+         },
+         "status": {
+          "type": "object",
+          "x-kubernetes-preserve-unknown-fields": true
+         }
+        },
+        "type": "object"
+       }
+      },
+      "served": true,
+      "storage": true
+     }
+    ]
+   },
+   "status": {
+    "acceptedNames": {
+     "kind": "Widget",
+     "listKind": "WidgetList",
+     "plural": "widgets",
+     "singular": "widget"
+    },
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:35Z",
+      "message": "no conflicts found",
+      "reason": "NoConflicts",
+      "status": "True",
+      "type": "NamesAccepted"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:11:35Z",
+      "message": "the initial names have been accepted",
+      "reason": "InitialNamesAccepted",
+      "status": "True",
+      "type": "Established"
+     }
+    ],
+    "storedVersions": [
+     "v1"
+    ]
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

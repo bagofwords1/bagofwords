@@ -1,0 +1,124 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "StatefulSet",
+   "metadata": {
+    "annotations": {
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"StatefulSet\",\"metadata\":{\"annotations\":{},\"name\":\"catalog-db\",\"namespace\":\"inventory\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"catalog-db\"}},\"serviceName\":\"catalog-db\",\"template\":{\"metadata\":{\"labels\":{\"app\":\"catalog-db\",\"app.kubernetes.io/name\":\"catalog-db\"}},\"spec\":{\"containers\":[{\"command\":[\"sh\",\"-c\",\"echo 'db ready'; sleep 3600\"],\"image\":\"busybox:1.36\",\"name\":\"db\",\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"64Mi\"},\"requests\":{\"cpu\":\"10m\",\"memory\":\"16Mi\"}},\"volumeMounts\":[{\"mountPath\":\"/data\",\"name\":\"data\"}]}]}},\"volumeClaimTemplates\":[{\"metadata\":{\"name\":\"data\"},\"spec\":{\"accessModes\":[\"ReadWriteOnce\"],\"resources\":{\"requests\":{\"storage\":\"1Gi\"}}}}]}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 2,
+    "name": "catalog-db",
+    "namespace": "inventory",
+    "resourceVersion": "1771",
+    "uid": "0e630c22-1d1c-4012-b4ec-c43f8e87eb8a"
+   },
+   "spec": {
+    "persistentVolumeClaimRetentionPolicy": {
+     "whenDeleted": "Retain",
+     "whenScaled": "Retain"
+    },
+    "podManagementPolicy": "OrderedReady",
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "catalog-db"
+     }
+    },
+    "serviceName": "catalog-db",
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "catalog-db",
+       "app.kubernetes.io/name": "catalog-db"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "echo 'db ready'; sleep 3600"
+        ],
+        "image": "busybox:1.36",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "db",
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/data",
+          "name": "data"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    },
+    "updateStrategy": {
+     "rollingUpdate": {
+      "partition": 0
+     },
+     "type": "RollingUpdate"
+    },
+    "volumeClaimTemplates": [
+     {
+      "apiVersion": "v1",
+      "kind": "PersistentVolumeClaim",
+      "metadata": {
+       "name": "data"
+      },
+      "spec": {
+       "accessModes": [
+        "ReadWriteOnce"
+       ],
+       "resources": {
+        "requests": {
+         "storage": "1Gi"
+        }
+       },
+       "volumeMode": "Filesystem"
+      },
+      "status": {
+       "phase": "Pending"
+      }
+     }
+    ]
+   },
+   "status": {
+    "availableReplicas": 1,
+    "collisionCount": 0,
+    "currentReplicas": 1,
+    "currentRevision": "catalog-db-d6556b4db",
+    "observedGeneration": 2,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "updateRevision": "catalog-db-d6556b4db",
+    "updatedReplicas": 1
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

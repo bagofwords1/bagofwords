@@ -92,6 +92,11 @@ DATA_SOURCES = [
     # against a live account configured in integrations.json (skips otherwise):
     #   {"monday": {"enabled": true, "api_token": "..."}}
     "monday",
+    # Container mode (testcontainers k3s): the k3s admin kubeconfig is used ONLY
+    # to seed tools/kubernetes/{rbac.yaml,manifests}; the client under test then
+    # authenticates with the service-account access file exactly the way a
+    # customer connection does. `{"kubernetes": {"enabled": true, "container": true}}`.
+    "kubernetes",
 ]
 
 
@@ -196,6 +201,66 @@ try:
             "port": c.get_exposed_port(9200),
         },
         "seed_fn": _seed_opensearch,
+    }
+except ImportError:
+    pass
+
+try:
+    from testcontainers.k3s import K3SContainer
+
+    _K8S_TOOLS = os.path.join(os.path.dirname(__file__), "..", "..", "..", "tools", "kubernetes")
+
+    class _K3sContainer(K3SContainer):
+        """k3s with tools/kubernetes mounted read-only at /bow so the seed can
+        `kubectl apply` inside the container — no host kubectl needed."""
+
+        def __init__(self, image="rancher/k3s:v1.31.4-k3s1"):
+            super().__init__(image)
+            self.with_volume_mapping(os.path.abspath(_K8S_TOOLS), "/bow", "ro")
+
+    def _k3s_exec(container, *cmd: str) -> str:
+        code, out = container.exec(list(cmd))
+        text = out.decode("utf-8", errors="replace") if isinstance(out, bytes) else str(out)
+        assert code == 0, f"{' '.join(cmd)} failed ({code}): {text[-800:]}"
+        return text
+
+    def _seed_kubernetes(container) -> None:
+        import time
+        _k3s_exec(container, "kubectl", "apply", "-f", "/bow/rbac.yaml")
+        _k3s_exec(container, "kubectl", "apply", "-f", "/bow/manifests/50-crd.yaml")
+        _k3s_exec(container, "kubectl", "wait", "--for=condition=established", "--timeout=60s", "crd/widgets.example.com")
+        _k3s_exec(container, "kubectl", "apply", "-f", "/bow/manifests/")
+        # The token controller populates the Secret asynchronously.
+        for _ in range(60):
+            tok = _k3s_exec(container, "kubectl", "-n", "bagofwords", "get", "secret", "bagofwords-reader-token",
+                            "-o", "jsonpath={.data.token}").strip()
+            if tok:
+                return
+            time.sleep(1)
+        raise AssertionError("service-account token was never populated")
+
+    def _k3s_access_file(container) -> str:
+        import base64
+        import yaml
+        ca_b64 = _k3s_exec(container, "kubectl", "-n", "bagofwords", "get", "secret", "bagofwords-reader-token",
+                           "-o", "jsonpath={.data.ca\\.crt}").strip()
+        tok_b64 = _k3s_exec(container, "kubectl", "-n", "bagofwords", "get", "secret", "bagofwords-reader-token",
+                            "-o", "jsonpath={.data.token}").strip()
+        server = yaml.safe_load(container.config_yaml())["clusters"][0]["cluster"]["server"]
+        # What tools/kubernetes/print_access_file.sh prints.
+        return yaml.safe_dump({
+            "apiVersion": "v1", "kind": "Config",
+            "clusters": [{"name": "bagofwords", "cluster": {"server": server, "certificate-authority-data": ca_b64}}],
+            "users": [{"name": "bagofwords-reader", "user": {"token": base64.b64decode(tok_b64).decode()}}],
+            "contexts": [{"name": "bagofwords", "context": {"cluster": "bagofwords", "user": "bagofwords-reader"}}],
+            "current-context": "bagofwords",
+        })
+
+    CONTAINER_REGISTRY["kubernetes"] = {
+        "container_cls": _K3sContainer,
+        "image": "rancher/k3s:v1.31.4-k3s1",
+        "get_kwargs": lambda c: {"access_file": _k3s_access_file(c)},
+        "seed_fn": _seed_kubernetes,
     }
 except ImportError:
     pass

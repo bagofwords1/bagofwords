@@ -1,0 +1,8 @@
+# Bag of Words Kubernetes connector sandbox — one control-plane + one worker so
+# nodes, taints and scheduling failures are real.
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+name: bow-k8s
+nodes:
+  - role: control-plane
+  - role: worker

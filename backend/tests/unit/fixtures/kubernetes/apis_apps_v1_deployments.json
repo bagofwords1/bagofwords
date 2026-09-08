@@ -1,0 +1,937 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "1",
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"name\":\"catalog-api\",\"namespace\":\"inventory\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"catalog-api\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"catalog-api\",\"app.kubernetes.io/name\":\"catalog-api\"}},\"spec\":{\"containers\":[{\"image\":\"nginx:1.27-alpine\",\"name\":\"api\",\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"64Mi\"},\"requests\":{\"cpu\":\"20m\",\"memory\":\"16Mi\"}}}]}}}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "generation": 1,
+    "name": "catalog-api",
+    "namespace": "inventory",
+    "resourceVersion": "821",
+    "uid": "2e80df17-00c6-4763-845c-7c485877f0b1"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "catalog-api"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": "25%"
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "catalog-api",
+       "app.kubernetes.io/name": "catalog-api"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "image": "nginx:1.27-alpine",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "api",
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "20m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:54Z",
+      "lastUpdateTime": "2026-09-06T16:11:54Z",
+      "message": "Deployment has minimum availability.",
+      "reason": "MinimumReplicasAvailable",
+      "status": "True",
+      "type": "Available"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:11:35Z",
+      "lastUpdateTime": "2026-09-06T16:11:54Z",
+      "message": "ReplicaSet \"catalog-api-6498598784\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     }
+    ],
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0,
+    "updatedReplicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:13Z",
+    "generation": 1,
+    "labels": {
+     "k8s-app": "kube-dns"
+    },
+    "name": "coredns",
+    "namespace": "kube-system",
+    "resourceVersion": "522",
+    "uid": "181f8bdb-d29b-4858-a705-2328f0927eb2"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 2,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "k8s-app": "kube-dns"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": 1
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "k8s-app": "kube-dns"
+      }
+     },
+     "spec": {
+      "affinity": {
+       "podAntiAffinity": {
+        "preferredDuringSchedulingIgnoredDuringExecution": [
+         {
+          "podAffinityTerm": {
+           "labelSelector": {
+            "matchExpressions": [
+             {
+              "key": "k8s-app",
+              "operator": "In",
+              "values": [
+               "kube-dns"
+              ]
+             }
+            ]
+           },
+           "topologyKey": "kubernetes.io/hostname"
+          },
+          "weight": 100
+         }
+        ]
+       }
+      },
+      "containers": [
+       {
+        "args": [
+         "-conf",
+         "/etc/coredns/Corefile"
+        ],
+        "image": "registry.k8s.io/coredns/coredns:v1.14.2",
+        "imagePullPolicy": "IfNotPresent",
+        "livenessProbe": {
+         "failureThreshold": 5,
+         "httpGet": {
+          "path": "/health",
+          "port": "liveness-probe",
+          "scheme": "HTTP"
+         },
+         "initialDelaySeconds": 60,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 5
+        },
+        "name": "coredns",
+        "ports": [
+         {
+          "containerPort": 53,
+          "name": "dns",
+          "protocol": "UDP"
+         },
+         {
+          "containerPort": 53,
+          "name": "dns-tcp",
+          "protocol": "TCP"
+         },
+         {
+          "containerPort": 9153,
+          "name": "metrics",
+          "protocol": "TCP"
+         },
+         {
+          "containerPort": 8080,
+          "name": "liveness-probe",
+          "protocol": "TCP"
+         },
+         {
+          "containerPort": 8181,
+          "name": "readiness-probe",
+          "protocol": "TCP"
+         }
+        ],
+        "readinessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/ready",
+          "port": "readiness-probe",
+          "scheme": "HTTP"
+         },
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "resources": {
+         "limits": {
+          "memory": "170Mi"
+         },
+         "requests": {
+          "cpu": "100m",
+          "memory": "70Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "add": [
+           "NET_BIND_SERVICE"
+          ],
+          "drop": [
+           "ALL"
+          ]
+         },
+         "readOnlyRootFilesystem": true
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/coredns",
+          "name": "config-volume",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "Default",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-cluster-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "coredns",
+      "serviceAccountName": "coredns",
+      "terminationGracePeriodSeconds": 30,
+      "tolerations": [
+       {
+        "key": "CriticalAddonsOnly",
+        "operator": "Exists"
+       },
+       {
+        "effect": "NoSchedule",
+        "key": "node-role.kubernetes.io/control-plane"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "items": [
+          {
+           "key": "Corefile",
+           "path": "Corefile"
+          }
+         ],
+         "name": "coredns"
+        },
+        "name": "config-volume"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:33Z",
+      "lastUpdateTime": "2026-09-06T16:11:33Z",
+      "message": "Deployment has minimum availability.",
+      "reason": "MinimumReplicasAvailable",
+      "status": "True",
+      "type": "Available"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:11:21Z",
+      "lastUpdateTime": "2026-09-06T16:11:33Z",
+      "message": "ReplicaSet \"coredns-589f44dc88\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     }
+    ],
+    "observedGeneration": 1,
+    "readyReplicas": 2,
+    "replicas": 2,
+    "terminatingReplicas": 0,
+    "updatedReplicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "2",
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"k8s-app\":\"metrics-server\"},\"name\":\"metrics-server\",\"namespace\":\"kube-system\"},\"spec\":{\"selector\":{\"matchLabels\":{\"k8s-app\":\"metrics-server\"}},\"strategy\":{\"rollingUpdate\":{\"maxUnavailable\":0}},\"template\":{\"metadata\":{\"labels\":{\"k8s-app\":\"metrics-server\"}},\"spec\":{\"containers\":[{\"args\":[\"--cert-dir=/tmp\",\"--secure-port=10250\",\"--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname\",\"--kubelet-use-node-status-port\",\"--metric-resolution=15s\"],\"image\":\"registry.k8s.io/metrics-server/metrics-server:v0.9.0\",\"imagePullPolicy\":\"IfNotPresent\",\"livenessProbe\":{\"failureThreshold\":3,\"httpGet\":{\"path\":\"/livez\",\"port\":\"https\",\"scheme\":\"HTTPS\"},\"periodSeconds\":10},\"name\":\"metrics-server\",\"ports\":[{\"containerPort\":10250,\"name\":\"https\",\"protocol\":\"TCP\"}],\"readinessProbe\":{\"failureThreshold\":3,\"httpGet\":{\"path\":\"/readyz\",\"port\":\"https\",\"scheme\":\"HTTPS\"},\"initialDelaySeconds\":20,\"periodSeconds\":10},\"resources\":{\"requests\":{\"cpu\":\"100m\",\"memory\":\"200Mi\"}},\"securityContext\":{\"allowPrivilegeEscalation\":false,\"capabilities\":{\"drop\":[\"ALL\"]},\"readOnlyRootFilesystem\":true,\"runAsNonRoot\":true,\"runAsUser\":1000,\"seccompProfile\":{\"type\":\"RuntimeDefault\"}},\"volumeMounts\":[{\"mountPath\":\"/tmp\",\"name\":\"tmp-dir\"}]}],\"nodeSelector\":{\"kubernetes.io/os\":\"linux\"},\"priorityClassName\":\"system-cluster-critical\",\"serviceAccountName\":\"metrics-server\",\"volumes\":[{\"emptyDir\":{},\"name\":\"tmp-dir\"}]}}}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 2,
+    "labels": {
+     "k8s-app": "metrics-server"
+    },
+    "name": "metrics-server",
+    "namespace": "kube-system",
+    "resourceVersion": "925",
+    "uid": "16328efc-ef57-40b5-9bbd-702becd81e84"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "k8s-app": "metrics-server"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": 0
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "k8s-app": "metrics-server"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "args": [
+         "--cert-dir=/tmp",
+         "--secure-port=10250",
+         "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+         "--kubelet-use-node-status-port",
+         "--metric-resolution=15s",
+         "--kubelet-insecure-tls"
+        ],
+        "image": "registry.k8s.io/metrics-server/metrics-server:v0.9.0",
+        "imagePullPolicy": "IfNotPresent",
+        "livenessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/livez",
+          "port": "https",
+          "scheme": "HTTPS"
+         },
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "name": "metrics-server",
+        "ports": [
+         {
+          "containerPort": 10250,
+          "name": "https",
+          "protocol": "TCP"
+         }
+        ],
+        "readinessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/readyz",
+          "port": "https",
+          "scheme": "HTTPS"
+         },
+         "initialDelaySeconds": 20,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "resources": {
+         "requests": {
+          "cpu": "100m",
+          "memory": "200Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "readOnlyRootFilesystem": true,
+         "runAsNonRoot": true,
+         "runAsUser": 1000,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/tmp",
+          "name": "tmp-dir"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-cluster-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "metrics-server",
+      "serviceAccountName": "metrics-server",
+      "terminationGracePeriodSeconds": 30,
+      "volumes": [
+       {
+        "emptyDir": {},
+        "name": "tmp-dir"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:12:08Z",
+      "lastUpdateTime": "2026-09-06T16:12:08Z",
+      "message": "Deployment has minimum availability.",
+      "reason": "MinimumReplicasAvailable",
+      "status": "True",
+      "type": "Available"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:11:34Z",
+      "lastUpdateTime": "2026-09-06T16:12:08Z",
+      "message": "ReplicaSet \"metrics-server-5b58578978\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     }
+    ],
+    "observedGeneration": 2,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0,
+    "updatedReplicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "1",
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"name\":\"local-path-provisioner\",\"namespace\":\"local-path-storage\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"local-path-provisioner\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"local-path-provisioner\"}},\"spec\":{\"containers\":[{\"command\":[\"local-path-provisioner\",\"--debug\",\"start\",\"--helper-image\",\"docker.io/kindest/local-path-helper:v20260131-7181c60a\",\"--config\",\"/etc/config/config.json\"],\"env\":[{\"name\":\"POD_NAMESPACE\",\"valueFrom\":{\"fieldRef\":{\"fieldPath\":\"metadata.namespace\"}}},{\"name\":\"CONFIG_MOUNT_PATH\",\"value\":\"/etc/config/\"}],\"image\":\"docker.io/kindest/local-path-provisioner:v20260521-9fb22683\",\"imagePullPolicy\":\"IfNotPresent\",\"name\":\"local-path-provisioner\",\"volumeMounts\":[{\"mountPath\":\"/etc/config/\",\"name\":\"config-volume\"}]}],\"nodeSelector\":{\"kubernetes.io/os\":\"linux\"},\"serviceAccountName\":\"local-path-provisioner-service-account\",\"tolerations\":[{\"effect\":\"NoSchedule\",\"key\":\"node-role.kubernetes.io/control-plane\",\"operator\":\"Equal\"},{\"effect\":\"NoSchedule\",\"key\":\"node-role.kubernetes.io/master\",\"operator\":\"Equal\"}],\"volumes\":[{\"configMap\":{\"name\":\"local-path-config\"},\"name\":\"config-volume\"}]}}}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:15Z",
+    "generation": 1,
+    "name": "local-path-provisioner",
+    "namespace": "local-path-storage",
+    "resourceVersion": "502",
+    "uid": "0ac57154-0d3b-477f-b29e-e57b72b33002"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "local-path-provisioner"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": "25%"
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "local-path-provisioner"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "local-path-provisioner",
+         "--debug",
+         "start",
+         "--helper-image",
+         "docker.io/kindest/local-path-helper:v20260131-7181c60a",
+         "--config",
+         "/etc/config/config.json"
+        ],
+        "env": [
+         {
+          "name": "POD_NAMESPACE",
+          "valueFrom": {
+           "fieldRef": {
+            "apiVersion": "v1",
+            "fieldPath": "metadata.namespace"
+           }
+          }
+         },
+         {
+          "name": "CONFIG_MOUNT_PATH",
+          "value": "/etc/config/"
+         }
+        ],
+        "image": "docker.io/kindest/local-path-provisioner:v20260521-9fb22683",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "local-path-provisioner",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/config/",
+          "name": "config-volume"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "local-path-provisioner-service-account",
+      "serviceAccountName": "local-path-provisioner-service-account",
+      "terminationGracePeriodSeconds": 30,
+      "tolerations": [
+       {
+        "effect": "NoSchedule",
+        "key": "node-role.kubernetes.io/control-plane",
+        "operator": "Equal"
+       },
+       {
+        "effect": "NoSchedule",
+        "key": "node-role.kubernetes.io/master",
+        "operator": "Equal"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "name": "local-path-config"
+        },
+        "name": "config-volume"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:33Z",
+      "lastUpdateTime": "2026-09-06T16:11:33Z",
+      "message": "Deployment has minimum availability.",
+      "reason": "MinimumReplicasAvailable",
+      "status": "True",
+      "type": "Available"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:11:21Z",
+      "lastUpdateTime": "2026-09-06T16:11:33Z",
+      "message": "ReplicaSet \"local-path-provisioner-855c7b7774\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     }
+    ],
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0,
+    "updatedReplicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "1",
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app.kubernetes.io/name\":\"checkout\",\"team\":\"payments\"},\"name\":\"checkout\",\"namespace\":\"payments\"},\"spec\":{\"replicas\":2,\"selector\":{\"matchLabels\":{\"app\":\"checkout\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"checkout\",\"app.kubernetes.io/name\":\"checkout\",\"team\":\"payments\"}},\"spec\":{\"containers\":[{\"env\":[{\"name\":\"APP_ENV\",\"value\":\"staging\"},{\"name\":\"PAYMENT_API_KEY\",\"value\":\"sk-live-should-be-redacted\"}],\"image\":\"nginx:1.27-alpine\",\"name\":\"web\",\"ports\":[{\"containerPort\":80,\"name\":\"http\"}],\"resources\":{\"limits\":{\"cpu\":\"250m\",\"memory\":\"64Mi\"},\"requests\":{\"cpu\":\"50m\",\"memory\":\"32Mi\"}}}]}}}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "app.kubernetes.io/name": "checkout",
+     "team": "payments"
+    },
+    "name": "checkout",
+    "namespace": "payments",
+    "resourceVersion": "767",
+    "uid": "bf85deb5-4ef2-4e32-87c7-31f9b0d6229a"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 2,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "checkout"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": "25%"
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "checkout",
+       "app.kubernetes.io/name": "checkout",
+       "team": "payments"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "env": [
+         {
+          "name": "APP_ENV",
+          "value": "staging"
+         },
+         {
+          "name": "PAYMENT_API_KEY",
+          "value": "sk-live-should-be-redacted"
+         }
+        ],
+        "image": "nginx:1.27-alpine",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "web",
+        "ports": [
+         {
+          "containerPort": 80,
+          "name": "http",
+          "protocol": "TCP"
+         }
+        ],
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "32Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:49Z",
+      "lastUpdateTime": "2026-09-06T16:11:49Z",
+      "message": "Deployment has minimum availability.",
+      "reason": "MinimumReplicasAvailable",
+      "status": "True",
+      "type": "Available"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:11:34Z",
+      "lastUpdateTime": "2026-09-06T16:11:49Z",
+      "message": "ReplicaSet \"checkout-7c7d9c6b8c\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     }
+    ],
+    "observedGeneration": 1,
+    "readyReplicas": 2,
+    "replicas": 2,
+    "terminatingReplicas": 0,
+    "updatedReplicas": 2
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "1",
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app.kubernetes.io/name\":\"fraud-scorer\"},\"name\":\"fraud-scorer\",\"namespace\":\"payments\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"fraud-scorer\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"fraud-scorer\",\"app.kubernetes.io/name\":\"fraud-scorer\"}},\"spec\":{\"containers\":[{\"command\":[\"sh\",\"-c\",\"echo 'loading model'; echo 'ERROR: model file /models/v3.bin not found'; exit 1\"],\"image\":\"busybox:1.36\",\"name\":\"scorer\",\"resources\":{\"limits\":{\"cpu\":\"100m\",\"memory\":\"32Mi\"},\"requests\":{\"cpu\":\"10m\",\"memory\":\"16Mi\"}}}]}}}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "app.kubernetes.io/name": "fraud-scorer"
+    },
+    "name": "fraud-scorer",
+    "namespace": "payments",
+    "resourceVersion": "1601",
+    "uid": "37e546fc-bddd-4b32-9320-091ee87f6622"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "fraud-scorer"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": "25%"
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "fraud-scorer",
+       "app.kubernetes.io/name": "fraud-scorer"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "echo 'loading model'; echo 'ERROR: model file /models/v3.bin not found'; exit 1"
+        ],
+        "image": "busybox:1.36",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "scorer",
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "32Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:34Z",
+      "lastUpdateTime": "2026-09-06T16:11:52Z",
+      "message": "ReplicaSet \"fraud-scorer-6df8cd6775\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:17:29Z",
+      "lastUpdateTime": "2026-09-06T16:17:29Z",
+      "message": "Deployment does not have minimum availability.",
+      "reason": "MinimumReplicasUnavailable",
+      "status": "False",
+      "type": "Available"
+     }
+    ],
+    "observedGeneration": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0,
+    "unavailableReplicas": 1,
+    "updatedReplicas": 1
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "Deployment",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/revision": "1",
+     "kubectl.kubernetes.io/last-applied-configuration": "{\"apiVersion\":\"apps/v1\",\"kind\":\"Deployment\",\"metadata\":{\"annotations\":{},\"labels\":{\"app.kubernetes.io/name\":\"report-builder\"},\"name\":\"report-builder\",\"namespace\":\"payments\"},\"spec\":{\"replicas\":1,\"selector\":{\"matchLabels\":{\"app\":\"report-builder\"}},\"template\":{\"metadata\":{\"labels\":{\"app\":\"report-builder\",\"app.kubernetes.io/name\":\"report-builder\"}},\"spec\":{\"containers\":[{\"command\":[\"sh\",\"-c\",\"echo 'building monthly report'; head -c 300000000 /dev/zero | tail; sleep 3600\"],\"image\":\"busybox:1.36\",\"name\":\"builder\",\"resources\":{\"limits\":{\"cpu\":\"200m\",\"memory\":\"32Mi\"},\"requests\":{\"cpu\":\"10m\",\"memory\":\"16Mi\"}}}]}}}}\n"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "app.kubernetes.io/name": "report-builder"
+    },
+    "name": "report-builder",
+    "namespace": "payments",
+    "resourceVersion": "1623",
+    "uid": "fce9448d-6599-4709-a7ab-1e8c26a86b30"
+   },
+   "spec": {
+    "progressDeadlineSeconds": 600,
+    "replicas": 1,
+    "revisionHistoryLimit": 10,
+    "selector": {
+     "matchLabels": {
+      "app": "report-builder"
+     }
+    },
+    "strategy": {
+     "rollingUpdate": {
+      "maxSurge": "25%",
+      "maxUnavailable": "25%"
+     },
+     "type": "RollingUpdate"
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "report-builder",
+       "app.kubernetes.io/name": "report-builder"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "echo 'building monthly report'; head -c 300000000 /dev/zero | tail; sleep 3600"
+        ],
+        "image": "busybox:1.36",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "builder",
+        "resources": {
+         "limits": {
+          "cpu": "200m",
+          "memory": "32Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "conditions": [
+     {
+      "lastTransitionTime": "2026-09-06T16:11:34Z",
+      "lastUpdateTime": "2026-09-06T16:11:53Z",
+      "message": "ReplicaSet \"report-builder-587f986544\" has successfully progressed.",
+      "reason": "NewReplicaSetAvailable",
+      "status": "True",
+      "type": "Progressing"
+     },
+     {
+      "lastTransitionTime": "2026-09-06T16:17:35Z",
+      "lastUpdateTime": "2026-09-06T16:17:35Z",
+      "message": "Deployment does not have minimum availability.",
+      "reason": "MinimumReplicasUnavailable",
+      "status": "False",
+      "type": "Available"
+     }
+    ],
+    "observedGeneration": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0,
+    "unavailableReplicas": 1,
+    "updatedReplicas": 1
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

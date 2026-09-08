@@ -1,0 +1,59 @@
+# Bag of Words — Kubernetes connector access.
+#
+# Creates a service account with CLUSTER-WIDE READ-ONLY access (cluster-admin
+# minus the write verbs) and a long-lived token Secret. One wildcard rule, so
+# every built-in kind, every CRD group and every aggregated API
+# (metrics-server) is covered without editing this file when the cluster
+# gains an operator.
+#
+# NOTE: RBAC has no "everything except" syntax, so this role can read Secrets
+# with kubectl. The connector itself never reads them (no secrets table, the
+# escape hatch refuses secrets paths, configmap values are hidden), but treat
+# the token like a database superuser password: it is encrypted at rest and
+# rotated by deleting the Secret below.
+#
+#   kubectl apply -f rbac.yaml
+#   bash print_access_file.sh > access.yaml   # paste into the connect form
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: bagofwords
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: bagofwords-reader
+  namespace: bagofwords
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: bagofwords-cluster-reader
+rules:
+  - apiGroups: ["*"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - nonResourceURLs: ["*"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: bagofwords-cluster-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: bagofwords-cluster-reader
+subjects:
+  - kind: ServiceAccount
+    name: bagofwords-reader
+    namespace: bagofwords
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: bagofwords-reader-token
+  namespace: bagofwords
+  annotations:
+    kubernetes.io/service-account.name: bagofwords-reader
+type: kubernetes.io/service-account-token

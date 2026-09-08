@@ -41,7 +41,7 @@ TIER_FEATURES = {
 }
 
 # Data sources that require an enterprise license
-ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau", "zabbix", "splunk", "aria_operations"]
+ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau", "zabbix", "splunk", "aria_operations", "kubernetes"]
 
 # Public key for license verification (RS256).
 #

@@ -1882,7 +1882,7 @@ class DataSourceService:
         try:
             # Resolve schemas via registry
             config_schema = config_schema_for(data_source_type)
-            from app.schemas.data_source_registry import credentials_schema_for, get_entry
+            from app.schemas.data_source_registry import credentials_schema_for, get_entry, supports_user_auth
             entry = get_entry(data_source_type)
             # Filter auth variants by policy if provided (system_only vs user_required)
             def allowed(mode: str) -> bool:
@@ -1926,11 +1926,16 @@ class DataSourceService:
                 "data_shape": entry.data_shape,
                 "catalog_ownership": entry.catalog_ownership,
                 "ui_form": entry.ui_form,
+                # Numbered setup steps rendered above the fields (None for most types).
+                "setup_guide": meta.get("setup_guide"),
                 "auth": {
                     "default": entry.credentials_auth.default,
                     "by_auth": {k: {"title": v.title} for k, v in (entry.credentials_auth.by_auth or {}).items() if allowed(k)},
                     "policy": auth_policy or "system_only",
                 },
+                # False when no variant has the `user` scope: the form hides the
+                # "Require user authentication" toggle (nothing to require).
+                "supports_user_auth": supports_user_auth(data_source_type),
             }
         except Exception as e:
             raise ValueError(f"Schema not found for {data_source_type}: {str(e)}")

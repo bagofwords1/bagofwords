@@ -1,0 +1,999 @@
+{
+ "apiVersion": "v1",
+ "items": [
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:35Z",
+    "generation": 1,
+    "labels": {
+     "app": "catalog-api",
+     "app.kubernetes.io/name": "catalog-api",
+     "pod-template-hash": "6498598784"
+    },
+    "name": "catalog-api-6498598784",
+    "namespace": "inventory",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "catalog-api",
+      "uid": "2e80df17-00c6-4763-845c-7c485877f0b1"
+     }
+    ],
+    "resourceVersion": "818",
+    "uid": "4d8a2e72-1716-4a98-9022-63fcf4bcbac1"
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "catalog-api",
+      "pod-template-hash": "6498598784"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "catalog-api",
+       "app.kubernetes.io/name": "catalog-api",
+       "pod-template-hash": "6498598784"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "image": "nginx:1.27-alpine",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "api",
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "20m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "fullyLabeledReplicas": 1,
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "2",
+     "deployment.kubernetes.io/max-replicas": "3",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "generation": 1,
+    "labels": {
+     "k8s-app": "kube-dns",
+     "pod-template-hash": "589f44dc88"
+    },
+    "name": "coredns-589f44dc88",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "coredns",
+      "uid": "181f8bdb-d29b-4858-a705-2328f0927eb2"
+     }
+    ],
+    "resourceVersion": "521",
+    "uid": "76553378-3d8f-4eb2-8f09-7a9147294993"
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": {
+     "matchLabels": {
+      "k8s-app": "kube-dns",
+      "pod-template-hash": "589f44dc88"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "k8s-app": "kube-dns",
+       "pod-template-hash": "589f44dc88"
+      }
+     },
+     "spec": {
+      "affinity": {
+       "podAntiAffinity": {
+        "preferredDuringSchedulingIgnoredDuringExecution": [
+         {
+          "podAffinityTerm": {
+           "labelSelector": {
+            "matchExpressions": [
+             {
+              "key": "k8s-app",
+              "operator": "In",
+              "values": [
+               "kube-dns"
+              ]
+             }
+            ]
+           },
+           "topologyKey": "kubernetes.io/hostname"
+          },
+          "weight": 100
+         }
+        ]
+       }
+      },
+      "containers": [
+       {
+        "args": [
+         "-conf",
+         "/etc/coredns/Corefile"
+        ],
+        "image": "registry.k8s.io/coredns/coredns:v1.14.2",
+        "imagePullPolicy": "IfNotPresent",
+        "livenessProbe": {
+         "failureThreshold": 5,
+         "httpGet": {
+          "path": "/health",
+          "port": "liveness-probe",
+          "scheme": "HTTP"
+         },
+         "initialDelaySeconds": 60,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 5
+        },
+        "name": "coredns",
+        "ports": [
+         {
+          "containerPort": 53,
+          "name": "dns",
+          "protocol": "UDP"
+         },
+         {
+          "containerPort": 53,
+          "name": "dns-tcp",
+          "protocol": "TCP"
+         },
+         {
+          "containerPort": 9153,
+          "name": "metrics",
+          "protocol": "TCP"
+         },
+         {
+          "containerPort": 8080,
+          "name": "liveness-probe",
+          "protocol": "TCP"
+         },
+         {
+          "containerPort": 8181,
+          "name": "readiness-probe",
+          "protocol": "TCP"
+         }
+        ],
+        "readinessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/ready",
+          "port": "readiness-probe",
+          "scheme": "HTTP"
+         },
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "resources": {
+         "limits": {
+          "memory": "170Mi"
+         },
+         "requests": {
+          "cpu": "100m",
+          "memory": "70Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "add": [
+           "NET_BIND_SERVICE"
+          ],
+          "drop": [
+           "ALL"
+          ]
+         },
+         "readOnlyRootFilesystem": true
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/coredns",
+          "name": "config-volume",
+          "readOnly": true
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "Default",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-cluster-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "coredns",
+      "serviceAccountName": "coredns",
+      "terminationGracePeriodSeconds": 30,
+      "tolerations": [
+       {
+        "key": "CriticalAddonsOnly",
+        "operator": "Exists"
+       },
+       {
+        "effect": "NoSchedule",
+        "key": "node-role.kubernetes.io/control-plane"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "items": [
+          {
+           "key": "Corefile",
+           "path": "Corefile"
+          }
+         ],
+         "name": "coredns"
+        },
+        "name": "config-volume"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "fullyLabeledReplicas": 2,
+    "observedGeneration": 1,
+    "readyReplicas": 2,
+    "replicas": 2,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "2"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "k8s-app": "metrics-server",
+     "pod-template-hash": "5b58578978"
+    },
+    "name": "metrics-server-5b58578978",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "metrics-server",
+      "uid": "16328efc-ef57-40b5-9bbd-702becd81e84"
+     }
+    ],
+    "resourceVersion": "898",
+    "uid": "a6b5e3ef-816f-45a6-a8f6-e41f88c30760"
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "k8s-app": "metrics-server",
+      "pod-template-hash": "5b58578978"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "k8s-app": "metrics-server",
+       "pod-template-hash": "5b58578978"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "args": [
+         "--cert-dir=/tmp",
+         "--secure-port=10250",
+         "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+         "--kubelet-use-node-status-port",
+         "--metric-resolution=15s",
+         "--kubelet-insecure-tls"
+        ],
+        "image": "registry.k8s.io/metrics-server/metrics-server:v0.9.0",
+        "imagePullPolicy": "IfNotPresent",
+        "livenessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/livez",
+          "port": "https",
+          "scheme": "HTTPS"
+         },
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "name": "metrics-server",
+        "ports": [
+         {
+          "containerPort": 10250,
+          "name": "https",
+          "protocol": "TCP"
+         }
+        ],
+        "readinessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/readyz",
+          "port": "https",
+          "scheme": "HTTPS"
+         },
+         "initialDelaySeconds": 20,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "resources": {
+         "requests": {
+          "cpu": "100m",
+          "memory": "200Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "readOnlyRootFilesystem": true,
+         "runAsNonRoot": true,
+         "runAsUser": 1000,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/tmp",
+          "name": "tmp-dir"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-cluster-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "metrics-server",
+      "serviceAccountName": "metrics-server",
+      "terminationGracePeriodSeconds": 30,
+      "volumes": [
+       {
+        "emptyDir": {},
+        "name": "tmp-dir"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "fullyLabeledReplicas": 1,
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 2,
+    "labels": {
+     "k8s-app": "metrics-server",
+     "pod-template-hash": "687f9dc499"
+    },
+    "name": "metrics-server-687f9dc499",
+    "namespace": "kube-system",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "metrics-server",
+      "uid": "16328efc-ef57-40b5-9bbd-702becd81e84"
+     }
+    ],
+    "resourceVersion": "924",
+    "uid": "53d06c7d-2389-46e1-81ba-47ab93dac8c2"
+   },
+   "spec": {
+    "replicas": 0,
+    "selector": {
+     "matchLabels": {
+      "k8s-app": "metrics-server",
+      "pod-template-hash": "687f9dc499"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "k8s-app": "metrics-server",
+       "pod-template-hash": "687f9dc499"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "args": [
+         "--cert-dir=/tmp",
+         "--secure-port=10250",
+         "--kubelet-preferred-address-types=InternalIP,ExternalIP,Hostname",
+         "--kubelet-use-node-status-port",
+         "--metric-resolution=15s"
+        ],
+        "image": "registry.k8s.io/metrics-server/metrics-server:v0.9.0",
+        "imagePullPolicy": "IfNotPresent",
+        "livenessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/livez",
+          "port": "https",
+          "scheme": "HTTPS"
+         },
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "name": "metrics-server",
+        "ports": [
+         {
+          "containerPort": 10250,
+          "name": "https",
+          "protocol": "TCP"
+         }
+        ],
+        "readinessProbe": {
+         "failureThreshold": 3,
+         "httpGet": {
+          "path": "/readyz",
+          "port": "https",
+          "scheme": "HTTPS"
+         },
+         "initialDelaySeconds": 20,
+         "periodSeconds": 10,
+         "successThreshold": 1,
+         "timeoutSeconds": 1
+        },
+        "resources": {
+         "requests": {
+          "cpu": "100m",
+          "memory": "200Mi"
+         }
+        },
+        "securityContext": {
+         "allowPrivilegeEscalation": false,
+         "capabilities": {
+          "drop": [
+           "ALL"
+          ]
+         },
+         "readOnlyRootFilesystem": true,
+         "runAsNonRoot": true,
+         "runAsUser": 1000,
+         "seccompProfile": {
+          "type": "RuntimeDefault"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/tmp",
+          "name": "tmp-dir"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "priorityClassName": "system-cluster-critical",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "metrics-server",
+      "serviceAccountName": "metrics-server",
+      "terminationGracePeriodSeconds": 30,
+      "volumes": [
+       {
+        "emptyDir": {},
+        "name": "tmp-dir"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "observedGeneration": 2,
+    "replicas": 0,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:21Z",
+    "generation": 1,
+    "labels": {
+     "app": "local-path-provisioner",
+     "pod-template-hash": "855c7b7774"
+    },
+    "name": "local-path-provisioner-855c7b7774",
+    "namespace": "local-path-storage",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "local-path-provisioner",
+      "uid": "0ac57154-0d3b-477f-b29e-e57b72b33002"
+     }
+    ],
+    "resourceVersion": "501",
+    "uid": "def5b660-cb0f-46d6-be6e-babb12ac6ba4"
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "local-path-provisioner",
+      "pod-template-hash": "855c7b7774"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "local-path-provisioner",
+       "pod-template-hash": "855c7b7774"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "local-path-provisioner",
+         "--debug",
+         "start",
+         "--helper-image",
+         "docker.io/kindest/local-path-helper:v20260131-7181c60a",
+         "--config",
+         "/etc/config/config.json"
+        ],
+        "env": [
+         {
+          "name": "POD_NAMESPACE",
+          "valueFrom": {
+           "fieldRef": {
+            "apiVersion": "v1",
+            "fieldPath": "metadata.namespace"
+           }
+          }
+         },
+         {
+          "name": "CONFIG_MOUNT_PATH",
+          "value": "/etc/config/"
+         }
+        ],
+        "image": "docker.io/kindest/local-path-provisioner:v20260521-9fb22683",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "local-path-provisioner",
+        "resources": {},
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File",
+        "volumeMounts": [
+         {
+          "mountPath": "/etc/config/",
+          "name": "config-volume"
+         }
+        ]
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "nodeSelector": {
+       "kubernetes.io/os": "linux"
+      },
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "serviceAccount": "local-path-provisioner-service-account",
+      "serviceAccountName": "local-path-provisioner-service-account",
+      "terminationGracePeriodSeconds": 30,
+      "tolerations": [
+       {
+        "effect": "NoSchedule",
+        "key": "node-role.kubernetes.io/control-plane",
+        "operator": "Equal"
+       },
+       {
+        "effect": "NoSchedule",
+        "key": "node-role.kubernetes.io/master",
+        "operator": "Equal"
+       }
+      ],
+      "volumes": [
+       {
+        "configMap": {
+         "defaultMode": 420,
+         "name": "local-path-config"
+        },
+        "name": "config-volume"
+       }
+      ]
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 1,
+    "fullyLabeledReplicas": 1,
+    "observedGeneration": 1,
+    "readyReplicas": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "2",
+     "deployment.kubernetes.io/max-replicas": "3",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "app": "checkout",
+     "app.kubernetes.io/name": "checkout",
+     "pod-template-hash": "7c7d9c6b8c",
+     "team": "payments"
+    },
+    "name": "checkout-7c7d9c6b8c",
+    "namespace": "payments",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "checkout",
+      "uid": "bf85deb5-4ef2-4e32-87c7-31f9b0d6229a"
+     }
+    ],
+    "resourceVersion": "765",
+    "uid": "2100e115-083c-4524-b34e-a958ff3fe5c6"
+   },
+   "spec": {
+    "replicas": 2,
+    "selector": {
+     "matchLabels": {
+      "app": "checkout",
+      "pod-template-hash": "7c7d9c6b8c"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "checkout",
+       "app.kubernetes.io/name": "checkout",
+       "pod-template-hash": "7c7d9c6b8c",
+       "team": "payments"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "env": [
+         {
+          "name": "APP_ENV",
+          "value": "staging"
+         },
+         {
+          "name": "PAYMENT_API_KEY",
+          "value": "sk-live-should-be-redacted"
+         }
+        ],
+        "image": "nginx:1.27-alpine",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "web",
+        "ports": [
+         {
+          "containerPort": 80,
+          "name": "http",
+          "protocol": "TCP"
+         }
+        ],
+        "resources": {
+         "limits": {
+          "cpu": "250m",
+          "memory": "64Mi"
+         },
+         "requests": {
+          "cpu": "50m",
+          "memory": "32Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "availableReplicas": 2,
+    "fullyLabeledReplicas": 2,
+    "observedGeneration": 1,
+    "readyReplicas": 2,
+    "replicas": 2,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "app": "fraud-scorer",
+     "app.kubernetes.io/name": "fraud-scorer",
+     "pod-template-hash": "6df8cd6775"
+    },
+    "name": "fraud-scorer-6df8cd6775",
+    "namespace": "payments",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "fraud-scorer",
+      "uid": "37e546fc-bddd-4b32-9320-091ee87f6622"
+     }
+    ],
+    "resourceVersion": "1600",
+    "uid": "5fac97da-97fa-40f5-8bcd-48c01e687aa0"
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "fraud-scorer",
+      "pod-template-hash": "6df8cd6775"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "fraud-scorer",
+       "app.kubernetes.io/name": "fraud-scorer",
+       "pod-template-hash": "6df8cd6775"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "echo 'loading model'; echo 'ERROR: model file /models/v3.bin not found'; exit 1"
+        ],
+        "image": "busybox:1.36",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "scorer",
+        "resources": {
+         "limits": {
+          "cpu": "100m",
+          "memory": "32Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "fullyLabeledReplicas": 1,
+    "observedGeneration": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0
+   }
+  },
+  {
+   "apiVersion": "apps/v1",
+   "kind": "ReplicaSet",
+   "metadata": {
+    "annotations": {
+     "deployment.kubernetes.io/desired-replicas": "1",
+     "deployment.kubernetes.io/max-replicas": "2",
+     "deployment.kubernetes.io/revision": "1"
+    },
+    "creationTimestamp": "2026-09-06T16:11:34Z",
+    "generation": 1,
+    "labels": {
+     "app": "report-builder",
+     "app.kubernetes.io/name": "report-builder",
+     "pod-template-hash": "587f986544"
+    },
+    "name": "report-builder-587f986544",
+    "namespace": "payments",
+    "ownerReferences": [
+     {
+      "apiVersion": "apps/v1",
+      "blockOwnerDeletion": true,
+      "controller": true,
+      "kind": "Deployment",
+      "name": "report-builder",
+      "uid": "fce9448d-6599-4709-a7ab-1e8c26a86b30"
+     }
+    ],
+    "resourceVersion": "1622",
+    "uid": "2420edc0-da87-421f-a187-bf395b0913e4"
+   },
+   "spec": {
+    "replicas": 1,
+    "selector": {
+     "matchLabels": {
+      "app": "report-builder",
+      "pod-template-hash": "587f986544"
+     }
+    },
+    "template": {
+     "metadata": {
+      "labels": {
+       "app": "report-builder",
+       "app.kubernetes.io/name": "report-builder",
+       "pod-template-hash": "587f986544"
+      }
+     },
+     "spec": {
+      "containers": [
+       {
+        "command": [
+         "sh",
+         "-c",
+         "echo 'building monthly report'; head -c 300000000 /dev/zero | tail; sleep 3600"
+        ],
+        "image": "busybox:1.36",
+        "imagePullPolicy": "IfNotPresent",
+        "name": "builder",
+        "resources": {
+         "limits": {
+          "cpu": "200m",
+          "memory": "32Mi"
+         },
+         "requests": {
+          "cpu": "10m",
+          "memory": "16Mi"
+         }
+        },
+        "terminationMessagePath": "/dev/termination-log",
+        "terminationMessagePolicy": "File"
+       }
+      ],
+      "dnsPolicy": "ClusterFirst",
+      "restartPolicy": "Always",
+      "schedulerName": "default-scheduler",
+      "securityContext": {},
+      "terminationGracePeriodSeconds": 30
+     }
+    }
+   },
+   "status": {
+    "fullyLabeledReplicas": 1,
+    "observedGeneration": 1,
+    "replicas": 1,
+    "terminatingReplicas": 0
+   }
+  }
+ ],
+ "kind": "List",
+ "metadata": {
+  "resourceVersion": ""
+ }
+}

@@ -3183,7 +3183,27 @@
     "mcpAddMetaField": "+ Add metadata field",
     "verify": "Verify",
     "catPopular": "Popular",
-    "catCustom": "Custom"
+    "catCustom": "Custom",
+    "setupGuideTitle": "Setup steps",
+    "setupGuideCopy": "Copy",
+    "setupGuideCopied": "Copied",
+    "setupGuides": {
+      "kubernetes": [
+        {
+          "title": "Grant read access on the cluster",
+          "body": "Review the manifest, then run it with cluster-admin rights. It creates the bagofwords namespace, a service account, a cluster-wide read-only role, its binding and a long-lived token."
+        },
+        {
+          "title": "Print the access file",
+          "body": "Save this as print_access_file.sh and run it. It waits for the token, then prints one self-contained file (API server URL, cluster CA, token). Verify it with: kubectl --kubeconfig access.yaml get nodes. If the server URL is private to your network, edit it to the address this Bag of Words instance can reach."
+        },
+        {
+          "title": "Paste it below and test the connection",
+          "body": "Paste the whole output into the Cluster access file field, then click Test connection."
+        }
+      ]
+    },
+    "setupGuideCopyFailed": "Copy failed — select the text"
   },
   "share": {
     "shareDashboard": "Share Dashboard",

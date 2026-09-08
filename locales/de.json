@@ -3033,7 +3033,27 @@
     "unitHours": "Stunden",
     "unitMinutes": "Minuten",
     "catPopular": "Beliebt",
-    "catCustom": "Benutzerdefiniert"
+    "catCustom": "Benutzerdefiniert",
+    "setupGuideTitle": "Einrichtungsschritte",
+    "setupGuideCopy": "Kopieren",
+    "setupGuideCopied": "Kopiert",
+    "setupGuides": {
+      "kubernetes": [
+        {
+          "title": "Lesezugriff im Cluster gewähren",
+          "body": "Prüfen Sie das Manifest und führen Sie es dann mit cluster-admin-Rechten aus. Es erstellt den Namespace bagofwords, ein Service-Konto, eine clusterweite Nur-Lese-Rolle, deren Binding und ein langlebiges Token."
+        },
+        {
+          "title": "Zugriffsdatei ausgeben",
+          "body": "Als print_access_file.sh speichern und ausführen. Das Skript wartet auf das Token und gibt dann eine einzelne, eigenständige Datei aus (API-Server-URL, Cluster-CA, Token). Prüfen mit: kubectl --kubeconfig access.yaml get nodes. Ist die Server-URL nur in Ihrem Netzwerk erreichbar, ersetzen Sie sie durch die Adresse, die diese Bag-of-Words-Instanz erreichen kann."
+        },
+        {
+          "title": "Unten einfügen und Verbindung testen",
+          "body": "Fügen Sie die gesamte Ausgabe in das Feld Cluster-Zugriffsdatei ein und klicken Sie auf Verbindung testen."
+        }
+      ]
+    },
+    "setupGuideCopyFailed": "Kopieren fehlgeschlagen — Text markieren"
   },
   "share": {
     "shareDashboard": "Dashboard teilen",
