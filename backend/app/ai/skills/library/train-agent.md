@@ -128,8 +128,8 @@ confident in — ask instead.
 ## 5. Capture the coding errors too
 
 Domain definitions are only half of what makes an agent reliable. The other
-half is the SQL that keeps breaking. `list_agent_executions` with
-`total_failed_tools` shows where generation failed; read the failures and look
+half is the SQL that keeps breaking. `create_data` targeting the built-in `builtin:bow` source (`bow.runs` or `bow.tool_calls`) with
+`failed_tool_count` shows where generation failed; read the failures and look
 for the ones that will recur:
 
 - Dialect quirks — date functions, string concatenation, `LIMIT` vs `TOP`,

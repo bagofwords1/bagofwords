@@ -66,24 +66,6 @@ class TimeSeriesMetrics(BaseModel):
     activity_metrics: ActivityMetrics
     performance_metrics: PerformanceMetrics
 
-# Diagnosis activity timeseries (agent executions bucketed daily by status)
-class DiagnosisStatusPoint(BaseModel):
-    date: str
-    success: int
-    error: int
-
-class DiagnosisTimeSeriesMetrics(BaseModel):
-    date_range: DateRange
-    points: List[DiagnosisStatusPoint]
-
-class DiagnosisUser(BaseModel):
-    id: str
-    name: str
-    email: str
-
-class DiagnosisUsersResponse(BaseModel):
-    users: List[DiagnosisUser]
-
 class TableUsageData(BaseModel):
     table_name: str
     usage_count: int
@@ -302,26 +284,6 @@ class TraceData(BaseModel):
     issue_type: str
     user_name: str
     user_email: Optional[str] = None
-
-# Compact issues (completion-anchored)
-class CompactIssueItem(BaseModel):
-    completion_id: str
-    created_at: UTCDatetime
-    issue_type: str
-    summary_text: str
-    full_message: Optional[str] = None
-    tool_name: Optional[str] = None
-    tool_action: Optional[str] = None
-    user_name: Optional[str] = None
-    user_email: Optional[str] = None
-    head_prompt_snippet: Optional[str] = None
-    report_id: str
-    trace_url: Optional[str] = None
-
-class CompactIssuesResponse(BaseModel):
-    items: List[CompactIssueItem]
-    total_items: int
-    date_range: DateRange
 
 # Tool executions table (diagnosis)
 class ToolExecutionDiagnosisItem(BaseModel):

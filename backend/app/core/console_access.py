@@ -131,6 +131,11 @@ async def console_scope(
     then answers the console's own question: org-wide, a specific set of agents,
     or 403.
     """
+    return await resolve_console_scope(db, organization, user)
+
+
+async def resolve_console_scope(db: AsyncSession, organization: Organization, user: User) -> ConsoleScope:
+    """Authenticated scope shared by HTTP and built-in source execution."""
     if not user.is_verified and settings.bow_config.features.verify_emails:
         raise HTTPException(status_code=403, detail="User is not verified")
     await assert_principal_belongs_to_org(db, user, organization.id)

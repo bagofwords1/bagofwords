@@ -74,6 +74,9 @@ async def can_view_report(
     (decision §3.5). Reports with no data sources attached are visible to any
     org member — they're usually text-only or still being built.
     """
+    from app.services.bow_source_access import can_read
+    if not await can_read(db, getattr(report, "bow_source_access", None), user):
+        return False
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if FULL_ADMIN in resolved.org_permissions:
         return True
@@ -98,6 +101,9 @@ async def can_edit_report(
     Stricter than view: editing can run steps against all attached DS, so we
     require access to all of them.
     """
+    from app.services.bow_source_access import can_read
+    if not await can_read(db, getattr(report, "bow_source_access", None), user):
+        return False
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if FULL_ADMIN in resolved.org_permissions:
         return True
@@ -120,6 +126,8 @@ async def filter_visible_reports(
     reports: Iterable[Report],
 ) -> list[Report]:
     """Convenience: filter a collection of reports through can_view_report."""
+    from app.services.bow_source_access import can_read
+    reports = [r for r in reports if await can_read(db, getattr(r, "bow_source_access", None), user)]
     resolved = await resolve_permissions(db, str(user.id), str(organization.id))
     if FULL_ADMIN in resolved.org_permissions:
         return list(reports)

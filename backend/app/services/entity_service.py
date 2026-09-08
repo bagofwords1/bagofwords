@@ -135,6 +135,8 @@ class EntityService:
           with THEIR identity binding and cache it.
         - Anonymous readers of identity-scoped entities: None (withheld).
         """
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, getattr(entity, "bow_source_access", None), user)
         from app.services.identity_taint import entity_identity_scope
         has_identity, _upstream = await entity_identity_scope(db, entity)
         owner_id = str(getattr(entity, "owner_id", "") or "")
@@ -176,6 +178,8 @@ class EntityService:
         """
         from app.ai.code_execution.query_params import ParamError, params_fingerprint
         from app.models.entity_user_result import EntityUserResult
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, getattr(entity, "bow_source_access", None), user)
         from app.services.identity_taint import entity_identity_scope
 
         if user is None:
@@ -201,7 +205,7 @@ class EntityService:
         ):
             refreshed_at = upstream_refresh
         if (
-            not force_refresh
+            not force_refresh and not entity.bow_source_access
             and row is not None and row.status == "success"
             and (refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at)
         ):
@@ -213,7 +217,7 @@ class EntityService:
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         ds_list = list(entity.data_sources or [])
-        if not ds_list:
+        if not ds_list and not entity.bow_source_access:
             # DS-less entities (promoted from chat-created reports whose data
             # sources were agent-level, not report-associated): construct the
             # org's data sources — generated code addresses clients by
@@ -234,12 +238,17 @@ class EntityService:
         if not ds_clients and ds_errors:
             raise ValueError("; ".join(ds_errors[:2]))
         org_settings = await organization.get_settings(db) if organization else None
+        from app.services.bow_source_access import install_entity_client
+        await install_entity_client(db, organization, user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
         exec_df, _log, _ = await executor.execute_code_async(
             code=entity.code or "", ds_clients=ds_clients, excel_files=[],
             params=resolved,
         )
         df = executor.format_df_for_widget(exec_df)
+        if exec_df.attrs.get("bow_source"):
+            from app.services.bow_source_access import merge_access
+            entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
         await self._upsert_entity_user_result(db, entity, user, resolved, df)
         return {"data": df, "applied_params": resolved, "cached": False}
 
@@ -352,7 +361,11 @@ class EntityService:
         from app.services.viewer_data_policy import resolve_step_data
         resolution = await resolve_step_data(db, step, step.query.report, current_user)
 
+        from app.services.bow_source_access import step_access, assert_read
+        bow_access = await step_access(db, step)
+        await assert_read(db, bow_access, current_user)
         entity = Entity(
+            bow_source_access=bow_access,
             organization_id=str(organization.id),
             owner_id=str(current_user.id),
             type=ent_type,
@@ -552,6 +565,8 @@ class EntityService:
         skip: int = 0,
         limit: int = 100,
     ) -> List[Entity]:
+        from app.services.bow_source_access import visible_entities_clause
+        bow_visible = await visible_entities_clause(db, organization.id, current_user)
         # Get user's accessible data sources
         from sqlalchemy import exists, and_
         from app.core.permission_resolver import get_accessible_data_source_ids
@@ -587,6 +602,7 @@ class EntityService:
             .where(Entity.organization_id == str(organization.id))
             .where(Entity.deleted_at == None)
             .where(~has_inaccessible_ds)  # Exclude entities with any inaccessible data sources
+            .where(bow_visible)
         )
         
         if type:
@@ -677,6 +693,8 @@ class EntityService:
             db, str(current_user.id), str(organization.id)
         )
 
+        from app.services.bow_source_access import visible_entities_clause
+        bow_visible = await visible_entities_clause(db, organization.id, current_user)
         rows = await db.execute(
             select(
                 entity_data_source_association.c.data_source_id,
@@ -690,6 +708,7 @@ class EntityService:
             .where(Entity.organization_id == str(organization.id))
             .where(Entity.deleted_at == None)
             .where(~has_inaccessible_ds)
+            .where(bow_visible)
             # The tree hides archived rows, so the badge must not count them.
             .where(Entity.status != "archived")
             .where(or_(Entity.private_status == None, Entity.private_status != "archived"))
@@ -718,6 +737,9 @@ class EntityService:
         )
         entity = result.scalar_one_or_none()
         
+        from app.services.bow_source_access import can_read
+        if entity and not await can_read(db, entity.bow_source_access, current_user):
+            return None
         if not entity or not current_user:
             return entity
         
@@ -886,7 +908,7 @@ class EntityService:
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
         ds_list = list(entity.data_sources or [])
-        if not ds_list:
+        if not ds_list and not entity.bow_source_access:
             # DS-less entities (promoted from chat-created reports): fall back
             # to the org's data sources — generated code addresses clients by
             # "<data source name>:<connection>" keys.
@@ -904,6 +926,8 @@ class EntityService:
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
+        from app.services.bow_source_access import install_entity_client
+        await install_entity_client(db, organization, current_user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 
         # Snapshot-identity guard: execution runs under the CALLER's
@@ -924,11 +948,15 @@ class EntityService:
         )
 
         try:
-            exec_df, execution_log, _ = executor.execute_code(
+            exec_df, execution_log, _ = await executor.execute_code_async(
                 code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
                 params=resolved_params,
             )
             df = executor.format_df_for_widget(exec_df)
+            if exec_df.attrs.get("bow_source"):
+                from app.services.bow_source_access import merge_access
+                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+
             if not persist_data:
                 # Transient run: the caller's own slice. Cache it per
                 # (entity, user, values) so load_entity and later reads reuse
@@ -1008,15 +1036,20 @@ class EntityService:
         organization: Organization,
         current_user: Optional[User],
         resolved_params: Optional[dict] = None,
+        entity: Optional[Entity] = None,
     ) -> dict:
         """Run `code` against `ds_list` (or every org agent when empty) without
         persisting anything. Shared by the per-entity preview and the stateless
-        one the "New query" form uses before a row exists."""
+        one the "New query" form uses before a row exists.
+
+        `entity` is the saved row when there is one: its BOW source access
+        gates the run and is widened by what the run read."""
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
         from app.services.data_source_service import DataSourceService
         ds_service = DataSourceService()
+        bow_access = getattr(entity, "bow_source_access", None) if entity is not None else None
         ds_list = list(ds_list or [])
-        if not ds_list:
+        if not ds_list and not bow_access:
             # DS-less entities (promoted from chat-created reports): fall back
             # to the org's data sources — generated code addresses clients by
             # "<data source name>:<connection>" keys.
@@ -1034,13 +1067,20 @@ class EntityService:
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
+        if entity is not None:
+            from app.services.bow_source_access import install_entity_client
+            await install_entity_client(db, organization, current_user, entity, ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
         try:
-            exec_df, execution_log, _ = executor.execute_code(
+            exec_df, execution_log, _ = await executor.execute_code_async(
                 code=code, ds_clients=ds_clients, excel_files=excel_files,
                 params=resolved_params or {},
             )
             df = executor.format_df_for_widget(exec_df)
+            if entity is not None and exec_df.attrs.get("bow_source"):
+                from app.services.bow_source_access import merge_access
+                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+
             return {"data": df, "execution_log": execution_log, "applied_params": resolved_params or None}
         except Exception as e:
             return {"data": None, "error": str(e)}
@@ -1070,6 +1110,7 @@ class EntityService:
         )
         return await self._execute_entity_code(
             db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
+            entity=entity,
         )
 
     async def preview_code(
@@ -1255,5 +1296,4 @@ class EntityService:
         
         if payload.view is not None:
             entity.view = payload.view.model_dump() if hasattr(payload.view, 'model_dump') else payload.view
-
 

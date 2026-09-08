@@ -1777,24 +1777,6 @@ class MessageContextBuilder:
                                         digest_parts.append("FAILED")
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
-                                elif tool_execution.tool_name == 'list_agent_executions' and tool_execution.result_json:
-                                    rj = tool_execution.result_json or {}
-                                    obs = rj.get('observation') or rj
-                                    digest_parts = []
-                                    summary = obs.get('summary') or ''
-                                    if summary:
-                                        digest_parts.append(summary)
-                                    else:
-                                        arts = obs.get('artifacts') or []
-                                        if arts:
-                                            art = arts[0]
-                                            count = art.get('count')
-                                            total = art.get('total')
-                                            filt = art.get('filter') or 'all'
-                                            if count is not None:
-                                                digest_parts.append(f"Listed {count} (filter={filt}, total={total})")
-                                    if digest_parts:
-                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'web_fetch' and tool_execution.result_json:
                                     rj = tool_execution.result_json or {}
                                     obs = rj.get('observation') or rj
@@ -2530,24 +2512,6 @@ class MessageContextBuilder:
                                     digest_parts.append(f"sample:\n" + "\n".join(sample_lines))
                                 if obs.get('success') is False:
                                     digest_parts.append("FAILED")
-                                if digest_parts:
-                                    tool_info += " - " + "; ".join(digest_parts)
-                            elif tool_execution.tool_name == 'list_agent_executions' and tool_execution.result_json:
-                                rj = tool_execution.result_json or {}
-                                obs = rj.get('observation') or rj
-                                digest_parts = []
-                                summary = obs.get('summary') or ''
-                                if summary:
-                                    digest_parts.append(summary)
-                                else:
-                                    arts = obs.get('artifacts') or []
-                                    if arts:
-                                        art = arts[0]
-                                        count = art.get('count')
-                                        total = art.get('total')
-                                        filt = art.get('filter') or 'all'
-                                        if count is not None:
-                                            digest_parts.append(f"Listed {count} (filter={filt}, total={total})")
                                 if digest_parts:
                                     tool_info += " - " + "; ".join(digest_parts)
                             elif tool_execution.tool_name == 'web_fetch' and tool_execution.result_json:

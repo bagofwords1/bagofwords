@@ -15,7 +15,7 @@ class TablesBySource(BaseModel):
 
     data_source_id: Optional[str] = Field(
         default=None,
-        description="UUID of the data source to scope these tables. If null, applies to all sources.",
+        description="UUID of the data source, or builtin:bow for Bag of Words training data. If null, applies to all sources.",
     )
     tables: List[str] = Field(
         ..., description="Table names (literal, case-insensitive). Schema or dataset prefix (. or /) is optional."

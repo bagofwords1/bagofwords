@@ -1492,6 +1492,10 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     db_lock=runtime_ctx.get("tool_db_lock"),
                 )
         
+        if any(str(g.data_source_id) == "builtin:bow" for g in (data.tables_by_source or [])) and "bow" not in runtime_ctx.get("ds_clients", {}):
+            yield ToolErrorEvent(type="tool.error", payload={"error": "BOW data requires authorized training mode", "code": "FORBIDDEN"})
+            return
+
         # Check if we have any data sources (tables or files)
         total_resolved = sum(len(g.get("tables", [])) for g in resolved_tables)
 
@@ -1790,6 +1794,16 @@ Do not use generic placeholders like "value" unless that is the actual column na
             step_max_age_seconds=_ls_max_age,
         )
 
+        # Schema/context reads can autoflush the in-memory event sequence. Do
+        # not hold that write transaction throughout the coder's LLM request.
+        _writer_db = runtime_ctx.get("db") or (context_hub.db if context_hub else None)
+        if _writer_db is not None:
+            if runtime_ctx.get("tool_db_lock") is not None:
+                async with runtime_ctx["tool_db_lock"]:
+                    await _writer_db.commit()
+            else:
+                await _writer_db.commit()
+
         with tracer.start_as_current_span("create_data.codegen_and_execute") as codegen_span:
             async for e in streamer.generate_and_execute_stream_v2(
                 request=CodeGenRequest(context=codegen_context),
@@ -1891,6 +1905,12 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 if failed_timings:
                     last_failed = failed_timings[-1]
                     error_observation["error"]["db_message"] = last_failed.get("error")
+                    if last_failed.get("terminal"):
+                        error_observation["error"]["type"] = "infrastructure_failure"
+                        error_observation["terminal_execution_error"] = True
+                        error_observation["analysis_complete"] = True
+                        error_observation["final_answer"] = last_failed.get("error")
+
                     if last_failed.get("sql"):
                         error_observation["error"]["failed_sql"] = last_failed["sql"]
             except Exception:

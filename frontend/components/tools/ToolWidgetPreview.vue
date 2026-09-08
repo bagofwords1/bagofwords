@@ -9,6 +9,10 @@
           <Icon v-if="!expanded" :name="isCollapsed ? 'heroicons-chevron-right' : 'heroicons-chevron-down'" class="w-3.5 h-3.5 me-1.5 text-gray-500 dark:text-gray-400 rtl-flip" />
           <Icon v-else :name="showVisual ? 'heroicons:chart-bar' : 'heroicons:table-cells'" class="w-3.5 h-3.5 me-1.5 text-gray-400 flex-shrink-0" />
           <h3 class="widget-title truncate" :class="{ 'text-sm': expanded }">{{ widgetTitle }}</h3>
+          <span v-if="effectiveStep?.data?.info?.source?.id === 'builtin:bow'" class="ms-2 shrink-0 text-[10px] text-gray-400 inline-flex items-center gap-1">
+            <img src="/assets/logo-128.png" class="w-3 h-3 object-contain" alt="" />
+            {{ $t('tools.createData.bowSource') }}
+          </span>
           <button
             v-if="queryId && canEditCode && (canEdit || !readonly)"
             @click.stop="onEditClick"

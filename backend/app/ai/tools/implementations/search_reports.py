@@ -131,6 +131,8 @@ class SearchReportsTool(Tool):
                 .where(Report.report_type == "regular")
             )
 
+            from app.services.bow_source_access import visible_reports_clause
+            stmt = stmt.where(await visible_reports_clause(db, organization.id, user))
             if data.status != "all":
                 stmt = stmt.where(Report.status == data.status)
 
