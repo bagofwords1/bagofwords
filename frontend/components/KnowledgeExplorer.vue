@@ -640,6 +640,7 @@
               :key="'queries-' + panelView.agentId"
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
+              @created="onQueryCreated(panelView.agentId, $event)"
             />
             <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
@@ -1628,6 +1629,12 @@ const openQuery = (agentId: string, q: any) => {
 // Approve / suggest / reject / rename rewrite the row's lifecycle, which is
 // what the list badge and the tree count show — refresh both.
 const onQueryChanged = () => { fetchQueryCounts() }
+// A query authored in the panel: count it in the tree and open it, as a click
+// on its new row would.
+const onQueryCreated = (agentId: string, q: any) => {
+  fetchQueryCounts()
+  openQuery(agentId, q)
+}
 const onQueryDeleted = () => {
   queryView.value = null
   fetchQueryCounts()
