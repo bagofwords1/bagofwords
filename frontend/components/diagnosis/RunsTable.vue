@@ -20,8 +20,10 @@
                             <td class="px-3 py-3 align-top">
                                 <span class="inline-flex px-2 py-0.5 rounded-full font-medium" :class="statusClass(item.status)">{{ item.status }}</span>
                             </td>
-                            <td class="px-3 py-3 align-top">
-                                <div class="flex items-start gap-2 max-w-[380px]">
+                            <!-- w-full + max-w-0 lets this column absorb the remaining width and
+                                 truncate, so the fixed columns to its right always fit. -->
+                            <td class="px-3 py-3 align-top w-full max-w-0">
+                                <div class="flex items-start gap-2 min-w-0">
                                     <button type="button" class="mt-0.5 text-gray-400 hover:text-gray-700 flex-shrink-0" :aria-label="$t('monitoring.diagnosis.expandRow')" data-testid="expand-row" @click.stop="toggle(item)">
                                         <UIcon :name="expanded.has(item.id) ? 'i-heroicons-chevron-down' : 'i-heroicons-chevron-right'" class="w-3 h-3" />
                                     </button>
@@ -59,7 +61,7 @@
                             <td class="px-3 py-3 whitespace-nowrap align-top">
                                 <div v-if="item.tools.total" class="flex items-center gap-2">
                                     <div class="flex gap-0.5">
-                                        <span v-for="i in Math.min(item.tools.total, 8)" :key="i" class="inline-block w-2 h-2 rounded-sm" :class="i <= item.tools.failed ? 'bg-red-500' : 'bg-green-500'"></span>
+                                        <span v-for="i in Math.min(item.tools.total, 6)" :key="i" class="inline-block w-2 h-2 rounded-sm" :class="i <= item.tools.failed ? 'bg-red-500' : 'bg-green-500'"></span>
                                     </div>
                                     <span class="text-gray-500">{{ item.tools.total }}</span>
                                     <span v-if="item.tools.failed" class="text-red-700 dark:text-red-400">· {{ $t('monitoring.diagnosis.nFailed', { n: item.tools.failed }) }}</span>

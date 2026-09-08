@@ -2,6 +2,31 @@
 
 Design canvas: https://claude.ai/code/artifact/6a9f2648-ba59-4306-8a35-f91d2b03bc1b
 
+## As built (September 2026)
+
+Shipped in one PR on `claude/diagnosis-page-redesign-56oyxk`, all three phases
+together. Where the build departs from the plan below:
+
+- The per-tool strip shows **average** call time, not p50: SQLite has no
+  percentile function and a per-tool median would have meant one extra
+  statement per tool. The summary line's p50 for runs is a real median
+  (count + offset).
+- `tool.*` facets (`tool:create_data tool.status:` → values) count only the
+  calls the query's own tool terms describe, not every call in those runs.
+- The backfill is set-based (`refresh_rollups_bulk`, ~8 statements per batch
+  of 500) and shares one value builder with the single-run `refresh_rollup`
+  the write-path hooks call; a test asserts the two agree column for column.
+- The "matched runs" subquery is built with `correlate(None)`: SQLAlchemy
+  otherwise auto-correlates it with an enclosing query on the same table and
+  silently turns every predicate into a cross join. This is covered by tests.
+- The old `DateRangePicker` extended mode was left in place (it is harmless
+  and removing it would touch ten locale catalogs for nothing).
+- Verification: 37 backend e2e tests (fields, correlation, paging, panels,
+  facets, errors, scope for admin / two agent managers / a member), 54 golden
+  grammar cases passing in both parsers, and a Playwright drive of the page in
+  a sandbox seeded with 5,000 runs across four users and three agents plus one
+  live Haiku run — see `media/pr/diagnosis-explorer/` and the PR description.
+
 ## Mission
 
 Replace `/monitoring/diagnosis` with a log explorer: one query language over

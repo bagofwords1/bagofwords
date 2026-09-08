@@ -44,7 +44,7 @@ PLATFORMS = [None] * 8 + ["slack", "teams", "email"]
 
 async def _seed(args) -> None:
     import main  # noqa: F401
-    from sqlalchemy import delete, select, text
+    from sqlalchemy import delete, select
     from app.dependencies import async_session_maker
     from app.models.agent_execution import AgentExecution
     from app.models.completion import Completion

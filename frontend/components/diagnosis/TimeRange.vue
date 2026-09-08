@@ -4,7 +4,7 @@
             :model-value="selected"
             :options="options"
             size="sm"
-            class="w-40"
+            class="w-44 whitespace-nowrap"
             @update:model-value="onPreset"
         >
             <template #label>

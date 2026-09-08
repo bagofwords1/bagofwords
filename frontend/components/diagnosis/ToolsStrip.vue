@@ -1,5 +1,5 @@
 <template>
-    <div v-if="tools.length" class="flex items-center gap-2 mt-4 overflow-x-auto">
+    <div v-if="tools.length" class="flex items-center gap-2 mt-4 flex-wrap">
         <span class="text-xs text-gray-400 me-0.5 flex-shrink-0">{{ $t('monitoring.diagnosis.toolsInRuns') }}</span>
         <button
             v-for="t in tools"
