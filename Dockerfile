@@ -221,7 +221,7 @@ RUN mkdir -p /app/certs && \
 # These paths match volume mounts in docker-compose.yaml; they must exist with
 # app-user ownership so Docker seeds named volumes with writable perms on first run.
 RUN mkdir -p /app/backend/uploads/files /app/backend/uploads/branding \
-             /app/backend/branding_uploads /app/backend/logs && \
+             /app/backend/branding_uploads /app/backend/logs /app/backend/data && \
     chown -R app:app /app
 
 WORKDIR /app

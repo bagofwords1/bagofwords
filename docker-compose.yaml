@@ -12,7 +12,9 @@
 #   POSTGRES_USER=bow                     # PostgreSQL username
 #   POSTGRES_PASSWORD=your_secure_pw      # PostgreSQL password (CHANGE THIS!)
 #   POSTGRES_DB=bagofwords                # Database name
-#   BOW_ENCRYPTION_KEY=                   # Fernet encryption key (44 chars, ends with =)
+#   BOW_ENCRYPTION_KEY=                   # Optional: Fernet key (44 chars, ends with =).
+#                                         # If unset, a key is auto-generated on first
+#                                         # start and persisted in the app_data volume.
 #   BOW_LICENSE_KEY=                      # Enterprise license key (optional)
 #
 # Generate encryption key:
@@ -68,6 +70,8 @@ services:
       - uploads_data:/app/backend/uploads
       - branding_data:/app/backend/branding_uploads
       - logs_data:/app/backend/logs
+      # Persists the auto-generated encryption key across restarts
+      - app_data:/app/backend/data
     depends_on:
       postgres:
         condition: service_healthy
@@ -107,6 +111,8 @@ volumes:
   branding_data:
     driver: local
   logs_data:
+    driver: local
+  app_data:
     driver: local
   caddy_data:
     driver: local
