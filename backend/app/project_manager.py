@@ -857,6 +857,8 @@ class ProjectManager:
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
+        from app.services.diagnosis.rollup import refresh_for_completion
+        await refresh_for_completion(db, str(completion.id))
         return completion
 
     async def update_completion_response_score(self, db, completion, response_score, reasoning=None):
@@ -870,6 +872,8 @@ class ProjectManager:
         db.add(completion)
         await db.commit()
         await db.refresh(completion)
+        from app.services.diagnosis.rollup import refresh_for_completion
+        await refresh_for_completion(db, str(completion.id))
         # Surface a Review item when the judge scored this answer low (<3/5).
         # Cheap-guarded inside the emitter; never fatal to scoring.
         try:
@@ -1644,6 +1648,10 @@ class ProjectManager:
         db.add(agent_execution)
         await db.commit()
         await db.refresh(agent_execution)
+        # Diagnosis rollup: denormalise what the explorer filters on, now that
+        # every tool call and (attributed) usage record for the run exists.
+        from app.services.diagnosis.rollup import refresh_after_run
+        await refresh_after_run(db, str(agent_execution.id))
         return agent_execution
 
     async def next_seq(self, db, agent_execution):
