@@ -272,6 +272,25 @@ unverified. Not needed for v1.
 **Driver decision: none.** Plain `requests` with `Accept: application/vnd.emc.documentum+json`
 and HTTP Basic (or Bearer) is the whole client.
 
+### 5b. Integration platforms, ETL and RAG ecosystems (checked 2026-09-08)
+
+| Platform | Documentum? | Detail |
+|---|---|---|
+| **Airbyte** (OSS registry, 600 sources) | **No** | Registry JSON has no Documentum, OpenText, CMIS or Alfresco source; nearest are SharePoint, OneDrive, Box. Docs pages `/sources/documentum` and `/sources/opentext` are 404. |
+| Fivetran, Meltano/Singer, dlt verified-sources, Estuary, Kafka Connect, NiFi | **No** | Nothing found in catalogues or docs. |
+| **Apache ManifoldCF** (Apache-2.0, Java) | Yes — repository + authority connectors | Indexes `dm_document` and subtypes with ACL security trimming, but "requires EMC's DFC product in order to be run" (built against DFC 6.0 stubs; you copy the customer's DFC jars into `lib-proprietary`). A Java crawler, not a Python client, and it still needs an entitled DFC. Useful only as a reference for ACL/security-trimming logic. |
+| **MuleSoft `documentum-connector`** (GitHub, Mule 3, Java 7, CXF/SOAP) | Yes, legacy | Community connector over Documentum Foundation Services (SOAP); Basic auth only; 2015 era. Not reusable. |
+| Apache Camel | CMIS component only | Generic CMIS AtomPub via OpenCMIS; only relevant if a customer exposes `dctm-cmis`. |
+| **LangChain / LlamaIndex** loaders | **No** | No Documentum, OpenText or CMIS loader in the official integrations; the only thing is `OpenDMA/langchain-opendma` (vendor-neutral ECM abstraction, 0 stars, 2026). |
+| Unstructured ingest, Onyx (Danswer), n8n, Nango providers | **No** | No Documentum/OpenText source. |
+| Unified-API vendors (Merge, Nango, Apideck, Unified.to, Paragon, Kombo) | **No** | Documentum is not in any "file storage" category catalogue. |
+| Commercial iPaaS with Documentum connectors | One Fox (Power Automate / Copilot Studio / Logic Apps, REST-based SaaS relay), Workato/Zapier via generic HTTP, BA Insight/Upland (search, DFC/DQL) | Paid, proxied, fixed action lists; not embeddable in BOW. |
+
+**Conclusion:** the ETL, ELT, RAG-loader and unified-API ecosystems have skipped Documentum
+entirely. The only open-source code that talks to it is ManifoldCF (Java, DFC) and the
+2015 MuleSoft SOAP connector. Nothing changes the recommendation to write the small REST
+client ourselves.
+
 ---
 
 ## 6. How Documentum maps onto BOW's existing connector patterns
