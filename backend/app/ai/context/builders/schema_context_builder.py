@@ -190,10 +190,11 @@ class SchemaContextBuilder:
     Builds database schema context for agent execution as a structured object.
     """
     
-    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None):
+    def __init__(self, db: AsyncSession, data_sources: List[DataSource], organization: Organization, report: Report, user=None, organization_settings=None, mode=None):
         self.db = db
         self.organization = organization
         self.report = report
+        self.mode = mode if mode is not None else getattr(report, "mode", None)
         self.data_sources = data_sources
         self.user = user
         # Needed to resolve native MCP registration the same way the planner
@@ -354,8 +355,23 @@ class SchemaContextBuilder:
                 # by name regardless of is_active rather than dropping the table.
                 overlay_names = [n for n in visible_table_names if n]
                 canonical_all_by_name: Dict[str, DataSourceTable] = dict(canonical_by_name)
+                # Canonical rows by id as well: an overlay row is linked to its
+                # canonical row by `data_source_table_id` (matched on dataset /
+                # table identity at sync time), and the two can carry different
+                # display names — a renamed Power BI dataset keeps the
+                # service-principal-indexed canonical name while the user's
+                # overlay shows the new one. The id link is the authority;
+                # the name is only a fallback for unlinked legacy overlays.
+                canonical_by_id: dict[str, DataSourceTable] = {
+                    str(t.id): t for t in canonical_by_name.values() if getattr(t, 'id', None)
+                }
+                linked_ids = {
+                    str(ot.data_source_table_id)
+                    for ot in overlay_tables if getattr(ot, 'data_source_table_id', None)
+                }
                 missing_names = [n for n in overlay_names if n not in canonical_all_by_name]
-                if missing_names:
+                missing_ids = [i for i in linked_ids if i not in canonical_by_id]
+                if missing_names or missing_ids:
                     enrich_query = (
                         select(DataSourceTable)
                         .options(
@@ -364,7 +380,10 @@ class SchemaContextBuilder:
                         )
                         .where(
                             DataSourceTable.datasource_id == str(ds.id),
-                            DataSourceTable.name.in_(missing_names),
+                            or_(
+                                DataSourceTable.name.in_(missing_names or [""]),
+                                DataSourceTable.id.in_(missing_ids or [""]),
+                            ),
                         )
                     )
                     # Honor the connection_ids contract the main query applies:
@@ -390,11 +409,46 @@ class SchemaContextBuilder:
                     # empty-string bucket collapsing distinct rows).
                     for t in enrich_q.scalars().all():
                         canonical_all_by_name.setdefault(t.name, t)
+                        canonical_by_id.setdefault(str(t.id), t)
+
+                def _canonical_for(ot, _by_id=canonical_by_id, _by_name=canonical_all_by_name):
+                    """The overlay row's canonical row: by id link first, by
+                    name for unlinked legacy overlays."""
+                    linked = getattr(ot, 'data_source_table_id', None)
+                    if linked and str(linked) in _by_id:
+                        return _by_id[str(linked)]
+                    return _by_name.get(getattr(ot, 'table_name', '') or '')
+
+                # Activation is inherited from the canonical row. The overlay
+                # answers "can this user reach the table upstream" (their own
+                # credentials); the canonical `is_active` flag answers "did the
+                # agent manager select it for this agent". A table has to pass
+                # BOTH: a user's broader upstream access must not widen the
+                # agent beyond what its manager activated. A user-discovered
+                # delegated table gets its canonical row created on sync (see
+                # DataSourceService._upsert_user_overlay), so there is always
+                # a row to activate in the tables wizard; a row that is still
+                # missing is treated as not activated.
+                if active_only:
+                    overlay_tables = [
+                        ot for ot in overlay_tables
+                        if bool(getattr(_canonical_for(ot), 'is_active', False))
+                    ]
+                    # Join targets are restricted to what survives the gate, so
+                    # a relationship never points at a table the agent hides.
+                    # Relationships name the CANONICAL table, so carry that
+                    # name too when it differs from the overlay's.
+                    visible_table_names = set()
+                    for ot in overlay_tables:
+                        visible_table_names.add(getattr(ot, 'table_name', '') or '')
+                        _c = _canonical_for(ot)
+                        if _c is not None and getattr(_c, 'name', None):
+                            visible_table_names.add(_c.name)
 
                 for ot in overlay_tables:
                     name = getattr(ot, 'table_name', '') or ''
                     overlay_cols = cols_by_table.get(str(ot.id), [])
-                    base = canonical_all_by_name.get(name)
+                    base = _canonical_for(ot)
                     # The overlay decides WHICH columns this user may see; the
                     # canonical row describes WHAT they are. Column descriptors
                     # (measure role, hidden flag, return type) are model-level
@@ -440,15 +494,10 @@ class SchemaContextBuilder:
                             "description": None,
                             "metadata": safe_meta,
                         })
-                    # The overlay is the per-user access authority: this table
-                    # came from the is_accessible==True overlay query above, so
-                    # the user can provably query it right now. The canonical
-                    # is_active flag is unreliable for a user_required source
-                    # (service principal has no access → canonical stays
-                    # inactive), so do NOT gate the user's own accessible table
-                    # on it — that dropped every delegated-source table and left
-                    # the agent with an empty schema. Emit as active.
-                    canonical_is_active = True
+                    # Reported activation is the canonical flag (already gated
+                    # above when active_only; with active_only=False inactive
+                    # rows are emitted and flagged, mirroring the system path).
+                    canonical_is_active = bool(getattr(base, 'is_active', False)) if base is not None else False
                     pks = getattr(base, 'pks', []) if base is not None else []
                     fks = [
                         fk for fk in (getattr(base, 'fks', None) or [])
@@ -768,6 +817,34 @@ class SchemaContextBuilder:
                 )
             )
 
+        # Built-in source is a capability of training, not a persisted agent.
+        if self.mode == "training" and self.user is not None and not connection_ids:
+            from app.core.console_access import resolve_console_scope
+            from app.services.bow_source_service import catalog, column_type
+            from app.schemas.bow_source_schema import SOURCE_ID
+            from app.data_sources.clients.bow_client import BowClient
+            try:
+                await resolve_console_scope(self.db, self.organization, self.user)
+                bow_allowed = True
+            except Exception:
+                bow_allowed = False
+            if bow_allowed and (not ds_filter or SOURCE_ID in ds_filter):
+                bow_tables = []
+                for name, columns in catalog().items():
+                    if table_names and name not in table_names:
+                        continue
+                    if name_patterns and not any(re.search(p, name) for p in name_patterns):
+                        continue
+                    bow_tables.append(PromptTable(
+                        name=name, columns=[PromptTableColumn(name=c, dtype=column_type(c)) for c in columns],
+                        pks=[], fks=[], connection_name="bow", connection_type="bow",
+                        description="One row per " + ("run" if name == "bow.runs" else "tool call") + ". " + BowClient.description,
+                    ))
+                ds_sections.append(TablesSchemaContext.DataSource(
+                    info=DataSourceSummarySchema(id=SOURCE_ID, name="BOW", type="bow", context=BowClient.description),
+                    tables=bow_tables,
+                ))
+
         self._apply_native_mcp_decision(ds_sections)
 
         return TablesSchemaContext(data_sources=ds_sections)
@@ -823,11 +900,13 @@ class SchemaContextBuilder:
     # File-source connectors and which of them have a native search API.
     _FILE_SOURCE_TYPES = {
         "sharepoint_onprem",
+        "documentum",
         "network_dir", "s3", "sharepoint", "onedrive", "google_drive",
         "outlook_mail", "gmail_mail", "onenote",
     }
     _NATIVE_SEARCH_TYPES = {
         "sharepoint_onprem",
+        "documentum",
         "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
         # OneNote search is local (over the walked hierarchy), not a provider
         # call, but it is still a first-class search the agent should prefer
@@ -875,13 +954,15 @@ class SchemaContextBuilder:
                     if cfg.get("bucket") else cfg.get("root_path"))
             if c.type == "sharepoint_onprem":
                 base = " / ".join(str(cfg[k]) for k in ("site_url", "drive_name", "folder_path") if cfg.get(k))
+            elif c.type == "documentum":
+                base = " / ".join(str(cfg[k]) for k in ("rest_url", "repository", "root_path") if cfg.get(k))
             cid = str(c.id)
             ftabs = by_conn.get(cid, [])
             sample = [t.name for t in ftabs[:5] if getattr(t, 'name', None)]
             topics, seen = [], set()
             for t in ftabs:
                 mj = getattr(t, 'metadata_json', None) or {}
-                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph") or mj.get("sharepoint_onprem")
+                sub = (mj.get("network_dir") or mj.get("s3") or mj.get("graph") or mj.get("sharepoint_onprem") or mj.get("documentum")
                        or mj.get("google_drive") or {}) if isinstance(mj, dict) else {}
                 for kw in (sub.get("keywords") or []):
                     k = str(kw).lower()

@@ -7,6 +7,7 @@
         role="img"
         aria-hidden="true"
     >{{ parsedIcon.value }}</span>
+    <img v-else-if="effectiveType === 'bow'" src="/assets/logo-128.png" :class="computedClass" class="w-auto object-contain" alt="" />
     <UIcon v-else-if="effectiveType === 'custom_api'" name="heroicons-cog-6-tooth" :class="[computedClass, 'text-gray-500 dark:text-gray-400']" />
     <img v-else :src="imgSrc" :class="computedClass" class="w-auto" alt="" @error="handleError" />
 </template>

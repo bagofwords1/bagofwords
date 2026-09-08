@@ -317,6 +317,8 @@ class CompletionFeedbackService:
             existing_feedback.message = feedback_data.message
             await db.commit()
             await db.refresh(existing_feedback)
+            from app.services.diagnosis.rollup import refresh_for_completion
+            await refresh_for_completion(db, str(completion_id))
             # Silent session event: the user changed their mind on a past answer.
             await self._emit_feedback_event(
                 db, completion, existing_feedback, user,
@@ -385,6 +387,8 @@ class CompletionFeedbackService:
             
             db.add(feedback)
             await db.commit()
+            from app.services.diagnosis.rollup import refresh_for_completion
+            await refresh_for_completion(db, str(completion_id))
             await db.refresh(feedback)
 
             # Silent session event: user gave feedback on the assistant's answer.
@@ -521,6 +525,8 @@ class CompletionFeedbackService:
 
         await db.delete(feedback)
         await db.commit()
+        from app.services.diagnosis.rollup import refresh_for_completion
+        await refresh_for_completion(db, str(completion_id))
 
         # Silent session event: user retracted their feedback. The completion
         # carries the report the event lands on.

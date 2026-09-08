@@ -3,7 +3,7 @@ description: >
   Training-mode behaviors: documenting the schema as instructions
   (auto-summarizing tables), capturing table relationships / join keys,
   resolving instruction conflicts by editing instead of duplicating,
-  routing straight to list_agent_executions, and saving starter prompts.
+  routing to create_data against builtin:bow, and saving starter prompts.
   Every prompt runs with mode=training so the training block of the
   system prompt (and the training-only tool catalog) is what's under
   test.
@@ -140,7 +140,7 @@ cases:
       order_mode: flexible
       rules:
         - type: tool.calls
-          tool: list_agent_executions
+          tool: create_data
           min_calls: 1
 
         # No clarification round-trip for a direct, well-defined ask.
@@ -151,10 +151,10 @@ cases:
         - type: judge
           prompt: >
             The agent went straight to platform execution history: it
-            called list_agent_executions without first asking a clarifying
+            called create_data without first asking a clarifying
             question, claiming it lacks access, or inspecting data-source
             schemas. Pass if the first substantive action was the
-            list_agent_executions call and the reply summarizes what came
+            create_data call and the reply summarizes what came
             back (including a clean "nothing found" if the history is
             empty).
 

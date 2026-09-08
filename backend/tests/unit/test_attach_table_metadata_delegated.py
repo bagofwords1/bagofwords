@@ -1,17 +1,17 @@
-"""Query-target metadata (table name → Power BI dataset GUID) must reach the
-client even when the canonical catalog row is inactive, and must include the
-executing user's overlay.
+"""Query-target metadata (table name → Power BI dataset GUID) reaches the
+client ONLY for activated canonical rows, and the executing user's overlay can
+enrich an activated row but never make a non-activated one resolvable.
 
-Confirmed against a live Power BI verify-rls dataset: a shared dashboard's
-per-viewer run failed with "Could not resolve Power BI dataset for table
-'rls_sales/Sales'". The canonical DataSourceTable carried the correct datasetId
-but was is_active=False (the service principal that indexes the catalog has no
-access to a delegated dataset), and _attach_stored_table_metadata filtered on
-is_active==True — so the resolution map was empty and every viewer run failed.
+Activation is the agent manager's table selection and it has to hold at query
+time, not only in the prompt: with an unfiltered map a generated DAX query
+naming a table the manager left out still resolved its dataset GUID and ran.
+A user-discovered delegated dataset gets its canonical row on overlay sync
+(`_upsert_user_overlay`), so the manager activates it in the tables wizard
+exactly like a service-principal-indexed table.
 
-The map only resolves a query target; access is still enforced by the delegated
-token at executeQueries time. So it must include inactive canonical rows and the
-executing user's overlay rows.
+The NOT-activated rows are handed to clients exposing
+`attach_blocked_table_metadata` so a DAX body cannot reach a sibling table of
+the same dataset either (Power BI addresses a whole dataset per query).
 """
 import pytest
 import pytest_asyncio
@@ -32,6 +32,19 @@ from app.services.data_source_service import DataSourceService
 class _FakeClient:
     def __init__(self):
         self.attached = None
+        self.blocked = None
+
+    def attach_table_metadata(self, tables):
+        self.attached = tables
+
+    def attach_blocked_table_metadata(self, tables):
+        self.blocked = tables
+
+
+class _LegacyClient:
+    """A client without the blocked-table hook (Analysis Services)."""
+    def __init__(self):
+        self.attached = None
 
     def attach_table_metadata(self, tables):
         self.attached = tables
@@ -48,7 +61,11 @@ async def db():
     await engine.dispose()
 
 
-async def _seed(db, *, canonical_active):
+META = {"powerbi": {"datasetId": "443cb0b4", "workspaceId": "ws-1", "tableName": "Sales"}}
+OVERLAY_META = {"powerbi": {"datasetId": "443cb0b4", "workspaceId": "ws-user", "tableName": "Sales"}}
+
+
+async def _seed(db, *, canonical_active, overlay_meta=OVERLAY_META):
     org = Organization(name="o")
     user = User(name="u", email="u@x.com", hashed_password="x")
     db.add_all([org, user])
@@ -63,13 +80,13 @@ async def _seed(db, *, canonical_active):
     canon = DataSourceTable(
         name="rls_sales/Sales", datasource_id=str(ds.id), is_active=canonical_active,
         columns=[{"name": "id", "dtype": "Integer"}], pks=[], fks=[],
-        metadata_json={"powerbi": {"datasetId": "443cb0b4", "workspaceId": "ws-1"}},
+        metadata_json=META,
     )
     db.add(canon)
     ot = UserDataSourceTable(
         data_source_id=str(ds.id), user_id=str(user.id),
         table_name="rls_sales/Sales", is_accessible=True, status="accessible",
-        metadata_json={"powerbi": {"datasetId": "443cb0b4", "workspaceId": "ws-1"}},
+        metadata_json=overlay_meta,
     )
     db.add(ot)
     await db.flush()
@@ -77,35 +94,127 @@ async def _seed(db, *, canonical_active):
 
 
 @pytest.mark.asyncio
-async def test_inactive_canonical_metadata_still_attached(db):
+async def test_inactive_canonical_is_not_a_query_target(db):
     org, user, ds, conn = await _seed(db, canonical_active=False)
     client = _FakeClient()
     await DataSourceService()._attach_stored_table_metadata(
         db, client, ds, conn, current_user=user)
-    names = {t["name"] for t in (client.attached or [])}
-    assert "rls_sales/Sales" in names, (
-        "delegated table's dataset-GUID metadata dropped because canonical is inactive")
-    meta = next(t["metadata_json"] for t in client.attached if t["name"] == "rls_sales/Sales")
-    assert (meta or {}).get("powerbi", {}).get("datasetId") == "443cb0b4"
+    assert {t["name"] for t in (client.attached or [])} == set(), (
+        "non-activated table (accessible to the user upstream) must not resolve")
+    assert {t["name"] for t in (client.blocked or [])} == {"rls_sales/Sales"}
 
 
 @pytest.mark.asyncio
-async def test_overlay_only_table_is_attached(db):
-    """A delegated dataset with no canonical row at all — only the user's
-    overlay carries the GUID — must still resolve."""
+async def test_active_canonical_is_attached_and_overlay_enriches_it(db):
+    org, user, ds, conn = await _seed(db, canonical_active=True)
+    client = _FakeClient()
+    await DataSourceService()._attach_stored_table_metadata(
+        db, client, ds, conn, current_user=user)
+    names = {t["name"] for t in (client.attached or [])}
+    assert names == {"rls_sales/Sales"}
+    meta = next(t["metadata_json"] for t in client.attached if t["name"] == "rls_sales/Sales")
+    # Overlay values win for an activated row: discovered under this user's creds.
+    assert meta["powerbi"]["workspaceId"] == "ws-user"
+    assert meta["powerbi"]["datasetId"] == "443cb0b4"
+    assert client.blocked == []
+
+
+@pytest.mark.asyncio
+async def test_overlay_only_table_without_canonical_row_is_not_a_query_target(db):
+    """No canonical row at all → nothing was activated → not resolvable.
+    (The next overlay sync creates the row; the wizard activates it.)"""
     org, user, ds, conn = await _seed(db, canonical_active=False)
-    # Precondition: a canonical row exists; then remove it so the overlay is
-    # the sole source of the GUID.
-    canon = (await db.execute(
-        DataSourceTable.__table__.select().where(
-            DataSourceTable.datasource_id == str(ds.id))
-    )).first()
-    assert canon is not None
     await db.execute(DataSourceTable.__table__.delete().where(
         DataSourceTable.datasource_id == str(ds.id)))
     await db.flush()
     client = _FakeClient()
     await DataSourceService()._attach_stored_table_metadata(
         db, client, ds, conn, current_user=user)
+    assert {t["name"] for t in (client.attached or [])} == set()
+
+
+@pytest.mark.asyncio
+async def test_client_without_blocked_hook_still_gets_active_map(db):
+    org, user, ds, conn = await _seed(db, canonical_active=True)
+    client = _LegacyClient()
+    await DataSourceService()._attach_stored_table_metadata(
+        db, client, ds, conn, current_user=user)
+    assert {t["name"] for t in (client.attached or [])} == {"rls_sales/Sales"}
+
+
+@pytest.mark.asyncio
+async def test_renamed_overlay_linked_by_id_to_active_canonical_resolves_under_its_own_name(db):
+    """After a dataset rename the user's schema context shows `rls_salesV2/Sales`
+    (overlay name) while the activated canonical row is still `rls_sales/Sales`.
+    The overlay name must resolve too, and never end up in the blocked map."""
+    org, user, ds, conn = await _seed(db, canonical_active=True)
+    ot = (await db.execute(
+        UserDataSourceTable.__table__.select().where(
+            UserDataSourceTable.data_source_id == str(ds.id))
+    )).first()
+    canon = (await db.execute(
+        DataSourceTable.__table__.select().where(
+            DataSourceTable.datasource_id == str(ds.id))
+    )).first()
+    await db.execute(
+        UserDataSourceTable.__table__.update()
+        .where(UserDataSourceTable.id == ot.id)
+        .values(table_name="rls_salesV2/Sales", data_source_table_id=canon.id)
+    )
+    await db.flush()
+    client = _FakeClient()
+    await DataSourceService()._attach_stored_table_metadata(
+        db, client, ds, conn, current_user=user)
     names = {t["name"] for t in (client.attached or [])}
-    assert "rls_sales/Sales" in names
+    assert {"rls_sales/Sales", "rls_salesV2/Sales"} <= names
+    assert {t["name"] for t in (client.blocked or [])} == set()
+
+
+@pytest.mark.asyncio
+async def test_renamed_overlay_linked_by_id_to_inactive_canonical_is_blocked(db):
+    org, user, ds, conn = await _seed(db, canonical_active=False)
+    ot = (await db.execute(
+        UserDataSourceTable.__table__.select().where(
+            UserDataSourceTable.data_source_id == str(ds.id))
+    )).first()
+    canon = (await db.execute(
+        DataSourceTable.__table__.select().where(
+            DataSourceTable.datasource_id == str(ds.id))
+    )).first()
+    await db.execute(
+        UserDataSourceTable.__table__.update()
+        .where(UserDataSourceTable.id == ot.id)
+        .values(table_name="rls_salesV2/Sales", data_source_table_id=canon.id)
+    )
+    await db.flush()
+    client = _FakeClient()
+    await DataSourceService()._attach_stored_table_metadata(
+        db, client, ds, conn, current_user=user)
+    assert {t["name"] for t in (client.attached or [])} == set()
+    assert {t["name"] for t in (client.blocked or [])} == {"rls_sales/Sales", "rls_salesV2/Sales"}
+
+
+@pytest.mark.asyncio
+async def test_read_user_schema_active_only_follows_id_link(db):
+    from app.services.data_source_service import DataSourceService as _S
+    org, user, ds, conn = await _seed(db, canonical_active=True)
+    ot = (await db.execute(
+        UserDataSourceTable.__table__.select().where(
+            UserDataSourceTable.data_source_id == str(ds.id))
+    )).first()
+    canon = (await db.execute(
+        DataSourceTable.__table__.select().where(
+            DataSourceTable.datasource_id == str(ds.id))
+    )).first()
+    await db.execute(
+        UserDataSourceTable.__table__.update()
+        .where(UserDataSourceTable.id == ot.id)
+        .values(table_name="rls_salesV2/Sales", data_source_table_id=canon.id)
+    )
+    await db.flush()
+    tables = await _S().read_user_data_source_schema(db=db, data_source=ds, user=user, active_only=True)
+    assert [t.name for t in tables] == ["rls_salesV2/Sales"]
+    await db.execute(DataSourceTable.__table__.update().values(is_active=False))
+    await db.flush()
+    tables = await _S().read_user_data_source_schema(db=db, data_source=ds, user=user, active_only=True)
+    assert tables == []

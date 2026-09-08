@@ -500,7 +500,7 @@ class CodeSecurityVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute):
         # Check for direct access to forbidden attributes like obj.__class__
-        if node.attr in FORBIDDEN_ATTRIBUTES:
+        if node.attr in FORBIDDEN_ATTRIBUTES or node.attr.startswith("_"):
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
 
@@ -796,6 +796,8 @@ class QueryCapturingClientWrapper:
             capture = _describe_keyword_call(kwargs)
         else:
             capture = query
+        if isinstance(capture, dict) and getattr(self._original, "_bow_source_id", None):
+            capture = json.dumps(capture, sort_keys=True, default=str)
         if isinstance(capture, str):
             self._captured_queries.append(capture)
         idx = len(self._captured_timings)
@@ -859,6 +861,7 @@ class QueryCapturingClientWrapper:
                     "rows": None,
                     "sql": capture[:500] if isinstance(capture, str) else None,
                     "error": str(e)[:200],
+                    "terminal": bool(getattr(e, "terminal_execution_error", False)),
                 })
                 span.set_status(StatusCode.ERROR, str(e))
                 span.record_exception(e)
@@ -878,6 +881,8 @@ class QueryCapturingClientWrapper:
         are about to orphan — the client may have other queries in flight and
         those must survive.
         """
+        if getattr(self._original, "_manages_query_deadline", False):
+            return self._original.execute_query(query, *args, **kwargs)
         holder: Dict[str, Any] = {}
 
         def runner():
@@ -1243,6 +1248,13 @@ class StreamingCodeExecutor:
             # 0-row "success". Checked after stdout is unbound so the model's own
             # printed error still reaches the execution log.
             self._raise_if_query_errors_were_swallowed(df, _timings, span=span)
+            if isinstance(df, pd.DataFrame):
+                bow_access = next((getattr(c, "_bow_access", None) for c in ds_clients.values() if getattr(c, "_bow_access", None)), None)
+                if not bow_access:
+                    bow_access = next((frame.attrs.get("bow_source") for group in (loadables or {}).values() if isinstance(group, dict)
+                                       for frame in group.values() if isinstance(frame, pd.DataFrame) and frame.attrs.get("bow_source")), None)
+                if bow_access:
+                    df.attrs["bow_source"] = bow_access
             return df, output_log, executed_queries
 
     @staticmethod
@@ -1254,6 +1266,11 @@ class StreamingCodeExecutor:
         query can correctly return no rows, and code can recover from a failed
         query and go on to return real data.
         """
+        terminal_errors = [str(t["error"]) for t in (timings or []) if t.get("error") and t.get("terminal")]
+        if terminal_errors:
+            error = SwallowedQueryError(terminal_errors)
+            error.terminal_execution_error = True
+            raise error
         if df is None or not isinstance(df, pd.DataFrame) or not df.empty:
             return
         errors = [
@@ -1391,10 +1408,14 @@ class StreamingCodeExecutor:
                     params=params,
                 )
 
-            result = await loop.run_in_executor(
-                _CODE_EXEC_POOL,
-                _run_execute_code,
-            )
+            try:
+                result = await loop.run_in_executor(_CODE_EXEC_POOL, _run_execute_code)
+            except asyncio.CancelledError:
+                for client in ds_clients.values():
+                    cancel = getattr(client, "_cancel_pending", None)
+                    if cancel:
+                        await cancel()
+                raise
             span.set_attribute("code_execution.total_ms", round((_time.monotonic() - started) * 1000.0, 3))
             return result
 
@@ -1537,6 +1558,12 @@ class StreamingCodeExecutor:
                     max_rows = 1000
             else:
                 max_rows = 1000
+        bow_source = df.attrs.get("bow_source")
+        if bow_source:
+            from app.schemas.bow_source_schema import MAX_ROWS
+            if len(df) > MAX_ROWS:
+                raise ValueError("BOW output exceeds 10,000 rows; narrow or aggregate before saving")
+            row_limit_disabled = True  # materialize the complete bounded result
         columns = [{"headerName": str(col), "field": str(col)} for col in df.columns]
         if df.empty:
             rows = []
@@ -1562,6 +1589,8 @@ class StreamingCodeExecutor:
                 df_to_serialize.to_json(orient='records', date_format='iso', default_handler=str)
             )
             df_info = self.get_df_info(df)
+        if bow_source:
+            df_info["source"] = {"id": "builtin:bow", "name": "BOW", "complete": True}
         return {
             "rows": rows,
             "columns": columns,
@@ -1625,6 +1654,8 @@ class StreamingCodeExecutor:
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
+                if getattr(e, "terminal_execution_error", False):
+                    break
                 if retries < max_retries:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
@@ -1656,6 +1687,8 @@ class StreamingCodeExecutor:
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
+                if getattr(e, "terminal_execution_error", False):
+                    break
                 if retries < max_retries:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
@@ -1792,6 +1825,8 @@ class StreamingCodeExecutor:
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
+                if getattr(e, "terminal_execution_error", False):
+                    break
                 if retries < max_retries:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue
@@ -1906,6 +1941,8 @@ class StreamingCodeExecutor:
                 code_and_error_messages.append((final_code, msg))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
+                if getattr(e, "terminal_execution_error", False):
+                    break
                 if retries < max_retries:
                     yield {"type": "progress", "payload": {"stage": "retry", "attempt": retries, "timing": False}}
                 continue

@@ -1,3 +1,10 @@
+> **Superseded.** The diagnosis page was rebuilt around a query language
+> (`docs/design/diagnosis-explorer.md`). The `user_ids` / `start_date` /
+> `end_date` / `prompt_search` parameters below still exist on
+> `GET /console/agent_executions/summaries`, but the page no longer uses them;
+> `GET /console/diagnosis/users` and `GET /console/diagnosis/timeseries` were
+> removed.
+
 # Feedback Loop — "/diagnosis: we should be able to filter by user/agent/day (exact or custom range)" + free-text search
 
 The monitoring diagnosis page (`/monitoring/diagnosis`) could only narrow agent

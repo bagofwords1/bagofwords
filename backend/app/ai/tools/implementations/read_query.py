@@ -259,6 +259,20 @@ class ReadQueryTool(Tool):
             r = await self._resolve_by_query_id(db, report, organization, query_id, allow_llm_see_data)
             results.append(r)
 
+        # Saved monitoring data is gated before any rows, code, or titles reach the model.
+        from app.services.bow_source_access import can_read, report_access, protect_report
+        checked = []
+        for r in results:
+            rid = await db.scalar(select(Query.report_id).where(Query.id == r.query_id)) if r.query_id else None
+            access = await report_access(db, rid)
+            if not await can_read(db, access, runtime_ctx.get("user")):
+                checked.append(ReadQueryResult(query_id=r.query_id, error="Access denied"))
+                continue
+            if access:
+                await protect_report(db, getattr(report, "id", None), access)
+            checked.append(r)
+        results = checked
+
         # Determine overall success
         errors = [r.error for r in results if r.error]
         all_success = len(errors) == 0

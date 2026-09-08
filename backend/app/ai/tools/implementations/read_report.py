@@ -155,6 +155,9 @@ class ReadReportTool(Tool):
             )
             return
 
+        from app.services.bow_source_access import can_read, protect_report
+        if report and not await can_read(db, report.bow_source_access, user):
+            report = None
         if not report:
             # Indistinguishable from "not yours" — by design, no leak.
             output = ReadReportOutput(
@@ -174,6 +177,9 @@ class ReadReportTool(Tool):
                 },
             )
             return
+
+        if report.bow_source_access:
+            await protect_report(db, getattr(context_hub.report, "id", None), report.bow_source_access)
 
         # Artifacts summary (most recent first)
         artifacts = sorted(

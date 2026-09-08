@@ -68,6 +68,10 @@ async def resolve_step_data(
     only the owner/snapshot vs. withheld decision is made via report_id on
     the step's query, falling back to serving the snapshot.
     """
+    from app.services.bow_source_access import step_access, can_read
+    bow_access = await step_access(db, step)
+    if bow_access and not await can_read(db, bow_access, requesting_user):
+        return StepDataResolution(data={}, withheld=True)
     shared = step.data or {}
 
     owner_id = str(report.user_id) if report is not None and getattr(report, "user_id", None) else None
@@ -117,7 +121,7 @@ async def resolve_step_data(
             and await snapshot_withheld_for_viewers(
                 db, str(report_id), getattr(report, "shared_run_identity", None),
                 fallback_org_id=getattr(report, "organization_id", None),
-                code=step_code,
+                code=step_code, bow_authorized=bool(bow_access),
             )
         )
     else:
@@ -302,6 +306,10 @@ async def entity_data_withheld(
     returns False for the runner, so a non-owner refresh on a user-scoped
     source stays transient.)
     """
+    from app.services.bow_source_access import can_read
+    bow_access = getattr(entity, "bow_source_access", None)
+    if bow_access and not await can_read(db, bow_access, requesting_user):
+        return True
     owner_id = str(getattr(entity, "owner_id", "") or "")
     if requesting_user is not None and owner_id and str(requesting_user.id) == owner_id:
         return False
@@ -352,6 +360,7 @@ async def resolve_entity_data(
 async def snapshot_withheld_for_viewers(
     db: AsyncSession, report_id: str, shared_run_identity: str | None,
     *, fallback_org_id: str | None = None, code: str | None = None,
+    bow_authorized: bool = False,
 ) -> bool:
     """True when non-owner readers must not see the shared Step.data snapshot.
 
@@ -365,6 +374,9 @@ async def snapshot_withheld_for_viewers(
     fallback, so when `fallback_org_id` is given the policy evaluates the org
     sources the step's `code` addresses instead of an empty set.
     """
+    from app.services.bow_source_access import report_access
+    if not bow_authorized and await report_access(db, report_id):
+        return True
     ds_ids = await _report_data_source_ids(db, report_id)
     if not ds_ids and fallback_org_id:
         ds_ids = await _org_fallback_ds_ids(db, fallback_org_id, code)

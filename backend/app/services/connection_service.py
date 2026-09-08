@@ -247,6 +247,15 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         # constrained delegation (no per-user secret; UPN derived at query
         # time from the login identity).
         return ["kerberos_delegated"]
+    if conn_type == "documentum":
+        # Per-user auth follows what the admin stored on the connection: an
+        # OTDS OAuth client enables both impersonation (identity overlay, no
+        # per-user secret) and OTDS sign-in; a plain repository user/password
+        # leaves modes unset so members bring their own login.
+        creds = credentials or {}
+        if creds.get("otds_url") and creds.get("client_id") and creds.get("client_secret"):
+            return ["otds_impersonation", "oauth"]
+        return None
     if conn_type == "qlik_sense_onprem":
         # Per-user auth is the identity overlay: the user names their Qlik
         # account, the connection's certificate is merged underneath. The
@@ -1112,33 +1121,47 @@ class ConnectionService:
             return {"success": False, "message": str(e)}
 
     async def save_windows_user_credentials(self, db, connection, user, payload) -> dict:
-        """Canonical per-user credential storage for the on-prem file connector.
+        """Canonical per-user credential storage for user-required connections
+        whose members supply their own identity (SharePoint Server NTLM,
+        Documentum user/password or OTDS impersonation).
 
-        Keep OAuth and legacy datasource credential flows unchanged. Callers
-        must authorize read access to the connection before invoking this.
+        Writes the connection-scoped row that runtime resolution reads
+        (`resolve_credentials`), so a member's saved identity applies to every
+        path — file listing, agent tools, schema overlay. Overlay variants keep
+        only the user's identity fields; the connection's system credentials are
+        merged underneath at resolve time. OAuth and legacy datasource
+        credential flows are unchanged. Callers must authorize read access to
+        the connection before invoking this.
         """
         from app.errors import AppError, ErrorCode
         from app.models.user_connection_credentials import UserConnectionCredentials
-        from app.schemas.data_sources.configs import SharePointOnpremNtlmCredentials
-        from app.services.connection_identity import get_user_conn_cred_row
-        if connection.type != "sharepoint_onprem" or connection.auth_policy != "user_required" or payload.auth_mode != "ntlm":
-            raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual Windows credentials")
+        from app.schemas.data_source_registry import REGISTRY
+        from app.services.connection_identity import KERBEROS_SSO_MODE, get_user_conn_cred_row
+        entry = REGISTRY.get(connection.type)
+        variant = (entry.credentials_auth.by_auth or {}).get(payload.auth_mode) if entry else None
+        manual = (
+            variant is not None and "user" in (variant.scopes or [])
+            and payload.auth_mode not in ("oauth", "kerberos", KERBEROS_SSO_MODE)
+            and connection.type in ("sharepoint_onprem", "documentum")
+        )
+        if connection.auth_policy != "user_required" or not manual:
+            raise AppError.bad_request(ErrorCode.VALIDATION, "This connection does not accept manual user credentials")
         if connection.allowed_user_auth_modes and payload.auth_mode not in connection.allowed_user_auth_modes:
             raise AppError.bad_request(ErrorCode.VALIDATION, "Authentication mode is not permitted by this connection")
         try:
-            credentials = SharePointOnpremNtlmCredentials(**payload.credentials).model_dump()
+            credentials = variant.schema(**(payload.credentials or {})).model_dump()
         except ValueError:
-            raise AppError(ErrorCode.VALIDATION, "A domain username and password are required", status_code=422)
+            raise AppError(ErrorCode.VALIDATION, "The required credential fields are missing or invalid", status_code=422)
         row = await get_user_conn_cred_row(db, connection, user)
         if row is None:
             row = UserConnectionCredentials(connection_id=str(connection.id), user_id=str(user.id),
-                organization_id=str(connection.organization_id), auth_mode="ntlm", is_active=True, is_primary=True)
-        row.auth_mode = "ntlm"
+                organization_id=str(connection.organization_id), auth_mode=payload.auth_mode, is_active=True, is_primary=True)
+        row.auth_mode = payload.auth_mode
         row.last_used_at = None
         row.encrypt_credentials(credentials)
         db.add(row)
         await db.commit()
-        return {"success": True, "auth_mode": "ntlm"}
+        return {"success": True, "auth_mode": payload.auth_mode}
 
     async def delete_user_credentials(
         self,
@@ -1860,7 +1883,13 @@ class ConnectionService:
                     except Exception as e:
                         logger.warning(f"OAuth token refresh check failed: {e}")
                         return row.decrypt_credentials()
-                return row.decrypt_credentials()
+                # A connection may offer BOTH a delegated sign-in and a manual
+                # identity overlay (Documentum: OTDS sign-in or OTDS
+                # impersonation). A non-OAuth row is such an overlay: merge it
+                # over the system credentials so the connection's OAuth client
+                # backs the user's identity instead of being dropped.
+                from app.schemas.data_source_registry import overlay_system_credentials
+                return overlay_system_credentials(connection, row.decrypt_credentials() or {}, row.auth_mode)
 
             raise HTTPException(
                 status_code=403,

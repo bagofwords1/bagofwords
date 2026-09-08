@@ -26,6 +26,7 @@ class QueryLastRunSchema(BaseModel):
 
 
 class QuerySchema(BaseModel):
+    source_refs: Optional[list] = None
     id: str
     title: str
     report_id: Optional[str] = None

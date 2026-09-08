@@ -400,7 +400,7 @@ from app.ai.utils.token_counter import count_tokens
 from app.services.instruction_usage_service import InstructionUsageService
 from app.ai.llm.types import ImageInput
 from app.ai.llm.image_utils import normalize_image_input
-from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution
+from app.ai.llm.usage_attribution import set_usage_attribution, reset_usage_attribution, get_usage_attribution
 from app.ai.llm.header_injection import set_llm_identity, reset_llm_identity
 from app.services.mcp_context_injection import IdentityContext
 from app.services.usage_policy_service import UsageLimitContext
@@ -760,7 +760,8 @@ class AgentV2:
             head_completion=self.head_completion,
             widget=self.widget,
             organization_settings=self.organization_settings,
-            build_id=build_id
+            build_id=build_id,
+            mode=self.mode,
         )
         # Enhanced registry with metadata-driven filtering
         self.registry = ToolRegistry()
@@ -1094,7 +1095,7 @@ class AgentV2:
             tbs = (tool_input or {}).get("tables_by_source") if isinstance(tool_input, dict) else None
             for entry in tbs or []:
                 did = entry.get("data_source_id") if isinstance(entry, dict) else None
-                if did:
+                if did and not str(did).startswith("builtin:"):
                     used.append(str(did))
         except Exception:
             used = []
@@ -3883,6 +3884,10 @@ class AgentV2:
                 self.current_widget = inv.current_widget
 
     async def main_execution(self):
+        from app.data_sources.clients.bow_client import install_bow_client
+        from app.models.user import User as BowUser
+        bow_user = await self.db.get(BowUser, str(self.head_completion.user_id)) if self.head_completion and self.head_completion.user_id else None
+        await install_bow_client(self.db, self.organization, bow_user, self.report, self.clients, mode=self.mode, allow_saved=False, writer_lock=self._tool_db_lock)
         # Single-writer mode: route all migrated writers through self.db
         # (the agent's existing main session) via self._writes_session().
         # We deliberately do NOT open a separate session — that would
@@ -3993,6 +3998,15 @@ class AgentV2:
                 build_id=self.build_id,
                 is_eval_run=self.is_eval_run,
             )
+            # Usage records written from here on carry the run id (see
+            # app.ai.llm.usage_attribution) so cost/tokens roll up per run.
+            try:
+                set_usage_attribution({
+                    **get_usage_attribution(),
+                    "agent_execution_id": str(self.current_execution.id),
+                })
+            except Exception:  # noqa: BLE001 — attribution is best-effort
+                pass
             _mlog("execution_tracking_started")
 
             # Resolve any pinned connector file references for this report into
@@ -6188,6 +6202,8 @@ class AgentV2:
 
                                 if _obs and _obs.get("analysis_complete"):
                                     analysis_done = True
+                                    if _obs.get("terminal_execution_error"):
+                                        completion_errored = True
 
                                     # If tool provides final_answer, update completion and block content
                                     final_answer_from_tool = _obs.get("final_answer")
@@ -6232,13 +6248,13 @@ class AgentV2:
                                         await self.project_manager.update_completion_status(
                                             self.db,
                                             self.system_completion,
-                                            'success'
+                                            'error' if completion_errored else 'success'
                                         )
                                         if self.event_queue:
                                             await self.event_queue.put(SSEEvent(
                                                 event="completion.finished",
                                                 completion_id=str(self.system_completion_id),
-                                                data={"status": "success"}
+                                                data={"status": "error" if completion_errored else "success"}
                                             ))
                                         completion_finished_emitted = True
                                         asyncio.create_task(

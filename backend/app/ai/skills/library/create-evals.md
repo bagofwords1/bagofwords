@@ -18,8 +18,8 @@ plausible. Both look green forever and catch nothing.
 ## 1. Start from a run that was actually right
 
 The source of a case is a specific successful run — a question someone asked,
-an answer someone accepted. `list_agent_executions` (filter by `prompt_search`,
-`tool_name`, or feedback) is the history. Read the run before writing anything:
+an answer someone accepted. `create_data` targeting the built-in `builtin:bow` source (`bow.runs` or `bow.tool_calls`) (filter by the diagnosis query text,
+`tool:` predicates, or feedback) is the history. Read the run before writing anything:
 the tools it called, the filters and joins that made it correct, and the
 definitions the user implicitly approved along the way.
 

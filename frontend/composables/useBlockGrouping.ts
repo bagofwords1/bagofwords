@@ -49,7 +49,6 @@ export const GROUPABLE_TOOLS = new Set<string>([
   'search_evals',
   'get_eval_run',
   'get_eval_runs',
-  'list_agent_executions',
   'list_emails',
   'read_email',
   'search_email',

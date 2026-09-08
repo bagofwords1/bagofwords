@@ -68,6 +68,8 @@ class ReportService:
         visibility_field: 'artifact_visibility' or 'conversation_visibility'
         Raises 401 if login needed, 403 if denied, or passes silently if allowed.
         """
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, getattr(report, "bow_source_access", None), user)
         from app.models.membership import Membership
         from app.models.report_share import ReportShare
 
@@ -280,6 +282,8 @@ class ReportService:
             if unknown:
                 raise HTTPException(status_code=400, detail="Unknown group in shared_group_ids")
 
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, visibility == 'public')
         field = 'artifact_visibility' if share_type == 'artifact' else 'conversation_visibility'
         previous_visibility = getattr(report, field, None)
         setattr(report, field, visibility)
@@ -644,6 +648,9 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
 
+        from app.services.bow_source_access import assert_read
+        await assert_read(db, report.bow_source_access, current_user)
+
         # Per-user starred state (same source of truth as the list view)
         from app.models.report_star import ReportStar
         star_result = await db.execute(
@@ -795,6 +802,72 @@ class ReportService:
         await self._enrich_fork_lineage(db, report, report_schema)
         return report_schema
 
+    async def _assert_can_enter_training_mode(
+        self,
+        db: AsyncSession,
+        current_user: User,
+        organization: Organization,
+        training_ds_ids: list[str],
+    ) -> None:
+        """Gate for putting a report into training mode.
+
+        Shared by create (mode picked on the home prompt box) and update (mode
+        picked inside a report) so both entry points enforce the same contract:
+
+        - The org flag ``enable_training_mode`` must be on (400 otherwise).
+        - Per-agent authorization: entering training mode is the agent-admin
+          capability, not an org-wide one. The actor must be able to manage
+          instructions on EVERY agent (data source) the report is attached to —
+          via full_admin / org-level manage_instructions, or a per-data_source
+          ``manage`` grant (which implies manage_instructions). A plain member
+          (view only) on the agent is denied, even if they manage some other
+          agent (403).
+        """
+        # Reuse the settings already eager-loaded on the request-scoped
+        # organization instead of issuing another query.
+        org_settings = organization.settings
+        if org_settings:
+            enable_training_mode = org_settings.get_config("enable_training_mode")
+            training_mode_disabled = False
+            if enable_training_mode is not None:
+                if hasattr(enable_training_mode, 'value'):
+                    training_mode_disabled = enable_training_mode.value is False
+                elif isinstance(enable_training_mode, dict):
+                    training_mode_disabled = enable_training_mode.get('value') is False
+            else:
+                # Default to disabled if not set
+                training_mode_disabled = True
+            if training_mode_disabled:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Training mode is not enabled for this organization"
+                )
+        from app.core.permission_resolver import resolve_permissions
+        resolved = await resolve_permissions(
+            db, str(current_user.id), str(organization.id)
+        )
+        can_train = resolved.has_org_permission('manage_instructions') or (
+            bool(training_ds_ids)
+            and all(
+                resolved.has_resource_permission('data_source', ds, 'manage_instructions')
+                for ds in training_ds_ids
+            )
+        )
+        if not can_train and not training_ds_ids:
+            # Agent managers can train against BOW history without attaching
+            # a business source. The source applies their manage scope.
+            from app.core.console_access import resolve_console_scope
+            try:
+                await resolve_console_scope(db, organization, current_user)
+                can_train = True
+            except HTTPException:
+                pass
+        if not can_train:
+            raise HTTPException(
+                status_code=403,
+                detail="You need manage access on this agent to enter training mode",
+            )
+
     async def create_report(self, db: AsyncSession, report_data: ReportCreate, current_user: User, organization: Organization) -> ReportSchema:
         file_uuids = report_data.files or []
         del report_data.files
@@ -802,6 +875,11 @@ class ReportService:
         del report_data.data_sources
         project_id = report_data.project_id
         del report_data.project_id
+        # Mode is optional on create; None must not reach the ORM (it would
+        # write NULL past the column default). Gated below once the effective
+        # agent list is known (project defaults may fill it in).
+        requested_mode = report_data.mode or 'chat'
+        del report_data.mode
 
         # Create the report object
         report = Report(**report_data.dict())
@@ -825,6 +903,15 @@ class ReportService:
             # context-build time (FilesContextBuilder / file tools), so
             # adding or removing a file on the project applies to every
             # report in it, including ones created before the change.
+        # Training mode straight from the home prompt box: same gate as
+        # switching an existing report (org flag + manage_instructions on every
+        # attached agent). Checked before anything is written so a denied
+        # request leaves no half-created chat report behind.
+        if requested_mode == 'training':
+            await self._assert_can_enter_training_mode(
+                db, current_user, organization, [str(x) for x in data_source_ids]
+            )
+        report.mode = requested_mode
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'
@@ -931,6 +1018,8 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, report_data.status == 'published')
         if report_data.title:
             report.title = report_data.title
         if report_data.status:
@@ -947,55 +1036,14 @@ class ReportService:
             report.theme_overrides = report_data.theme_overrides
         # Persist mode update if present in payload
         if hasattr(report_data, 'mode') and report_data.mode is not None:
-            # Block training mode if enable_training_mode or allow_llm_see_data is disabled
             if report_data.mode == 'training':
-                # Reuse the settings already eager-loaded on the request-scoped
-                # organization instead of issuing another query.
-                org_settings = organization.settings
-                if org_settings:
-                    # Check enable_training_mode flag
-                    enable_training_mode = org_settings.get_config("enable_training_mode")
-                    training_mode_disabled = False
-                    if enable_training_mode is not None:
-                        if hasattr(enable_training_mode, 'value'):
-                            training_mode_disabled = enable_training_mode.value is False
-                        elif isinstance(enable_training_mode, dict):
-                            training_mode_disabled = enable_training_mode.get('value') is False
-                    else:
-                        # Default to disabled if not set
-                        training_mode_disabled = True
-                    if training_mode_disabled:
-                        raise HTTPException(
-                            status_code=400,
-                            detail="Training mode is not enabled for this organization"
-                        )
-                # Per-agent authorization: entering training mode is the
-                # agent-admin capability, not an org-wide one. The actor must be
-                # able to manage instructions on EVERY agent (data source) the
-                # report is attached to — via full_admin / org-level
-                # manage_instructions, or a per-data_source `manage` grant (which
-                # implies manage_instructions). A plain member (view only) on the
-                # agent is denied, even if they manage some other agent.
-                from app.core.permission_resolver import resolve_permissions
                 if report_data.data_sources is not None:
                     training_ds_ids = [str(x) for x in report_data.data_sources]
                 else:
                     training_ds_ids = [str(ds.id) for ds in (report.data_sources or [])]
-                resolved = await resolve_permissions(
-                    db, str(current_user.id), str(organization.id)
+                await self._assert_can_enter_training_mode(
+                    db, current_user, organization, training_ds_ids
                 )
-                can_train = resolved.has_org_permission('manage_instructions') or (
-                    bool(training_ds_ids)
-                    and all(
-                        resolved.has_resource_permission('data_source', ds, 'manage_instructions')
-                        for ds in training_ds_ids
-                    )
-                )
-                if not can_train:
-                    raise HTTPException(
-                        status_code=403,
-                        detail="You need manage access on this agent to enter training mode",
-                    )
             report.mode = report_data.mode
         # Persist report-level LLM override if present in payload.
         #   None          -> field omitted, leave the current value untouched
@@ -1434,6 +1482,9 @@ class ReportService:
             raise HTTPException(status_code=400, detail="Report owners refresh via the report rerun endpoint")
 
         identity = report.shared_run_identity if report.shared_run_identity in ('viewer', 'creator') else 'viewer'
+        from app.services.bow_source_access import report_access
+        if await report_access(db, report.id):
+            identity = "viewer"
         # Defense in depth: RLS reports always run under the viewer's own
         # identity. set_visibility blocks setting creator mode on them, but a
         # relation could gain rls_enabled after the fact — never resolve the
@@ -1644,6 +1695,8 @@ class ReportService:
         if not report:
             raise HTTPException(status_code=404, detail="Report not found")
         
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, report.status != 'published')
         if report.status == 'published':
             report.status = 'draft'
             report.artifact_visibility = 'none'
@@ -2295,6 +2348,8 @@ class ReportService:
                 Report.status != 'archived',
             ]
 
+            from app.services.bow_source_access import visible_reports_clause
+            base_conditions.append(await visible_reports_clause(db, organization.id, current_user))
             base_conditions.append(Report.report_type == 'regular')
 
             # Optional filter by mode (chat/deep/training)
@@ -3291,6 +3346,8 @@ class ReportService:
         # Toggle the enabled state
         new_enabled = not report.conversation_share_enabled
         
+        from app.services.bow_source_access import assert_shareable
+        await assert_shareable(db, report.id, new_enabled)
         if new_enabled:
             # Generate a new token if enabling and no token exists
             if not report.conversation_share_token:

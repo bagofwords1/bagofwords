@@ -1,834 +1,158 @@
 <template>
     <div class="mt-6">
-        <!-- Date Range Picker with Agent/User/Search filters -->
-        <DateRangePicker
-            :selected-period="selectedPeriod"
-            :date-range="dateRange"
-            extended
-            @period-change="handlePeriodChange"
-            @range-change="handleRangeChange"
-        >
-            <AgentSelector :collapsed="false" :show-text="true" :show-label="false" console-scope />
-
-            <!-- User filter -->
-            <USelectMenu
-                v-model="selectedUsers"
-                :options="userOptions"
-                multiple
-                searchable
-                by="id"
-                option-attribute="name"
-                size="sm"
-                class="min-w-[160px]"
-            >
-                <template #label>
-                    <span v-if="selectedUsers.length === 0" class="text-gray-500 dark:text-gray-400">{{ $t('monitoring.diagnosis.filterUsersAll') }}</span>
-                    <span v-else class="truncate max-w-[180px]">{{ selectedUsers.map(u => u.name).join(', ') }}</span>
-                </template>
-            </USelectMenu>
-
-            <!-- Free-text prompt search -->
-            <UInput
-                v-model="searchQuery"
-                icon="i-heroicons-magnifying-glass"
-                size="sm"
-                :placeholder="$t('monitoring.diagnosis.searchPlaceholder')"
-                class="min-w-[220px]"
+        <!-- One query bar. The string in it (mirrored to the URL) is the whole page state. -->
+        <div class="flex items-start gap-3">
+            <DiagnosisQueryBar
+                ref="bar"
+                :model-value="dq.text.value"
+                :tokens="dq.tokens.value"
+                :error="dq.parseError.value"
+                :loading="dq.loading.value"
+                :dirty="dq.text.value !== dq.committed.value"
+                :facets="facetsForBar"
+                @update:model-value="dq.setText"
+                @run="dq.run()"
             />
-        </DateRangePicker>
+            <DiagnosisFilterBuilder :facets="facetsForBar" :query="dq.committed.value" @add="addTerms" />
+            <DiagnosisTimeRange :range="dq.range.value" @change="dq.setRange" />
+        </div>
+        <DiagnosisQuickFilters :query="dq.text.value" :quick-filters="quickFilters" @toggle="toggleChip" />
 
-        <!-- Activity Chart (observability-style daily bars) -->
+        <div v-if="dq.serverError.value" class="mt-3 text-xs text-red-700 dark:text-red-400">{{ dq.serverError.value }}</div>
+
         <DiagnosisActivityChart
-            :points="timeseriesPoints"
-            :is-loading="isTimeseriesLoading"
-            :selected-date="selectedDay"
-            @select-day="handleDaySelect"
+            :buckets="dq.buckets.value"
+            :granularity="dq.granularity.value"
+            :summary="dq.summary.value"
+            :total-in-range="dq.totalInRange.value"
+            :range-label="rangeLabel"
+            :ms="dq.lastMs.value"
+            @select="onBucket"
         />
 
-        <!-- Summary Cards (matching MetricsCards.vue style) -->
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-            <!-- Failed Queries -->
-            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ dashboardMetrics?.failed_queries || 0 }}
-                </div>
-                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.diagnosis.cardFailedQueries') }}</div>
-            </div>
+        <DiagnosisToolsStrip :tools="dq.tools.value" :query="dq.text.value" @pick="tool => addTerms(`tool:${tool}`)" />
 
-            <!-- Negative Feedback -->
-            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ dashboardMetrics?.negative_feedback || 0 }}
-                </div>
-                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.diagnosis.cardNegativeFeedback') }}</div>
-            </div>
+        <DiagnosisRunsTable
+            :items="dq.items.value"
+            :calls="calls"
+            :loading="dq.loading.value"
+            :loading-more="dq.loadingMore.value"
+            :next-cursor="dq.nextCursor.value"
+            :total="dq.total.value"
+            :sort="dq.sort.value"
+            :dir="dq.dir.value"
+            @open="openTrace"
+            @open-call="openCall"
+            @expand="loadCalls"
+            @pivot="terms => terms && addTerms(terms)"
+            @sort="onSort"
+            @more="dq.loadMore()"
+            @example="q => dq.commit(q)"
+        />
 
-            <!-- Instruction Coverage -->
-            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ isJudgeEnabled ? (getInstructionsEffectiveness() + '%') : $t('monitoring.diagnosis.naAbbr') }}
-                </div>
-                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1 flex items-center">
-                    {{ $t('monitoring.diagnosis.cardInstructionCoverage') }}
-                    <UTooltip :text="isJudgeEnabled ? $t('monitoring.diagnosis.judgeEnabledTooltip') : $t('monitoring.diagnosis.judgeDisabledTooltip')">
-                        <UIcon name="i-heroicons-information-circle" class="w-4 h-4 ms-1 text-gray-400 dark:text-gray-600 cursor-help" />
-                    </UTooltip>
-                </div>
-            </div>
-
-            <!-- Total Items -->
-            <div class="bg-white dark:bg-gray-900 p-6 border border-gray-200 dark:border-gray-700 rounded-xl shadow-sm">
-                <div class="text-2xl font-bold text-gray-900 dark:text-white">
-                    {{ dashboardMetrics?.total_items || 0 }}
-                </div>
-                <div class="text-sm font-medium text-gray-600 dark:text-gray-400 mt-1">{{ $t('monitoring.diagnosis.cardTotalAgentRuns') }}</div>
-            </div>
-        </div>
-
-        <!-- Filter Tabs -->
-        <div class="mb-6">
-            <div class="border-b border-gray-200 dark:border-gray-700">
-                <nav class="-mb-px flex space-x-8">
-                    <button
-                        v-for="filter in filterOptions"
-                        :key="filter.value"
-                        @click="handleFilterChange(filter)"
-                        :class="[
-                            selectedFilter.value === filter.value
-                                ? 'border-blue-500 text-blue-600'
-                                : 'border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 hover:border-gray-300',
-                            'whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm'
-                        ]"
-                    >
-                        {{ filter.label }}
-                        <span
-                            v-if="filter.count !== undefined && filter.count >= 0"
-                            :class="[
-                                selectedFilter.value === filter.value
-                                    ? 'bg-blue-100 dark:bg-blue-900/50 text-blue-600'
-                                    : 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400',
-                                'ms-2 py-0.5 px-2 rounded-full text-xs font-medium'
-                            ]"
-                        >
-                            {{ filter.count }}
-                        </span>
-                    </button>
-                </nav>
-            </div>
-        </div>
-
-        <!-- Day filter indicator (set by clicking a bar in the activity chart) -->
-        <div v-if="selectedDay" class="mb-4 -mt-2">
-            <button
-                @click="clearDayFilter"
-                class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 dark:bg-blue-950 text-blue-700 border border-blue-200 rounded-full text-xs font-medium hover:bg-blue-100"
-            >
-                {{ $t('monitoring.diagnosis.dayFilterLabel', { date: formatDate(selectedDay) }) }}
-                <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
-            </button>
-        </div>
-
-        <!-- Loading state -->
-        <div v-if="isLoading" class="flex items-center justify-center py-12">
-            <div class="flex items-center space-x-2">
-                <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
-                <span class="text-gray-600 dark:text-gray-400">{{ $t('monitoring.diagnosis.loading') }}</span>
-            </div>
-        </div>
-
-        <!-- Agent Executions Table -->
-        <div v-else class="bg-white dark:bg-gray-900 shadow-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">
-            <div class="overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-900">
-                        <tr>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider min-w-[320px] w-[320px]">{{ $t('monitoring.diagnosis.colPrompt') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colUser') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colStatus') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colData') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colTools') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colFeedback') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colReport') }}</th>
-                            <th class="px-6 py-3 text-start text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ $t('monitoring.diagnosis.colDate') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody class="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-700 text-xs">
-                        <tr v-for="item in executionItems" :key="item.agent_execution_id" class="hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer" @click="openTraceFromAE(item)">
-                            <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900 dark:text-white">
-                                    <div class="relative group max-w-[320px] w-[320px]">
-                                        <p class="truncate flex items-center gap-1.5">
-                                            <UTooltip v-if="platformOf(item)" :text="platformOf(item).label">
-                                                <img v-if="platformOf(item).img" :src="platformOf(item).img" class="h-3.5 w-3.5 inline flex-shrink-0" :alt="platformOf(item).label" />
-                                                <UIcon v-else-if="platformOf(item).icon" :name="platformOf(item).icon" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500" />
-                                            </UTooltip>
-                                            <span class="truncate">{{ truncate(item.prompt || '', 40) }}</span>
-                                        </p>
-                                        <div class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm p-2 text-xs whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
-                                            {{ item.prompt || '—' }}
-                                        </div>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-2 py-1">
-                                <div class="text-xs text-gray-900 dark:text-white">{{ item.user_name || '—' }}</div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <div class="relative inline-block group">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full"
-                                          :class="item.agent_execution_status === 'error' ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : (item.agent_execution_status === 'completed' || item.agent_execution_status === 'success') ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800'">
-                                        {{ item.agent_execution_status === 'error' ? $t('monitoring.diagnosis.statusError') : $t('monitoring.diagnosis.statusSuccess') }}
-                                    </span>
-                                    <div v-if="item.agent_execution_status === 'error' && item.error_json?.message" class="pointer-events-none absolute start-0 top-full mt-1 z-10 hidden group-hover:block bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md shadow-sm p-2 text-xs text-red-700 whitespace-pre-wrap max-w-[520px] max-h-56 overflow-auto">
-                                        {{ item.error_json.message }}
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4">
-                                <div class="flex flex-wrap gap-1 max-w-md">
-                                    <span v-for="(title, idx) in item.step_titles || []" :key="idx" class="px-2 py-0.5 bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 rounded text-[11px]"
-                                          @click.stop="openTraceFromAE(item)">
-                                        {{ title }}
-                                    </span>
-                                    <span v-if="(item.step_titles || []).length === 0" class="text-gray-400 dark:text-gray-600">{{ $t('monitoring.diagnosis.none') }}</span>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4">
-                                <div class="text-xs text-gray-900 dark:text-white">{{ $t('monitoring.diagnosis.totalPrefix', { n: item.total_tools }) }}</div>
-                                <div class="flex items-center space-x-4 mt-1">
-                                    <div class="flex items-center space-x-1 text-green-600">
-                                        <UIcon name="i-heroicons-check-circle" class="w-4 h-4" />
-                                        <span>{{ item.total_successful_tools }}</span>
-                                    </div>
-                                    <div class="flex items-center space-x-1 text-red-600">
-                                        <UIcon name="i-heroicons-x-circle" class="w-4 h-4" />
-                                        <span>{{ item.total_failed_tools }}</span>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4">
-                                <div class="flex flex-col">
-                                    <span class="inline-flex px-2 py-1 text-xs font-medium rounded-full self-start"
-                                          :class="item.feedback_direction > 0 ? 'bg-green-100 dark:bg-green-900/50 text-green-800' : item.feedback_direction < 0 ? 'bg-red-100 dark:bg-red-900/50 text-red-800' : 'bg-gray-100 dark:bg-gray-800 text-gray-800'">
-                                        {{ item.feedback_direction > 0 ? $t('monitoring.diagnosis.feedbackPositive') : (item.feedback_direction < 0 ? $t('monitoring.diagnosis.feedbackNegative') : $t('monitoring.diagnosis.feedbackNone')) }}
-                                    </span>
-                                    <div v-if="item.feedback_direction < 0 && item.feedback_message" class="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-sm">
-                                        <UTooltip :text="item.feedback_message">
-                                            <span class="truncate cursor-help">{{ truncate(item.feedback_message, 120) }}</span>
-                                        </UTooltip>
-                                    </div>
-                                </div>
-                            </td>
-                            <td class="px-6 py-4 whitespace-nowrap">
-                                <NuxtLink v-if="item.report_link" :to="item.report_link" class="text-blue-600 hover:underline" @click.stop>
-                                    {{ item.report_name || item.report_id }}
-                                </NuxtLink>
-                                <span v-else>{{ item.report_name || item.report_id }}</span>
-                            </td>
-                            <td class="px-3 py-1">
-                                <span class="text-xs text-gray-500 dark:text-gray-400">{{ formatDateTime(item.created_at as any) }}</span>
-                            </td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-
-            <!-- Empty state -->
-            <div v-if="executionItems.length === 0 && !isLoading" class="text-center py-12">
-                <UIcon name="i-heroicons-clipboard-document-check" class="mx-auto h-12 w-12 text-gray-400 dark:text-gray-600" />
-                <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('monitoring.diagnosis.emptyTitle') }}</h3>
-                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    {{ $t('monitoring.diagnosis.emptySubtitle') }}
-                </p>
-                <div class="mt-2 text-xs text-gray-400 dark:text-gray-600">
-                    {{ $t('monitoring.diagnosis.debugPrefix', { info: debugInfo }) }}
-                </div>
-            </div>
-        </div>
-
-        <!-- Pagination -->
-        <div v-if="executionItems.length > 0" class="mt-6 flex items-center justify-between">
-            <div class="text-sm text-gray-700 dark:text-gray-300">
-                {{ $t('monitoring.diagnosis.paginationRange', { start: (currentPage - 1) * pageSize + 1, end: Math.min(currentPage * pageSize, totalItems), total: totalItems }) }}
-            </div>
-
-            <div class="flex items-center space-x-2">
-                <UButton
-                    icon="i-heroicons-chevron-left"
-                    color="gray"
-                    variant="ghost"
-                    size="sm"
-                    @click="currentPage--"
-                    :disabled="currentPage === 1"
-                >
-                    {{ $t('monitoring.diagnosis.previous') }}
-                </UButton>
-                
-                <div class="flex items-center space-x-1">
-                    <UButton
-                        v-for="page in visiblePages"
-                        :key="page"
-                        :color="page === currentPage ? 'blue' : 'gray'"
-                        :variant="page === currentPage ? 'solid' : 'ghost'"
-                        size="sm"
-                        @click="currentPage = page"
-                        class="min-w-[32px]"
-                    >
-                        {{ page }}
-                    </UButton>
-                </div>
-                
-                <UButton
-                    icon="i-heroicons-chevron-right"
-                    color="gray"
-                    variant="ghost"
-                    size="sm"
-                    @click="currentPage++"
-                    :disabled="currentPage === totalPages"
-                >
-                    {{ $t('monitoring.diagnosis.next') }}
-                </UButton>
-            </div>
-        </div>
-        
-        <!-- Trace Modal -->
         <TraceModal
-            v-model="showTraceModal"
-            :report-id="selectedTraceItem?.report_id || ''"
-            :completion-id="selectedTraceItem?.completion_id || selectedTraceItem?.id || ''"
+            v-model="showTrace"
+            :report-id="traceItem?.report.id || ''"
+            :completion-id="traceItem?.completion_id || ''"
+            :tool-execution-id="traceCallId || undefined"
         />
     </div>
 </template>
 
 <script setup lang="ts">
-import DateRangePicker from '~/components/console/DateRangePicker.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
-import AgentSelector from '~/components/AgentSelector.vue'
 import DiagnosisActivityChart from '~/components/console/DiagnosisActivityChart.vue'
-const { isJudgeEnabled } = useOrgSettings()
-// The console is scoped to the agents the user manages, so the filter it sends
-// is the selection narrowed to that set — never the raw chat-context selection.
-const { consoleSelectedAgents, consoleSelectionKey, initAgent } = useAgent()
-const { t } = useI18n()
+import DiagnosisQueryBar from '~/components/diagnosis/QueryBar.vue'
+import DiagnosisFilterBuilder from '~/components/diagnosis/FilterBuilder.vue'
+import DiagnosisQuickFilters from '~/components/diagnosis/QuickFilters.vue'
+import DiagnosisTimeRange from '~/components/diagnosis/TimeRange.vue'
+import DiagnosisToolsStrip from '~/components/diagnosis/ToolsStrip.vue'
+import DiagnosisRunsTable from '~/components/diagnosis/RunsTable.vue'
+import { useDiagnosisQuery, type Bucket, type RunItem, type ToolCall } from '~/composables/useDiagnosisQuery'
+import { addTerms as addTermsTo, removeTerms } from '~/utils/diagnosisQuery'
+import type { Chip } from '~/components/diagnosis/QuickFilters.vue'
 
 definePageMeta({
     auth: true,
     layout: 'monitoring',
     // Mirrors the /console/* gate: org admins see the org-wide console, agent
-    // managers see it scoped to the agents they manage.
-    // Keep in step with useCanAccessMonitoring() — the sidebar entry and the tab
-    // strip use that predicate, and a page that guards on less would let a user
-    // click an entry that bounces them straight back to '/'.
-    anyOf: ['manage_settings', 'manage_connections', { permission: 'manage', resourceType: 'data_source' }]
+    // managers see it scoped to the agents they manage. Keep in step with
+    // useCanAccessMonitoring().
+    anyOf: ['manage_settings', 'manage_connections', { permission: 'manage', resourceType: 'data_source' }],
 })
 
-// Types for compact issues
-interface CompactIssueItem {
-    completion_id: string
-    created_at: string
-    issue_type: string
-    summary_text: string
-    full_message?: string
-    tool_name?: string
-    tool_action?: string
-    user_name?: string
-    user_email?: string
-    head_prompt_snippet?: string
-    report_id: string
-    trace_url?: string
-}
+const { t } = useI18n()
+const dq = useDiagnosisQuery()
+const bar = ref<any>(null)
 
-interface CompactIssuesResponse {
-    items: CompactIssueItem[]
-    total_items: number
-    date_range: {
-        start: string
-        end: string
-    }
-}
-
-interface DateRange {
-    start: string
-    end: string
-}
-
-// State (same as ConsoleOverview)
-const isLoading = ref(false)
-const metrics = ref<CompactIssuesResponse | null>(null)
-const overallMetrics = ref<CompactIssuesResponse | null>(null) // Static metrics for top cards
-const diagnosisItems = ref<CompactIssueItem[]>([])
-const currentPage = ref(1)
-const pageSize = ref(10)
-const totalItems = ref(0)
-const debugInfo = ref('')
-const instructionsEffectiveness = ref<number | null>(null)
-// New data for agent execution summaries
-const executionItems = ref<any[]>([])
-const dashboardMetrics = ref<any>(null)
-
-// Activity chart timeseries (daily agent runs by status)
-interface DiagnosisStatusPoint { date: string; success: number; error: number }
-const timeseriesPoints = ref<DiagnosisStatusPoint[] | null>(null)
-const isTimeseriesLoading = ref(false)
-// Day selected by clicking a bar in the activity chart (YYYY-MM-DD); narrows the table only
-const selectedDay = ref<string | null>(null)
-
-// Filter state
-const filterLabelFor = (value: string): string => {
-    switch (value) {
-        case 'all': return t('monitoring.diagnosis.filterAll')
-        case 'negative_feedback': return t('monitoring.diagnosis.filterNegative')
-        case 'failed_queries': return t('monitoring.diagnosis.filterFailed')
-        case 'low_confidence': return t('monitoring.diagnosis.filterLowConfidence')
-        case 'low_instruction_coverage': return t('monitoring.diagnosis.filterLowCoverage')
-        default: return value
-    }
-}
-const selectedFilter = ref({ label: filterLabelFor('all'), value: 'all' })
-const filterOptions = ref([
-    { label: filterLabelFor('all'), value: 'all', count: 0 },
-    { label: filterLabelFor('negative_feedback'), value: 'negative_feedback', count: 0 },
-    { label: filterLabelFor('failed_queries'), value: 'failed_queries', count: 0 },
-    { label: filterLabelFor('low_confidence'), value: 'low_confidence', count: 0 },
-    { label: filterLabelFor('low_instruction_coverage'), value: 'low_instruction_coverage', count: 0 }
-])
-
-// Add these to the state section
-const showTraceModal = ref(false)
-const selectedTraceItem = ref<any | null>(null)
-
-// User filter state
-interface DiagnosisUserOption { id: string; name: string; email: string }
-const userOptions = ref<DiagnosisUserOption[]>([])
-const selectedUsers = ref<DiagnosisUserOption[]>([])
-
-// Free-text prompt search (debounced)
-const searchQuery = ref('')
-let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
-
-// Date range state (same as ConsoleOverview)
-const selectedPeriod = ref({ label: t('monitoring.diagnosis.periodAllTime'), value: 'all_time' })
-const dateRange = ref<DateRange>({
-    start: '',
-    end: ''
-})
-
-// Computed
-const totalPages = computed(() => Math.ceil(totalItems.value / pageSize.value))
-
-const visiblePages = computed(() => {
-    const pages = []
-    const total = totalPages.value
-    const current = currentPage.value
-    
-    // Show maximum 5 pages
-    let start = Math.max(1, current - 2)
-    let end = Math.min(total, start + 4)
-    
-    // Adjust start if we're near the end
-    if (end - start < 4) {
-        start = Math.max(1, end - 4)
-    }
-    
-    for (let i = start; i <= end; i++) {
-        pages.push(i)
-    }
-    
-    return pages
-})
-
-// Methods (same pattern as ConsoleOverview)
-const initializeDateRange = () => {
-    // Default to all time
-    selectedPeriod.value = { label: t('monitoring.diagnosis.periodAllTime'), value: 'all_time' }
-    dateRange.value = {
-        start: '',
-        end: new Date().toISOString().split('T')[0]
-    }
-}
-
-const handlePeriodChange = (period: { label: string, value: string }) => {
-    selectedPeriod.value = period
-
-    // Date-input modes: the picker emits rangeChange with the concrete dates.
-    if (period.value === 'exact_day' || period.value === 'custom') {
-        return
-    }
-
-    const end = new Date()
-    let start: Date | null = null
-
-    switch (period.value) {
-        case '7_days':
-            start = new Date()
-            start.setDate(start.getDate() - 7)
-            break
-        case '30_days':
-            start = new Date()
-            start.setDate(start.getDate() - 30)
-            break
-        case '90_days':
-            start = new Date()
-            start.setDate(start.getDate() - 90)
-            break
-        case 'all_time':
-        default:
-            start = null
-            break
-    }
-
-    dateRange.value = {
-        start: start ? start.toISOString().split('T')[0] : '',
-        end: end.toISOString().split('T')[0]
-    }
-
-    refreshAll()
-}
-
-// Exact-day / custom-range picked in the DateRangePicker inputs
-const handleRangeChange = (range: DateRange) => {
-    dateRange.value = { ...range }
-    refreshAll()
-}
-
-const refreshAll = () => {
-    currentPage.value = 1
-    selectedDay.value = null
-    // Refresh overall metrics, timeseries, and diagnosis data when filters change
-    Promise.all([
-        fetchOverallMetrics(),
-        fetchTimeseries(),
-        fetchDiagnosisData()
-    ])
-}
-
-
-
-const fetchDiagnosisData = async () => {
-    isLoading.value = true
-    try {
-        const params = new URLSearchParams({
-            page: currentPage.value.toString(),
-            page_size: pageSize.value.toString()
-        })
-
-        appendDateParams(params)
-
-        // Add filter parameter
-        if (selectedFilter.value.value !== 'all') {
-            params.append('filter', selectedFilter.value.value)
-        }
-
-        appendScopeParams(params)
-
-        // Free-text search against the user prompt
-        if (searchQuery.value.trim()) {
-            params.append('prompt_search', searchQuery.value.trim())
-        }
-
-        debugInfo.value = `Fetching with params: ${params.toString()}`
-
-        // Fetch agent execution summaries instead of compact issues
-        const diagnosisResponse = await useMyFetch<any>(`/api/console/agent_executions/summaries?${params}`)
-        
-        if (diagnosisResponse.error.value) {
-            console.error('Error fetching diagnosis data:', diagnosisResponse.error.value)
-            debugInfo.value = `Error: ${diagnosisResponse.error.value}`
-            metrics.value = null
-            diagnosisItems.value = []
-            totalItems.value = 0
-        } else if (diagnosisResponse.data.value) {
-            const data = diagnosisResponse.data.value
-            executionItems.value = data.items || []
-            totalItems.value = data.total_items || 0
-            debugInfo.value = `Loaded ${executionItems.value.length} agent executions, total: ${totalItems.value}`
-        }
-    } catch (error) {
-        console.error('Failed to fetch diagnosis data:', error)
-        debugInfo.value = `Exception: ${error}`
-        metrics.value = null
-        executionItems.value = []
-        totalItems.value = 0
-    } finally {
-        isLoading.value = false
-    }
-}
-
-const getIssueTypeClass = (issueType: string) => {
-    switch (issueType) {
-        case 'failed_step':
-        case 'failed_query':
-            return 'bg-red-100 dark:bg-red-900/50 text-red-800'
-        case 'validation_error':
-            return 'bg-yellow-100 text-yellow-800'
-        case 'negative_feedback':
-            return 'bg-orange-100 dark:bg-orange-950 text-orange-800'
-        case 'no_issue':
-            return 'bg-green-100 dark:bg-green-900/50 text-green-800'
-        default:
-            return 'bg-gray-100 dark:bg-gray-800 text-gray-800'
-    }
-}
-
-const getIssueTypeLabel = (issueType: string) => {
-    switch (issueType) {
-        case 'failed_query':
-            return 'Failed Query'
-        case 'validation_error':
-            return 'Validation Error'
-        case 'negative_feedback':
-            return 'Negative Feedback'
-        case 'no_issue':
-            return 'OK'
-        default:
-            return 'Unknown'
-    }
-}
-
-const _df = useFormatDate()
-const formatDate = (dateString: string) => {
-    if (!dateString) return ''
-    return _df.formatDate(dateString)
-}
-const formatDateTime = (dateString: string) => {
-    if (!dateString) return ''
-    return _df.formatDateTime(dateString)
-}
-
-// Origin platform icon for a run. null/unknown = web UI (no icon — the default).
-// Icons reuse the /icons/<platform>.png assets from the Members table; platforms
-// with no PNG (email) fall back to a heroicons glyph.
-const PLATFORM_LABELS: Record<string, string> = {
-    slack: 'Slack', teams: 'Teams', whatsapp: 'WhatsApp', mcp: 'MCP', email: 'Email',
-}
-const PLATFORM_FALLBACK_ICON: Record<string, string> = {
-    email: 'i-heroicons-envelope',
-}
-const platformOf = (item: any) => {
-    const p = (item?.external_platform || '').toLowerCase()
-    if (!p || !(p in PLATFORM_LABELS)) return null
-    return {
-        label: PLATFORM_LABELS[p],
-        img: p in PLATFORM_FALLBACK_ICON ? null : `/icons/${p}.png`,
-        icon: PLATFORM_FALLBACK_ICON[p] || null,
-    }
-}
-
-// Add these methods to the existing script section
-
-// Append start/end date params. When a chart day is selected, narrow to that
-// single day — using explicit UTC midnight so the backend (which normalizes a
-// date to its full day) lands on the right calendar day regardless of timezone.
-// Append the agent (data source) and user filters shared by all diagnosis endpoints.
-const appendScopeParams = (params: URLSearchParams) => {
-    if (consoleSelectedAgents.value.length > 0) {
-        params.append('data_source_ids', consoleSelectedAgents.value.join(','))
-    }
-    if (selectedUsers.value.length > 0) {
-        params.append('user_ids', selectedUsers.value.map(u => u.id).join(','))
-    }
-}
-
-const appendDateParams = (params: URLSearchParams) => {
-    if (selectedDay.value) {
-        params.append('start_date', `${selectedDay.value}T00:00:00.000Z`)
-        params.append('end_date', `${selectedDay.value}T00:00:00.000Z`)
-        return
-    }
-    if (dateRange.value.start) {
-        params.append('start_date', new Date(dateRange.value.start).toISOString())
-    }
-    if (dateRange.value.end) {
-        params.append('end_date', new Date(dateRange.value.end).toISOString())
-    }
-}
-
-const fetchOverallMetrics = async () => {
-    try {
-        const params = new URLSearchParams()
-        appendDateParams(params)
-        appendScopeParams(params)
-
-        // Fetch dashboard metrics and judge response
-        const [dashboardResponse, judgeResponse] = await Promise.all([
-            useMyFetch<any>(`/api/console/diagnosis/metrics?${params}`),
-            useMyFetch<any>(`/api/console/metrics?${params}`)
-        ])
-        
-        if (dashboardResponse.data.value) {
-            dashboardMetrics.value = dashboardResponse.data.value
-
-            // Update filter counts
-            filterOptions.value = [
-                { label: filterLabelFor('all'), value: 'all', count: dashboardResponse.data.value.total_items },
-                { label: filterLabelFor('negative_feedback'), value: 'negative_feedback', count: dashboardResponse.data.value.negative_feedback },
-                { label: filterLabelFor('failed_queries'), value: 'failed_queries', count: dashboardResponse.data.value.failed_queries },
-                { label: filterLabelFor('low_confidence'), value: 'low_confidence', count: dashboardResponse.data.value.low_confidence || 0 },
-                { label: filterLabelFor('low_instruction_coverage'), value: 'low_instruction_coverage', count: dashboardResponse.data.value.low_instruction_coverage || 0 }
-            ]
-        }
-        
-        if (judgeResponse.data.value) {
-            instructionsEffectiveness.value = judgeResponse.data.value.instructions_effectiveness
-        }
-    } catch (error) {
-        console.error('Failed to fetch overall metrics:', error)
-    }
-}
-
-const fetchTimeseries = async () => {
-    isTimeseriesLoading.value = true
-    try {
-        const params = new URLSearchParams()
-        if (dateRange.value.start) {
-            params.append('start_date', new Date(dateRange.value.start).toISOString())
-        }
-        if (dateRange.value.end) {
-            params.append('end_date', new Date(dateRange.value.end).toISOString())
-        }
-        appendScopeParams(params)
-
-        const response = await useMyFetch<any>(`/api/console/diagnosis/timeseries?${params}`)
-        if (response.data.value) {
-            timeseriesPoints.value = response.data.value.points || []
-        } else {
-            timeseriesPoints.value = []
-        }
-    } catch (error) {
-        console.error('Failed to fetch diagnosis timeseries:', error)
-        timeseriesPoints.value = []
-    } finally {
-        isTimeseriesLoading.value = false
-    }
-}
-
-const getInstructionsEffectiveness = () => {
-    if (instructionsEffectiveness.value === null || instructionsEffectiveness.value === undefined) {
-        return t('monitoring.diagnosis.naAbbr')
-    }
-    return Math.round(instructionsEffectiveness.value)
-}
-
-const getDateRangeDays = () => {
-    if (!dateRange.value.start || !dateRange.value.end) return '30'
-    
-    const start = new Date(dateRange.value.start)
-    const end = new Date(dateRange.value.end)
-    const diffTime = Math.abs(end.getTime() - start.getTime())
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-    
-    return diffDays.toString()
-}
-
-// Add this method
-const openTrace = (item: any) => {
-    selectedTraceItem.value = item
-    showTraceModal.value = true
-}
-
-const openReport = (item: any) => {
-    if (item.report_link) {
-        window.open(item.report_link, '_blank')
-    }
-}
-
-const openTraceFromAE = (item: any) => {
-    selectedTraceItem.value = {
-        report_id: item.report_id,
-        completion_id: item.completion_id || '',
-        id: item.completion_id || ''
-    }
-    showTraceModal.value = true
-}
-
-const formatFeedback = (dir: number | null | undefined) => {
-    if (dir == null) return '0/0'
-    if (dir > 0) return '1/0'
-    if (dir < 0) return '0/1'
-    return '0/0'
-}
-
-const truncate = (text: string, length: number) => {
-    if (!text) return ''
-    if (text.length <= length) return text
-    return text.slice(0, length) + '…'
-}
-
-// Filter methods
-const handleFilterChange = (filter: { label: string, value: string }) => {
-    selectedFilter.value = filter
-    currentPage.value = 1
-    fetchDiagnosisData()
-}
-
-// Activity chart bar click -> filter the KPI cards + table to that day (toggle off if same day)
-const handleDaySelect = (date: string) => {
-    selectedDay.value = selectedDay.value === date ? null : date
-    currentPage.value = 1
-    Promise.all([
-        fetchOverallMetrics(),
-        fetchDiagnosisData()
-    ])
-}
-
-const clearDayFilter = () => {
-    selectedDay.value = null
-    currentPage.value = 1
-    Promise.all([
-        fetchOverallMetrics(),
-        fetchDiagnosisData()
-    ])
-}
-
-
-
-// Users facet for the user filter dropdown
-const fetchUserOptions = async () => {
-    try {
-        const response = await useMyFetch<any>('/api/console/diagnosis/users')
-        userOptions.value = response.data.value?.users || []
-    } catch (error) {
-        console.error('Failed to fetch diagnosis users:', error)
-        userOptions.value = []
-    }
-}
-
-// Watch for page changes
-watch(currentPage, () => {
-    fetchDiagnosisData()
-})
-
-// Watch for agent selection changes (also fires once the agent list and the
-// permission map land, which is what turns a raw selection into a scoped one)
-watch(consoleSelectionKey, () => {
-    refreshAll()
-}, { deep: true })
-
-// Watch for user filter changes
-watch(selectedUsers, () => {
-    refreshAll()
-}, { deep: true })
-
-// Debounced free-text search — narrows the table only
-watch(searchQuery, () => {
-    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-    searchDebounceTimer = setTimeout(() => {
-        currentPage.value = 1
-        fetchDiagnosisData()
-    }, 400)
-})
-
-// Initialize
+// Built-in quick filters come from the field registry endpoint so the chips
+// can never drift from what the server understands.
+const quickFilters = ref<{ id: string; q: string }[]>([])
 onMounted(async () => {
-    initializeDateRange()
-    // Initialize agents for the selector
-    await initAgent()
-    // Fetch dashboard metrics, timeseries, diagnosis data, and user facet on initial load
-    await Promise.all([
-        fetchOverallMetrics(),
-        fetchTimeseries(),
-        fetchDiagnosisData(),
-        fetchUserOptions()
-    ])
+    const meta = await dq.loadFields()
+    quickFilters.value = meta?.quick_filters ?? []
+    await dq.run()
 })
+
+const rangeLabel = computed(() => {
+    const r = dq.range.value
+    if (r.preset === '24h') return t('monitoring.diagnosis.range24h')
+    if (r.preset === '7d') return t('monitoring.diagnosis.range7d')
+    if (r.preset === '30d') return t('monitoring.diagnosis.range30d')
+    if (r.preset === '90d') return t('monitoring.diagnosis.range90d')
+    return `${r.start.toLocaleDateString()} – ${r.end.toLocaleDateString()}`
+})
+
+// Chips, the builder, the strip and row links all write terms into the query and run it.
+const addTerms = (terms: string) => dq.commit(addTermsTo(dq.text.value, terms))
+const toggleChip = (chip: Chip) => dq.commit(chip.active ? removeTerms(dq.text.value, chip.q) : addTermsTo(dq.text.value, chip.q))
+
+const facetsForBar = (field: string, prefix: string, qWithoutTerm: string) => dq.facets(field, prefix, qWithoutTerm)
+
+const onBucket = (b: Bucket, granularity: string) => {
+    // A day bucket narrows to that day; an hour bucket to that hour; a week to its 7 days.
+    if (granularity === 'day') return addTerms(`created:${b.bucket}`)
+    if (granularity === 'week') {
+        const end = new Date(b.bucket + 'T00:00:00')
+        end.setDate(end.getDate() + 6)
+        return addTerms(`created:${b.bucket}..${end.toISOString().slice(0, 10)}`)
+    }
+    return addTerms(`created:${b.bucket.slice(0, 10)}`)
+}
+
+const onSort = (key: string) => {
+    const dir = dq.sort.value === key && dq.dir.value === 'desc' ? 'asc' : 'desc'
+    dq.setSort(key, dir)
+}
+
+// Tool calls for expanded rows, fetched per page in one request.
+const calls = reactive<Record<string, ToolCall[]>>({})
+let pendingIds: string[] = []
+let pendingTimer: ReturnType<typeof setTimeout> | null = null
+const loadCalls = (item: RunItem) => {
+    if (calls[item.id]) return
+    pendingIds.push(item.id)
+    if (pendingTimer) clearTimeout(pendingTimer)
+    pendingTimer = setTimeout(async () => {
+        const ids = Array.from(new Set(pendingIds))
+        pendingIds = []
+        const res = await dq.toolCalls(ids)
+        for (const id of ids) calls[id] = res[id] ?? []
+    }, 20)
+}
+
+const showTrace = ref(false)
+const traceItem = ref<RunItem | null>(null)
+const traceCallId = ref<string | null>(null)
+const openTrace = (item: RunItem) => {
+    traceItem.value = item
+    traceCallId.value = null
+    showTrace.value = true
+}
+// A tool call row opens the same modal, landed on that call.
+const openCall = (item: RunItem, call: ToolCall) => {
+    traceItem.value = item
+    traceCallId.value = call.id
+    showTrace.value = true
+}
 </script>

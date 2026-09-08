@@ -88,8 +88,9 @@ CONSOLE_ENDPOINTS = [
     "/api/console/metrics/top-users",
     "/api/console/agent_executions/summaries",
     "/api/console/diagnosis/metrics",
-    "/api/console/diagnosis/timeseries",
-    "/api/console/diagnosis/users",
+    "/api/console/diagnosis/fields",
+    # ``runs`` requires a time bound; the window is irrelevant to who gets in.
+    "/api/console/diagnosis/runs?start=2000-01-01T00:00:00Z&end=2100-01-01T00:00:00Z",
 ]
 
 

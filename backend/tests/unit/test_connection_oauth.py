@@ -207,6 +207,25 @@ class TestGetOAuthParams:
         with pytest.raises(ValueError, match="oauth_client_id"):
             get_oauth_params(conn)
 
+    def test_documentum_uses_the_connection_otds_client(self):
+        conn = _make_connection(
+            type="documentum",
+            credentials={"otds_url": "https://otds.example.com/otdsws/", "client_id": "bow", "client_secret": "bow-secret", "partition": "Corp"},
+        )
+        conn.config = {"rest_url": "https://dctm.example.com/dctm-rest", "repository": "corp"}
+        params = get_oauth_params(conn)
+        assert params["provider_name"] == "documentum"
+        assert params["authorize_url"] == "https://otds.example.com/otdsws/oauth2/auth"
+        assert params["token_url"] == "https://otds.example.com/otdsws/oauth2/token"
+        assert params["client_id"] == "bow" and params["client_secret"] == "bow-secret"
+        assert params["scopes"]
+
+    def test_documentum_without_otds_client_raises(self):
+        conn = _make_connection(type="documentum", credentials={"username": "alice", "password": "p"})
+        conn.config = {"rest_url": "https://dctm.example.com/dctm-rest", "repository": "corp"}
+        with pytest.raises(ValueError, match="OTDS"):
+            get_oauth_params(conn)
+
     def test_servicenow(self):
         conn = _make_connection(
             type="servicenow",

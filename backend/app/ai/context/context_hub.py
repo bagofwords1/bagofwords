@@ -286,13 +286,15 @@ class ContextHub:
         head_completion=None,
         widget=None,
         organization_settings=None,
-        build_id: Optional[str] = None
+        build_id: Optional[str] = None,
+        mode: Optional[str] = None,
     ):
         self.db = db
         self.organization = organization
         self.organization_settings = organization_settings
         self.data_sources = data_sources
         self.report = report
+        self.mode = mode if mode is not None else getattr(report, "mode", None)
         self.user = user
         self.head_completion = head_completion
         self.widget = widget
@@ -326,7 +328,7 @@ class ContextHub:
         # channel so per-instruction applicable_modes / applicable_channels
         # scoping can be honored. A null external_platform is the in-app web
         # chat, which we represent as the 'app' channel.
-        _mode = getattr(self.report, 'mode', None) if self.report else None
+        _mode = self.mode
         _external_platform = getattr(self.head_completion, 'external_platform', None) if self.head_completion else None
         _channel = _external_platform or 'app'
         self.instruction_builder = InstructionContextBuilder(
@@ -346,7 +348,7 @@ class ContextHub:
         self.files_builder = FilesContextBuilder(self.db, self.organization, self.report, head_completion=self.head_completion)
         
         # New builders (port from agent.py)
-        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings)
+        self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings, mode=self.mode)
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)

@@ -34,6 +34,7 @@ logger = logging.getLogger(__name__)
 # "no file source is attached to this agent".
 FILE_SOURCE_TYPES = {
     "sharepoint_onprem",
+    "documentum",
     "sharepoint", "onedrive", "google_drive", "outlook_mail", "gmail_mail",
     "network_dir", "s3", "onenote",
     # Hybrid connectors (QUERY + file capabilities). ServiceNow serves record
@@ -89,6 +90,19 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
     Connect this source") instead of a raw OAuth boilerplate dump rendered
     red in the chat; everything else keeps the raw detail for debugging."""
     from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError
+    from app.data_sources.clients.documentum_client import DocumentumHTTPError
+    if isinstance(exc, DocumentumHTTPError) and exc.status in (401, 403):
+        name = connection_name or "Documentum"
+        if exc.status == 401:
+            return (
+                f"Documentum rejected the credentials for '{name}'. Check the connection's repository "
+                "user or OTDS client. For a user-required connection, the user must connect with their own "
+                "Documentum login (OTDS impersonation or sign-in)."
+            )
+        return (
+            f"Documentum denied access to that object for the current identity on '{name}' — the "
+            "repository ACL does not grant Browse/Read. Do not retry; tell the user which document was denied."
+        )
     if isinstance(exc, SharePointHTTPError) and exc.status == 401:
         return (
             f"Windows authentication failed for '{connection_name or 'SharePoint Server'}'. "

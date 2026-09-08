@@ -1318,11 +1318,19 @@ class LLM:
                             organization_id=attribution.get("organization_id"),
                             user_id=attribution.get("user_id"),
                             report_id=attribution.get("report_id"),
+                            agent_execution_id=attribution.get("agent_execution_id"),
                             data_source_id=attribution.get("data_source_id"),
                             routed=bool(attribution.get("routed")),
                             baseline_model_id=attribution.get("baseline_model_id"),
                         )
                         await session.commit()
+                        # A record landing after the run finished (late judge
+                        # scoring) re-rolls the run's cost/tokens; in-flight
+                        # runs are rolled up at their own finish.
+                        _ae_id = attribution.get("agent_execution_id")
+                        if _ae_id:
+                            from app.services.diagnosis.rollup import refresh_if_finished
+                            await refresh_if_finished(session, _ae_id)
                     return
                 except Exception as exc:
                     if self._is_sqlite_lock_error(exc):

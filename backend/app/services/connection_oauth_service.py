@@ -258,6 +258,35 @@ def get_oauth_params(connection: Connection) -> dict:
             "provider_name": "servicenow",
         }
 
+    if conn_type == "documentum":
+        # OTDS (OpenText Directory Services) is the OAuth2 authorization server
+        # in front of every Documentum 23.4+ repository. The admin registers a
+        # confidential OAuth client in OTDS (with BOW's redirect URI) and saves
+        # it as the connection's "OTDS OAuth client" system credentials; the
+        # same client also powers per-user impersonation. Endpoints are
+        # per-tenant, derived from the OTDS URL.
+        otds_url = (creds.get("otds_url") or "").rstrip("/")
+        if otds_url.endswith("/otdsws"):
+            otds_url = otds_url[: -len("/otdsws")]
+        client_id = creds.get("oauth_client_id") or creds.get("client_id")
+        client_secret = creds.get("oauth_client_secret") or creds.get("client_secret")
+        if not (otds_url and client_id and client_secret):
+            raise ValueError(
+                f"Connection {connection.id} needs OTDS OAuth client credentials (OTDS URL, client ID, client secret) "
+                "for Documentum sign-in. Save an 'OTDS OAuth client' on the connection first."
+            )
+        return {
+            "authorize_url": f"{otds_url}/otdsws/oauth2/auth",
+            "token_url": f"{otds_url}/otdsws/oauth2/token",
+            "client_id": client_id,
+            "client_secret": client_secret,
+            # OTDS scopes are optional; `otds:roles` is what OpenText's own
+            # clients request. Refresh tokens are issued when the OAuth client
+            # allows them (default on).
+            "scopes": creds.get("oauth_scopes") or "otds:roles",
+            "provider_name": "documentum",
+        }
+
     if conn_type == "monday":
         # monday.com OAuth endpoints are global (auth.monday.com) for all
         # regions — an EU account still authorizes against the global host.
