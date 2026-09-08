@@ -29,19 +29,20 @@ class EntityService:
     # Parameters (mirrors the step/query machinery)
     # ------------------------------------------------------------------
 
-    async def _resolve_entity_params(
-        self, db: AsyncSession, entity, run_user, organization,
+    async def _resolve_param_specs(
+        self, db: AsyncSession, raw_specs, run_user, organization,
         request_values: Optional[dict] = None,
     ) -> dict:
-        """Resolve the entity's declared params: defaults <- request values <-
-        the run user's identity bindings. {} when the entity declares none.
+        """Resolve declared params: defaults <- request values <- the run
+        user's identity bindings. {} when nothing is declared.
 
-        `request_values` are caller-supplied VALUES ({name: value}). Unknown
-        names and client values for identity-locked params are rejected
-        (ParamError), exactly like a query viewer run."""
+        `raw_specs` are ParamSpec dicts (an entity's saved list, or the ones a
+        form is about to save). `request_values` are caller-supplied VALUES
+        ({name: value}). Unknown names and client values for identity-locked
+        params are rejected (ParamError), exactly like a query viewer run."""
         from app.schemas.param_schema import parse_param_specs
         from app.ai.code_execution.query_params import ParamError, resolve_param_values
-        specs = parse_param_specs(getattr(entity, "parameters", None))
+        specs = parse_param_specs(raw_specs)
         if not specs:
             if request_values:
                 raise ParamError(
@@ -60,6 +61,35 @@ class EntityService:
             # column name, a script with a typo) can correct itself in one go.
             declared = ", ".join(s.name for s in specs)
             raise ParamError(f"{e} (declared parameters: {declared})") from e
+
+    async def _resolve_entity_params(
+        self, db: AsyncSession, entity, run_user, organization,
+        request_values: Optional[dict] = None,
+    ) -> dict:
+        """`_resolve_param_specs` over the entity's saved declarations."""
+        return await self._resolve_param_specs(
+            db, getattr(entity, "parameters", None), run_user, organization, request_values,
+        )
+
+    @staticmethod
+    def validate_param_specs(raw_specs) -> list:
+        """Strictly validate declarations a form is about to SAVE — the lenient
+        `parse_param_specs` used at run time skips bad rows, which would let a
+        typo'd declaration vanish silently. Raises ParamError."""
+        from app.schemas.param_schema import ParamSpec
+        from app.ai.code_execution.query_params import ParamError
+        out: list = []
+        seen: set = set()
+        for item in raw_specs or []:
+            try:
+                spec = ParamSpec.model_validate(item)
+            except Exception as e:
+                raise ParamError(f"invalid parameter declaration: {e}") from e
+            if spec.name in seen:
+                raise ParamError(f"duplicate parameter name: {spec.name}")
+            seen.add(spec.name)
+            out.append(spec.model_dump())
+        return out
 
     async def _upsert_entity_user_result(
         self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
@@ -1030,8 +1060,13 @@ class EntityService:
             raise ValueError("Entity not found")
 
         code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
-        resolved_params = await self._resolve_entity_params(
-            db, entity, current_user, organization
+        # The form may send the declarations it is about to save (edited
+        # params) and test values; otherwise the saved ones apply as-is.
+        sent_specs = getattr(payload, "parameters", None) if payload else None
+        raw_specs = sent_specs if sent_specs is not None else getattr(entity, "parameters", None)
+        resolved_params = await self._resolve_param_specs(
+            db, raw_specs, current_user, organization,
+            (getattr(payload, "params", None) if payload else None) or None,
         )
         return await self._execute_entity_code(
             db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
@@ -1044,9 +1079,16 @@ class EntityService:
         data_source_ids: list,
         organization: Organization,
         current_user: Optional[User] = None,
+        parameters: Optional[list] = None,
+        params: Optional[dict] = None,
     ) -> dict:
         """Stateless preview: run `code` against the given agents. No Entity row
-        is read or written — this is "try before save" for a manual query."""
+        is read or written — this is "try before save" for a manual query.
+
+        `parameters` are the ParamSpec dicts the form would save with the
+        query; `params` are test values for the input ones. They resolve
+        exactly as a saved entity's would (identity params bind to the
+        caller), so what Run shows is what Save will run."""
         ds_list: list = []
         if data_source_ids:
             stmt = select(DataSource).where(
@@ -1057,8 +1099,11 @@ class EntityService:
             ds_list = list((await db.execute(stmt)).scalars().unique().all())
             if len(ds_list) != len({str(i) for i in data_source_ids}):
                 raise ValueError("Agent not found")
+        resolved_params = await self._resolve_param_specs(
+            db, parameters, current_user, organization, params or None,
+        )
         return await self._execute_entity_code(
-            db, code or "", ds_list, organization, current_user, {},
+            db, code or "", ds_list, organization, current_user, resolved_params,
         )
 
     async def _get_owned_entity(
@@ -1202,7 +1247,7 @@ class EntityService:
     async def _handle_owner_edit(self, entity: Entity, payload: EntityUpdate):
         """Handle owner editing their own private entity"""
         # Owner can edit most fields except status changes
-        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data']
+        allowed_fields = ['title', 'description', 'type', 'code', 'tags', 'data', 'parameters']
         
         for field in allowed_fields:
             if hasattr(payload, field) and getattr(payload, field) is not None:

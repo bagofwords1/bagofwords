@@ -129,6 +129,19 @@ async def _resolve_create_tier(db, user, organization, ds_ids: List[str]) -> boo
     )
 
 
+def _validate_declared_params(payload) -> None:
+    """A declaration list a form sends to save or preview is validated
+    strictly (400 with the reason), not silently pruned at run time."""
+    raw = getattr(payload, "parameters", None)
+    if raw is None:
+        return
+    from app.ai.code_execution.query_params import ParamError
+    try:
+        payload.parameters = service.validate_param_specs(raw)
+    except ParamError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.post("", response_model=EntitySchema)
 @requires_permission('create_reports')
 async def create_private_entity(
@@ -146,6 +159,7 @@ async def create_private_entity(
     """
     ds_ids = [str(i) for i in (payload.data_source_ids or []) if i]
     can_publish = await _resolve_create_tier(db, current_user, organization, ds_ids)
+    _validate_declared_params(payload)
     entity = await service.create_entity(
         db, payload, current_user, organization, creator_can_publish=can_publish,
     )
@@ -170,10 +184,15 @@ async def preview_code(
     await _resolve_create_tier(db, current_user, organization, ds_ids)
     if not (payload.code or "").strip():
         raise HTTPException(status_code=400, detail="Code is required")
+    _validate_declared_params(payload)
+    from app.ai.code_execution.query_params import ParamError
     try:
         return await service.preview_code(
             db, payload.code, ds_ids, organization, current_user=current_user,
+            parameters=payload.parameters, params=payload.params,
         )
+    except ParamError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
@@ -323,6 +342,7 @@ async def update_entity(
             await require_org_permission(
                 db, str(current_user.id), str(organization.id), "manage_entities",
             )
+    _validate_declared_params(payload)
     entity = await service.update_entity(
         db, entity_id, payload, organization, current_user,
         resource_authorized=resource_authorized,
@@ -467,9 +487,13 @@ async def preview_entity(
 ):
     """Preview (execute without persisting) — same access tier as run."""
     await _require_entity_run_access(db, entity_id, organization, current_user)
+    _validate_declared_params(payload)
+    from app.ai.code_execution.query_params import ParamError
     try:
         result = await service.preview_entity(db, entity_id, payload, organization, current_user=current_user)
         return result
+    except ParamError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
 

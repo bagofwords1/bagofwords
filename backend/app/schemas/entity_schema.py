@@ -66,6 +66,8 @@ class EntityUpdate(BaseModel):
     tags: Optional[List[str]] = None
     code: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+    # Declared ParamSpec dicts — they travel with the code (None = unchanged)
+    parameters: Optional[list] = None
     view: Optional[ViewSchema] = None
     status: Optional[str] = None
     published_at: OptionalUTCDatetime = None
@@ -174,6 +176,10 @@ class EntityRunPayload(BaseModel):
 
 class EntityPreviewPayload(BaseModel):
     code: str
+    # Optional: the declarations the Edit form is about to save (None = use
+    # the entity's saved ones) and test values for the input params.
+    parameters: Optional[list] = None
+    params: Optional[Dict[str, Any]] = None
 
 
 class EntityCodePreviewPayload(BaseModel):
@@ -181,5 +187,9 @@ class EntityCodePreviewPayload(BaseModel):
     the listed agents without any Entity row existing yet."""
     code: str
     data_source_ids: List[str] = Field(default_factory=list)
+    # Declared ParamSpec dicts the form will save with the query, and test
+    # values for the input ones — resolved like a saved entity's would be.
+    parameters: Optional[list] = None
+    params: Optional[Dict[str, Any]] = None
 
 

@@ -1,5 +1,10 @@
 <template>
-  <div class="max-w-2xl mx-auto space-y-4">
+  <!-- Stacked by default (the report's Save Query); `compact` lays title,
+       agents and status on one row with the description underneath, for a
+       form that sits above a code editor. -->
+  <div :class="compact
+    ? ['grid grid-cols-1 gap-3', showStatus ? 'sm:grid-cols-[minmax(0,1fr)_260px_150px]' : 'sm:grid-cols-[minmax(0,1fr)_260px]']
+    : 'max-w-2xl mx-auto space-y-4'">
     <!-- Title -->
     <div>
       <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.title') }}</label>
@@ -12,13 +17,14 @@
     </div>
 
     <!-- Description -->
-    <div>
+    <div :class="compact ? 'order-last col-span-full' : ''">
       <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.description') }}</label>
       <textarea
         v-model="localForm.description"
-        rows="4"
+        :rows="compact ? 2 : 4"
         placeholder="Description"
-        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 min-h-[100px] bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
+        :class="compact ? '' : 'min-h-[100px]'"
+        class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
       />
     </div>
 
@@ -117,8 +123,10 @@ interface EntityFormData {
 const props = withDefaults(defineProps<{
   modelValue: EntityFormData
   showStatus?: boolean
+  compact?: boolean
 }>(), {
-  showStatus: true
+  showStatus: true,
+  compact: false,
 })
 
 const emit = defineEmits<{

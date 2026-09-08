@@ -239,3 +239,135 @@ def test_preview_requires_access_to_every_agent(test_client, world):
     assert _preview(test_client, world, "manager", ds_ids=both).status_code == 403
     # Org admin passes everywhere.
     assert _preview(test_client, world, "admin", ds_ids=both).status_code == 200
+
+
+# ── parameters ───────────────────────────────────────────────────────────
+#
+# The form saves ParamSpec declarations with the query and previews with test
+# values, so what Run shows is what the saved query will run.
+
+PARAMS_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    rows = [{"country": "Brazil", "v": 1}, {"country": "Canada", "v": 2}]
+    country = params.get("country")
+    since = params.get("since")
+    out = [r for r in rows if country is None or r["country"] == country]
+    return pd.DataFrame([{**r, "since": since, "who": params.get("rep_email")} for r in out])
+"""
+
+DECLARED = [
+    {"name": "since", "type": "date", "source": "input", "default": "2009-01-01"},
+    {"name": "country", "type": "string", "source": "input", "default": None},
+    {"name": "rep_email", "type": "string", "source": "identity", "identity_binding": "viewer.email"},
+]
+
+
+def _preview_params(test_client, world, who, parameters=DECLARED, params=None, code=PARAMS_CODE):
+    body = {"code": code, "data_source_ids": [world["ds_public"]["id"]], "parameters": parameters}
+    if params is not None:
+        body["params"] = params
+    return test_client.post(
+        "/api/entities/preview", json=body, headers=_hdr(world[who]["token"], world["org_id"]),
+    )
+
+
+@pytest.mark.e2e
+def test_preview_resolves_declared_params_defaults_values_and_identity(test_client, world):
+    """Defaults apply, sent test values override them, and an identity param
+    binds to the CALLER — the preview never lets a client pick that value."""
+    resp = _preview_params(test_client, world, "manager", params={"country": "Canada"})
+    assert resp.status_code == 200, resp.text
+    body = resp.json()
+    assert body.get("error") is None, body
+    rows = body["data"]["rows"]
+    assert [r["country"] for r in rows] == ["Canada"]
+    assert rows[0]["since"] == "2009-01-01"
+    assert rows[0]["who"] == world["manager"]["email"]
+    assert body["applied_params"] == {
+        "since": "2009-01-01", "country": "Canada", "rep_email": world["manager"]["email"],
+    }
+
+    # No values: the optional param resolves to NULL and the code's "All"
+    # branch keeps every row.
+    resp = _preview_params(test_client, world, "manager")
+    assert resp.status_code == 200, resp.text
+    assert len(resp.json()["data"]["rows"]) == 2
+    assert resp.json()["applied_params"]["country"] is None
+
+
+@pytest.mark.e2e
+def test_preview_rejects_unknown_and_identity_locked_values(test_client, world):
+    resp = _preview_params(test_client, world, "manager", params={"nope": 1})
+    assert resp.status_code == 400, resp.text
+    assert "nope" in resp.json()["detail"]
+    resp = _preview_params(test_client, world, "manager", params={"rep_email": "x@y.z"})
+    assert resp.status_code == 400, resp.text
+    # A code that declares nothing refuses stray values too.
+    resp = _preview_params(test_client, world, "manager", parameters=[], params={"country": "Brazil"})
+    assert resp.status_code == 400, resp.text
+
+
+@pytest.mark.e2e
+def test_preview_and_create_refuse_a_broken_declaration(test_client, world):
+    bad = [{"name": "not a name", "type": "string"}]
+    resp = _preview_params(test_client, world, "manager", parameters=bad)
+    assert resp.status_code == 400, resp.text
+    assert "invalid parameter declaration" in resp.json()["detail"]
+    resp = _create(test_client, world, "manager", code=PARAMS_CODE, parameters=bad)
+    assert resp.status_code == 400, resp.text
+    dup = [{"name": "since", "type": "date"}, {"name": "since", "type": "string"}]
+    resp = _create(test_client, world, "manager", code=PARAMS_CODE, parameters=dup)
+    assert resp.status_code == 400, resp.text
+    assert "duplicate" in resp.json()["detail"]
+
+
+@pytest.mark.e2e
+def test_declarations_are_saved_on_create_and_editable_by_admin_and_owner(test_client, world):
+    """Create persists the declarations (normalized), the first run applies
+    their defaults, and both an entity manager and a suggesting owner can
+    change them through PUT — they travel with the code."""
+    resp = _create(test_client, world, "manager", code=PARAMS_CODE, parameters=DECLARED)
+    assert resp.status_code == 200, resp.text
+    ent = resp.json()
+    names = [p["name"] for p in ent["parameters"]]
+    assert names == ["since", "country", "rep_email"]
+    assert ent["parameters"][2]["identity_binding"] == "viewer.email"
+
+    hdr = _hdr(world["manager"]["token"], world["org_id"])
+    run = test_client.post(f"/api/entities/{ent['id']}/run", json={"code": PARAMS_CODE}, headers=hdr)
+    assert run.status_code == 200, run.text
+    assert run.json()["applied_params"]["since"] == "2009-01-01"
+    assert run.json()["applied_params"]["rep_email"] == world["manager"]["email"]
+    assert len(run.json()["data"]["rows"]) == 2
+
+    # Edit preview: edited declarations + a test value, before anything is saved.
+    pv = test_client.post(
+        f"/api/entities/{ent['id']}/preview",
+        json={"code": PARAMS_CODE, "parameters": DECLARED[:2], "params": {"country": "Brazil"}},
+        headers=hdr,
+    )
+    assert pv.status_code == 200, pv.text
+    assert [r["country"] for r in pv.json()["data"]["rows"]] == ["Brazil"]
+    assert "rep_email" not in pv.json()["applied_params"]
+    # ...and the saved declarations still apply when none are sent.
+    pv = test_client.post(f"/api/entities/{ent['id']}/preview", json={"code": PARAMS_CODE}, headers=hdr)
+    assert pv.status_code == 200, pv.text
+    assert pv.json()["applied_params"]["rep_email"] == world["manager"]["email"]
+
+    upd = test_client.put(
+        f"/api/entities/{ent['id']}", json={"parameters": DECLARED[:1]}, headers=hdr,
+    )
+    assert upd.status_code == 200, upd.text
+    assert [p["name"] for p in upd.json()["parameters"]] == ["since"]
+
+    # A member's suggestion: the owner edits its declarations too.
+    resp = _create(test_client, world, "member", code=PARAMS_CODE, parameters=DECLARED[:1])
+    assert resp.status_code == 200, resp.text
+    sug = resp.json()
+    upd = test_client.put(
+        f"/api/entities/{sug['id']}", json={"parameters": DECLARED[:2]},
+        headers=_hdr(world["member"]["token"], world["org_id"]),
+    )
+    assert upd.status_code == 200, upd.text
+    assert [p["name"] for p in upd.json()["parameters"]] == ["since", "country"]
