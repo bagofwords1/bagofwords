@@ -3292,7 +3292,9 @@ const expand = (key: string, force?: boolean) => {
   if (force) expanded.value.add(key)
   else if (expanded.value.has(key)) expanded.value.delete(key)
   else expanded.value.add(key)
-  if (key.startsWith('agent:') && expanded.value.has(key)) { const id = key.slice('agent:'.length); expanded.value.add('instr:' + id); loadAgentMeta(id) }
+  // Opening an agent loads its meta but leaves the Instructions group collapsed;
+  // it opens only on an explicit click (or openAgentSection / a fresh create).
+  if (key.startsWith('agent:') && expanded.value.has(key)) loadAgentMeta(key.slice('agent:'.length))
   // Lazy-load instruction rows on first expand of a group (rows arrive from the
   // backend; counts/badges were already loaded on mount).
   if (expanded.value.has(key)) {
