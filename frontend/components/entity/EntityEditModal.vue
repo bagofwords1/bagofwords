@@ -46,8 +46,8 @@
         </button>
       </div>
 
-      <!-- Metadata strip: title, agents, status on one row; description under -->
-      <div class="px-4 py-3 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
+      <!-- Metadata strip: title, description, agents, status on one row -->
+      <div class="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex-shrink-0">
         <EntityForm v-model="form" :show-status="canCreateEntities" compact />
       </div>
 

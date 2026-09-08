@@ -1,9 +1,9 @@
 <template>
   <!-- Stacked by default (the report's Save Query); `compact` lays title,
-       agents and status on one row with the description underneath, for a
+       a one-line description, agents and status on a single row, for a
        form that sits above a code editor. -->
   <div :class="compact
-    ? ['grid grid-cols-1 gap-3', showStatus ? 'sm:grid-cols-[minmax(0,1fr)_260px_150px]' : 'sm:grid-cols-[minmax(0,1fr)_260px]']
+    ? ['grid grid-cols-1 gap-x-3 gap-y-2', showStatus ? 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_220px_140px]' : 'lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_220px]']
     : 'max-w-2xl mx-auto space-y-4'">
     <!-- Title -->
     <div>
@@ -17,13 +17,13 @@
     </div>
 
     <!-- Description -->
-    <div :class="compact ? 'order-last col-span-full' : ''">
+    <div>
       <label class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('entityForm.description') }}</label>
       <textarea
         v-model="localForm.description"
-        :rows="compact ? 2 : 4"
+        :rows="compact ? 1 : 4"
         placeholder="Description"
-        :class="compact ? '' : 'min-h-[100px]'"
+        :class="compact ? 'resize-none' : 'min-h-[100px]'"
         class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500"
       />
     </div>
