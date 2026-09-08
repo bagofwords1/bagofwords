@@ -17,10 +17,11 @@ Principles, in priority order:
 1. **One source of truth.** The query string in the URL is the whole page
    state. Chart, table, summary line, tools strip and facets are projections of
    it. No second filter system, ever.
-2. **Blazing fast.** Every list/histogram/facet query hits one flat, indexed
-   read model per run, plus one indexed EXISTS for tool predicates. No joins
-   to completions, feedback or usage tables at read time. Sub-100 ms on
-   100k runs on both SQLite and Postgres.
+2. **Blazing fast.** Every list/histogram/facet query anchors on
+   `agent_executions`, filters and sorts on its own indexed columns, joins
+   `users`/`reports` by primary key only for display, and uses one indexed
+   EXISTS for tool predicates. No joins to completions, feedback or usage
+   tables at read time. Sub-100 ms on 100k runs on both SQLite and Postgres.
 3. **Instant feedback.** Parsing, highlighting, chip state and error messages
    happen on every keystroke with zero network. A count preview arrives while
    you type. Enter never waits on anything the client could have known.
@@ -110,37 +111,38 @@ tests) pins the version; the fixture file records it.
 
 ### Fields — agent runs
 
-| Field | Type | Read-model column | Notes |
+| Field | Type | Column on `agent_executions` (★ = new) | Notes |
 |---|---|---|---|
 | `status` | enum | `status` | `completed` `error` `in_progress` |
-| `user` | text | `user_name`, `user_email` | facet |
-| `agent` | text | `agent_names` (joined, for search) + association (exact) | facet; multi-agent runs match any |
-| `platform` | enum | `platform` | `web` `slack` `teams` `email` `api` `automation` |
-| `feedback` | enum | `feedback_direction` | `positive` `negative` `none` |
-| `feedback.message` | text | `feedback_message` | substring |
-| `judge.confidence` (alias `confidence`) | number 1–5 | `judge_response_score` | `response_score` on the user completion |
-| `judge.instructions` (alias `coverage`) | number 1–5 | `judge_instructions_score` | `instructions_effectiveness` |
-| `judge.context` | number 1–5 | `judge_context_score` | `context_effectiveness` |
-| `judge.tool_calls` | number 0–1 | `judge_tool_call_score` | from `tool_call_judge`, if recorded |
-| `model` | text | `primary_model_id` | facet; the planner's model for the run |
-| `provider` | enum | `primary_provider` | facet: `openai` `anthropic` `azure` … |
-| `models` | text | `model_ids` (joined) | any model used in the run, incl. judges and routed calls |
-| `cost` | money | `total_cost_usd` | |
-| `cost.input` `cost.output` | money | `input_cost_usd`, `output_cost_usd` | |
-| `tokens` | number | `total_tokens` | |
-| `tokens.in` `tokens.out` `tokens.cached` | number | `prompt_tokens`, `completion_tokens`, `cache_read_tokens` | |
+| `user` | text | join `users` (name, email) | facet |
+| `agent` | text | `report_data_source_association` via `report_id` (exact) | facet; multi-agent runs match any |
+| `platform` | enum | `platform` ★ | `web` `slack` `teams` `email` `api` `automation` |
+| `feedback` | enum | `feedback_direction` ★ | `positive` `negative` `none` |
+| `feedback.message` | text | `feedback_message` ★ | substring |
+| `judge.confidence` (alias `confidence`) | number 1–5 | `judge_response_score` ★ | `response_score` on the user completion |
+| `judge.instructions` (alias `coverage`) | number 1–5 | `judge_instructions_score` ★ | `instructions_effectiveness` |
+| `judge.context` | number 1–5 | `judge_context_score` ★ | `context_effectiveness` |
+| `judge.tool_calls` | number 0–1 | `judge_tool_call_score` ★ | from `tool_call_judge`, if recorded |
+| `model` | text | `primary_model_id` ★ | facet; the planner's model for the run |
+| `provider` | enum | `primary_provider` ★ | facet: `openai` `anthropic` `azure` … |
+| `models` | text | `model_ids` ★ (comma-joined) | any model used in the run, incl. judges and routed calls |
+| `cost` | money | `total_cost_usd` ★ | |
+| `cost.input` `cost.output` | money | `input_cost_usd` ★, `output_cost_usd` ★ | |
+| `tokens` | number | `total_tokens` ★ | |
+| `tokens.in` `tokens.out` `tokens.cached` | number | `prompt_tokens` ★, `completion_tokens` ★, `cache_read_tokens` ★ | |
 | `duration` | duration | `total_duration_ms` | |
 | `thinking` | duration | `thinking_ms` | |
 | `first_token` | duration | `first_token_ms` | |
-| `tools` | number | `tool_count` | |
-| `tools.failed` | number | `failed_tool_count` | |
-| `llm_calls` | number | `llm_call_count` | |
-| `report` | text | `report_title` | wildcard-friendly |
+| `tools` | number | `tool_count` ★ | |
+| `tools.failed` | number | `failed_tool_count` ★ | |
+| `llm_calls` | number | `llm_call_count` ★ | |
+| `report` | text | join `reports.title` | wildcard-friendly |
 | `report_id` `run_id` `completion_id` | text | ids | exact |
 | `version` | text | `bow_version` | facet |
 | `created` | date | `created_at` | |
+| bare words | text | `prompt_text` ★ (first 2,000 chars of the user prompt), `error_text` | substring |
 | `eval` | boolean | `is_eval_run` | `eval:false` is implied unless the query mentions `eval:` |
-| `error` | text | `error_text` | substring |
+| `error` | text | `error_text` ★ (from `error_json.message`) | substring |
 
 ### Fields — tool calls (`tool.` prefix)
 
@@ -174,32 +176,36 @@ conjunction; clicking an active chip removes them.
 
 ## Backend
 
-### Read model: `agent_run_facts`
+### Denormalised columns on `agent_executions`
 
-One row per `agent_executions` row, 1:1, keyed by `agent_execution_id`. It is
-the only table the list, histogram, summary, tools strip and facet queries
-read (plus `tool_executions` for the EXISTS, plus `users`/`reports` only
-through the copied columns). It carries everything in the run field table
-above, plus `organization_id`, `user_id`, `report_id`, `created_at`, and
-`agent_ids` (association table `agent_run_fact_agents(fact_id, data_source_id)`
-for exact scope filtering).
+`agent_executions` stays the only anchor. Its own columns already cover
+status, timings, user, report, version, eval flag and error. Everything the
+grammar exposes that is *derived* today — sums over `llm_usage_records`,
+counts over `tool_executions`, the judge scores and feedback two hops away on
+the parent completion, the prompt text inside a JSON column — becomes a plain
+column on `agent_executions` (marked ★ in the field table). Filtering,
+sorting and faceting then never aggregate or hop at read time; `users` and
+`reports` are joined by primary key for display only, and
+`report_data_source_association` only for `agent:` and the security scope.
 
-Why a separate table and not more columns on `agent_executions`:
-`agent_executions` is written on the hot path during a run; the facts row is
-written once at the end and updated by side events (feedback, judge). Keeping
-them apart keeps the hot path untouched and the read model explicit.
+Why columns and not a side table: the run-end write already updates the row
+(status, `completed_at`, timings); adding a dozen values to that UPDATE is
+free. Feedback and judge events are low-volume and become one small UPDATE on
+the run row. No one-to-one join, no second backfill target, one fewer thing
+to keep consistent.
 
-Writers (all idempotent upserts, all in `backend/app/services/diagnosis/facts.py`):
+Writers (all idempotent, all in `backend/app/services/diagnosis/rollups.py`):
 
 | Event | Writer | Columns |
 |---|---|---|
-| Run finished (`AgentExecutionService.finish`) | `upsert_from_run(run)` | status, timings, error_text, prompt_text (200 chars), user/report/agents/platform, tool counts, token and cost rollups, models |
-| Feedback created/updated (`CompletionFeedbackService`) | `update_feedback(completion_id)` | feedback_direction, feedback_message |
-| Judge scores written (wherever `response_score` etc. are set) | `update_judge(completion_id)` | judge_* |
-| Usage record written after run finish (late judge calls) | `add_usage(agent_execution_id, record)` | cost/token increments |
+| Run finished (`AgentExecutionService.finish`) | `rollup_run(run)` | `prompt_text`, `error_text`, `platform`, `tool_count`, `failed_tool_count`, token and cost sums, `llm_call_count`, `primary_model_id`, `primary_provider`, `model_ids` |
+| Feedback created/updated (`CompletionFeedbackService`) | `rollup_feedback(completion_id)` | `feedback_direction`, `feedback_message` |
+| Judge scores written (wherever `response_score` etc. are set) | `rollup_judge(completion_id)` | `judge_*` |
+| Usage record written after run finish (late judge calls) | `rollup_usage(agent_execution_id, record)` | cost/token increments, `cost_is_partial` |
 
-Backfill: `backend/scripts/backfill_agent_run_facts.py`, batched by 1,000,
-resumable, safe to re-run. Historical cost is best-effort (see next section).
+Backfill: `backend/scripts/backfill_agent_execution_rollups.py`, batched by
+1,000, resumable, safe to re-run. Historical cost is best-effort (next
+section).
 
 ### Cost and model attribution per run
 
@@ -215,8 +221,8 @@ null `scope_ref_id`; it has no link to the agent execution. Add:
   model is `primary_model_id`, the full set becomes `model_ids`.
 - Historical rows: rows with `report_id` and a timestamp inside a run's
   `[started_at, completed_at]` window attribute to that run in the backfill;
-  everything else stays unattributed and the fact row's `cost_is_partial`
-  flag is set, shown as a `~` prefix in the UI.
+  everything else stays unattributed and the run's `cost_is_partial` flag is
+  set, shown as a `~` prefix in the UI.
 - Tool-level cost: `tool_executions.total_cost_usd` and `total_tokens` written
   by the tool runner from the records attributed during the call (the
   contextvar carries `tool_execution_id` for the duration of the call).
@@ -228,9 +234,9 @@ backend/app/services/diagnosis/
   grammar.py     tokenizer + recursive-descent parser → versioned AST (pure)
   fields.py      FieldSpec registry: name, aliases, type, column, enum values,
                  facetable, entity (run|tool), help text, sugar expansions
-  compiler.py    AST → SQLAlchemy clause over agent_run_facts; tool.* → one
+  compiler.py    AST → SQLAlchemy clause over agent_executions; tool.* → one
                  correlated EXISTS on tool_executions
-  facts.py       read-model writers + backfill
+  rollups.py     denormalised-column writers + backfill
   service.py     runs / tool_calls / histogram / tools / facets / count
   saved.py       saved queries (per-user v1; built-ins from code)
   api.py         `run_query(db, org, scope, q, range, …)` — the single entry
@@ -304,9 +310,10 @@ Existing endpoints:
 ### Indexes
 
 `perfidx02_diagnosis_indexes` migration, same existence-checked pattern as
-`perfidx01_hot_path_indexes.py`. On `agent_run_facts` (all lead with
-`organization_id`, then the predicate, then `created_at` for the range and
-cursor):
+`perfidx01_hot_path_indexes.py` (`ix_ae_org_created` and
+`ix_tool_exec_ae_success` already exist). On `agent_executions`, each leading
+with `organization_id`, then the predicate, then `created_at` for the range
+and cursor:
 
 | Columns after `organization_id` | Serves |
 |---|---|
@@ -318,16 +325,16 @@ cursor):
 | `feedback_direction, created_at` | `feedback:` |
 | `total_cost_usd, created_at` | `cost:>`, sort by cost |
 | `total_duration_ms, created_at` | `duration:>`, sort |
-| `report_id` | scope subquery |
+| `report_id` | scope subquery, `agent:` |
 
 On `tool_executions`: `(agent_execution_id, tool_name)` for the EXISTS,
-`(tool_name, status)` for the strip. `agent_run_fact_agents(data_source_id, fact_id)`
-for `agent:` exact and for scope. `llm_usage_records(agent_execution_id)`.
+`(tool_name, status)` for the strip. `llm_usage_records(agent_execution_id)`
+for the rollup and the backfill.
 
 Postgres extras behind a dialect check: partial index
 `WHERE status = 'error'` on `(organization_id, created_at)`, and
-`pg_trgm` GIN on `prompt_text` and `error_text` when the extension is available
-(the migration checks `pg_extension` and skips silently).
+`pg_trgm` GIN on `prompt_text` and `error_text` when the extension is
+available (the migration checks `pg_extension` and skips silently).
 
 ## Performance budget and how it is met
 
@@ -337,8 +344,10 @@ records, Postgres and SQLite, 30-day window, p95: `runs` ≤ 80 ms, `count`
 `backend/scripts/seed_diagnosis_load.py` seeds it and prints timings; both
 engines' numbers go in the PR description.
 
-- **Flat read model.** Zero joins at read time except the EXISTS. This is the
-  single biggest lever; everything else is secondary.
+- **Filter on the anchor, join for display.** Every predicate and sort hits
+  an indexed column on `agent_executions`; the only other tables in a read
+  are `users` and `reports` by primary key and the `tool_executions` EXISTS.
+  This is the single biggest lever; everything else is secondary.
 - **Bounded by time, always.** The server rejects a request with no
   `start`/`end`. "All time" in the picker sends the org's first run date.
 - **Cursor pagination** on `(created_at, id)`; no `OFFSET`.
@@ -355,7 +364,7 @@ engines' numbers go in the PR description.
   `arguments_json`; tool call rows carry `result_summary` only.
 - **Short server cache.** An in-process LRU keyed by
   `(org, scope, q, start, end, cursor, sort)` with a 15 s TTL, invalidated
-  on facts upserts for that org. Makes back/forward, chip toggling and the
+  on rollup writes for that org. Makes back/forward, chip toggling and the
   histogram click feel instant without a second store.
 - **Client.** In-flight requests aborted on a new commit; the previous page
   stays on screen while the next loads (no spinner flash, a thin progress bar
@@ -460,7 +469,7 @@ the fixture; an e2e test compares the TS list against `GET fields`.
   scope enforcement (an agent manager cannot see runs outside their agents
   whatever the query); cursor stability; bucket selection; facets respect `q`
   and range; cost rollup and `cost_is_partial`.
-- **Facts writers**: each event updates exactly its columns; upserts are
+- **Rollup writers**: each event updates exactly its columns; writes are
   idempotent; backfill is resumable and matches fresh writes byte for byte.
 - **Postgres** run of the same service tests in CI, plus the `EXPLAIN`
   snapshots.
@@ -478,9 +487,9 @@ the fixture; an e2e test compares the TS list against `GET fields`.
 1. **Grammar + fields + AST v1 + goldens** (backend, pure). Small PR,
    reviewable as a spec. Includes the TS parser and its test against the same
    fixture, so the grammar ships in both languages at once.
-2. **Read model + attribution**: `agent_run_facts`, usage-record
-   `agent_execution_id`/`completion_id`, tool cost/token columns, writers,
-   backfill script, indexes. Additive; nothing reads it yet.
+2. **Rollup columns + attribution**: the ★ columns on `agent_executions`,
+   usage-record `agent_execution_id`/`completion_id`, tool cost/token columns,
+   writers, backfill script, indexes. Additive; nothing reads them yet.
 3. **Compiler + endpoints + `api.run_query`** with service tests, EXPLAIN
    snapshots, load script and timings. Old endpoints untouched.
 4. **Frontend**: components, composable, page swap.
@@ -499,7 +508,8 @@ Each phase is a PR against `main`; 1–3 merge before any UI changes.
 - Agent-manager scope test passes; the tool entry point enforces it too.
 - No request is unbounded in time; no `OFFSET`; no JSON extraction in a
   `WHERE`; no join to `completions`, `completion_feedback` or
-  `llm_usage_records` in any read path.
+  `llm_usage_records` in any read path; `users` and `reports` joined by
+  primary key only.
 - Backfill run on a production-shaped copy without error; `cost_is_partial`
   rate reported.
 - Old endpoints and components removed; `frontend/tests/i18n` green.
@@ -511,8 +521,7 @@ Each phase is a PR against `main`; 1–3 merge before any UI changes.
 2. Should `agent:` accept data source ids as well as names? (Recommendation:
    names in the bar; ids accepted silently for links.)
 3. Judge scores are written to the user completion by several code paths
-   today. Is there one place to hook `update_judge`, or should the facts
-   writer poll for changed scores in the backfill? (Needs a quick audit in
-   phase 2.)
+   today. Is there one place to hook `rollup_judge`, or should the backfill
+   sweep for changed scores? (Needs a quick audit in phase 2.)
 4. Keep `step_titles` (widget names) anywhere on the page? The design drops
    them; the trace modal still shows them.
