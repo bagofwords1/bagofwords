@@ -1,13 +1,12 @@
-"""Backfill the diagnosis rollup columns on agent_executions.
+"""Index (or re-index) the diagnosis rollup columns on agent_executions by hand.
 
     cd backend
     BOW_DATABASE_URL=... uv run python scripts/backfill_agent_execution_rollups.py [--all] [--org ORG_ID] [--batch 500]
 
-Resumable: runs are stamped ``rollup_at`` as they are done, so a re-run
-without ``--all`` only touches runs that have no rollup yet. Cost for runs
-that predate usage-record attribution is recovered by report + time window
-and flagged ``cost_is_partial``; runs before the attribution columns existed
-show cost as unknown, never zero.
+Normally unnecessary: the app runs the same sweep in the background at every
+start and stops once every run carries the current rollup version. This is
+the same pass, run in the foreground, for operators who want to watch it or
+force a full recompute (``--all``).
 """
 import argparse
 import asyncio
@@ -28,7 +27,7 @@ async def _main(args) -> None:
 
     def progress(done: int, total: int) -> None:
         now = time.monotonic()
-        if now - last["t"] >= 2 or done == total:
+        if now - last["t"] >= 2 or done >= total:
             rate = done / max(now - started, 1e-6)
             print(f"  {done}/{total} runs ({rate:.0f}/s)", flush=True)
             last["t"] = now
@@ -41,12 +40,12 @@ async def _main(args) -> None:
             organization_id=args.org,
             progress=progress,
         )
-    print(f"rolled up {done} runs in {time.monotonic() - started:.1f}s")
+    print(f"indexed {done} runs in {time.monotonic() - started:.1f}s")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--all", action="store_true", help="recompute every run, not only those without a rollup")
+    parser.add_argument("--all", action="store_true", help="recompute every run, not only those not yet at the current rollup version")
     parser.add_argument("--org", default=None, help="limit to one organization id")
     parser.add_argument("--batch", type=int, default=500, help="runs per commit")
     asyncio.run(_main(parser.parse_args()))

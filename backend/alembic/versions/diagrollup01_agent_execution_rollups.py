@@ -6,8 +6,9 @@ so every read hits ``agent_executions`` alone (plus one EXISTS on
 ``tool_executions``): prompt/error text, platform, feedback, judge scores,
 model/provider, cost and tokens, tool counts, turn index. They are written by
 ``app.services.diagnosis.rollup.refresh_rollup`` at run end and on feedback,
-judge and late-usage events; ``scripts/backfill_agent_execution_rollups.py``
-fills them for existing rows.
+judge and late-usage events; a background sweep at app startup
+(``app.services.diagnosis.sweep``) fills them for existing rows, newest first,
+so this migration only adds columns and indexes and never touches data.
 
 Revision ID: diagrollup01
 Revises: ldapsecurity01
@@ -45,6 +46,7 @@ _AE_COLUMNS = [
     sa.Column("turn_index", sa.Integer(), nullable=True),
     sa.Column("cost_is_partial", sa.Boolean(), nullable=True),
     sa.Column("rollup_at", sa.DateTime(), nullable=True),
+    sa.Column("rollup_version", sa.Integer(), nullable=True),
 ]
 
 # (name, table, columns). Every one leads with organization_id so the
@@ -59,6 +61,8 @@ _INDEXES = [
     ("ix_ae_org_cost_created", "agent_executions", ["organization_id", "total_cost_usd", "created_at"]),
     ("ix_ae_org_duration_created", "agent_executions", ["organization_id", "total_duration_ms", "created_at"]),
     ("ix_ae_report_id", "agent_executions", ["report_id"]),
+    # The startup sweep's "anything left to index?" check.
+    ("ix_ae_rollup_version", "agent_executions", ["rollup_version"]),
     ("ix_tool_exec_ae_tool", "tool_executions", ["agent_execution_id", "tool_name"]),
     ("ix_tool_exec_tool_status", "tool_executions", ["tool_name", "status"]),
     ("ix_llm_usage_agent_execution", "llm_usage_records", ["agent_execution_id"]),

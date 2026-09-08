@@ -19,16 +19,18 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
-from sqlalchemy import and_, exists, func, not_, or_, select
+from sqlalchemy import String, and_, cast, exists, func, not_, or_, select
 from sqlalchemy.sql import ColumnElement
 
 from app.models.agent_execution import AgentExecution as AE
 from app.models.data_source import DataSource
 from app.models.report import Report
 from app.models.report_data_source_association import report_data_source_association as assoc
+from app.models.table_usage_event import TableUsageEvent as TUE
 from app.models.tool_execution import ToolExecution as TE
 from app.models.user import User
 from app.services.diagnosis import fields as F
+from app.services.diagnosis.constants import STALE_AFTER
 from app.services.diagnosis.grammar import QueryError
 
 
@@ -94,6 +96,14 @@ _TOOL_COLUMNS: Dict[str, Tuple[Any, str]] = {
     "tool.attempt": (TE.attempt_number, "num"),
     "tool.duration": (TE.duration_ms, "num"),
     "tool.error": (TE.error_message, "contains"),
+    # Opt-in substring search over what the tool was asked and what it said.
+    # The JSON column is compared as text so "tool.args:region" finds a
+    # region anywhere in the call's arguments; never part of bare-word search.
+    "tool.args": (cast(TE.arguments_json, String), "contains"),
+    "tool.output": (TE.result_summary, "contains"),
+    # Resolved in _tool_condition: the tables a call touched live in
+    # table_usage_events, keyed by the step the call created.
+    "table": (TUE.table_fqn, "table"),
 }
 
 # Sort keys the service accepts (name → column). ``created`` is the default.
@@ -225,13 +235,35 @@ def _status_values(values: List[dict]):
     return out
 
 
+def stale_clause(ctx: CompileContext):
+    """A run that is still ``in_progress`` past STALE_AFTER never finished."""
+    return and_(AE.status == "in_progress", AE.created_at < ctx.now - STALE_AFTER)
+
+
+def _run_status(values: List[dict], ctx: CompileContext):
+    # ``in_progress`` and ``stale`` partition the in_progress rows, so the
+    # status facet's counts add up to the matched total.
+    plain = [s for s in _status_values(values) if s not in ("in_progress", "stale")]
+    parts = []
+    if plain:
+        parts.append(AE.status.in_(plain))
+    wanted = {v["s"] for v in values}
+    if "in_progress" in wanted and "stale" in wanted:
+        parts.append(AE.status == "in_progress")
+    elif "stale" in wanted:
+        parts.append(stale_clause(ctx))
+    elif "in_progress" in wanted:
+        parts.append(and_(AE.status == "in_progress", AE.created_at >= ctx.now - STALE_AFTER))
+    return parts[0] if len(parts) == 1 else or_(*parts)
+
+
 def _run_term(node: dict, ctx: CompileContext):
     field, op, values = node["field"], node["op"], node["values"]
 
     if field == "status":
         if op == "has":
             return AE.status.isnot(None)
-        return AE.status.in_(_status_values(values))
+        return _run_status(values, ctx)
 
     if field == "user":
         if op == "has":
@@ -291,9 +323,27 @@ def _run_term(node: dict, ctx: CompileContext):
 # Tool-call terms
 # ---------------------------------------------------------------------------
 
+def _table_name_clause(op: str, values: List[dict]):
+    """``table:customer`` matches the stored name exactly or as its last
+    dotted segment (``public.customer``); ``table:public.*`` uses wildcards."""
+    if op == "wild":
+        s = values[0]["s"]
+        return or_(_wild(TUE.table_fqn, s), _wild(TUE.table_fqn, "*." + s))
+    parts = []
+    for v in values:
+        s = v["s"].lower()
+        parts.append(or_(func.lower(TUE.table_fqn) == s, TUE.table_fqn.ilike("%." + _escape_like(s), escape="\\")))
+    return parts[0] if len(parts) == 1 else or_(*parts)
+
+
 def _tool_condition(node: dict, ctx: CompileContext):
     field, op, values = node["field"], node["op"], node["values"]
     col, kind = _TOOL_COLUMNS[field]
+    if kind == "table":
+        q = select(TUE.id).where(TUE.step_id == TE.created_step_id)
+        if op != "has":
+            q = q.where(_table_name_clause(op, values))
+        return exists(q.correlate(TE))
     if op == "has":
         return col.isnot(None)
     if kind == "enum":

@@ -4,13 +4,15 @@ One idempotent function, ``refresh_rollup``, recomputes every rollup column
 for one run from its sources (completions, feedback, tool executions, usage
 records). It is called from four places — run finish, feedback write, judge
 score write, and a usage record written after the run finished — and the
-backfill script is the same function over every run. There is no second write
-path to keep consistent.
+startup sweep (``sweep.py``) is the same computation over every run that is
+not yet at ``ROLLUP_VERSION``. There is no second write path to keep
+consistent.
 
 Nothing here runs on the hot path *during* a run.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
@@ -23,6 +25,7 @@ from app.models.completion import Completion
 from app.models.completion_feedback import CompletionFeedback
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.tool_execution import ToolExecution
+from app.services.diagnosis.constants import ROLLUP_VERSION, STALE_AFTER
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +128,7 @@ def _rollup_values(ae, head, user_c, sys_c, fb, tool_counts, usage_rows, cost_is
         turn_index=turn_index,
         cost_is_partial=cost_is_partial,
         rollup_at=now,
+        rollup_version=ROLLUP_VERSION,
     )
 
 
@@ -360,6 +364,29 @@ async def refresh_rollups_bulk(db: AsyncSession, agent_execution_ids: List[str])
     return updated
 
 
+def pending_clause(now: datetime, *, everything: bool = False):
+    """Runs the sweep still has to index: never rolled up, rolled up by an
+    older version of the logic, or (``everything``) all of them. A run that is
+    legitimately still running is skipped — its finish hook will index it;
+    one that has been "running" past STALE_AFTER never will, so it is taken."""
+    not_live = or_(
+        AgentExecution.status != "in_progress",
+        AgentExecution.status.is_(None),
+        AgentExecution.created_at < now - STALE_AFTER,
+    )
+    if everything:
+        return not_live
+    return and_(
+        or_(AgentExecution.rollup_version.is_(None), AgentExecution.rollup_version < ROLLUP_VERSION),
+        not_live,
+    )
+
+
+async def count_pending(db: AsyncSession, *extra_where) -> int:
+    stmt = select(func.count(AgentExecution.id)).where(pending_clause(datetime.utcnow()), *extra_where)
+    return int((await db.execute(stmt)).scalar() or 0)
+
+
 async def backfill(
     db: AsyncSession,
     *,
@@ -367,20 +394,45 @@ async def backfill(
     batch_size: int = 500,
     organization_id: Optional[str] = None,
     progress=None,
+    pause_seconds: float = 0.0,
+    should_stop=None,
 ) -> int:
-    """Roll up every run (or every run without a rollup) in set-based batches.
-    Resumable: a run is stamped ``rollup_at`` as it is done, so a re-run with
-    ``only_missing`` picks up where it stopped."""
-    q = select(AgentExecution.id).order_by(AgentExecution.created_at.asc(), AgentExecution.id.asc())
-    if only_missing:
-        q = q.where(AgentExecution.rollup_at.is_(None))
+    """Index every pending run (or every run with ``only_missing=False``) in
+    set-based batches, newest first, one commit per batch.
+
+    Keyset-paged on (created_at, id) so a batch is never revisited within one
+    pass even if a row somehow fails to get stamped, and resumable across
+    restarts because each batch commits its ``rollup_version``. ``pause_seconds``
+    yields between batches so a sweep never starves the request path."""
+    now = datetime.utcnow()
+    where = [pending_clause(now, everything=not only_missing)]
     if organization_id:
-        q = q.where(AgentExecution.organization_id == organization_id)
-    ids = [str(r) for r in (await db.execute(q)).scalars().all()]
+        where.append(AgentExecution.organization_id == organization_id)
+    total = int((await db.execute(select(func.count(AgentExecution.id)).where(*where))).scalar() or 0)
     done = 0
-    for i in range(0, len(ids), batch_size):
-        done += await refresh_rollups_bulk(db, ids[i:i + batch_size])
+    last: Optional[Tuple[datetime, str]] = None
+    while True:
+        if should_stop is not None and should_stop():
+            break
+        q = (
+            select(AgentExecution.id, AgentExecution.created_at)
+            .where(*where)
+            .order_by(AgentExecution.created_at.desc(), AgentExecution.id.desc())
+            .limit(batch_size)
+        )
+        if last is not None:
+            q = q.where(or_(
+                AgentExecution.created_at < last[0],
+                and_(AgentExecution.created_at == last[0], AgentExecution.id < last[1]),
+            ))
+        rows = (await db.execute(q)).all()
+        if not rows:
+            break
+        done += await refresh_rollups_bulk(db, [str(r.id) for r in rows])
         await db.commit()
+        last = (rows[-1].created_at, str(rows[-1].id))
         if progress:
-            progress(done, len(ids))
+            progress(done, total)
+        if pause_seconds:
+            await asyncio.sleep(pause_seconds)
     return done

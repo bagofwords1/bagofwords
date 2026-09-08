@@ -63,6 +63,7 @@ class AgentExecution(BaseSchema):
     turn_index = Column(Integer, nullable=True)        # 1-based position of the run in its report
     cost_is_partial = Column(Boolean, nullable=True)   # cost attributed by report+window, not by run id
     rollup_at = Column(DateTime, nullable=True)
+    rollup_version = Column(Integer, nullable=True)  # constants.ROLLUP_VERSION when current; NULL = not indexed
 
     # Relationships (optional lazy loading)
     plan_decisions = relationship('PlanDecision', back_populates='agent_execution', lazy='select')

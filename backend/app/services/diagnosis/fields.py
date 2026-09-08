@@ -72,7 +72,8 @@ class FieldSpec:
 
 FIELDS: List[FieldSpec] = [
     # --- agent runs -------------------------------------------------------
-    FieldSpec("status", "enum", RUN, "Run outcome", values=("success", "error", "in_progress"), facetable=True),
+    FieldSpec("status", "enum", RUN, "Run outcome (stale = still running after an hour, i.e. never finished)",
+              values=("success", "error", "in_progress", "stale", "sigkill"), facetable=True),
     FieldSpec("user", "text", RUN, "Who ran it (name or email)", facetable=True),
     FieldSpec("agent", "text", RUN, "Agent (data source) the run drew on", facetable=True),
     FieldSpec("platform", "enum", RUN, "Where the prompt came from",
@@ -103,10 +104,13 @@ FIELDS: List[FieldSpec] = [
     # --- tool calls (correlated: tool.* terms in one AND group match ONE call)
     FieldSpec("tool", "text", TOOL, "Tool name", aliases=("tool.name",), facetable=True),
     FieldSpec("tool.action", "text", TOOL, "Tool action", facetable=True),
-    FieldSpec("tool.status", "enum", TOOL, "Tool call outcome", values=("success", "error", "in_progress"), facetable=True),
+    FieldSpec("tool.status", "enum", TOOL, "Tool call outcome", values=("success", "error", "in_progress", "stopped"), facetable=True),
     FieldSpec("tool.attempt", "number", TOOL, "Attempt number (retries start at 2)"),
     FieldSpec("tool.duration", "duration", TOOL, "Tool call wall time"),
     FieldSpec("tool.error", "text", TOOL, "Tool error message"),
+    FieldSpec("table", "text", TOOL, "Table the tool call queried (schema.table or table)", facetable=True),
+    FieldSpec("tool.args", "text", TOOL, "Text anywhere in the tool call's arguments"),
+    FieldSpec("tool.output", "text", TOOL, "Text in the tool call's result summary"),
 ]
 
 # Built-in quick filters, in display order. The chip is active when every term

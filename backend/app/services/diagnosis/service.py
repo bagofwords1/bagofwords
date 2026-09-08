@@ -12,15 +12,18 @@ import base64
 import json
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Set
+from typing import Any, Dict, Iterable, List, Optional, Set, Tuple
 
 from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.agent_execution import AgentExecution as AE
+from app.models.connection import Connection
 from app.models.data_source import DataSource
+from app.models.domain_connection import domain_connection
 from app.models.report import Report
 from app.models.report_data_source_association import report_data_source_association as assoc
+from app.models.table_usage_event import TableUsageEvent as TUE
 from app.models.tool_execution import ToolExecution as TE
 from app.models.user import User
 from app.services.diagnosis import fields as F
@@ -28,9 +31,12 @@ from app.services.diagnosis.compiler import (
     SORT_COLUMNS,
     CompileContext,
     compile_query,
+    stale_clause,
     tool_match_conditions,
 )
+from app.services.diagnosis.constants import STALE_AFTER
 from app.services.diagnosis.grammar import QueryError, mentions_field, parse
+from app.services.diagnosis.rollup import pending_clause
 
 MAX_LIMIT = 100
 DEFAULT_LIMIT = 25
@@ -39,6 +45,7 @@ ERROR_CHARS = 500
 FACET_LIMIT = 20
 TOOLS_LIMIT = 12
 MAX_BUCKETS = 120
+PREVIEW_CHARS = 160
 
 
 @dataclass
@@ -97,6 +104,30 @@ def _reports_in_scope(scope_ids: Optional[List[str]]):
             ),
         )
     )
+
+
+def _one_line(text: Optional[str], limit: int) -> Optional[str]:
+    if not text:
+        return None
+    flat = " ".join(str(text).split())
+    if not flat:
+        return None
+    return flat if len(flat) <= limit else flat[: limit - 1] + "…"
+
+
+def _args_preview(arguments) -> Optional[str]:
+    """A compact ``key=value, key=value`` line of the call's arguments; long
+    values (SQL, code) are cut, and nothing here is ever the encrypted result."""
+    if not arguments or not isinstance(arguments, dict):
+        return None
+    parts = []
+    for k, v in arguments.items():
+        if v is None or v == "" or v == [] or v == {}:
+            continue
+        if isinstance(v, (dict, list)):
+            v = json.dumps(v, ensure_ascii=False, separators=(",", ":"))
+        parts.append(f"{k}={_one_line(str(v), 80)}")
+    return _one_line(", ".join(parts), PREVIEW_CHARS)
 
 
 class DiagnosisService:
@@ -207,7 +238,7 @@ class DiagnosisService:
             AE.primary_model_id, AE.primary_provider, AE.tool_count, AE.failed_tool_count,
             AE.total_duration_ms, AE.total_tokens, AE.total_cost_usd, AE.cost_is_partial,
             AE.judge_response_score, AE.judge_instructions_score, AE.judge_context_score,
-            AE.feedback_direction, AE.feedback_message, AE.turn_index, AE.is_eval_run,
+            AE.feedback_direction, AE.feedback_message, AE.turn_index, AE.is_eval_run, AE.rollup_at,
             func.count().over().label("total"),
         )
         stmt = self._from(stmt).where(*base)
@@ -229,16 +260,10 @@ class DiagnosisService:
         ids = [str(r.id) for r in rows]
         report_ids = sorted({str(r.report_id) for r in rows if r.report_id})
 
-        agents: Dict[str, List[str]] = {}
+        agents: Dict[str, List[Dict[str, Any]]] = {}
         turns: Dict[str, int] = {}
         if report_ids:
-            for rid, name in (await db.execute(
-                select(assoc.c.report_id, DataSource.name)
-                .join(DataSource, DataSource.id == assoc.c.data_source_id)
-                .where(assoc.c.report_id.in_(report_ids))
-                .order_by(DataSource.name)
-            )).all():
-                agents.setdefault(str(rid), []).append(name)
+            agents = await self._agents_for_reports(db, report_ids)
             for rid, n in (await db.execute(
                 select(AE.report_id, func.count(AE.id))
                 .where(AE.report_id.in_(report_ids), AE.is_eval_run == False)  # noqa: E712
@@ -255,12 +280,19 @@ class DiagnosisService:
                 matched.setdefault(str(ae_id), []).append(str(te_id))
 
         items = []
+        stale_before = ctx.now - STALE_AFTER
         for r in rows:
             fb = r.feedback_direction
+            status = "success" if r.status == "completed" else r.status
+            if status == "in_progress" and r.created_at is not None and r.created_at < stale_before:
+                status = "stale"
             items.append({
                 "id": str(r.id),
                 "created_at": r.created_at.isoformat() + "Z" if r.created_at else None,
-                "status": "success" if r.status == "completed" else r.status,
+                "status": status,
+                # False until the finish hook or the startup sweep has written the
+                # rollup columns; the table shows dashes, not zeros, meanwhile.
+                "indexed": r.rollup_at is not None,
                 "prompt": (r.prompt_text or "")[:PROMPT_CHARS],
                 "error": (r.error_text or "")[:ERROR_CHARS] or None,
                 "platform": r.platform or "web",
@@ -300,6 +332,36 @@ class DiagnosisService:
             next_cursor = self._encode_cursor(sort_value, str(last.id))
         return {"items": items, "next_cursor": next_cursor, "total": total}
 
+    async def _agents_for_reports(self, db, report_ids: List[str]) -> Dict[str, List[Dict[str, Any]]]:
+        """Agents per report as the UI renders them: name plus what the
+        DataSourceIcon needs (type of the first connection, connector key,
+        custom icon). One query; a data source with several connections
+        keeps the first."""
+        from app.schemas.data_source_schema import _connector_key_from_config
+        rows = (await db.execute(
+            select(assoc.c.report_id, DataSource.id, DataSource.name, DataSource.icon, Connection.type, Connection.config)
+            .join(DataSource, DataSource.id == assoc.c.data_source_id)
+            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+            .outerjoin(Connection, Connection.id == domain_connection.c.connection_id)
+            .where(assoc.c.report_id.in_(report_ids))
+            .order_by(DataSource.name, Connection.created_at)
+        )).all()
+        out: Dict[str, List[Dict[str, Any]]] = {}
+        seen: Set[Tuple[str, str]] = set()
+        for rid, ds_id, name, icon, ctype, config in rows:
+            key = (str(rid), str(ds_id))
+            if key in seen:
+                continue
+            seen.add(key)
+            try:
+                connector_key = _connector_key_from_config(config) if config else None
+            except Exception:  # noqa: BLE001
+                connector_key = None
+            out.setdefault(str(rid), []).append({
+                "id": str(ds_id), "name": name, "type": ctype, "connector_key": connector_key, "icon": icon,
+            })
+        return out
+
     @staticmethod
     def _sort_attr(sort: str) -> str:
         return {
@@ -322,6 +384,10 @@ class DiagnosisService:
         if q_clause is not None:
             stmt = stmt.where(q_clause)
         matched, errors, users, cost, with_duration = (await db.execute(stmt)).one()
+        # Runs in range the sweep has not indexed yet (rollup columns empty).
+        unindexed = int((await db.execute(
+            select(func.count(AE.id)).where(*base, pending_clause(datetime.utcnow()))
+        )).scalar() or 0)
         p50 = None
         if with_duration:
             med = select(AE.total_duration_ms)
@@ -336,6 +402,7 @@ class DiagnosisService:
             "users": int(users or 0),
             "cost_usd": float(cost or 0.0),
             "p50_ms": p50,
+            "unindexed": unindexed,
         }
 
     # -- histogram -----------------------------------------------------
@@ -441,8 +508,16 @@ class DiagnosisService:
             .where(TE.agent_execution_id.in_(visible))
             .order_by(TE.agent_execution_id, TE.started_at.asc(), TE.created_at.asc())
         )
+        calls = (await db.execute(stmt)).scalars().all()
+        step_ids = sorted({str(te.created_step_id) for te in calls if te.created_step_id})
+        tables: Dict[str, List[str]] = {}
+        if step_ids:
+            for step_id, fqn in (await db.execute(
+                select(TUE.step_id, TUE.table_fqn).where(TUE.step_id.in_(step_ids)).order_by(TUE.table_fqn)
+            )).all():
+                tables.setdefault(str(step_id), []).append(fqn)
         out: Dict[str, List[Dict[str, Any]]] = {i: [] for i in ids}
-        for te in (await db.execute(stmt)).scalars().all():
+        for te in calls:
             out.setdefault(str(te.agent_execution_id), []).append({
                 "id": str(te.id),
                 "tool": te.tool_name,
@@ -454,6 +529,10 @@ class DiagnosisService:
                 "started_at": te.started_at.isoformat() + "Z" if te.started_at else None,
                 "error": (te.error_message or "")[:ERROR_CHARS] or None,
                 "result_summary": (te.result_summary or "")[:ERROR_CHARS] or None,
+                "args_preview": _args_preview(te.arguments_json),
+                "output_preview": _one_line(te.result_summary, PREVIEW_CHARS),
+                "tables": tables.get(str(te.created_step_id), []) if te.created_step_id else [],
+                "step_id": str(te.created_step_id) if te.created_step_id else None,
             })
         return out
 
@@ -512,6 +591,21 @@ class DiagnosisService:
                 stmt = stmt.where(cond)
             rows = (await db.execute(stmt.order_by(func.count(func.distinct(AE.id)).desc()).limit(FACET_LIMIT))).all()
             return [{"value": r[0], "label": r[0], "count": int(r[1])} for r in rows]
+        if name == "table":
+            # Tables the matching calls touched, via the step each call created.
+            stmt = (
+                select(TUE.table_fqn, func.count(func.distinct(TE.agent_execution_id)))
+                .select_from(TE)
+                .join(TUE, TUE.step_id == TE.created_step_id)
+                .where(TE.agent_execution_id.in_(matched), *tool_match_conditions(ast, self._ctx(p)))
+                .group_by(TUE.table_fqn)
+            )
+            if prefix:
+                from app.services.diagnosis.compiler import _escape_like
+                esc = _escape_like(prefix)
+                stmt = stmt.where(or_(TUE.table_fqn.ilike(esc + "%", escape="\\"), TUE.table_fqn.ilike("%." + esc + "%", escape="\\")))
+            rows = (await db.execute(stmt.order_by(func.count(func.distinct(TE.agent_execution_id)).desc()).limit(FACET_LIMIT))).all()
+            return [{"value": r[0], "label": r[0], "count": int(r[1])} for r in rows]
         if spec.entity == F.TOOL:
             # Values for a tool field count the calls the query's own tool terms
             # describe: "tool:create_data tool.status:" suggests the statuses of
@@ -529,7 +623,8 @@ class DiagnosisService:
             return [{"value": self._norm(name, r[0]), "label": self._norm(name, r[0]), "count": int(r[1])} for r in rows]
 
         col = {
-            "status": AE.status, "platform": AE.platform, "feedback": AE.feedback_direction,
+            "status": case((stale_clause(self._ctx(p)), "stale"), else_=AE.status),
+            "platform": AE.platform, "feedback": AE.feedback_direction,
             "model": AE.primary_model_id, "provider": AE.primary_provider, "version": AE.bow_version,
         }[name]
         stmt = select(col, func.count(AE.id)).where(AE.id.in_(matched)).group_by(col)

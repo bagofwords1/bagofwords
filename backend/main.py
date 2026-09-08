@@ -425,6 +425,17 @@ async def startup_event():
         logger.exception("Agent runtime warmup failed; continuing startup")
 
     await start_tool_audit_worker()
+
+    # Index historical agent runs for the diagnosis explorer in the background
+    # (newest first, batched, no-op once every run carries the current rollup
+    # version). Serving starts now; the sweep never blocks it.
+    try:
+        from app.dependencies import async_session_maker
+        from app.services.diagnosis.sweep import start_background_sweep
+        start_background_sweep(async_session_maker)
+    except Exception:
+        logger.exception("diagnosis rollup sweep could not start; continuing startup")
+
     logger.info(
         "Application starting",
         extra={
