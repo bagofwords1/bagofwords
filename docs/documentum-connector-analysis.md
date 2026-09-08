@@ -370,6 +370,8 @@ not needed.
 **Practical plan:** ask the first interested customer for a non-production repository
 with REST Services exposed (they almost always have one: REST ships with the server and
 D2 depends on it), or obtain partner access. Until then, build against recorded fixtures.
+The routes, costs, legal constraints and a week-by-week plan are worked out in
+[`documentum-lab-access.md`](documentum-lab-access.md).
 
 ---
 
