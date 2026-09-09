@@ -4381,7 +4381,35 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
-    "project": "Proyecto"
+    "project": "Proyecto",
+    "expandPrompt": "Ampliar el prompt",
+    "collapsePrompt": "Reducir el prompt"
+  },
+  "scheduledTemplates": {
+    "suggested": "Sugeridas",
+    "subtitle": "Tareas programadas listas para usar: activa una para probarla",
+    "enable": "Activar",
+    "disable": "Pausar",
+    "customize": "Personalizar",
+    "enabledToast": "{name} activada",
+    "disabledToast": "{name} pausada — historial conservado",
+    "actionFailed": "No se pudo actualizar la plantilla. Inténtalo de nuevo.",
+    "templateBadge": "Plantilla",
+    "promptLabel": "Qué hará",
+    "agentsHint": "La tarea se ejecutará con los agentes seleccionados. Todo — incluido el prompt — se puede editar después de activarla.",
+    "noAgents": "Aún no hay agentes conectados — la tarea buscará datos disponibles al ejecutarse.",
+    "editHint": "Esta plantilla ya está configurada. Abre su tarea en Mis tareas para editar el prompt, la programación, los agentes o las notificaciones.",
+    "pausedHint": "Pausada — actívala de nuevo para reanudar con el historial",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Resumen semanal de datos",
+        "description": "Un resumen semanal conciso de lo que cambió en tus datos conectados, cada lunes por la mañana."
+      },
+      "monthly-trends-recap": {
+        "title": "Repaso mensual de tendencias",
+        "description": "Tendencias mes a mes de tus datos, con referencias a meses anteriores, el día 1 de cada mes."
+      }
+    }
   },
   "errorPage": {
     "notFoundTitle": "404",

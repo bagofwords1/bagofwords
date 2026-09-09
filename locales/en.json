@@ -4469,7 +4469,38 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "None",
-    "project": "Project"
+    "project": "Project",
+    "expandPrompt": "Expand prompt",
+    "collapsePrompt": "Collapse prompt"
+  },
+  "scheduledTemplates": {
+    "enable": "Enable",
+    "disable": "Pause",
+    "customize": "Customize",
+    "enabledToast": "{name} enabled",
+    "disabledToast": "{name} paused — history kept",
+    "actionFailed": "Could not update the template. Please try again.",
+    "templateBadge": "Template",
+    "promptLabel": "What it will do",
+    "agentsHint": "The task will run against the selected agents. Everything — including the prompt — can be edited after enabling.",
+    "noAgents": "No agents connected yet — the task will look for available data when it runs.",
+    "editHint": "This template is already set up. Open its task under My tasks to edit the prompt, schedule, agents, or notifications.",
+    "pausedHint": "Paused — turn back on to resume with history",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Weekly data digest",
+        "description": "A concise weekly summary of what changed across your connected data, every Monday morning."
+      },
+      "monthly-trends-recap": {
+        "title": "Monthly trends recap",
+        "description": "Month-over-month trends from your data, with callbacks to previous months, on the 1st of each month."
+      }
+    },
+    "startWith": "Start with a template",
+    "fromTemplate": "From template",
+    "drawerTitle": "Templates",
+    "drawerSubtitle": "Ready-made scheduled tasks. Enable one as is, or click it to edit everything first.",
+    "allEnabled": "All templates are set up."
   },
   "errorPage": {
     "notFoundTitle": "404",

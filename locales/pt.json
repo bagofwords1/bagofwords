@@ -4286,6 +4286,32 @@
     "noAgents": "Nenhum",
     "project": "Projeto"
   },
+  "scheduledTemplates": {
+    "suggested": "Sugeridas",
+    "subtitle": "Tarefas agendadas prontas — ative uma para experimentar",
+    "enable": "Ativar",
+    "disable": "Pausar",
+    "customize": "Personalizar",
+    "enabledToast": "{name} ativada",
+    "disabledToast": "{name} pausada — histórico mantido",
+    "actionFailed": "Não foi possível atualizar o modelo. Tente novamente.",
+    "templateBadge": "Modelo",
+    "promptLabel": "O que ela fará",
+    "agentsHint": "A tarefa será executada com os agentes selecionados. Tudo — incluindo o prompt — pode ser editado após a ativação.",
+    "noAgents": "Nenhum agente conectado ainda — a tarefa procurará dados disponíveis ao ser executada.",
+    "editHint": "Este modelo já está configurado. Abra a tarefa dele em Minhas tarefas para editar o prompt, o agendamento, os agentes ou as notificações.",
+    "pausedHint": "Pausada — reative para retomar com o histórico",
+    "items": {
+      "weekly-data-digest": {
+        "title": "Resumo semanal de dados",
+        "description": "Um resumo semanal conciso do que mudou nos seus dados conectados, toda segunda-feira de manhã."
+      },
+      "monthly-trends-recap": {
+        "title": "Retrospectiva mensal de tendências",
+        "description": "Tendências mês a mês dos seus dados, com referências aos meses anteriores, no dia 1º de cada mês."
+      }
+    }
+  },
   "errorPage": {
     "notFoundTitle": "404",
     "notFoundMessage": "Página não encontrada",

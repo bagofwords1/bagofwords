@@ -195,6 +195,7 @@
                     @submit="submit"
                     :placeholder="placeholder"
                     :rows="props.rows || (props.compact ? 1 : 2)"
+                    :maxRows="props.maxRows || 8"
                     :compact="props.compact"
                     :selectedDataSourceIds="selectedDataSources.map(ds => ds.id)"
                 />
@@ -680,6 +681,7 @@ const props = defineProps({
     // else 2); the automation modals ask for a taller box because a standing
     // task is written once and read back later, not dashed off like a chat.
     rows: { type: Number, default: 0 },
+    maxRows: { type: Number, default: 0 },
     // Show the project chip without a report behind it: the pick is held in the
     // component and read back with getProject() instead of moving a report.
     projectSelectable: { type: Boolean, default: false },

@@ -82,6 +82,8 @@ class ScheduledPromptService:
         data: ScheduledPromptCreate,
         current_user: User,
         organization: Organization,
+        *,
+        template_key: Optional[str] = None,
     ) -> ScheduledPrompt:
         # Verify report exists and belongs to user
         result = await db.execute(select(Report).filter(Report.id == report_id))
@@ -93,6 +95,15 @@ class ScheduledPromptService:
         cron_params = _parse_cron_expression(data.cron_schedule)
         if cron_params is None:
             raise HTTPException(status_code=400, detail="Invalid cron schedule")
+
+        # The stamp comes from the template service (keyword) or from the
+        # customize flow (request body); either way it must name a real
+        # template so the catalog's enabled-state lookup stays meaningful.
+        resolved_template_key = template_key or data.template_key
+        if resolved_template_key is not None:
+            from app.schemas.scheduled_task_template_schema import get_scheduled_task_template
+            if get_scheduled_task_template(resolved_template_key) is None:
+                raise HTTPException(status_code=400, detail="Unknown scheduled-task template")
 
         subscribers = [s.model_dump() for s in data.notification_subscribers] if data.notification_subscribers else None
 
@@ -107,6 +118,7 @@ class ScheduledPromptService:
             is_active=True if data.is_active is None else bool(data.is_active),
             spawn_new_report=bool(data.spawn_new_report),
             notification_subscribers=subscribers,
+            template_key=resolved_template_key,
         )
         db.add(sp)
         await db.commit()
@@ -127,6 +139,7 @@ class ScheduledPromptService:
                     "is_active": bool(sp.is_active),
                     "spawn_new_report": bool(sp.spawn_new_report),
                     "subscriber_count": len(subscribers) if subscribers else 0,
+                    "template_key": resolved_template_key,
                 },
                 user_id=current_user.id,
                 org_id=organization.id,

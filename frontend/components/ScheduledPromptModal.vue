@@ -105,21 +105,36 @@
                 />
             </div>
 
-            <!-- Prompt input -->
-            <PromptBoxV2
-                ref="promptBoxRef"
-                :report_id="reportId"
-                :initialSelectedDataSources="initialDataSources"
-                :initialMode="initialMode"
-                :initialModel="initialModel"
-                :textareaContent="initialContent"
-                :hideScheduleButton="true"
-                :hideSubmitButton="true"
-                :flush="true"
-                :rows="5"
-                @submitCompletion="handlePromptSubmit"
-                @update:modelValue="onPromptTextChange"
-            />
+            <!-- Prompt input. A template prompt runs to a dozen lines and the
+                 box scrolls at eight, so the corner icon lets the box grow
+                 until the whole prompt is on screen. -->
+            <div class="relative">
+                <PromptBoxV2
+                    ref="promptBoxRef"
+                    :report_id="reportId"
+                    :initialSelectedDataSources="initialDataSources"
+                    :initialMode="initialMode"
+                    :initialModel="initialModel"
+                    :textareaContent="initialContent"
+                    :hideScheduleButton="true"
+                    :hideSubmitButton="true"
+                    :flush="true"
+                    :rows="promptExpanded ? 14 : 5"
+                    :maxRows="promptExpanded ? 40 : 8"
+                    @submitCompletion="handlePromptSubmit"
+                    @update:modelValue="onPromptTextChange"
+                />
+                <UTooltip :text="promptExpanded ? $t('scheduledPrompt.collapsePrompt') : $t('scheduledPrompt.expandPrompt')" class="absolute top-1.5 end-1.5">
+                    <button
+                        type="button"
+                        data-testid="scheduled-prompt-expand"
+                        class="h-6 w-6 rounded inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        @click="promptExpanded = !promptExpanded"
+                    >
+                        <UIcon :name="promptExpanded ? 'i-heroicons-arrows-pointing-in' : 'i-heroicons-arrows-pointing-out'" class="w-3.5 h-3.5" />
+                    </button>
+                </UTooltip>
+            </div>
 
             <!-- Schedule -->
             <div class="mt-3">
@@ -399,6 +414,13 @@ const props = defineProps<{
     initialDataSources?: any[]
     draftContent?: string
     draftModel?: string
+    // Prefill for the template customize flow: the form opens in create mode
+    // seeded with the template's values, all fully editable.
+    draftTitle?: string
+    draftCron?: string
+    draftSpawnNewReport?: boolean
+    // Stamped onto the created task so it counts as that template's instance.
+    templateKey?: string
 }>()
 
 const emit = defineEmits(['saved', 'deleted'])
@@ -417,7 +439,7 @@ const initialMode = computed(() => (props.scheduledPrompt?.prompt?.mode as 'chat
 const initialModel = computed(() => props.scheduledPrompt?.prompt?.model_id || props.draftModel || '')
 const initialDataSources = computed(() => props.initialDataSources || [])
 
-const taskTitle = ref<string>(props.scheduledPrompt?.title || '')
+const taskTitle = ref<string>(props.scheduledPrompt?.title || props.draftTitle || '')
 const isActive = ref(props.scheduledPrompt?.is_active ?? true)
 
 // An existing task opens read-only — you usually come here to check on it, not
@@ -431,6 +453,9 @@ const viewMode = ref(!!props.scheduledPrompt)
 // existing task (two-column summary), narrow when opening straight into the
 // form — and keep it until the modal closes.
 const modalWidth = ref(viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl')
+// Expanded prompt: the box grows until a long template prompt is on screen.
+// Only the box changes — resizing the dialog (its `ui` prop) re-mounts it.
+const promptExpanded = ref(false)
 const { getCronLabel } = useCronLabel()
 // Handles naive-UTC strings and renders in the org's timezone.
 const { formatDateTime } = useFormatDate()
@@ -535,7 +560,7 @@ function onCancel() {
 }
 // Output routing: false = run in this report (keeps cross-run memory),
 // true = spawn a fresh, dated report per run (clean snapshots).
-const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? false)
+const spawnNewReport = ref<boolean>(props.scheduledPrompt?.spawn_new_report ?? props.draftSpawnNewReport ?? false)
 
 // ---- Summary-email toggle + prompt-intent heuristic ----
 // Phrases that signal the prompt itself asks to email/notify the user. When the
@@ -613,6 +638,8 @@ function parseCronToStructured(cron: string) {
 // show e.g. "day at 08:00" instead of the task's saved time.
 if (props.scheduledPrompt?.cron_schedule) {
     parseCronToStructured(props.scheduledPrompt.cron_schedule)
+} else if (props.draftCron) {
+    parseCronToStructured(props.draftCron)
 }
 
 // Reset form when scheduledPrompt changes
@@ -620,6 +647,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 watch(isOpen, (open) => {
     if (open) {
         viewMode.value = !!props.scheduledPrompt
+        promptExpanded.value = false
         modalWidth.value = viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl'
         if (props.scheduledPrompt) { fetchRuns(); fetchViewDetails() }
     }
@@ -783,6 +811,7 @@ async function persistScheduledPrompt(prompt: { content: string; mentions?: any[
             body,
         })
     }
+    if (props.templateKey) body.template_key = props.templateKey
     return await useMyFetch(`/api/reports/${props.reportId}/scheduled-prompts`, {
         method: 'POST',
         body,

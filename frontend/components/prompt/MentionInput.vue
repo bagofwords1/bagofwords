@@ -287,6 +287,12 @@ const props = defineProps({
     type: Number,
     default: 2
   },
+  // Lines before the box scrolls; the automation form raises it to show a
+  // long prompt in full.
+  maxRows: {
+    type: Number,
+    default: 8
+  },
   compact: {
     type: Boolean,
     default: false
@@ -376,7 +382,7 @@ const inputDir = computed(() => {
 
 const lineHeightPx = computed(() => props.compact ? 18 : 24)
 const minHeight = computed(() => `${Math.max(1, props.rows) * lineHeightPx.value}px`)
-const maxHeight = computed(() => `${8 * lineHeightPx.value}px`)
+const maxHeight = computed(() => `${Math.max(props.rows, props.maxRows) * lineHeightPx.value}px`)
 
 // The raw @-query text (after the '@', before the caret). Empty until the user
 // types — drives the "category list vs items" default view.
