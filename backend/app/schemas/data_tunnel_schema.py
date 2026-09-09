@@ -25,3 +25,24 @@ class DataEdgeAgentSchema(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class ProvisioningCapabilities(BaseModel):
+    """Whether the install wizard can provision certs, and the agent endpoint."""
+
+    enabled: bool = False
+    agent_url: Optional[str] = None
+
+
+class CreateAgentRequest(BaseModel):
+    """Wizard step 1 — identity of the agent to provision."""
+
+    edge_agent_id: str
+    label: Optional[str] = None
+
+
+class CertificateStatus(BaseModel):
+    """Wizard step 2 — cert-manager Certificate readiness."""
+
+    ready: bool = False
+    reason: Optional[str] = None

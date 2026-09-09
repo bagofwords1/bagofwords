@@ -232,8 +232,12 @@ async def sweep_stale_agents(stale_after_s: int = 45, offline_after_s: int = 120
         await db.commit()
 
 
+class AgentExistsError(Exception):
+    """An edge agent with this id already exists in the org."""
+
+
 class TunnelRegistrationService:
-    """Read path for the Data Tunnels UI."""
+    """Read path for the Data Tunnels UI, plus wizard-driven pre-registration."""
 
     async def list_agents(self, db, organization: Organization) -> list[DataEdgeAgent]:
         result = await db.execute(
@@ -242,3 +246,53 @@ class TunnelRegistrationService:
             .order_by(DataEdgeAgent.edge_agent_id)
         )
         return list(result.scalars().all())
+
+    async def get_agent(self, db, organization: Organization, agent_row_id: str) -> DataEdgeAgent | None:
+        result = await db.execute(
+            select(DataEdgeAgent).filter(
+                DataEdgeAgent.id == agent_row_id,
+                DataEdgeAgent.organization_id == organization.id,
+            )
+        )
+        return result.scalar_one_or_none()
+
+    async def create_agent(
+        self, db, organization: Organization, edge_agent_id: str, label: str | None
+    ) -> DataEdgeAgent:
+        """Pre-register an agent from the install wizard.
+
+        Creates the row as offline; the agent flips to online on its first
+        advertisement (register_advertisement upserts the same unique row).
+        """
+        existing = (
+            await db.execute(
+                select(DataEdgeAgent).filter(
+                    DataEdgeAgent.organization_id == organization.id,
+                    DataEdgeAgent.edge_agent_id == edge_agent_id,
+                )
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            raise AgentExistsError(edge_agent_id)
+        agent = DataEdgeAgent(
+            edge_agent_id=edge_agent_id,
+            organization_id=organization.id,
+            status="offline",
+            label=label,
+        )
+        db.add(agent)
+        await db.commit()
+        await db.refresh(agent)
+        return agent
+
+    async def delete_agent(self, db, organization: Organization, agent: DataEdgeAgent) -> None:
+        """Remove an agent row and its tunnel-mode connections (deprovision)."""
+        await db.execute(
+            Connection.__table__.delete().where(
+                Connection.organization_id == organization.id,
+                Connection.tunnel_mode.is_(True),
+                Connection.edge_agent_id == agent.edge_agent_id,
+            )
+        )
+        await db.delete(agent)
+        await db.commit()

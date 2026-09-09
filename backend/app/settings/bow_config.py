@@ -360,6 +360,24 @@ def encryption_key_is_ephemeral() -> bool:
     return _encryption_key_is_ephemeral
 
 
+class TunnelProvisioning(BaseModel):
+    """Kubernetes / cert-manager settings for the Data Tunnels agent wizard.
+
+    When the wizard provisions an edge agent it (a) creates a cert-manager
+    Certificate in `namespace` issued by `issuer`, (b) reads the resulting
+    Secret plus the broker CA from `ca_secret`, and (c) patches `accounts_configmap`
+    to add the agent's NATS user. All settings have BOW_DATA_TUNNEL_PROV_* env
+    overrides and default to the sandbox layout. The backend loads an in-cluster
+    ServiceAccount when running in the cluster, otherwise the default kubeconfig.
+    """
+    namespace: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_NAMESPACE", "nats"))
+    issuer: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_ISSUER", "nats-ca"))
+    ca_secret: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_CA_SECRET", "nats-ca-keypair"))
+    accounts_configmap: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_ACCOUNTS_CM", "nats-accounts"))
+    accounts_key: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_ACCOUNTS_KEY", "accounts.conf"))
+    cert_duration: str = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_PROV_CERT_DURATION", "8760h"))
+
+
 class DataTunnel(BaseModel):
     """Secure data tunnel to on-prem edge agents (design B3/B4/A11).
 
@@ -401,6 +419,12 @@ class DataTunnel(BaseModel):
         default_factory=lambda: (os.getenv("BOW_DATA_TUNNEL_TLS_VERIFY", "true") or "true").strip().lower()
         in ("1", "true", "yes", "on")
     )
+    # Agent-facing broker endpoint embedded in the config the wizard generates —
+    # what the on-prem edge agent dials (wss://host:443), distinct from the
+    # worker's own native-TLS `url` (tls://host:4222).
+    agent_url: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_AGENT_URL"))
+    # Cluster/cert-manager settings for the agent-install wizard's provisioning.
+    provisioning: TunnelProvisioning = Field(default_factory=TunnelProvisioning)
 
     def missing_requirements(self) -> List[str]:
         """The config keys an enabled tunnel needs but doesn't have set.
