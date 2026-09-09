@@ -64,7 +64,7 @@ class EditDocTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["artifact", "doc"],
-            allowed_modes=["chat"],
+            allowed_modes=["chat", "training"],
         )
 
     @property

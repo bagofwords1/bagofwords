@@ -72,7 +72,7 @@ class ReadQueryTool(Tool):
             required_permissions=[],
             tags=["query", "visualization", "data", "read"],
             observation_policy="on_trigger",
-            allowed_modes=["chat"],
+            allowed_modes=["chat", "training"],
         )
 
     @property
