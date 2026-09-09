@@ -561,6 +561,7 @@ dependencies = [
     { name = "ipython" },
     { name = "jinja2" },
     { name = "kubernetes" },
+    { name = "kubernetes-asyncio" },
     { name = "ldap3" },
     { name = "lkml" },
     { name = "lxml" },
@@ -694,6 +695,7 @@ requires-dist = [
     { name = "ipython", specifier = ">=8.39.0,<8.40" },
     { name = "jinja2", specifier = ">=3.1.6,<3.2" },
     { name = "kubernetes", specifier = ">=36.0.3" },
+    { name = "kubernetes-asyncio", specifier = ">=32.0.0,<33" },
     { name = "ldap3", specifier = ">=2.9.1,<2.10" },
     { name = "lkml", specifier = ">=1.3.7,<1.4" },
     { name = "lxml", specifier = ">=6.1.1,<6.2" },
@@ -2487,6 +2489,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/ca/57/b07b96353f902aa1bdbe00e878e3a12a137977d03a962479785576aa8ec9/kubernetes-36.0.3.tar.gz", hash = "sha256:36993ed25ce59b789c9341473a228fcf268504a2fec7c2b2b1531d73072e5ce7", size = 2337528, upload-time = "2026-07-13T20:38:12.128Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5b/30/a96d47df739689ac0001ade0afefc16e3b477fc2fb426b568515fdc8afce/kubernetes-36.0.3-py2.py3-none-any.whl", hash = "sha256:8fde9241c4b298e6374a069dcf728359b4e72c2fb29489a975ba4e1c047cf10f", size = 4618066, upload-time = "2026-07-13T20:38:10.172Z" },
+]
+
+[[package]]
+name = "kubernetes-asyncio"
+version = "32.3.2"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "aiohttp" },
+    { name = "certifi" },
+    { name = "python-dateutil" },
+    { name = "pyyaml" },
+    { name = "six" },
+    { name = "urllib3" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/b9/74/6d454c06c44acbe2dba10aaddb87e6a8a980055308d4052aa408da280095/kubernetes_asyncio-32.3.2.tar.gz", hash = "sha256:a4b6da1dbfa16e87ab8df6898f54fa03f651591a502bd6480a647d5513a580bf", size = 1032557, upload-time = "2025-04-30T21:59:34.121Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d1/bf/8d9ae183b3bee0811f633411d3e3de4bcc58eefb81021b3e2fdcc1d1e26b/kubernetes_asyncio-32.3.2-py3-none-any.whl", hash = "sha256:3584e6358571e686ea1396fc310890263c58fa41c084a841a9609a54ad05de62", size = 1984148, upload-time = "2025-04-30T21:59:32.254Z" },
 ]
 
 [[package]]

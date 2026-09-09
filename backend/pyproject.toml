@@ -24,6 +24,10 @@ dependencies = [
     "pyjwt>=2.15.1,<2.16",
     "httpx-oauth>=0.16.1,<0.17",
     "cryptography>=50.0.0,<51",
+    # Data-tunnel agent provisioning: create cert-manager Certificate CRs, read
+    # the issued Secret, and patch the nats-accounts ConfigMap from the Data
+    # Tunnels wizard. Async client so the request path never blocks the loop.
+    "kubernetes-asyncio>=32.0.0,<33",
     "sqlalchemy>=2.0.51,<2.1",
     "alembic>=1.18.4,<1.19",
     "asyncpg>=0.30.0,<0.32",

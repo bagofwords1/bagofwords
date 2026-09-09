@@ -818,32 +818,44 @@ async def startup_event():
             ", ".join(tunnel_cfg.missing_requirements()),
         )
     else:
-        try:
-            await tunnel_client.connect(
-                tunnel_cfg.url,
-                org_id=tunnel_cfg.org_id,
-                tls_ca=tunnel_cfg.tls_ca or None,
-                tls_cert=tunnel_cfg.tls_cert or None,
-                tls_key=tunnel_cfg.tls_key or None,
-                tls_verify=tunnel_cfg.tls_verify,
-            )
-            if is_scheduler_leader:
-                await tunnel_client.start_advertisement_listener()
-                await tunnel_client.start_heartbeat_listener()
-                # Sweep agent liveness: flip status stale/offline and deactivate
-                # an offline agent's connections (design A10/B4). Leader-gated.
-                from app.services.tunnel_registration_service import sweep_stale_agents
-                scheduler.add_job(
-                    sweep_stale_agents,
-                    trigger="interval",
-                    seconds=30,
-                    id="tunnel_agent_liveness_sweep",
-                    replace_existing=True,
-                    coalesce=True,
-                    max_instances=1,
+        # Connect in the BACKGROUND, never inline: the client's initial connect
+        # retries forever (max_reconnect_attempts=-1), so awaiting it here would
+        # hang the whole app startup whenever NATS is unreachable at boot. Backed
+        # off to a task, the app starts immediately and the tunnel attaches
+        # whenever the broker becomes reachable; until then tunneled connections
+        # fail (as intended) while everything else runs.
+        import asyncio
+
+        async def _connect_tunnel() -> None:
+            try:
+                await tunnel_client.connect(
+                    tunnel_cfg.url,
+                    org_id=tunnel_cfg.org_id,
+                    tls_ca=tunnel_cfg.tls_ca or None,
+                    tls_cert=tunnel_cfg.tls_cert or None,
+                    tls_key=tunnel_cfg.tls_key or None,
+                    tls_verify=tunnel_cfg.tls_verify,
                 )
-        except Exception:
-            logger.exception("Tunnel unavailable; tunneled connections will fail")
+                if is_scheduler_leader:
+                    await tunnel_client.start_advertisement_listener()
+                    await tunnel_client.start_heartbeat_listener()
+                    # Sweep agent liveness: flip status stale/offline and deactivate
+                    # an offline agent's connections (design A10/B4). Leader-gated.
+                    from app.services.tunnel_registration_service import sweep_stale_agents
+                    scheduler.add_job(
+                        sweep_stale_agents,
+                        trigger="interval",
+                        seconds=30,
+                        id="tunnel_agent_liveness_sweep",
+                        replace_existing=True,
+                        coalesce=True,
+                        max_instances=1,
+                    )
+            except Exception:
+                logger.exception("Tunnel unavailable; tunneled connections will fail")
+
+        asyncio.create_task(_connect_tunnel())
+        logger.info("data_tunnel: connecting to the broker in the background")
     app.state.tunnel_client = tunnel_client
     set_tunnel_client(tunnel_client)
 

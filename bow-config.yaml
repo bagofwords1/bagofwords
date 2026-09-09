@@ -121,3 +121,14 @@ otel:
 #   tls_cert: ${BOW_DATA_TUNNEL_TLS_CERT}       # path to worker client cert PEM
 #   tls_key: ${BOW_DATA_TUNNEL_TLS_KEY}         # path to worker client key PEM
 #   tls_verify: true                            # false disables server verification (local only)
+#   # Agent-install wizard (Data Tunnels UI). agent_url is the wss:// endpoint
+#   # embedded in the config the wizard generates (what on-prem agents dial).
+#   # provisioning.* points the backend at the cert-manager + NATS cluster it
+#   # issues agent certs and account users in; defaults match a standard deploy.
+#   agent_url: ${BOW_DATA_TUNNEL_AGENT_URL}     # e.g. wss://tunnel.your-bow-host:443
+#   provisioning:
+#     namespace: nats
+#     issuer: nats-ca
+#     ca_secret: nats-ca-keypair
+#     accounts_configmap: nats-accounts
+#     cert_duration: 8760h
