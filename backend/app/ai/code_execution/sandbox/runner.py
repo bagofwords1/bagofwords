@@ -13,6 +13,7 @@ credentials) is visible to generated code.
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pickle
@@ -35,8 +36,11 @@ import pandas as pd
 from app.ai.code_execution.sandbox.config import SandboxLimits
 from app.ai.code_execution.sandbox.namespace import file_to_attrs
 from app.ai.code_execution.sandbox.protocol import (
+    _FRAME,
+    MAX_FRAME_BYTES,
+    MAX_HEADER_BYTES,
+    ProtocolError,
     arrow_to_dataframe,
-    read_message,
     write_message,
 )
 
@@ -150,12 +154,16 @@ def _fs_policy(job: SandboxJob, scratch_dir: str) -> Dict[str, List[str]]:
     """
     read_paths = [
         sys.prefix, sys.base_prefix, sys.exec_prefix,
-        "/usr", "/lib", "/lib64", "/etc/ld.so.cache", "/etc/localtime",
+        "/usr", "/lib", "/lib64",
         "/etc/ssl", "/etc/alternatives", "/sys/devices/system/cpu",
         os.path.join(_BACKEND_DIR, "app"),
         "/proc/self",
     ]
-    read_files = ["/proc/cpuinfo", "/proc/meminfo", "/dev/urandom", "/dev/random"]
+    # Plain files go here: a directory-style rule on a file is EINVAL.
+    read_files = [
+        "/etc/ld.so.cache", "/etc/localtime", "/etc/resolv.conf",
+        "/proc/cpuinfo", "/proc/meminfo", "/dev/urandom", "/dev/random",
+    ]
     for f in job.files:
         p = getattr(f, "path", None)
         if p:
@@ -187,6 +195,7 @@ class _ChildProcess:
         self.pid = pid
         self.to_child = os.fdopen(to_child, "wb", buffering=0)
         self.from_child = os.fdopen(from_child, "rb", buffering=0)
+        os.set_blocking(self.from_child.fileno(), False)
         self.stderr_fd = stderr_fd
         os.set_blocking(self.stderr_fd, False)
         self.scratch_dir = scratch_dir
@@ -410,25 +419,84 @@ def _acquire_child() -> _ChildProcess:
     return _zygote.fork() or _ChildProcess.spawn()
 
 
+def _wait_for_child(child: _ChildProcess, deadline: float, cancel_event: Optional[threading.Event],
+                    limits: SandboxLimits, fds: List[int], timeout: float = 0.25) -> List[int]:
+    """One supervision tick: enforce cancel/deadline, drain stderr, and
+    return the fds in `fds` that are readable (possibly none)."""
+    if cancel_event is not None and cancel_event.is_set():
+        child.kill()
+        raise SandboxCancelled("code execution cancelled")
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        child.kill()
+        raise SandboxTimeoutError(limits.timeout_seconds)
+    watch = list(fds) + [child.stderr_fd]
+    ready, _, _ = select.select(watch, [], [], min(timeout, remaining))
+    if child.stderr_fd in ready:
+        child.drain_stderr()
+    return [fd for fd in ready if fd != child.stderr_fd]
+
+
+def _read_exact_with_deadline(child: _ChildProcess, n: int, deadline: float,
+                              cancel_event: Optional[threading.Event], limits: SandboxLimits) -> bytes:
+    """Read exactly `n` bytes from the child's result pipe, never blocking
+    past a supervision tick: a child that stalls mid-frame still hits the
+    wall clock and the cancel event."""
+    fd = child.from_child.fileno()
+    chunks: List[bytes] = []
+    remaining = n
+    while remaining > 0:
+        if fd not in _wait_for_child(child, deadline, cancel_event, limits, [fd]):
+            continue
+        try:
+            chunk = os.read(fd, min(remaining, 1 << 20))
+        except BlockingIOError:
+            continue
+        if not chunk:
+            raise EOFError("sandbox pipe closed")
+        chunks.append(chunk)
+        remaining -= len(chunk)
+    return b"".join(chunks)
+
+
 def _read_with_deadline(child: _ChildProcess, deadline: float, cancel_event: Optional[threading.Event], limits: SandboxLimits):
-    """Block for the next child message, servicing stderr, the deadline and
-    cooperative cancellation while waiting. A dead child shows up as EOF on
-    its result pipe (the kernel closes it), which `read_message` raises."""
-    out_fd = child.from_child.fileno()
-    err_fd = child.stderr_fd
-    while True:
-        if cancel_event is not None and cancel_event.is_set():
-            child.kill()
-            raise SandboxCancelled("code execution cancelled")
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            child.kill()
-            raise SandboxTimeoutError(limits.timeout_seconds)
-        ready, _, _ = select.select([out_fd, err_fd], [], [], min(0.25, remaining))
-        if err_fd in ready:
-            child.drain_stderr()
-        if out_fd in ready:
-            return read_message(child.from_child)
+    """Read the next child message under supervision (deadline, cancel,
+    stderr draining). A dead child shows up as EOF on its result pipe (the
+    kernel closes it)."""
+    raw = _read_exact_with_deadline(child, _FRAME.size, deadline, cancel_event, limits)
+    hlen, plen = _FRAME.unpack(raw)
+    if hlen > MAX_HEADER_BYTES or plen > MAX_FRAME_BYTES:
+        raise ProtocolError(f"frame too large: header={hlen} payload={plen}")
+    header = json.loads(_read_exact_with_deadline(child, hlen, deadline, cancel_event, limits).decode("utf-8"))
+    if not isinstance(header, dict):
+        raise ProtocolError("frame header is not an object")
+    payload = _read_exact_with_deadline(child, plen, deadline, cancel_event, limits) if plen else b""
+    return header, payload
+
+
+def _call_supervised(fn: Callable[[], Any], child: _ChildProcess, deadline: float,
+                     cancel_event: Optional[threading.Event], limits: SandboxLimits) -> Any:
+    """Run a trusted-side RPC handler (a data-source query, a web fetch) on
+    a worker thread while the runner keeps enforcing the wall clock and the
+    cancel event. On either, the child is killed and the handler is
+    abandoned — the query wrappers already bound their own calls and cancel
+    orphaned queries at the source, so nothing here can outlive them."""
+    holder: Dict[str, Any] = {}
+
+    def _target():
+        try:
+            holder["value"] = fn()
+        except BaseException as e:  # noqa: BLE001 - re-raised on the runner thread
+            holder["exc"] = e
+
+    t = threading.Thread(target=_target, name="bow_sandbox_rpc", daemon=True)
+    t.start()
+    while t.is_alive():
+        _wait_for_child(child, deadline, cancel_event, limits, [])
+        t.join(0.0)
+    if "exc" in holder:
+        raise holder["exc"]
+    return holder.get("value")
 
 
 def _raise_for_child_death(child: _ChildProcess, limits: SandboxLimits) -> None:
@@ -524,14 +592,18 @@ def run_job(
                     if method == "execute_query":
                         if execute_query is None:
                             raise RuntimeError("no data source clients are available in this run")
-                        value = execute_query(str(header.get("client")), list(header.get("args") or []), dict(header.get("kwargs") or {}))
+                        _client = str(header.get("client"))
+                        _args = list(header.get("args") or [])
+                        _kwargs = dict(header.get("kwargs") or {})
+                        handler = lambda: execute_query(_client, _args, _kwargs)  # noqa: E731
                     elif method == "http_get":
                         if http_get is None:
                             raise RuntimeError("web fetch is not enabled for this organization")
                         kw = {}
                         if header.get("timeout") is not None:
                             kw["timeout"] = header["timeout"]
-                        value = http_get(header.get("url"), **kw)
+                        _url = header.get("url")
+                        handler = lambda: http_get(_url, **kw)  # noqa: E731
                     elif method == "http_batch_get":
                         if http_batch_get is None:
                             raise RuntimeError("web fetch is not enabled for this organization")
@@ -539,9 +611,13 @@ def run_job(
                         for k in ("concurrency", "timeout"):
                             if header.get(k) is not None:
                                 kw[k] = header[k]
-                        value = http_batch_get(list(header.get("urls") or []), **kw)
+                        _urls = list(header.get("urls") or [])
+                        handler = lambda: http_batch_get(_urls, **kw)  # noqa: E731
                     else:
                         raise RuntimeError(f"unknown sandbox rpc {method!r}")
+                    value = _call_supervised(handler, child, deadline, cancel_event, limits)
+                except (SandboxTimeoutError, SandboxCancelled):
+                    raise
                 except BaseException as e:  # noqa: BLE001 - forwarded to the child as its exception
                     rpc_exceptions[int(rid)] = e
                     write_message(child.to_child, {

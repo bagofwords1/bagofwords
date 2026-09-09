@@ -133,6 +133,7 @@ class LandlockReport:
     net_blocked: bool = False
     signals_scoped: bool = False
     skipped_paths: List[str] = field(default_factory=list)
+    rule_errors: List[str] = field(default_factory=list)
 
     def as_dict(self) -> Dict:
         return {
@@ -143,16 +144,43 @@ class LandlockReport:
             "net_blocked": self.net_blocked,
             "signals_scoped": self.signals_scoped,
             "skipped_paths": list(self.skipped_paths),
+            "rule_errors": list(self.rule_errors),
         }
 
 
-def _add_path_rule(ruleset_fd: int, path: str, rights: int) -> bool:
-    """Allow `rights` beneath `path`. Returns False when the path is absent."""
+# Rights that make sense on a non-directory. Landlock rejects a rule that
+# grants directory-only rights (READ_DIR, MAKE_*, REMOVE_*, REFER) on a file
+# with EINVAL, so rules are masked by what the path actually is.
+FILE_RIGHTS = FS_EXECUTE | FS_WRITE_FILE | FS_READ_FILE | FS_TRUNCATE | FS_IOCTL_DEV
+
+
+def rights_for_path(path: str, rights: int, *, is_dir: Optional[bool] = None) -> int:
+    """Mask `rights` to what Landlock accepts for `path` (file vs directory)."""
+    if is_dir is None:
+        try:
+            is_dir = os.path.isdir(path)
+        except OSError:
+            is_dir = False
+    return rights if is_dir else (rights & FILE_RIGHTS)
+
+
+def _add_path_rule(ruleset_fd: int, path: str, rights: int) -> Optional[str]:
+    """Allow `rights` beneath `path`.
+
+    Returns None on success, "absent" when the path does not exist, or the
+    OS error text when the kernel refused the rule. A refused rule is
+    reported and skipped rather than aborting the whole policy: a missing
+    allowance costs the child a read, an abandoned policy costs the
+    confinement.
+    """
     try:
         fd = os.open(path, os.O_PATH | os.O_CLOEXEC)
     except OSError:
-        return False
+        return "absent"
     try:
+        rights = rights_for_path(path, rights)
+        if rights == 0:
+            return "no applicable rights"
         # struct landlock_path_beneath_attr { __u64 allowed_access; __s32 parent_fd; } __packed
         attr = struct.pack("<Qi", rights, fd)
         buf = ctypes.create_string_buffer(attr, len(attr))
@@ -163,7 +191,9 @@ def _add_path_rule(ruleset_fd: int, path: str, rights: int) -> bool:
             buf,
             ctypes.c_uint32(0),
         )
-        return True
+        return None
+    except OSError as e:
+        return f"{e.errno}: {e.strerror}"
     finally:
         os.close(fd)
 
@@ -232,10 +262,13 @@ def restrict_self(
                 if key in seen:
                     continue
                 seen.add(key)
-                if _add_path_rule(ruleset_fd, p, rights):
+                outcome = _add_path_rule(ruleset_fd, p, rights)
+                if outcome is None:
                     report.fs_rules += 1
-                else:
+                elif outcome == "absent":
                     report.skipped_paths.append(p)
+                else:
+                    report.rule_errors.append(f"{p}: {outcome}")
 
         set_no_new_privs()
         _syscall(_NR_LANDLOCK_RESTRICT_SELF, ctypes.c_int(ruleset_fd), ctypes.c_uint32(0))

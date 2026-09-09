@@ -282,6 +282,21 @@ def _result_frame(value: Any, log: List[str]):
     return None
 
 
+def _enter_scratch_dir(scratch_dir: str) -> None:
+    """Make this job's private scratch directory the child's working and
+    temp directory. A forked child would otherwise keep the fork server's
+    cwd and TMPDIR/HOME/MPLCONFIGDIR, which are shared across jobs and lie
+    outside this job's Landlock write allowance."""
+    import tempfile
+
+    os.makedirs(os.path.join(scratch_dir, "mpl"), exist_ok=True)
+    os.chdir(scratch_dir)
+    for var in ("TMPDIR", "TMP", "TEMP", "HOME"):
+        os.environ[var] = scratch_dir
+    os.environ["MPLCONFIGDIR"] = os.path.join(scratch_dir, "mpl")
+    tempfile.tempdir = None  # re-resolve from TMPDIR on next use
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     """Standalone entrypoint: one fresh interpreter per job (the fallback
     when the fork server is disabled or unavailable)."""
@@ -304,8 +319,9 @@ def run(in_fd: int, out_fd: int) -> int:
     job: Dict[str, Any] = pickle.loads(payload)
     limits = job.get("limits") or {}
     scratch_dir = job.get("scratch_dir") or os.getcwd()
+    _enter_scratch_dir(scratch_dir)
 
-    applied: Dict[str, Any] = {"pid": os.getpid()}
+    applied: Dict[str, Any] = {"pid": os.getpid(), "cwd": os.getcwd()}
     try:
         applied["rlimits"] = _apply_rlimits(limits)
     except Exception as e:  # pragma: no cover - platform dependent

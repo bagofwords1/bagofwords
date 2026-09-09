@@ -366,3 +366,170 @@ def test_ruleset_attr_layout_matches_abi():
     assert len(landlock._ruleset_attr_bytes(1, 1, 0, 0)) == 8
     assert len(landlock._ruleset_attr_bytes(4, 1, 3, 0)) == 16
     assert len(landlock._ruleset_attr_bytes(6, 1, 3, 3)) == 24
+
+
+# ---------------------------------------------------------------------------
+# Review findings on PR #1095
+# ---------------------------------------------------------------------------
+
+def test_relative_upload_paths_resolve_in_the_child(tmp_path: Path, monkeypatch):
+    """FileService stores upload paths relative to the backend cwd; the child
+    runs from its own scratch dir, so the path must be resolved before it
+    crosses the boundary."""
+    monkeypatch.chdir(tmp_path)
+    rel = Path("uploads") / "files" / "sample.csv"
+    rel.parent.mkdir(parents=True)
+    rel.write_text("a,b\n1,2\n3,4\n")
+
+    class _File:
+        path = str(rel)
+        filename = "sample.csv"
+        content_type = "text/csv"
+
+    code = """
+def generate_df(ds_clients, excel_files):
+    return pd.read_csv(excel_files[0].path)
+"""
+    df, _, _ = StreamingCodeExecutor(organization_settings=None).execute_code(
+        code=code, ds_clients={}, excel_files=[_File()]
+    )
+    assert df["a"].tolist() == [1, 3]
+
+
+def test_blocking_rpc_cannot_outlive_the_wall_clock():
+    """A trusted-side handler that blocks (a slow query) must not suspend
+    the sandbox's own deadline: the child is killed and the timeout raised
+    at the limit, not when the handler eventually returns."""
+    code = """
+def generate_df(ds_clients, excel_files):
+    return ds_clients["main"].execute_query("SELECT slow")
+"""
+
+    def slow_query(key, args, kwargs):
+        time.sleep(4)
+        return pd.DataFrame({"a": [1]})
+
+    limits = SandboxLimits(timeout_seconds=1, memory_mb=0, cpu_seconds=0, require_landlock=False)
+    t0 = time.monotonic()
+    with pytest.raises(SandboxTimeoutError):
+        run_job(SandboxJob(mode="data", code=code, client_keys=["main"]), execute_query=slow_query, limits=limits)
+    assert time.monotonic() - t0 < 2.5
+
+
+def test_partial_frame_cannot_outlive_the_wall_clock():
+    """A child that writes part of a frame and stalls must still be killed
+    at the deadline: frame reads are supervised, never blocking."""
+    from app.ai.code_execution.sandbox import runner as r
+
+    rfd, wfd = os.pipe()
+    os.write(wfd, b"\x00\x00")  # 2 of the 8 header bytes, then silence
+
+    class _FakeChild:
+        def __init__(self):
+            self.from_child = os.fdopen(rfd, "rb", buffering=0)
+            os.set_blocking(rfd, False)
+            self.stderr_fd = os.open(os.devnull, os.O_RDONLY)
+            self.killed = False
+
+        def drain_stderr(self):
+            pass
+
+        def kill(self):
+            self.killed = True
+
+    fake = _FakeChild()
+    limits = SandboxLimits(timeout_seconds=1, memory_mb=0, cpu_seconds=0, require_landlock=False)
+    t0 = time.monotonic()
+    try:
+        with pytest.raises(SandboxTimeoutError):
+            r._read_exact_with_deadline(fake, 8, time.monotonic() + 1, None, limits)
+        assert fake.killed and time.monotonic() - t0 < 2.5
+    finally:
+        os.close(wfd)
+        fake.from_child.close()
+        os.close(fake.stderr_fd)
+
+
+def test_forked_child_uses_its_own_scratch_dir():
+    """Each job gets a private cwd/TMPDIR; nothing written by one job is
+    visible to the next, and the fork server's directory is never used."""
+    code = """
+def generate_df(ds_clients, excel_files):
+    import os as _os, tempfile as _tf
+    marker = "left-by-previous-job.txt"
+    seen_before = _os.path.exists(marker)
+    with open(marker, "w") as fh:
+        fh.write("x")
+    return pd.DataFrame({
+        "cwd": [_os.getcwd()],
+        "tmp": [_tf.gettempdir()],
+        "seen_before": [seen_before],
+    })
+"""
+    a = run_job(SandboxJob(mode="data", code=code))
+    b = run_job(SandboxJob(mode="data", code=code))
+    ra, rb = a.df.iloc[0], b.df.iloc[0]
+    assert ra["cwd"] != rb["cwd"]
+    assert ra["tmp"] == ra["cwd"] and rb["tmp"] == rb["cwd"]
+    assert bool(ra["seen_before"]) is False and bool(rb["seen_before"]) is False
+    assert a.applied.get("cwd") == ra["cwd"]
+    assert not os.path.exists(ra["cwd"]) and not os.path.exists(rb["cwd"])
+
+
+def test_landlock_rights_are_masked_for_plain_files(tmp_path: Path):
+    f = tmp_path / "file.txt"
+    f.write_text("x")
+    assert landlock.rights_for_path(str(f), landlock.READ_RIGHTS) == landlock.FS_READ_FILE
+    assert landlock.rights_for_path(str(tmp_path), landlock.READ_RIGHTS) == landlock.READ_RIGHTS
+    assert landlock.rights_for_path(str(f), landlock.RW_RIGHTS) & landlock.FS_READ_DIR == 0
+
+
+@pytest.mark.skipif(landlock.abi_version() == 0, reason="kernel has no Landlock")
+def test_landlock_policy_applies_and_confines(tmp_path: Path):
+    """On a Landlock-capable kernel the runner's policy must apply as a whole
+    (no rule may abort it) and actually confine: allowed inputs readable,
+    everything else denied, TCP refused on ABI >= 4."""
+    upload = tmp_path / "data.csv"
+    upload.write_text("a\n1\n")
+    secret = tmp_path / "secret.txt"
+    secret.write_text("nope")
+
+    class _File:
+        path = str(upload)
+        filename = "data.csv"
+        content_type = "text/csv"
+
+    code = f"""
+def generate_df(ds_clients, excel_files):
+    import socket as _sock, json as _json
+    out = {{}}
+    out["upload"] = len(pd.read_csv(excel_files[0].path))
+    try:
+        open({str(secret)!r}).read()
+        out["secret"] = "readable"
+    except PermissionError:
+        out["secret"] = "denied"
+    try:
+        open("/etc/hostname").read()
+        out["etc"] = "readable"
+    except (PermissionError, FileNotFoundError):
+        out["etc"] = "denied"
+    import sklearn  # imports after confinement must still work
+    try:
+        s = _sock.socket(); s.settimeout(1); s.connect(("127.0.0.1", 9)); out["tcp"] = "connected"
+    except PermissionError:
+        out["tcp"] = "denied"
+    except OSError as e:
+        out["tcp"] = "refused:" + type(e).__name__
+    return pd.DataFrame({{"k": list(out), "v": [str(x) for x in out.values()]}})
+"""
+    result = run_job(SandboxJob(mode="data", code=code, files=[_File()]))
+    ll = result.applied["landlock"]
+    assert ll["applied"] is True, ll
+    assert ll["rule_errors"] == [], ll
+    got = dict(zip(result.df["k"], result.df["v"]))
+    assert got["upload"] == "1"
+    assert got["secret"] == "denied"
+    assert got["etc"] == "denied"
+    if ll["abi"] >= 4:
+        assert got["tcp"] == "denied", got
