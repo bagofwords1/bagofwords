@@ -38,20 +38,54 @@ logger = logging.getLogger(__name__)
 _RECONNECT_SECONDS = 2
 _DRAIN_TIMEOUT = 10
 
-# The inbox prefix must be "_INBOX.bow" so an edge agent's NATS grant can allow
-# replies to it without opening the whole default "_INBOX.>" space (design A11).
-_INBOX_PREFIX = "_INBOX.bow"
+# Inbox prefix root. The worker's reply subjects are scoped per-org beneath it —
+# "_INBOX.bow.<org_id>" — so the worker subscribes only to its own org's inbox
+# (grant "_INBOX.bow.<org_id>.>"), not the shared "_INBOX.bow.>". That closes a
+# cross-tenant leak: several single-org workers on one NATS account would each
+# otherwise receive every other's replies (design A11). The edge agent needs no
+# inbox grant — it replies via allow_responses to whatever reply-to it received.
+_INBOX_PREFIX_ROOT = "_INBOX.bow"
 
-# Advertisements from every org land here. The org is read from the subject,
-# never the payload, because core NATS gives a subscriber no publisher identity
-# and the broker only attests the subject (design A10).
-_ADVERTISEMENT_SUBJECT = "tunnel.*.advertisements"
+# Org-scoped subscriptions: the worker connection is per-org — its NATS grant is
+# tunnel.<org>.> — so it subscribes only to its own org's advertisements and
+# heartbeats, never a cross-org wildcard (a global subscribe would be denied by
+# the broker). `{org}` is filled from the connection's org_id. The org is still
+# read back off the subject on receipt (A10); the change is only in what the
+# worker is allowed to, and does, subscribe to.
+_ADVERTISEMENT_SUBJECT = "tunnel.{org}.advertisements"
 # Per-agent liveness: tunnel.<org>.<edge_agent_id>.heartbeat (A10).
-_HEARTBEAT_SUBJECT = "tunnel.*.*.heartbeat"
+_HEARTBEAT_SUBJECT = "tunnel.{org}.*.heartbeat"
 
 # Leave room for the JSON envelope around a request when checking it against the
 # broker's max_payload (design A6/B3).
 _ENVELOPE_HEADROOM = 4096
+
+
+def _build_tls_context(tls_ca=None, tls_cert=None, tls_key=None, tls_verify=True):
+    """Build the mTLS SSLContext for the worker's NATS connection (design A11).
+
+    mTLS is the only supported authentication, so a client certificate is
+    mandatory: `tls_cert` and `tls_key` must both be set or this raises. A
+    private CA path makes that CA the only trust anchor; an empty `tls_ca` falls
+    back to the system roots. `tls_verify=False` disables server verification
+    (local experiments only). Returns an `ssl.SSLContext` with the client cert
+    loaded — pass it as `tls=` to `nats.connect`.
+    """
+    if not (tls_cert and tls_key):
+        raise ValueError(
+            "tunnel authentication is mTLS-only: set NATS_TLS_CERT and "
+            "NATS_TLS_KEY (paths to the worker's client certificate and its key)"
+        )
+    import ssl
+
+    if tls_verify:
+        ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=tls_ca or None)
+    else:
+        ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+    ctx.load_cert_chain(certfile=tls_cert, keyfile=tls_key)
+    return ctx
 
 
 class TunnelClient:
@@ -60,6 +94,7 @@ class TunnelClient:
     def __init__(self) -> None:
         self._nc: Optional[NATSClient] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._org_id: Optional[str] = None
         self._ad_sub = None
         self._hb_sub = None
 
@@ -67,18 +102,35 @@ class TunnelClient:
     def is_connected(self) -> bool:
         return self._nc is not None and self._nc.is_connected
 
-    async def connect(self, nats_url: str, token: str = "") -> None:
+    async def connect(self, nats_url: str, *, org_id: str, tls_ca=None,
+                      tls_cert=None, tls_key=None, tls_verify=True) -> None:
         """Open the shared connection.
+
+        The connection is per-org (`org_id`): its NATS identity is scoped to
+        tunnel.<org_id>.>, so the listeners subscribe only within that org.
+
+        Authentication is mTLS only (design A11): the worker presents the client
+        certificate in `tls_cert`/`tls_key`, which the broker maps to a scoped
+        user (verify_and_map). Both are required — building the context raises
+        otherwise, so a misconfigured worker fails fast here rather than
+        connecting unauthenticated. `nats_url` must be TLS-bearing (tls://…:4222)
+        for the certificate to be exchanged in the handshake, and its host must
+        match a name in the broker's server cert (SAN) for verification to pass.
 
         Captures the running loop in the same statement that creates the
         connection, so `self._loop` and the connection's owning loop cannot
         diverge (B3).
         """
+        ssl_ctx = _build_tls_context(tls_ca, tls_cert, tls_key, tls_verify)
+        self._org_id = org_id
         self._loop = asyncio.get_running_loop()
+        # Per-org inbox: reply subjects live under _INBOX.bow.<org_id>, matching
+        # the worker's org-scoped grant so replies from other orgs never reach it.
+        inbox_prefix = f"{_INBOX_PREFIX_ROOT}.{org_id}"
         self._nc = await nats.connect(
             nats_url,
-            token=token or None,
-            inbox_prefix=_INBOX_PREFIX,
+            tls=ssl_ctx,
+            inbox_prefix=inbox_prefix,
             reconnect_time_wait=_RECONNECT_SECONDS,
             max_reconnect_attempts=-1,  # control plane retries forever
             error_cb=self._on_error,
@@ -99,18 +151,18 @@ class TunnelClient:
         """
         if self._nc is None:
             raise RuntimeError("connect() must be called before start_advertisement_listener()")
-        self._ad_sub = await self._nc.subscribe(
-            _ADVERTISEMENT_SUBJECT, cb=self._on_advertisement
-        )
-        logger.info("tunnel.advertisement.listening", extra={"subject": _ADVERTISEMENT_SUBJECT})
+        subject = _ADVERTISEMENT_SUBJECT.format(org=self._org_id)
+        self._ad_sub = await self._nc.subscribe(subject, cb=self._on_advertisement)
+        logger.info("tunnel.advertisement.listening", extra={"subject": subject})
 
     async def start_heartbeat_listener(self) -> None:
         """Subscribe to agent heartbeats and record liveness. Leader-gated by
         the caller (a plain subscribe fans to every worker; B4)."""
         if self._nc is None:
             raise RuntimeError("connect() must be called before start_heartbeat_listener()")
-        self._hb_sub = await self._nc.subscribe(_HEARTBEAT_SUBJECT, cb=self._on_heartbeat)
-        logger.info("tunnel.heartbeat.listening", extra={"subject": _HEARTBEAT_SUBJECT})
+        subject = _HEARTBEAT_SUBJECT.format(org=self._org_id)
+        self._hb_sub = await self._nc.subscribe(subject, cb=self._on_heartbeat)
+        logger.info("tunnel.heartbeat.listening", extra={"subject": subject})
 
     async def _on_heartbeat(self, msg: Msg) -> None:
         # tunnel.<org_id>.<edge_agent_id>.heartbeat

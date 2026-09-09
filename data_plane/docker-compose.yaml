@@ -25,16 +25,25 @@ services:
       BOW_EDGE_AGENT_EDGE_AGENT_ID: ${BOW_EDGE_AGENT_ID:?set BOW_EDGE_AGENT_ID}
       BOW_EDGE_AGENT_EDGE_AGENT_NAME: ${BOW_EDGE_AGENT_NAME:-}
       # --- broker ------------------------------------------------------------
-      # Production terminates TLS at Bow's ingress: wss://tunnel.<your-bow-host>.
+      # Must be TLS-bearing (wss:// or tls://) — mTLS is the only auth and the
+      # client cert is exchanged in the TLS handshake.
       BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL: ${BOW_TUNNEL_ENDPOINT_URL:?set BOW_TUNNEL_ENDPOINT_URL}
-      BOW_EDGE_AGENT_TUNNEL_TOKEN:  ${BOW_TUNNEL_TOKEN:?set BOW_TUNNEL_TOKEN}
+      # --- mTLS auth (design A11) — the only authentication ------------------
+      # Paths INSIDE the container; mount the PEMs read-only via the volume
+      # below. tls_cert + tls_key are required; tls_ca is the CA that signed the
+      # broker's server cert (omit to trust the system roots).
+      BOW_EDGE_AGENT_TLS_CA:   /tls/ca.pem
+      BOW_EDGE_AGENT_TLS_CERT: /tls/edge-agent.pem
+      BOW_EDGE_AGENT_TLS_KEY:  /tls/edge-agent-key.pem
       # Admin UI binds all interfaces INSIDE the container; the port mapping
       # below is what keeps it on the host's loopback.
       BOW_EDGE_AGENT_ADMIN_HOST:    0.0.0.0
     ports:
       - "127.0.0.1:9191:9191"           # admin UI — host loopback only
     volumes:
-      - edge-data:/data                 # persists the store, its key file, and the audit trail
+      - edge-data:/data                 # persists the store and the audit trail
+      # The mTLS client cert + key + CA. Point at the host dir holding them.
+      - ${BOW_TLS_DIR:?set BOW_TLS_DIR to the host dir with ca.pem/edge-agent.pem/edge-agent-key.pem}:/tls:ro
     # Drop privileges further: the agent needs no capabilities and never writes
     # outside /data (a named volume) and its own read-only source.
     cap_drop:

@@ -16,7 +16,6 @@
 # Env overrides:
 #   BOW_AGENT_RUN_DIR         pid/log dir             (default /tmp/bow-agent)
 #   BOW_EDGE_AGENT_CONFIG     agent config path       (default $RUN_DIR/edge-agent.yaml, generated)
-#   BOW_EDGE_AGENT_TUNNEL_TOKEN tunnel auth token       (default bow-test-token)
 #   NAMESPACE                 k8s namespace           (default bow-test)
 #   BOW_EDGE_PORT_FORWARD     1 to forward to localhost (default 0, in-cluster)
 #   NATS_LOCAL_PORT           local ws port, forward mode  (default 9443)
@@ -270,10 +269,6 @@ command -v uv >/dev/null || pip install uv
 uv sync --frozen --extra dev
 
 write_default_config
-
-# The token is passed through the environment, never the config file. Its
-# default matches deploy-nats.sh, so the rig works with no extra setup.
-export BOW_EDGE_AGENT_TUNNEL_TOKEN="${BOW_EDGE_AGENT_TUNNEL_TOKEN:-bow-test-token}"
 
 # Reuse the backend's data-source clients over the tunnel (design B1/Step 5):
 # put backend/ on PYTHONPATH so the agent's registry can import
