@@ -4319,7 +4319,9 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "Ninguno",
-    "project": "Proyecto"
+    "project": "Proyecto",
+    "expandPrompt": "Ampliar el prompt",
+    "collapsePrompt": "Reducir el prompt"
   },
   "scheduledTemplates": {
     "suggested": "Sugeridas",

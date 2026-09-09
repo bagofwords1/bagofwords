@@ -105,21 +105,36 @@
                 />
             </div>
 
-            <!-- Prompt input -->
-            <PromptBoxV2
-                ref="promptBoxRef"
-                :report_id="reportId"
-                :initialSelectedDataSources="initialDataSources"
-                :initialMode="initialMode"
-                :initialModel="initialModel"
-                :textareaContent="initialContent"
-                :hideScheduleButton="true"
-                :hideSubmitButton="true"
-                :flush="true"
-                :rows="5"
-                @submitCompletion="handlePromptSubmit"
-                @update:modelValue="onPromptTextChange"
-            />
+            <!-- Prompt input. A template prompt runs to a dozen lines and the
+                 box scrolls at eight, so the corner icon lets the box grow
+                 until the whole prompt is on screen. -->
+            <div class="relative">
+                <PromptBoxV2
+                    ref="promptBoxRef"
+                    :report_id="reportId"
+                    :initialSelectedDataSources="initialDataSources"
+                    :initialMode="initialMode"
+                    :initialModel="initialModel"
+                    :textareaContent="initialContent"
+                    :hideScheduleButton="true"
+                    :hideSubmitButton="true"
+                    :flush="true"
+                    :rows="promptExpanded ? 14 : 5"
+                    :maxRows="promptExpanded ? 40 : 8"
+                    @submitCompletion="handlePromptSubmit"
+                    @update:modelValue="onPromptTextChange"
+                />
+                <UTooltip :text="promptExpanded ? $t('scheduledPrompt.collapsePrompt') : $t('scheduledPrompt.expandPrompt')" class="absolute top-1.5 end-1.5">
+                    <button
+                        type="button"
+                        data-testid="scheduled-prompt-expand"
+                        class="h-6 w-6 rounded inline-flex items-center justify-center text-gray-400 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+                        @click="promptExpanded = !promptExpanded"
+                    >
+                        <UIcon :name="promptExpanded ? 'i-heroicons-arrows-pointing-in' : 'i-heroicons-arrows-pointing-out'" class="w-3.5 h-3.5" />
+                    </button>
+                </UTooltip>
+            </div>
 
             <!-- Schedule -->
             <div class="mt-3">
@@ -438,6 +453,9 @@ const viewMode = ref(!!props.scheduledPrompt)
 // existing task (two-column summary), narrow when opening straight into the
 // form — and keep it until the modal closes.
 const modalWidth = ref(viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl')
+// Expanded prompt: the box grows until a long template prompt is on screen.
+// Only the box changes — resizing the dialog (its `ui` prop) re-mounts it.
+const promptExpanded = ref(false)
 const { getCronLabel } = useCronLabel()
 // Handles naive-UTC strings and renders in the org's timezone.
 const { formatDateTime } = useFormatDate()
@@ -629,6 +647,7 @@ if (props.scheduledPrompt?.cron_schedule) {
 watch(isOpen, (open) => {
     if (open) {
         viewMode.value = !!props.scheduledPrompt
+        promptExpanded.value = false
         modalWidth.value = viewMode.value ? 'sm:max-w-4xl' : 'sm:max-w-2xl'
         if (props.scheduledPrompt) { fetchRuns(); fetchViewDetails() }
     }

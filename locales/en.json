@@ -4387,7 +4387,9 @@
     "modeChat": "Chat",
     "modelAuto": "Auto",
     "noAgents": "None",
-    "project": "Project"
+    "project": "Project",
+    "expandPrompt": "Expand prompt",
+    "collapsePrompt": "Collapse prompt"
   },
   "scheduledTemplates": {
     "enable": "Enable",

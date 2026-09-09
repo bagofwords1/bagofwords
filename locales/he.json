@@ -4319,7 +4319,9 @@
     "modeChat": "צ'אט",
     "modelAuto": "אוטומטי",
     "noAgents": "ללא",
-    "project": "פרויקט"
+    "project": "פרויקט",
+    "expandPrompt": "הרחבת הפרומפט",
+    "collapsePrompt": "כיווץ הפרומפט"
   },
   "scheduledTemplates": {
     "enable": "הפעלה",
