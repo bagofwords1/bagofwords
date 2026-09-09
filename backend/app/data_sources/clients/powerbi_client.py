@@ -73,10 +73,12 @@ class PowerBIClient(DataSourceClient):
     AUTH_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
     SCOPE = "https://analysis.windows.net/powerbi/api/.default"
 
-    # Connection-test probe budget: enough to skip a few empty/system models
-    # without hammering large tenants.
-    MAX_PROBE_WORKSPACES = 5
-    MAX_PROBE_DATASETS = 5
+    # Connection-test probe budget: enough to walk past a run of models the
+    # caller cannot query (Viewer-only workspaces, live-connection or usage
+    # metrics models answer 404) without hammering large tenants. Each probe
+    # is one cheap DAX call, and the walk stops at the first success.
+    MAX_PROBE_WORKSPACES = 10
+    MAX_PROBE_DATASETS = 20
 
     def __init__(
         self,
@@ -423,6 +425,7 @@ class PowerBIClient(DataSourceClient):
         probed = 0
         datasets_seen = 0
         engine_details: List[str] = []   # engine answered, model unqueryable (empty, RLS, ...)
+        skipped: List[str] = []          # 404 on executeQueries: no Build, or not a queryable model
         permission_error: Optional[str] = None
         last_error: Optional[str] = None
 
@@ -464,7 +467,15 @@ class PowerBIClient(DataSourceClient):
                     permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
                 elif outcome == "error":
                     last_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
-                # outcome == "skip" (404/stale) → try the next dataset
+                elif outcome == "skip":
+                    # 404 from executeQueries on a dataset the listing just
+                    # returned. Power BI hides a model behind 404 (not 403)
+                    # when a personal sign-in has no Build permission on it,
+                    # and answers 404 for models that endpoint cannot serve
+                    # (live connections, usage metrics, push datasets). Keep
+                    # the name: if nothing else is queryable it is the only
+                    # clue the user gets.
+                    skipped.append(f"'{ds_name}' ({ws_name})")
 
         if engine_details:
             # Query access verified — every probed model just had nothing to query.
@@ -512,9 +523,39 @@ class PowerBIClient(DataSourceClient):
                 "connectivity": True,
             }
 
+        if last_error:
+            return {
+                "success": False,
+                "message": f"Connected but could not verify query access: {last_error}",
+                "connectivity": True,
+            }
+
+        # Every probed model answered 404. The identity can SEE workspaces
+        # (a Viewer role is enough for that) but cannot query anything it
+        # walked past. That says nothing about the models this connection is
+        # actually indexed on — a user holding Build on those alone is the
+        # normal delegated shape — so check the catalog before failing, the
+        # same way the no-workspace and forbidden branches do.
+        ok, detail = self._probe_known_catalog()
+        if ok:
+            return {
+                "success": True,
+                "message": f"Connected to Power BI. Verified query access on {detail}.",
+                "workspaces": len(workspaces),
+                "datasets": datasets_seen,
+            }
+        shown = "; ".join(skipped[:5])
+        more = f" and {len(skipped) - 5} more" if len(skipped) > 5 else ""
         return {
             "success": False,
-            "message": f"Connected but could not verify query access: {last_error or 'no dataset could be probed'}",
+            "message": (
+                f"Connected to {len(workspaces)} workspace(s), but none of the {len(skipped)} probed "
+                f"semantic model(s) could be queried with this identity (Power BI answered 404 for "
+                f"{shown}{more}). For a personal sign-in this usually means no Build permission: ask "
+                "an admin for Build on the semantic models this connection uses, or a Member/Contributor "
+                "role on their workspace (Viewer is not enough). Live-connection, usage-metrics and "
+                "push datasets cannot be queried through the REST API at all."
+            ),
             "connectivity": True,
         }
 
