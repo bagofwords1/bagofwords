@@ -1306,21 +1306,24 @@ class AgentV2:
         if not self.report:
             return None
         try:
-            from app.models.artifact import Artifact
+            from app.models.artifact import Artifact, ArtifactVersion
             from app.models.query import Query
             from app.models.visualization import Visualization
             _report_id = getattr(self, "report_id", None) or (str(self.report.id) if self.report else None)
             result = await self.db.execute(
-                select(Artifact)
+                select(ArtifactVersion)
                 .options(lazyload("*"))
+                # Mode lives on the parent Artifact — explicit join on this
+                # hot path (runs before every planner turn).
+                .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                 .where(
-                    Artifact.report_id == str(_report_id),
-                    Artifact.status == "completed",
+                    ArtifactVersion.report_id == str(_report_id),
+                    ArtifactVersion.status == "completed",
                     # Docs (mode='doc') must never occupy the active-artifact slot:
                     # dashboard continuity rules and edit_artifact routing bind to it.
                     Artifact.mode.in_(("page", "slides")),
                 )
-                .order_by(Artifact.created_at.desc())
+                .order_by(ArtifactVersion.created_at.desc())
                 .limit(1)
             )
             artifact = result.scalar_one_or_none()

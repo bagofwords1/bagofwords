@@ -533,7 +533,8 @@ async function copyArtifactId(id: string) {
 }
 
 interface ArtifactItem {
-  id: string;
+  id: string;                 // version id
+  artifact_id?: string;       // parent identity — shared by all versions of one artifact
   title: string;
   version: number;
   created_at: string;
@@ -1291,10 +1292,21 @@ const selectedArtifactLabel = computed(() => {
   return t('artifactFrame.selectArtifact');
 });
 
-// Check if selected artifact is the latest (first in list, sorted by created_at desc)
+// "Use this version" appears when the selection is NOT the newest row of its
+// MODE (the list is created_at desc). Why mode and not artifact_id: versions
+// of one artifact always share its mode, so "newest of my artifact" is a
+// subset of "newest of my mode" — and pre-migration history has one parent
+// per version (backfill didn't guess lineage), where an artifact_id-only rule
+// would make every old version "latest of itself" and hide the revert button
+// from all existing data. The old rule (first row overall) was buggy the
+// other way: the newest DOC showed the button merely because a newer
+// dashboard existed above it.
 const isLatestSelected = computed(() => {
   if (!selectedArtifactId.value || artifactsList.value.length === 0) return true;
-  return artifactsList.value[0].id === selectedArtifactId.value;
+  const selected = artifactsList.value.find(a => a.id === selectedArtifactId.value);
+  if (!selected) return true;
+  const newestOfMode = artifactsList.value.find(a => a.mode === selected.mode);
+  return !newestOfMode || newestOfMode.id === selected.id;
 });
 
 // Check if selected artifact is pending (still generating)

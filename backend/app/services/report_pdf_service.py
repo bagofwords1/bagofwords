@@ -731,7 +731,7 @@ class ReportPdfService:
         """
         try:
             from app.dependencies import async_session_maker
-            from app.models.artifact import Artifact
+            from app.models.artifact import Artifact, ArtifactVersion
             from app.services.viewer_data_policy import report_snapshot_withheld
             from sqlalchemy import select
 
@@ -756,13 +756,15 @@ class ReportPdfService:
                 artifact = None
                 for wanted_mode in ("page", "slides", "doc"):
                     stmt = (
-                        select(Artifact)
+                        select(ArtifactVersion)
+                        # Mode lives on the parent Artifact — explicit join.
+                        .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
                         .where(
-                            Artifact.report_id == report_id,
-                            Artifact.deleted_at.is_(None),
+                            ArtifactVersion.report_id == report_id,
+                            ArtifactVersion.deleted_at.is_(None),
                             Artifact.mode == wanted_mode,
                         )
-                        .order_by(Artifact.created_at.desc())
+                        .order_by(ArtifactVersion.created_at.desc())
                         .limit(1)
                     )
                     result = await db.execute(stmt)
@@ -789,10 +791,10 @@ class ReportPdfService:
         """
         try:
             from app.dependencies import async_session_maker
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
 
             async with async_session_maker() as db:
-                artifact = await db.get(Artifact, artifact_id)
+                artifact = await db.get(ArtifactVersion, artifact_id)
                 if not artifact or artifact.deleted_at is not None or not artifact.content:
                     logger.warning(f"No usable artifact found for id {artifact_id}")
                     return None

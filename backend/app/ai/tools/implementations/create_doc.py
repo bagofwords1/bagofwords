@@ -21,7 +21,7 @@ from app.ai.tools.schemas.events import (
     ToolProgressEvent,
     ToolStartEvent,
 )
-from app.models.artifact import Artifact
+from app.services.artifact_service import new_artifact
 from app.models.visualization import Visualization
 
 from ._doc_markdown import (
@@ -205,24 +205,20 @@ class CreateDocTool(Tool):
             owned = {str(r) for r in rows.scalars().all()}
             valid_file_ids = [f for f in file_ids if f in owned]
 
-        artifact = Artifact(
+        artifact = await new_artifact(
+            db,
             report_id=report_id,
             user_id=str(user.id) if user else None,
             organization_id=str(organization.id) if organization else None,
-            title=data.title or "Untitled Document",
             mode="doc",
+            title=data.title or "Untitled Document",
             content={
                 "markdown": markdown,
                 "visualization_ids": valid_viz_ids,
                 "file_ids": valid_file_ids,
             },
-            generation_prompt=None,
-            version=1,
-            status="completed",
         )
-        db.add(artifact)
         await db.commit()
-        await db.refresh(artifact)
 
         yield ToolProgressEvent(
             type="tool.progress",

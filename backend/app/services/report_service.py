@@ -748,7 +748,7 @@ class ReportService:
         # Summary counts (for auto-opening sidebar) — COUNT queries, not
         # len(relationship): loading report.queries would drag in every step
         # version's data via Query.steps' selectin cascade.
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         qc_result = await db.execute(
             select(func.count(Query.id)).where(
                 Query.report_id == report.id,
@@ -756,10 +756,14 @@ class ReportService:
             )
         )
         report_schema.query_count = qc_result.scalar() or 0
+        # Count ARTIFACTS (parent identities), not version rows — the list
+        # path derives the same field from report.artifacts (parents), and a
+        # dashboard edited four times is still one artifact.
+        from app.models.artifact import Artifact as ArtifactParent
         ac_result = await db.execute(
-            select(func.count(Artifact.id)).where(
-                Artifact.report_id == report.id,
-                Artifact.deleted_at.is_(None),
+            select(func.count(ArtifactParent.id)).where(
+                ArtifactParent.report_id == report.id,
+                ArtifactParent.deleted_at.is_(None),
             )
         )
         report_schema.artifact_count = ac_result.scalar() or 0
@@ -1254,23 +1258,27 @@ class ReportService:
         collecting across all of them would rerun queries the dashboard no
         longer shows. (Dashboard-layout visualization blocks are deprecated
         and no longer consulted.)"""
-        from app.models.artifact import Artifact
+        from app.models.artifact import Artifact, ArtifactVersion
         artifact_stmt = (
-            select(Artifact.content)
+            select(ArtifactVersion.content)
             .where(
-                Artifact.report_id == str(report_id),
-                Artifact.deleted_at.is_(None),
+                ArtifactVersion.report_id == str(report_id),
+                ArtifactVersion.deleted_at.is_(None),
             )
-            .order_by(Artifact.created_at.desc())
+            .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
         )
         if artifact_id:
             # Explicit target may be any mode — docs refresh their embedded vizs too.
-            artifact_stmt = artifact_stmt.where(Artifact.id == str(artifact_id))
+            artifact_stmt = artifact_stmt.where(ArtifactVersion.id == str(artifact_id))
         else:
             # Default rerun follows the latest DASHBOARD; a newer doc must not
-            # silently change which queries a report rerun refreshes.
-            artifact_stmt = artifact_stmt.where(Artifact.mode.in_(("page", "slides")))
+            # silently change which queries a report rerun refreshes. Mode
+            # lives on the parent — explicit join, not the column_property's
+            # correlated subquery, on this hot path.
+            artifact_stmt = artifact_stmt.join(
+                Artifact, Artifact.id == ArtifactVersion.artifact_id
+            ).where(Artifact.mode.in_(("page", "slides")))
         artifact_row = (await db.execute(artifact_stmt)).first()
         content = artifact_row[0] if artifact_row else None
         viz_ids = list(dict.fromkeys(
@@ -2140,12 +2148,12 @@ class ReportService:
         # If artifact_id provided, filter to only queries used by that artifact
         query_ids_filter = None
         if artifact_id:
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
             artifact_result = await db.execute(
-                select(Artifact).options(lazyload("*")).where(
-                    Artifact.id == artifact_id,
-                    Artifact.report_id == report_id,
-                    Artifact.deleted_at.is_(None)
+                select(ArtifactVersion).options(lazyload("*")).where(
+                    ArtifactVersion.id == artifact_id,
+                    ArtifactVersion.report_id == report_id,
+                    ArtifactVersion.deleted_at.is_(None)
                 )
             )
             artifact = artifact_result.scalar_one_or_none()
@@ -2278,11 +2286,11 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch artifacts for this report
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifacts_result = await db.execute(
-            select(Artifact).options(lazyload("*"))
-            .where(Artifact.report_id == report_id, Artifact.deleted_at.is_(None))
-            .order_by(Artifact.created_at.desc())
+            select(ArtifactVersion).options(lazyload("*"))
+            .where(ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None))
+            .order_by(ArtifactVersion.created_at.desc())
         )
         artifacts = artifacts_result.scalars().all()
 
@@ -2302,12 +2310,12 @@ class ReportService:
         await self._check_visibility(db, report, 'artifact_visibility', user)
 
         # Fetch the artifact and verify it belongs to this report
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         artifact_result = await db.execute(
-            select(Artifact).options(lazyload("*")).where(
-                Artifact.id == artifact_id,
-                Artifact.report_id == report_id,
-                Artifact.deleted_at.is_(None)
+            select(ArtifactVersion).options(lazyload("*")).where(
+                ArtifactVersion.id == artifact_id,
+                ArtifactVersion.report_id == report_id,
+                ArtifactVersion.deleted_at.is_(None)
             )
         )
         artifact = artifact_result.scalar_one_or_none()
@@ -2577,7 +2585,6 @@ class ReportService:
                     for rid, am_mode in (await db.execute(
                         select(Artifact.report_id, Artifact.mode).where(
                             Artifact.report_id.in_(report_ids),
-                            Artifact.mode.isnot(None),
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
@@ -2730,6 +2737,34 @@ class ReportService:
                 )
                 active_sp_counts = {str(row[0]): row[1] for row in sp_result.all()}
 
+            # Batch the thumbnail pick: thumbnails live on VERSION rows (the
+            # parent Artifact rows loaded on report.artifacts have none). One
+            # query for the page, then per report the same selection key as
+            # before — prefer the dashboard (page mode), then newest.
+            thumbs_by_report: dict[str, str] = {}
+            if report_ids:
+                from app.models.artifact import Artifact, ArtifactVersion
+                th_result = await db.execute(
+                    select(
+                        ArtifactVersion.report_id,
+                        ArtifactVersion.thumbnail_path,
+                        Artifact.mode,
+                        ArtifactVersion.created_at,
+                    )
+                    .join(Artifact, Artifact.id == ArtifactVersion.artifact_id)
+                    .where(
+                        ArtifactVersion.report_id.in_(report_ids),
+                        ArtifactVersion.thumbnail_path.isnot(None),
+                    )
+                )
+                best: dict[str, tuple] = {}
+                for rid, thumb_path, art_mode, created in th_result.all():
+                    key = (art_mode != 'page', -(created.timestamp() if created else 0))
+                    rid = str(rid)
+                    if rid not in best or key < best[rid][0]:
+                        best[rid] = (key, thumb_path)
+                thumbs_by_report = {rid: pick[1] for rid, pick in best.items()}
+
             # Convert to schemas
             # Lifecycle-filter each report's attached data sources (same rules
             # as get_report); resolve the caller's publish visibility once for
@@ -2787,22 +2822,18 @@ class ReportService:
                 # Starred state for the current user
                 report_schema.is_starred = str(report.id) in starred_ids
 
-                # Compute unique artifact modes for this report
+                # Compute unique artifact modes for this report (parents)
                 report_schema.artifact_modes = list(set(
                     a.mode for a in (report.artifacts or []) if a.mode
                 ))
 
-                # Get thumbnail URL from latest artifact (prefer page mode)
-                if report.artifacts:
-                    sorted_artifacts = sorted(
-                        [a for a in report.artifacts if a.thumbnail_path],
-                        key=lambda a: (a.mode != 'page', -a.created_at.timestamp() if a.created_at else 0)
-                    )
-                    if sorted_artifacts:
-                        # thumbnail_path is like "thumbnails/{artifact_id}.png", serve via /thumbnails/{filename}
-                        thumb_path = sorted_artifacts[0].thumbnail_path
-                        filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
-                        report_schema.thumbnail_url = f"/thumbnails/{filename}"
+                # Thumbnail URL from the batched version-row pick above.
+                # thumbnail_path is like "thumbnails/{version_id}.png",
+                # served via /thumbnails/{filename}.
+                thumb_path = thumbs_by_report.get(str(report.id))
+                if thumb_path:
+                    filename = thumb_path.split("/")[-1] if "/" in thumb_path else thumb_path
+                    report_schema.thumbnail_url = f"/thumbnails/{filename}"
 
                 report_schemas.append(report_schema)
             span.add_event("report schemas ready")

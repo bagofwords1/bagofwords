@@ -345,13 +345,13 @@ class QueryService:
 
         # If artifact_id provided, filter to only queries used by that artifact
         if artifact_id:
-            from app.models.artifact import Artifact
+            from app.models.artifact import ArtifactVersion
             from app.models.visualization import Visualization
 
             artifact_result = await db.execute(
-                select(Artifact.content).where(
-                    Artifact.id == artifact_id,
-                    Artifact.deleted_at.is_(None)
+                select(ArtifactVersion.content).where(
+                    ArtifactVersion.id == artifact_id,
+                    ArtifactVersion.deleted_at.is_(None)
                 )
             )
             artifact_content = artifact_result.scalar_one_or_none()

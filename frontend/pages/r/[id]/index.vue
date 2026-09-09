@@ -694,8 +694,11 @@ async function loadArtifact() {
         const { data } = await useMyFetch(`/api/r/${report_id}/artifacts`);
         if (data.value && Array.isArray(data.value) && data.value.length > 0) {
             hasArtifacts.value = true;
-            // Get the most recent artifact (first in list)
-            const latestArtifactId = data.value[0].id;
+            // Prefer the newest dashboard/deck (the list is created_at desc):
+            // a doc saved after the dashboard must not take over the shared
+            // page — same rule as the backend's get_latest_by_report.
+            const rows = data.value as any[];
+            const latestArtifactId = (rows.find(a => a.mode !== 'doc') || rows[0]).id;
             // Use public artifact endpoint
             const { data: fullArtifact } = await useMyFetch(`/api/r/${report_id}/artifacts/${latestArtifactId}`);
             if (fullArtifact.value) {

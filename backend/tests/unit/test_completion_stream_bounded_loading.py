@@ -24,7 +24,7 @@ for _stmt in re.findall(r"^from app\.models\S* import \([^)]*\)|^from app\.model
     exec(_stmt)  # noqa: S102 -- test-only, mirrors alembic/env.py
 
 from app.ai.context.builders.files_context_builder import FilesContextBuilder
-from app.models.artifact import Artifact
+from tests.fixtures.artifact import seed_artifact
 from app.models.base import Base
 from app.models.completion import Completion
 from app.models.file import File
@@ -84,16 +84,15 @@ async def report_with_unrelated_graph():
             organization_id=str(organization.id),
             user_id=str(owner.id),
         ))
-        db.add(Artifact(
+        await seed_artifact(
+            db,
             report_id=str(report.id),
             user_id=str(owner.id),
             organization_id=str(organization.id),
-            title="Historical dashboard",
             mode="page",
-            version=1,
-            status="completed",
+            title="Historical dashboard",
             content={"code": "export default function Dashboard() {}"},
-        ))
+        )
 
         # Legacy files have no preview JSON; their LLM descriptions still come
         # from file_tags / sheet_schemas. There is no setup API for this old

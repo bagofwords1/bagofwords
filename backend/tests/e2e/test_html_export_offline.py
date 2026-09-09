@@ -33,7 +33,8 @@ from pathlib import Path
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
@@ -247,20 +248,19 @@ async def _seed(
         db.add(viz)
         await db.flush()
 
-        artifact = Artifact(
+        artifact = await seed_artifact(
+            db,
             report_id=report.id, user_id=user.id, organization_id=org.id,
-            title="Regional Dashboard", mode=mode,
+            mode=mode, title="Regional Dashboard",
             content={"code": code, "visualization_ids": [str(viz.id)]},
         )
-        db.add(artifact)
-        await db.flush()
         await db.commit()
         return str(report.id), str(artifact.id)
 
 
 async def _export(artifact_id: str) -> str:
     async with async_session_maker() as db:
-        artifact = await db.get(Artifact, artifact_id)
+        artifact = await db.get(ArtifactVersion, artifact_id)
         return await build_standalone_html(db, artifact)
 
 

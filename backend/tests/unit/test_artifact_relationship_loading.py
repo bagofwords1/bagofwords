@@ -25,12 +25,13 @@ from app.ai.agent_v2 import AgentV2
 from app.ai.tools.implementations.edit_artifact_legacy import EditArtifactTool
 from app.ai.tools.implementations.read_artifact import ReadArtifactTool
 from app.ai.tools.implementations.read_query import ReadQueryTool
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.base import Base
 from app.models.completion import Completion
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
+from tests.fixtures.artifact import seed_artifact
 from app.models.step import Step
 from app.models.user import User
 from app.models.visualization import Visualization
@@ -152,27 +153,24 @@ async def artifact_context():
         )
         db.add_all([requested_visualization, sibling_visualization])
 
-        dashboard = Artifact(
+        dashboard = await seed_artifact(
+            db,
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
-            title="Requested dashboard",
             mode="page",
-            version=3,
-            status="completed",
+            title="Requested dashboard",
             content={"code": "function App() { return null }", "visualization_ids": []},
         )
-        document = Artifact(
+        document = await seed_artifact(
+            db,
             report_id=str(report.id),
             user_id=str(user.id),
             organization_id=str(organization.id),
-            title="Requested document",
             mode="doc",
-            version=1,
-            status="completed",
+            title="Requested document",
             content={"markdown": "# Exact document text", "visualization_ids": []},
         )
-        db.add_all([dashboard, document])
         db.add(
             Completion(
                 report_id=str(report.id),
@@ -184,17 +182,14 @@ async def artifact_context():
             )
         )
         for index in range(4):
-            db.add(
-                Artifact(
-                    report_id=str(report.id),
-                    user_id=str(user.id),
-                    organization_id=str(organization.id),
-                    title=f"Unrelated artifact {index}",
-                    mode="page",
-                    version=index + 1,
-                    status="completed",
-                    content={"code": "x" * 2_000, "visualization_ids": []},
-                )
+            await seed_artifact(
+                db,
+                report_id=str(report.id),
+                user_id=str(user.id),
+                organization_id=str(organization.id),
+                mode="page",
+                title=f"Unrelated artifact {index}",
+                content={"code": "x" * 2_000, "visualization_ids": []},
             )
         await db.commit()
 
@@ -234,7 +229,7 @@ async def _record_sql_and_graph_loads(db, operation):
     loaded: dict[str, set[str]] = {}
 
     def _capture_load(_session, instance):
-        if isinstance(instance, (Report, Artifact, Completion, Query, Step, Visualization, Widget)):
+        if isinstance(instance, (Report, ArtifactVersion, Completion, Query, Step, Visualization, Widget)):
             loaded.setdefault(type(instance).__name__, set()).add(str(instance.id))
 
     event.listen(db.sync_session, "loaded_as_persistent", _capture_load)
@@ -265,14 +260,14 @@ async def test_artifact_list_selects_only_list_columns(artifact_context):
     )
 
     assert len(artifacts) == 6
-    artifact_selects = [statement for statement in statements if "from artifacts" in statement]
+    artifact_selects = [statement for statement in statements if "from artifact_versions" in statement]
     assert len(artifact_selects) == 1
-    selected = artifact_selects[0].split("from artifacts", 1)[0]
+    selected = artifact_selects[0].split("from artifact_versions", 1)[0]
     for heavy_column in (
-        "artifacts.content",
-        "artifacts.generation_prompt",
-        "artifacts.screenshot_base64",
-        "artifacts.render_errors",
+        "artifact_versions.content",
+        "artifact_versions.generation_prompt",
+        "artifact_versions.screenshot_base64",
+        "artifact_versions.render_errors",
     ):
         assert heavy_column not in selected
 
@@ -371,7 +366,8 @@ async def test_read_query_loads_only_requested_query_graph(artifact_context, loo
     assert loaded.get("Visualization", set()) == {ids["visualization"]}
     assert loaded.get("Report", set()) == set()
     assert loaded.get("Artifact", set()) == set()
+    assert loaded.get("ArtifactVersion", set()) == set()
     assert loaded.get("Completion", set()) == set()
     assert loaded.get("Widget", set()) == set()
-    for unrelated_table in ("reports", "artifacts", "completions"):
+    for unrelated_table in ("reports", "artifacts", "artifact_versions", "completions"):
         assert not any(f"from {unrelated_table}" in statement for statement in statements)

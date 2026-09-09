@@ -550,9 +550,9 @@ async def get_public_file_embed_token(
     await report_service.get_public_report(db, report_id, user=user)
 
     # (2) file is embedded in one of this report's artifacts.
-    from app.models.artifact import Artifact
+    from app.models.artifact import ArtifactVersion
     artifacts = (await db.execute(
-        select(Artifact).where(Artifact.report_id == report_id)
+        select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
     )).scalars().all()
     embedded = any(
         isinstance(a.content, dict)
@@ -741,7 +741,7 @@ async def export_public_report_pptx(
 
     from app.core.path_safety import UnsafePathError, safe_join
     from app.ee.audit.service import audit_service
-    from app.models.artifact import Artifact as ArtifactModel
+    from app.models.artifact import ArtifactVersion as ArtifactModel
     from app.services.report_pdf_service import ReportPdfService
     from app.services.viewer_data_policy import report_snapshot_withheld
 
@@ -851,7 +851,7 @@ async def export_public_report_html(
     from fastapi.responses import Response
 
     from app.ee.audit.service import audit_service
-    from app.models.artifact import Artifact as ArtifactModel
+    from app.models.artifact import ArtifactVersion as ArtifactModel
     from app.services.html_export_service import (
         ExportUnavailable,
         ascii_fallback_filename,
