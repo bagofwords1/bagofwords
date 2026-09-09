@@ -86,7 +86,7 @@ class AddParameterTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["data", "parameters", "filters"],
-            allowed_modes=["chat"],
+            allowed_modes=["chat", "training"],
         )
 
     @property
