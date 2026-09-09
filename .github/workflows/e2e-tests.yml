@@ -86,7 +86,11 @@ jobs:
   # on it.
   unit-tests:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # The suite runs ~52 min on main; generated-code tests now execute in a
+    # sandboxed child process (fork + Landlock + Arrow round trip per run),
+    # which adds ~5-7 min and left the job finishing inside the last minute
+    # of a 60-minute cap.
+    timeout-minutes: 75
     continue-on-error: true
 
     steps:

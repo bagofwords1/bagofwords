@@ -1,6 +1,5 @@
 import asyncio
 import contextvars
-import inspect
 import io
 import os
 import sys
@@ -18,6 +17,18 @@ from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
 from app.ai.http.safe_client import SafeHttpClient
+from app.ai.code_execution.sandbox.config import MODE_INPROCESS, sandbox_mode
+from app.ai.code_execution.sandbox.namespace import (  # noqa: F401 - re-exported
+    # READ_TEXT_* and _build_read_text stay importable from this module: tests
+    # and callers reference them here, the sandbox child imports them from
+    # sandbox.namespace.
+    READ_TEXT_MAX_CHARS,
+    READ_TEXT_REFUSES as _READ_TEXT_REFUSES,
+    build_loadable_closures as _build_loadable_closures_impl,
+    build_read_text as _build_read_text,
+    invoke_generate_df as _invoke_generate_df_impl,
+)
+from app.ai.code_execution.sandbox.runner import SandboxJob, run_job as _run_sandbox_job
 
 # stdout capture for sandboxed user code.
 #
@@ -288,55 +299,8 @@ def resolve_query_timeout(client, organization_settings) -> int:
 # =============================================================================
 
 # Modules that should never be imported
-# Extensions read_text refuses: their bytes are a container, not text. Pointing
-# the model at read_file (which has real extractors and an image fallback) beats
-# handing back zip/PDF noise it will try to interpret.
-_READ_TEXT_REFUSES = {"pdf", "docx", "pptx", "xlsx", "xls", "png", "jpg", "jpeg", "gif", "webp"}
-
-# A single text read is capped so one call can't blow out memory or the frame
-# built from it. Callers that need more should page with read_file.
-READ_TEXT_MAX_CHARS = 5_000_000
-
-
-def _build_read_text(excel_files):
-    """`read_text(file_or_path)` for generated code, scoped to `excel_files`.
-
-    The sandbox forbids `open`, so this is the only text reader — and it stays
-    safe by resolving only against the files this run was handed. An arbitrary
-    path is refused rather than read, which is the property that made banning
-    `open` worth doing in the first place.
-    """
-    allowed = {}
-    for f in (excel_files or []):
-        path = getattr(f, "path", None)
-        if path:
-            allowed[str(path)] = f
-
-    def read_text(file_or_path, encoding: str = "utf-8") -> str:
-        path = getattr(file_or_path, "path", None) or str(file_or_path or "")
-        if path not in allowed:
-            raise ValueError(
-                f"read_text: {path!r} is not one of this run's files. Pass an "
-                "entry from `excel_files`, e.g. read_text(excel_files[0])."
-            )
-        name = str(getattr(allowed[path], "filename", "") or path)
-        ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
-        if ext in _READ_TEXT_REFUSES:
-            raise ValueError(
-                f"read_text: {name} is a {ext} file, not text. Read it with the "
-                "read_file tool instead — it has a proper extractor for this format."
-            )
-        with open(path, "r", encoding=encoding, errors="replace") as fh:
-            content = fh.read(READ_TEXT_MAX_CHARS + 1)
-        if len(content) > READ_TEXT_MAX_CHARS:
-            return (
-                content[:READ_TEXT_MAX_CHARS]
-                + f"\n[TRUNCATED at {READ_TEXT_MAX_CHARS} chars — page the rest with the read_file tool]"
-            )
-        return content
-
-    return read_text
-
+# read_text / loadables / generate_df helpers live in sandbox.namespace so the
+# sandbox child can import them without pulling in this module.
 
 FORBIDDEN_MODULES = frozenset({
     'os', 'subprocess', 'sys', 'shutil', 'importlib', 'builtins',
@@ -500,7 +464,13 @@ class CodeSecurityVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute):
         # Check for direct access to forbidden attributes like obj.__class__
-        if node.attr in FORBIDDEN_ATTRIBUTES or node.attr.startswith("_"):
+        # Underscore-prefixed attributes are implementation surface (the
+        # `_bow_*` markers on clients and frames included). `__name__` is the
+        # one exception: it yields a plain string, and the coder prompt
+        # promotes `type(model).__name__` for reporting an estimator's class.
+        if node.attr in FORBIDDEN_ATTRIBUTES or (
+            node.attr.startswith("_") and node.attr != "__name__"
+        ):
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
 
@@ -1131,7 +1101,8 @@ class StreamingCodeExecutor:
                      captured_timings: Optional[List[dict]] = None,
                      captured_queries: Optional[List[str]] = None,
                      loadables: Optional[Dict] = None,
-                     params: Optional[Dict] = None) -> Tuple[pd.DataFrame, str, List[str]]:
+                     params: Optional[Dict] = None,
+                     cancel_event: Optional[threading.Event] = None) -> Tuple[pd.DataFrame, str, List[str]]:
         """Execute Python code and return the resulting DataFrame, captured stdout log, and executed queries.
 
         captured_timings: if provided, per-query wall-clock timings are appended to this list.
@@ -1185,62 +1156,23 @@ class StreamingCodeExecutor:
             # client owns concurrency internally so model code never imports
             # asyncio/threading/socket (all of which are AST-forbidden).
             http_client = self._build_http_client()
-
-            # Pre-resolved loadables (see loadables.py). Build pure in-memory
-            # lookup closures — no DB/I/O happens inside the sandbox thread.
-            # load_step is gated by the org's enable_load_step setting; when off
-            # the closure raises so stray calls fail clearly.
-            load_step, load_entity = self._build_loadable_closures(
-                loadables, enable_load_step=self._load_step_enabled()
-            )
-
-            local_namespace = {
-                'pd': pd,
-                'np': np,
-                'db_clients': wrapped_clients,
-                'excel_files': excel_files,
-                'load_step': load_step,
-                'load_entity': load_entity,
-                # The only way to read a plain-text file in here. `open` is an
-                # AST-forbidden builtin (and os/pathlib/glob are forbidden
-                # imports), so before this a .txt/.log had no reader at all:
-                # the model's only option was pd.read_csv, which on prose
-                # returns a plausible-looking frame of nonsense instead of
-                # failing. Scoped to the files this run was given.
-                'read_text': _build_read_text(excel_files),
-            }
-            if http_client is not None:
-                local_namespace['http'] = http_client
+            load_step_enabled = self._load_step_enabled()
 
             if self.logger:
                 self.logger.debug(f"Executing code:\n{code}")
-            wait_started = _time.monotonic()
-            router = _stdout_router()
-            capture_started_at = _time.monotonic()
-            stdout_capture = io.StringIO()
-            router.bind(stdout_capture)
-            try:
-                # Span name + attributes kept from the lock era so existing
-                # dashboards/queries keep working; lock_wait_ms is now just
-                # the (near-zero) router install/lookup time, and a non-zero
-                # regression here means the router got re-serialized somehow.
-                with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
-                    lock_span.set_attribute("code_execution.lock_wait_ms", round((capture_started_at - wait_started) * 1000.0, 3))
-                    lock_span.set_attribute("code_execution.code_chars", len(code or ""))
-                    exec(code, local_namespace)
-                    generate_df = local_namespace.get('generate_df')
-                    if not generate_df:
-                        raise Exception("No generate_df function found in code")
-                    df = self._invoke_generate_df(
-                        generate_df, wrapped_clients, excel_files, http_client,
-                        load_step=load_step, load_entity=load_entity,
-                        params=params,
-                    )
-                    output_log = stdout_capture.getvalue()
-                    lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
-            finally:
-                router.unbind()
-                stdout_capture.close()
+
+            if sandbox_mode() == MODE_INPROCESS:
+                df, output_log = self._execute_inprocess(
+                    code, wrapped_clients, excel_files, http_client,
+                    loadables=loadables, params=params, load_step_enabled=load_step_enabled,
+                    span=span,
+                )
+            else:
+                df, output_log = self._execute_sandboxed(
+                    code, wrapped_clients, excel_files, http_client,
+                    loadables=loadables, params=params, load_step_enabled=load_step_enabled,
+                    cancel_event=cancel_event, span=span,
+                )
             span.set_attribute("code_execution.query_count", len(executed_queries))
             span.set_attribute("code_execution.stdout_chars", len(output_log or ""))
             # An empty result on top of a failed query means the code swallowed
@@ -1256,6 +1188,104 @@ class StreamingCodeExecutor:
                 if bow_access:
                     df.attrs["bow_source"] = bow_access
             return df, output_log, executed_queries
+
+    def _execute_sandboxed(self, code: str, wrapped_clients: Dict, excel_files: List,
+                           http_client: Optional[SafeHttpClient], *, loadables, params,
+                           load_step_enabled: bool, cancel_event=None, span=None):
+        """Run the code in a fresh sandboxed interpreter (see sandbox/).
+
+        The wrapped clients never leave this process: the child sees a proxy
+        whose `execute_query` comes back here over a pipe, so capture, the
+        per-query timeout, rate limits, quotas and SQL validation all run on
+        the trusted side exactly as they did in-process.
+        """
+        def _execute_query(client_key: str, args: list, kwargs: dict):
+            client = wrapped_clients.get(client_key)
+            if client is None:
+                raise KeyError(
+                    f"ds_clients[{client_key!r}] does not exist. "
+                    f"Available client keys: {list(wrapped_clients.keys())}"
+                )
+            if not hasattr(client, "execute_query"):
+                raise AttributeError(
+                    f"ds_clients[{client_key!r}] is a tool provider, not a queryable "
+                    "data source; it has no execute_query()."
+                )
+            return client.execute_query(*args, **kwargs)
+
+        job = SandboxJob(
+            mode="data",
+            code=code,
+            files=list(excel_files or []),
+            loadables=loadables,
+            params=params,
+            client_keys=[str(k) for k in (wrapped_clients or {}).keys()],
+            http_enabled=http_client is not None,
+            load_step_enabled=load_step_enabled,
+        )
+        result = _run_sandbox_job(
+            job,
+            execute_query=_execute_query,
+            http_get=http_client.get if http_client is not None else None,
+            http_batch_get=http_client.batch_get if http_client is not None else None,
+            cancel_event=cancel_event,
+            log=self.logger or logger,
+        )
+        if span is not None:
+            span.set_attribute("code_execution.sandbox", "subprocess")
+            span.set_attribute("code_execution.sandbox_spawn_ms", result.spawn_ms)
+            span.set_attribute("code_execution.sandbox_total_ms", result.total_ms)
+            ll = (result.applied or {}).get("landlock") or {}
+            span.set_attribute("code_execution.sandbox_landlock", bool(ll.get("applied")))
+        return result.df, result.stdout
+
+    def _execute_inprocess(self, code: str, wrapped_clients: Dict, excel_files: List,
+                           http_client: Optional[SafeHttpClient], *, loadables, params,
+                           load_step_enabled: bool, span=None):
+        """Pre-sandbox behavior: exec() inside this worker. Debug only
+        (BOW_CODE_SANDBOX=inprocess); generated code shares the API
+        process, its memory, and its environment."""
+        if span is not None:
+            span.set_attribute("code_execution.sandbox", "inprocess")
+        load_step, load_entity = self._build_loadable_closures(
+            loadables, enable_load_step=load_step_enabled
+        )
+        local_namespace = {
+            'pd': pd,
+            'np': np,
+            'db_clients': wrapped_clients,
+            'excel_files': excel_files,
+            'load_step': load_step,
+            'load_entity': load_entity,
+            'read_text': _build_read_text(excel_files),
+        }
+        if http_client is not None:
+            local_namespace['http'] = http_client
+
+        wait_started = _time.monotonic()
+        router = _stdout_router()
+        capture_started_at = _time.monotonic()
+        stdout_capture = io.StringIO()
+        router.bind(stdout_capture)
+        try:
+            with _tracer.start_as_current_span("code_execution.stdout_lock") as lock_span:
+                lock_span.set_attribute("code_execution.lock_wait_ms", round((capture_started_at - wait_started) * 1000.0, 3))
+                lock_span.set_attribute("code_execution.code_chars", len(code or ""))
+                exec(code, local_namespace)
+                generate_df = local_namespace.get('generate_df')
+                if not generate_df:
+                    raise Exception("No generate_df function found in code")
+                df = self._invoke_generate_df(
+                    generate_df, wrapped_clients, excel_files, http_client,
+                    load_step=load_step, load_entity=load_entity,
+                    params=params,
+                )
+                output_log = stdout_capture.getvalue()
+                lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
+        finally:
+            router.unbind()
+            stdout_capture.close()
+        return df, output_log
 
     @staticmethod
     def _raise_if_query_errors_were_swallowed(df, timings: List[dict], span=None) -> None:
@@ -1310,47 +1340,8 @@ class StreamingCodeExecutor:
 
     @staticmethod
     def _build_loadable_closures(loadables: Optional[Dict], *, enable_load_step: bool = True):
-        """Build pure-lookup `load_step` / `load_entity` over a resolved registry.
-
-        The registry maps the exact literal ref used in the code to a
-        DataFrame. A miss raises a clear error naming what's available — it
-        only fires for dynamic (non-literal) refs that bypassed pre-resolution.
-
-        When `enable_load_step` is False the `load_step` closure is a defensive
-        stub that always raises — the feature is advertised nowhere in that
-        case, so any call is a stray one and should fail clearly (and feed the
-        retry loop) rather than silently succeed. `load_entity` is unaffected.
-        """
-        reg = loadables or {}
-        steps = reg.get("steps") or {}
-        entities = reg.get("entities") or {}
-
-        def load_step(id_or_name):
-            if not enable_load_step:
-                raise RuntimeError(
-                    "load_step is disabled for this organization. "
-                    "Do not call load_step; query the data source instead."
-                )
-            key = str(id_or_name)
-            if key in steps:
-                return steps[key].copy()
-            raise KeyError(
-                f"load_step({key!r}) is not available. "
-                f"Loadable steps: {list(steps.keys())}. "
-                f"Use a string-literal id or name so it can be pre-loaded."
-            )
-
-        def load_entity(id_or_name):
-            key = str(id_or_name)
-            if key in entities:
-                return entities[key].copy()
-            raise KeyError(
-                f"load_entity({key!r}) is not available. "
-                f"Loadable entities: {list(entities.keys())}. "
-                f"Use a string-literal id or name so it can be pre-loaded."
-            )
-
-        return load_step, load_entity
+        """See sandbox.namespace.build_loadable_closures."""
+        return _build_loadable_closures_impl(loadables, enable_load_step=enable_load_step)
 
     @staticmethod
     def _invoke_generate_df(
@@ -1359,27 +1350,11 @@ class StreamingCodeExecutor:
         load_step: Optional[Callable] = None, load_entity: Optional[Callable] = None,
         params: Optional[Dict] = None,
     ):
-        """Call generate_df, binding injectables by parameter name.
-
-        `ds_clients` and `excel_files` are always passed positionally. Any of
-        `http`, `load_step`, `load_entity`, `params` are passed by keyword only
-        when the function declares a parameter of that name — so legacy two-arg
-        `(ds_clients, excel_files)` and three-arg `(…, http)` signatures keep
-        working unchanged. `params` is always a dict (possibly empty) when the
-        function asks for it, so `params.get(...)` never explodes.
-        """
-        injectables = {
-            "http": http_client,
-            "load_step": load_step,
-            "load_entity": load_entity,
-            "params": dict(params or {}),
-        }
-        try:
-            names = set(inspect.signature(fn).parameters.keys())
-        except (TypeError, ValueError):
-            names = set()
-        kwargs = {k: v for k, v in injectables.items() if k in names}
-        return fn(wrapped_clients, excel_files, **kwargs)
+        """See sandbox.namespace.invoke_generate_df."""
+        return _invoke_generate_df_impl(
+            fn, wrapped_clients, excel_files, http_client,
+            load_step=load_step, load_entity=load_entity, params=params,
+        )
 
     async def execute_code_async(self, *, code: str, ds_clients: Dict, excel_files: List,
                                  captured_timings: Optional[List[dict]] = None,
@@ -1395,6 +1370,10 @@ class StreamingCodeExecutor:
             span.set_attribute("code_execution.code_chars", len(code or ""))
             started = _time.monotonic()
             worker_context = contextvars.copy_context()
+            # Set when the awaiting task is cancelled (tool timeout, user
+            # stop): the sandbox runner polls it and kills the child, so a
+            # cancelled tool no longer leaves generated code running.
+            cancel_event = threading.Event()
 
             def _run_execute_code():
                 return worker_context.run(
@@ -1406,11 +1385,15 @@ class StreamingCodeExecutor:
                     captured_queries=captured_queries,
                     loadables=loadables,
                     params=params,
+                    cancel_event=cancel_event,
                 )
 
             try:
                 result = await loop.run_in_executor(_CODE_EXEC_POOL, _run_execute_code)
             except asyncio.CancelledError:
+                # Kill the sandbox child, then let sources abandon any query
+                # that was still in flight on their side.
+                cancel_event.set()
                 for client in ds_clients.values():
                     cancel = getattr(client, "_cancel_pending", None)
                     if cancel:
