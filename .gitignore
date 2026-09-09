@@ -88,3 +88,10 @@ tools/agent/node_modules
 
 # Audit-log spill files written at runtime (and by test runs)
 backend/data/audit-spill/
+
+# Local mTLS certs + private keys for the data tunnel — never commit keys.
+certs/
+# JetBrains IDE project files
+.idea/
+# Editor swap files
+*.swp

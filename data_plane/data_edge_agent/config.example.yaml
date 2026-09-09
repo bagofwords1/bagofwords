@@ -19,14 +19,50 @@ edge_agent_id: nyc-01
 edge_agent_name: NYC Office          # display label only; safe to rename
 
 # --- broker -------------------------------------------------------------
-# Production terminates TLS at an ingress: wss://tunnel.your-bow-host.com
-# Local compose has no terminator, so plain ws:// against the NATS port.
-# Pointing wss:// at a no_tls listener fails the handshake with an error that
-# looks like a certificate problem and is not one.
-tunnel_endpoint_url: ws://localhost:9443
+# The scheme decides whether there is a TLS handshake, and mTLS lives inside
+# that handshake — the client cert configured below is exchanged during it.
+# So the cert is only presented on a TLS-bearing scheme:
+#   wss://host        WebSocket over TLS. This is the mTLS path: the agent
+#                     negotiates TLS and presents its client cert. For the
+#                     BROKER to verify it (verify_and_map), TLS must reach the
+#                     broker end-to-end — a proxy that TERMINATES TLS and
+#                     forwards plaintext strips the cert first; a TLS-passthrough
+#                     load balancer is fine.
+#   tls://host:4222   native TLS straight to the broker. Same mTLS behaviour,
+#                     no WebSocket framing.
+#   ws://host         plaintext WebSocket. No TLS handshake, so no client cert
+#                     is ever sent — the agent cannot authenticate. Unusable.
+# Pointing wss:// or tls:// at a no_tls listener fails the handshake with an
+# error that looks like a certificate problem and is not one.
+tunnel_endpoint_url: wss://data-edge-tunnels.bow.dev.local:443
 
-# Leave unset here. Set BOW_EDGE_AGENT_TUNNEL_TOKEN instead.
-# tunnel_token: ...
+# --- mTLS to the broker (design A11) — the ONLY authentication -----------
+# tls_cert + tls_key are REQUIRED: the agent authenticates by presenting a
+# client certificate, which the broker maps to a scoped user (verify_and_map).
+# There is no token fallback. The endpoint above must be TLS-bearing
+# (tls://host:4222 or wss://host) or the certificate is never sent.
+#
+#   tls_ca:   the CA that signed the broker's SERVER cert. A private CA path
+#             becomes the ONLY trust anchor (system roots are not consulted),
+#             which is what a self-signed broker CA wants.
+#   tls_cert
+#   tls_key:  the agent's CLIENT cert + key. REQUIRED — the agent presents this
+#             certificate and the broker verifies it and maps its subject to a
+#             scoped NATS user (verify_and_map). This certificate is the agent's
+#             sole credential; both must be set.
+#
+# These are filesystem paths; the PEM files stay on this box. Prefer the
+# environment (BOW_EDGE_AGENT_TLS_CA / _TLS_CERT / _TLS_KEY) in containers, and
+# keep the key mode 0600. The example below is a full mTLS setup matching the
+# wss:// endpoint above — the agent presents this client cert during the TLS
+# handshake.
+tls_ca: /etc/bow/tls/ca.pem
+tls_cert: /etc/bow/tls/edge-agent.pem
+tls_key: /etc/bow/tls/edge-agent-key.pem
+#
+# Verify the broker's server cert. Leave true. Setting false disables server
+# authentication entirely — for local experiments only.
+tls_verify: true
 
 # --- served connections -------------------------------------------------
 # One NATS subject per entry: tunnel.<org_id>.<edge_agent_id>.conn.<name>

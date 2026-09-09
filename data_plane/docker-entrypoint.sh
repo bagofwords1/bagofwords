@@ -18,9 +18,9 @@ P=BOW_EDGE_AGENT   # env prefix the agent reads (config.py _ENV_OVERRIDES)
 
 # ── compatibility: old / design-doc env names → implementation names ─────────
 # The design wrote BOW_EDGE_AGENT_AGENT_ID / _AGENT_NAME, and an earlier version
-# used _NATS_URL / _NATS_TOKEN; the code reads EDGE_AGENT_ID / EDGE_AGENT_NAME /
-# TUNNEL_ENDPOINT_URL / TUNNEL_TOKEN. Bridge them so either works, without ever
-# overwriting a value the operator set explicitly.
+# used _NATS_URL; the code reads EDGE_AGENT_ID / EDGE_AGENT_NAME /
+# TUNNEL_ENDPOINT_URL. Bridge them so either works, without ever overwriting a
+# value the operator set explicitly.
 bridge() { # old_suffix new_suffix
   local old="${P}_$1" new="${P}_$2"
   if [ -n "${!old:-}" ] && [ -z "${!new:-}" ]; then
@@ -29,10 +29,8 @@ bridge() { # old_suffix new_suffix
 }
 bridge AGENT_ID   EDGE_AGENT_ID
 bridge AGENT_NAME EDGE_AGENT_NAME
-# nats_url/nats_token were renamed to tunnel_endpoint_url/tunnel_token; accept
-# the old env vars too.
+# nats_url was renamed to tunnel_endpoint_url; accept the old env var too.
 bridge NATS_URL   TUNNEL_ENDPOINT_URL
-bridge NATS_TOKEN TUNNEL_TOKEN
 
 # ── data directory: persist the store, its key, and the audit trail ──────────
 DATA_DIR="${BOW_EDGE_AGENT_DATA_DIR:-/data}"
@@ -64,8 +62,11 @@ else
 fi
 
 # ── advisories (non-fatal) ───────────────────────────────────────────────────
-if [ -z "${BOW_EDGE_AGENT_TUNNEL_TOKEN:-}" ]; then
-  log "WARNING: BOW_EDGE_AGENT_TUNNEL_TOKEN is unset — the broker will reject the connection unless it allows anonymous access."
+# mTLS is the only authentication. Without a client cert the agent cannot even
+# build its TLS context and will exit on connect, so warn early — unless a
+# config file is supplying the paths instead of the environment.
+if [ -z "$CONFIG_FILE" ] && { [ -z "${BOW_EDGE_AGENT_TLS_CERT:-}" ] || [ -z "${BOW_EDGE_AGENT_TLS_KEY:-}" ]; }; then
+  log "WARNING: BOW_EDGE_AGENT_TLS_CERT / _TLS_KEY unset — authentication is mTLS-only; the agent will fail to connect without a client certificate."
 fi
 
 log "starting edge agent: org=${BOW_EDGE_AGENT_ORG_ID:-<file>} id=${BOW_EDGE_AGENT_EDGE_AGENT_ID:-<file>} tunnel=${BOW_EDGE_AGENT_TUNNEL_ENDPOINT_URL:-<file>} admin=${BOW_EDGE_AGENT_ADMIN_HOST:-127.0.0.1}:${BOW_EDGE_AGENT_ADMIN_PORT:-9191} data_dir=$DATA_DIR"

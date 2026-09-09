@@ -14,6 +14,9 @@
 #   PG_DATABASE           database name (default: lego)
 #   PG_USERNAME           database user (default: lego)
 #   PG_STORAGE            PVC size (default: 5Gi)
+#   PG_SERVICE_TYPE       primary service type (default: LoadBalancer, so the
+#                         database is reachable from outside the cluster; set to
+#                         ClusterIP to keep it in-cluster only)
 #   LEGO_REIMPORT         set to 1 to drop and reload the LEGO tables
 set -euo pipefail
 
@@ -24,6 +27,7 @@ PG_DATABASE="${PG_DATABASE:-lego}"
 PG_USERNAME="${PG_USERNAME:-lego}"
 PG_STORAGE="${PG_STORAGE:-5Gi}"
 PG_POSTGRES_PASSWORD="${PG_POSTGRES_PASSWORD:-lego}"
+PG_SERVICE_TYPE="${PG_SERVICE_TYPE:-LoadBalancer}"
 CHART_VERSION="16.3.2"
 
 LEGO_DUMP_URL="https://raw.githubusercontent.com/neondatabase/postgres-sample-dbs/refs/heads/main/lego.sql"
@@ -99,6 +103,27 @@ print_connection() {
   echo ""
   echo "Connection string:"
   echo "  postgresql://$user_enc:$pass_enc@$host:5432/$db"
+
+  # External reachability: when the primary service is a LoadBalancer, print the
+  # address assigned to it (metallb/cloud) so callers can connect from off the
+  # cluster without a port-forward. The IP can take a few seconds to appear.
+  local svc_type ext_ip
+  svc_type=$(kubectl get svc -n "$NAMESPACE" "$RELEASE_NAME" \
+    -o jsonpath='{.spec.type}' 2>/dev/null || true)
+  if [ "$svc_type" = "LoadBalancer" ]; then
+    ext_ip=$(kubectl get svc -n "$NAMESPACE" "$RELEASE_NAME" \
+      -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || true)
+    [ -z "$ext_ip" ] && ext_ip=$(kubectl get svc -n "$NAMESPACE" "$RELEASE_NAME" \
+      -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || true)
+    echo ""
+    if [ -n "$ext_ip" ]; then
+      echo "External (LoadBalancer):"
+      echo "  Host: $ext_ip  Port: 5432"
+      echo "  postgresql://$user_enc:$pass_enc@$ext_ip:5432/$db"
+    else
+      echo "External (LoadBalancer): address pending — re-run --status once assigned."
+    fi
+  fi
 }
 
 # Run psql inside the primary pod as the app user.
@@ -179,6 +204,7 @@ do_install() {
     --set auth.username="$PG_USERNAME" \
     --set auth.password="$PG_PASSWORD" \
     --set auth.database="$PG_DATABASE" \
+    --set primary.service.type="$PG_SERVICE_TYPE" \
     --set primary.persistence.size="$PG_STORAGE" \
     --set primary.resources.requests.memory=256Mi \
     --set primary.resources.requests.cpu=100m \

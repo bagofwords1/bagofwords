@@ -801,13 +801,32 @@ async def startup_event():
     # Secure data tunnel (design B3/B4). Every worker opens its own NATS
     # connection — it is how that worker's tunneled clients reach an edge agent
     # — but the advertisement listener is leader-gated: a plain subscribe fans
-    # to every worker, so registration must run in exactly one. NATS_URL empty
-    # means the tunnel is disabled; the app starts normally without it.
+    # to every worker, so registration must run in exactly one. The tunnel is
+    # gated on data_tunnel.enabled; disabled, the app starts normally without it.
     from app.services.tunnel_client import TunnelClient, set_tunnel_client
+    tunnel_cfg = settings.bow_config.data_tunnel
     tunnel_client = TunnelClient()
-    if settings.NATS_URL:
+    if not tunnel_cfg.enabled:
+        logger.info("data_tunnel disabled (data_tunnel.enabled is false)")
+    elif tunnel_cfg.missing_requirements():
+        # Enabled but under-configured: mTLS needs the endpoint plus all three
+        # cert paths. Log exactly what is missing and skip connecting rather than
+        # failing with an opaque handshake error.
+        logger.error(
+            "data_tunnel.enabled is true but required settings are missing: %s — set them in "
+            "bow-config.yaml (data_tunnel) or the BOW_DATA_TUNNEL_* env vars; secure data tunnel disabled",
+            ", ".join(tunnel_cfg.missing_requirements()),
+        )
+    else:
         try:
-            await tunnel_client.connect(settings.NATS_URL, settings.NATS_TOKEN)
+            await tunnel_client.connect(
+                tunnel_cfg.url,
+                org_id=tunnel_cfg.org_id,
+                tls_ca=tunnel_cfg.tls_ca or None,
+                tls_cert=tunnel_cfg.tls_cert or None,
+                tls_key=tunnel_cfg.tls_key or None,
+                tls_verify=tunnel_cfg.tls_verify,
+            )
             if is_scheduler_leader:
                 await tunnel_client.start_advertisement_listener()
                 await tunnel_client.start_heartbeat_listener()
@@ -825,8 +844,6 @@ async def startup_event():
                 )
         except Exception:
             logger.exception("Tunnel unavailable; tunneled connections will fail")
-    else:
-        logger.info("NATS_URL not set — secure data tunnel disabled")
     app.state.tunnel_client = tunnel_client
     set_tunnel_client(tunnel_client)
 

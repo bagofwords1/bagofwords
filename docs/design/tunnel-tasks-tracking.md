@@ -381,9 +381,11 @@ queries). Postgres-only; file/MCP operations are out of scope for this type.
   one NATS connection per worker; captures its own loop; `inbox_prefix=_INBOX.bow`;
   infinite reconnect; `drain()` on shutdown; module accessor
   `get_tunnel_client()` / `set_tunnel_client()`.
-- ✅ **Settings** — `NATS_URL` / `NATS_TOKEN` in `backend/app/settings/config.py`
-  (empty `NATS_URL` disables the tunnel; control plane uses the TCP client port
-  4222, not the agents' websocket 9443).
+- ✅ **Settings** — `NATS_URL` / `NATS_TLS_CA` / `NATS_TLS_CERT` / `NATS_TLS_KEY`
+  / `NATS_TLS_HOSTNAME` / `NATS_TLS_VERIFY` in `backend/app/settings/config.py`
+  (empty `NATS_URL` disables the tunnel; control plane uses the native TLS client
+  port 4222, not the agents' websocket 9443). Auth is **mTLS only** (A11) — the
+  worker presents a client cert the broker maps to a scoped user; no token auth.
 - ✅ **Wiring** — `backend/main.py` startup connects every worker and starts the
   advertisement listener **leader-gated** (`try_acquire_scheduler_leader`);
   shutdown drains.

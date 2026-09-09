@@ -360,6 +360,65 @@ def encryption_key_is_ephemeral() -> bool:
     return _encryption_key_is_ephemeral
 
 
+class DataTunnel(BaseModel):
+    """Secure data tunnel to on-prem edge agents (design B3/B4/A11).
+
+    Enables tunneled data sources: the control plane reaches an edge agent over
+    NATS instead of holding the data source's credentials itself. The tunnel is
+    on only when `enabled` is true — an explicit switch, so a fully-configured
+    section can be turned off without deleting it. When off, the app starts
+    normally and only tunneled data sources are unavailable.
+
+    When enabled, `url` must be TLS-bearing (tls://host:4222). Authentication is
+    **mTLS only** (A11): the worker presents the client certificate in
+    `tls_cert`/`tls_key`, which the broker verifies and maps to a scoped user
+    (verify_and_map). There is no token auth, so an enabled tunnel requires all
+    of `org_id`, `url`, `tls_ca`, `tls_cert`, `tls_key` — `missing_requirements()`
+    reports which are absent so startup can log a clear error instead of failing
+    obscurely. `tls_ca` is the CA that signed the broker's server cert;
+    `tls_verify=false` disables server verification (local experiments only).
+
+    `org_id` scopes the connection: the worker is a **per-org** identity (its NATS
+    grant and its client cert are org-scoped, `tunnel.<org_id>.>`), so it
+    subscribes only to that org's advertisements and heartbeats — never a
+    cross-org wildcard. It must be set explicitly when the tunnel is enabled, and
+    must match the org the edge agents advertise under and the org the worker
+    cert/grant were minted for.
+
+    Every field falls back to a BOW_-prefixed env var, so the whole section can
+    be driven from the environment with the YAML section left commented out.
+    """
+    enabled: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_DATA_TUNNEL_ENABLED", "false") or "false").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+    org_id: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_ORG_ID"))
+    url: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_URL"))
+    tls_ca: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_TLS_CA"))
+    tls_cert: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_TLS_CERT"))
+    tls_key: Optional[str] = Field(default_factory=lambda: os.getenv("BOW_DATA_TUNNEL_TLS_KEY"))
+    tls_verify: bool = Field(
+        default_factory=lambda: (os.getenv("BOW_DATA_TUNNEL_TLS_VERIFY", "true") or "true").strip().lower()
+        in ("1", "true", "yes", "on")
+    )
+
+    def missing_requirements(self) -> List[str]:
+        """The config keys an enabled tunnel needs but doesn't have set.
+
+        Empty means the tunnel is ready to connect. Only meaningful when
+        `enabled` is true; startup logs these so a half-configured tunnel fails
+        with a clear message rather than an opaque connect error.
+        """
+        required = {
+            "org_id": self.org_id,
+            "url": self.url,
+            "tls_ca": self.tls_ca,
+            "tls_cert": self.tls_cert,
+            "tls_key": self.tls_key,
+        }
+        return [name for name, value in required.items() if not (value and str(value).strip())]
+
+
 def generate_fernet_key():
     # Generate a valid Fernet-compatible key (32 url-safe base64-encoded bytes)
     key = secrets.token_bytes(32)
@@ -433,6 +492,7 @@ class BowConfig(BaseModel):
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
     security: SecurityConfig = SecurityConfig()
+    data_tunnel: DataTunnel = Field(default_factory=DataTunnel)
 
     @model_validator(mode="after")
     def validate_saml_providers(self):

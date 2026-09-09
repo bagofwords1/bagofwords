@@ -105,6 +105,12 @@ class EdgeAgentTunnel:
         cfg = self._config
         attempt = 0
 
+        # Built once (a cert/key load is file I/O; re-reading it on every
+        # reconnect is wasted work) and before the loop so a missing client
+        # cert fails fast here rather than silently retrying. mTLS is the only
+        # auth path, so this must succeed for the agent to connect at all.
+        ssl_ctx = cfg.tls_context()
+
         while True:
             attempt += 1
             logger.info(
@@ -119,7 +125,11 @@ class EdgeAgentTunnel:
             try:
                 await client.connect(
                     servers=[cfg.tunnel_endpoint_url],
-                    token=cfg.tunnel_token,
+                    # mTLS is the sole authentication: the client cert in this
+                    # context is what the broker maps to a scoped user (A11).
+                    # The endpoint must be TLS-bearing (tls:// or wss://) for the
+                    # cert to be exchanged in the handshake.
+                    tls=ssl_ctx,
                     reconnect_time_wait=_RECONNECT_SECONDS,
                     # Bounded on purpose. With -1 the library retries the
                     # *initial* connect internally and never returns, so this

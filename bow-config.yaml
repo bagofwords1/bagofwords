@@ -101,3 +101,23 @@ otel:
 
 # license:
 #    key: ${BOW_LICENSE_KEY}
+
+# Secure data tunnel — reach on-prem edge agents over NATS so the control plane
+# never holds the data source's credentials (design B3/B4/A11). Set enabled:true
+# to turn it on; every field also reads a BOW_DATA_TUNNEL_* env var, so you can
+# drive it entirely from the environment with this section left as-is.
+#
+# When enabled, ALL of org_id + url + tls_ca + tls_cert + tls_key are required
+# (startup logs an error and stays disabled if any are missing). `url` must be
+# TLS-bearing (tls://host:4222). Auth is mTLS ONLY — the worker presents
+# tls_cert/tls_key, which the broker maps to a scoped user; tls_ca signs the
+# broker's server cert. The worker is per-org: `org_id` scopes what it subscribes
+# to (tunnel.<org_id>.>), and must match the org the edge agents advertise under.
+# data_tunnel:
+#   enabled: true                               # explicit on/off switch
+#   org_id: ${BOW_DATA_TUNNEL_ORG_ID}           # the org this worker serves
+#   url: ${BOW_DATA_TUNNEL_URL}                 # e.g. tls://nats.internal:4222
+#   tls_ca: ${BOW_DATA_TUNNEL_TLS_CA}           # path to CA PEM (broker server cert)
+#   tls_cert: ${BOW_DATA_TUNNEL_TLS_CERT}       # path to worker client cert PEM
+#   tls_key: ${BOW_DATA_TUNNEL_TLS_KEY}         # path to worker client key PEM
+#   tls_verify: true                            # false disables server verification (local only)

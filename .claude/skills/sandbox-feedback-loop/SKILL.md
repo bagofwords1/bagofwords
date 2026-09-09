@@ -15,8 +15,8 @@ Backend (FastAPI, port 8000) — sqlite needs `BOW_DATABASE_URL`:
 cd backend
 uv sync --extra dev
 mkdir -p db
-BOW_DATABASE_URL='sqlite:///db/app.db' uv run alembic upgrade head
-BOW_DATABASE_URL='sqlite:///db/app.db' uv run python main.py   # run in background, log to a file
+BOW_DATABASE_URL='sqlite:///db/app.db' uv run --env-file .env alembic upgrade head
+BOW_DATABASE_URL='sqlite:///db/app.db' uv run --env-file .env python main.py # run in background, log to a file
 # health: curl http://localhost:8000/health  (200; /docs is 404 in dev — not an error)
 ```
 
@@ -40,7 +40,13 @@ Caveats:
 
 ## 2. Seed a user + org + LLM (one-time per fresh DB)
 
-UI flow (Playwright): `/users/sign-up` has `#name`, `#email`, `#password` + `button[type=submit]`. Registration auto-logs-in and lands on `/onboarding` (org "Main Org" is auto-created for the first user).
+**Standard sandbox login — always seed these exact credentials** (the first user auto-gets "Main Org" + admin):
+
+- email: `admin@example.com`
+- password: `Sandbox123!`
+- name: `Admin`
+
+UI flow (Playwright): `/users/sign-up` has `#name`, `#email`, `#password` + `button[type=submit]`. Registration auto-logs-in and lands on `/onboarding` (org "Main Org" is auto-created for the first user). Direct-API equivalent: `POST /api/auth/register` with `{"email":"admin@example.com","password":"Sandbox123!","name":"Admin"}`, then `POST /api/auth/jwt/login` (form-encoded `username`/`password`) for the JWT.
 
 **LLM setup — do it in `/settings/models`, not onboarding** (the onboarding LLM form is fiddly and marks the step done even if no models were saved):
 1. All non-onboarding pages redirect to `/onboarding` until it's completed or dismissed; dismiss by clicking "Skip onboarding" on `/onboarding` (bottom of card) — after that settings pages render.

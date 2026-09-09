@@ -36,3 +36,15 @@ def test_admin_and_store_env_overrides(monkeypatch):
     assert cfg.admin_host == "0.0.0.0"
     assert cfg.admin_port == 9292          # int-coerced
     assert cfg.store_path == "/data/store.json"
+
+
+def test_interval_and_retention_env_overrides(monkeypatch):
+    monkeypatch.setenv("BOW_EDGE_AGENT_ORG_ID", "cust-b")
+    monkeypatch.setenv("BOW_EDGE_AGENT_EDGE_AGENT_ID", "nyc-01")
+    monkeypatch.setenv("BOW_EDGE_AGENT_AUDIT_RETAIN", "500")
+    monkeypatch.setenv("BOW_EDGE_AGENT_ADVERTISE_INTERVAL_SECONDS", "30")
+    monkeypatch.setenv("BOW_EDGE_AGENT_HEARTBEAT_INTERVAL_SECONDS", "5")
+    cfg = load_config(None)
+    assert cfg.audit_retain == 500                   # all int-coerced
+    assert cfg.advertise_interval_seconds == 30
+    assert cfg.heartbeat_interval_seconds == 5

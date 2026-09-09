@@ -23,7 +23,10 @@ _ENV_PREFIX = "BOW_EDGE_AGENT_"
 
 _ENV_OVERRIDES = {
     "tunnel_endpoint_url": "TUNNEL_ENDPOINT_URL",
-    "tunnel_token": "TUNNEL_TOKEN",
+    "tls_ca": "TLS_CA",
+    "tls_cert": "TLS_CERT",
+    "tls_key": "TLS_KEY",
+    "tls_verify": "TLS_VERIFY",
     "org_id": "ORG_ID",
     "edge_agent_id": "EDGE_AGENT_ID",
     "edge_agent_name": "EDGE_AGENT_NAME",
@@ -32,9 +35,12 @@ _ENV_OVERRIDES = {
     "admin_enabled": "ADMIN_ENABLED",
     "store_path": "STORE_PATH",
     "audit_path": "AUDIT_PATH",
+    "audit_retain": "AUDIT_RETAIN",
     "log_level": "LOG_LEVEL",
     "default_query_timeout_seconds": "QUERY_TIMEOUT_SECONDS",
     "index_timeout_seconds": "INDEX_TIMEOUT_SECONDS",
+    "advertise_interval_seconds": "ADVERTISE_INTERVAL_SECONDS",
+    "heartbeat_interval_seconds": "HEARTBEAT_INTERVAL_SECONDS",
 }
 
 
@@ -96,8 +102,22 @@ class AgentConfig(BaseModel):
     edge_agent_id: str
     edge_agent_name: Optional[str] = None
 
-    tunnel_endpoint_url: str = "ws://localhost:9443"
-    tunnel_token: Optional[str] = None
+    tunnel_endpoint_url: str = "wss://localhost:9443"
+
+    # mTLS to the broker (design A11) — the ONLY supported authentication. The
+    # agent presents `tls_cert` + `tls_key`; the broker verifies the cert
+    # against its CA and maps its subject to a scoped NATS user
+    # (`verify_and_map`). Both are required — there is no token fallback. `tls_ca`
+    # is the CA that signed the broker's server cert (a private CA — only that CA
+    # is trusted, not the system roots). The endpoint URL must be TLS-bearing so
+    # the cert is exchanged in the handshake: `tls://host:4222` (native) or
+    # `wss://…`; a plain `ws://` carries no certificate.
+    tls_ca: Optional[str] = None        # path to CA cert PEM (verify the broker)
+    tls_cert: Optional[str] = None      # path to client cert PEM (mTLS, required)
+    tls_key: Optional[str] = None       # path to client key PEM (mTLS, required)
+    # Verify the broker's cert against `tls_ca` (or system roots if unset). Only
+    # turn this off for local experiments — it disables server authentication.
+    tls_verify: bool = True
 
     connections: list[ConnectionConfig] = Field(default_factory=list)
 
@@ -173,6 +193,37 @@ class AgentConfig(BaseModel):
     def heartbeat_subject(self) -> str:
         return f"{self.subject_base}.heartbeat"
 
+    # -- TLS ------------------------------------------------------------------
+
+    def tls_context(self) -> "Any":
+        """Build the mTLS SSLContext for the NATS connection.
+
+        mTLS is the only supported authentication, so a client cert is
+        mandatory: `tls_cert` and `tls_key` must both be set or this raises.
+        `ssl` is imported lazily. Returns an `ssl.SSLContext` carrying the
+        loaded client certificate.
+        """
+        if not (self.tls_cert and self.tls_key):
+            raise ValueError(
+                "edge agent authentication is mTLS-only: set both tls_cert and "
+                "tls_key (paths to the client certificate and its key)"
+            )
+
+        import ssl
+
+        if self.tls_verify:
+            # cafile=None falls back to the system roots; a private CA path
+            # makes that CA the *only* trust anchor (no system roots), which is
+            # what a self-signed broker CA wants.
+            ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH, cafile=self.tls_ca)
+        else:
+            ctx = ssl.create_default_context(purpose=ssl.Purpose.SERVER_AUTH)
+            ctx.check_hostname = False
+            ctx.verify_mode = ssl.CERT_NONE
+
+        ctx.load_cert_chain(certfile=self.tls_cert, keyfile=self.tls_key)
+        return ctx
+
 
 _INT_FIELDS = {
     "admin_port",
@@ -184,7 +235,7 @@ _INT_FIELDS = {
 }
 
 
-_BOOL_FIELDS = {"admin_enabled"}
+_BOOL_FIELDS = {"admin_enabled", "tls_verify"}
 
 
 def _coerce(field: str, raw: str) -> Any:
