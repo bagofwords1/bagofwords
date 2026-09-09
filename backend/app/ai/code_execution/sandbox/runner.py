@@ -480,20 +480,34 @@ def _call_supervised(fn: Callable[[], Any], child: _ChildProcess, deadline: floa
     a worker thread while the runner keeps enforcing the wall clock and the
     cancel event. On either, the child is killed and the handler is
     abandoned — the query wrappers already bound their own calls and cancel
-    orphaned queries at the source, so nothing here can outlive them."""
+    orphaned queries at the source, so nothing here can outlive them.
+
+    Completion is signalled through a pipe the supervision loop selects on,
+    so a fast handler returns immediately rather than at the next tick."""
     holder: Dict[str, Any] = {}
+    wake_r, wake_w = os.pipe()
 
     def _target():
         try:
             holder["value"] = fn()
         except BaseException as e:  # noqa: BLE001 - re-raised on the runner thread
             holder["exc"] = e
+        finally:
+            try:
+                os.write(wake_w, b"x")
+            except OSError:
+                pass
 
     t = threading.Thread(target=_target, name="bow_sandbox_rpc", daemon=True)
     t.start()
-    while t.is_alive():
-        _wait_for_child(child, deadline, cancel_event, limits, [])
-        t.join(0.0)
+    try:
+        while t.is_alive():
+            if wake_r in _wait_for_child(child, deadline, cancel_event, limits, [wake_r]):
+                break
+        t.join()
+    finally:
+        os.close(wake_r)
+        os.close(wake_w)
     if "exc" in holder:
         raise holder["exc"]
     return holder.get("value")
