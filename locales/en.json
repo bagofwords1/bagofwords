@@ -2331,6 +2331,7 @@
         "placeStep3": "Edit config.yaml to add the data source connections this agent serves.",
         "extractTitle": "Extract the bundle",
         "runTitle": "Run the agent",
+        "adminNote": "The agent's Admin UI is a credential-entry surface — keep it on localhost only. In Docker it binds 0.0.0.0 inside the container, but the -p 127.0.0.1:9191:9191 mapping keeps it on the host's loopback (127.0.0.1). Never publish it to a public interface.",
         "finishBtn": "Finish",
         "configureBtn": "Configure",
         "configureTitle": "Run this edge agent",

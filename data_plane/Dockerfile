@@ -51,8 +51,10 @@ RUN groupadd --gid 10001 bow \
 ENV PATH="/opt/venv/bin:$PATH" \
     PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
-    # backend/app on the path so the reused clients import (design Step 5/9).
-    PYTHONPATH=/opt/bow/backend \
+    # `data_plane` root so `python -m data_edge_agent` resolves regardless of the
+    # working directory (a `-w` override or a bind mount must not break it), and
+    # `backend` so the reused data-source clients import (design Step 5/9).
+    PYTHONPATH=/opt/bow/data_plane:/opt/bow/backend \
     # Where the credential store, its key, and the audit trail live. Mount a
     # volume here so admin-UI edits and the audit log survive a container
     # restart; the entrypoint points store/audit at it unless overridden.
