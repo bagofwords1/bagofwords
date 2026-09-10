@@ -177,6 +177,10 @@
                 </UButton>
               </div>
               <pre class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-900 dark:bg-black p-3 text-[12px] leading-relaxed font-mono text-gray-100 overflow-x-auto whitespace-pre">{{ runCmd }}</pre>
+              <div class="mt-2 flex items-start gap-2 text-[11px] text-gray-400">
+                <UIcon name="i-heroicons-information-circle" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-red-500 dark:text-red-400" />
+                <span>{{ $t('settings.dataTunnels.wizard.adminNote') }}</span>
+              </div>
             </div>
 
             <div class="mt-6 flex items-center gap-2">
@@ -350,6 +354,10 @@
           </UButton>
         </div>
         <pre class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-900 dark:bg-black p-3 text-[12px] leading-relaxed font-mono text-gray-100 overflow-x-auto whitespace-pre">{{ runCmd }}</pre>
+        <div class="mt-2 flex items-start gap-2 text-[11px] text-gray-400">
+          <UIcon name="i-heroicons-information-circle" class="w-3.5 h-3.5 mt-0.5 shrink-0 text-red-500 dark:text-red-400" />
+          <span>{{ $t('settings.dataTunnels.wizard.adminNote') }}</span>
+        </div>
       </div>
 
       <div class="mt-5 flex justify-end">
@@ -497,6 +505,7 @@ const runCmd = computed(() => [
   '  -v "$(pwd)/certs:/etc/bow/certs:ro" \\',
   '  -w /etc/bow \\',
   '  -e BOW_EDGE_AGENT_CONFIG=/etc/bow/config.yaml \\',
+  '  -e BOW_EDGE_AGENT_ADMIN_HOST=0.0.0.0 \\',
   '  -v bow-edge-data:/data \\',
   '  -p 127.0.0.1:9191:9191 \\',
   '  bow/data-edge-agent:latest',
