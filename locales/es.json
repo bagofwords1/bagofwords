@@ -2309,6 +2309,8 @@
       "successRemoved": "Se eliminó correctamente a {name}",
       "failedToInvite": "No se pudo invitar al miembro",
       "successInvited": "Invitación enviada a {email}",
+      "successInvitedNoSmtp": "Se añadió a {email}, pero no se envió ningún correo de invitación: SMTP no está configurado. Usa «Copiar enlace» para compartir la invitación.",
+      "successInvitedFailed": "Se añadió a {email}, pero no se pudo enviar el correo de invitación. Usa «Copiar enlace» para compartir la invitación.",
       "rolesUpdated": "Roles actualizados",
       "failedToUpdateRoles": "No se pudieron actualizar los roles",
       "failedToRemoveRole": "No se pudo eliminar el rol",

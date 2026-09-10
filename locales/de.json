@@ -2218,6 +2218,8 @@
       "successRemoved": "{name} erfolgreich entfernt",
       "failedToInvite": "Mitglied konnte nicht eingeladen werden",
       "successInvited": "Einladung an {email} gesendet",
+      "successInvitedNoSmtp": "{email} wurde hinzugefügt, aber es wurde keine Einladungs-E-Mail gesendet – SMTP ist nicht konfiguriert. Nutze „Link kopieren“, um die Einladung zu teilen.",
+      "successInvitedFailed": "{email} wurde hinzugefügt, aber die Einladungs-E-Mail konnte nicht gesendet werden. Nutze „Link kopieren“, um die Einladung zu teilen.",
       "rolesUpdated": "Rollen aktualisiert",
       "failedToUpdateRoles": "Rollen konnten nicht aktualisiert werden",
       "failedToRemoveRole": "Rolle konnte nicht entfernt werden",
