@@ -3,7 +3,9 @@ key: dashboard-theme
 title: Company dashboard theme
 description: Use when building or restructuring a dashboard — the company's rules for what goes on it, in what order, and how it looks.
 category: dashboard
-version: "1.1"
+version: "1.2"
+order: 25
+default_enabled: true
 modes: [chat, training]
 tags: [dashboard, design]
 ---
@@ -71,9 +73,25 @@ dashboard. Say so rather than adding it.
 
 ## 4. House style
 
-Replace this section with your organization's conventions. Until you do, the
-defaults are: the product's built-in components and theme, no custom palette,
-titles as sentence case, and no logo.
+Replace this section with your organization's conventions (palette, logo,
+standard KPI set, required footer, naming) and every dashboard will follow
+them. Until you do, the defaults are:
+
+- **Pick the theme for the subject, every time.** `setTheme()` with one of the
+  built-in themes (ledger for finance, signal for operations, atelier for
+  media and creative, meadow for people and health, sunset for retail and
+  growth, nocturne or graphite for live technical monitoring, slate for
+  general internal reporting) and tune it with overrides when the request
+  names a color, a brand or a mood. Two dashboards about different subjects
+  must not share a look.
+- **Type does the branding.** Titles in the theme's display face via
+  `PageHeader`; numerals in `font-numeric`; eyebrows in tracked uppercase.
+- **One hero, then quiet.** Lift exactly one element (the headline number or
+  the explaining chart) with `variant="lift"` or `"accent"`; keep the rest
+  `card`, `plain` or `inset`. Never stamp the same shadow on every tile.
+- **Titles are sentence case and state the finding**, not the metric name.
+- No logo, no emoji as icons (use `<Icon>`), no raw `slate-*`/`blue-*`
+  classes — token utilities only, so dark mode and themes keep working.
 
 ## 5. Before you call it done
 

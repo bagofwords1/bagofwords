@@ -135,6 +135,9 @@ async def collect_artifact_payload(db, artifact) -> Optional[dict[str, Any]]:
         "visualizations": await collect_visualizations(db, artifact),
         "files": await collect_files(db, artifact),
         "current_user": None,
+        # Which sandbox runtime generation to render with (themed kit at >= 11;
+        # absent on rows created before it → legacy look and semantics).
+        "runtime": {"version": int((artifact.content or {}).get("runtime_version") or 0)},
     }
 
 

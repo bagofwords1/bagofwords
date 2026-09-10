@@ -68,8 +68,9 @@ _HTML_SHELL = """<!DOCTYPE html>
 <style>
   html, body, #root {{ height: 100%; margin: 0; padding: 0; }}
   body {{
-    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    background: #fff;
+    font-family: var(--bow-font-body, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif);
+    background: var(--bow-bg, #fff);
+    color: var(--bow-ink, #0f172a);
   }}
   @media print {{ [data-bow-export-badge] {{ display: none !important; }} }}
 </style>

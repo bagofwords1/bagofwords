@@ -287,6 +287,7 @@ class ThumbnailService:
                     artifact_code=artifact_code,
                     visualizations=viz_data,
                     mode=artifact.mode or "page",
+                    runtime_version=int((artifact.content or {}).get("runtime_version") or 0),
                 )
 
                 # Delete old thumbnail if exists
@@ -319,6 +320,7 @@ class ThumbnailService:
         artifact_code: str,
         visualizations: list,
         mode: str = "page",
+        runtime_version: int = 0,
     ) -> str:
         """Build HTML for thumbnail screenshot."""
         artifact_data = {
@@ -331,6 +333,7 @@ class ThumbnailService:
             # Thumbnails are shared assets — always render anonymously so no
             # viewer's identity gets baked into an image other users see.
             "current_user": None,
+            "runtime": {"version": runtime_version or 0},
         }
         data_json = json.dumps(artifact_data, default=str)
 

@@ -863,6 +863,11 @@ const latestParamRunForQid: Record<string, number> = {};
 // Frozen at dataReady so live updates never recompute srcdoc (iframe reload).
 const srcdocSeed = ref<any>(null);
 
+function artifactRuntime() {
+    const v = Number(artifact.value?.content?.runtime_version || 0);
+    return { version: Number.isFinite(v) ? v : 0 };
+}
+
 function paramsPayload() {
     const byName: Record<string, any> = {};
     for (const [qid, specs] of Object.entries(queryParamSpecs.value)) {
@@ -1012,7 +1017,8 @@ function pushArtifactData() {
             visualizations: visualizationsData.value,
             files: filesData.value,
             current_user: viewerContext.value,
-            params: paramsPayload()
+            params: paramsPayload(),
+            runtime: artifactRuntime()
         }))
     });
 }
@@ -1128,7 +1134,8 @@ const iframeSrcdoc = computed(() => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
-        params: paramsPayload()
+        params: paramsPayload(),
+        runtime: artifactRuntime()
     };
     return buildArtifactIframeHtml({
         data: seed,
@@ -1238,7 +1245,8 @@ onMounted(async () => {
         visualizations: visualizationsData.value,
         files: filesData.value,
         current_user: viewerContext.value,
-        params: paramsPayload()
+        params: paramsPayload(),
+        runtime: artifactRuntime()
     }));
 
     // Mark data as ready - this triggers iframeSrcdoc to compute once with all data

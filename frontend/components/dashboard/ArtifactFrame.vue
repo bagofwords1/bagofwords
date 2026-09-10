@@ -970,6 +970,13 @@ const latestParamRunForQid: Record<string, number> = {};
 // param/view-as updates (postMessage) never trigger an iframe reload.
 const srcdocSeed = ref<any>(null);
 
+// Which sandbox runtime generation the selected artifact was authored for.
+// Read from content.runtime_version so a legacy row keeps its legacy look.
+function artifactRuntime() {
+  const v = Number((selectedArtifact.value as any)?.content?.runtime_version || 0);
+  return { version: Number.isFinite(v) ? v : 0 };
+}
+
 function paramsPayload() {
   // Aggregate declarations by name: same-named params across queries render
   // as ONE control that drives all of them.
@@ -2018,7 +2025,8 @@ function sendDataToIframe() {
     visualizations: toRaw(visualizationsData.value),
     files: toRaw(filesData.value),
     current_user: toRaw(effectiveViewerContext.value),
-    params: paramsPayload()
+    params: paramsPayload(),
+    runtime: artifactRuntime()
   }));
 
   try {
@@ -2203,6 +2211,7 @@ async function fetchData(artifactId?: string) {
       files: toRaw(filesData.value),
       current_user: toRaw(effectiveViewerContext.value),
       params: paramsPayload(),
+      runtime: artifactRuntime(),
     }));
 
     // Mark data as ready - triggers iframeSrcdoc to compute with loaded data
@@ -2538,6 +2547,7 @@ const iframeSrcdoc = computed(() => {
     files: filesData.value,
     current_user: effectiveViewerContext.value,
     params: paramsPayload(),
+    runtime: artifactRuntime(),
   };
   return buildArtifactIframeHtml({
     data: seed,

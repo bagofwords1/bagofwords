@@ -211,3 +211,50 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
                     "from the dashboard."
                 )
     return errors
+
+
+SET_THEME_RE = re.compile(r"\bsetTheme\s*\(")
+_LEGACY_COLOR_RE = re.compile(r"\b(?:bg|text|border|from|to|via)-(?:slate|gray|zinc|neutral|stone|blue|indigo|sky)-\d{2,3}\b")
+
+
+def design_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+    """Contract check for the themed runtime (v11+): the page must select a
+    theme. Without setTheme() every dashboard falls back to the same default
+    look — exactly the sameness the design system exists to remove. Applies
+    only to payloads stamped with the themed runtime, so legacy artifacts
+    (edited or re-validated) are never retro-failed.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version < 11:
+        return []
+    src = code or ""
+    if not src.strip():
+        return []
+    errors: List[str] = []
+    if not SET_THEME_RE.search(src):
+        errors.append(
+            "[design] The code never calls setTheme(...). Pick the theme your design plan "
+            "names (ledger, nocturne, atelier, signal, meadow, slate, sunset, graphite — with "
+            "overrides for accent/fonts when the subject calls for it) and call it once at top "
+            "level, before function App()."
+        )
+    positional = VIZ_POSITIONAL_RE.findall(src) + DATA_VIZ_POSITIONAL_RE.findall(src)
+    if positional:
+        errors.append(
+            "[design] The code reads visualizations by position (viz[N] / data.visualizations[N]) — on the "
+            "themed runtime every viz must be bound by id: const x = vizById(\"<uuid>\") (copy the uuid from "
+            "YOUR VISUALIZATIONS). Positional access silently repoints at the wrong dataset when the viz set changes."
+        )
+    hardcoded = sorted(set(_LEGACY_COLOR_RE.findall(src)))
+    if len(hardcoded) >= 6:
+        errors.append(
+            "[design] The code styles with raw palette classes (" + ", ".join(hardcoded[:6]) + "…) "
+            "which ignore the theme and break dark mode. Use the token utilities instead: "
+            "bg-bg/bg-surface/bg-surface-2, text-ink/text-ink-2/text-ink-3, text-accent, border-line, "
+            "bg-chart-1…8, and semantic text-positive/warning/negative."
+        )
+    return errors

@@ -23,7 +23,7 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
 from app.models.artifact import Artifact
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,11 @@ class EditArtifactTool(Tool):
         from app.services.artifact_payload import collect_artifact_payload
         shim = SimpleNamespace(
             report_id=artifact.report_id,
-            content={"visualization_ids": merged_viz_ids, "files": content.get("files") or []},
+            content={
+                "visualization_ids": merged_viz_ids,
+                "files": content.get("files") or [],
+                "runtime_version": content.get("runtime_version"),
+            },
         )
         artifact_data = await collect_artifact_payload(db, shim)
         if artifact_data is None:
@@ -247,6 +251,7 @@ class EditArtifactTool(Tool):
             # Deterministic gates — hard, no repair (the planner corrects and retries).
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)
+            gate_errors += design_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
@@ -281,6 +286,11 @@ class EditArtifactTool(Tool):
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if content.get("files"):
             new_content["files"] = content.get("files")
+        # The runtime generation travels with the row: a legacy artifact stays
+        # legacy across edits (its code was written for that look); a themed
+        # one stays themed.
+        if content.get("runtime_version"):
+            new_content["runtime_version"] = content.get("runtime_version")
         new_artifact = Artifact(
             report_id=artifact.report_id,
             user_id=str(user.id) if user else artifact.user_id,
