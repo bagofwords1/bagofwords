@@ -370,7 +370,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 
 definePageMeta({
   auth: true,
@@ -566,8 +566,7 @@ const resetWizard = () => {
 
 const finishWizard = () => {
   resetWizard()
-  selectedKey.value = 'agents'
-  load()
+  selectedKey.value = 'agents'   // the selectedKey watcher reloads the list
 }
 
 // ── Registered agents ────────────────────────────────────────────────────
@@ -609,6 +608,13 @@ const load = async () => {
     loading.value = false
   }
 }
+
+// Always refresh when the Registered pane is opened — a just-created (or
+// removed) agent must show immediately, whether reached via Finish or the
+// left-hand nav, without a full page refresh.
+watch(selectedKey, (key) => {
+  if (key === 'agents') load()
+})
 
 const agentToRemove = ref<DataEdgeAgent | null>(null)
 const removeModalOpen = computed({
