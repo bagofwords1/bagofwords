@@ -138,7 +138,7 @@
                   <div class="text-sm font-medium text-gray-900 dark:text-white">{{ $t('settings.dataTunnels.wizard.downloadTitle') }}</div>
                   <div class="text-[11px] text-gray-400 mt-0.5">{{ $t('settings.dataTunnels.wizard.downloadNote') }}</div>
                 </div>
-                <UButton color="blue" size="sm" icon="i-heroicons-arrow-down-tray" :loading="downloading" @click="downloadBundle">
+                <UButton color="blue" size="sm" icon="i-heroicons-arrow-down-tray" :loading="downloadingId === createdAgent?.id" @click="downloadBundle(createdAgent)">
                   {{ $t('settings.dataTunnels.wizard.downloadBtn') }}
                 </UButton>
               </div>
@@ -157,15 +157,15 @@
               </ul>
             </div>
 
-            <!-- Config preview -->
+            <!-- Extract command -->
             <div class="mt-5">
               <div class="flex items-center justify-between mb-2">
-                <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('settings.dataTunnels.wizard.configTitle') }}</div>
-                <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-clipboard-document" @click="copy(configYaml)">
+                <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('settings.dataTunnels.wizard.extractTitle') }}</div>
+                <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-clipboard-document" @click="copy(extractCmd)">
                   {{ $t('settings.dataTunnels.connect.copy') }}
                 </UButton>
               </div>
-              <pre class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-3 text-[12px] leading-relaxed font-mono text-gray-800 dark:text-gray-200 overflow-x-auto whitespace-pre">{{ configYaml }}</pre>
+              <pre class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-900 dark:bg-black p-3 text-[12px] leading-relaxed font-mono text-gray-100 overflow-x-auto whitespace-pre">{{ extractCmd }}</pre>
             </div>
 
             <!-- Run command -->
@@ -236,6 +236,10 @@
                   {{ $t('settings.dataTunnels.lastSeen') }} {{ formatTime(agent.last_advertised_at) }}
                 </span>
                 <UButton
+                  size="2xs" color="gray" variant="ghost" icon="i-heroicons-cog-6-tooth"
+                  @click="openConfigure(agent)"
+                >{{ $t('settings.dataTunnels.wizard.configureBtn') }}</UButton>
+                <UButton
                   size="2xs" color="red" variant="ghost" icon="i-heroicons-trash"
                   :loading="removingId === agent.id"
                   @click="askRemove(agent)"
@@ -302,6 +306,55 @@
         </UButton>
         <UButton color="red" size="sm" :loading="removingId === agentToRemove?.id" @click="confirmRemove">
           {{ $t('settings.dataTunnels.wizard.removeBtn') }}
+        </UButton>
+      </div>
+    </div>
+  </UModal>
+
+  <!-- Configure: run instructions for an existing agent -->
+  <UModal v-model="configureModalOpen" :ui="{ width: 'sm:max-w-2xl' }">
+    <div class="p-5" v-if="configureAgent">
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+            {{ $t('settings.dataTunnels.wizard.configureTitle') }}
+          </h3>
+          <p class="mt-0.5 text-[11px] text-gray-400">
+            {{ configureAgent.label || configureAgent.edge_agent_id }} · {{ configureAgent.edge_agent_id }}
+          </p>
+        </div>
+        <UButton
+          color="blue" size="xs" icon="i-heroicons-arrow-down-tray"
+          :loading="downloadingId === configureAgent.id"
+          @click="downloadBundle(configureAgent)"
+        >{{ $t('settings.dataTunnels.wizard.downloadBtn') }}</UButton>
+      </div>
+
+      <!-- Extract -->
+      <div class="mt-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('settings.dataTunnels.wizard.extractTitle') }}</div>
+          <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-clipboard-document" @click="copy(extractCmdFor(configureAgent.edge_agent_id))">
+            {{ $t('settings.dataTunnels.connect.copy') }}
+          </UButton>
+        </div>
+        <pre class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-900 dark:bg-black p-3 text-[12px] leading-relaxed font-mono text-gray-100 overflow-x-auto whitespace-pre">{{ extractCmdFor(configureAgent.edge_agent_id) }}</pre>
+      </div>
+
+      <!-- Run -->
+      <div class="mt-4">
+        <div class="flex items-center justify-between mb-2">
+          <div class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ $t('settings.dataTunnels.wizard.runTitle') }}</div>
+          <UButton size="2xs" color="gray" variant="ghost" icon="i-heroicons-clipboard-document" @click="copy(runCmd)">
+            {{ $t('settings.dataTunnels.connect.copy') }}
+          </UButton>
+        </div>
+        <pre class="rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-900 dark:bg-black p-3 text-[12px] leading-relaxed font-mono text-gray-100 overflow-x-auto whitespace-pre">{{ runCmd }}</pre>
+      </div>
+
+      <div class="mt-5 flex justify-end">
+        <UButton color="gray" variant="ghost" size="sm" @click="configureAgent = null">
+          {{ $t('settings.dataTunnels.wizard.closeBtn') }}
         </UButton>
       </div>
     </div>
@@ -423,33 +476,22 @@ const startCertPolling = () => {
   pollCert()
 }
 
-// ── Config preview (mirrors the backend-generated config.yaml) ────────────
-const configYaml = computed(() => {
-  const id = createdAgent.value?.edge_agent_id || agentId.value || '<edge-agent-id>'
-  const name = createdAgent.value?.label || agentName.value || id
-  const org = orgId.value || '<organization-id>'
-  const url = caps.value?.agent_url || 'wss://<your-bow-host>:443'
+// ── Extract command (create a dir and unzip the downloaded bundle) ────────
+const bundleNameFor = (id?: string | null) => `bow-edge-agent-${id || 'agent'}`
+const extractCmdFor = (id?: string | null) => {
+  const dir = bundleNameFor(id)
   return [
-    `# Bow Data Edge Agent — generated for '${id}'.`,
-    '# Keep this file and the certs/ directory together; run the agent from here.',
-    `org_id: ${org}`,
-    `edge_agent_id: ${id}`,
-    `edge_agent_name: ${JSON.stringify(name)}`,
-    `tunnel_endpoint_url: ${url}`,
-    '',
-    '# mTLS to the broker (paths relative to this file).',
-    'tls_ca: certs/ca.pem',
-    'tls_cert: certs/client.pem',
-    'tls_key: certs/client-key.pem',
-    'tls_verify: true',
-    '',
-    '# Add the on-prem data sources this agent serves.',
-    'connections: []',
+    '# Create a directory and extract the downloaded bundle into it:',
+    `mkdir -p ${dir}`,
+    `unzip -o ${dir}.zip -d ${dir}`,
+    `cd ${dir}`,
   ].join('\n')
-})
+}
+// Wizard step 3 uses the agent just created.
+const extractCmd = computed(() => extractCmdFor(createdAgent.value?.edge_agent_id || agentId.value))
 
 const runCmd = computed(() => [
-  '# Extract the downloaded bundle, then from that directory:',
+  '# From the extracted bundle directory:',
   'docker run -d --name bow-data-edge-agent --restart unless-stopped \\',
   '  -v "$(pwd)/config.yaml:/etc/bow/config.yaml:ro" \\',
   '  -v "$(pwd)/certs:/etc/bow/certs:ro" \\',
@@ -460,17 +502,17 @@ const runCmd = computed(() => [
   '  bow/data-edge-agent:latest',
 ].join('\n'))
 
-// ── Bundle download ───────────────────────────────────────────────────────
-const downloading = ref(false)
+// ── Bundle download (any agent) ───────────────────────────────────────────
+const downloadingId = ref<string | null>(null)
 const downloadError = ref('')
 
-const downloadBundle = async () => {
-  if (!createdAgent.value) return
+const downloadBundle = async (agent: DataEdgeAgent | null) => {
+  if (!agent) return
   downloadError.value = ''
-  downloading.value = true
+  downloadingId.value = agent.id
   try {
     const { data, error } = await useMyFetch<Blob>(
-      `/api/data-tunnels/agents/${createdAgent.value.id}/bundle`,
+      `/api/data-tunnels/agents/${agent.id}/bundle`,
       { method: 'GET', responseType: 'blob' as any }
     )
     if (error?.value) {
@@ -481,17 +523,26 @@ const downloadBundle = async () => {
     const url = URL.createObjectURL(data.value as Blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `bow-edge-agent-${createdAgent.value.edge_agent_id}.zip`
+    a.download = `${bundleNameFor(agent.edge_agent_id)}.zip`
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
     URL.revokeObjectURL(url)
   } catch (e: any) {
     downloadError.value = e?.message || t('settings.dataTunnels.wizard.downloadError')
+    toast.add({ title: downloadError.value, color: 'red' })
   } finally {
-    downloading.value = false
+    downloadingId.value = null
   }
 }
+
+// ── Configure (view run instructions for an existing agent) ───────────────
+const configureAgent = ref<DataEdgeAgent | null>(null)
+const configureModalOpen = computed({
+  get: () => configureAgent.value !== null,
+  set: (v: boolean) => { if (!v) configureAgent.value = null },
+})
+const openConfigure = (agent: DataEdgeAgent) => { configureAgent.value = agent }
 
 const resetWizard = () => {
   stopCertPolling()
