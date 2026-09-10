@@ -468,7 +468,8 @@
       }
       return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: opts.decimals != null ? opts.decimals : (abs < 100 ? 2 : 0) }).format(n);
     }
-    if (opts.pct) return (opts.sign && n > 0 ? '+' : '') + n.toFixed(opts.decimals != null ? opts.decimals : 1) + '%';
+    if (opts.ratio) n = n * 100;  // a share (0.358) → 35.8%
+    if (opts.pct || opts.ratio) return (opts.sign && n > 0 ? '+' : '') + n.toFixed(opts.decimals != null ? opts.decimals : 1) + '%';
     if (opts.compact === false) return n.toLocaleString(undefined, { maximumFractionDigits: opts.decimals != null ? opts.decimals : 2 });
     if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(1) + 'B';
     if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';
@@ -1043,7 +1044,7 @@
     var good = flat ? null : (props.invert ? !up : up);
     var tone = flat ? 'text-ink-3' : (good ? 'text-positive' : 'text-negative');
     var txt;
-    if (props.pct) txt = (up ? '+' : '') + (v * 100).toFixed(props.decimals != null ? props.decimals : 1) + '%';
+    if (props.pct || props.ratio) txt = (up ? '+' : '') + (v * 100).toFixed(props.decimals != null ? props.decimals : 1) + '%';
     else if (props.unit === 'pp') txt = (up ? '+' : '') + v.toFixed(props.decimals != null ? props.decimals : 1) + ' pp';
     else txt = (up ? '+' : '') + window.fmt(v, { currency: props.currency, decimals: props.decimals });
     var icon = flat ? 'minus' : (up ? 'arrow-up-right' : 'arrow-down-right');
@@ -1292,7 +1293,18 @@
     var viz = props.viz || {};
     var baseRows = Array.isArray(props.rows) ? props.rows : (Array.isArray(viz.rows) ? viz.rows : []);
     var colSource = Array.isArray(props.columns) && props.columns.length ? { columns: props.columns } : viz;
-    var cols = React.useMemo(function() { return _infoCols(colSource, baseRows); }, [props.columns, viz.columns, baseRows]);
+    var cols = React.useMemo(function() {
+      var c = _infoCols(colSource, baseRows);
+      // Rows passed explicitly may be a derived shape (a grouped/ranked array)
+      // whose keys differ from viz.columns — fall back to the row keys rather
+      // than rendering a grid of dashes.
+      if (Array.isArray(props.rows) && !Array.isArray(props.columns) && baseRows.length && baseRows[0] && typeof baseRows[0] === 'object') {
+        var keys = Object.keys(baseRows[0]);
+        var overlap = c.filter(function(col) { return keys.indexOf(col.field) !== -1; }).length;
+        if (!overlap) c = keys.map(function(k) { return { field: k, header: k }; });
+      }
+      return c;
+    }, [props.columns, viz.columns, baseRows]);
     var sortable = props.sortable !== false;
     var selectable = props.selectable !== false;
     var exportable = props.exportable !== false;

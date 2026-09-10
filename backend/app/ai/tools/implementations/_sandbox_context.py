@@ -97,10 +97,11 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder />
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
-  <Delta value={0.12} pct invert chip label="" />   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
+  <Delta value={0.12} ratio invert chip label="" />  (ratio/pct: value is a share, 0.12 → +12.0%)   <Sparkline data={[…]} height={32} color="var(--bow-accent)" area endpoint />
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />
   <Eyebrow>Section label</Eyebrow>   <Divider>optional label</Divider>   <EmptyState icon="inbox">No rows match</EmptyState>   <LoadingSpinner size={24} />
-  fmt(n, { currency: true | 'EUR', pct: true, decimals, compact: false, sign: true })  ·  exportCSV(rows, { columns, filename })
+  fmt(n, { currency: true | 'EUR', pct: true, ratio: true, decimals, compact: false, sign: true })  ·  exportCSV(rows, { columns, filename })
+    pct: n is ALREADY a percentage (35.8 → "35.8%"); ratio: n is a share (0.358 → "35.8%"). A share passed with pct prints "0.4%" — the most common wrong number on a dashboard.
   Icons: any lucide name (trending-up, users, globe, music, disc-3, calendar, filter, alert-triangle, check-circle, clock, map-pin, package, …).
 
 PROVENANCE (required — the ⓘ popover lets readers inspect the data behind every number):
