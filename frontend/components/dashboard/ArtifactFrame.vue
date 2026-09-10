@@ -262,6 +262,23 @@
           <span>Identity parameters only — sources that authenticate per user still run with your credentials, so this user's actual rows may differ.</span>
         </div>
       </div>
+      <!-- Some charts withheld from this viewer: the dashboard still renders
+           the ones they can read; say which are missing and why. -->
+      <div
+        v-if="partiallyWithheld && !isLoading"
+        class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]"
+      >
+        <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+        <div>
+          <div v-if="withheldCharts.some(c => c.noAccess)">
+            {{ $t('artifactFrame.partialNoAccess', { charts: withheldCharts.filter(c => c.noAccess).map(c => c.title).join(', ') }) }}
+          </div>
+          <div v-if="withheldCharts.some(c => !c.noAccess)">
+            {{ $t('artifactFrame.partialFailed', { charts: withheldCharts.filter(c => !c.noAccess).map(c => c.title).join(', ') }) }}
+          </div>
+        </div>
+      </div>
+
       <!-- Loading State -->
       <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <div class="flex flex-col items-center gap-3">
@@ -311,7 +328,7 @@
            mode — withheld empty data must never reach the artifact code, nor
            surface as a code error with a Fix Error button. The backend never
            withholds from the report owner, so owners never see this. -->
-      <div v-else-if="snapshotWithheld" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
+      <div v-else-if="showViewerGate" class="absolute inset-0 flex items-center justify-center bg-white dark:bg-gray-900">
         <ViewerRunGate :state="gateState" :report-id="reportId"
           :is-running="isViewerRunning" :source-errors="dataSourceErrors"
           :error-message="gateErrorMessage" :source-type="gateSourceType" @run="runAsViewer" />
@@ -372,10 +389,17 @@
       <div v-else-if="iframeError" class="absolute inset-0 flex flex-col items-center justify-center bg-white dark:bg-gray-900">
         <Icon name="heroicons:exclamation-triangle" class="w-8 h-8 text-red-400 mb-3" />
         <h3 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">Dashboard failed to render</h3>
-        <p class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
+        <!-- A viewer missing some charts' data: the likely cause is artifact
+             code that assumed those rows exist. They cannot fix it (it is not
+             their dashboard), so explain instead of offering Fix Error. -->
+        <p v-if="partiallyWithheld" class="text-xs text-gray-500 dark:text-gray-400 max-w-md text-center">
+          {{ $t('artifactFrame.partialRenderFailed') }}
+        </p>
+        <p v-else class="text-xs text-gray-400 mb-3 max-w-md text-center font-mono bg-gray-50 dark:bg-gray-900 rounded p-2 border">
           {{ iframeError.length > 200 ? iframeError.slice(0, 200) + '...' : iframeError }}
         </p>
         <UButton
+          v-if="!partiallyWithheld"
           @click="fixRenderError"
           size="xs"
           color="red"
@@ -388,7 +412,7 @@
 
       <!-- Iframe (shown when artifact exists and data is ready) -->
       <iframe
-        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !snapshotWithheld && !iframeError && iframeSrcdoc"
+        v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !showViewerGate && !iframeError && iframeSrcdoc"
         ref="iframeRef"
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin allow-downloads"
@@ -1486,6 +1510,18 @@ const moreMenuItems = computed<MenuItem[][]>(() => {
 // snapshot_withheld and empty data, and rendering the artifact against them
 // crashes generated code that assumes rows exist. Mirror of /r/[id].
 const snapshotWithheld = ref(false);
+// Per-chart view of the same policy. A viewer refused ONE dataset used to lose
+// the whole dashboard to the gate; now the charts they can read render and
+// only these are called out (see showViewerGate).
+const withheldCharts = ref<Array<{ title: string; noAccess: boolean }>>([]);
+// Every query on the dashboard is withheld — nothing to render but the gate.
+const allWithheld = ref(false);
+// Some own run was refused by the provider (classified server-side as
+// error_code 'no_access'), as opposed to breaking for another reason.
+const viewerRunNoAccess = ref(false);
+// The dashboard renders, but some of its charts are unavailable to this viewer.
+const partiallyWithheld = computed(() =>
+  snapshotWithheld.value && !showViewerGate.value && withheldCharts.value.length > 0);
 // True when any of the dashboard's queries reads a delegated (per-user
 // credential) source: View-as swaps identity params only — source-level rows
 // still come back under the caller's own credentials, so the preview must
@@ -1517,11 +1553,21 @@ const gateSourceType = computed<string | null>(() => {
 
 // In-app the user is always signed in, so the gate never shows 'signin';
 // the machine-readable data-source error codes pick the fallback action.
+// The gate covers the dashboard only when there is nothing of it to show:
+// before this viewer has any run of their own (it auto-runs and shows
+// "loading"), while that run is in flight, or when EVERY query is withheld.
+// Withheld is per query, so a viewer refused one dataset still gets every
+// chart they can read — the fork makes the same call (keep what ran).
+const showViewerGate = computed(() =>
+  snapshotWithheld.value && (allWithheld.value || isViewerRunning.value || !hasOwnResult.value));
+
 const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
   if (isViewerRunning.value) return 'loading';
   const errs = dataSourceErrors.value;
   if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
-  if (errs.some((e) => e.code === 'no_access')) return 'no_access';
+  // Refused at the data-source level (no client) OR at query time (one
+  // dataset) — both are "no access", never the provider's HTTP status.
+  if (errs.some((e) => e.code === 'no_access') || viewerRunNoAccess.value) return 'no_access';
   if (errs.length > 0 || viewerRunFailedReason.value) return 'error';
   return 'ready';
 });
@@ -2074,6 +2120,9 @@ async function fetchData(artifactId?: string) {
     let anyOwnResult = false;
     let anyCredentialScoped = false;
     let failedReason: string | null = null;
+    const nextWithheldCharts: Array<{ title: string; noAccess: boolean }> = [];
+    let visibleQueries = 0;
+    let anyNoAccess = false;
 
     const nextParamSpecs: Record<string, any[]> = {};
     for (let qi = 0; qi < queries.length; qi++) {
@@ -2094,11 +2143,20 @@ async function fetchData(artifactId?: string) {
 
       // Per-viewer step-data policy markers: withheld snapshots gate the
       // render; an existing per-viewer result row gates auto-run.
-      if (step?.snapshot_withheld) anyWithheld = true;
       const vr = step?.viewer_result;
+      if (step?.snapshot_withheld) {
+        anyWithheld = true;
+        nextWithheldCharts.push({
+          title: query.title || 'Untitled',
+          noAccess: vr?.error_code === 'no_access',
+        });
+      } else {
+        visibleQueries += 1;
+      }
       if (vr) {
         anyOwnResult = true;
         if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
+        if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
       }
 
       // Process each visualization in the query
@@ -2111,6 +2169,10 @@ async function fetchData(artifactId?: string) {
           columns: step?.data?.columns || [],
           dataModel: step?.data_model || {},
           stepStatus: step?.status,
+          // Withheld from this viewer: rows are empty on purpose. Exposed so
+          // artifact code (and anything reading ARTIFACT_DATA) can tell an
+          // unavailable chart from one with genuinely no rows.
+          unavailable: !!step?.snapshot_withheld,
           // Provenance surfaced in the built-in InfoPopover on prebuilt comps
           code: step?.code || '',
           description: viz.description || query.description || step?.description || '',
@@ -2162,6 +2224,9 @@ async function fetchData(artifactId?: string) {
       visualizationsData.value = vizData;
     }
     snapshotWithheld.value = anyWithheld;
+    withheldCharts.value = nextWithheldCharts;
+    allWithheld.value = queries.length > 0 && visibleQueries === 0;
+    viewerRunNoAccess.value = anyNoAccess;
     hasOwnResult.value = anyOwnResult;
     credentialScoped.value = anyCredentialScoped;
     viewerRunFailedReason.value = failedReason;
@@ -2513,10 +2578,13 @@ const iframeSrcdoc = computed(() => {
   // Wait for visualization data to be loaded
   if (!dataReady.value) return undefined;
 
-  // Snapshot withheld: the steps carry empty data, and generated artifact
-  // code routinely assumes rows exist — don't execute it at all. The
-  // ViewerRunGate covers this state until the viewer's own run resolves it.
-  if (snapshotWithheld.value) return undefined;
+  // Nothing of the dashboard is viewable yet: generated artifact code
+  // routinely assumes rows exist, so don't execute it against all-empty data —
+  // the ViewerRunGate covers this state. With SOME charts withheld it does
+  // run: those charts get empty rows (flagged `unavailable`) and the banner
+  // names them; a render failure then gets a viewer-appropriate message
+  // instead of "Fix Error".
+  if (showViewerGate.value) return undefined;
 
   // Slides without previews carry python-pptx source; it must never be
   // injected into the iframe (the browser would render it as raw text).

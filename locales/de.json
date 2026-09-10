@@ -3382,7 +3382,10 @@
     "renameFailed": "Das Dashboard konnte nicht umbenannt werden.",
     "more": "Mehr",
     "schedule": "Aktualisierung planen",
-    "exportAs": "Als {format} exportieren"
+    "exportAs": "Als {format} exportieren",
+    "partialNoAccess": "Du hast keinen Zugriff auf die Daten für: {charts}",
+    "partialFailed": "Konnte nicht geladen werden: {charts}",
+    "partialRenderFailed": "Ein Teil dieses Dashboards nutzt Daten, auf die du keinen Zugriff hast, daher konnte es nicht angezeigt werden. Bitte die Person, der das Dashboard gehört, um Zugriff."
   },
   "filter": {
     "addFilters": "Filter hinzufügen",
@@ -4977,5 +4980,10 @@
     "searchColumns": "Spalten suchen…",
     "noColumns": "Keine passenden Spalten",
     "centrality": "Zentralität"
+  },
+  "fork": {
+    "preparing": "Deine Kopie wird vorbereitet…",
+    "preparingDetail": "Die Abfragen werden mit deinen eigenen Zugangsdaten ausgeführt. Das dauert meist nur ein paar Sekunden.",
+    "nothingRan": "Deine Kopie konnte nicht erstellt werden: Keine ihrer Abfragen ließ sich mit deinen Zugangsdaten ausführen."
   }
 }

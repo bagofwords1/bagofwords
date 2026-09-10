@@ -162,10 +162,24 @@
                      'loading'); the other gate states are the fallback when
                      auto-run can't succeed (anonymous, missing connection,
                      run failure). -->
-                <div v-if="snapshotWithheld" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
+                <div v-if="showViewerGate" class="absolute inset-0 z-20 flex items-center justify-center bg-white/85 dark:bg-gray-900/85">
                     <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
                         :is-running="isRunning" :source-errors="dataSourceErrors"
                         :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
+                </div>
+                <!-- Some charts withheld from this viewer: the rest render; say
+                     which are missing and why. (This page has no i18n context.) -->
+                <div v-else-if="partiallyWithheld"
+                     class="absolute top-2 left-1/2 -translate-x-1/2 z-20 max-w-[90%] flex items-start gap-1.5 px-3 py-1.5 rounded-lg bg-amber-50 dark:bg-amber-900/40 border border-amber-200 dark:border-amber-700 text-amber-800 dark:text-amber-200 shadow text-[11px]">
+                    <Icon name="heroicons:lock-closed" class="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                    <div>
+                        <div v-if="withheldCharts.some(c => c.noAccess)">
+                            You don't have access to the data for: {{ withheldCharts.filter(c => c.noAccess).map(c => c.title).join(', ') }}
+                        </div>
+                        <div v-if="withheldCharts.some(c => !c.noAccess)">
+                            Couldn't load: {{ withheldCharts.filter(c => !c.noAccess).map(c => c.title).join(', ') }}
+                        </div>
+                    </div>
                 </div>
 
                 <!-- Slides with Preview Images - Use SlideViewer -->
@@ -197,6 +211,7 @@
                     v-else-if="hasArtifacts && iframeSrcdoc && !hasSlidesWithPreviews && !isDocMode"
                     ref="artifactIframeRef"
                     :srcdoc="iframeSrcdoc"
+                    @load="onArtifactIframeLoad"
                     sandbox="allow-scripts allow-same-origin allow-downloads"
                     class="absolute inset-0 w-full h-full border-0 bg-white"
                 />
@@ -230,7 +245,7 @@
             <div v-else-if="activeTab === 'data'" class="absolute inset-0 overflow-y-auto bg-gray-50 dark:bg-gray-900 p-4">
                 <!-- Snapshot withheld: the data tables would be empty — show the
                      same viewer gate as the Report tab. -->
-                <div v-if="snapshotWithheld" class="flex items-center justify-center h-full">
+                <div v-if="showViewerGate" class="flex items-center justify-center h-full">
                     <ViewerRunGate :state="gateState" :report-id="String($route.params.id)"
                         :is-running="isRunning" :source-errors="dataSourceErrors"
                         :error-message="gateErrorMessage" :source-type="gateSourceType" @run="handleRun" />
@@ -330,6 +345,12 @@ const viewerLastRunAt = ref<Date | null>(null);
 // True when the backend hid the owner's snapshot from this viewer
 // (viewer-identity sharing on user-scoped data sources, or RLS)
 const snapshotWithheld = ref(false);
+// Per-chart view of the same policy (mirrors ArtifactFrame): a viewer refused
+// ONE dataset keeps every chart they can read; only these are called out.
+const withheldCharts = ref<Array<{ title: string; noAccess: boolean }>>([]);
+const allWithheld = ref(false);
+// Some own run was refused by the provider (server-classified 'no_access').
+const viewerRunNoAccess = ref(false);
 // True when any step already carries a per-viewer result row for this user —
 // auto-run only fires for a first-time viewer (no row at all); a failed
 // earlier run becomes an explicit fallback state instead of a retry loop.
@@ -365,12 +386,24 @@ const canRun = computed(() => {
 // succeed on its own. Data-source errors carry a machine-readable code so the
 // gate offers the right action: connect their credential ('connect'), ask an
 // admin ('no_access'), or retry ('error').
+// The gate covers the dashboard only when there is nothing of it to show:
+// no run of the viewer's own yet (auto-run shows "loading"), a run in
+// flight, or EVERY query withheld. Otherwise the charts the viewer can read
+// render and a banner names the rest — the same rule as ArtifactFrame and
+// as forking (keep what ran).
+const showViewerGate = computed(() =>
+    snapshotWithheld.value && (allWithheld.value || isRunning.value || !hasOwnResult.value));
+const partiallyWithheld = computed(() =>
+    snapshotWithheld.value && !showViewerGate.value && withheldCharts.value.length > 0);
+
 const gateState = computed<'loading' | 'signin' | 'connect' | 'no_access' | 'error' | 'ready'>(() => {
     if (isRunning.value) return 'loading';
     if (!canRun.value) return 'signin';
     const errs = dataSourceErrors.value;
     if (errs.some((e) => e.code === 'credentials_required')) return 'connect';
-    if (errs.some((e) => e.code === 'no_access')) return 'no_access';
+    // Refused for the whole source (no client) or for one dataset at query
+    // time — both are "no access", never the provider's HTTP status.
+    if (errs.some((e) => e.code === 'no_access') || viewerRunNoAccess.value) return 'no_access';
     if (errs.length > 0 || viewerRunFailedReason.value) return 'error';
     return 'ready';
 });
@@ -386,6 +419,7 @@ async function handleRun() {
         const run = (data.value || {}) as any;
         dataSourceErrors.value = run.data_source_errors || [];
         await loadVisualizationData(artifact.value?.id);
+        deliverArtifactData();
         lastRefreshedAt.value = new Date();
         if ((run.steps_failed ?? 0) > 0 || (run.data_source_errors || []).length > 0) {
             const dsError = (run.data_source_errors || [])[0]?.error;
@@ -567,7 +601,9 @@ const forkReasonLabel = computed(() => {
     switch (reason) {
         case 'not_logged_in': return 'Sign in to fork this report';
         case 'different_org': return 'You must be in the same organization';
-        case 'user_auth_required': return 'Data source requires user credentials';
+        // No 'user_auth_required' case: a delegated source no longer blocks
+        // forking. Access is decided by no_data_source_access, and then per
+        // query by whether the forker's own credentials can run it.
         case 'no_data_source_access': return 'You don\'t have access to the data sources';
         case 'forks_disabled': return 'Forking is disabled for this organization';
         default: return '';
@@ -748,20 +784,31 @@ async function loadVisualizationData(artifactId?: string) {
         let anyWithheld = false;
         let anyOwnResult = false;
         let failedReason: string | null = null;
+        const nextWithheldCharts: Array<{ title: string; noAccess: boolean }> = [];
+        let visibleQueries = 0;
+        let anyNoAccess = false;
         for (let qi = 0; qi < queries.length; qi++) {
             const query = queries[qi];
             // Public step endpoint - returns PublicStepSchema directly
             const { data: step } = stepResults[qi];
 
-            if ((step.value as any)?.snapshot_withheld) anyWithheld = true;
-
             // Steps the viewer re-ran carry their per-user result row — its
             // presence gates auto-run (first-time viewers only), and a failed
             // row's reason feeds the gate's error state.
             const vr = (step.value as any)?.viewer_result;
+            if ((step.value as any)?.snapshot_withheld) {
+                anyWithheld = true;
+                nextWithheldCharts.push({
+                    title: (query as any).title || 'Untitled',
+                    noAccess: vr?.error_code === 'no_access',
+                });
+            } else {
+                visibleQueries += 1;
+            }
             if (vr) {
                 anyOwnResult = true;
                 if (vr.status === 'error' && !failedReason) failedReason = vr.status_reason || null;
+                if (vr.status === 'error' && vr.error_code === 'no_access') anyNoAccess = true;
             }
             const viewerRun = vr?.last_run_at;
             if (viewerRun) {
@@ -821,6 +868,9 @@ async function loadVisualizationData(artifactId?: string) {
         await resolveParamOptions(rowsByQuery, titleToId, appliedByQuery);
         viewerLastRunAt.value = newestViewerRun;
         snapshotWithheld.value = anyWithheld;
+        withheldCharts.value = nextWithheldCharts;
+        allWithheld.value = queries.length > 0 && visibleQueries === 0;
+        viewerRunNoAccess.value = anyNoAccess;
         hasOwnResult.value = anyOwnResult;
         viewerRunFailedReason.value = failedReason;
     } catch (e) {
@@ -835,6 +885,11 @@ async function loadVisualizationData(artifactId?: string) {
 // mode and pushes fresh rows back with a new ARTIFACT_DATA message.
 // Anonymous viewers can't run (auth required) — their controls no-op.
 const artifactIframeRef = ref<HTMLIFrameElement | null>(null);
+// The artifact iframe is built ONCE from a frozen seed (srcdocSeed) and every
+// later data change has to be posted into it. A message posted before the
+// iframe finishes loading is simply lost, so deliveries wait for `load`.
+const artifactIframeLoaded = ref(false);
+let artifactPushPending = false;
 
 // App color mode, forwarded into the artifact iframe. Non-reactive snapshot so
 // a toggle updates the live iframe via postMessage instead of reloading srcdoc.
@@ -1000,6 +1055,31 @@ function postToArtifactIframe(msg: any) {
     } catch { /* iframe not ready */ }
 }
 
+// Get the rows just loaded into the artifact that is already on screen.
+//
+// Without this a viewer's run never reached the dashboard: the page loads the
+// fresh rows (loadVisualizationData) but the iframe keeps rendering its frozen
+// seed — for a first-time viewer, the withheld EMPTY rows. The gate lifted to
+// reveal "no data", a second Run changed nothing, and only a full reload
+// (which re-seeds the iframe) showed the data. Refresh-on-view had the same
+// gap: its fresher rows never left the page.
+function deliverArtifactData() {
+    if (artifactIframeLoaded.value) {
+        pushArtifactData();
+    } else {
+        // Still loading its first render (the auto-run case) — send on load.
+        artifactPushPending = true;
+    }
+}
+
+function onArtifactIframeLoad() {
+    artifactIframeLoaded.value = true;
+    if (artifactPushPending) {
+        artifactPushPending = false;
+        pushArtifactData();
+    }
+}
+
 function pushArtifactData() {
     postToArtifactIframe({
         type: 'ARTIFACT_DATA',
@@ -1138,6 +1218,9 @@ const iframeSrcdoc = computed(() => {
     });
 });
 
+// A new srcdoc is a new document — deliveries wait for its load again.
+watch(() => iframeSrcdoc.value, () => { artifactIframeLoaded.value = false; });
+
 // Resolve embedded files to PUBLIC, report-scoped token URLs so a non-auth
 // viewer can render generated images / PDFs in the artifact. The token is
 // authorized by (report is public) + (file is embedded in this report's artifact).
@@ -1187,6 +1270,7 @@ async function refreshOnView() {
         if (rerunError.value || !run || run.skipped || !run.steps_succeeded) return;
 
         await loadVisualizationData(artifact.value?.id);
+        deliverArtifactData();
         report.value.last_run_at = run.last_run_at;
         syncLastRefreshed();
     } catch (e) {

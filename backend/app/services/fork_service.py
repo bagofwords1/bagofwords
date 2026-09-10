@@ -7,6 +7,7 @@ Generates an AI summary of the original conversation as the first message.
 """
 
 import uuid
+from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple
 
 from fastapi import HTTPException
@@ -29,6 +30,16 @@ logger = get_logger(__name__)
 
 artifact_service = ArtifactService()
 
+# Step status for a fork step that hydrate_fork has not run yet.
+FORK_PENDING_STATUS = "pending"
+
+# A step still 'pending' after this long is not being hydrated any more —
+# the worker that owned the detached task restarted or crashed mid-run. Past
+# it the fork is treated as settled, so the page stops waiting and
+# refresh-on-view is no longer held off. Generous next to the observed
+# ~0.4s per query: a slow provider must not be mistaken for a dead task.
+FORK_HYDRATION_STALE_SECONDS = 300
+
 
 class ForkEligibility:
     def __init__(self, can_fork: bool, reason: Optional[str] = None):
@@ -44,6 +55,11 @@ class DuplicatedAssets(NamedTuple):
     query_id_map: Dict[str, str]
     viz_id_map: Dict[str, str]
     artifact: Optional[Artifact]
+    # {new_step_id: source code} for steps whose code was deliberately NOT
+    # written into the fork (delegated sources). The hydration pass runs each
+    # under the forker's own credentials and writes the code back only where
+    # that succeeded. Empty for system-only forks, which copy code as before.
+    pending_code: Dict[str, str] = {}
 
 
 class ForkService:
@@ -82,13 +98,30 @@ class ForkService:
         if str(report.organization_id) not in user_org_ids:
             return ForkEligibility(False, "different_org")
 
-        # Check all data source connections use system_only auth
-        for ds in report.data_sources:
-            if not hasattr(ds, 'connections') or not ds.connections:
-                continue
-            for conn in ds.connections:
-                if conn.auth_policy != "system_only":
-                    return ForkEligibility(False, "user_auth_required")
+        # NOTE: delegated (user_required) sources are deliberately NOT blocked
+        # here any more.
+        #
+        # The block dates from the first version of forking, where the fork did
+        # not copy the creator's step at all — it pointed at it
+        # (`default_step_id=old_query.default_step_id  # shared step reference`).
+        # Forking a delegated report then handed the forker the creator's own
+        # materialized rows, and refusing the fork was the only thing standing
+        # in the way.
+        #
+        # That was fixed in "Gate all step.data readers via one accessor" (July
+        # 2026), which gave the fork its own step row with `data={}` for exactly
+        # these sources — keyed on the same `auth_policy != 'system_only'` test
+        # this block used. From then on the block guarded a leak that could no
+        # longer happen, while still making every OAuth/OBO source permanently
+        # un-forkable, including for users who had signed in and could read it.
+        #
+        # What replaces it is behavioural rather than categorical: the fork is
+        # created with no rows and no SQL, and `hydrate_fork` restores each
+        # query only where the forker's OWN credentials could run it. A forker
+        # who cannot run anything ends up with no fork at all. Authorization
+        # itself is unchanged and still enforced below by
+        # `user_can_access_data_source` — auth_policy only ever described HOW a
+        # connection authenticates, never who is entitled to it.
 
         # Check user has access to all data sources
         from app.core.permission_resolver import user_can_access_data_source
@@ -190,7 +223,268 @@ class ForkService:
         await db.commit()
         await db.refresh(new_report)
 
+        # Handed to the caller rather than acted on here: hydration runs
+        # detached from this request (and this session), so the route owns
+        # spawning it. Empty for system-only forks, which are complete already.
+        new_report.pending_code = assets.pending_code
         return new_report
+
+    async def is_hydrating(self, db: AsyncSession, report_id: str) -> bool:
+        """Is hydrate_fork still due to fill this fork in?
+
+        True while any of the report's steps is still FORK_PENDING_STATUS —
+        a status only fork creation sets, so ordinary reports can never read as
+        hydrating. Steps pending for longer than FORK_HYDRATION_STALE_SECONDS
+        do not count: their task died with its worker, and without the cutoff
+        the page would wait forever and refresh-on-view would stay held off.
+
+        The one answer to "is the fork ready?" — the report page polls it
+        before rendering, and refresh-on-view consults it so the queries are
+        not run a second time underneath the hydration pass.
+        """
+        from sqlalchemy import func
+        from app.models.step import Step
+
+        cutoff = datetime.utcnow() - timedelta(seconds=FORK_HYDRATION_STALE_SECONDS)
+        pending = (await db.execute(
+            select(func.count(Step.id))
+            .select_from(Step)
+            .join(Query, Query.default_step_id == Step.id)
+            .where(
+                Query.report_id == str(report_id),
+                Step.status == FORK_PENDING_STATUS,
+                Step.created_at >= cutoff,
+            )
+        )).scalar() or 0
+        return pending > 0
+
+    async def hydrate_fork(
+        self,
+        fork_id: str,
+        user_id: str,
+        organization_id: str,
+        pending_code: Dict[str, str],
+    ) -> dict:
+        """Run a delegated-source fork's queries as the forker, then keep what worked.
+
+        A fork of a `user_required` source is created empty: no rows (they are
+        the creator's slice) and no SQL (the share withholds it from a reader
+        with no access). This restores both — but only per step, and only from
+        the forker's OWN successful run, so nothing the source owner could see
+        crosses over on the strength of the fork alone.
+
+        Runs detached from the request, on its own session: the caller has
+        already returned the fork id and the user is on the page. Failures are
+        per step and never raise — the fork keeps the charts that ran and marks
+        the rest as inaccessible.
+
+        When NOTHING ran, the forker has no access to the source at all: the
+        fork would be a shell of empty charts with no way to fill it, so it is
+        retired rather than left behind.
+
+        Known limit: "the run succeeded" proves the forker can execute the
+        code, which equals access to the source only because step code reaches
+        its source through its client (`ds_clients["<agent>:<connection>"]`),
+        and a forker with no usable identity has no client under that key — so
+        the lookup raises. Code that wrapped the lookup AND its only query in a
+        blanket `except` returning an empty frame would "succeed" without
+        access and have its SQL written back. No such step existed when this
+        was written (all 144 steps in a live install index the client outside
+        any try; the four that catch at all retry the same source or wrap a
+        secondary query), but it is behaviour of generated code, not a guarantee
+        this function enforces.
+        """
+        from app.dependencies import async_session_maker
+        from app.models.organization import Organization
+        from app.models.step import Step
+        from app.services.step_service import StepService
+
+        step_service = StepService()
+
+        succeeded: list[str] = []
+        failed: list[str] = []
+        # The subset of `failed` the provider refused outright — told apart
+        # from a query that broke (see access_errors) so each gets the right
+        # message on the step.
+        refused: set[str] = set()
+
+        async def _load(db):
+            """The fork, its forker and org — loaded fresh in whichever session
+            is about to use them (see the per-step loop below)."""
+            report = (await db.execute(
+                select(Report)
+                .options(
+                    selectinload(Report.data_sources).selectinload(DataSource.connections),
+                    selectinload(Report.files),
+                )
+                .where(Report.id == str(fork_id))
+            )).unique().scalar_one_or_none()
+            user = (await db.execute(select(User).where(User.id == str(user_id)))).scalar_one_or_none()
+            organization = (await db.execute(
+                select(Organization).where(Organization.id == str(organization_id))
+            )).scalar_one_or_none()
+            return report, user, organization
+
+        async with async_session_maker() as db:
+            report, user, organization = await _load(db)
+            if report is None or user is None:
+                logger.warning("Fork hydration: report %s or user %s is gone", fork_id, user_id)
+                return {"succeeded": 0, "failed": 0, "deleted": False}
+
+            # Clients are per data source, not per step: constructing them
+            # resolves credentials and, for some drivers, pays a connection
+            # handshake. They hold provider tokens, not database state, so one
+            # set serves every step's session below. A source whose client
+            # cannot be built at all fails its steps, which is the correct
+            # outcome — that IS "no access".
+            db_clients = {}
+            try:
+                from app.services.data_source_service import DataSourceService
+                from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
+
+                ds_service = DataSourceService()
+                for data_source in await resolve_run_agents(db, organization, user, report):
+                    try:
+                        db_clients.update(
+                            await ds_service.construct_clients(db, data_source, current_user=user)
+                        )
+                    except Exception as e:
+                        logger.info(
+                            "Fork hydration: no client for data source %s as user %s: %s",
+                            data_source.id, user_id, e,
+                        )
+            except Exception:
+                logger.warning("Fork hydration: client setup failed for %s", fork_id, exc_info=True)
+
+        # One session PER STEP. A failed step must be rolled back — rerun_step
+        # assigned its code onto the step in memory, and letting a later commit
+        # flush it would write SQL onto a step whose run failed. But a rollback
+        # expires every object in its session, and on an async session touching
+        # an expired object raises (MissingGreenlet) instead of reloading. With
+        # one shared session, the first refused query therefore took down every
+        # query after it: a forker with access to half a dashboard got "could
+        # not be run" on that half too, nothing counted as succeeded, and the
+        # fork was archived as if they had no access at all. (Commits never hit
+        # this — expire_on_commit is off — which is why success-then-failure
+        # worked and only failure-then-anything broke.) Separate sessions share
+        # no state, so a failure cannot reach the next step.
+        for step_id, code in (pending_code or {}).items():
+            async with async_session_maker() as sdb:
+                report, user, organization = await _load(sdb)
+                if report is None or user is None:
+                    failed.append(step_id)
+                    continue
+                org_settings = await organization.get_settings(sdb) if organization else None
+                try:
+                    await step_service.rerun_step(
+                        sdb, step_id, current_user=user, report=report,
+                        db_clients=db_clients, organization=organization,
+                        organization_settings=org_settings,
+                        code_override=code,
+                    )
+                    succeeded.append(step_id)
+                except Exception as e:
+                    # Discard the in-memory code assignment — the step keeps
+                    # neither code nor rows (see above).
+                    await sdb.rollback()
+                    failed.append(step_id)
+                    from app.services.access_errors import is_access_denied
+                    if is_access_denied(e):
+                        refused.add(step_id)
+                    # Logged with the real cause — the one place it is kept, for
+                    # telling an access failure from a broken query afterwards.
+                    logger.info(
+                        "Fork hydration: step %s failed for user %s: %s: %s",
+                        step_id, user_id, type(e).__name__, e,
+                    )
+
+        async with async_session_maker() as db:
+            report, user, organization = await _load(db)
+            # Settle every step this pass owned, in one statement per outcome.
+            #
+            # A step that could not run keeps empty code AND empty data; its
+            # reason says why, so the dashboard explains the empty chart. "No
+            # access" is claimed only for a recognised provider refusal: a
+            # forker WITH access once got it on a parameterized query that
+            # failed only because the fork had dropped its parameters. The
+            # provider's own error text is never surfaced; it can quote table
+            # and model names, the very detail the withheld code was kept back
+            # to protect.
+            from sqlalchemy import update
+
+            if succeeded:
+                await db.execute(
+                    update(Step)
+                    .where(Step.id.in_([str(i) for i in succeeded]))
+                    .values(status="success", status_reason=None)
+                )
+            # Two outcomes, two sentences. A provider refusal (HTTP 401/403,
+            # PowerBIEntityNotFound) is recognisable, and the forker is owed a
+            # plain "no access" for it. Anything else — a query that broke,
+            # like the KeyError a dropped parameter used to cause — gets the
+            # neutral wording rather than a false claim about permissions.
+            from app.services.access_errors import NO_ACCESS_REASON
+
+            broke = [str(i) for i in failed if i not in refused]
+            if refused:
+                await db.execute(
+                    update(Step)
+                    .where(Step.id.in_([str(i) for i in refused]))
+                    .values(status="error", status_reason=NO_ACCESS_REASON)
+                )
+            if broke:
+                await db.execute(
+                    update(Step)
+                    .where(Step.id.in_(broke))
+                    .values(
+                        status="error",
+                        status_reason=(
+                            "This query could not be run with your credentials, "
+                            "so it was not copied into your fork."
+                        ),
+                    )
+                )
+            if succeeded:
+                # This run IS the fork's first refresh. Stamping it is what
+                # keeps the page's refresh-on-view from running every query a
+                # second time the moment the dashboard mounts — its staleness
+                # gate reads last_run_at, and a fork is created with none.
+                await db.execute(
+                    update(Report)
+                    .where(Report.id == str(fork_id))
+                    .values(last_run_at=datetime.utcnow())
+                )
+            await db.commit()
+
+            if failed and not succeeded:
+                # Retired exactly the way a user's own delete retires a report
+                # (status='archived', scheduled prompts cleared, audited) —
+                # never a hard delete. Reports have no ORM delete cascade, so
+                # `db.delete` makes SQLAlchemy null out the children's
+                # report_id, which the NOT NULL constraints refuse (the fork's
+                # summary completion is the first to trip it). Inside a detached
+                # task that raise would just be logged, leaving the empty fork
+                # in place — the one outcome this branch exists to prevent.
+                from app.services.report_service import ReportService
+
+                await ReportService().archive_report(db, str(fork_id), user, organization)
+                logger.info(
+                    "Fork hydration: retired fork %s — user %s could run none of its %d queries",
+                    fork_id, user_id, len(failed),
+                )
+                return {"succeeded": 0, "failed": len(failed), "deleted": True}
+
+            if succeeded:
+                from app.services.thumbnail_service import ThumbnailService
+
+                try:
+                    # Regenerated from the FORKER's rows — the creator's
+                    # thumbnail was deliberately not copied.
+                    await ThumbnailService().regenerate_for_report(str(fork_id))
+                except Exception:
+                    logger.warning("Fork hydration: thumbnail failed for %s", fork_id, exc_info=True)
+
+        return {"succeeded": len(succeeded), "failed": len(failed), "deleted": False}
 
     async def _duplicate_assets(
         self,
@@ -224,10 +518,31 @@ class ForkService:
             has_user_scoped_connections,
             has_rls_relations,
         )
-        strict_source = (
-            await has_user_scoped_connections(db, str(original.id))
-            or await has_rls_relations(db, str(original.id))
-        )
+        user_scoped = await has_user_scoped_connections(db, str(original.id))
+        strict_source = user_scoped or await has_rls_relations(db, str(original.id))
+
+        # `code` needs a NARROWER rule than `data`.
+        #
+        # The public report already refuses a withheld reader the SQL itself
+        # ("the SQL leaks schema/table/filter details even without rows" —
+        # report_service._public_step). Copying it into a fork would hand that
+        # reader exactly what the share refused them, so the fork has to apply
+        # the same rule.
+        #
+        # But only for user-scoped sources. Under RLS the connection is
+        # system_only: the forker CAN run the query, they just resolve a
+        # different row slice — so withholding the code there would strand a
+        # fork that works today, without closing anything. Only a delegated
+        # source can leave the forker with no access at all, which is the case
+        # the withholding exists for.
+        #
+        # So the code is held out of the fork here and kept in memory; the
+        # hydration pass writes it back per step, but only onto the steps whose
+        # run under the forker's own credentials actually succeeded.
+        pending_code: Dict[str, str] = {}
+        # (new_query, source parameter specs), remapped once every query has
+        # been copied — see the block after the query loop.
+        pending_params: List[tuple] = []
 
         # -- Widgets --
         for old_widget in original.widgets:
@@ -279,6 +594,8 @@ class ForkService:
             db.add(new_query)
             await db.flush()
             query_id_map[str(old_query.id)] = str(new_query.id)
+            if old_query.parameters:
+                pending_params.append((new_query, old_query.parameters))
 
             # Copy the query's default step into a NEW row owned by the fork.
             old_step = old_query.default_step
@@ -286,10 +603,18 @@ class ForkService:
                 new_step = Step(
                     title=old_step.title,
                     slug=f"fork-{uuid.uuid4().hex[:8]}",
-                    status=old_step.status,
-                    status_reason=old_step.status_reason,
-                    prompt=old_step.prompt,
-                    code=old_step.code,
+                    # A delegated-source step arrives empty and is filled in by
+                    # hydrate_fork. 'pending' (never used by steps otherwise) is
+                    # what marks it as not yet run for this forker: the report
+                    # page waits on it instead of rendering an empty dashboard,
+                    # and refresh-on-view stays off it so the queries do not run
+                    # twice. Hydration moves it to 'success' or 'error'.
+                    status=FORK_PENDING_STATUS if user_scoped else old_step.status,
+                    status_reason=None if user_scoped else old_step.status_reason,
+                    # prompt rides with `code`: same authorship, and the share
+                    # never exposes it at all. (Empty on every row today.)
+                    prompt="" if user_scoped else old_step.prompt,
+                    code="" if user_scoped else old_step.code,
                     # Strict-mode (user-scoped) data is credential-differentiated
                     # to the source owner — never copy it into the fork; the
                     # forker runs it under their own credentials. System-only
@@ -306,6 +631,8 @@ class ForkService:
                 await db.flush()
                 new_query.default_step_id = str(new_step.id)
                 await db.flush()
+                if user_scoped and (old_step.code or "").strip():
+                    pending_code[str(new_step.id)] = old_step.code
 
             for old_viz in old_query.visualizations:
                 new_viz = Visualization(
@@ -319,12 +646,55 @@ class ForkService:
                 await db.flush()
                 viz_id_map[str(old_viz.id)] = str(new_viz.id)
 
+        # -- Query parameters (depends on the complete query_id_map) --
+        #
+        # The fork used to drop Query.parameters entirely. Saved step code
+        # reads its parameters by name — `depot = params["depot"]` — and with
+        # no specs the resolver hands the code `{}`, so every parameterized
+        # query in a fork raised KeyError: the dashboard's filters vanished and,
+        # under hydration, the query failed outright even for a forker with
+        # full access to the data.
+        #
+        # What is copied is the DEFINITION only — names, types, labels,
+        # defaults, identity bindings — which is the dashboard's own design,
+        # not anyone's data. The values the creator last ran with
+        # (Step.applied_params) stay behind: they can carry identity-derived
+        # values (an email, a department), the same boundary
+        # redact_applied_params guards on the read path. The forker's first
+        # run resolves from the declared defaults instead.
+        #
+        # `options_source.query_id` points a dropdown at the query that lists
+        # its options — a query in the SOURCE report. Left as-is, the fork's
+        # filter would keep reading the creator's report (the cross-report
+        # reference class the step-copy fix removed), so it is repointed at
+        # the fork's own copy. This runs after the loop because the options
+        # query may be copied after the query that uses it. A reference to a
+        # query outside this report has no copy to point at and is dropped —
+        # the parameter still works, it just offers no preset options.
+        import copy
+
+        for new_q, specs in pending_params:
+            remapped = copy.deepcopy(specs)
+            for spec in (remapped if isinstance(remapped, list) else []):
+                src = spec.get("options_source") if isinstance(spec, dict) else None
+                if isinstance(src, dict) and src.get("query_id"):
+                    target = query_id_map.get(str(src["query_id"]))
+                    if target:
+                        src["query_id"] = target
+                    else:
+                        spec["options_source"] = None
+            new_q.parameters = remapped
+        if pending_params:
+            await db.flush()
+
         # -- Artifact (depends on viz_id_map) --
         new_artifact = await self._duplicate_artifact(
-            db, original, new_report, user, viz_id_map,
+            db, original, new_report, user, viz_id_map, strict_source,
         )
 
-        return DuplicatedAssets(widget_id_map, query_id_map, viz_id_map, new_artifact)
+        return DuplicatedAssets(
+            widget_id_map, query_id_map, viz_id_map, new_artifact, pending_code,
+        )
 
     async def _duplicate_artifact(
         self,
@@ -333,20 +703,46 @@ class ForkService:
         new_report: Report,
         user: User,
         viz_id_map: Dict[str, str],
+        strict_source: bool = False,
     ) -> Optional[Artifact]:
-        """Duplicate the latest artifact with remapped visualization_ids."""
+        """Duplicate the latest artifact with remapped visualization_ids.
+
+        `strict_source` marks a source whose materialized output belongs to the
+        creator's identity. Two fields on the artifact are derived from that
+        output rather than from the dashboard's definition, so they are dropped
+        rather than copied — see the call sites below.
+        """
         latest = await artifact_service.get_latest_by_report(db, str(original.id))
         if not latest:
             return None
 
-        # Remap visualization_ids in content
+        # Remap every visualization id the artifact carries — not only the
+        # `visualization_ids` list, but the ids baked into its source too.
+        #
+        # Dashboards reach their data by id: `vizById("<viz uuid>")` in page
+        # code (182 calls across a live install, and the only id-keyed helper
+        # the artifact runtime has), and the equivalent references in doc-mode
+        # `markdown`. vizById only searches the data the host loaded for THIS
+        # artifact, which for a fork is the fork's own visualizations. Remapping
+        # just the list left the code asking for the source report's ids, so
+        # every fork of a vizById dashboard rendered empty — silently, since
+        # vizById returns null rather than raising. (It never fetched the
+        # source's data: the failure was empty, not a leak.)
+        #
+        # Rewriting the serialized content covers code, markdown and the list
+        # in one pass. Only ids present in viz_id_map are touched, so file ids
+        # and anything else pass through unchanged; UUIDs cannot collide with
+        # other text.
         old_content = latest.content or {}
-        new_content = dict(old_content)
-        old_viz_ids = old_content.get("visualization_ids", [])
-        if old_viz_ids:
-            new_content["visualization_ids"] = [
-                viz_id_map.get(vid, vid) for vid in old_viz_ids
-            ]
+        if viz_id_map:
+            import json
+
+            raw = json.dumps(old_content)
+            for old_vid, new_vid in viz_id_map.items():
+                raw = raw.replace(old_vid, new_vid)
+            new_content = json.loads(raw)
+        else:
+            new_content = dict(old_content)
 
         new_artifact = Artifact(
             report_id=str(new_report.id),
@@ -355,15 +751,28 @@ class ForkService:
             title=latest.title,
             mode=latest.mode,
             content=new_content,
-            generation_prompt=latest.generation_prompt,
+            # Authored against the CREATOR's result set, and it states facts
+            # about it in prose — real examples carry "the data source has only
+            # 9 records" and "two distinct activity types". That is the
+            # creator's row count and cardinality, which the forker's own slice
+            # need not match. Named as an open residual by the commit that
+            # introduced the withholding policy ("artifact prose/content that
+            # bakes in creator-derived values at generation time"); dropped
+            # here rather than carried into the fork.
+            generation_prompt=None if strict_source else latest.generation_prompt,
             version=1,
             status="completed",
         )
         db.add(new_artifact)
         await db.flush()
 
-        # Copy thumbnail if exists
-        if latest.thumbnail_path:
+        # The thumbnail is a rendered screenshot of the dashboard — the
+        # creator's actual numbers, baked into a PNG. copy_thumbnail is a raw
+        # shutil.copy2 with no policy check of its own, so a strict-source fork
+        # must not call it: the hydration pass regenerates the thumbnail from
+        # the forker's own run instead (rerun_report_steps already does this
+        # whenever a step produced fresh data).
+        if latest.thumbnail_path and not strict_source:
             try:
                 from app.services.thumbnail_service import ThumbnailService
                 thumbnail_service = ThumbnailService()

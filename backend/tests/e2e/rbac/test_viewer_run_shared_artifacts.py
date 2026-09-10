@@ -970,3 +970,560 @@ def test_creator_mode_blocked_on_rls_dashboards(
     resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
     assert resp.status_code == 200, resp.json()
     assert resp.json()["executed_as"] == "viewer"
+
+
+# ── Forking a delegated (user_required) source ──────────────────────────────
+#
+# Forking these was refused outright until the fork stopped carrying anything
+# credential-differentiated. The fork is now created EMPTY — no rows and no SQL
+# — and `hydrate_fork` fills in each query only where the forker's own
+# credentials could run it. These cover the creation half; the hydration half
+# is unit-tested (tests/unit/test_fork_hydration.py), where success and failure
+# can be driven deterministically instead of racing a background task.
+
+
+async def _attach_user_scoped_source(report_id: str):
+    """Attach a delegated (user_required) source to the report.
+
+    The counterpart to _attach_rls_relation: there the connection is
+    system_only and RLS differentiates the rows; here the connection itself
+    resolves credentials per user, so a reader may have no access at all.
+    """
+    from app.models.connection import Connection
+    from app.models.data_source import DataSource
+    from app.models.domain_connection import domain_connection
+    from app.models.report_data_source_association import report_data_source_association
+
+    suffix = uuid.uuid4().hex[:8]
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        conn = Connection(
+            name=f"delegated-{suffix}", type="powerbi",
+            config={"auth_type": "service_principal"},
+            organization_id=report.organization_id,
+            auth_policy="user_required",
+            allowed_user_auth_modes=["oauth"],
+        )
+        db.add(conn)
+        await db.flush()
+        ds = DataSource(
+            name=f"Delegated {suffix}",
+            organization_id=report.organization_id,
+            is_public=True,
+        )
+        db.add(ds)
+        await db.flush()
+        await db.execute(domain_connection.insert().values(
+            data_source_id=str(ds.id), connection_id=str(conn.id)))
+        await db.execute(report_data_source_association.insert().values(
+            report_id=str(report_id), data_source_id=str(ds.id)))
+        await db.commit()
+        return str(ds.id)
+
+
+@pytest.mark.e2e
+def test_fork_eligibility_allows_user_scoped_source(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A delegated source no longer makes a report un-forkable.
+
+    auth_policy describes HOW a connection authenticates, never who is
+    entitled to it — that is user_can_access_data_source, which still runs.
+    """
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+
+    resp = test_client.get(
+        f"/api/r/{report['id']}", headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    elig = resp.json()["fork_eligibility"]
+    assert elig["can_fork"] is True, f"still blocked: {elig['reason']}"
+
+
+@pytest.mark.e2e
+def test_fork_of_user_scoped_source_carries_no_code_or_data(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The regression that opening the fork could have introduced.
+
+    The share refuses a withheld reader the SQL itself ("the SQL leaks
+    schema/table/filter details even without rows"), so the fork must not hand
+    them the same SQL in their own copy. Both code and data land empty; only a
+    successful run under the forker's own credentials writes the code back.
+
+    Hydration is stubbed out so this asserts what fork_report itself produces —
+    otherwise the background pass (which, on this unreachable connection, fails
+    every step and deletes the fork) would race the assertions.
+    """
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+
+    spawned = []
+    monkeypatch.setattr(
+        "app.core.fire_and_forget.spawn",
+        lambda coro: (spawned.append(coro), coro.close())[0],
+    )
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+    assert spawned, "hydration was not scheduled for a delegated-source fork"
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+
+    assert not (fstep.get("code") or "").strip(), (
+        "fork of a delegated source carried the source SQL into the fork"
+    )
+    assert not (fstep.get("data") or {}).get("rows"), (
+        "fork of a delegated source carried the owner's rows into the fork"
+    )
+
+
+@pytest.mark.e2e
+def test_fork_of_system_only_source_still_carries_code(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The narrow rule stays narrow: a plain system-only fork is unchanged —
+    everyone resolves the same credentials, so there is nothing to withhold."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+
+    assert (fstep.get("code") or "").strip(), (
+        "system-only fork lost its code — the withholding rule leaked past "
+        "delegated sources"
+    )
+
+
+SOURCE_BOUND_CODE = """
+def generate_df(ds_clients, excel_files):
+    client = ds_clients["Delegated:delegated"]
+    return client.execute_query("EVALUATE 'Orders'")
+"""
+
+
+async def _set_step_code(step_id: str, code: str):
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        step.code = code
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_fork_hydration_with_no_access_removes_the_fork_against_a_real_db(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """hydrate_fork end to end, on the real session and schema.
+
+    The unit tests drive it with a stub session, which cannot catch what only
+    the database enforces — foreign keys, cascades, relationship loading. Here
+    the delegated connection is unreachable, so every query fails under the
+    forker's credentials and the fork must be retired, the same way a user's
+    own delete retires a report (archived, never hard-deleted).
+    """
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    # GOOD_CODE never touches ds_clients, so it "succeeds" for anyone and
+    # proves nothing about access. Real step code reaches its source through
+    # its client — all 144 steps in a live install do — and a forker with no
+    # usable identity on the source has no client under that key.
+    _run(_set_step_code(seeded["step_ids"][0], SOURCE_BOUND_CODE))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+    assert len(spawned) == 1
+
+    outcome = _run(spawned[0])
+    assert outcome["succeeded"] == 0 and outcome["deleted"] is True, outcome
+
+    async def _status():
+        async with async_session_maker() as db:
+            return (await db.get(Report, fork_id)).status
+
+    assert _run(_status()) == "archived"
+    # The source report is untouched by its fork's retirement.
+    async def _src_status():
+        async with async_session_maker() as db:
+            return (await db.get(Report, report["id"])).status
+    assert _run(_src_status()) != "archived"
+
+
+@pytest.mark.e2e
+def test_fork_hydration_success_writes_code_and_rows_against_a_real_db(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The mirror of the no-access case: a step the forker CAN run gets its
+    code and its (forker-owned) rows committed by rerun_step's code_override,
+    on the real session — the unit test only proves this against a stub.
+
+    GOOD_CODE needs no client, so it runs for anyone; that is exactly what
+    makes it usable here to drive the success path deterministically.
+    """
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    outcome = _run(spawned[0])
+    assert outcome == {"succeeded": 1, "failed": 0, "deleted": False}, outcome
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+
+    assert (fstep.get("code") or "").strip() == GOOD_CODE.strip()
+    # The forker's own fresh run — not the source owner's stale snapshot.
+    assert {r["month"] for r in fstep["data"]["rows"]} == FRESH_MONTHS
+
+
+async def _make_artifact_id_keyed(report_id: str):
+    """Give the seeded artifact what real dashboards carry: its visualization
+    ids baked into the source (`vizById("<uuid>")` in code, and the doc-mode
+    markdown equivalent) — not just the `visualization_ids` list. The seed's
+    placeholder `function App() {}` references nothing, which is why no fork
+    test ever noticed the ids in the code going stale."""
+    async with async_session_maker() as db:
+        art = (await db.execute(
+            __import__("sqlalchemy").select(Artifact).where(Artifact.report_id == report_id)
+        )).scalars().first()
+        ids = list((art.content or {}).get("visualization_ids") or [])
+        code = "function App() {\n" + "".join(
+            f'  const v{i} = vizById("{vid}");\n' for i, vid in enumerate(ids)
+        ) + "  return null;\n}"
+        md = "".join(f"{{{{viz:{vid}}}}}\n" for vid in ids)
+        art.content = {**(art.content or {}), "code": code, "markdown": md,
+                       "file_ids": ["file-untouched"]}
+        await db.commit()
+        return ids
+
+
+@pytest.mark.e2e
+def test_fork_remaps_visualization_ids_baked_into_the_dashboard(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Every fork of a vizById dashboard rendered EMPTY: the fork remapped the
+    `visualization_ids` list to its own visualizations but left the code asking
+    `vizById(<source id>)`, and vizById only searches the fork's own data — so
+    it returned null for every chart. Independent of the source's auth policy,
+    so this runs on a plain system-only report."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    source_viz_ids = _run(_make_artifact_id_keyed(report["id"]))
+    assert len(source_viz_ids) == 2
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    async def _fork_state():
+        from sqlalchemy import select
+        async with async_session_maker() as db:
+            art = (await db.execute(select(Artifact).where(Artifact.report_id == fork_id))).scalars().first()
+            own = {v.id for v in (await db.execute(
+                select(Visualization).where(Visualization.report_id == fork_id))).scalars().all()}
+            return art.content, own
+
+    content, fork_viz_ids = _run(_fork_state())
+    assert len(fork_viz_ids) == 2
+
+    blob = __import__("json").dumps(content)
+    # No trace of the source's visualizations anywhere in the fork's dashboard…
+    for vid in source_viz_ids:
+        assert vid not in blob, f"fork dashboard still references source viz {vid}"
+    # …and every reference now resolves to one of the fork's own charts.
+    for vid in fork_viz_ids:
+        assert f'vizById("{vid}")' in content["code"]
+        assert f"{{{{viz:{vid}}}}}" in content["markdown"]
+    assert set(content["visualization_ids"]) == fork_viz_ids
+    # Non-visualization ids pass through untouched.
+    assert content["file_ids"] == ["file-untouched"]
+
+
+# ── Parameterized dashboards ────────────────────────────────────────────────
+#
+# The shape that broke in a live fork: a dashboard query filtered by a
+# parameter (`depot`) whose dropdown options come from a SECOND query in the
+# same report. The fork dropped Query.parameters, so the saved code's
+# `params["depot"]` raised KeyError — and hydration reported it as "no access"
+# to a forker who had just run the same query successfully as a viewer.
+
+PARAM_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    depot = params["depot"]
+    return pd.DataFrame({"month": ["2024-01", "2024-02"], "revenue": [10, 20]})
+"""
+
+
+async def _make_second_query_parameterized(query_ids: list, step_ids: list):
+    """Query[1] gets a `depot` parameter whose options come from query[0],
+    and step code that reads it by name — as real dashboard code does."""
+    async with async_session_maker() as db:
+        options_q = await db.get(Query, query_ids[0])
+        user_q = await db.get(Query, query_ids[1])
+        user_q.parameters = [{
+            "name": "depot", "type": "string", "label": "Depot",
+            "default": None, "required": False, "source": "input",
+            "identity_binding": None, "options": None,
+            "options_source": {
+                "query_id": str(options_q.id),
+                "value_column": "month", "label_column": "month",
+            },
+        }]
+        options_qid = str(options_q.id)
+        await db.commit()
+    # Separate unit of work: Query.steps and Query.default_step point at each
+    # other, so dirtying a query and its step in one flush is a cycle.
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_ids[1])
+        step.code = PARAM_CODE
+        await db.commit()
+    return options_qid
+
+
+async def _fork_query_params(fork_id: str):
+    from sqlalchemy import select
+    async with async_session_maker() as db:
+        qs = (await db.execute(select(Query).where(Query.report_id == fork_id))).scalars().all()
+        return {str(q.id): (q.title, q.parameters) for q in qs}
+
+
+@pytest.mark.e2e
+def test_fork_carries_parameters_with_options_repointed_to_the_fork(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The fork keeps the parameter definition, and its dropdown reads the
+    FORK's copy of the options query — never the source report's."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    source_options_qid = _run(_make_second_query_parameterized(
+        seeded["query_ids"], seeded["step_ids"]))
+
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_queries = _run(_fork_query_params(resp.json()["id"]))
+
+    with_params = [p for _, p in fork_queries.values() if p]
+    assert len(with_params) == 1, f"fork lost the query parameters: {fork_queries}"
+    spec = with_params[0][0]
+    assert spec["name"] == "depot"
+    target = spec["options_source"]["query_id"]
+    assert target != source_options_qid, "dropdown still reads the SOURCE report's query"
+    assert target in fork_queries, "dropdown points at a query that is not in the fork"
+
+
+@pytest.mark.e2e
+def test_fork_hydration_runs_parameterized_queries_against_a_real_db(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The live regression, end to end on a delegated source: a forker with
+    access must get BOTH queries — including the one that reads a parameter —
+    rather than a KeyError reported to them as 'no access'."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_make_second_query_parameterized(seeded["query_ids"], seeded["step_ids"]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    outcome = _run(spawned[0])
+    assert outcome == {"succeeded": 2, "failed": 0, "deleted": False}, outcome
+
+    async def _param_step_code():
+        from sqlalchemy import select
+        async with async_session_maker() as db:
+            qs = (await db.execute(select(Query).where(Query.report_id == fork_id))).scalars().all()
+            q = next(q for q in qs if q.parameters)
+            return (await db.get(Step, q.default_step_id)).code
+
+    assert "params[\"depot\"]" in (_run(_param_step_code()) or "")
+
+
+# ── The fork page waits for hydration, and nothing runs twice ───────────────
+
+
+@pytest.mark.e2e
+def test_fork_status_reports_hydration_until_it_settles(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The fork is returned before its queries have run; the page polls
+    fork_status and waits rather than rendering the empty dashboard it would
+    otherwise catch mid-hydration."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    fork_id = resp.json()["id"]
+    status_url = f"/api/reports/{fork_id}/fork_status"
+    hdrs = _headers(viewer["token"], admin["org_id"])
+
+    assert test_client.get(status_url, headers=hdrs).json() == {"hydrating": True}
+    _run(spawned[0])
+    assert test_client.get(status_url, headers=hdrs).json() == {"hydrating": False}
+
+
+@pytest.mark.e2e
+def test_fork_queries_run_once_not_again_on_the_page_refresh(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The dashboard's mount fires refresh-on-view, which used to rerun every
+    query of a just-created fork: its last_run_at was empty, so the staleness
+    gate saw stale data — the queries ran twice, the second time possibly
+    while hydration was still writing the same steps. Now the rerun stays off
+    the fork while hydration runs, and hydration's own last_run_at keeps it off
+    afterwards."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    fork_id = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["id"]
+    rerun_url = f"/api/r/{fork_id}/rerun"
+    hdrs = _headers(viewer["token"], admin["org_id"])
+
+    # Dashboard mounts while hydration is still running → no second run.
+    during = test_client.post(rerun_url, headers=hdrs).json()
+    assert during["skipped"] is True and "fork hydrating" in during["message"], during
+
+    _run(spawned[0])
+
+    # …and after it: hydration's run was the refresh, so the data is fresh.
+    after = test_client.post(rerun_url, headers=hdrs).json()
+    assert after["skipped"] is True and "data is fresh" in after["message"], after
+
+
+# ── A viewer refused one dataset sees "no access", not the provider's error ─
+
+REFUSED_CODE = """
+def generate_df(ds_clients, excel_files):
+    raise RuntimeError('DAX query failed: HTTP 401 {"error":{"model":"secret_orders_model"}}')
+"""
+
+
+@pytest.mark.e2e
+def test_viewer_refused_one_dataset_gets_no_access_not_the_raw_provider_error(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The live case: a viewer who can use the data source is refused ONE
+    semantic model inside it. That refusal surfaces only at query time, and
+    used to reach the dashboard verbatim — "DAX query failed: HTTP 401 {…}" —
+    a status code instead of an explanation, and a response body that can
+    name the refused model. It is now classified: a fixed "no access" reason
+    and a machine-readable code, with nothing of the provider's text."""
+    from app.services.access_errors import NO_ACCESS_REASON
+
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", n_queries=2,
+    )
+    refused_qid = seeded["query_ids"][1]
+    _run(_set_step_code(seeded["step_ids"][1], REFUSED_CODE))
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["steps_succeeded"] == 1 and resp.json()["steps_failed"] == 1
+
+    step = _public_step(test_client, report["id"], refused_qid, token=viewer["token"])
+    vr = step["viewer_result"]
+    assert vr["status"] == "error"
+    assert vr["status_reason"] == NO_ACCESS_REASON
+    assert vr["error_code"] == "no_access"
+    # The error surface carries nothing of the provider's response. (The
+    # step's own `code` is out of scope here: this fixture is system-only, so
+    # its code is visible to viewers by design — and it is where this test's
+    # stand-in error literally spells the model name.)
+    blob = __import__("json").dumps(vr)
+    assert "secret_orders_model" not in blob and "HTTP 401" not in blob

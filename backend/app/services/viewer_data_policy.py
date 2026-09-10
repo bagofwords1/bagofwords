@@ -90,9 +90,17 @@ async def resolve_step_data(
             ).order_by(StepUserResult.last_run_at.desc())
         )).scalars().first()
         if row is not None:
+            from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
             viewer_result = {
                 "status": row.status,
                 "status_reason": row.status_reason,
+                # Machine-readable, so the dashboard can tell "you may not see
+                # this chart" from a query that broke — see access_errors.
+                "error_code": (
+                    NO_ACCESS_CODE
+                    if row.status == "error" and row.status_reason == NO_ACCESS_REASON
+                    else None
+                ),
                 "executed_as": row.executed_as,
                 "last_run_at": row.last_run_at.isoformat() if row.last_run_at else None,
             }

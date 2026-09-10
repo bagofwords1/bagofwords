@@ -64,9 +64,13 @@
 					<div v-else-if="mobileView === 'agent'" class="h-full overflow-y-auto">
 						<ReportAgentPanel ref="mobileAgentPanelRef" :agents="currentAgents" @starter-click="handleExampleClick" @connected="handleAgentConnected" />
 					</div>
-					<!-- Dashboard View -->
+					<!-- Dashboard View — a fork waits for its queries to run first -->
+					<div v-else-if="mobileView === 'dashboard' && reportLoaded && report?.id && !forkReady" class="p-4">
+						<ForkPreparing :nothing-ran="forkNothingRan" />
+					</div>
 					<ArtifactFrame
 						v-else-if="mobileView === 'dashboard' && reportLoaded && report?.id"
+						:key="artifactFrameKey"
 						:report-id="report.id"
 						:report="report"
 						:artifacts="reportArtifacts"
@@ -93,9 +97,11 @@
 		<div class="flex-1 overflow-y-auto mt-4 pb-4 chat-messages" :class="{ 'compact-messages': isExcel }" ref="scrollContainer">
 			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
 
-				<!-- Forked queries panel (shown for forked reports) -->
+				<!-- Forked queries panel (shown for forked reports) — fetched
+				     once, so it too waits until hydration has filled the steps -->
+				<ForkPreparing v-if="report?.forked_from_id && !forkReady" :nothing-ran="forkNothingRan" class="mb-4" />
 				<ForkedQueriesPanel
-					v-if="forkedQueries.length > 0"
+					v-else-if="forkedQueries.length > 0"
 					:queries="forkedQueries"
 					:artifact-ref="forkedArtifactRef"
 				/>
@@ -1042,9 +1048,14 @@
 				class="h-full"
 			/>
 
+			<!-- A fork's dashboard waits until its queries have run as the forker -->
+			<div v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout && !forkReady" class="p-4">
+				<ForkPreparing :nothing-ran="forkNothingRan" />
+			</div>
 			<!-- Artifact View (handles all states: loading, empty, has artifacts) -->
 			<ArtifactFrame
 				v-else-if="rightPanelView === 'artifact' && reportLoaded && report?.id && !hasLegacyLayout"
+				:key="artifactFrameKey"
 				:report-id="report.id"
 				:report="report"
 				:artifacts="reportArtifacts"
@@ -1194,6 +1205,7 @@ import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
 import DashboardComponent from '~/components/DashboardComponent.vue'
 import ArtifactFrame from '~/components/dashboard/ArtifactFrame.vue'
+import ForkPreparing from '~/components/ForkPreparing.vue'
 import CompletionItemFeedback from '~/components/CompletionItemFeedback.vue'
 import FollowUpSuggestions from '~/components/report/FollowUpSuggestions.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
@@ -2290,6 +2302,15 @@ async function openScheduledTaskById(taskId: string) {
 const forkedQueries = ref<any[]>([])
 
 async function enrichForkedQueries() {
+    // The panel is fetched once, so it must not be fetched before a fork's
+    // queries have been filled in — it would cache empty steps that only a
+    // manual reload replaced. This runs from two independent paths (the
+    // completions load and the hydration watcher), in either order; deferring
+    // until the status is known and settled means whichever runs last sees
+    // the filled steps. Hydration can finish in ~0.3s — often before the
+    // page's first status read — so "is it still running?" alone is not
+    // enough: the panel may already have been fetched mid-hydration.
+    if (!forkStatusChecked.value || forkHydrating.value) return
     const forkSummary = messages.value.find((m: any) => m.is_fork_summary)
     if (!forkSummary?.fork_asset_refs) {
         forkedQueries.value = []
@@ -2329,6 +2350,94 @@ const forkedArtifactRef = computed(() => {
     if (!forkSummary?.fork_asset_refs) return null
     const artifactRef = (forkSummary.fork_asset_refs as any[]).find((ref: any) => ref.type === 'artifact')
     return artifactRef || null
+})
+
+// ── Fork hydration ──────────────────────────────────────────────────────────
+// A fork of a delegated (user_required) source is returned before its queries
+// have run: they are filled in by a background pass, under the forker's own
+// credentials, a fraction of a second to a few seconds later. Rendering right
+// away painted an empty dashboard and an empty query panel that only a manual
+// reload fixed. So a fork's dashboard and query panel wait on
+// /fork_status, and load once hydration has settled.
+//
+// It also keeps the queries to ONE run. The dashboard's mount fires
+// refresh-on-view; mounted mid-hydration it would rerun every query
+// underneath the hydration pass. Mounting after it, the backend skips that
+// rerun — hydration stamped last_run_at, so the data reads as fresh.
+const forkStatusChecked = ref(false)
+const forkHydrating = ref(false)
+const forkNothingRan = ref(false)
+// Bumped when hydration settles, to remount the dashboard on the filled data.
+const artifactFrameKey = ref(0)
+const FORK_HYDRATION_POLL_MS = 1000
+// Two minutes. The backend already stops reporting a step as hydrating after
+// five, so this cap only guards against a request loop that never settles.
+const FORK_HYDRATION_MAX_POLLS = 120
+let forkHydrationTimer: ReturnType<typeof setTimeout> | null = null
+
+// Non-forks never wait; a fork waits until its status is known and settled —
+// and a fork none of whose queries ran stays on its explanation, never falls
+// through to the empty dashboard it would otherwise render.
+const forkReady = computed(() =>
+    !report.value?.forked_from_id
+    || (forkStatusChecked.value && !forkHydrating.value && !forkNothingRan.value))
+
+async function fetchForkHydrating(): Promise<boolean> {
+    try {
+        const { data } = await useMyFetch(`/api/reports/${report_id}/fork_status`)
+        return !!(data.value as any)?.hydrating
+    } catch {
+        // A status we cannot read must not trap the page behind a spinner.
+        return false
+    }
+}
+
+async function watchForkHydration() {
+    if (!report.value?.forked_from_id) {
+        forkStatusChecked.value = true
+        await enrichForkedQueries()
+        return
+    }
+    forkHydrating.value = await fetchForkHydrating()
+    forkStatusChecked.value = true
+    if (!forkHydrating.value) {
+        // Settled before we asked — possibly after the completions load
+        // already tried the panel (and deferred). Fetch it now.
+        await enrichForkedQueries()
+        return
+    }
+
+    let polls = 0
+    const tick = async () => {
+        polls += 1
+        if (await fetchForkHydrating() && polls < FORK_HYDRATION_MAX_POLLS) {
+            forkHydrationTimer = setTimeout(tick, FORK_HYDRATION_POLL_MS)
+            return
+        }
+        forkHydrationTimer = null
+        await onForkHydrated()
+    }
+    forkHydrationTimer = setTimeout(tick, FORK_HYDRATION_POLL_MS)
+}
+
+async function onForkHydrated() {
+    await loadReport()
+    // A fork none of whose queries could run is retired server-side
+    // (archived) — say so instead of showing it as an empty dashboard.
+    if (report.value?.status === 'archived') {
+        forkNothingRan.value = true
+        forkHydrating.value = false
+        return
+    }
+    forkHydrating.value = false
+    artifactFrameKey.value += 1
+    await enrichForkedQueries()
+    if (hasLegacyLayout.value) await loadVisualizations()
+}
+
+onBeforeUnmount(() => {
+    if (forkHydrationTimer) clearTimeout(forkHydrationTimer)
+    forkHydrationTimer = null
 })
 
 const nonSeedMessages = computed(() => {
@@ -5383,6 +5492,8 @@ onMounted(async () => {
 	slowLoads.then(() => touchViewed()).catch(() => {})
 
 	await workspaceLoads
+	// Resolves on the first status read; polling (if any) continues detached.
+	await watchForkHydration()
 
 	// Artifact reports load their filtered query/Step data inside ArtifactFrame;
 	// the broad unfiltered query list is only needed by the legacy grid. Summary

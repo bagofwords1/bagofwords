@@ -3382,7 +3382,10 @@
     "renameFailed": "Impossible de renommer le tableau de bord.",
     "more": "Plus",
     "schedule": "Planifier l'actualisation",
-    "exportAs": "Exporter en {format}"
+    "exportAs": "Exporter en {format}",
+    "partialNoAccess": "Vous n’avez pas accès aux données de : {charts}",
+    "partialFailed": "Impossible de charger : {charts}",
+    "partialRenderFailed": "Une partie de ce tableau de bord utilise des données auxquelles vous n’avez pas accès ; il n’a donc pas pu être affiché. Demandez l’accès à son propriétaire."
   },
   "filter": {
     "addFilters": "Ajouter des filtres",
@@ -4977,5 +4980,10 @@
     "searchColumns": "Rechercher des colonnes…",
     "noColumns": "Aucune colonne correspondante",
     "centrality": "Centralité"
+  },
+  "fork": {
+    "preparing": "Préparation de votre copie…",
+    "preparingDetail": "Exécution des requêtes avec vos propres identifiants. Cela prend généralement quelques secondes.",
+    "nothingRan": "Votre copie n’a pas pu être créée : aucune de ses requêtes n’a pu s’exécuter avec vos identifiants."
   }
 }

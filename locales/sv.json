@@ -3382,7 +3382,10 @@
     "renameFailed": "Det gick inte att byta namn på instrumentpanelen.",
     "more": "Mer",
     "schedule": "Schemalägg uppdatering",
-    "exportAs": "Exportera som {format}"
+    "exportAs": "Exportera som {format}",
+    "partialNoAccess": "Du har inte åtkomst till data för: {charts}",
+    "partialFailed": "Kunde inte läsas in: {charts}",
+    "partialRenderFailed": "En del av den här instrumentpanelen använder data du inte har åtkomst till, så den kunde inte visas. Be ägaren om åtkomst."
   },
   "filter": {
     "addFilters": "Lägg till filter",
@@ -4977,5 +4980,10 @@
     "searchColumns": "Sök kolumner…",
     "noColumns": "Inga matchande kolumner",
     "centrality": "Centralitet"
+  },
+  "fork": {
+    "preparing": "Förbereder din kopia…",
+    "preparingDetail": "Kör frågorna med dina egna inloggningsuppgifter. Det brukar ta några sekunder.",
+    "nothingRan": "Din kopia kunde inte skapas: ingen av dess frågor kunde köras med dina inloggningsuppgifter."
   }
 }

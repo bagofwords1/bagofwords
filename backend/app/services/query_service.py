@@ -125,6 +125,12 @@ async def resolve_options_source_refs(
     return out
 
 
+def _no_access_code(status_reason):
+    """'no_access' when a viewer run's reason is the classified refusal."""
+    from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+    return NO_ACCESS_CODE if status_reason == NO_ACCESS_REASON else None
+
+
 class QueryService:
 
     def __init__(self) -> None:
@@ -887,6 +893,11 @@ class QueryService:
             raise
         except Exception as e:
             df, status, status_reason = None, "error", str(e)
+            # Same treatment as the dashboard's viewer run: a per-dataset
+            # refusal becomes "no access", never the provider's raw text.
+            from app.services.access_errors import is_access_denied, NO_ACCESS_REASON
+            if is_access_denied(status_reason):
+                status_reason = NO_ACCESS_REASON
         finally:
             if usage_context is not None:
                 try:
@@ -919,6 +930,7 @@ class QueryService:
             "cached": False,
             "status": "error",
             "error": status_reason,
+            "error_code": _no_access_code(status_reason),
             "step_id": str(step.id),
         }
 
