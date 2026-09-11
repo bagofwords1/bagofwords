@@ -127,6 +127,14 @@ def test_share_helper_is_taught_and_implemented():
     assert "share(part, whole" in SANDBOX_RUNTIME_PROMPT
 
 
+def test_pct_reads_a_share_and_says_so():
+    """fmt's pct is share-tolerant (a magnitude <= 1 is multiplied by 100) and
+    the prompt documents the rule plus the exact escape hatch."""
+    src = GLOBALS.read_text(encoding="utf-8")
+    assert "!opts.exact && n !== 0 && Math.abs(n) <= 1" in src
+    assert "exact: true" in SANDBOX_RUNTIME_PROMPT
+
+
 def test_prompt_teaches_tokens_not_raw_colors():
     for needle in ("setTheme(", "useTheme()", "bg-surface", "text-ink", "font-display", "MERGES with the defaults", "<Icon name="):
         assert needle in SANDBOX_RUNTIME_PROMPT, needle

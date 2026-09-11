@@ -470,8 +470,16 @@
       }
       return new Intl.NumberFormat('en-US', { style: 'currency', currency: cur, maximumFractionDigits: opts.decimals != null ? opts.decimals : (abs < 100 ? 2 : 0) }).format(n);
     }
-    if (opts.ratio) n = n * 100;  // a share (0.358) → 35.8%
-    if (opts.pct || opts.ratio) return (opts.sign && n > 0 ? '+' : '') + n.toFixed(opts.decimals != null ? opts.decimals : 1) + '%';
+    if (opts.pct || opts.ratio) {
+      // `ratio` is explicit (0.358 → 35.8%). `pct` accepts either form: a
+      // magnitude at or below 1 is read as a share, anything larger as an
+      // already-computed percentage. Passing a share to pct and printing
+      // "0.4%" instead of "35.8%" was the most common wrong number on a
+      // generated dashboard; `exact: true` opts out for a genuine sub-1%
+      // percentage. share(part, whole) remains the clearest spelling.
+      if (opts.ratio || (!opts.exact && n !== 0 && Math.abs(n) <= 1)) n = n * 100;
+      return (opts.sign && n > 0 ? '+' : '') + n.toFixed(opts.decimals != null ? opts.decimals : 1) + '%';
+    }
     if (opts.compact === false) return n.toLocaleString(undefined, { maximumFractionDigits: opts.decimals != null ? opts.decimals : 2 });
     if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(1) + 'B';
     if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(1) + 'M';

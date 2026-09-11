@@ -103,7 +103,8 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   <ProgressBar value={0.72} tone="accent|positive|warning|negative|ink" />   <Icon name="<lucide name, kebab-case>" size={16} strokeWidth={2} />
   <Eyebrow>Section label</Eyebrow>   <Divider>optional label</Divider>   <EmptyState icon="inbox">No rows match</EmptyState>   <LoadingSpinner size={24} />
   fmt(n, { currency: true | 'EUR', pct: true, ratio: true, decimals, compact: false, sign: true })  ·  exportCSV(rows, { columns, filename })
-    pct: n is ALREADY a percentage (35.8 → "35.8%"); ratio: n is a share (0.358 → "35.8%"). A share passed with pct prints "0.4%" — the most common wrong number on a dashboard.
+    pct accepts either form — a magnitude ≤ 1 is read as a share (0.358 → "35.8%"), larger values as an already-computed percentage (35.8 → "35.8%");
+    pass `exact: true` for a genuine sub-1% percentage (0.4 → "0.4%"). `ratio: true` states the share reading explicitly.
   share(part, whole, { decimals })  → "35.8%" — ALWAYS use this for a proportion ("X% of revenue", "share of catalog"); never divide and pass the result to fmt's pct.
   Icons: any lucide name (trending-up, users, globe, music, disc-3, calendar, filter, alert-triangle, check-circle, clock, map-pin, package, …).
 
