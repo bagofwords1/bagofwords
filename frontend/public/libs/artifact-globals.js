@@ -1732,6 +1732,14 @@
   _applyTheme();
   window.addEventListener('bow-colormode', function() { _applyTheme(); });
 
+  // Grid margins may be a number, "8", "8%" or "8px"; only a plain pixel
+  // value can be compared to the space a legend needs.
+  function _px(v) {
+    if (typeof v === 'number') return v;
+    var m = /^(\d+(?:\.\d+)?)(px)?$/.exec(String(v || '').trim());
+    return m ? parseFloat(m[1]) : Infinity;   // '%' or 'auto' → leave it alone
+  }
+
   function safeOption(opt) {
     if (opt && opt.tooltip && typeof opt.tooltip.formatter === 'function') {
       var orig = opt.tooltip.formatter;
@@ -1764,8 +1772,11 @@
       if (lg && !Array.isArray(lg) && lg.show !== false && !Array.isArray(o.grid)) {
         var g = {}; for (var gk in (o.grid || {})) g[gk] = o.grid[gk];
         var atBottom = lg.bottom != null || (lg.top == null && lg.y === 'bottom');
-        if (atBottom && g.bottom == null) g.bottom = 36;
-        if (!atBottom && g.top == null) g.top = 44;
+        // A legend needs a band of its own; a grid margin smaller than that
+        // puts the legend on top of the axis labels, so raise it rather than
+        // only filling in a missing value.
+        if (atBottom && (g.bottom == null || _px(g.bottom) < 36)) g.bottom = 36;
+        if (!atBottom && (g.top == null || _px(g.top) < 44)) g.top = 44;
         if (o === opt) { o = {}; for (var k2 in opt) o[k2] = opt[k2]; }
         o.grid = g;
       }
