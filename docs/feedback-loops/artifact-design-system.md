@@ -120,6 +120,12 @@ before/after contact sheet is the deliverable of this loop.
 
 ## Tests
 
+Full run of the artifact suites on the final tree: **172 passed, 1 skipped,
+2 failed**. Both failures are
+`test_artifact_relationship_loading.py::test_read_query_loads_only_requested_query_graph`,
+which **fails identically on the pre-change base commit** (`7d90eab`) — it is
+a pre-existing failure about query-graph loading, unrelated to this work.
+
 `backend/tests/unit/test_artifact_design_system.py` (theme registry parity
 between prompt and globals, runtime stamp/cache-buster parity, the design
 gate on themed vs legacy payloads, positional-access rejection, Tailwind
