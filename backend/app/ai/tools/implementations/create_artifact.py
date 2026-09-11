@@ -2139,6 +2139,19 @@ Vary layouts between:
   never overlap a subtitle, accent line or chart with the title block.
 
 ═══════════════════════════════════════════════════════════════════════════════
+CHART CHECKLIST — verify each line against your code before you finish
+═══════════════════════════════════════════════════════════════════════════════
+1. SORTED. A ranked bar is sorted by value. A time axis is sorted ASCENDING (oldest → newest):
+   `rows.slice().sort((a, b) => String(a.month).localeCompare(String(b.month)))` — never trust the row order.
+2. TRIMMED. A ranked chart renders `.slice(0, 10)` (8–12 max) and its subtitle says so. The tail belongs in the table.
+3. ONE COLOR. A single-series chart is ONE color: the theme's first palette entry, or t.colors.accent for the hero.
+   Per-bar colors are only for highlighting ONE bar (the leader, the selected value) against the rest.
+4. FORMATTED. Axis and label formatters use fmt(): `axisLabel: {{ formatter: v => fmt(v, {{ currency: true }}) }}`.
+   Any proportion in a title, subtitle or cell comes from share(part, whole).
+5. FITS. Horizontal bars need ~26px of height per bar (10 bars ≈ 300px). A legend gets its own row.
+   Long category names get `axisLabel: {{ width: 110, overflow: 'truncate' }}`.
+
+═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT - Example with Design Principles Applied
 ═══════════════════════════════════════════════════════════════════════════════
 
