@@ -30,6 +30,15 @@ NO_ACCESS_REASON = "You do not have access to the data behind this query."
 # credential fails earlier, as credentials_required. Power BI answers a model
 # the identity cannot see with 404 PowerBIEntityNotFound rather than 403;
 # a bare 404 is left alone, since elsewhere it can simply mean a wrong id.
+#
+# Known conflation, accepted deliberately: PowerBIEntityNotFound is also what a
+# genuinely DELETED model returns, so a stale reference is reported as "no
+# access" and, during fork hydration, counted as a refusal. The alternative is
+# to distinguish them by asking the provider whether the model exists — which
+# is the disclosure ("this model exists, you just cannot see it") that the
+# fixed reason and the withheld response body exist to prevent. Reporting a
+# broken reference as a refusal is the safe direction of the two; the real
+# cause is in the logs (hydrate_fork logs every failure with its exception).
 _ACCESS_DENIED = re.compile(r"\bHTTP\s+(?:401|403)\b|PowerBIEntityNotFound", re.IGNORECASE)
 
 

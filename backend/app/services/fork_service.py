@@ -454,9 +454,25 @@ class ForkService:
                     .where(Report.id == str(fork_id))
                     .values(last_run_at=datetime.utcnow())
                 )
+            nothing_ran = bool(failed) and not succeeded
+            if nothing_ran:
+                # Archived in the SAME commit that settles the steps. Split
+                # across two commits, a status poll landing between them sees
+                # no pending step and calls the fork ready, then loads a report
+                # still reading 'draft' — and the page renders the empty
+                # dashboard instead of the "nothing ran" explanation, which is
+                # the one outcome this branch exists to prevent. archive_report
+                # below still runs, for the scheduled prompts and the audit
+                # entry; setting the status twice is harmless, and doing it
+                # here means a failure inside it cannot leave the fork live.
+                await db.execute(
+                    update(Report)
+                    .where(Report.id == str(fork_id))
+                    .values(status="archived")
+                )
             await db.commit()
 
-            if failed and not succeeded:
+            if nothing_ran:
                 # Retired exactly the way a user's own delete retires a report
                 # (status='archived', scheduled prompts cleared, audited) —
                 # never a hard delete. Reports have no ORM delete cascade, so
@@ -517,6 +533,7 @@ class ForkService:
         from app.services.viewer_data_policy import (
             has_user_scoped_connections,
             has_rls_relations,
+            redact_applied_params,
         )
         user_scoped = await has_user_scoped_connections(db, str(original.id))
         strict_source = user_scoped or await has_rls_relations(db, str(original.id))
@@ -600,6 +617,16 @@ class ForkService:
             # Copy the query's default step into a NEW row owned by the fork.
             old_step = old_query.default_step
             if old_step is not None:
+                # Only a step hydration will actually run may be marked
+                # pending. A user-scoped step with no code to re-run is never
+                # entered into pending_code, so hydrate_fork would never settle
+                # it: 'pending' would stick until the staleness cutoff, holding
+                # the page on its spinner and refresh-on-view off the report
+                # for five minutes (and if EVERY step were blank, hydration is
+                # not even spawned, so nothing would settle it at all). Such a
+                # step has nothing to withhold either — there is no code and no
+                # rows to copy — so it goes straight to its terminal status.
+                will_hydrate = user_scoped and bool((old_step.code or "").strip())
                 new_step = Step(
                     title=old_step.title,
                     slug=f"fork-{uuid.uuid4().hex[:8]}",
@@ -609,7 +636,7 @@ class ForkService:
                     # page waits on it instead of rendering an empty dashboard,
                     # and refresh-on-view stays off it so the queries do not run
                     # twice. Hydration moves it to 'success' or 'error'.
-                    status=FORK_PENDING_STATUS if user_scoped else old_step.status,
+                    status=FORK_PENDING_STATUS if will_hydrate else old_step.status,
                     status_reason=None if user_scoped else old_step.status_reason,
                     # prompt rides with `code`: same authorship, and the share
                     # never exposes it at all. (Empty on every row today.)
@@ -620,6 +647,23 @@ class ForkService:
                     # forker runs it under their own credentials. System-only
                     # data is shared by definition, so copy it as-is.
                     data={} if strict_source else old_step.data,
+                    # applied_params travels WITH `data`, never apart from it:
+                    # it records the values that snapshot was materialized
+                    # with. Dropped alongside a dropped snapshot; carried
+                    # alongside a copied one, because the dashboard reads it to
+                    # tell a pre-filtered snapshot from an unfiltered one —
+                    # without it, ArtifactFrame derives filter options from
+                    # rows the creator had already narrowed and offers a
+                    # one-value list. Identity-sourced values are stripped on
+                    # the way (the same boundary redact_applied_params draws
+                    # for a reader): those name the creator, not the data.
+                    applied_params=(
+                        None if strict_source
+                        else redact_applied_params(
+                            old_step.applied_params, old_query.parameters,
+                            withheld=False,
+                        )
+                    ),
                     description=old_step.description,
                     type=old_step.type,
                     data_model=old_step.data_model,
@@ -631,7 +675,7 @@ class ForkService:
                 await db.flush()
                 new_query.default_step_id = str(new_step.id)
                 await db.flush()
-                if user_scoped and (old_step.code or "").strip():
+                if will_hydrate:
                     pending_code[str(new_step.id)] = old_step.code
 
             for old_viz in old_query.visualizations:

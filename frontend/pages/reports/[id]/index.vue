@@ -2367,6 +2367,14 @@ const forkedArtifactRef = computed(() => {
 const forkStatusChecked = ref(false)
 const forkHydrating = ref(false)
 const forkNothingRan = ref(false)
+// Hydration is a few seconds of work at fork creation, and the backend stops
+// reporting a step as hydrating once it is FORK_HYDRATION_STALE_SECONDS (300)
+// old. Any fork older than that window therefore cannot be hydrating, so it
+// needs no status request at all — and must not be held behind the waiting
+// state while one is in flight. That covers every fork opened from a list
+// later on, and every fork of a system-only source, which never hydrates.
+// Double the backend window, so a client clock off by minutes still asks.
+const FORK_HYDRATION_WINDOW_MS = 600_000
 // Bumped when hydration settles, to remount the dashboard on the filled data.
 const artifactFrameKey = ref(0)
 const FORK_HYDRATION_POLL_MS = 1000
@@ -2375,12 +2383,28 @@ const FORK_HYDRATION_POLL_MS = 1000
 const FORK_HYDRATION_MAX_POLLS = 120
 let forkHydrationTimer: ReturnType<typeof setTimeout> | null = null
 
-// Non-forks never wait; a fork waits until its status is known and settled —
-// and a fork none of whose queries ran stays on its explanation, never falls
-// through to the empty dashboard it would otherwise render.
+// A fork young enough to still be hydrating. Anything else — a non-fork, or a
+// fork created longer ago than the backend's staleness window — is never
+// gated, so the waiting state is reached only by the forks it was written for.
+const forkMayHydrate = computed(() => {
+    const r = report.value as any
+    if (!r?.forked_from_id || !r?.created_at) return false
+    // Naive UTC on the wire (the backend stores utcnow()); only stamp a zone
+    // onto a value that carries none, or the parse turns to NaN.
+    const raw = String(r.created_at)
+    const created = Date.parse(/(Z|[+-]\d{2}:?\d{2})$/.test(raw) ? raw : `${raw}Z`)
+    if (!Number.isFinite(created)) return true  // unparseable: ask, don't guess
+    return Date.now() - created < FORK_HYDRATION_WINDOW_MS
+})
+
+// Non-forks never wait; a fresh fork waits until its status is known and
+// settled. A fork none of whose queries ran stays on its explanation whatever
+// else is true — the window above can lapse while a slow hydration finishes,
+// and falling through to the empty dashboard is what this gate exists to
+// prevent.
 const forkReady = computed(() =>
-    !report.value?.forked_from_id
-    || (forkStatusChecked.value && !forkHydrating.value && !forkNothingRan.value))
+    !forkNothingRan.value
+    && (!forkMayHydrate.value || (forkStatusChecked.value && !forkHydrating.value)))
 
 async function fetchForkHydrating(): Promise<boolean> {
     try {
@@ -2393,7 +2417,7 @@ async function fetchForkHydrating(): Promise<boolean> {
 }
 
 async function watchForkHydration() {
-    if (!report.value?.forked_from_id) {
+    if (!forkMayHydrate.value) {
         forkStatusChecked.value = true
         await enrichForkedQueries()
         return

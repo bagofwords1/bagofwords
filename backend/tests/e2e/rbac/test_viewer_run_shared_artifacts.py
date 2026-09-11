@@ -1143,6 +1143,30 @@ async def _set_step_code(step_id: str, code: str):
         await db.commit()
 
 
+async def _set_step_applied_params(step_id: str, applied: dict):
+    """The values a seeded snapshot was materialized with."""
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        step.applied_params = applied
+        await db.commit()
+
+
+async def _set_query_identity_param(query_id: str):
+    """Declare an identity-sourced param alongside an ordinary one."""
+    async with async_session_maker() as db:
+        q = await db.get(Query, query_id)
+        q.parameters = [
+            {"name": "month", "type": "string", "source": "input"},
+            {"name": "owner_email", "type": "string", "source": "identity"},
+        ]
+        await db.commit()
+
+
+async def _report_status(report_id: str) -> str:
+    async with async_session_maker() as db:
+        return (await db.get(Report, report_id)).status
+
+
 @pytest.mark.e2e
 def test_fork_hydration_with_no_access_removes_the_fork_against_a_real_db(
     test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
@@ -1447,6 +1471,122 @@ def test_fork_status_reports_hydration_until_it_settles(
     assert test_client.get(status_url, headers=hdrs).json() == {"hydrating": True}
     _run(spawned[0])
     assert test_client.get(status_url, headers=hdrs).json() == {"hydrating": False}
+
+
+@pytest.mark.e2e
+def test_fork_with_a_blank_code_step_never_reports_itself_as_hydrating(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """A step with no code is not something hydration can run.
+
+    Every step of a delegated fork was marked 'pending', but only steps with
+    code to re-run were handed to hydrate_fork — so a blank one was never
+    settled and the fork read as hydrating until the five-minute staleness
+    cutoff: the page sat on "Preparing your copy…" for its full poll window and
+    refresh-on-view stayed off the report. With no code and no rows there is
+    nothing to withhold either, so such a step is born settled.
+    """
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_set_step_code(seeded["step_ids"][0], ""))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    fork_id = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["id"]
+
+    # Nothing to hydrate at all — so nothing may be left waiting on it.
+    assert not spawned, "hydration was scheduled for a fork with no code to run"
+    status = test_client.get(
+        f"/api/reports/{fork_id}/fork_status",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()
+    assert status == {"hydrating": False}, (
+        "a fork whose steps hydration will never touch reported itself as "
+        "hydrating, stranding the page on its waiting state"
+    )
+
+
+@pytest.mark.e2e
+def test_system_only_fork_carries_applied_params_with_its_copied_rows(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """applied_params travels with `data`, or the copied snapshot lies.
+
+    A system-only fork copies the creator's rows as-is. Those rows may already
+    be narrowed by the values the snapshot ran with, and applied_params is the
+    only record of that. Dropped, the dashboard reads the snapshot as
+    unfiltered: ArtifactFrame's last-resort option tier derives filter choices
+    from it and offers the single value it was filtered to. Harmless while the
+    fork dropped Query.parameters too; live now that it copies them.
+    """
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_set_step_applied_params(seeded["step_ids"][0], {"month": "2024-01"}))
+
+    fork_id = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["id"]
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+
+    assert (fstep.get("data") or {}).get("rows"), "precondition: rows were copied"
+    assert (fstep.get("applied_params") or {}).get("month") == "2024-01", (
+        "the copied snapshot lost the values it was materialized with"
+    )
+
+
+@pytest.mark.e2e
+def test_fork_never_carries_an_identity_derived_applied_param(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """The boundary the copy must not cross. An identity-sourced param's
+    applied value names the CREATOR — their email, department, group list. It
+    is dropped on the fork's copy exactly as redact_applied_params drops it on
+    a reader's, while the ordinary values stay."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_set_query_identity_param(seeded["query_ids"][0]))
+    _run(_set_step_applied_params(
+        seeded["step_ids"][0], {"month": "2024-01", "owner_email": "creator@example.com"},
+    ))
+
+    fork_id = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["id"]
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+
+    applied = fstep.get("applied_params") or {}
+    assert "owner_email" not in applied, (
+        "the fork carried the creator's identity into the forker's copy"
+    )
+    assert applied.get("month") == "2024-01", "the ordinary value was dropped too"
 
 
 @pytest.mark.e2e

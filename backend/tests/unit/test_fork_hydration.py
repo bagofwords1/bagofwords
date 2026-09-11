@@ -58,6 +58,8 @@ class _Session:
 
     async def commit(self):
         self.commits += 1
+        # Position marker, so a test can assert WHICH commit a write rode on.
+        self.writes.append("-- commit --")
 
     async def rollback(self):
         self.rollbacks += 1
@@ -209,8 +211,21 @@ async def test_no_access_at_all_deletes_the_fork():
     assert not session.deleted
     assert session.rollbacks == 2
     thumb.assert_not_awaited()
-    assert not any(w.startswith("UPDATE reports ") for w in session.writes), (
+    assert not any(w.startswith("UPDATE reports ") and "last_run_at" in w
+                   for w in session.writes), (
         "a fork with nothing fresh was stamped as freshly run")
+
+    # Settled AND archived in the same commit. Split across two, a status poll
+    # landing between them sees no pending step, calls the fork ready, and
+    # loads a report still reading 'draft' — so the page renders the empty
+    # dashboard instead of the explanation this branch exists to give.
+    archived = next(i for i, w in enumerate(session.writes)
+                    if w.startswith("UPDATE reports ") and "status='archived'" in w)
+    settled = next(i for i, w in enumerate(session.writes)
+                   if w.startswith("UPDATE steps ") and "status='error'" in w)
+    first_commit = session.writes.index("-- commit --")
+    assert archived < first_commit and settled < first_commit, (
+        "the fork was left live in the window between settling and archiving")
 
 
 # ── rerun_step's own half of the contract ───────────────────────────────────
