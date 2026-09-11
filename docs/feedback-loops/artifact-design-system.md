@@ -72,6 +72,9 @@ sheet (all pairs, before/after side by side) is the deliverable of this loop.
 
 ## Iterations during the loop
 
+Each of these was found by looking at a real rendered dashboard, fixed, and
+re-run on both models.
+
 1. Round 1 exposed that the layout recipes used `lg:` breakpoints, which
    never fire inside the ~934px report pane (`lg` = 1024px), so two-column
    grids collapsed to one column. The recipes now use `md:` for the primary
@@ -88,11 +91,32 @@ sheet (all pairs, before/after side by side) is the deliverable of this loop.
    with reduce/Map, deltas, `variant="lift"` on the hero, two-up breakdowns,
    `md:` grids) — models imitate examples far more reliably than they follow
    rules, Haiku especially.
+6. A ranked bar chart over 25 genres stacked its category labels, value
+   labels ran together in a two-up panel, and a three-series legend sat on
+   top of its plot: the chart theme now sets `hideOverlap` on every axis and
+   the `EChart` wrapper reserves grid headroom for a legend.
+7. **The most persistent defect, across every round and both models:** a
+   proportion computed in code and passed to `fmt`'s `pct` printed as
+   "0.3% of the catalog" instead of "34.2%". Naming a `share(part, whole)`
+   helper and adding a `ratio` option did not stop it, so `pct` itself became
+   share-tolerant (a magnitude at or below 1 is read as a share; `exact: true`
+   opts out). The lesson: when both models get the same API wrong, fix the
+   API, not the prompt.
+8. Tables printed raw database output — `TOTALDURATIONMILLISECONDS` headers
+   and `2021-02-06T00:00:00.000` cells. `DataTable` now humanizes
+   machine-shaped column names and renders SQL timestamps as dates.
+9. Prose rules about chart hygiene were not landing on the smaller model, so
+   the reference ends with a five-line CHART CHECKLIST (sorted, trimmed to
+   the top 8-12, one color per series, formatted with `fmt`/`share`, fits its
+   panel) stated as verifiable properties.
 
 ## Results
 
-See the contact sheet and the per-run notes in the PR description for the
-final round (models, themes chosen, timings).
+Final round, all six prompt/model pairs produced a working dashboard on the
+first turn (the two rep-dashboard runs take a clarifying follow-up about what
+a "support rep" is, which is correct behaviour — the term is not in the
+schema). Each subject picked its own theme, type and layout archetype. The
+before/after contact sheet is the deliverable of this loop.
 
 ## Tests
 
