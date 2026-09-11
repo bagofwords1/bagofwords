@@ -479,6 +479,18 @@
     return n.toLocaleString(undefined, { maximumFractionDigits: opts.decimals != null ? opts.decimals : 2 });
   };
 
+  // ── share() ─────────────────────────────────────────────────────────────────
+  // share(part, whole) → "37.0%". The one right way to print a proportion:
+  // fmt(part / whole, {pct:true}) prints "0.4%" because pct expects a number
+  // that is already a percentage. Returns "—" when whole is 0/null.
+  window.share = function(part, whole, opts) {
+    opts = opts || {};
+    var p = Number(part), w = Number(whole);
+    if (!isFinite(p) || !isFinite(w) || w === 0) return '—';
+    var pct = (p / w) * 100;
+    return (opts.sign && pct > 0 ? '+' : '') + pct.toFixed(opts.decimals != null ? opts.decimals : 1) + '%';
+  };
+
   // ── exportCSV() ─────────────────────────────────────────────────────────────
   window.exportCSV = function(rows, opts) {
     opts = opts || {};
@@ -740,17 +752,36 @@
     if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
     return String(v);
   }
+  // A header that is just the raw field name (TOTALDURATIONMILLISECONDS,
+  // unit_price, avgTrackLength) reads as a database dump; humanize it. An
+  // explicit headerName is always respected.
+  function _humanHeader(field) {
+    var f = String(field || '');
+    if (!f) return f;
+    if (/[ ]/.test(f)) return f;                       // already a phrase
+    var words;
+    if (/[_-]/.test(f)) words = f.split(/[_-]+/);
+    else if (/^[A-Z0-9]+$/.test(f)) words = [f];       // SHOUTCASE: single token
+    else words = f.replace(/([a-z0-9])([A-Z])/g, '$1 $2').split(' ');
+    return words.filter(Boolean).map(function(w) {
+      if (/^[A-Z]{2,}$/.test(w) && w.length <= 4) return w;   // ID, URL, SKU
+      return w.charAt(0).toUpperCase() + w.slice(1).toLowerCase();
+    }).join(' ');
+  }
+
   function _infoCols(viz, rows) {
     var cols = viz.columns || [];
     if (cols.length) {
       return cols.map(function(c) {
-        if (typeof c === 'string') return { field: c, header: c };
-        return { field: c.field || c.headerName || c.name, header: c.headerName || c.field || c.name, dtype: c.dtype };
+        if (typeof c === 'string') return { field: c, header: _humanHeader(c) };
+        var field = c.field || c.headerName || c.name;
+        var header = c.headerName || c.name;
+        return { field: field, header: header && header !== field ? header : _humanHeader(field), dtype: c.dtype };
       }).filter(function(c) { return c.field; });
     }
     var src = (rows && rows.length) ? rows : (viz.rows || []);
     var r = src[0];
-    if (r && typeof r === 'object') return Object.keys(r).map(function(k) { return { field: k, header: k }; });
+    if (r && typeof r === 'object') return Object.keys(r).map(function(k) { return { field: k, header: _humanHeader(k) }; });
     return [];
   }
   function _infoMeta(viz) {

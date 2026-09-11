@@ -92,7 +92,9 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
     Every KPI gets a comparison (delta or subtitle) — a number with no comparison is not information. `delta` is a ratio when deltaPct (0.18 = +18%).
   <SectionCard title="" subtitle="" eyebrow="" actions={[…]} variant="card|plain|inset|lift|accent|inverse|outline" padding="none|sm|md|lg" viz={…} rows={…} calc="">…</SectionCard>
   <EChart height={N} option={{…}} viz={…} rows={…} calc="" palette={[…]} onClick={fn} />  — themed ECharts wrapper; pass `viz` when it is not inside a SectionCard.
-  <DataTable viz={…} rows={filtered} columns pageSize={15} density="compact" searchable striped sortable exportable selectable onRowClick={(row)=>…}
+  <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable onRowClick={(row)=>…}
+    Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
+    (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
              renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — the default table: sort, paginate, RTL, CSV, print-safe.
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder />
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
@@ -102,6 +104,7 @@ COMPONENTS (all globals; `className` MERGES with the defaults — layout classes
   <Eyebrow>Section label</Eyebrow>   <Divider>optional label</Divider>   <EmptyState icon="inbox">No rows match</EmptyState>   <LoadingSpinner size={24} />
   fmt(n, { currency: true | 'EUR', pct: true, ratio: true, decimals, compact: false, sign: true })  ·  exportCSV(rows, { columns, filename })
     pct: n is ALREADY a percentage (35.8 → "35.8%"); ratio: n is a share (0.358 → "35.8%"). A share passed with pct prints "0.4%" — the most common wrong number on a dashboard.
+  share(part, whole, { decimals })  → "35.8%" — ALWAYS use this for a proportion ("X% of revenue", "share of catalog"); never divide and pass the result to fmt's pct.
   Icons: any lucide name (trending-up, users, globe, music, disc-3, calendar, filter, alert-triangle, check-circle, clock, map-pin, package, …).
 
 PROVENANCE (required — the ⓘ popover lets readers inspect the data behind every number):

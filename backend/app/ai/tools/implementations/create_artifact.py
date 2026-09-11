@@ -2341,7 +2341,7 @@ TASTE — what separates a designed dashboard from a filled template
 • Charts are drawn to scale: one axis per chart, labels that name real values, sorted horizontal bars for rankings,
   a line for time, a treemap/stacked bar for composition (a pie only under 5 slices), never a dual axis. Emphasize the
   endpoint or the max bar with the accent; keep the rest in the palette. Format every number with fmt(): fmt(n, {{currency:true}}) → $49.62 /
-  $2.3K / $1.2M, fmt(n) → 1.2K, fmt(n, {{pct:true}}) → 12.4% (n already a percentage), fmt(share, {{ratio:true}}) → 35.8% (share 0.358) — never hand-roll `(n/1000).toFixed(1) + 'K'` (it prints $0.0K for small values).
+  $2.3K / $1.2M, fmt(n) → 1.2K, fmt(n, {{pct:true}}) → 12.4% (n already a percentage), share(part, whole) → 35.8% for any proportion — never hand-roll `(n/1000).toFixed(1) + 'K'` (it prints $0.0K for small values).
 • Empty and loading states are designed: <EmptyState> after a filter clears everything, <LoadingSpinner> before data.
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -2413,16 +2413,16 @@ function App() {{
   const leader = byGenre[0];
   return (
     <div className="min-h-full bg-bg text-ink font-body p-5 md:p-8 space-y-6 md:space-y-8 max-w-screen-2xl mx-auto">
-      <PageHeader eyebrow="Sales · 2021–2025" size="lg" title={{leader ? `${{leader[0]}} carries ${{fmt(leader[1] / total, {{ratio: true}})}} of revenue` : 'Revenue'}}
+      <PageHeader eyebrow="Sales · 2021–2025" size="lg" title={{leader ? `${{leader[0]}} carries ${{share(leader[1], total)}} of revenue` : 'Revenue'}}
         subtitle="Invoices across every market. Pick a country to re-cut every panel below." />
       <FilterBar onReset={{Object.keys(filters).length ? resetFilters : null}}>
         <FilterSelect label="Country" options={{countries}} selected={{filters.country || []}} onChange={{v => setFilter('country', v)}} />
       </FilterBar>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} delta={{grandTotal ? total / grandTotal - 1 : null}} deltaPct deltaLabel="vs all markets" icon="badge-dollar-sign" variant="lift" viz={{sales}} rows={{rows}} calc="SUM(revenue)" />
-        <KPICard title="Orders" value={{fmt(rows.length)}} subtitle={{`${{fmt(rows.length / Math.max(all.length, 1), {{ratio: true}})}} of all orders`}} icon="receipt" viz={{sales}} rows={{rows}} calc="COUNT(*)" />
+        <KPICard title="Orders" value={{fmt(rows.length)}} subtitle={{`${{share(rows.length, all.length)}} of all orders`}} icon="receipt" viz={{sales}} rows={{rows}} calc="COUNT(*)" />
         <KPICard title="Avg order" value={{fmt(rows.length ? total / rows.length : 0, {{currency: true, decimals: 2}})}} subtitle="per invoice line" icon="scale" viz={{sales}} rows={{rows}} calc="SUM(revenue) / COUNT(*)" />
-        <KPICard title="Top genre" value={{leader ? leader[0] : '—'}} subtitle={{leader ? `${{fmt(leader[1], {{currency: true}})}} · ${{fmt(leader[1] / total, {{ratio: true}})}} share` : ''}} icon="music" variant="accent" viz={{sales}} rows={{rows}} calc="MAX(SUM(revenue) by genre)" />
+        <KPICard title="Top genre" value={{leader ? leader[0] : '—'}} subtitle={{leader ? `${{fmt(leader[1], {{currency: true}})}} · ${{share(leader[1], total)}} share` : ''}} icon="music" variant="accent" viz={{sales}} rows={{rows}} calc="MAX(SUM(revenue) by genre)" />
       </div>
       <SectionCard eyebrow="Trend" title="Revenue by month" subtitle="Every invoice line, summed per month" variant="lift" viz={{sales}} rows={{rows}} calc="SUM(revenue) by month">
         <EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: monthsOf(rows) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'line', data: revenueByMonth(rows), areaStyle: {{ opacity: 0.12 }} }}] }}}} />

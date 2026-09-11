@@ -120,6 +120,13 @@ def test_inline_fonts_are_data_uris(tmp_path, monkeypatch):
     assert "/libs/fonts/" not in style
 
 
+def test_share_helper_is_taught_and_implemented():
+    """A proportion printed with fmt's pct reads "0.4%" instead of "37.0%" —
+    both models hit it, so the runtime ships share() and the prompt names it."""
+    assert "window.share = function(part, whole" in GLOBALS.read_text(encoding="utf-8")
+    assert "share(part, whole" in SANDBOX_RUNTIME_PROMPT
+
+
 def test_prompt_teaches_tokens_not_raw_colors():
     for needle in ("setTheme(", "useTheme()", "bg-surface", "text-ink", "font-display", "MERGES with the defaults", "<Icon name="):
         assert needle in SANDBOX_RUNTIME_PROMPT, needle
