@@ -3202,6 +3202,17 @@ class ReportService:
         if not report.refresh_on_view:
             return _skip("not enabled")
 
+        # A fork of a delegated source is being filled in by hydrate_fork,
+        # which runs every query under the forker's credentials and stamps
+        # last_run_at when done — so this rerun would execute the same queries
+        # a second time and write the same steps concurrently with it. Skip;
+        # once hydration settles, its last_run_at keeps the staleness gate
+        # below closed for the usual interval.
+        if report.forked_from_id:
+            from app.services.fork_service import fork_service
+            if await fork_service.is_hydrating(db, str(report_id)):
+                return _skip("fork hydrating")
+
         # An agent run in flight on this report owns its step graph: an owner
         # rerun underneath it races the agent's step writes (both sides fail)
         # and its commits expire the agent's cached ORM state mid-loop. Skip —

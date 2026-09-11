@@ -3567,7 +3567,10 @@
     "renameFailed": "Could not rename the dashboard.",
     "more": "More",
     "schedule": "Schedule refresh",
-    "exportAs": "Export as {format}"
+    "exportAs": "Export as {format}",
+    "partialNoAccess": "You don't have access to the data for: {charts}",
+    "partialFailed": "Couldn't load: {charts}",
+    "partialRenderFailed": "Part of this dashboard uses data you don't have access to, so it couldn't be displayed. Ask the dashboard's owner for access."
   },
   "filter": {
     "addFilters": "Add Filters",
@@ -5027,5 +5030,10 @@
     "searchColumns": "Search columns…",
     "noColumns": "No matching columns",
     "centrality": "Centrality"
+  },
+  "fork": {
+    "preparing": "Preparing your copy…",
+    "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
+    "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
   }
 }

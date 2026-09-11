@@ -3479,7 +3479,10 @@
     "renameFailed": "No se pudo renombrar el panel.",
     "more": "Más",
     "schedule": "Programar actualización",
-    "exportAs": "Exportar como {format}"
+    "exportAs": "Exportar como {format}",
+    "partialNoAccess": "No tienes acceso a los datos de: {charts}",
+    "partialFailed": "No se pudo cargar: {charts}",
+    "partialRenderFailed": "Parte de este panel usa datos a los que no tienes acceso, por lo que no se pudo mostrar. Pide acceso al propietario del panel."
   },
   "filter": {
     "addFilters": "Añadir filtros",
@@ -5001,5 +5004,10 @@
     "searchColumns": "Buscar columnas…",
     "noColumns": "No hay columnas coincidentes",
     "centrality": "Centralidad"
+  },
+  "fork": {
+    "preparing": "Preparando tu copia…",
+    "preparingDetail": "Ejecutando las consultas con tus propias credenciales. Suele tardar unos segundos.",
+    "nothingRan": "No se pudo crear tu copia: ninguna de sus consultas pudo ejecutarse con tus credenciales."
   }
 }

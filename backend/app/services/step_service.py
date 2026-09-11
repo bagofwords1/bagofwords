@@ -368,6 +368,7 @@ class StepService:
         db_clients: Optional[dict] = None,
         organization=None,
         organization_settings=None,
+        code_override: Optional[str] = None,
     ):
         """Re-execute a step's saved code and persist the result in place.
 
@@ -375,8 +376,21 @@ class StepService:
         prebuilt `db_clients`, and the org context so N steps don't each
         re-hydrate the report graph, re-construct data-source clients, and
         re-read organization settings.
+
+        `code_override` runs code the step does not carry yet, and is committed
+        with the result only if the run succeeds. Fork hydration is the caller:
+        a fork of a delegated source is created with no code precisely so the
+        forker cannot read SQL for data they may have no access to, and the
+        code becomes theirs only once their own credentials have executed it.
+        Assigning it here rather than passing it down means the single commit
+        below persists code and data together, and an execution failure — which
+        raises before that commit — leaves the step with neither. Callers must
+        roll back on failure so the in-memory assignment cannot ride out on a
+        later commit in the same session.
         """
         step, report = await self._load_step_for_rerun(db, step_id, report)
+        if code_override is not None:
+            step.code = code_override
 
         # The values this step last ran with, re-resolved for whoever is
         # rerunning now. A refresh keeps the filter the dashboard is showing
@@ -513,6 +527,12 @@ class StepService:
             # slot, which is where a run that never resolved values belongs.
             status = 'error'
             status_reason = str(e)[:2000] or e.__class__.__name__
+            # A provider refusing this viewer one dataset is not an error to
+            # show verbatim: it would read "HTTP 401" instead of "no access",
+            # and the response body it carries can name the refused model.
+            from app.services.access_errors import is_access_denied, NO_ACCESS_REASON
+            if is_access_denied(status_reason):
+                status_reason = NO_ACCESS_REASON
 
         # Write to the slot for THIS parameter combination. The unique key is
         # (step_id, user_id, params_fingerprint); a lookup that ignores the

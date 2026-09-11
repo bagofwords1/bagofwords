@@ -3382,7 +3382,10 @@
     "renameFailed": "Impossibile rinominare la dashboard.",
     "more": "Altro",
     "schedule": "Pianifica aggiornamento",
-    "exportAs": "Esporta come {format}"
+    "exportAs": "Esporta come {format}",
+    "partialNoAccess": "Non hai accesso ai dati di: {charts}",
+    "partialFailed": "Impossibile caricare: {charts}",
+    "partialRenderFailed": "Parte di questa dashboard usa dati a cui non hai accesso, quindi non è stato possibile visualizzarla. Chiedi l’accesso al proprietario della dashboard."
   },
   "filter": {
     "addFilters": "Aggiungi filtri",
@@ -4977,5 +4980,10 @@
     "searchColumns": "Cerca colonne…",
     "noColumns": "Nessuna colonna corrispondente",
     "centrality": "Centralità"
+  },
+  "fork": {
+    "preparing": "Preparazione della tua copia…",
+    "preparingDetail": "Esecuzione delle query con le tue credenziali. Di solito richiede pochi secondi.",
+    "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
   }
 }
