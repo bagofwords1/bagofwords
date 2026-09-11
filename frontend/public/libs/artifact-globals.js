@@ -754,11 +754,21 @@
     }
     return String(v);
   }
+  // A SQL timestamp lands in a cell as "2021-02-06T00:00:00.000"; printing it
+  // raw is a database dump, so midnight renders as the date alone and any
+  // other time keeps HH:MM. Themed runtime only — legacy tables are untouched.
+  var _ISO_DT = /^(\d{4}-\d{2}-\d{2})[T ](\d{2}):(\d{2})(?::\d{2})?(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})?$/;
+
   function _infoCell(v) {
     if (v == null) return '—';
     if (typeof v === 'number') return v.toLocaleString(undefined, { maximumFractionDigits: 4 });
     if (typeof v === 'object') { try { return JSON.stringify(v); } catch (e) { return String(v); } }
-    return String(v);
+    var str = String(v);
+    if (!LEGACY) {
+      var m = _ISO_DT.exec(str);
+      if (m) return (m[2] === '00' && m[3] === '00') ? m[1] : (m[1] + ' ' + m[2] + ':' + m[3]);
+    }
+    return str;
   }
   // A header that is just the raw field name (TOTALDURATIONMILLISECONDS,
   // unit_price, avgTrackLength) reads as a database dump; humanize it. An

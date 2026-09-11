@@ -135,6 +135,14 @@ def test_pct_reads_a_share_and_says_so():
     assert "exact: true" in SANDBOX_RUNTIME_PROMPT
 
 
+def test_table_cells_format_sql_timestamps():
+    """A SQL timestamp printed raw ("2021-02-06T00:00:00.000") reads as a
+    database dump; midnight renders as the date alone, on the themed runtime only."""
+    src = GLOBALS.read_text(encoding="utf-8")
+    assert "var _ISO_DT" in src
+    assert "if (!LEGACY) {" in src.split("function _infoCell(v)")[1][:600]
+
+
 def test_prompt_teaches_tokens_not_raw_colors():
     for needle in ("setTheme(", "useTheme()", "bg-surface", "text-ink", "font-display", "MERGES with the defaults", "<Icon name="):
         assert needle in SANDBOX_RUNTIME_PROMPT, needle
