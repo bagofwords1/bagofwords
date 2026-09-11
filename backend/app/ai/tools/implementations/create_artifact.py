@@ -2307,7 +2307,9 @@ Decide, in this order, and state each choice in one line:
    • Control room: dense tiles of equal rhythm, status encoded in color, for monitoring; sparklines in every tile.
    • Bento: an asymmetric grid (col-span-2 / row-span-2 tiles) where size = importance.
 5. COMPARISON — every KPI states what it is compared to, COMPUTED FROM THE ROWS (share of total, vs the previous period in the data, vs the
-   average, rank). Name the window in the label. Never invent a comparison the data cannot support — omit it instead.
+   average, rank). Name the window in the label. Never invent a comparison the data cannot support — omit it instead. A comparison that reads
+   "100.0% of all revenue" or "+0.0%" in the default unfiltered view is not a comparison: pick one that is informative at rest (vs the prior
+   period, vs the average, the leader's share) or drop it and write a plain subtitle.
 6. INTERACTION — which filters/params, which vizs they drive (all that share the column), local vs global.
 Then build exactly that plan.
 
@@ -2325,12 +2327,17 @@ TASTE — what separates a designed dashboard from a filled template
   patients). One detail only this subject would have is worth more than any decoration.
 • Neutrals are chosen, not inherited: the theme's bg/surface/ink already carry a hue bias — use them, never gray-*/slate-*.
 • Semantic color (positive/warning/negative) is separate from the accent and only ever means good/at-risk/bad.
+• One entity, one color across the page: if a rep, genre or market is chart-1 in the trend, it is chart-1 in every other panel. Build the
+  color map once (name → t.colors.chart[i]) and reuse it; charts that recolor the same names read as unrelated.
 • Avoid the AI-dashboard look: rainbow KPI cards, a gradient accent bar on every tile, emoji as icons, an accent for every
   chart, `rounded-2xl shadow-lg` stamped on everything, centered text everywhere, purple-to-blue gradients, pies with
   eight slices. When nothing is specified, do not spend that freedom on those defaults.
 • Space is a material: `space-y-6 md:space-y-8` between sections, `gap-4/5` inside grids, `p-6 md:p-8` on the page. Let
   content set heights; never stretch a chart to fill dead space.
 • Motion: none, or one deliberate moment. Never opacity-0 waiting on a scroll observer — the page must read at rest.
+• A ranked chart shows the TOP 8–12, never every category: 25 bars in a 320px panel is an unreadable label stack. Slice the sorted array
+  (`.slice(0, 10)`), say so in the subtitle ("Top 10 by revenue"), and put the long tail in the detail table. The same goes for a category
+  axis on a two-up chart — fewer categories or a taller panel, never smaller type.
 • Charts are drawn to scale: one axis per chart, labels that name real values, sorted horizontal bars for rankings,
   a line for time, a treemap/stacked bar for composition (a pie only under 5 slices), never a dual axis. Emphasize the
   endpoint or the max bar with the accent; keep the rest in the palette. Format every number with fmt(): fmt(n, {{currency:true}}) → $49.62 /

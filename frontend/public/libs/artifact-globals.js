@@ -363,15 +363,17 @@
       legend: { textStyle: { color: pal.ink2, fontFamily: theme.fonts.body }, itemWidth: 12, itemHeight: 8, icon: 'roundRect' },
       categoryAxis: {
         axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: pal.ink3, fontSize: 11, fontFamily: theme.fonts.body },
+        // hideOverlap: a ranked chart with many categories drops the labels
+        // that would collide instead of printing them on top of each other.
+        axisLabel: { color: pal.ink3, fontSize: 11, fontFamily: theme.fonts.body, hideOverlap: true },
         splitLine: { show: false }
       },
       valueAxis: {
         axisLine: { show: false }, axisTick: { show: false },
-        axisLabel: { color: pal.ink3, fontSize: 11, fontFamily: theme.fonts.body },
+        axisLabel: { color: pal.ink3, fontSize: 11, fontFamily: theme.fonts.body, hideOverlap: true },
         splitLine: { lineStyle: { color: _rgba(pal.line2, dark ? 0.35 : 0.55), type: [4, 4] } }
       },
-      timeAxis: { axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: pal.ink3, fontSize: 11 }, splitLine: { show: false } },
+      timeAxis: { axisLine: { show: false }, axisTick: { show: false }, axisLabel: { color: pal.ink3, fontSize: 11, hideOverlap: true }, splitLine: { show: false } },
       logAxis: { axisLine: { show: false }, axisLabel: { color: pal.ink3, fontSize: 11 }, splitLine: { lineStyle: { color: _rgba(pal.line2, 0.4) } } },
       line: { smooth: false, symbol: 'circle', symbolSize: 6, showSymbol: false, lineStyle: { width: 2.25 }, emphasis: { focus: 'series' } },
       bar: { itemStyle: { borderRadius: [3, 3, 0, 0] }, barMaxWidth: 42 },
@@ -1704,8 +1706,21 @@
     }, []);
     function withPalette(opt) {
       if (!opt) return opt;
-      if (props.palette && props.palette.length && !opt.color) { var o = {}; for (var k in opt) o[k] = opt[k]; o.color = props.palette; return o; }
-      return opt;
+      var o = opt;
+      if (props.palette && props.palette.length && !opt.color) { o = {}; for (var k in opt) o[k] = opt[k]; o.color = props.palette; }
+      // A legend needs room the theme's tight grid does not reserve: give a
+      // bottom legend a bottom margin and a top legend a top margin unless the
+      // author positioned the grid explicitly (the classic overlap bug).
+      var lg = o.legend;
+      if (lg && !Array.isArray(lg) && lg.show !== false && !Array.isArray(o.grid)) {
+        var g = {}; for (var gk in (o.grid || {})) g[gk] = o.grid[gk];
+        var atBottom = lg.bottom != null || (lg.top == null && lg.y === 'bottom');
+        if (atBottom && g.bottom == null) g.bottom = 36;
+        if (!atBottom && g.top == null) g.top = 44;
+        if (o === opt) { o = {}; for (var k2 in opt) o[k2] = opt[k2]; }
+        o.grid = g;
+      }
+      return o;
     }
     React.useEffect(function() {
       if (!ref.current) return;
