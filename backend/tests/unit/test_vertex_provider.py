@@ -103,6 +103,8 @@ def test_openai_base_url_regional():
         ("claude-opus-4-8", "anthropic"),
         ("claude-sonnet-4-5@20250929", "anthropic"),
         ("anthropic-claude-sonnet", "anthropic"),
+        ("gemini-3.8-flash", "gemini"),
+        ("gemini-3.1-pro-preview", "gemini"),
         ("gemini-3.6-flash", "gemini"),
         ("gemini-2.5-flash", "gemini"),
         ("gemini-flash-latest", "gemini"),

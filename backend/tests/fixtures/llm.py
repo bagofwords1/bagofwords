@@ -123,8 +123,8 @@ def create_vertex_provider_and_models(test_client):
                 "credentials": credentials,
                 "models": [
                     {
-                        "model_id": os.getenv("GOOGLE_VERTEX_MODEL_ID", "gemini-3.6-flash"),
-                        "name": "Gemini 3.6 Flash (Vertex)",
+                        "model_id": os.getenv("GOOGLE_VERTEX_MODEL_ID", "gemini-3.8-flash"),
+                        "name": "Gemini 3.8 Flash (Vertex)",
                         "is_custom": False,
                         "is_default": True,
                     }

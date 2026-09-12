@@ -246,11 +246,13 @@ LLM_MODEL_DETAILS = [
     # first-party entry — harmless, because Vertex list pricing matches
     # first-party for both families.
     {
-        "name": "Gemini 3.6 Flash",
-        "model_id": "gemini-3.6-flash",
+        "name": "Gemini 3.8 Flash",
+        "model_id": "gemini-3.8-flash",
         "provider_type": "vertex",
         "is_preset": True,
         "is_enabled": True,
+        # Gemini carries both defaults: it is the cheapest verified-working
+        # family here, and unlike the Pro channel its ids are not previews.
         "is_default": True,
         "is_small_default": True,
         "supports_vision": True,
@@ -258,6 +260,25 @@ LLM_MODEL_DETAILS = [
         "max_output_tokens": 65536,
         "input_cost_per_million_tokens_usd": 1.50,
         "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
+        # The Pro tier has no stable id — as on the Gemini Developer API, it is
+        # preview-only. Selectable but deliberately not a default: the previous
+        # id (gemini-3-pro-preview) already 404s on Vertex, which is exactly the
+        # failure a default must not be exposed to.
+        "name": "Gemini 3.1 Pro Preview",
+        "model_id": "gemini-3.1-pro-preview",
+        "provider_type": "vertex",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 12.00
     },
     {
         "name": "Claude Sonnet 5",
@@ -271,30 +292,11 @@ LLM_MODEL_DETAILS = [
         "input_cost_per_million_tokens_usd": 3.00,
         "output_cost_per_million_tokens_usd": 15.00
     },
-    {
-        # Third-party MaaS models carry their publisher as a prefix and are
-        # served only through the global endpoint (see vertex_auth.MAAS_LOCATION).
-        # Pricing is left unset: these are billed per-publisher and Vertex is an
-        # estimated-cost provider anyway (console_service._ESTIMATED_PROVIDERS).
-        "name": "Grok 4.6",
-        "model_id": "xai/grok-4.6",
-        "provider_type": "vertex",
-        "is_preset": True,
-        "is_enabled": True,
-        "is_default": False,
-        "supports_vision": False,
-        "context_window_tokens": 256000
-    },
-    {
-        "name": "GLM 5.2",
-        "model_id": "zai-org/glm-5.2-maas",
-        "provider_type": "vertex",
-        "is_preset": True,
-        "is_enabled": True,
-        "is_default": False,
-        "supports_vision": False,
-        "context_window_tokens": 200000
-    },
+    # Third-party MaaS models (xai/grok-*, zai-org/glm-*, meta/llama-*) are
+    # deliberately NOT in the catalog: each needs its own Model Garden
+    # enablement before it resolves at all, and they carry no list price we can
+    # report. The OpenAI-compatible transport that serves them is still wired
+    # (see LLM._build_vertex_client) — add one as a custom model to use it.
     {
         # Image-generation model (produces images), not a chat model. Gated by
         # supports_image_generation; consumed by LLM.generate_image / the

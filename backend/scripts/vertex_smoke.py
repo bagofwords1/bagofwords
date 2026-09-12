@@ -83,7 +83,7 @@ async def main() -> None:
     key_json = open(key_path).read()
     project_id = sys.argv[2] if len(sys.argv) > 2 else json.loads(key_json)["project_id"]
     print(f"project: {project_id}")
-    for model_id in ("gemini-3.6-flash", "zai-org/glm-5.2-maas", "claude-sonnet-5", "xai/grok-4.6"):
+    for model_id in ("gemini-3.8-flash", "gemini-3.1-pro-preview", "claude-sonnet-5", "zai-org/glm-5.2-maas"):
         await probe(model_id, key_json, project_id)
 
 
