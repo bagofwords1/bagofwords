@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from pymongo import MongoClient
@@ -193,6 +194,8 @@ class MongodbClient(DataSourceClient):
             merged = {}
             self._merge_docs(merged, samples)
             return merged
+        except IndexingCancelled:
+            raise
         except Exception:
             # Fallback: just get one document
             return collection.find_one() or {}
@@ -218,7 +221,7 @@ class MongodbClient(DataSourceClient):
         """Get all collections and their inferred schema."""
         tables = []
         with self.connect() as db:
-            for coll_name in db.list_collection_names():
+            for coll_name in discovery_items(db.list_collection_names(), 'collections', label=str):
                 # Sample multiple docs and merge all unique keys
                 merged_sample = self._get_all_keys(db[coll_name])
                 columns = []
@@ -266,7 +269,8 @@ class MongodbClient(DataSourceClient):
         
         return columns
     
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """Get schemas for all collections."""
         return self.get_tables()
     

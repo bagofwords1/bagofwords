@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import asyncio
 import glob
@@ -710,6 +711,7 @@ class QVDClient(DataSourceClient):
         logger.debug("qvd.schema.done", extra={"qvd_tables": len(tables)})
         return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         return self.get_tables(progress_callback=progress_callback)
 

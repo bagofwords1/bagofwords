@@ -18,6 +18,7 @@ capabilities otherwise so runtime resolution rejects a write against a
 read-only dir).
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import hashlib
 import io
@@ -767,6 +768,7 @@ class NetworkDirClient(DataSourceClient):
                 return meta
         return {}
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None, prior_catalog=None) -> List[Table]:
         """Index the directory into catalog rows per the connection's index tier:
 

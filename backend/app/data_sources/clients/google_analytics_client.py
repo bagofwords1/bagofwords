@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress
 from google.analytics.data_v1beta import BetaAnalyticsDataClient
 from google.analytics.data_v1beta.types import DateRange, Dimension, Metric, RunReportRequest
 from google.api_core.exceptions import GoogleAPICallError, InvalidArgument
@@ -124,7 +125,8 @@ class GoogleAnalyticsClient(DataSourceClient):
         except Exception as e:
             raise RuntimeError(f"An unexpected error occurred: {e}")
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """Get schemas for all reports in Google Analytics."""
         schemas = [
             Table(name="Sessions Report", columns=[

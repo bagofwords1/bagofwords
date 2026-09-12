@@ -39,6 +39,7 @@ Auth is Aria-native (8.18 guide, "Acquire an Authentication Token"):
 Every request sends `Accept: application/json` — the API's historic default
 is XML, and XML is deprecated for the next major release.
 """
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 import json
 import time
 from collections import deque
@@ -408,6 +409,8 @@ class AriaOperationsClient(DataSourceClient):
             try:
                 v = self._get("versions/current") or {}
                 version = v.get("releaseName") or ""
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
             names = ", ".join(k.get("key", "") for k in kinds[:8])
@@ -419,6 +422,8 @@ class AriaOperationsClient(DataSourceClient):
                     f"{len(kinds)} adapter kinds visible ({names}{more})."
                 ),
             }
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 
@@ -451,6 +456,7 @@ class AriaOperationsClient(DataSourceClient):
 
     # ── schema discovery ──────────────────────────────────────────────────────
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         tables = [self._build_table(name) for name in _CATALOG]
         by_name = {t.name: t for t in tables}
@@ -470,6 +476,8 @@ class AriaOperationsClient(DataSourceClient):
                         continue
                     try:
                         n = self._count_resources(ak_key, rk.get("key"))
+                    except IndexingCancelled:
+                        raise
                     except Exception:
                         n = 0
                     if n > 0:
@@ -489,11 +497,15 @@ class AriaOperationsClient(DataSourceClient):
             for ak, rk, rk_name, n in populated[: self.max_metric_tables]:
                 try:
                     stats = self._stat_keys(ak, rk)
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     continue
                 if not stats:
                     continue
                 tables.append(self._build_metric_table(ak, rk, rk_name, n, stats))
+        except IndexingCancelled:
+            raise
         except Exception:
             pass
         return tables
@@ -593,6 +605,8 @@ class AriaOperationsClient(DataSourceClient):
                 if spec.get("with_counts", True) and rk.get("resourceKindType") not in _SKIP_RESOURCE_KIND_TYPES:
                     try:
                         count = self._count_resources(ak, rk.get("key"))
+                    except IndexingCancelled:
+                        raise
                     except Exception:
                         count = None
                 rows.append({"adapterKind": ak, "key": rk.get("key"), "name": rk.get("name"),
