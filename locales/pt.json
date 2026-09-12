@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Sessão iniciada",
+    "countBoards": "{n} quadro | {n} quadros",
+    "configuredCountsHint": "Antes de iniciar sessão, as contagens refletem o catálogo partilhado, não o seu acesso pessoal."
+  },
   "agentsPage": {
     "title": "Agentes",
     "subtitle": "Configure seus agentes e os dados, ferramentas, habilidades e instruções com que eles raciocinam.",

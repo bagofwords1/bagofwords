@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Signed in",
+    "countBoards": "{n} board | {n} boards",
+    "configuredCountsHint": "Counts before sign-in reflect the shared catalog, not your personal access."
+  },
   "changelog": {
     "menuItem": "Changelog",
     "title": "What's New",

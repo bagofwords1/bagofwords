@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Connecté",
+    "countBoards": "{n} tableau | {n} tableaux",
+    "configuredCountsHint": "Avant connexion, les nombres reflètent le catalogue partagé, pas votre accès personnel."
+  },
   "agentsPage": {
     "title": "Agents",
     "subtitle": "Configurez vos agents ainsi que les données, outils, compétences et instructions qu’ils utilisent pour raisonner.",

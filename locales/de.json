@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Angemeldet",
+    "countBoards": "{n} Board | {n} Boards",
+    "configuredCountsHint": "Die Zahlen vor der Anmeldung beziehen sich auf den gemeinsamen Katalog, nicht auf Ihren persönlichen Zugriff."
+  },
   "agentsPage": {
     "title": "Agenten",
     "subtitle": "Konfigurieren Sie Ihre Agenten und die Daten, Werkzeuge, Fähigkeiten und Anweisungen, mit denen sie arbeiten.",

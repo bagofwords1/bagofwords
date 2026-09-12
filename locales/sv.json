@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Inloggad",
+    "countBoards": "{n} tavla | {n} tavlor",
+    "configuredCountsHint": "Antal före inloggning avser den delade katalogen, inte din personliga åtkomst."
+  },
   "agentsPage": {
     "title": "Agenter",
     "subtitle": "Konfigurera dina agenter och den data, de verktyg, färdigheter och instruktioner de resonerar med.",

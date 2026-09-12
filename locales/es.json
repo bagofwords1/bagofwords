@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Sesión iniciada",
+    "countBoards": "{n} tablero | {n} tableros",
+    "configuredCountsHint": "Los recuentos anteriores al inicio de sesión corresponden al catálogo compartido, no a tu acceso personal."
+  },
   "changelog": {
     "menuItem": "Registro de cambios",
     "title": "Novedades",

@@ -206,14 +206,14 @@
           <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
 
           <template v-for="agent in agents" :key="agent.id">
-            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :disabled="needsSignIn(agent) && !canManageAgent(agent.id)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
+            <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :disabled="agentAccessBlocked(agent) && !canManageAgent(agent.id)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <!-- Content sections need a queryable agent, so they stay hidden while
                    the viewer hasn't signed in with their own credentials. Settings
                    (below) stays reachable for managers — deleting or reconfiguring
                    an agent must not require personal credentials to it. -->
-              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tables')" icon="i-heroicons-table-cells" :count="agentTables[agent.id] ? ((agentTableTotals[agent.id] ?? activeTables(agent.id).length) || undefined) : undefined" :indent="1" reloadable :active="panelView?.kind === 'tables' && panelView?.agentId === agent.id" :open="isOpen('tables:' + agent.id)" @toggle="onPanelRowClick('tables', agent.id)" @reload="reloadTables(agent.id)">
                 <TreeGroup v-for="t in activeTables(agent.id)" :key="t.id" :label="t.name" icon="i-heroicons-table-cells" :count="listForTable(agent.id, t.id).length || undefined" mono :addable="canAddInstrFor(agent.id)" :indent="2" :open="isOpen('table:' + agent.id + ':' + t.id)" @toggle="expand('table:' + agent.id + ':' + t.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })">
                   <InstrLeaf v-for="ins in listForTable(agent.id, t.id)" :key="ins.id" :ins="ins" :indent="3" />
                   <EmptyHint v-if="loadedGroups.has(agent.id) && listForTable(agent.id, t.id).length === 0" :text="$t('agentsPage.noRulesAttached')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id, tableId: t.id, tableName: t.name })" :pad="62" />
@@ -221,7 +221,7 @@
                 <EmptyHint v-if="agentTables[agent.id] && activeTables(agent.id).length === 0" :text="$t('agentsPage.noActiveTables')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.tools')" icon="i-heroicons-wrench-screwdriver" :count="agentTools[agent.id]?.length" :indent="1" reloadable :active="panelView?.kind === 'tools' && panelView?.agentId === agent.id" :open="isOpen('tools:' + agent.id)" @toggle="onPanelRowClick('tools', agent.id)" @reload="reloadTools(agent.id)">
                 <!-- Grouped by connection (MCP / custom API). Click a group to expand its tools. -->
                 <TreeGroup v-for="grp in toolGroups(agent.id)" :key="grp.connId" :label="grp.name" :count="grp.tools.length" :indent="2" :open="isOpen('toolconn:' + agent.id + ':' + grp.connId)" @toggle="expand('toolconn:' + agent.id + ':' + grp.connId)">
                   <template #icon><DataSourceIcon v-if="grp.type" :type="grp.type" :connector-key="grp.connector_key" class="w-4 h-4 shrink-0" /><UIcon v-else name="i-heroicons-wrench-screwdriver" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" /></template>
@@ -235,7 +235,7 @@
                 <EmptyHint v-if="(agentTools[agent.id]?.length ?? -1) === 0" :text="$t('agentsPage.noToolsConnected')" :pad="48" />
               </TreeGroup>
 
-              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="filesGroupCount(agent.id)" :indent="1" addable :active="panelView?.kind === 'files' && panelView?.agentId === agent.id" :open="isOpen('files:' + agent.id)" @toggle="onPanelRowClick('files', agent.id)" @add="triggerUpload(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.files')" icon="i-heroicons-paper-clip" :count="filesGroupCount(agent.id)" :indent="1" addable :active="panelView?.kind === 'files' && panelView?.agentId === agent.id" :open="isOpen('files:' + agent.id)" @toggle="onPanelRowClick('files', agent.id)" @add="triggerUpload(agent.id)">
                 <!-- Directory connections: each glob rule, prefixed with its connection-type icon -->
                 <template v-for="fc in (agentFileConns[agent.id] || [])" :key="fc.id">
                   <div v-for="g in fc.globs" :key="fc.id + ':' + g"
@@ -264,7 +264,7 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup v-if="!needsSignIn(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <div>
@@ -281,7 +281,7 @@
                    better as a list than as truncated titles in the tree. An
                    entity is m:n with agents, so one attached to two agents is
                    listed under both. -->
-              <button v-if="!needsSignIn(agent)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'queries' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openQueriesPanel(agent.id)">
+              <button v-if="!agentAccessBlocked(agent)" type="button" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'queries' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openQueriesPanel(agent.id)">
                 <span class="w-3 shrink-0"></span>
                 <LibraryIcon class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ $t('agentsPage.queries') }}</span>
@@ -292,7 +292,7 @@
                    the runs/self-learning panel, so the existing entry point is
                    not lost to the new hierarchy. -->
               <TreeGroup
-                v-if="canManageAgentEvals(agent.id) && !needsSignIn(agent)"
+                v-if="canManageAgentEvals(agent.id) && !agentAccessBlocked(agent)"
                 :label="$t('agentsPage.evals')"
                 icon="i-heroicons-check-circle"
                 :indent="1"
@@ -350,7 +350,7 @@
             <UTooltip v-for="c in connections.slice(0, 4)" :key="c.id" :text="`${c.name} · ${c.type}`">
               <button type="button" class="relative inline-flex items-center justify-center w-6 h-6 rounded-md border border-gray-200 dark:border-gray-800 hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />
-                <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="connDotClass(c)"></span>
+                <span class="absolute -bottom-0.5 -end-0.5 w-1.5 h-1.5 rounded-full" :class="connDotClass(c)" :title="$t(statusLabelKey(getEffectiveStatus(c)))"></span>
               </button>
             </UTooltip>
           </div>
@@ -474,7 +474,7 @@
             <div class="flex flex-wrap items-center gap-1.5 mb-3">
               <button v-for="c in (agentDetail?.connections || [])" :key="c.id" class="inline-flex items-center gap-1.5 px-2 h-6 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-[11px] hover:bg-gray-50 dark:hover:bg-gray-800/50" @click="openConnectionDetail(c)">
                 <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-3.5 h-3.5" />{{ c.name }}
-                <span class="w-1.5 h-1.5 rounded-full" :class="c.is_active === false ? 'bg-gray-300' : 'bg-green-500'"></span>
+                <span class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(getEffectiveStatus(c))" :title="$t(statusLabelKey(getEffectiveStatus(c)))"></span>
               </button>
               <button v-if="agentDetail && needsSignIn(agentDetail)" class="inline-flex items-center gap-1.5 px-2.5 h-6 rounded-md bg-blue-50 dark:bg-blue-500/10 border border-blue-200 dark:border-blue-500/30 text-blue-600 dark:text-blue-400 text-[11px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20" @click="openAgentTab(agentView.agentId)"><UIcon name="i-heroicons-key" class="w-3 h-3" />{{ $t('agentsPage.connect') }}</button>
               <UTooltip :text="$t('agentsPage.manageConnections')">
@@ -1097,7 +1097,7 @@
           <button v-for="c in connections" :key="c.id" type="button" class="w-full flex items-center gap-3 px-2.5 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 text-start transition-colors" @click="showConnectionsModal = false; openConnectionDetail(c)">
             <span class="relative inline-flex items-center justify-center w-8 h-8 rounded-md border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 shrink-0">
               <DataSourceIcon :type="c.type" :connector-key="c.connector_key" class="w-4 h-4" />
-              <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="connDotClass(c)"></span>
+              <span class="absolute -bottom-0.5 -end-0.5 w-2 h-2 rounded-full ring-2 ring-white dark:ring-gray-900" :class="connDotClass(c)" :title="$t(statusLabelKey(getEffectiveStatus(c)))"></span>
             </span>
             <span class="min-w-0 flex-1">
               <span class="block text-sm font-medium text-gray-800 dark:text-gray-200 truncate">{{ c.name }}</span>
@@ -1109,6 +1109,8 @@
       </div>
     </UModal>
 
+    <AgentCardModal v-if="agentCardAgent" v-model="showAgentCard" :agent="agentCardAgent" :connections="agentCardAgent.connections || []" :instruction-count="agentCount(agentCardAgent.id)" @changed="onAgentCardChanged" />
+
     <ConnectionDetailModal v-model="showConnectionModal" :connection="selectedConnection" @updated="onConnectionChanged" />
 
     <!-- Manage (link/unlink/edit/test) the connections attached to an agent.
@@ -1118,6 +1120,7 @@
       v-if="connModalAgentId"
       v-model="showConnModal"
       :ds-id="connModalAgentId"
+      :agent="agents.find(a => a.id === connModalAgentId)"
       :connections="connModalConnections"
       @changed="onConnModalChanged"
     />
@@ -1125,7 +1128,6 @@
     <NewAgentWizardModal v-model="showNewAgent" @finished="onNewAgentFinished" />
     <AddMCPModal v-model="showAddMCP" :existing-connections="mcpExistingConnections" @created="onConnCreated" />
     <AddCustomAPIModal v-model="showAddCustomAPI" :existing-connections="customApiExistingConnections" @created="onConnCreated" />
-    <UserDataSourceCredentialsModal v-model="showCredsModal" :data-source="credsAgent" @saved="onCredsSaved" />
     <input ref="fileInputRef" type="file" multiple class="hidden" @change="onUploadInput" />
 
     <UModal v-model="showEditStarters" :ui="{ width: 'sm:max-w-2xl' }">
@@ -1230,15 +1232,13 @@ import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
-import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
 import TraceModal from '~/components/console/TraceModal.vue'
 import ReviewFeed from '~/components/ReviewFeed.vue'
 import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny, useCanAll } from '~/composables/usePermissions'
-import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
-import { getEffectiveStatus, statusDotClass } from '~/composables/useConnectionStatus'
+import { getEffectiveStatus, statusDotClass, statusLabelKey, needsConnectionSignIn } from '~/composables/useConnectionStatus'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 import { useOrgSettings } from '~/composables/useOrgSettings'
 
@@ -2199,12 +2199,14 @@ const openAgent = async (id: string) => {
   clearRightPane()
   agentView.value = { agentId: id }; agentDetail.value = null; agentDetailLoading.value = true; starterPrompts.value = []
   creatingPrimary.value = false; editingPrimary.value = false; editingDesc.value = false
-  loadAgentMeta(id); fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
+  const agent = agents.value.find(a => a.id === id)
+  if (!agent || !agentAccessBlocked(agent)) loadAgentMeta(id)
+  fetchAgentReports(id); refreshAgentDetail(); fetchActivity(id)
 }
 // Close button: clear the view (the URL sync watcher drops the id from the URL).
 const exitAgentView = () => { closeAgentView() }
 const onAgentClick = (agent: any) => {
-  if (needsSignIn(agent)) {
+  if (agentAccessBlocked(agent)) {
     // Managers/admins keep an admin path without personal credentials: expand
     // the node (which then shows only Settings) instead of forcing sign-in.
     // The detail pane stays closed — it assumes a queryable agent. Everyone
@@ -2561,41 +2563,24 @@ const showNewAgent = ref(false)
 const showAddMCP = ref(false)
 const showAddCustomAPI = ref(false)
 
-// ── Per-user OAuth / OBO sign-in (user_required agents) ──────────────────────
-// Replaces the old behaviour of popping the legacy /old_agents connection page.
-// Mirrors the legacy /agents index: for OAuth-only connections jump straight to
-// the provider; otherwise fall back to the credentials modal.
-const signIn = useConnectionSignIn()
-const showCredsModal = ref(false)
-const credsAgent = ref<any>(null)
-const connectingAgentId = ref<string | null>(null)
-// The first user_required connection on an agent that still lacks credentials.
-const pendingSignInConnection = (a: any) => (a?.connections || []).find((c: any) => c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials) || null
-const connectAgent = async (agentId: string) => {
-  const a = agents.value.find(x => x.id === agentId) || (agentDetail.value?.id === agentId ? agentDetail.value : null)
-  if (!a) return
-  const pending = pendingSignInConnection(a)
-  if (pending) {
-    connectingAgentId.value = agentId
-    const result = await signIn.triggerUserSignIn(pending)
-    if (result.redirecting) return // keep spinning; the page is navigating to the provider
-    connectingAgentId.value = null
-    if (result.error) toast.add({ title: t('agentsPage.toastSignInFailed'), description: result.error, color: 'red' })
-  }
-  // Non-OAuth (or OAuth that couldn't auto-redirect): collect creds in-app.
-  credsAgent.value = a
-  showCredsModal.value = true
+const showAgentCard = ref(false)
+const agentCardId = ref<string | null>(null)
+const agentCardAgent = computed(() => agents.value.find(a => a.id === agentCardId.value) || (agentDetail.value?.id === agentCardId.value ? agentDetail.value : null))
+const openAgentCard = (id: string) => {
+  agentCardId.value = id
+  showAgentCard.value = true
 }
-// After credentials are saved, refresh the agent + repopulate its per-user table
-// overlay (the shared-catalog reload now backfills it server-side).
-const onCredsSaved = async () => {
-  showCredsModal.value = false
-  const id = credsAgent.value?.id
+const onAgentCardChanged = async () => {
   await fetchAgents()
-  if (id) {
-    if (agentView.value?.agentId === id) await refreshAgentDetail()
-    await reloadTables(id)
-  }
+  if (agentView.value?.agentId === agentCardId.value) await refreshAgentDetail()
+  if (agentCardId.value) await reloadTables(agentCardId.value)
+}
+
+// Sign-in always starts with the agent's connection list, including one connection.
+const pendingSignInConnections = (a: any) => (a?.connections || []).filter(needsConnectionSignIn)
+const connectAgent = (agentId: string) => {
+  const agent = agents.value.find(a => a.id === agentId) || (agentDetail.value?.id === agentId ? agentDetail.value : null)
+  if (agent && pendingSignInConnections(agent).length) openAgentCard(agentId)
 }
 // New agent wizard finished: refresh the agent list and open the new agent's page.
 const onNewAgentFinished = async (id: string) => {
@@ -3297,14 +3282,10 @@ const connections = computed(() => {
 })
 
 // requires sign-in (ported from /agents/index.vue)
-const requiresUserAuth = (a: any) => (a.connections || []).some((c: any) => c.auth_policy === 'user_required')
-const needsSignIn = (a: any) => {
-  if (!requiresUserAuth(a)) return false
-  for (const c of (a.connections || [])) {
-    if (c.auth_policy === 'user_required' && !c.user_status?.has_user_credentials && c.user_status?.effective_auth !== 'system') return true
-  }
-  return false
-}
+const needsSignIn = (a: any) => pendingSignInConnections(a).length > 0
+// A missing credential on one connection must not hide the usable sources.
+const agentAccessBlocked = (a: any) => (a?.connections || []).length > 0
+  && (a.connections || []).every(needsConnectionSignIn)
 // In-app OBO/user sign-in (was: window.open the legacy /old_agents page).
 const openAgentTab = (id: string) => { connectAgent(id) }
 
@@ -3316,7 +3297,11 @@ const expand = (key: string, force?: boolean) => {
   else expanded.value.add(key)
   // Opening an agent loads its meta but leaves the Instructions group collapsed;
   // it opens only on an explicit click (or openAgentSection / a fresh create).
-  if (key.startsWith('agent:') && expanded.value.has(key)) loadAgentMeta(key.slice('agent:'.length))
+  if (key.startsWith('agent:') && expanded.value.has(key)) {
+    const id = key.slice('agent:'.length)
+    const agent = agents.value.find(a => a.id === id)
+    if (!agent || !agentAccessBlocked(agent)) loadAgentMeta(id)
+  }
   // Lazy-load instruction rows on first expand of a group (rows arrive from the
   // backend; counts/badges were already loaded on mount).
   if (expanded.value.has(key)) {
@@ -3402,7 +3387,7 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
@@ -3895,7 +3880,7 @@ const fmtDate = (s?: string) => { if (!s) return ''; try { return _df.format(s, 
 
 // ── Inline tree sub-components ──────────────────────────
 const TreeGroup = defineComponent({
-  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
+  props: { label: String, icon: String, count: { type: Number, default: undefined }, countAccent: Boolean, pending: Boolean, open: Boolean, mono: Boolean, indent: { type: Number, default: 0 }, addable: Boolean, folderable: Boolean, gearable: Boolean, reloadable: Boolean, renamable: Boolean, deletable: Boolean, runnable: Boolean, running: Boolean, badge: String, badgeLoading: Boolean, badgeInteractive: { type: Boolean, default: true }, disabled: Boolean, labelClickable: Boolean, active: Boolean, statusDot: String, lock: Boolean, dropActive: Boolean, onDropzone: Function, onDragover: Function, onDragleave: Function },
   emits: ['toggle', 'add', 'folder', 'gear', 'reload', 'rename', 'delete', 'run', 'badge', 'label'],
   setup(props, { slots, emit }) {
     // When `labelClickable` is set, the chevron/icon area toggles the tree and the
@@ -3919,7 +3904,7 @@ const TreeGroup = defineComponent({
         // passive label — no key icon, no click, so it can't open an unrelated
         // bearer-token/sign-in dialog once the connection is already set up.
         props.badge ? (props.badgeInteractive
-          ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20', onClick: (e: Event) => { e.stopPropagation(); emit('badge') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge])
+          ? createElement('button', { class: 'shrink-0 inline-flex items-center gap-0.5 px-1.5 h-5 rounded bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[10px] font-medium hover:bg-blue-100 dark:hover:bg-blue-500/20', disabled: props.badgeLoading, 'aria-busy': props.badgeLoading, onClick: (e: Event) => { e.stopPropagation(); if (!props.badgeLoading) emit('badge') } }, [props.badgeLoading ? createElement(resolveComponent('Spinner'), { class: 'w-2.5 h-2.5', 'aria-hidden': 'true' }) : createElement(resolveComponent('UIcon'), { name: 'i-heroicons-key', class: 'w-2.5 h-2.5' }), props.badge])
           : createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 text-[10px] font-medium' }, props.badge)) : null,
         (props.reloadable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipReload'), onClick: (e: Event) => { e.stopPropagation(); emit('reload') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-path', class: 'w-3 h-3' })]) : null,
         (props.gearable && !props.disabled) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.tipManage'), onClick: (e: Event) => { e.stopPropagation(); emit('gear') } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-cog-6-tooth', class: 'w-3 h-3' })]) : null,

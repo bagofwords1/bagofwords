@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "מחובר",
+    "countBoards": "לוח אחד | {n} לוחות",
+    "configuredCountsHint": "הספירות לפני הכניסה משקפות את הקטלוג המשותף, ולא את הגישה האישית שלך."
+  },
   "changelog": {
     "menuItem": "יומן שינויים",
     "title": "מה חדש",

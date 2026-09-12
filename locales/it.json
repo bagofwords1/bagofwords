@@ -1,4 +1,9 @@
 {
+  "agentCard": {
+    "signedIn": "Accesso effettuato",
+    "countBoards": "{n} bacheca | {n} bacheche",
+    "configuredCountsHint": "Prima di accedere, i conteggi riflettono il catalogo condiviso, non il tuo accesso personale."
+  },
   "agentsPage": {
     "title": "Agenti",
     "subtitle": "Configura i tuoi agenti e i dati, gli strumenti, le competenze e le istruzioni con cui ragionano.",
