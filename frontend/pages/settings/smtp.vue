@@ -46,17 +46,22 @@
         </div>
       </div>
 
+      <!-- The whole block dims when the server is off: the settings are kept,
+           but editing them has no effect until it is switched back on. -->
+      <fieldset :disabled="!form.enabled"
+        class="min-w-0 border-0 p-0 m-0"
+        :class="form.enabled ? '' : 'opacity-60'">
       <div class="grid grid-cols-2 gap-3 mb-3">
         <div>
           <label class="block text-sm font-medium mb-1">From name</label>
-          <input v-model="form.from_name" type="text" data-testid="smtp-from-name" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="Acme" />
+          <input v-model="form.from_name" type="text" data-testid="smtp-from-name" :disabled="!form.enabled" :class="fieldClass" placeholder="Acme" />
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">
             From address
             <span v-if="form.enabled" class="text-red-500">*</span>
           </label>
-          <input v-model="form.from_address" type="email" data-testid="smtp-from-address" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="noreply@acme.com" />
+          <input v-model="form.from_address" type="email" data-testid="smtp-from-address" :disabled="!form.enabled" :class="fieldClass" placeholder="noreply@acme.com" />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3 mb-3">
@@ -65,21 +70,21 @@
             Host
             <span v-if="form.enabled" class="text-red-500">*</span>
           </label>
-          <input v-model="form.host" type="text" data-testid="smtp-host" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" placeholder="smtp.acme.com" />
+          <input v-model="form.host" type="text" data-testid="smtp-host" :disabled="!form.enabled" :class="fieldClass" placeholder="smtp.acme.com" />
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Port</label>
-          <input v-model.number="form.port" type="number" data-testid="smtp-port" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+          <input v-model.number="form.port" type="number" data-testid="smtp-port" :disabled="!form.enabled" :class="fieldClass" />
         </div>
       </div>
       <div class="grid grid-cols-2 gap-3 mb-1">
         <div>
           <label class="block text-sm font-medium mb-1">Username <span class="text-gray-400 font-normal">(optional)</span></label>
-          <input v-model="form.username" type="text" data-testid="smtp-username" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white" />
+          <input v-model="form.username" type="text" data-testid="smtp-username" :disabled="!form.enabled" :class="fieldClass" />
         </div>
         <div>
           <label class="block text-sm font-medium mb-1">Password <span class="text-gray-400 font-normal">(optional)</span></label>
-          <input v-model="form.password" type="password" data-testid="smtp-password" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white"
+          <input v-model="form.password" type="password" data-testid="smtp-password" :disabled="!form.enabled" :class="fieldClass"
             :placeholder="passwordSet ? '•••••••• (unchanged)' : ''" />
           <p v-if="passwordSet" class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave blank to keep the saved password.</p>
         </div>
@@ -87,17 +92,19 @@
       <p class="text-xs text-gray-500 dark:text-gray-400 mb-3">Leave username &amp; password empty for an open relay that doesn't require authentication.</p>
       <div class="mb-3">
         <label class="block text-sm font-medium mb-1">Security</label>
-        <select v-model="form.security" data-testid="smtp-security" class="w-full border border-gray-300 dark:border-gray-600 rounded px-2 py-1 bg-white dark:bg-gray-900 text-gray-900 dark:text-white">
+        <select v-model="form.security" data-testid="smtp-security" :disabled="!form.enabled" :class="fieldClass">
           <option value="starttls">STARTTLS (587)</option>
           <option value="ssl">SSL/TLS (465)</option>
           <option value="none">None</option>
         </select>
       </div>
-      <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4 cursor-pointer">
-        <UToggle v-model="form.validate_certs" />
+      <label v-if="form.security !== 'none'" class="flex items-center gap-2 mb-4"
+        :class="form.enabled ? 'cursor-pointer' : 'cursor-default'">
+        <UToggle v-model="form.validate_certs" :disabled="!form.enabled" />
         <span class="text-sm text-gray-700 dark:text-gray-300">Validate TLS certificates</span>
         <span class="text-xs text-gray-400 dark:text-gray-600">— turn off for self-signed / internal-CA relays</span>
       </label>
+      </fieldset>
 
       <div class="flex items-center gap-2">
         <button type="submit" :disabled="busy" data-testid="smtp-save"
@@ -172,6 +179,15 @@ async function showResult(result: { ok: boolean; text: string; detail?: string }
   testResult.value = result
   testedSignature.value = result ? formSignature.value : null
 }
+
+/** Inputs read as off — greyed and not editable — while the server is disabled. */
+const fieldClass = computed(() => [
+  'w-full border rounded px-2 py-1',
+  form.enabled
+    ? 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-900 dark:text-white'
+    : 'border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800'
+      + ' text-gray-500 dark:text-gray-400 cursor-not-allowed',
+])
 
 const activeBanner = computed(() => {
   if (serverState.active_source === 'org_smtp') {
