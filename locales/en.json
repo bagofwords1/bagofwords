@@ -3811,7 +3811,18 @@
       "connectionFailed": "Connection failed",
       "requestFailed": "Request failed",
       "newProvider": "New Provider",
-      "providerFallback": "Provider"
+      "providerFallback": "Provider",
+      "projectId": "Project ID",
+      "projectIdPlaceholder": "e.g. my-project-123456",
+      "vertexLocation": "Location",
+      "vertexLocationPlaceholder": "global",
+      "vertexLocationHint": "Leave as global unless you need a specific region — newer Gemini models and all third-party models are served only there.",
+      "vertexAdc": "Default Credentials",
+      "vertexServiceAccount": "Service Account Key",
+      "vertexAdcHint": "Uses Application Default Credentials (Workload Identity, GCE metadata, GOOGLE_APPLICATION_CREDENTIALS)",
+      "vertexServiceAccountJson": "Service Account Key JSON",
+      "vertexServiceAccountJsonPlaceholder": "Paste the whole service account key file",
+      "vertexServiceAccountJsonHint": "Needs the roles/aiplatform.user role. Project ID is taken from the key if left blank."
     }
   },
   "evals": {

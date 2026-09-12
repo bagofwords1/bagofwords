@@ -15,6 +15,7 @@ from app.ai.llm.llm import LLM
 from app.ai.llm.header_injection import validate_header_config
 from app.dependencies import async_session_maker
 from datetime import datetime
+import json
 from app.core.telemetry import telemetry
 from app.ee.audit.service import audit_service
 from app.errors import AppError, ErrorCode
@@ -1769,6 +1770,65 @@ class LLMService:
                 api_key = credentials["aws_access_key_id"]
             if credentials.get("aws_secret_access_key"):
                 api_secret = credentials["aws_secret_access_key"]
+
+        # Vertex: project_id + location + auth_mode are non-secret →
+        # additional_config; the service account key JSON is a secret and rides
+        # the encrypted api_key slot.
+        if provider.provider_type == "vertex":
+            if "project_id" in credentials:
+                project_id = credentials.get("project_id")
+                if project_id:
+                    existing_additional_config = { **existing_additional_config, "project_id": project_id }
+                else:
+                    existing_additional_config.pop("project_id", None)
+            if "location" in credentials:
+                raw_location = credentials.get("location")
+                location = raw_location.strip().lower() if isinstance(raw_location, str) else raw_location
+                if location:
+                    existing_additional_config = { **existing_additional_config, "location": location }
+                else:
+                    # Blank means "use the default" rather than "no location":
+                    # global is where the newer Gemini models and every
+                    # third-party publisher model are served.
+                    existing_additional_config.pop("location", None)
+            if "auth_mode" in credentials:
+                raw_auth_mode = credentials.get("auth_mode")
+                auth_mode = raw_auth_mode.lower() if isinstance(raw_auth_mode, str) else raw_auth_mode
+                allowed_auth_modes = {"adc", "service_account"}
+                if auth_mode not in allowed_auth_modes:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Invalid auth_mode for Vertex provider: {raw_auth_mode!r}. "
+                               f"Allowed values are: {', '.join(sorted(allowed_auth_modes))}."
+                    )
+                existing_additional_config = { **existing_additional_config, "auth_mode": auth_mode }
+
+            if credentials.get("service_account_json"):
+                raw_key = credentials["service_account_json"]
+                # Fail here rather than at the first inference call: a truncated
+                # paste or a wrong file is the most likely setup mistake, and
+                # the provider form can surface it immediately.
+                try:
+                    parsed_key = json.loads(raw_key)
+                except (TypeError, ValueError) as exc:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Vertex service account key is not valid JSON: {exc}"
+                    )
+                if not isinstance(parsed_key, dict) or not parsed_key.get("private_key"):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Vertex service account key JSON is missing 'private_key' — "
+                               "paste the whole key file."
+                    )
+                api_key = raw_key
+                # A key file names its own project; adopt it when the admin
+                # left the field blank so the common case needs one paste.
+                if not existing_additional_config.get("project_id") and parsed_key.get("project_id"):
+                    existing_additional_config = {
+                        **existing_additional_config,
+                        "project_id": parsed_key["project_id"],
+                    }
 
         # All providers: custom outbound headers + per-user identity forwarding
         # (non-secret → additional_config, mirroring MCP connections). Present

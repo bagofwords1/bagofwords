@@ -135,7 +135,7 @@ const metricOptions = computed(() => [
 
 const isEstimatedProvider = (providerType: string | undefined) => {
     const pt = (providerType || '').toLowerCase()
-    return pt === 'custom' || pt === 'azure' || pt.startsWith('bedrock')
+    return pt === 'custom' || pt === 'azure' || pt === 'vertex' || pt.startsWith('bedrock')
 }
 
 const hasEstimatedProvider = computed(() =>

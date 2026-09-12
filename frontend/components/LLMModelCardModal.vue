@@ -263,7 +263,7 @@ const saving = ref(false);
 const deleteBlocked = computed(() => !!props.model && (props.model.is_default || props.model.is_small_default));
 
 // Mirrors EDITABLE_MODEL_ID_PROVIDER_TYPES in backend/app/models/llm_provider.py.
-const EDITABLE_MODEL_ID_PROVIDER_TYPES = ['azure', 'custom', 'bedrock'];
+const EDITABLE_MODEL_ID_PROVIDER_TYPES = ['azure', 'custom', 'bedrock', 'vertex'];
 const canEditModelId = computed(() =>
     !!props.model?.is_custom
     && EDITABLE_MODEL_ID_PROVIDER_TYPES.includes(props.model?.provider?.provider_type)
