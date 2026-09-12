@@ -30,7 +30,15 @@ const loading = ref(false)
 // the project rail promises. Callers use this to build the right payload.
 export function useNewReportProjectContext() {
     const route = useRoute()
-    const activeProjectId = computed(() => projectIdFromPath(route.path))
+    // A report can be started from inside a project's own page, or from the
+    // draft page (/reports/new), which is not under /projects/:id and so
+    // carries the project it was opened from as a query param instead.
+    const activeProjectId = computed(() => {
+        const fromPath = projectIdFromPath(route.path)
+        if (fromPath) return fromPath
+        const q = route.query.project
+        return typeof q === 'string' && q ? q : null
+    })
 
     // `explicit` are agents the user genuinely picked for this report (e.g. a
     // prompt's data-source mentions). Inside a project, an empty pick means

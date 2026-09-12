@@ -2217,28 +2217,19 @@ const onAgentClick = (agent: any) => {
   if (!isOpen('agent:' + agent.id)) expand('agent:' + agent.id)
   openAgent(agent.id)
 }
-const createReportForAgent = async (id: string) => {
-  try {
-    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'New report', data_sources: [id] } })
-    const rid = (data.value as any)?.id
-    if (error.value || !rid) throw new Error('Failed to create report')
-    navigateTo(`/reports/${rid}`)
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
-}
+// Opens a draft scoped to this agent. Nothing is written until the user sends
+// a prompt; ?agents= is an explicit scope, so it lands on the created report
+// as its data_sources (and overrides project defaults) exactly as this POST did.
+const createReportForAgent = (id: string) => navigateTo({ path: '/reports/new', query: { agents: id } })
 // Start a training session for an agent: a new report scoped to ONLY this
 // agent/data source, switched to training mode, with a pre-filled (non-submitting)
 // prompt — mirrors the legacy agents page.
-const startTrainingSessionForAgent = async (agentId: string) => {
+const startTrainingSessionForAgent = (agentId: string) => {
   if (!agentId) return
   const prompt = 'I need to update the instruction for this agent with '
-  try {
-    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'Training session', data_sources: [agentId] } })
-    const rid = (data.value as any)?.id
-    if (error.value || !rid) throw new Error('Failed to create report')
-    const { error: modeErr } = await useMyFetch(`/reports/${rid}`, { method: 'PUT', body: { mode: 'training' } })
-    if (modeErr.value) throw new Error(String(modeErr.value))
-    await navigateTo({ path: `/reports/${rid}`, query: { prompt } })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+  // The draft carries the mode instead of the old create-then-PUT: the create
+  // endpoint takes `mode` and runs the same training-mode permission gate on it.
+  return navigateTo({ path: '/reports/new', query: { agents: agentId, mode: 'training', prompt } })
 }
 // description inline edit
 const startEditDesc = () => { descForm.value = agentDetail.value?.description || ''; editingDesc.value = true; nextTick(() => descInputRef.value?.focus()) }

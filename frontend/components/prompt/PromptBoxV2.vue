@@ -693,9 +693,17 @@ const emit = defineEmits(['submitCompletion','queueCompletion','removeQueuedProm
 // The chip mirrors the report's project and doubles as the move control:
 // picking a project moves the report (owner-only route enforces the rest).
 const { projects: availableProjects, fetchProjects, moveReport: moveReportToProject } = useProjects()
+const { newReportPayload } = useNewReportProjectContext()
 const currentProject = ref<any>(props.project || null)
 watch(() => props.project, (p) => { currentProject.value = p || null })
 const isMovingProject = ref(false)
+// Whether the user picked a project by hand in this box. Without a report to
+// move, the pick can't be read back off the server, and the route context
+// (see useNewReportProjectContext) is the default — so createReport only lets
+// the picker override that default once it has actually been used. Otherwise
+// a draft submitted before `projects` finishes loading (the chip renders from
+// that list) would silently drop the project it was opened from.
+const projectExplicitlyPicked = ref(false)
 // Default agents of the containing project — feeds the agent picker so
 // "Auto" inside a project means the project's agents, not the whole org.
 const projectDefaultAgents = ref<any[]>([])
@@ -713,6 +721,7 @@ const pickProject = async (proj: any | null, close: () => void) => {
     // Standalone: nothing to move yet — just hold the choice for the caller.
     if (!props.report_id) {
         currentProject.value = proj ? { id: proj.id, name: proj.name, color: proj.color } : null
+        projectExplicitlyPicked.value = true
         emit('projectChanged', currentProject.value)
         close()
         return
@@ -1726,18 +1735,27 @@ async function createReport() {
             isSubmitting.value = false
             return
         }
+        // Project context comes from the route (a project page, or the draft
+        // page's ?project=), and the picker overrides it once the user has
+        // touched it — including a deliberate "No project", which has to clear
+        // the inherited id rather than fall back to it.
+        const body: Record<string, any> = {
+            title: 'untitled report',
+            files: successfullyUploadedFiles.value?.map((file: any) => file.id) || [],
+            new_message: text.value,
+            // Persist the picker's mode on the report itself. The query
+            // param below only shapes the FIRST completion; without this
+            // the report loads as chat and the picker snaps back.
+            mode: mode.value,
+            ...newReportPayload(selectedDataSources.value?.map((ds: any) => String(ds.id)) || [])
+        }
+        if (projectExplicitlyPicked.value) {
+            if (currentProject.value?.id) body.project_id = currentProject.value.id
+            else delete body.project_id
+        }
         const response = await useMyFetch('/reports', {
             method: 'POST',
-            body: JSON.stringify({
-                title: 'untitled report',
-                files: successfullyUploadedFiles.value?.map((file: any) => file.id) || [],
-                new_message: text.value,
-                data_sources: selectedDataSources.value?.map((ds: any) => ds.id) || [],
-                // Persist the picker's mode on the report itself. The query
-                // param below only shapes the FIRST completion; without this
-                // the report loads as chat and the picker snaps back.
-                mode: mode.value
-            })
+            body: JSON.stringify(body)
         })
         if ((response as any)?.error?.value) {
             throw new Error('Report creation failed')
