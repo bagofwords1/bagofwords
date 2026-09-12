@@ -1582,7 +1582,7 @@ class ConnectionService:
                         # visibility is recorded in their overlay
                         # (user_connection_tables / user_data_source_tables),
                         # which is refreshed right after this by
-                        # DataSourceService._refresh_shared_user_overlay.
+                        # DataSourceService._reloaded_schema_for.
                         skipped_count += 1
                         continue
                     # Update existing
