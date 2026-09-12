@@ -430,7 +430,6 @@ KNOWN_STALE_FRONTEND_PERMISSIONS = frozenset({
     "update_organization_members",
     "view_builds",
     "view_completion_plan",
-    "view_console",
     "view_schema",
 })
 

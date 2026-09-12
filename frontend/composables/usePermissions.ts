@@ -101,6 +101,32 @@ export const useHasOrgWideConsole = () =>
 export const useCanAccessMonitoring = () =>
   useHasOrgWideConsole() || useCanAny('manage', 'data_source')
 
+// Who can open the agent trace ("debugger") for ONE report — the bug icon on an
+// assistant message, and the same drill-down reached from a build or an
+// instruction suggestion.
+//
+// Mirrors ConsoleScope.assert_report_visible in app/core/console_access.py:
+// org admins see every report; an agent manager sees a report only when EVERY
+// agent it draws on is one they manage, because a trace replays the whole
+// conversation (generated SQL, tool arguments, results) and nothing below the
+// report carries agent attribution. A report with no agent at all is org-admin
+// only, matching the backend's `not rows` branch — so an empty/unknown list
+// fails closed here rather than reading as "nothing to check".
+//
+// Accepts the hydrated `report.data_sources` objects or plain ids.
+// Usage: useCanViewReportTrace(report.value?.data_sources)
+export const useCanViewReportTrace = (
+  dataSources?: Array<string | { id?: string | null }> | null,
+) => {
+  if (useHasOrgWideConsole()) return true
+  if (!Array.isArray(dataSources)) return false
+  const ids = [...new Set(dataSources
+    .map((item) => typeof item === 'string' ? item : item?.id)
+    .filter((id): id is string => typeof id === 'string' && id.length > 0))]
+  if (ids.length === 0) return false
+  return ids.every((id) => useCan('manage', { type: 'data_source', id }))
+}
+
 // ALL-of check: does the user hold `permission` on EVERY resource id in the
 // list? Mirrors the backend's ALL-attached-agents rule for editing a shared
 // instruction (check_resource_permissions fails on the first miss). Ported

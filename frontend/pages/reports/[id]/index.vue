@@ -528,7 +528,7 @@
 
 											<!-- Debug button -->
 											<button
-												v-if="canViewConsole"
+												v-if="canViewTrace"
 												@click="openTraceModal(m.system_completion_id || m.id)"
 												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors group"
 												:title="$t('reportView.viewAgentTrace')"
@@ -1201,7 +1201,7 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
-import { useCan } from '~/composables/usePermissions'
+import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
@@ -1340,7 +1340,12 @@ function modelBrandFor(model?: string | null) {
 }
 
 // Permissions
-const canViewConsole = computed(() => useCan('view_console'))
+// Agent trace ("debugger") on an assistant message. `view_console` never
+// existed in the permission registry, so this was silently false for everyone
+// but a full org admin — including the agent's own owner, whom the backend
+// (ConsoleScope) does authorize. Gate on the real rule instead: org-wide
+// console, or `manage` on every agent this report draws on.
+const canViewTrace = computed(() => useCanViewReportTrace(report.value?.data_sources))
 
 // Org settings (follow-up suggestions toggle)
 const { isFollowUpsEnabled } = useOrgSettings()
