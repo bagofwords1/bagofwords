@@ -39,6 +39,10 @@ class InstructionReferenceSchema(InstructionReferenceBase):
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     # None = use the default type/connector icon.
     data_source_icon: Optional[str] = None
+    # Resolved display icon for the referenced agent ("emoji:<grapheme>" |
+    # "type:<key>" | None) from app.schemas.agent_icon — render this rather than
+    # re-deriving from data_source_type/data_source_icon.
+    data_source_icon_token: Optional[str] = None
 
     class Config:
         from_attributes = True

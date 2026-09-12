@@ -35,7 +35,7 @@
                                         v-for="dataSource in instruction.data_sources.slice(0, 3)"
                                         :key="dataSource.id"
                                         :type="dataSource.type"
-                                        :icon="dataSource.icon"
+                                        :icon-token="dataSource.icon_token" :icon="dataSource.icon"
                                         class="w-4 h-4"
                                         :title="dataSource.name"
                                     />

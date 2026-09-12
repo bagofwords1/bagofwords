@@ -13,7 +13,7 @@
             <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap gap-1">
               <template v-for="(group, gidx) in groupedTables" :key="gidx">
                 <span v-if="gidx > 0" class="text-gray-300 dark:text-gray-600">|</span>
-                <DataSourceIcon :type="group.type" class="h-2" />
+                <DataSourceIcon :icon-token="group.iconToken" class="h-2" />
                 <span class="inline-flex items-center flex-wrap" :title="group.title">
                   <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
                     <UIcon
@@ -38,7 +38,7 @@
             <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap gap-1">
               <template v-for="(group, gidx) in groupedTables" :key="gidx">
                 <span v-if="gidx > 0" class="text-gray-300 dark:text-gray-600">|</span>
-                <DataSourceIcon :type="group.type" class="h-2.5" />
+                <DataSourceIcon :icon-token="group.iconToken" class="h-2.5" />
                 <span class="inline-flex items-center flex-wrap" :title="group.title">
                   <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
                     <UIcon
@@ -150,11 +150,11 @@ interface ToolExecution {
   duration_ms?: number
 }
 
+// See CreateDataTool: id to match tables_by_source, plus the backend's
+// pre-resolved icon. Nothing icon-shaped is derived on the client.
 interface DataSource {
   id: string
-  type?: string
-  data_source_type?: string
-  connections?: Array<{ id: string; type: string }>
+  icon_token?: string | null
 }
 
 interface Props {
@@ -234,8 +234,15 @@ const executedOnCache = computed(() => {
 })
 const isCached = (n: string) => isCachedTable(n) || executedOnCache.value
 
+// The agents the backend attached to this tool execution — present in every
+// view, unlike the `dataSources` prop (report page only), which stays as a
+// fallback.
+const iconAgents = computed<DataSource[]>(
+  () => (props.toolExecution as any)?.data_sources || props.dataSources || [],
+)
+
 const groupedTables = computed<ToolTableGroup[]>(() =>
-  groupToolTables(props.toolExecution?.arguments_json, props.dataSources)
+  groupToolTables(props.toolExecution?.arguments_json, iconAgents.value)
 )
 
 function toggleExpanded() {

@@ -84,7 +84,7 @@
 							<DataSourceIcon
 								:type="a.type || a.connections?.[0]?.type"
 								:connector-key="a.connector_key || a.connections?.[0]?.connector_key"
-								:icon="a.icon"
+								:icon-token="a.icon_token" :icon="a.icon"
 								class="h-3.5 flex-shrink-0"
 							/>
 							<span class="max-w-[11rem] truncate">{{ a.name }}</span>

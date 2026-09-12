@@ -244,7 +244,7 @@
                                                     :disabled="savingAgents"
                                                     @click="addAgent(agent.id)"
                                                 >
-                                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="h-3.5 shrink-0" />
+                                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
                                                     <span class="flex-1 truncate text-start">{{ agent.name }}</span>
                                                 </button>
                                                 <div v-if="!agentCandidates.length" class="px-2 py-1.5 text-gray-400">{{ $t('projects.settings.noAgents') }}</div>
@@ -255,7 +255,7 @@
                             </div>
                             <div v-if="project.data_sources?.length" class="space-y-1">
                                 <div v-for="agent in project.data_sources" :key="agent.id" class="group/agent flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
-                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="h-3.5 shrink-0" />
+                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
                                     <span class="flex-1 truncate">{{ agent.name }}</span>
                                     <button
                                         v-if="project.can_manage"

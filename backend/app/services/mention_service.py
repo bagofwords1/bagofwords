@@ -180,6 +180,7 @@ class MentionService:
                 'name': getattr(ds, 'name', ''),
                 'data_source_type': getattr(ds, 'type', ''),
                 'icon': getattr(ds, 'icon', None),
+                'icon_token': getattr(ds, 'icon_token', None),
                 'description': getattr(ds, 'description', None),
                 'is_active': True,
                 'is_public': None,

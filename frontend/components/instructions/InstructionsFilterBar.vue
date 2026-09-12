@@ -208,13 +208,13 @@
                         >
                             <template #label>
                                 <span class="flex items-center gap-2 text-xs">
-                                    <DataSourceIcon v-if="selectedDataSource?.type || selectedDataSource?.icon" :type="selectedDataSource.type" :icon="selectedDataSource?.icon" class="h-4" />
+                                    <DataSourceIcon v-if="selectedDataSource?.type || selectedDataSource?.icon || selectedDataSource?.icon_token" :type="selectedDataSource.type" :icon-token="selectedDataSource?.icon_token" :icon="selectedDataSource?.icon" class="h-4" />
                                     {{ selectedDataSource?.label || 'All Data Sources' }}
                                 </span>
                             </template>
                             <template #option="{ option }">
                                 <span class="flex items-center gap-2 text-xs">
-                                    <DataSourceIcon v-if="option.type || option.icon" :type="option.type" :icon="option.icon" class="h-4" />
+                                    <DataSourceIcon v-if="option.type || option.icon || option.icon_token" :type="option.type" :icon-token="option.icon_token" :icon="option.icon" class="h-4" />
                                     {{ option.label }}
                                 </span>
                             </template>
@@ -272,6 +272,7 @@ interface DataSource {
     name: string
     type: string
     icon?: string | null
+    icon_token?: string | null
 }
 
 interface SourceTypeOption {
@@ -400,7 +401,8 @@ const dataSourceOptions = computed(() => {
             value: ds.id,
             label: ds.name,
             type: ds.type,
-            icon: ds.icon ?? null
+            icon: ds.icon ?? null,
+            icon_token: ds.icon_token ?? null
         }))
     ]
 })

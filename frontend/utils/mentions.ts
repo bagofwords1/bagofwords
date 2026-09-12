@@ -256,6 +256,9 @@ export interface PromptMentionRef {
   type: string
   name: string
   data_source_type?: string
+  // An AGENT mention's resolved icon. Tables carry no agent-level token and
+  // keep rendering from data_source_type, which is their connection's.
+  data_source_icon_token?: string | null
 }
 
 /**
@@ -266,7 +269,17 @@ export interface PromptMentionRef {
  */
 export function promptMentionsToRefs(
   mentions?: Array<{ name: string; items: any[] }>,
+  /** Current agent id -> icon_token. A prompt's mentions are a snapshot taken
+   *  when the message was sent, so a chip would keep showing the icon the agent
+   *  had then; the chip names a live agent, so prefer the agent's icon now. */
+  agentIconTokens?: Map<string, string | null | undefined> | Record<string, string | null | undefined>,
 ): PromptMentionRef[] {
+  const currentToken = (id: string) => {
+    if (!agentIconTokens) return undefined
+    return agentIconTokens instanceof Map
+      ? agentIconTokens.get(id)
+      : agentIconTokens[id]
+  }
   if (!mentions?.length) return []
   const refs: PromptMentionRef[] = []
   for (const group of mentions) {
@@ -287,6 +300,12 @@ export function promptMentionsToRefs(
         // data source's type); include it so the chip renders the correct
         // data-source icon instead of the generic fallback glyph.
         data_source_type: item.connection_type || item.data_source_type || item.icon_type || undefined,
+        // An agent mention resolves to the same icon the agents explorer and the
+        // data tools draw for it; DataSourceIcon prefers this over the type above.
+        data_source_icon_token:
+          type === 'data_source'
+            ? (currentToken(item.id) ?? item.icon_token ?? undefined)
+            : undefined,
         name,
       })
     }
