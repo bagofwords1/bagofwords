@@ -310,6 +310,9 @@ class MCPEditArtifactOutput(BaseModel):
 # Reuse the attachment spec / result shapes from the internal tool so the MCP
 # surface and the agent tool stay in lockstep.
 from app.ai.tools.schemas.send_email import (  # noqa: E402
+    EMAIL_BODY_RULES,
+    EMAIL_HTML_RULES,
+    EMAIL_BODY_FORMAT_RULE,
     EmailAttachmentSpec,
     SendEmailAttachmentResult,
 )
@@ -325,8 +328,15 @@ class MCPSendEmailInput(BaseModel):
     are rejected.
     """
     subject: str = Field(..., min_length=1, max_length=300, description="A clear, specific subject line.")
-    body: str = Field(..., min_length=1, description="The email body. Plain text by default; keep it short and natural.")
-    body_format: str = Field(default="text", description="'text' (default) or 'html'. Use 'html' only when light structure genuinely helps.")
+    body: str = Field(
+        ...,
+        min_length=1,
+        description=(
+            "The email body. Keep it short and natural.\n\n"
+            f"{EMAIL_BODY_RULES}\n\n{EMAIL_HTML_RULES}"
+        ),
+    )
+    body_format: str = Field(default="text", description=EMAIL_BODY_FORMAT_RULE)
     recipients: List[str] = Field(
         default_factory=list,
         max_length=20,

@@ -43,6 +43,50 @@ class EmailAttachmentSpec(BaseModel):
     )
 
 
+# Shared writing rules for every free-form message body (send_email, notify, and
+# the MCP send_email tool) so the three never drift apart.
+#
+# These have to spell out "no markdown" explicitly. The agent is told to write
+# markdown almost everywhere else in the product — chat answers, docs, Slack
+# mrkdwn — and the body it hands us is put into the MIME part verbatim (no
+# renderer anywhere in the send path). "Plain text" alone reads as the MIME type,
+# not as the absence of markdown syntax, so without this a '**bold**' or a
+# '| col |' table reaches the inbox as literal punctuation.
+EMAIL_BODY_RULES = (
+    "Write an EMAIL, not a chat answer — and use NO MARKDOWN SYNTAX. The body is "
+    "delivered exactly as you write it, so '**bold**', '# Heading', '`code`', "
+    "'[label](url)' and '| col | col |' pipe tables all arrive as literal "
+    "punctuation. Instead:\n"
+    "- Short paragraphs separated by a blank line. No '#' headers — when a section "
+    "needs a label, write it on its own line in ordinary words ('Next steps:').\n"
+    "- Bullets start with '- ' or '• ', never '*'.\n"
+    "- No tables. A couple of numbers go inline in a sentence; a short list of "
+    "figures goes as 'Label: value' lines, one per line. Real tabular data belongs "
+    "in an attachment (CSV/XLSX) — say in the body what you attached.\n"
+    "- Write URLs bare (https://...), never as markdown links.\n"
+    "- No emphasis markers at all in a text body: plain text cannot render them. "
+    "Needing real bold/italic/underline or a genuine table is the one reason to "
+    "set body_format='html'."
+)
+
+EMAIL_HTML_RULES = (
+    "For body_format='html': simple, email-safe HTML only — <p>, <br>, <ul>/<li>, "
+    "<strong>, <em>, <u>, <a>, and a <table> when the data is genuinely tabular. "
+    "Mail clients drop <style> blocks, so any styling must be inline on the element "
+    "(a bare <table> renders as a run-on line; give it "
+    "style=\"border-collapse:collapse\" and each cell "
+    "style=\"border:1px solid #ddd;padding:6px 10px\"). Still no markdown — HTML "
+    "tags or nothing. Keep it a letter, not a template: no wrapper divs, banners, "
+    "hero images, branded headers/footers, or multi-column layouts."
+)
+
+EMAIL_BODY_FORMAT_RULE = (
+    "'text' (default, preferred) for plain text, or 'html' when the message "
+    "genuinely needs bold/italic/underline or a real table. Either way the body "
+    "must contain no markdown syntax."
+)
+
+
 class SendEmailInput(BaseModel):
     """Input schema for the send_email tool.
 
@@ -62,20 +106,13 @@ class SendEmailInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "The email body. Write it like a person would — short, natural, and direct. "
-            "Plain text by default. If you set body_format='html', keep the HTML simple and "
-            "human-looking (basic tags like <p>, <ul>/<li>, <strong>, small <table>); avoid "
-            "heavy templated layouts, inline CSS, wrapper divs, banners, or branded "
-            "headers/footers."
+            "The email body. Write it like a person would — short, natural, and direct.\n\n"
+            f"{EMAIL_BODY_RULES}\n\n{EMAIL_HTML_RULES}"
         ),
     )
     body_format: Literal["text", "html"] = Field(
         default="text",
-        description=(
-            "Body format: 'text' for plain text (default, preferred) or 'html' for simple "
-            "HTML. Only choose 'html' when light structure (a few bullets or a small table) "
-            "genuinely helps readability."
-        ),
+        description=EMAIL_BODY_FORMAT_RULE,
     )
     attachments: List[EmailAttachmentSpec] = Field(
         default_factory=list,

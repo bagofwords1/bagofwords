@@ -33,8 +33,10 @@ class SendEmailMCPTool(MCPTool):
         "of your organization via 'recipients' (their email addresses; outside addresses "
         "are rejected). You are always included, and every recipient also gets an in-app "
         "notification. Use it when the user asks to be emailed — or to notify a teammate — "
-        "something (a summary, a result, an export). Keep the body short and natural; "
-        "default to plain text. Attachments (optional, up to 5) are generated from objects "
+        "something (a summary, a result, an export). Keep the body short and natural, and "
+        "write it as an email: plain text, NO MARKDOWN ('**bold**', '# headers' and "
+        "'| col |' tables arrive as literal punctuation) — see the 'body' field for the "
+        "full rules. Attachments (optional, up to 5) are generated from objects "
         "in a report — reference a visualization_id / query_id (CSV/XLSX), artifact_id "
         "(PPTX/PDF), or file_id, and pass the owning report_id."
     )
