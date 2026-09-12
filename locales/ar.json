@@ -2218,6 +2218,8 @@
       "successRemoved": "تمت إزالة {name} بنجاح",
       "failedToInvite": "تعذّر دعوة العضو",
       "successInvited": "تم إرسال الدعوة إلى {email}",
+      "successInvitedNoSmtp": "تمت إضافة {email}، لكن لم يُرسل بريد دعوة — لم يُضبط SMTP. استخدم «نسخ الرابط» لمشاركة الدعوة.",
+      "successInvitedFailed": "تمت إضافة {email}، لكن تعذر إرسال بريد الدعوة. استخدم «نسخ الرابط» لمشاركة الدعوة.",
       "rolesUpdated": "تم تحديث الأدوار",
       "failedToUpdateRoles": "تعذّر تحديث الأدوار",
       "failedToRemoveRole": "تعذّر إزالة الدور",

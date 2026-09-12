@@ -2309,6 +2309,8 @@
       "successRemoved": "{name} הוסר בהצלחה",
       "failedToInvite": "הזמנת המשתמש נכשלה",
       "successInvited": "הזמנה נשלחה אל {email}",
+      "successInvitedNoSmtp": "המשתמש {email} נוסף, אך לא נשלח מייל הזמנה — SMTP אינו מוגדר. השתמשו ב“העתק קישור” כדי לשלוח את ההזמנה.",
+      "successInvitedFailed": "המשתמש {email} נוסף, אך לא היה ניתן לשלוח את מייל ההזמנה. השתמשו ב“העתק קישור” כדי לשלוח את ההזמנה.",
       "rolesUpdated": "התפקידים עודכנו",
       "failedToUpdateRoles": "עדכון התפקידים נכשל",
       "failedToRemoveRole": "הסרת התפקיד נכשלה",

@@ -2218,6 +2218,8 @@
       "successRemoved": "{name} togs bort",
       "failedToInvite": "Det gick inte att bjuda in medlemmen",
       "successInvited": "Inbjudan skickad till {email}",
+      "successInvitedNoSmtp": "{email} lades till, men inget inbjudningsmejl skickades – SMTP är inte konfigurerat. Använd ”Kopiera länk” för att dela inbjudan.",
+      "successInvitedFailed": "{email} lades till, men inbjudningsmejlet kunde inte skickas. Använd ”Kopiera länk” för att dela inbjudan.",
       "rolesUpdated": "Roller uppdaterade",
       "failedToUpdateRoles": "Det gick inte att uppdatera rollerna",
       "failedToRemoveRole": "Det gick inte att ta bort rollen",

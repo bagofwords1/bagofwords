@@ -1437,11 +1437,28 @@ const inviteMember = async () => {
         await loadGroups()
         await loadUsagePolicies()
 
-        toast.add({
-            title: t('common.success'),
-            description: t('settings.members.successInvited', { email: inviteForm.value.email }),
-            color: 'green'
-        })
+        // The invite row is created either way, but a member who never gets the
+        // email just looks stuck — so a skipped/failed send is surfaced as a
+        // warning pointing at Copy link, not as a plain green success.
+        const inviteStatus = (response.data.value as any)?.invite_email_status
+        if (inviteStatus === 'skipped_no_smtp' || inviteStatus === 'failed') {
+            toast.add({
+                title: t('common.warning'),
+                description: t(
+                    inviteStatus === 'skipped_no_smtp'
+                        ? 'settings.members.successInvitedNoSmtp'
+                        : 'settings.members.successInvitedFailed',
+                    { email: inviteForm.value.email },
+                ),
+                color: 'yellow',
+            })
+        } else {
+            toast.add({
+                title: t('common.success'),
+                description: t('settings.members.successInvited', { email: inviteForm.value.email }),
+                color: 'green'
+            })
+        }
 
         inviteForm.value = { email: '', role: 'member', group_ids: [], quota_policy_id: null, organization_id: organizationId }
         inviteModalOpen.value = false

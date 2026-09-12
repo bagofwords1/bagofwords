@@ -2218,6 +2218,8 @@
       "successRemoved": "{name} removido com sucesso",
       "failedToInvite": "Falha ao convidar membro",
       "successInvited": "Convite enviado para {email}",
+      "successInvitedNoSmtp": "{email} foi adicionado, mas nenhum e-mail de convite foi enviado — o SMTP não está configurado. Use “Copiar link” para compartilhar o convite.",
+      "successInvitedFailed": "{email} foi adicionado, mas não foi possível enviar o e-mail de convite. Use “Copiar link” para compartilhar o convite.",
       "rolesUpdated": "Funções atualizadas",
       "failedToUpdateRoles": "Falha ao atualizar funções",
       "failedToRemoveRole": "Falha ao remover função",

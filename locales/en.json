@@ -2372,6 +2372,8 @@
       "successRemoved": "Successfully removed {name}",
       "failedToInvite": "Failed to invite member",
       "successInvited": "Invitation sent to {email}",
+      "successInvitedNoSmtp": "{email} was added, but no invite email was sent — SMTP is not configured. Use “Copy link” to share the invite.",
+      "successInvitedFailed": "{email} was added, but the invite email couldn't be sent. Use “Copy link” to share the invite.",
       "rolesUpdated": "Roles updated",
       "failedToUpdateRoles": "Failed to update roles",
       "failedToRemoveRole": "Failed to remove role",

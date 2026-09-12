@@ -2218,6 +2218,8 @@
       "successRemoved": "{name} a été retiré avec succès",
       "failedToInvite": "Échec de l'invitation du membre",
       "successInvited": "Invitation envoyée à {email}",
+      "successInvitedNoSmtp": "{email} a été ajouté, mais aucun e-mail d’invitation n’a été envoyé : SMTP n’est pas configuré. Utilisez « Copier le lien » pour partager l’invitation.",
+      "successInvitedFailed": "{email} a été ajouté, mais l’e-mail d’invitation n’a pas pu être envoyé. Utilisez « Copier le lien » pour partager l’invitation.",
       "rolesUpdated": "Rôles mis à jour",
       "failedToUpdateRoles": "Échec de la mise à jour des rôles",
       "failedToRemoveRole": "Échec du retrait du rôle",

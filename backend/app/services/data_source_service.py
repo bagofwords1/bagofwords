@@ -3958,6 +3958,99 @@ class DataSourceService:
             ))
         return tables
 
+    async def _fetch_user_schema_across_connections(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        user: User,
+        prior_tables: Optional[dict] = None,
+        progress_callback=None,
+    ) -> list:
+        """Crawl EVERY schema-bearing connection with the user's own credentials.
+
+        `_upsert_user_overlay` reconciles across the WHOLE data source: any table
+        its snapshot omits is revoked. So the snapshot has to span the whole data
+        source too. This used to call `construct_client`, which documents itself
+        as "a single client for the first connection" and is DEPRECATED for
+        precisely this reason — on a multi-connection agent it returned only
+        `connections[0]`'s tables, so every table owned by the other connections
+        was revoked and disappeared from the selector AND from the LLM's schema
+        context. An agent-level Reload takes a different path that already unions
+        all connections, which is why Reload "fixed" it and merely opening the
+        agent silently broke it again.
+
+        A connection whose crawl fails aborts the whole sync rather than yielding
+        a partial snapshot: partial is indistinguishable from "the user lost
+        access upstream", and would revoke exactly the tables the failure means
+        we know nothing about.
+        """
+        from app.data_sources.clients.base import _accepts_kwarg
+        from app.schemas.data_source_registry import tool_provider_types
+
+        async def _crawl(client):
+            # Only pass what the client actually accepts, and only when there is
+            # something to pass: a bare `aget_schemas(self)` — every stub client
+            # in the test suite, and any custom client that overrides the base
+            # wrapper — raises TypeError on an unexpected kwarg, which would fail
+            # the sync and leave the user's overlay empty. Callers with no
+            # callback (every path except the tracked background job) get exactly
+            # the call they made before.
+            kwargs = {}
+            if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
+                kwargs["prior_tables"] = prior_tables
+            if progress_callback is not None and _accepts_kwarg(
+                client.aget_schemas, "progress_callback"
+            ):
+                kwargs["progress_callback"] = progress_callback
+            return await client.aget_schemas(**kwargs)
+
+        _tool_types = tool_provider_types()
+        conns = [
+            c for c in (data_source.connections or [])
+            if (getattr(c, "type", None) or "") not in _tool_types
+        ]
+
+        # One (or zero) schema-bearing connection: keep the exact call this made
+        # before. It routes through the data-source-level credential resolver, so
+        # the legacy data-source-scoped override (UserDataSourceCredentials, keyed
+        # by data source rather than by connection — meaningful only for a lone
+        # connection) still applies, and the "no associated connection" 400 still
+        # surfaces instead of an empty snapshot that would revoke the overlay.
+        if len(conns) <= 1:
+            client = await self.construct_client(db=db, data_source=data_source, current_user=user)
+            return await _crawl(client)
+
+        from app.services.connection_service import ConnectionService
+
+        connection_service = ConnectionService()
+        merged: list = []
+        for conn in conns:
+            try:
+                client = await connection_service.construct_client(db, conn, user)
+                tables = await _crawl(client)
+            except Exception as e:
+                # Re-raise unchanged (callers distinguish an HTTP 403 "connect
+                # required" from a transport failure), but name the connection
+                # first: the caller only records "overlay refresh failed" for the
+                # whole data source, which on a multi-connection agent says
+                # nothing about WHICH source needs attention.
+                logger.warning(
+                    "Per-user overlay crawl failed on connection %s (%s) of data source %s "
+                    "for user %s: %s — aborting the sync so a partial snapshot cannot "
+                    "revoke the other connections' tables.",
+                    conn.id, getattr(conn, "type", "?"), data_source.id,
+                    getattr(user, "id", None), e,
+                )
+                raise
+            if tables is None:
+                # Same contract as the single-connection path: no snapshot is not
+                # an authoritative empty snapshot.
+                raise ValueError(
+                    f"Schema discovery returned no snapshot for connection {conn.id}"
+                )
+            merged.extend(tables)
+        return merged
+
     async def get_user_data_source_schema(
         self,
         db: AsyncSession,
@@ -4013,23 +4106,13 @@ class DataSourceService:
                 } or None
             except Exception:
                 prior_tables = None
-            client = await self.construct_client(db=db, data_source=data_source, current_user=user)
-            from app.data_sources.clients.base import _accepts_kwarg
-            # Only pass what the client actually accepts, and only when there is
-            # something to pass: a bare `aget_schemas(self)` — every stub client
-            # in the test suite, and any custom client that overrides the base
-            # wrapper — raises TypeError on an unexpected kwarg, which would fail
-            # the sync and leave the user's overlay empty. Callers with no
-            # callback (every path except the tracked background job) get exactly
-            # the call they made before.
-            kwargs = {}
-            if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
-                kwargs["prior_tables"] = prior_tables
-            if progress_callback is not None and _accepts_kwarg(
-                client.aget_schemas, "progress_callback"
-            ):
-                kwargs["progress_callback"] = progress_callback
-            fresh = await client.aget_schemas(**kwargs)
+            fresh = await self._fetch_user_schema_across_connections(
+                db=db,
+                data_source=data_source,
+                user=user,
+                prior_tables=prior_tables,
+                progress_callback=progress_callback,
+            )
         if fresh is None:
             # No snapshot is not an authoritative empty snapshot. A successful
             # empty list must still reconcile and revoke the previous overlay.
@@ -4137,12 +4220,28 @@ class DataSourceService:
         union_user_discovery = False
         is_per_user_catalog = False
         try:
-            from app.schemas.data_source_registry import get_entry
-            conn = (data_source.connections or [None])[0]
-            if conn is not None:
-                is_per_user_catalog = get_entry(conn.type).catalog_ownership == "per_user"
-                is_delegated = (conn.auth_policy or "system_only") == "user_required"
-                union_user_discovery = is_per_user_catalog or is_delegated
+            from app.schemas.data_source_registry import get_entry, tool_provider_types
+            _tool_types = tool_provider_types()
+            _conns = [
+                c for c in (data_source.connections or [])
+                if (getattr(c, "type", None) or "") not in _tool_types
+            ]
+            # Decided over EVERY connection, not just `connections[0]`. The
+            # snapshot now spans all of them, so a table contributed by the
+            # second or third connection must be able to earn a canonical row —
+            # judging that by the first connection alone left it unlinked, and an
+            # unlinked overlay row is filtered straight back out of the selector.
+            per_user_flags = [
+                get_entry(c.type).catalog_ownership == "per_user" for c in _conns
+            ]
+            # Auto-activation is the per-user-catalog rule (OneDrive/Drive files).
+            # Only claim it when EVERY connection is one, so a mixed agent falls
+            # back to the conservative "created inactive, user selects it".
+            is_per_user_catalog = bool(per_user_flags) and all(per_user_flags)
+            is_delegated = any(
+                (c.auth_policy or "system_only") == "user_required" for c in _conns
+            )
+            union_user_discovery = any(per_user_flags) or is_delegated
         except Exception:
             pass
         if union_user_discovery:

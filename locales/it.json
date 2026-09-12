@@ -2218,6 +2218,8 @@
       "successRemoved": "{name} rimosso correttamente",
       "failedToInvite": "Impossibile invitare il membro",
       "successInvited": "Invito inviato a {email}",
+      "successInvitedNoSmtp": "{email} è stato aggiunto, ma non è stata inviata alcuna e-mail di invito: SMTP non è configurato. Usa “Copia link” per condividere l’invito.",
+      "successInvitedFailed": "{email} è stato aggiunto, ma non è stato possibile inviare l’e-mail di invito. Usa “Copia link” per condividere l’invito.",
       "rolesUpdated": "Ruoli aggiornati",
       "failedToUpdateRoles": "Impossibile aggiornare i ruoli",
       "failedToRemoveRole": "Impossibile rimuovere il ruolo",

@@ -411,11 +411,19 @@ class OrganizationService:
         # be verified at registration time.
         invite_email_status: Optional[str] = None
         if invitation_email and membership_with_user.user_id is None:
-            if not (hasattr(settings, 'email_client') and settings.email_client):
+            # Ask the same question sending will ask: org SMTP counts, not just
+            # the global bow-config client (which is commented out by default).
+            from app.services.email_client_resolver import is_outbound_available
+
+            org_id = str(membership_with_user.organization_id)
+            if not await is_outbound_available(db, org_id, purpose="system"):
                 invite_email_status = "skipped_no_smtp"
             else:
                 invite_email_status = await self._send_invitation_email(
-                    invitation_email, membership_with_user.invite_token
+                    invitation_email,
+                    membership_with_user.invite_token,
+                    db=db,
+                    organization_id=org_id,
                 )
 
         # Create RBAC role_assignment if user_id is set
@@ -687,9 +695,15 @@ class OrganizationService:
         await db.commit()
         await db.refresh(membership)
 
-        status = None
-        if hasattr(settings, 'email_client') and settings.email_client:
-            status = await self._send_invitation_email(membership.email, membership.invite_token)
+        from app.services.email_client_resolver import is_outbound_available
+
+        if await is_outbound_available(db, str(organization_id), purpose="system"):
+            status = await self._send_invitation_email(
+                membership.email,
+                membership.invite_token,
+                db=db,
+                organization_id=organization_id,
+            )
         else:
             status = "skipped_no_smtp"
 
@@ -781,13 +795,25 @@ class OrganizationService:
                 count += 1
         return count
     
-    async def _send_invitation_email(self, email: str, token: Optional[str] = None) -> str:
+    async def _send_invitation_email(
+        self,
+        email: str,
+        token: Optional[str] = None,
+        db: Optional[AsyncSession] = None,
+        organization_id: Optional[str] = None,
+    ) -> str:
         """Send the invite email now, reliably. Returns "sent" or "failed".
 
         Awaited (not fire-and-forget) so the caller knows the real outcome,
         with a couple of retries for transient SMTP blips and a per-attempt
         timeout so a hung relay can't stall the invite request. The link carries
         the invite token (proof of inbox ownership at registration).
+
+        ``db`` + ``organization_id`` are what let the org's own SMTP (set in
+        Settings → SMTP) be used. Without them ``send_custom_email`` goes
+        straight to the global bow-config client, which ships commented out —
+        so an org that configured SMTP through the UI would still never get an
+        invite delivered.
         """
         from urllib.parse import quote
         from app.services.notification_service import notification_service
@@ -805,6 +831,9 @@ class OrganizationService:
             subtype="plain",
             retries=2,
             timeout=15,
+            db=db,
+            organization_id=str(organization_id) if organization_id else None,
+            purpose="system",
         )
         if result.status != "sent":
             logger.error("Invitation email to %s failed: %s", email, result.error)

@@ -187,7 +187,16 @@ class DataSource(BaseSchema):
         "Connection",
         secondary=domain_connection,
         back_populates="data_sources",
-        lazy="selectin"
+        lazy="selectin",
+        # Several call sites still read `connections[0]` as "the" connection
+        # (credential resolution, the delegated-overlay scoping in the tables
+        # selector). Without an ORDER BY that element is whatever the database
+        # happens to return first, so those decisions could differ between two
+        # requests for the same agent — which made the multi-connection overlay
+        # bug intermittent and its symptom (which tables vanished) inconsistent.
+        # Ordering does not make single-connection assumptions correct, but it
+        # does make them reproducible.
+        order_by="Connection.created_at",
     )
 
     # M:N relationship to File. Files attached here are auto-snapshotted
