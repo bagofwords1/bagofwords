@@ -101,7 +101,7 @@
                                             <div v-if="m.prompt?.content" class="pt-1 markdown-wrapper">
                                                 <InstructionText
                                                     :text="m.prompt.content"
-                                                    :references="promptMentionsToRefs(m.prompt.mentions)"
+                                                    :references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
                                                     :prose="true"
                                                 />
                                             </div>
@@ -333,6 +333,22 @@ import GetConnectionTool from '~/components/tools/GetConnectionTool.vue'
 import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { promptMentionsToRefs } from '~/utils/mentions'
+
+// A shared conversation never names the org's agents, but the tool cards do
+// carry each referenced agent's resolved icon. Reuse it so an @agent chip draws
+// the same icon as the tool card beneath it, rather than the one snapshotted
+// into the prompt when the message was sent.
+const agentIconTokens = computed<Record<string, string | null | undefined>>(() => {
+    const out: Record<string, string | null | undefined> = {}
+    for (const c of (conversation.value?.completions || []) as any[]) {
+        for (const b of c.completion_blocks || []) {
+            for (const ds of b.tool_execution?.data_sources || []) {
+                if (ds?.id && ds.icon_token) out[ds.id] = ds.icon_token
+            }
+        }
+    }
+    return out
+})
 // Same markdown pipeline as the report view. MDC (stock, no `mdc` config in
 // nuxt.config) renders a ```mermaid / ```d2 / ```infographic fence as a plain
 // code block and leaves $…$ math as literal text, so a shared answer degraded

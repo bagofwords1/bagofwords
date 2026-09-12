@@ -82,6 +82,12 @@
             <div :class="['flex items-center space-x-2 flex-1 min-w-0', { 'opacity-50': item.needs_connect }]">
               <DataSourceIcon v-if="category.name === 'tables'" :type="item.icon_type" class="h-3.5 flex-shrink-0" />
               <Icon v-if="category.name === 'tables'" name="heroicons-table-cells" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
+              <!-- Agents are identified by their own icon here, as they are in the
+                   explorer, the selector and the expanded panel below — a generic
+                   cube for every agent made this the one agent list that didn't
+                   show which agent you were picking. Cube stays as the fallback
+                   for an agent with no resolvable icon. -->
+              <DataSourceIcon v-else-if="category.name === 'data_sources' && item.icon_token" :icon-token="item.icon_token" class="h-3.5 w-3.5 flex-shrink-0" />
               <Icon v-else-if="category.name === 'data_sources'" name="heroicons-cube" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'files'" name="heroicons-document" class="w-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />
               <Icon v-else-if="category.name === 'entities'" :name="item.entity_type === 'metric' ? 'heroicons-chart-bar' : 'heroicons-cube'" class="w-3.5 h-3.5 flex-shrink-0 text-gray-500 dark:text-gray-400" />

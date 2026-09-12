@@ -147,7 +147,7 @@
 											<div v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
-													:references="promptMentionsToRefs(m.prompt.mentions)"
+													:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 													:prose="true"
 												/>
 											</div>
@@ -245,7 +245,7 @@
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
-														:references="promptMentionsToRefs(m.prompt.mentions)"
+														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
 													/>
 												</div>
@@ -315,7 +315,7 @@
 														<div v-if="s.prompt?.content" class="pt-1">
 															<InstructionText
 																:text="s.prompt.content"
-																:references="promptMentionsToRefs(s.prompt.mentions)"
+																:references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
 																:prose="true"
 															/>
 														</div>
@@ -443,7 +443,7 @@
 													<div v-if="s.prompt?.content" class="pt-1">
 														<InstructionText
 															:text="s.prompt.content"
-															:references="promptMentionsToRefs(s.prompt.mentions)"
+															:references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
 															:prose="true"
 														/>
 													</div>
@@ -1069,6 +1069,15 @@ import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
 import { useCan } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
+
+// An @agent chip in an already-sent prompt names a LIVE agent, so it should draw
+// the icon that agent has now — not the one snapshotted into the prompt's
+// mentions when the message was sent. Same agent, same icon, on one screen.
+const agentIconTokens = computed<Record<string, string | null | undefined>>(() => {
+	const out: Record<string, string | null | undefined> = {}
+	for (const a of (currentAgents.value || []) as any[]) out[a.id] = a.icon_token
+	return out
+})
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
