@@ -266,11 +266,11 @@ def test_reload_populates_second_admin_overlay(monkeypatch):
     async def _noop_refresh_schema(self, db, connection, current_user=None, **kwargs):
         return []
 
-    async def _fake_construct_client(self, db, data_source, current_user):
+    async def _fake_construct_client(self, db, data_source, connection=None, user=None, **kw):
         return _FakeFabricClient()
 
     monkeypatch.setattr(ConnectionService, "refresh_schema", _noop_refresh_schema)
-    monkeypatch.setattr(DataSourceService, "construct_client", _fake_construct_client)
+    monkeypatch.setattr(DataSourceService, "_construct_user_catalog_client", _fake_construct_client)
 
     async def _reload_as_admin2():
         svc = DataSourceService()

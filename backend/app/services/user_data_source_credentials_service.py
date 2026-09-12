@@ -84,9 +84,8 @@ class UserDataSourceCredentialsService:
             last_checked = None
             if live_test:
                 try:
-                    from app.services.data_source_service import DataSourceService
-                    ds_service = DataSourceService()
-                    client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
+                    from app.services.connection_service import ConnectionService
+                    client = await ConnectionService().construct_client(db, connection, user)
                     ok = await client.atest_connection()
                     success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                     conn_status = "success" if success else "not_connected"
@@ -139,9 +138,11 @@ class UserDataSourceCredentialsService:
                 if live_test:
                     try:
                         # Attempt live test using system credentials
-                        from app.services.data_source_service import DataSourceService
-                        ds_service = DataSourceService()
-                        client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
+                        from app.services.connection_service import ConnectionService
+                        # THIS connection, not the data source's first one: a
+                        # multi-connection agent was reporting connection A's
+                        # reachability as connection B's status.
+                        client = await ConnectionService().construct_client(db, connection, user)
                         ok = await client.atest_connection()
                         success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                         conn = "success" if success else "not_connected"
@@ -165,9 +166,8 @@ class UserDataSourceCredentialsService:
         if live_test:
             try:
                 # Local import to avoid circular
-                from app.services.data_source_service import DataSourceService
-                ds_service = DataSourceService()
-                client = await ds_service.construct_client(db=db, data_source=data_source, current_user=user)
+                from app.services.connection_service import ConnectionService
+                client = await ConnectionService().construct_client(db, connection, user)
                 ok = await client.atest_connection()
                 success = bool(ok.get("success")) if isinstance(ok, dict) else bool(ok)
                 conn = "success" if success else "not_connected"
