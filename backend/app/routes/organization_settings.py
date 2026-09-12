@@ -11,6 +11,8 @@ from app.schemas.organization_settings_schema import (
     EntraProfileSyncConfig,
     GoogleProfileSyncConfig,
     OrgSmtpSchema,
+    OrgSmtpTestRequest,
+    OrgSmtpTestResult,
     OrgSmtpUpdate,
     OrganizationSettingsSchema,
     OrganizationSettingsUpdate,
@@ -268,14 +270,21 @@ async def update_org_smtp(
     return await settings_service.update_smtp(db, organization, current_user, data)
 
 
-@router.post("/organization/smtp/test", response_model=dict)
+@router.post("/organization/smtp/test", response_model=OrgSmtpTestResult)
 @requires_permission('manage_settings')
 async def test_org_smtp(
+    data: OrgSmtpTestRequest = OrgSmtpTestRequest(),
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
 ):
-    return await settings_service.test_smtp(db, organization, current_user)
+    """Send a real test email through the org's configured transport.
+
+    Sends rather than probing: a connect-and-auth check cannot see a relay that
+    refuses the envelope sender or declines to relay, which is exactly what
+    silently breaks in production.
+    """
+    return await settings_service.test_smtp(db, organization, current_user, data)
 
 
 # --- PII protection (enterprise) ------------------------------------------

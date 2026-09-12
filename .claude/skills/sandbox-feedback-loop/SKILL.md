@@ -86,6 +86,48 @@ import main  # registers all SQLAlchemy mappers; safe, uvicorn only runs under _
 
 This is the highest-signal check for context changes: it shows exactly what the planner would see for that report.
 
+## 5b. Outbound email (SMTP)
+
+System email resolves per organization: **org SMTP** (`OrganizationSettings.config.smtp`,
+set on `/settings/smtp`) → **global bow-config SMTP** (`settings.email_client`).
+To prove *which* transport carried a message you need two local relays on
+different ports — with one sink the two are indistinguishable, which is how org
+SMTP came to be silently bypassed for invites and shares.
+
+```python
+# aiosmtpd is already a dev dependency; see backend/email_sandbox/relay.py
+org    = Controller(Recorder("org"),    hostname="127.0.0.1", port=2526,
+                    authenticator=auth("user", "pw"), auth_required=True,
+                    auth_require_tls=False)     # the org's own relay
+glob   = Controller(Recorder("global"), hostname="127.0.0.1", port=2527)
+```
+
+Point the **global** SMTP at port 2527 by copying `configs/bow-config.dev.yaml`,
+rewriting `smtp_settings` (`use_credentials: false`, `use_tls: false`), and
+booting with `BOW_CONFIG_PATH=/abs/path/to/your.yaml`. Configure the **org**
+relay (port 2526) through the real settings UI. Then every assertion is
+mechanical: *the invite landed in `org.jsonl` and `global.jsonl` is empty.*
+
+- **Never set `BOW_EMAIL_SMTP_OVERRIDE_HOST` for this.** It rewrites whatever
+  host is configured to a local sink, so a nonsense hostname "succeeds" and the
+  run proves nothing about the host the admin typed.
+- `MAIL_FROM` is validated by fastapi-mail: reserved TLDs (`.test`, `.invalid`)
+  make the app fail to boot. Use `.example.com`.
+- **Outbound SMTP is blocked in this container** (only HTTPS egress via the agent
+  proxy), so a real provider such as Resend times out at connect. To exercise the
+  STARTTLS + `AUTH LOGIN` path a hosted provider uses, run a third local relay
+  with a self-signed cert (`openssl req -x509 -newkey rsa:2048 -nodes -subj
+  /CN=localhost`), `auth_require_tls=True`, `require_starttls=True`, and turn
+  *Validate TLS certificates* off in the UI.
+- Paths worth asserting, all of which must reach the org relay: the settings
+  page's **Save & send test email**, member invites (`/settings/members`),
+  password reset (`/users/forgot-password`, signed *out* — a signed-in context
+  redirects away), report shares (`POST /api/reports/{id}/notify`), and the
+  welcome email sent at sign-up.
+- API calls from `page.evaluate` must use **relative** `/api/...` URLs (the Nuxt
+  dev server proxies; hitting `:8000` directly is blocked by CORS) and an
+  `Authorization: Bearer <auth.token cookie>` header.
+
 ## 6. Iterate
 
 Small numbered Playwright scripts (01_signup.js, 02_login.js, ...) beat one monolith: each failure is cheap to rerun, and `storageState` carries the session between them. When a selector fails: screenshot, read it, fix, rerun.

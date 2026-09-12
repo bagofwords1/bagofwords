@@ -411,12 +411,12 @@ class OrganizationService:
         # be verified at registration time.
         invite_email_status: Optional[str] = None
         if invitation_email and membership_with_user.user_id is None:
-            if not (hasattr(settings, 'email_client') and settings.email_client):
-                invite_email_status = "skipped_no_smtp"
-            else:
-                invite_email_status = await self._send_invitation_email(
-                    invitation_email, membership_with_user.invite_token
-                )
+            invite_email_status = await self._send_invitation_email(
+                db,
+                str(membership_with_user.organization_id),
+                invitation_email,
+                membership_with_user.invite_token,
+            )
 
         # Create RBAC role_assignment if user_id is set
         if membership_with_user.user_id and membership_data.role:
@@ -687,11 +687,9 @@ class OrganizationService:
         await db.commit()
         await db.refresh(membership)
 
-        status = None
-        if hasattr(settings, 'email_client') and settings.email_client:
-            status = await self._send_invitation_email(membership.email, membership.invite_token)
-        else:
-            status = "skipped_no_smtp"
+        status = await self._send_invitation_email(
+            db, str(membership.organization_id), membership.email, membership.invite_token
+        )
 
         result = await db.execute(
             select(Membership).options(selectinload(Membership.user)).where(Membership.id == membership.id)
@@ -781,17 +779,32 @@ class OrganizationService:
                 count += 1
         return count
     
-    async def _send_invitation_email(self, email: str, token: Optional[str] = None) -> str:
-        """Send the invite email now, reliably. Returns "sent" or "failed".
+    async def _send_invitation_email(
+        self,
+        db: AsyncSession,
+        organization_id: str,
+        email: str,
+        token: Optional[str] = None,
+    ) -> str:
+        """Send the invite email now, reliably. Returns "sent", "failed" or
+        "skipped_no_smtp".
 
         Awaited (not fire-and-forget) so the caller knows the real outcome,
         with a couple of retries for transient SMTP blips and a per-attempt
         timeout so a hung relay can't stall the invite request. The link carries
         the invite token (proof of inbox ownership at registration).
+
+        ``db`` + ``organization_id`` are required, not optional: without them the
+        notification service cannot see the organization's own SMTP server and
+        every invite silently leaves through the global bow-config relay.
         """
         from urllib.parse import quote
         from app.services.notification_service import notification_service
+        from app.services.email_client_resolver import is_outbound_available
         from app.services.email_copy import invite_email
+
+        if not await is_outbound_available(db, organization_id, purpose="system"):
+            return "skipped_no_smtp"
 
         params = f"email={quote(email)}"
         if token:
@@ -805,9 +818,14 @@ class OrganizationService:
             subtype="plain",
             retries=2,
             timeout=15,
+            db=db,
+            organization_id=organization_id,
+            purpose="system",
         )
         if result.status != "sent":
             logger.error("Invitation email to %s failed: %s", email, result.error)
+        else:
+            logger.info("Invitation email to %s sent via %s", email, result.source)
         return result.status
 
 

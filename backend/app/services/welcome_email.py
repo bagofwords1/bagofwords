@@ -37,14 +37,13 @@ async def send_welcome_email(user_id: str) -> None:
     """Send the welcome email. Safe to call fire-and-forget; swallows errors."""
     try:
         from app.settings.config import settings
-        if settings.email_client is None:
-            return
 
         from sqlalchemy import select
         from app.dependencies import async_session_maker
         from app.models.user import User
         from app.models.membership import Membership
         from app.services.notification_service import notification_service
+        from app.services.email_client_resolver import is_outbound_available
         from app.services.email_copy import welcome_email as build_welcome_email
 
         async with async_session_maker() as db:
@@ -61,18 +60,29 @@ async def send_welcome_email(user_id: str) -> None:
             recipient = user.email
             name = getattr(user, "name", None)
 
-        base_url = (settings.bow_config.base_url or "http://localhost:3000").rstrip("/")
-        subject, body = build_welcome_email(name, agent_names, base_url)
+            base_url = (settings.bow_config.base_url or "http://localhost:3000").rstrip("/")
+            subject, body = build_welcome_email(name, agent_names, base_url)
 
-        result = await notification_service.send_custom_email(
-            recipients=[recipient],
-            subject=subject,
-            body=body,
-            subtype="plain",
-            retries=2,
-            timeout=15,
-        )
+            # The org context is what lets this reach the organization's own SMTP
+            # server; without it the welcome mail always leaves via the global
+            # bow-config relay, and orgs with no global SMTP get nothing.
+            if org_id and not await is_outbound_available(db, str(org_id), purpose="system"):
+                return
+
+            result = await notification_service.send_custom_email(
+                recipients=[recipient],
+                subject=subject,
+                body=body,
+                subtype="plain",
+                retries=2,
+                timeout=15,
+                db=db,
+                organization_id=str(org_id) if org_id else None,
+                purpose="system",
+            )
         if result.status != "sent":
             logger.error("Welcome email to %s failed: %s", recipient, result.error)
+        else:
+            logger.info("Welcome email to %s sent via %s", recipient, result.source)
     except Exception as e:
         logger.warning("Failed to send welcome email for user %s: %s", user_id, e)

@@ -19,7 +19,7 @@ cd backend/email_sandbox
 python -m pytest            # asyncio_mode=auto via pytest.ini
 ```
 
-Expected: **48 passed**.
+Expected: **65 passed**.
 
 ## What each file proves
 
@@ -31,6 +31,8 @@ Expected: **48 passed**.
 | `test_email_adapter.py` | Inbound parse; new-thread vs reply (`References` root); quoted-history + signature stripping; sender-as-identity. |
 | `test_email_oauth.py` | XOAUTH2 SASL formatting; Microsoft client-credentials token (mocked HTTP); Google service-account dispatch (mocked); `SmtpConfig`/`ImapConfig` carry the OAuth settings; provider dispatch. |
 | `test_email_sandbox_loop.py` | **End-to-end against a live SMTP server:** (1) SMTP-only sends + overrides global; (2) full integration: inbound → poller → adapter → threaded reply chained via `In-Reply-To`/`References`; (3) agent-initiated email → user reply re-attaches to the same report via the thread root; (4) spoofed reply blocked at the boundary. |
+| `test_smtp_probe_honesty.py` | **Every configuration that the old connect-and-auth probe called "Connection OK" while being unable to deliver:** wrong password, missing password (a rotated Fernet key), an unauthorised envelope sender, relay-denied recipient, a STARTTLS-required relay, a missing From address, an unreachable host. Each must now come back as a failure, tagged with the stage that explains it. |
+| `relay.py` | The rejecting relay these tests run against (not a test itself). |
 
 ## How it maps to the requirements
 
@@ -50,6 +52,42 @@ Expected: **48 passed**.
 The SMTP sink (`smtp_sink` fixture) captures raw bytes of everything sent, so
 new outbound assertions just parse `handler.messages[-1]`. Inbound scenarios use
 `FakeMailboxReader.deliver(raw_bytes)` then drive `EmailPoller.poll_once()`.
+
+### A relay that can say no
+
+`smtp_sink` accepts everything, which is fine for "did we build the right MIME"
+and useless for "does this configuration actually deliver". `relay.run_relay()`
+is the sink that refuses:
+
+```python
+from relay import run_relay
+
+with run_relay(require_auth=("user", "pw"),
+               allowed_senders=["noreply@acme.com"],
+               allowed_rcpts=["admin@acme.com"],
+               require_tls=True) as relay:
+    ...                      # relay.host, relay.port, relay.count, relay.handler
+```
+
+Each knob models a refusal real servers hand out — `535` on bad credentials,
+`550` on an unowned sender or a recipient it will not relay to, `530` while the
+session is in plaintext. A relay that cannot reject cannot distinguish a fixed
+test from a broken one, which is exactly how the old settings probe shipped.
+
+### Two sinks, not one
+
+To prove *which* transport carried a message, run two relays on different ports:
+one standing in for the organization's own SMTP server and one for the global
+bow-config client. "The invite went to the org relay" is then a mechanical
+assertion (`org.count == 1 and global.count == 0`) rather than a guess — with a
+single sink the two are indistinguishable, which is how org SMTP came to be
+silently bypassed for invites and shares.
+
+> **Do not set `BOW_EMAIL_SMTP_OVERRIDE_HOST` in an end-to-end run.** It rewrites
+> whatever host is configured to a local sink, so the run proves nothing about
+> the host the admin actually typed — a nonsense hostname "succeeds". See
+> `test_sandbox_override_is_not_silently_applied`, which asserts that effect
+> explicitly so nobody relies on it by accident.
 
 ## Full-stack validation (optional)
 

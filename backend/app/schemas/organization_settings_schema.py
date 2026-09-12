@@ -416,6 +416,39 @@ class OrgSmtpSchema(BaseModel):
     # Advanced TLS: when False, skip certificate verification (self-signed /
     # internal CA relays). Mirrors bow-config's global SMTP ``validate_certs``.
     validate_certs: bool = True
+    # Which transport system mail is *actually* leaving through right now:
+    # "org_smtp" (this server), "global" (bow-config), or "none". Surfaced so an
+    # admin can see at a glance that their relay is or isn't in use, rather than
+    # discovering months later that invites went out via bow-config.
+    active_source: str = "none"
+    # Whether a global bow-config SMTP exists to fall back to when this server
+    # is disabled — i.e. whether turning it off means "use the global relay" or
+    # "stop sending system mail".
+    global_configured: bool = False
+
+
+class OrgSmtpTestRequest(BaseModel):
+    """Optional body for the SMTP test. ``to`` defaults to the caller's address.
+
+    Only the caller's own address is accepted — this endpoint sends real mail
+    through the organization's relay, so an arbitrary recipient would turn it
+    into a spam relay for anyone holding ``manage_settings``.
+    """
+    to: Optional[str] = None
+
+
+class OrgSmtpTestResult(BaseModel):
+    """Outcome of a real test send, including which transport carried it."""
+    success: bool
+    # "org_smtp" | "global" | "none" — the transport the message actually used.
+    source: Optional[str] = None
+    # Which step of the SMTP conversation failed, so the page can name the fix.
+    stage: Optional[str] = None
+    recipient: Optional[str] = None
+    from_address: Optional[str] = None
+    error: Optional[str] = None
+    # Flat string kept for older clients.
+    smtp: Optional[str] = None
 
 
 class OrgSmtpUpdate(BaseModel):
