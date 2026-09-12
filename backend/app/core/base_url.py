@@ -56,10 +56,21 @@ def derive_request_base_url(request: Request) -> str:
     URL must reflect the domain the user actually arrived from — e.g. OAuth
     redirect_uri must match the initiating domain, not the configured default.
 
-    Uses X-Forwarded-Proto for scheme (set by Cloudflare Tunnel and most
-    reverse proxies) and the Host header for the hostname.
+    Uses X-Forwarded-Proto for scheme and X-Forwarded-Host for the hostname
+    (both set by Cloudflare Tunnel and most reverse proxies), falling back to
+    the request's own scheme/Host.
+
+    X-Forwarded-Host must win over Host: a reverse proxy that rewrites Host to
+    the upstream (NGINX ``proxy_set_header Host $proxy_host``, Vite/Nuxt
+    ``changeOrigin: true``, most ingress defaults) would otherwise make the
+    OAuth redirect_uri point at the internal address, which the IdP rejects
+    (Entra AADSTS50011).
     """
-    host = request.headers.get("host", request.url.netloc or "localhost")
+    forwarded_host = request.headers.get("x-forwarded-host")
+    if forwarded_host:
+        host = forwarded_host.split(",", 1)[0].strip()
+    else:
+        host = request.headers.get("host", request.url.netloc or "localhost")
     forwarded_proto = request.headers.get("x-forwarded-proto")
     if forwarded_proto:
         proto = forwarded_proto.split(",", 1)[0].strip()

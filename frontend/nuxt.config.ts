@@ -139,7 +139,12 @@ export default defineNuxtConfig({
             secure: false,
             rewrite: (path) => path,
             headers: {
-                'Connection': 'keep-alive'
+                'Connection': 'keep-alive',
+                // changeOrigin rewrites Host to the upstream, so the backend
+                // would otherwise derive OAuth redirect_uri from 127.0.0.1:8000.
+                // NGINX sets these in production; mirror that in dev.
+                'X-Forwarded-Host': 'localhost:3000',
+                'X-Forwarded-Proto': 'http'
             }
         }
     }
