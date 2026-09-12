@@ -93,19 +93,38 @@ def _turn_usage_scope_clause():
     return not_(is_non_turn)
 
 
+def _is_anthropic_family(provider_type: Optional[str], model_id: Optional[str] = None) -> bool:
+    """Whether usage came from an Anthropic-shaped response.
+
+    Cache-token semantics follow the model family, not the host: Claude served
+    through Vertex, Bedrock or Azure still reports cache_read/cache_creation
+    separately from prompt_tokens. Keying on the provider alone under-counted
+    every Claude deployment that wasn't the first-party API.
+    """
+    if (provider_type or "") == "anthropic":
+        return True
+    return "claude" in (model_id or "").lower()
+
+
 def _row_total_tokens_expr():
     """SQLAlchemy per-row token total that doesn't double-count cache, for use
-    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic
-    reports cache_read/cache_creation SEPARATELY from prompt_tokens (add them
-    in), while OpenAI/Azure fold cache_read into prompt_tokens already (must
-    not re-add, or the cached prefix is counted twice). Other providers record
-    zero cache tokens, so the else-branch is a no-op for them."""
+    inside func.sum(). Mirrors ConsoleService._row_total_tokens: Anthropic-shaped
+    responses report cache_read/cache_creation SEPARATELY from prompt_tokens (add
+    them in), while OpenAI/Gemini-shaped ones fold cache_read into prompt_tokens
+    already (must not re-add, or the cached prefix is counted twice). Models that
+    record no cache tokens make the else-branch a no-op.
+
+    The model id is matched as well as the provider so that Claude hosted on
+    Vertex/Bedrock/Azure is accounted the same way as the first-party API."""
     return (
         LLMUsageRecord.prompt_tokens
         + LLMUsageRecord.completion_tokens
         + case(
             (
-                LLMUsageRecord.provider_type == "anthropic",
+                or_(
+                    LLMUsageRecord.provider_type == "anthropic",
+                    LLMUsageRecord.model_id.ilike("%claude%"),
+                ),
                 LLMUsageRecord.cache_read_tokens + LLMUsageRecord.cache_creation_tokens,
             ),
             else_=0,
@@ -999,19 +1018,32 @@ class ConsoleService:
         )
 
     # Providers whose pricing we can only estimate (no first-party price feed):
-    # custom/self-hosted, Azure (customer-negotiated), and Bedrock.
-    _ESTIMATED_PROVIDERS = ("custom", "azure", "bedrock")
+    # custom/self-hosted, Azure (customer-negotiated), Bedrock, and Vertex
+    # (per-publisher billing, and third-party MaaS models carry no list price
+    # in our catalog at all).
+    _ESTIMATED_PROVIDERS = ("custom", "azure", "bedrock", "vertex")
 
     def _is_estimated_provider(self, provider_type: Optional[str]) -> bool:
         pt = (provider_type or "").lower()
         return pt in self._ESTIMATED_PROVIDERS or pt.startswith("bedrock")
 
     def _row_total_tokens(self, provider_type: Optional[str], prompt: int, completion: int,
-                          cache_read: int, cache_creation: int) -> int:
-        """Token total that doesn't double-count cache. Mirrors get_llm_usage_metrics:
-        Anthropic reports cache tokens separately (add them in); OpenAI/Azure fold
-        cache_read into prompt_tokens already (don't re-add)."""
-        if (provider_type or "") == "anthropic":
+                          cache_read: int, cache_creation: int,
+                          model_id: Optional[str] = None) -> int:
+        """Token total that doesn't double-count cache.
+
+        Whether cache tokens are additive is a property of the MODEL FAMILY, not
+        of the hosting provider: Anthropic's API reports cache_read/cache_creation
+        separately from prompt_tokens, and it keeps doing so when the same model
+        is served through Vertex, Bedrock or Azure. OpenAI/Gemini-shaped
+        responses fold cache_read into prompt_tokens already, so re-adding it
+        would count the cached prefix twice.
+
+        ``model_id`` is therefore the primary signal and provider_type the
+        fallback for rows where the caller only has the group's provider (see
+        get_cost_metrics' breakdown, where one group can span several models).
+        """
+        if _is_anthropic_family(provider_type, model_id):
             return prompt + completion + cache_read + cache_creation
         return prompt + completion
 
@@ -1058,6 +1090,10 @@ class ConsoleService:
             select(
                 LLMUsageRecord.created_at.label("created_at"),
                 LLMUsageRecord.provider_type.label("provider_type"),
+                # Needed to decide cache-token accounting per row: the model
+                # family, not the host, determines whether cache tokens are
+                # additive (see _row_total_tokens).
+                LLMUsageRecord.model_id.label("model_id"),
                 LLMUsageRecord.prompt_tokens.label("prompt_tokens"),
                 LLMUsageRecord.completion_tokens.label("completion_tokens"),
                 LLMUsageRecord.cache_read_tokens.label("cache_read_tokens"),
@@ -1080,7 +1116,7 @@ class ConsoleService:
             c = int(r.completion_tokens or 0)
             cr = int(r.cache_read_tokens or 0)
             cc = int(r.cache_creation_tokens or 0)
-            rt = self._row_total_tokens(r.provider_type, p, c, cr, cc)
+            rt = self._row_total_tokens(r.provider_type, p, c, cr, cc, model_id=r.model_id)
             cost = float(r.total_cost or 0)
             total_prompt += p
             total_completion += c
@@ -1243,7 +1279,19 @@ class ConsoleService:
             completion = int(row.completion_tokens or 0)
             cache_read = int(row.cache_read_tokens or 0)
             cache_creation = int(row.cache_creation_tokens or 0)
-            row_tokens = self._row_total_tokens(provider_type, prompt, completion, cache_read, cache_creation)
+            # These sums are already aggregated, so cache accounting can only be
+            # decided per group. Grouping by model gives us the model id
+            # (sublabel) and an exact answer; every other grouping can span
+            # several models at once, where provider_type is the best available
+            # signal — Claude hosted on an estimated provider can still be
+            # under-counted there. Not worth conditioning the SQL sums for:
+            # these groupings are read as cost shares, and cost itself is summed
+            # from per-row values that were priced correctly.
+            row_model_id = row.sublabel if group_by == "model" else None
+            row_tokens = self._row_total_tokens(
+                provider_type, prompt, completion, cache_read, cache_creation,
+                model_id=row_model_id,
+            )
 
             existing = merged.get(key)
             if existing is None:

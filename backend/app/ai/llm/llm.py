@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 import re
 import time
@@ -10,6 +11,7 @@ from .clients.google_client import Google
 from .clients.anthropic_client import Anthropic
 from .clients.azure_client import AzureClient
 from .clients.bedrock_client import BedrockClient
+from .clients import vertex_auth
 from .types import (
     ImageInput,
     ImageOutput,
@@ -91,6 +93,46 @@ def _parse_temperature(raw) -> Optional[float]:
 
 # Public Azure AI Foundry resources are always on this host suffix.
 _AZURE_FOUNDRY_HOST_SUFFIX = ".services.ai.azure.com"
+
+
+def _is_gemini_model_id(model_id: Optional[str]) -> bool:
+    """Whether a model id denotes a Gemini model.
+
+    Used to route Vertex models to google-genai. Vertex serves Gemini under
+    ``publishers/google``, and every id there carries the family name
+    (``gemini-3.6-flash``, ``gemini-flash-latest``). A third-party publisher id
+    always carries a ``vendor/`` prefix instead, so the two never collide.
+    """
+    name = (model_id or "").strip().lower()
+    return name.startswith("gemini") or "/gemini" in name
+
+
+_DEFAULT_VERTEX_READ_TIMEOUT_S = 300
+_DEFAULT_VERTEX_CONNECT_TIMEOUT_S = 10
+
+
+def _vertex_timeout():
+    """Timeout profile for Vertex's OpenAI-compatible surface.
+
+    Third-party MaaS models on Vertex are reasoning models whose non-streaming
+    latency is highly variable — measured at ~1s typical with occasional
+    multi-minute outliers — so the read window is generous while connect stays
+    short, keeping a genuinely unreachable endpoint fast to fail. Mirrors the
+    Bedrock client's env-overridable profile.
+    """
+    import httpx as _httpx
+
+    def _int_env(name: str, default: int) -> int:
+        try:
+            value = int(os.environ.get(name, "") or default)
+        except ValueError:
+            return default
+        return value if value > 0 else default
+
+    return _httpx.Timeout(
+        _int_env("VERTEX_READ_TIMEOUT_S", _DEFAULT_VERTEX_READ_TIMEOUT_S),
+        connect=_int_env("VERTEX_CONNECT_TIMEOUT_S", _DEFAULT_VERTEX_CONNECT_TIMEOUT_S),
+    )
 
 
 def _is_anthropic_model_id(model_id: Optional[str]) -> bool:
@@ -222,12 +264,15 @@ class LLM:
         except Exception as exc:
             # For most providers, failing to decrypt credentials is a hard error.
             # The exceptions are auth modes that don't need an API key: Bedrock
-            # under IAM/access-key auth, and Azure under Entra ID auth (tokens
-            # come from azure-identity, not a stored key).
+            # under IAM/access-key auth, Azure under Entra ID auth (tokens come
+            # from azure-identity, not a stored key), and Vertex under ADC
+            # (tokens come from the ambient Google credential chain).
             additional_config = getattr(self.model.provider, "additional_config", None) or {}
             auth_mode = additional_config.get("auth_mode") if isinstance(additional_config, dict) else None
             if (self.provider == "bedrock" and (auth_mode or "iam") != "api_key") or (
                 self.provider == "azure" and (auth_mode or "api_key") != "api_key"
+            ) or (
+                self.provider == "vertex" and (auth_mode or "adc") != "service_account"
             ):
                 logger.warning(
                     "Failed to decrypt credentials for %s provider in '%s' auth mode; "
@@ -384,8 +429,80 @@ class LLM:
                 bedrock_kwargs["aws_access_key_id"] = access_key
                 bedrock_kwargs["aws_secret_access_key"] = secret_key
             self.client = BedrockClient(**bedrock_kwargs)
+        elif self.provider == "vertex":
+            self.client = self._build_vertex_client(additional_config, configured_temperature, custom_headers)
         else:
             raise ValueError(f"Provider {self.provider} not supported")
+
+    def _build_vertex_client(self, additional_config: dict, configured_temperature, custom_headers):
+        """Pick the transport for a Vertex model and build its client.
+
+        Vertex fronts three different wire protocols, each already implemented
+        by one of our clients, and the model id is what selects between them —
+        the same routing-by-model-family the Azure provider uses. A misrouted
+        id fails as a legible 404 ``model_not_found`` rather than stalling.
+        """
+        project_id = additional_config.get("project_id")
+        if not project_id:
+            raise ValueError("Vertex provider requires project_id in additional_config")
+        location = vertex_auth.normalize_location(additional_config.get("location"))
+        auth_mode = additional_config.get("auth_mode", "adc")
+
+        service_account_json = self.api_key if auth_mode == "service_account" else None
+        credentials, project_id = vertex_auth.resolve_credentials(
+            auth_mode=auth_mode,
+            service_account_json=service_account_json,
+            project_id=project_id,
+        )
+
+        if _is_anthropic_model_id(self.model_id):
+            # Claude on Vertex speaks the native Messages API. base_url is
+            # passed explicitly because the pinned SDK derives the global and
+            # multi-region endpoints incorrectly (vertex_auth documents this).
+            return Anthropic(
+                vertex={
+                    "project_id": project_id,
+                    "region": location,
+                    "credentials": credentials,
+                },
+                base_url=vertex_auth.anthropic_base_url(location),
+                temperature=configured_temperature,
+                default_headers=custom_headers,
+            )
+
+        if _is_gemini_model_id(self.model_id):
+            return Google(
+                vertex={
+                    "project": project_id,
+                    "location": location,
+                    "credentials": credentials,
+                },
+                temperature=configured_temperature,
+                default_headers=custom_headers,
+            )
+
+        # Everything else is a third-party MaaS model on the OpenAI-compatible
+        # surface. Those are served only from the global endpoint, so the
+        # provider's location is deliberately ignored here rather than
+        # forwarding a request Vertex answers with 400 FAILED_PRECONDITION.
+        if location != vertex_auth.MAAS_LOCATION:
+            logger.info(
+                "Vertex model '%s' is a third-party publisher model; routing to the "
+                "global endpoint instead of the provider's location '%s' (Vertex serves "
+                "these models only there).",
+                self.model_id,
+                location,
+            )
+        return OpenAi(
+            # The SDK requires a non-empty api_key even though the auth flow
+            # overwrites the Authorization header on every request.
+            api_key="vertex-oauth",
+            base_url=vertex_auth.openai_base_url(project_id, vertex_auth.MAAS_LOCATION),
+            temperature=configured_temperature,
+            default_headers=custom_headers,
+            auth=vertex_auth.GoogleBearerAuth(vertex_auth.token_provider(credentials)),
+            timeout=_vertex_timeout(),
+        )
 
     def _build_entra_token_provider(self, auth_mode: str, additional_config: dict):
         """Build an AAD bearer-token provider for Azure OpenAI Entra ID auth.
