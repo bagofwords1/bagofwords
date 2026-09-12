@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "פעולות סוכן",
+    "countTasks": "משימה אחת | {n} משימות",
+    "editStarters": "עריכת פתיחי שיחה",
+    "download": "הורדת נתוני הסוכן",
+    "addInstruction": "הוספת הנחיה",
+    "chooseExisting": "בחירת הנחיה קיימת",
+    "readMore": "קרא עוד",
+    "readLess": "הצג פחות"
+  },
   "agentCard": {
     "signedIn": "מחובר",
     "countBoards": "לוח אחד | {n} לוחות",

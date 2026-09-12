@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "Ações do agente",
+    "countTasks": "{n} tarefa | {n} tarefas",
+    "editStarters": "Editar sugestões de conversa",
+    "download": "Baixar dados do agente",
+    "addInstruction": "Adicionar instrução",
+    "chooseExisting": "Escolher existente",
+    "readMore": "Ler mais",
+    "readLess": "Mostrar menos"
+  },
   "agentCard": {
     "signedIn": "Sessão iniciada",
     "countBoards": "{n} quadro | {n} quadros",

@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "Agentåtgärder",
+    "countTasks": "{n} uppgift | {n} uppgifter",
+    "editStarters": "Redigera samtalsstarter",
+    "download": "Ladda ner agentdata",
+    "addInstruction": "Lägg till instruktion",
+    "chooseExisting": "Välj befintlig",
+    "readMore": "Läs mer",
+    "readLess": "Visa mindre"
+  },
   "agentCard": {
     "signedIn": "Inloggad",
     "countBoards": "{n} tavla | {n} tavlor",

@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "إجراءات الوكيل",
+    "countTasks": "لا مهام | مهمة واحدة | مهمتان | {n} مهام | {n} مهمة | {n} مهمة",
+    "editStarters": "تعديل اقتراحات المحادثة",
+    "download": "تنزيل بيانات الوكيل",
+    "addInstruction": "إضافة تعليمات",
+    "chooseExisting": "اختيار تعليمات موجودة",
+    "readMore": "قراءة المزيد",
+    "readLess": "عرض أقل"
+  },
   "agentCard": {
     "signedIn": "تم تسجيل الدخول",
     "countBoards": "{n} لوحة | {n} لوحات",

@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "Agentenaktionen",
+    "countTasks": "{n} Aufgabe | {n} Aufgaben",
+    "editStarters": "Gesprächseinstiege bearbeiten",
+    "download": "Agentendaten herunterladen",
+    "addInstruction": "Anweisung hinzufügen",
+    "chooseExisting": "Vorhandene auswählen",
+    "readMore": "Mehr lesen",
+    "readLess": "Weniger anzeigen"
+  },
   "agentCard": {
     "signedIn": "Angemeldet",
     "countBoards": "{n} Board | {n} Boards",

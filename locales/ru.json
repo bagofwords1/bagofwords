@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "Действия агента",
+    "countTasks": "{n} задач | {n} задача | {n} задачи | {n} задач",
+    "editStarters": "Изменить примеры запросов",
+    "download": "Скачать данные агента",
+    "addInstruction": "Добавить инструкцию",
+    "chooseExisting": "Выбрать существующую",
+    "readMore": "Читать далее",
+    "readLess": "Свернуть"
+  },
   "agentCard": {
     "signedIn": "Вход выполнен",
     "countBoards": "{n} доска | {n} доски | {n} досок",

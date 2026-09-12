@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "Agent actions",
+    "countTasks": "{n} task | {n} tasks",
+    "editStarters": "Edit conversation starters",
+    "download": "Download agent data",
+    "addInstruction": "Add instruction",
+    "chooseExisting": "Choose existing",
+    "readMore": "Read more",
+    "readLess": "Read less"
+  },
   "agentCard": {
     "signedIn": "Signed in",
     "countBoards": "{n} board | {n} boards",

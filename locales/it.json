@@ -1,4 +1,14 @@
 {
+  "agentLanding": {
+    "actions": "Azioni agente",
+    "countTasks": "{n} attività | {n} attività",
+    "editStarters": "Modifica gli spunti di conversazione",
+    "download": "Scarica i dati dell’agente",
+    "addInstruction": "Aggiungi istruzione",
+    "chooseExisting": "Scegli esistente",
+    "readMore": "Leggi di più",
+    "readLess": "Mostra meno"
+  },
   "agentCard": {
     "signedIn": "Accesso effettuato",
     "countBoards": "{n} bacheca | {n} bacheche",
