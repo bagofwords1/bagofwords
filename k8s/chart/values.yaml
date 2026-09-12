@@ -22,6 +22,17 @@ postgresql:
     persistence:
       size: 20Gi
     nodeSelector: {}
+    # Stock PostgreSQL allows 100 connections, 3 of them reserved for
+    # superusers. One app worker's pool alone can reach
+    # `config.database.poolSize + maxOverflow` (40 by default), and `start.sh`
+    # runs up to 4 workers when the node is big enough — so the default app
+    # deployment can ask for more than the default server allows, and the
+    # server then refuses the connect outright ("remaining connection slots are
+    # reserved for roles with the SUPERUSER attribute") rather than queueing.
+    # Raise this together with `config.database.*` and `replicaCount`; each
+    # connection costs the server memory, so size it, don't max it.
+    extendedConfiguration: |
+      max_connections = 300
 
 # -- Managed database with IAM auth (alternative to the bundled postgresql subchart).
 # When `database.auth.provider` is not `password`, the postgresql subchart values
@@ -109,6 +120,35 @@ config:
   verifyEmails: false
   # -- Number of Uvicorn worker processes. Leave empty to use Uvicorn's default.
   uvicornWorkers: ""
+  # -- App-side database connection pool, per Uvicorn worker.
+  # The ceiling against the server is
+  # `(poolSize + maxOverflow) * uvicornWorkers * replicaCount`. Keep that under
+  # the server's `max_connections` minus `superuser_reserved_connections`
+  # (stock PostgreSQL: 100 - 3 = 97), or connects are refused outright with
+  # "remaining connection slots are reserved for roles with the SUPERUSER
+  # attribute" — which surfaces to users as a failed agent run, not as a
+  # pool timeout. The bundled postgresql subchart below is sized to match.
+  database:
+    # -- Pooled connections held per worker. Empty uses the app default (20).
+    poolSize: ""
+    # -- Extra connections a worker may open under load. Empty uses the app
+    # default (20).
+    maxOverflow: ""
+    # -- Let the server close pooled connections left idle this long (ms), so a
+    # quiet worker's backends drain instead of holding slots for the life of the
+    # process. A connection pool never shrinks on its own. `0` disables.
+    # REQUIRES PostgreSQL 14+: on older servers the parameter is rejected at
+    # connect time and *every* connection fails. Left empty here, which applies
+    # `600000` (10 min) only when this chart can be certain the app is talking to
+    # the bundled PostgreSQL 17 subchart — that is, it generates the database URL
+    # itself and nothing can override it. It stays unset when the URL is
+    # delegated elsewhere and the version is therefore unknown: an external
+    # `database.host`, an IAM-authenticated `database.auth.provider`,
+    # `postgresql.enabled: false`, or a Secret supplying `BOW_DATABASE_URL` via
+    # `postgresql.auth.existingSecret` / `config.secretRef`.
+    # Set it explicitly on any server you know is 14 or newer to get the same
+    # draining behaviour — an explicit value always wins.
+    idleSessionTimeoutMs: ""
   otel:
     # -- Enable OpenTelemetry tracing export.
     enabled: false

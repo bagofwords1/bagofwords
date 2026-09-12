@@ -32,3 +32,124 @@ tests:
       - equal:
           path: data.BOW_TELEMETRY_ENABLED
           value: "true"
+
+  - it: defaults the idle-session timeout on only for the bundled server
+    asserts:
+      # The bundled subchart is PostgreSQL 17, so the GUC is known-supported.
+      - equal:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+          value: "600000"
+      # Pool geometry stays unset so the app's own defaults apply.
+      - notExists:
+          path: data.BOW_DB_POOL_SIZE
+      - notExists:
+          path: data.BOW_DB_MAX_OVERFLOW
+
+  - it: leaves the idle-session timeout unset for an external database
+    set:
+      database.host: rds.example.com
+    asserts:
+      # idle_session_timeout is PostgreSQL 14+ and an unrecognised startup
+      # parameter fails EVERY connection, so an external server of unknown
+      # version must not inherit this default.
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: leaves the idle-session timeout unset when the bundled server is disabled
+    set:
+      postgresql.enabled: false
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: leaves the idle-session timeout unset when the URL comes from a Secret
+    set:
+      postgresql.auth.existingSecret: bowapp-secrets
+      config.secretRef: bowapp-secrets
+    asserts:
+      # The documented Secret install (k8s/README.md) supplies BOW_DATABASE_URL
+      # itself and is loaded after this ConfigMap via envFrom, so it can point
+      # at an external server of unknown version while postgresql.enabled and
+      # database.host are both still at their bundled defaults.
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+      # Guard the premise: with a Secret in play the chart emits no URL of its
+      # own, which is exactly why it cannot know the server version.
+      - notExists:
+          path: data.BOW_DATABASE_URL
+
+  - it: leaves the idle-session timeout unset for an existingSecret alone
+    set:
+      postgresql.auth.existingSecret: bowapp-secrets
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: leaves the idle-session timeout unset for a config.secretRef alone
+    set:
+      config.secretRef: bowapp-secrets
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: leaves the idle-session timeout unset for an IAM-authenticated database
+    set:
+      database.auth.provider: aws_iam
+      database.host: rds.example.com
+      database.username: bow
+      database.name: bow
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: honours an explicit idle-session timeout under a Secret install
+    set:
+      postgresql.auth.existingSecret: bowapp-secrets
+      config.secretRef: bowapp-secrets
+      config.database.idleSessionTimeoutMs: 600000
+    asserts:
+      # However the URL is supplied, an operator who knows their server is 14+
+      # can still opt in.
+      - equal:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+          value: "600000"
+
+  - it: honours an explicit idle-session timeout on an external database
+    set:
+      database.host: rds.example.com
+      config.database.idleSessionTimeoutMs: 600000
+    asserts:
+      - equal:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+          value: "600000"
+
+  - it: renders numeric zero rather than dropping it
+    set:
+      config.database.poolSize: 5
+      config.database.maxOverflow: 0
+      config.database.idleSessionTimeoutMs: 0
+    asserts:
+      - equal:
+          path: data.BOW_DB_POOL_SIZE
+          value: "5"
+      # 0 is falsey to Helm. Dropping it would hand the backend its own default
+      # of 20, allowing 25 connections per worker where 5 were asked for.
+      - equal:
+          path: data.BOW_DB_MAX_OVERFLOW
+          value: "0"
+      # Likewise 0 here means "disable reaping", not "use the default".
+      - equal:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+          value: "0"
+
+  - it: renders the database pool env when the operator sizes it
+    set:
+      config.database.poolSize: 10
+      config.database.maxOverflow: 5
+    asserts:
+      - equal:
+          path: data.BOW_DB_POOL_SIZE
+          value: "10"
+      - equal:
+          path: data.BOW_DB_MAX_OVERFLOW
+          value: "5"

@@ -80,6 +80,50 @@ data:
   UVICORN_WORKERS: {{ .Values.config.uvicornWorkers | quote }}
   {{- end }}
 
+  {{- /*
+    Test these for "unset" explicitly, not by truthiness: a numeric 0 is falsey
+    to Helm, so `if .poolSize` would drop an intentional `maxOverflow: 0` and
+    silently hand the backend its own default of 20 instead — 25 connections per
+    worker where the operator asked for 5.
+  */}}
+  {{- $pool := .Values.config.database.poolSize }}
+  {{- if not (or (kindIs "invalid" $pool) (eq (toString $pool) "")) }}
+  BOW_DB_POOL_SIZE: {{ $pool | quote }}
+  {{- end }}
+  {{- $overflow := .Values.config.database.maxOverflow }}
+  {{- if not (or (kindIs "invalid" $overflow) (eq (toString $overflow) "")) }}
+  BOW_DB_MAX_OVERFLOW: {{ $overflow | quote }}
+  {{- end }}
+  {{- /*
+    idle_session_timeout is PostgreSQL 14+, and an unrecognised startup parameter
+    fails EVERY connection — so this may only default on for a server whose
+    version we control: the bundled subchart (PostgreSQL 17).
+
+    "Bundled" means this ConfigMap itself emits a BOW_DATABASE_URL pointing at
+    `<release>-postgresql` AND nothing can replace it — mirror the conditions on
+    that URL above, and exclude both Secret paths. A Secret is the documented way
+    to supply BOW_DATABASE_URL (see k8s/README.md), and `config.secretRef` is
+    loaded after this ConfigMap via envFrom, so either one can point the app at
+    an external server of unknown version while every value tested here is still
+    at its default. Missing the default costs a quiet worker nothing but some
+    idle connections; getting it wrong fails every connection on upgrade.
+
+    An explicit setting always wins, which is how an operator on a known 14+
+    server opts in regardless of how the URL is supplied.
+  */}}
+  {{- $idle := .Values.config.database.idleSessionTimeoutMs }}
+  {{- $urlFromSecret := or (not (empty .Values.postgresql.auth.existingSecret)) (not (empty .Values.config.secretRef)) }}
+  {{- $bundledDb := and
+        (eq (default "password" .Values.database.auth.provider) "password")
+        (not (eq .Values.postgresql.enabled false))
+        (empty .Values.database.host)
+        (not $urlFromSecret) }}
+  {{- if not (or (kindIs "invalid" $idle) (eq (toString $idle) "")) }}
+  BOW_DB_IDLE_SESSION_TIMEOUT_MS: {{ $idle | quote }}
+  {{- else if $bundledDb }}
+  BOW_DB_IDLE_SESSION_TIMEOUT_MS: "600000"
+  {{- end }}
+
   bowConfig: |
     # Deployment Configuration
     base_url: ${BOW_BASE_URL}

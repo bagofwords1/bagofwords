@@ -1041,6 +1041,33 @@ class AgentV2:
         except Exception:
             return ()
 
+    def _mlog(self, label: str) -> None:
+        """Run-progress log line, timestamped against the start of the run.
+
+        This used to be a closure defined inside ``main_execution``, but two
+        call sites outside that frame referenced it — ``_persist_focus_on_use``
+        and ``_ensure_clients_for_attached`` — where the name does not resolve.
+        Both sit inside ``except Exception`` blocks, so the resulting
+        ``NameError: name '_mlog' is not defined`` was caught and relabelled as
+        the failure of whatever the block was guarding, on the *success* path:
+
+          - focus-on-use logged ``focus-on-use: commit failed`` after the commit
+            had already succeeded (8 times across a 10-agent run here), then ran
+            a no-op rollback;
+          - building a client for a mid-run attached agent logged
+            ``mid-run client construction failed`` for a client that was built
+            and registered fine.
+
+        Both messages point an operator at the opposite of what happened, and
+        they masked genuine failures of the same paths. Being a method keeps it
+        in scope everywhere.
+        """
+        import time as _time
+        t0 = getattr(self, "_run_t0", None)
+        rid = str(self.report_id)[:8] if self.report else "?"
+        elapsed = f" +{(_time.monotonic() - t0) * 1000:.0f}ms" if t0 else ""
+        logger.info(f"[agent:{rid}] {label}{elapsed}")
+
     async def _ensure_clients_for_attached(self) -> None:
         """Build query clients for agents attached AFTER run start (approved
         set_report_agents expansion) — without this create_data against the new
@@ -1060,7 +1087,7 @@ class AgentV2:
                     if built:
                         self.clients.update(built)
                         self.data_sources.append(ds)
-                        _mlog(f"mid-run client built for {ds.name}")
+                        self._mlog(f"mid-run client built for {ds.name}")
                 except Exception:
                     logger.exception("mid-run client construction failed for %s", getattr(ds, "name", "?"))
         except Exception:
@@ -1120,13 +1147,18 @@ class AgentV2:
             self.db.add(self.report)
             await self.db.commit()
             self._focus_set_by_use = True
-            _mlog(f"focus_on_use persisted={merged} via {tool_name}")
         except Exception:
             logger.exception("focus-on-use: commit failed")
             try:
                 await self.db.rollback()
             except Exception:
                 pass
+            return
+        # Outside the try on purpose: this block guards the commit, and anything
+        # raised by the success log would otherwise be reported as the commit
+        # having failed — which is exactly what happened while `_mlog` was an
+        # out-of-scope name here.
+        self._mlog(f"focus_on_use persisted={merged} via {tool_name}")
 
     def _resolve_instruction_scope_ids(self) -> Optional[List[str]]:
         """Data-source scope for the standing <instructions> block.
@@ -3983,10 +4015,9 @@ class AgentV2:
                 logger.warning("[headers] failed to rebuild planner LLM with membership identity", exc_info=True)
         try:
             import time as _time
-            _t0 = _time.monotonic()
-            _rid = str(self.report_id)[:8] if self.report else "?"
-            def _mlog(label):
-                logger.info(f"[agent:{_rid}] {label} +{(_time.monotonic()-_t0)*1000:.0f}ms")
+            # Anchor the run clock that self._mlog() reports elapsed against.
+            self._run_t0 = _time.monotonic()
+            _mlog = self._mlog
 
             # Start agent execution tracking
             self.current_execution = await self.project_manager.start_agent_execution(
