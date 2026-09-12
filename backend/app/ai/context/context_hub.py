@@ -827,8 +827,14 @@ class ContextHub:
         previous answer ("now break that down by month") got an agent that had
         forgotten the thing it was refining.
 
-        Serializing costs nothing because there was no parallelism to lose, and
-        anything that still fails is logged at WARNING with the section named
+        Serializing costs nothing because there was no parallelism to lose:
+        benchmarked over three interleaved repetitions of 40 refreshes on a warm
+        session, p50 was 14.34 ms gathered versus 14.19 ms serialized. (On a
+        session that has just committed, the gathered version *is* a few ms
+        faster — because a builder that loses the race returns an empty section
+        without running its query at all.)
+
+        Anything that still fails is logged at WARNING with the section named
         instead of vanishing into a ``return_exceptions`` tuple. Returns results
         positionally, exceptions included, so callers keep their existing shape.
         """

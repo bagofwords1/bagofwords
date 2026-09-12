@@ -95,9 +95,37 @@ aren't dependent on each other" complaint, and it is not a prompting problem.
 ### There was never any parallelism to lose
 
 Four builders sharing one session share one DBAPI connection, so their queries
-could not overlap on the wire even in principle. The `gather` bought nothing and
-cost correctness; wall-clock is unchanged (14 ms → 13 ms isolated, p50 149 ms →
-170 ms under 10-way concurrency, within run-to-run noise).
+could not overlap on the wire even in principle.
+
+Measured directly, interleaving the two versions over three repetitions of 40
+refreshes each, on a warm session where neither version races (so both produce
+the same two populated sections):
+
+| `refresh_warm` p50 | rep 1 | rep 2 | rep 3 |
+|---|---|---|---|
+| `gather` | 14.39 ms | 14.26 ms | 14.38 ms |
+| serialized | 14.55 ms | 13.94 ms | 14.09 ms |
+
+No measurable cost — the serialized version is marginally *ahead* on two of
+three reps, well inside run-to-run noise.
+
+On the cold path (a session that has just committed, i.e. the real loop path)
+the raw numbers do differ, and the comparison is not like-for-like:
+
+| cold session | p50 | sections populated |
+|---|---|---|
+| `gather` | 11.21 ms | **1 of 4** |
+| serialized | 14.30 ms | **2 of 4** |
+
+The racing version is ~3 ms faster *because it is failing*: a builder that loses
+the race returns an empty section immediately instead of running its query. The
+extra 3 ms is the cost of actually doing the work that used to be silently
+dropped, not overhead introduced by the lock.
+
+A caveat on end-to-end numbers: agent wall-clock across sandbox runs ranged
+29–88 s for the *same* context code, tracking LLM call volume (58 vs 107 calls
+between two 10-agent runs). End-to-end timings here cannot resolve a few ms per
+refresh, which is why the isolated benchmark above is the one to trust.
 
 Under load it got worse, as the window widens: a 10-agent concurrent run logged
 **26 swallowed concurrency errors across 98 refreshes**, versus 2 across 15 on a
