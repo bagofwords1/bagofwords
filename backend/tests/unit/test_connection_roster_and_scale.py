@@ -31,12 +31,13 @@ from app.ai.prompt_formatters import Table as PromptTable, TableColumn
 from app.schemas.data_source_schema import DataSourceSummarySchema
 
 
-def _table(name, conn_name, conn_type="postgresql"):
+def _table(name, conn_name, conn_type="postgresql", conn_id=None):
     return PromptTable(
         name=name,
         columns=[TableColumn(name="a", dtype="text"),
                  TableColumn(name="b", dtype="text")],
         pks=[], fks=[],
+        connection_id=conn_id or f"id-{conn_name}",
         connection_name=conn_name,
         connection_type=conn_type,
         is_active=True,
@@ -53,11 +54,18 @@ def _ds(n_conns, n_tables_each):
     )
 
 
+def _roster_entries(xml):
+    """(id, name) per <connection> element, head and tail alike, in order."""
+    out = []
+    for el in re.findall(r'<connection\b[^>]*/>', xml):
+        cid = re.search(r'\bid="([^"]*)"', el)
+        name = re.search(r'\bname="([^"]*)"', el)
+        out.append((cid.group(1) if cid else None, name.group(1) if name else None))
+    return out
+
+
 def _roster_names(xml):
-    named = re.findall(r'<connection c="[^"]*" name="([^"]+)"', xml)
-    for blob in re.findall(r'<more_connections count="\d+">([^<]*)</more_connections>', xml):
-        named += [n.strip() for n in blob.split(",") if n.strip()]
-    return named
+    return [n for _, n in _roster_entries(xml)]
 
 
 @pytest.mark.parametrize("n_conns,n_each", [(3, 5), (12, 100), (100, 100)])
@@ -126,3 +134,35 @@ def test_roster_is_built_from_the_scoped_tables_not_the_agents_connections():
     names = _roster_names(ds._render_connections_roster_xml())
     assert names == ["warehouse_000", "warehouse_002"]
     assert "warehouse_001" not in ds._render_connections_roster_xml()
+
+
+@pytest.mark.parametrize("n_conns", [3, 100, 260])
+def test_every_roster_entry_carries_its_uuid(n_conns):
+    """describe_tables takes connection_ids, not names or c= aliases. A roster
+    entry without an id names a connection the agent can see but cannot scope a
+    discovery call to — so the tail past the cap needs the id most of all."""
+    ds = _ds(n_conns, 2)
+    entries = _roster_entries(ds._render_connections_roster_xml())
+    assert len(entries) == n_conns
+    assert all(cid for cid, _ in entries), "some connections rendered without an id"
+    assert entries[0] == ("id-warehouse_000", "warehouse_000")
+    assert entries[-1] == (
+        f"id-warehouse_{n_conns - 1:03d}", f"warehouse_{n_conns - 1:03d}"
+    )
+
+
+def test_duplicate_connection_names_stay_separate():
+    """Two connections may share a display name. Keyed on the name they merged
+    into one roster entry with one table count, and the agent had no way to ask
+    for either of them specifically."""
+    ds = TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="ds-1", name="Dup Agent", type="postgresql"),
+        tables=(
+            [_table(f"a.t{i}", "Warehouse", conn_id="conn-a") for i in range(3)]
+            + [_table(f"b.t{i}", "Warehouse", conn_id="conn-b") for i in range(2)]
+        ),
+    )
+    xml = ds._render_connections_roster_xml()
+    assert '<connections count="2">' in xml
+    assert _roster_entries(xml) == [("conn-a", "Warehouse"), ("conn-b", "Warehouse")]
+    assert 'tables="3"' in xml and 'tables="2"' in xml

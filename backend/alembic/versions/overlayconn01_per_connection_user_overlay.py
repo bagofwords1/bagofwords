@@ -18,6 +18,10 @@ rows whose canonical table is unlinked (a delegated user's own discovery) stay
 NULL and are treated by readers as "this user, any connection" — safe, because
 every overlay read is already filtered by ``user_id``.
 
+The downgrade has to put the narrower key back over rows the new key made
+legal, so it reconciles cross-connection duplicates first — see
+``_collapse_cross_connection_duplicates``.
+
 Revision ID: overlayconn01
 Revises: diagrollup01
 Create Date: 2026-09-12
@@ -104,10 +108,85 @@ def upgrade() -> None:
             batch.create_index(_IX_CONN, ["connection_id"])
 
 
+def _udst_tables():
+    """Lightweight table clauses for the reconciliation DML.
+
+    Expressed in Core rather than raw SQL so booleans render correctly on both
+    PostgreSQL (``true``) and SQLite (``1``).
+    """
+    udst = sa.table(
+        _TABLE,
+        sa.column("id", sa.String),
+        sa.column("data_source_id", sa.String),
+        sa.column("user_id", sa.String),
+        sa.column("table_name", sa.String),
+        sa.column("is_accessible", sa.Boolean),
+    )
+    udsc = sa.table(
+        "user_data_source_columns",
+        sa.column("id", sa.String),
+        sa.column("user_data_source_table_id", sa.String),
+    )
+    return udst, udsc
+
+
+def _delete_overlay_rows(udst, udsc, where_clause) -> None:
+    """Delete overlay rows and their columns.
+
+    The columns' FK cascades on PostgreSQL, but SQLite does not enforce foreign
+    keys unless the connection asked it to, so the children go first explicitly.
+    """
+    doomed = sa.select(udst.c.id).where(where_clause)
+    op.execute(udsc.delete().where(udsc.c.user_data_source_table_id.in_(doomed)))
+    op.execute(udst.delete().where(udst.c.id.in_(doomed)))
+
+
+def _collapse_cross_connection_duplicates() -> None:
+    """Reduce each (data source, user, table name) to ONE row.
+
+    Per-connection overlays make ``(data_source_id, user_id, table_name)``
+    legitimately non-unique: two connections on one agent can each expose an
+    ``orders``. The old constraint cannot be recreated over those rows — the
+    downgrade failed outright with a unique violation on any agent that had
+    started using the feature — so the rows are reconciled first.
+
+    The downgrade is lossy by nature (the old schema has nowhere to record which
+    connection a row described). The policy keeps the most permissive answer,
+    which is the one the pre-connection readers assumed: an accessible row wins
+    over an inaccessible one for the same name, and among equals the lowest id
+    wins so the outcome is deterministic and repeatable.
+    """
+    udst, udsc = _udst_tables()
+
+    # 1. Drop inaccessible rows whose name is accessible on another connection.
+    v = udst.alias("v")
+    _delete_overlay_rows(
+        udst, udsc,
+        sa.and_(
+            udst.c.is_accessible.is_(False),
+            sa.exists(
+                sa.select(sa.literal(1)).select_from(v).where(
+                    v.c.data_source_id == udst.c.data_source_id,
+                    v.c.user_id == udst.c.user_id,
+                    v.c.table_name == udst.c.table_name,
+                    v.c.is_accessible.is_(True),
+                )
+            ),
+        ),
+    )
+
+    # 2. Collapse whatever duplicates remain (same accessibility) to one row.
+    keep = sa.select(sa.func.min(udst.c.id)).group_by(
+        udst.c.data_source_id, udst.c.user_id, udst.c.table_name
+    )
+    _delete_overlay_rows(udst, udsc, udst.c.id.notin_(keep))
+
+
 def downgrade() -> None:
     bind = op.get_bind()
     if not sa.inspect(bind).has_table(_TABLE):
         return
+    _collapse_cross_connection_duplicates()
     existing = _constraint_names(bind, _TABLE)
     with op.batch_alter_table(_TABLE) as batch:
         if _IX_CONN in existing:

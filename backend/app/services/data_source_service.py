@@ -132,6 +132,16 @@ def normalize_overlay_fks(fks) -> list:
     return out
 
 
+# First-read overlay warming is per (data source, user, connection), and a
+# connection the user legitimately sees nothing on writes no rows — so "has no
+# rows" can never mean "already warmed". These remember the attempt instead, so
+# such a connection is re-crawled once per window rather than on every read.
+# Process-local and best-effort: a restart or a second worker just re-attempts.
+_WARM_ATTEMPTS: dict[tuple, float] = {}
+_WARM_RETRY_S = 300.0
+_WARM_ATTEMPTS_MAX = 10000
+
+
 class DataSourceService:
 
     def __init__(self):
@@ -3131,7 +3141,10 @@ class DataSourceService:
         # connecting isn't empty. A no-op once warm.
         await self._warm_user_overlay_if_empty(db, data_source, current_user, delegated_conns)
 
-        scope = await self._resolve_catalog_scope(db, data_source, current_user)
+        buckets = await self.classify_connection_access(db, data_source, current_user)
+        scope = await self._resolve_catalog_scope(
+            db, data_source, current_user, buckets=buckets
+        )
         visible_ids = {
             str(row) for row in (await db.execute(
                 scope(select(DataSourceTable.id).where(
@@ -3157,15 +3170,66 @@ class DataSourceService:
                 data_source.id, getattr(current_user, "id", None), exc_info=True,
             )
 
-        # Canonical rows for everything the overlay did not already describe —
-        # i.e. the open (system_only / service-account) connections.
+        # Canonical rows for the OPEN connections only. Canonical rows carry the
+        # full column set as the service account discovered it, so serving one
+        # for a delegated connection hands the caller columns their own token
+        # cannot see. Anything a delegated connection owns therefore comes from
+        # the overlay list or not at all — including when the overlay read above
+        # raised, where falling back to canonical would turn a transient failure
+        # into a masking bypass.
+        canonical_eligible = await self._open_catalog_table_ids(
+            db, data_source, open_ids=buckets[0], candidate_ids=visible_ids
+        )
         covered = {str(getattr(t, "id", "")) for t in overlay_tables}
         canonical_tables = await data_source.get_schemas(
             db=db, include_inactive=include_inactive, with_stats=with_stats,
-            visible_table_ids={i for i in visible_ids if i not in covered},
+            visible_table_ids={i for i in canonical_eligible if i not in covered},
         )
 
         return overlay_tables + canonical_tables
+
+    async def _open_catalog_table_ids(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        open_ids: list[str],
+        candidate_ids: set[str],
+    ) -> set[str]:
+        """Of `candidate_ids`, the rows canonical (unmasked) schema may serve.
+
+        That is: rows belonging to an open connection, plus unlinked legacy rows
+        that no delegated user's own sync contributed (`discovered_by != "user"`
+        — the shared catalog of a pre-connection agent). A row a delegated user
+        discovered under their own token is theirs, has per-user columns, and
+        must come from the overlay.
+        """
+        from app.models.connection_table import ConnectionTable
+
+        if not candidate_ids:
+            return set()
+
+        discovered_by = self._json_text(db, DataSourceTable.metadata_json, "discovered_by")
+        branches = [
+            and_(
+                DataSourceTable.connection_table_id.is_(None),
+                or_(discovered_by.is_(None), discovered_by != "user"),
+            )
+        ]
+        if open_ids:
+            branches.append(DataSourceTable.connection_table_id.in_(
+                select(ConnectionTable.id).where(ConnectionTable.connection_id.in_(open_ids))
+            ))
+
+        # Filtered by data source rather than by the candidate id list: that
+        # list is one bind parameter per table and a delegated catalog runs to
+        # tens of thousands, past PostgreSQL's 32767 ceiling. Intersect locally.
+        rows = (await db.execute(
+            select(DataSourceTable.id).where(
+                DataSourceTable.datasource_id == str(data_source.id),
+                or_(*branches),
+            )
+        )).scalars().all()
+        return {str(r) for r in rows} & candidate_ids
 
     async def _warm_user_overlay_if_empty(
         self,
@@ -3174,32 +3238,71 @@ class DataSourceService:
         current_user: User,
         delegated_conns: list,
     ) -> None:
-        """Populate this caller's overlay on first read, if they run delegated
-        and have no rows yet. Cheap no-op once warm; failures are non-fatal
-        (the caller falls back to whatever the scope predicate admits)."""
+        """Populate this caller's overlay on first read, PER CONNECTION.
+
+        Warming used to short-circuit on the first overlay row found anywhere on
+        the agent, so a delegated connection attached after the user's first
+        read stayed permanently un-warmed: its catalog was missing until someone
+        hit an explicit refresh. Each connection is now warmed on its own.
+
+        Cheap no-op once warm; failures are non-fatal (the caller falls back to
+        whatever the scope predicate admits).
+        """
         try:
-            existing = (await db.execute(
-                select(UserOverlayTable.id).where(
+            rows = (await db.execute(
+                select(UserOverlayTable.connection_id).where(
                     UserOverlayTable.data_source_id == str(data_source.id),
                     UserOverlayTable.user_id == str(current_user.id),
-                ).limit(1)
-            )).first()
-            if existing:
-                return
+                ).distinct()
+            )).scalars().all()
+            warm_conn_ids = {str(r) for r in rows if r}
+            has_legacy_rows = any(r is None for r in rows)
+
             for conn in delegated_conns:
+                conn_id = str(conn.id)
+                if conn_id in warm_conn_ids:
+                    continue
+                # Rows written before overlays were connection-aware carry no
+                # connection; on a single-connection agent they ARE that
+                # connection's catalog, so warming again would re-crawl a source
+                # that is already warm.
+                if has_legacy_rows and len(delegated_conns) == 1:
+                    continue
+                if self._warm_attempted(data_source, current_user, conn_id):
+                    # A connection the user legitimately sees nothing on writes
+                    # no rows, so "no rows" can never mean "warm". Without this
+                    # the read path would re-crawl the source on every request.
+                    continue
                 eff = await self._resolve_effective_auth(
                     db, data_source, current_user, connection=conn
                 )
-                if eff == "user":
-                    await self.get_user_data_source_schema(
-                        db=db, data_source=data_source, user=current_user
-                    )
-                    return
+                if eff != "user":
+                    continue
+                self._mark_warm_attempted(data_source, current_user, conn_id)
+                await self._sync_user_overlay_for_connection(
+                    db=db, data_source=data_source, user=current_user, connection=conn
+                )
         except Exception:
             logger.warning(
                 "Overlay warm failed for data source %s / user %s",
                 data_source.id, getattr(current_user, "id", None), exc_info=True,
             )
+
+    def _warm_key(self, data_source: DataSource, user: User, connection_id: str) -> tuple:
+        return (str(data_source.id), str(getattr(user, "id", "")), connection_id)
+
+    def _warm_attempted(self, data_source: DataSource, user: User, connection_id: str) -> bool:
+        import time
+
+        at = _WARM_ATTEMPTS.get(self._warm_key(data_source, user, connection_id))
+        return at is not None and (time.monotonic() - at) < _WARM_RETRY_S
+
+    def _mark_warm_attempted(self, data_source: DataSource, user: User, connection_id: str) -> None:
+        import time
+
+        if len(_WARM_ATTEMPTS) > _WARM_ATTEMPTS_MAX:
+            _WARM_ATTEMPTS.clear()
+        _WARM_ATTEMPTS[self._warm_key(data_source, user, connection_id)] = time.monotonic()
 
     async def _admin_catalog_access(self, db: AsyncSession, data_source: DataSource, current_user: User) -> bool:
         """May this not-yet-connected caller see the CANONICAL catalog for
@@ -3361,9 +3464,13 @@ class DataSourceService:
         db: AsyncSession,
         data_source: DataSource,
         current_user: User,
+        buckets: tuple[list[str], list[str], list[str]] | None = None,
     ):
         """Build the row predicate for "which of this agent's tables may this
         caller see", resolved per connection.
+
+        `buckets` lets a caller that already ran `classify_connection_access`
+        hand the result in rather than pay for it twice.
 
         Returns a callable that takes a query selecting over DataSourceTable and
         returns it narrowed. Every count, total, page and filter dropdown in the
@@ -3386,7 +3493,7 @@ class DataSourceService:
         if current_user is None or not conns:
             return lambda q: q
 
-        open_ids, overlay_ids, denied_ids = await self.classify_connection_access(
+        open_ids, overlay_ids, denied_ids = buckets or await self.classify_connection_access(
             db, data_source, current_user
         )
 
@@ -3425,6 +3532,14 @@ class DataSourceService:
                     UserOverlayTable.connection_id.in_(overlay_ids),
                 )
             )
+        else:
+            # No connection on this agent is currently authorized for the
+            # caller's own token. Their overlay rows are then only a record of
+            # what they COULD see before access was revoked or credentials
+            # deactivated, so nothing may be admitted on their strength —
+            # leaving this unrestricted kept previously discovered semantic
+            # models visible through the unlinked-row branch below.
+            overlay_rows = overlay_rows.where(sa_false())
 
         branches = []
         if open_ids:
@@ -4227,6 +4342,12 @@ class DataSourceService:
         tables: list[Table] = []
         for row in overlay_rows:
             tables.append(Table(
+                # The CANONICAL DataSourceTable id, not the overlay row's own.
+                # Callers that merge this list with canonical rows key off it to
+                # tell which tables the overlay already describes; without it
+                # every overlay table looked unidentifiable, the merge dropped
+                # them all and served the canonical (unmasked) columns instead.
+                id=str(row.data_source_table_id) if row.data_source_table_id else None,
                 name=row.table_name,
                 columns=[
                     TableColumn(name=c.column_name, dtype=c.data_type)
@@ -4234,6 +4355,7 @@ class DataSourceService:
                 ],
                 pks=[],
                 fks=[],
+                connection_id=str(row.connection_id) if row.connection_id else None,
                 metadata_json=row.metadata_json,
             ))
         return tables
@@ -4580,11 +4702,27 @@ class DataSourceService:
                 pass
             return None
 
-        canonical_by_dataset_table = {}
+        # Connection-scoped on the SAME rule as canonical_by_name, and for the
+        # same reason: this index is consulted FIRST, so indexing every row here
+        # put both connections' overlays on one canonical row whenever the same
+        # semantic model was reachable through two delegated connections —
+        # undoing the per-connection attribution, activation and filtering the
+        # name index had just established.
+        canonical_by_dataset_table: dict = {}
         for row in existing_canonical:
             k = _dataset_table_key(getattr(row, "metadata_json", None))
-            if k is not None:
-                canonical_by_dataset_table.setdefault(k, row)
+            if k is None:
+                continue
+            row_conn = _canonical_connection_id(row)
+            if conn_id is not None and row_conn is not None and row_conn != conn_id:
+                continue
+            prev = canonical_by_dataset_table.get(k)
+            if prev is None or (
+                conn_id is not None
+                and row_conn == conn_id
+                and _canonical_connection_id(prev) is None
+            ):
+                canonical_by_dataset_table[k] = row
 
         # Decide whether this connection's catalog should be UNIONED with the
         # user's own discovery (create canonical rows on demand from the user's

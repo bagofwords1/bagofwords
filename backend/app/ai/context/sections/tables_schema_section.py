@@ -975,8 +975,22 @@ class TablesSchemaContext(ContextSection):
                 tables_xml = [render_table(t) for t in top_tables]
                 return xml_tag("tables", "\n".join(tables_xml))
 
+        @staticmethod
+        def _connection_key(t) -> str | None:
+            """Identity of the connection a table came from.
+
+            The id when there is one, the name only as a fallback. Keying on the
+            name alone merged two connections that happen to share a display
+            name into one roster entry — and an agent cannot tell apart, or
+            scope a discovery call to, connections it sees as one.
+            """
+            cid = getattr(t, 'connection_id', None)
+            if cid:
+                return str(cid)
+            return getattr(t, 'connection_name', None) or None
+
         def _connection_roster(self) -> list:
-            """(name, type, table_count) per connection, in first-seen order.
+            """(id, name, type, table_count) per connection, in first-seen order.
 
             Derived from `self.tables` — the SCOPED table set — and never from
             the data source's connection list. A connection this caller is
@@ -986,15 +1000,18 @@ class TablesSchemaContext(ContextSection):
             """
             seen: dict = {}
             for t in (self.tables or []):
-                name = getattr(t, 'connection_name', None)
-                if not name:
+                key = self._connection_key(t)
+                if not key:
                     continue
-                entry = seen.get(name)
+                entry = seen.get(key)
                 if entry is None:
-                    seen[name] = {"name": name,
-                                  "type": getattr(t, 'connection_type', None) or "",
-                                  "count": 1,
-                                  "alias": str(len(seen) + 1)}
+                    cid = getattr(t, 'connection_id', None)
+                    seen[key] = {"key": key,
+                                 "id": str(cid) if cid else "",
+                                 "name": getattr(t, 'connection_name', None) or "",
+                                 "type": getattr(t, 'connection_type', None) or "",
+                                 "count": 1,
+                                 "alias": str(len(seen) + 1)}
                 else:
                     entry["count"] += 1
             return list(seen.values())
@@ -1020,23 +1037,29 @@ class TablesSchemaContext(ContextSection):
             lines = [f'<connections count="{len(roster)}">']
             for c in head:
                 lines.append(
-                    f'  <connection c="{c["alias"]}" name="{xml_escape(c["name"])}" '
+                    f'  <connection c="{c["alias"]}" id="{xml_escape(c["id"])}" '
+                    f'name="{xml_escape(c["name"])}" '
                     f'type="{xml_escape(c["type"])}" tables="{c["count"]}"/>'
                 )
             tail = roster[full_cap:]
             if tail:
-                # Names only past the cap — a name is what describe_tables needs
-                # to be callable, so an unnamed connection is an unreachable one.
-                # Same trade <more_agents> makes.
-                names = ", ".join(xml_escape(c["name"]) for c in tail)
-                lines.append(
-                    f'  <more_connections count="{len(tail)}">{names}</more_connections>'
-                )
+                # Past the cap: id and name only, no type or table count. The id
+                # is the half that cannot be dropped — describe_tables takes
+                # connection_ids, so a connection listed by name alone is one the
+                # agent can see but not query, which is worse than not listing
+                # it. Same trade <more_agents> makes, with the id kept.
+                lines.append(f'  <more_connections count="{len(tail)}">')
+                for c in tail:
+                    lines.append(
+                        f'    <connection c="{c["alias"]}" id="{xml_escape(c["id"])}" '
+                        f'name="{xml_escape(c["name"])}"/>'
+                    )
+                lines.append('  </more_connections>')
             lines.append(
                 '  ALL connections on this agent are listed above; the sample and '
                 'index below are a subset. Index items carry c="N" matching the c '
                 'attribute here. Reach any connection\'s tables with '
-                'describe_tables(connection_ids=[...]).'
+                'describe_tables(connection_ids=[...]) using the id attribute.'
             )
             lines.append("</connections>")
             return "\n".join(lines)
@@ -1053,9 +1076,9 @@ class TablesSchemaContext(ContextSection):
             # around a third of the whole rendered context, to repeat a handful
             # of strings a thousand times. The roster above maps c="N" back to
             # the name once.
-            alias_by_name = {c["name"]: c["alias"] for c in self._connection_roster()}
-            name_connections = len(alias_by_name) > 1
-            if cap and len(tables) > cap and len(alias_by_name) > 1:
+            alias_by_key = {c["key"]: c["alias"] for c in self._connection_roster()}
+            name_connections = len(alias_by_key) > 1
+            if cap and len(tables) > cap and len(alias_by_key) > 1:
                 # Round-robin the cap across connections instead of taking the
                 # global top N. Rank-ordered truncation clusters: at 100
                 # connections x 100 tables the first 1000 rows all came from the
@@ -1068,7 +1091,7 @@ class TablesSchemaContext(ContextSection):
                 from itertools import zip_longest
                 buckets: dict = {}
                 for t in tables:
-                    buckets.setdefault(getattr(t, 'connection_name', None) or "", []).append(t)
+                    buckets.setdefault(self._connection_key(t) or "", []).append(t)
                 tables = [
                     t for row in zip_longest(*buckets.values())
                     for t in row if t is not None
@@ -1079,7 +1102,7 @@ class TablesSchemaContext(ContextSection):
                     "cols": str(len(getattr(t, 'columns', []) or [])),
                 }
                 if name_connections:
-                    alias = alias_by_name.get(getattr(t, 'connection_name', None))
+                    alias = alias_by_key.get(self._connection_key(t))
                     if alias:
                         attrs["c"] = alias
                 try:
