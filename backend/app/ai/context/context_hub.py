@@ -696,7 +696,10 @@ class ContextHub:
     async def prime_static(self, query: str | None = None) -> None:
         """Build and cache static sections once (schemas, instructions, code, resources).
 
-        Runs all builders in parallel for faster startup.
+        Holds ``self._db_lock`` for its whole body — see ``_run_builders``.
+        ``agent_v2`` gathers this with ``refresh_warm()`` on the same hub and the
+        same session at startup, so every touch of ``self.db`` here, including
+        ``_instruction_query()``, has to be inside the guard.
 
         Parameters
         ----------
@@ -704,6 +707,11 @@ class ContextHub:
             The user's query/prompt. If provided, enables intelligent instruction
             search to find relevant instructions beyond just 'always' load mode.
         """
+        async with self._db_lock:
+            await self._prime_static_locked(query)
+
+    async def _prime_static_locked(self, query: str | None = None) -> None:
+        """Body of ``prime_static``; runs with ``self._db_lock`` held."""
         _t0 = time.monotonic()
 
         async def _timed(name, coro):
@@ -786,10 +794,10 @@ class ContextHub:
         # here: a lost section is the schema or the instructions, and the agent
         # would go on to plan against a connection it thinks has no tables.
         schemas, instructions, resources, files = await self._run_builders("prime_static", [
-            ("schemas", _build_or_get_schemas()),
-            ("instructions", _build_or_get_instructions()),
-            ("resources", _timed("resources", self.resource_builder.build())),
-            ("files", _timed("files", self.files_builder.build())),
+            ("schemas", _build_or_get_schemas),
+            ("instructions", _build_or_get_instructions),
+            ("resources", lambda: _timed("resources", self.resource_builder.build())),
+            ("files", lambda: _timed("files", self.files_builder.build())),
         ])
         _hub_logger.info(f"[context_hub:prime_static] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
 
@@ -802,6 +810,14 @@ class ContextHub:
 
     async def _run_builders(self, phase: str, builders):
         """Run context builders that share ``self.db``, one at a time.
+
+        **The caller must already hold ``self._db_lock``.** The lock lives at the
+        public entry points (``prime_static`` / ``refresh_warm``) rather than
+        here, because those methods touch the session outside the builder list
+        too — ``_instruction_query()``, the org-settings read, the scheduled-tasks
+        read — and ``agent_v2`` gathers both methods concurrently on one hub at
+        startup. Guarding only this loop left those reads racing, which is the
+        same failure one layer up.
 
         These used to go through ``asyncio.gather(..., return_exceptions=True)``,
         which was wrong twice over.
@@ -837,27 +853,46 @@ class ContextHub:
         Anything that still fails is logged at WARNING with the section named
         instead of vanishing into a ``return_exceptions`` tuple. Returns results
         positionally, exceptions included, so callers keep their existing shape.
+
+        ``builders`` is a list of ``(name, factory)`` where ``factory`` is a
+        zero-argument callable returning the coroutine. Building each coroutine
+        only when its turn comes means a cancellation part-way through leaves no
+        never-awaited coroutine objects behind to surface as ``RuntimeWarning``
+        during loop teardown.
         """
+        if not self._db_lock.locked():
+            raise RuntimeError(
+                "_run_builders requires self._db_lock to be held by the caller "
+                "(see its docstring — the lock must span the whole of "
+                "prime_static/refresh_warm, not just the builder list)"
+            )
         results = []
-        async with self._db_lock:
-            for name, coro in builders:
-                try:
-                    results.append(await coro)
-                except Exception as exc:
-                    _hub_logger.warning(
-                        "[context_hub:%s] %s builder failed — that section will be "
-                        "missing from the planner's context: %r",
-                        phase, name, exc, exc_info=True,
-                    )
-                    results.append(exc)
+        for name, factory in builders:
+            try:
+                results.append(await factory())
+            except Exception as exc:
+                _hub_logger.warning(
+                    "[context_hub:%s] %s builder failed — that section will be "
+                    "missing from the planner's context: %r",
+                    phase, name, exc, exc_info=True,
+                )
+                results.append(exc)
         return results
 
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, queries, observations, entities).
 
         Builders run one at a time — see `_run_builders` for why gathering them
-        was never actually parallel.
+        was never actually parallel. The lock spans the whole body, not just the
+        builder list: the org-settings read below and the scheduled-tasks read at
+        the end touch the same session, and ``agent_v2`` gathers this with
+        ``prime_static()`` at startup.
         """
+        async with self._db_lock:
+            await self._refresh_warm_locked()
+
+    async def _refresh_warm_locked(self) -> None:
+        """Body of ``refresh_warm``; runs with ``self._db_lock`` held."""
         _t0 = time.monotonic()
 
         async def _timed(name, coro):
@@ -888,10 +923,10 @@ class ContextHub:
         # Warm builders all share self.db, so they run serially — see
         # _run_builders.
         messages, queries, mentions, entities = await self._run_builders("refresh_warm", [
-            ("messages", _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))),
-            ("queries", _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))),
-            ("mentions", _timed("mentions", self.mention_builder.build())),
-            ("entities", _timed("entities", self.entity_builder.build_for_turn(
+            ("messages", lambda: _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))),
+            ("queries", lambda: _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))),
+            ("mentions", lambda: _timed("mentions", self.mention_builder.build())),
+            ("entities", lambda: _timed("entities", self.entity_builder.build_for_turn(
                 top_k=5,
                 require_source_assoc=True,
                 user_text=user_text,

@@ -77,6 +77,33 @@ made it deterministic:
 | `entities` section `None` | **20/20** | **0/20** |
 | `refresh_warm` wall-clock | 14 ms | 13 ms |
 
+### Guarding the builder list alone was not enough
+
+The first fix put the lock inside `_run_builders`, which left the same race one
+layer up. Both public methods touch the session *outside* their builder list —
+`_instruction_query()` in `prime_static`, the org-settings read and the
+scheduled-tasks read in `refresh_warm` — and `agent_v2` gathers the two methods
+concurrently on one hub at startup (`agent_v2.py:4119-4122`):
+
+```python
+await asyncio.gather(
+    self.context_hub.prime_static(query=prompt_text),
+    self.context_hub.refresh_warm(),
+)
+```
+
+Caught in review. Measured over five runs each, queries visible to the planner:
+
+| lifecycle | lock in `_run_builders` | lock at the entry points |
+|---|---|---|
+| **concurrent prime + warm, cold session** | **0, 0, 0, 0, 0** | **2, 2, 2, 2, 2** |
+| concurrent prime + warm, connected session | 2, 2, 2, 2, 2 | 2, 2, 2, 2, 2 |
+| sequential prime + warm, cold session | 2, 2, 2, 2, 2 | 2, 2, 2, 2, 2 |
+| standalone warm refresh, cold session | 2, 2, 2, 2, 2 | 2, 2, 2, 2, 2 |
+
+The lock now spans the whole of both public methods, and `_run_builders` raises
+if a caller has not taken it.
+
 ### The damage was invisible
 
 Each builder catches its own failure and returns an empty section, so nothing
@@ -175,8 +202,21 @@ reclaim, by concentrating traffic so the tail goes genuinely idle.
 **`idle_session_timeout` is PostgreSQL 14+, and an unrecognised GUC passed as a
 startup parameter makes every connection fail** (verified —
 `UndefinedObjectError`). It is therefore off by default and opt-in via
-`BOW_DB_IDLE_SESSION_TIMEOUT_MS`; the Helm chart, which bundles PostgreSQL 17,
-sets it.
+`BOW_DB_IDLE_SESSION_TIMEOUT_MS`.
+
+The chart defaults it on, but **only for the bundled subchart** (PostgreSQL 17,
+a version we control). An earlier revision defaulted it in `values.yaml`, which
+review caught: the ConfigMap emitted it for external databases too, so an
+existing deployment pointed at an external PostgreSQL 13 would have had every
+connection fail on upgrade — reintroducing through Helm exactly the hard break
+the backend default was written to avoid. It is now conditioned on
+`postgresql.enabled` and an empty `database.host`, and an operator on an
+external 14+ server opts in explicitly.
+
+Also caught in review: the ConfigMap tested these values by truthiness, so a
+deliberate `maxOverflow: 0` was dropped and the backend fell back to its own
+default of 20 — 25 connections per worker where five were asked for. The
+template now tests for unset explicitly, with render coverage for numeric zero.
 
 ## Finding 3 — single-writer mode on Postgres is harmful (do not enable it)
 

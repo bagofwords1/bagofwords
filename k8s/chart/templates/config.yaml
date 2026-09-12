@@ -80,14 +80,33 @@ data:
   UVICORN_WORKERS: {{ .Values.config.uvicornWorkers | quote }}
   {{- end }}
 
-  {{- if .Values.config.database.poolSize }}
-  BOW_DB_POOL_SIZE: {{ .Values.config.database.poolSize | quote }}
+  {{- /*
+    Test these for "unset" explicitly, not by truthiness: a numeric 0 is falsey
+    to Helm, so `if .poolSize` would drop an intentional `maxOverflow: 0` and
+    silently hand the backend its own default of 20 instead — 25 connections per
+    worker where the operator asked for 5.
+  */}}
+  {{- $pool := .Values.config.database.poolSize }}
+  {{- if not (or (kindIs "invalid" $pool) (eq (toString $pool) "")) }}
+  BOW_DB_POOL_SIZE: {{ $pool | quote }}
   {{- end }}
-  {{- if .Values.config.database.maxOverflow }}
-  BOW_DB_MAX_OVERFLOW: {{ .Values.config.database.maxOverflow | quote }}
+  {{- $overflow := .Values.config.database.maxOverflow }}
+  {{- if not (or (kindIs "invalid" $overflow) (eq (toString $overflow) "")) }}
+  BOW_DB_MAX_OVERFLOW: {{ $overflow | quote }}
   {{- end }}
-  {{- if .Values.config.database.idleSessionTimeoutMs }}
-  BOW_DB_IDLE_SESSION_TIMEOUT_MS: {{ .Values.config.database.idleSessionTimeoutMs | quote }}
+  {{- /*
+    idle_session_timeout is PostgreSQL 14+, and an unrecognised startup parameter
+    fails EVERY connection — so this may only default on for a server whose
+    version we control. That is the bundled subchart (PostgreSQL 17), i.e.
+    postgresql.enabled is not false and no external database.host is set.
+    Pointing the chart at an external server leaves it unset, and an operator on
+    14+ opts in by setting it; setting it explicitly always wins.
+  */}}
+  {{- $idle := .Values.config.database.idleSessionTimeoutMs }}
+  {{- if not (or (kindIs "invalid" $idle) (eq (toString $idle) "")) }}
+  BOW_DB_IDLE_SESSION_TIMEOUT_MS: {{ $idle | quote }}
+  {{- else if and (not (eq .Values.postgresql.enabled false)) (empty .Values.database.host) }}
+  BOW_DB_IDLE_SESSION_TIMEOUT_MS: "600000"
   {{- end }}
 
   bowConfig: |
