@@ -2146,6 +2146,30 @@ MCP_PRESETS: List[McpPreset] = [
                   scopes="read:user, repo, read:org",
               ),
               description="Repos, issues and PRs (needs a GitHub OAuth app)."),
+    # HubSpot's hosted CRM MCP server. No DCR — its AS metadata advertises no
+    # registration_endpoint (live probe 2026-09) — so the admin registers a
+    # HubSpot app, like github above. server_url is the bare ORIGIN: HubSpot
+    # serves MCP at the root and /mcp is a 404; since the connect form matches a
+    # preset by exact server_url, adding a path also breaks preset recognition in
+    # edit mode. Endpoints are the MCP-specific pair HubSpot advertises, not the
+    # classic app.hubspot.com/api.hubapi.com ones; it takes client_secret_post
+    # (our default → left unset) and PKCE S256. Scopes are declared on the app and
+    # gated by portal tier (scopes_supported is empty), so the default is the
+    # read-only CRM set every tier has, plus the `oauth` scope HubSpot requires;
+    # admins widen it in the form. No audience: HubSpot doesn't advertise RFC 8707,
+    # so we must not send `resource` on the token request. sample_tools stays None
+    # — HubSpot publishes no machine-readable tool list and tools/list needs auth,
+    # so refresh_tools discovers the real catalog per connection rather than the
+    # form showing guesses. See docs/feedback-loops/hubspot-mcp-preset.md.
+    McpPreset(key="hubspot", title="HubSpot", server_url="https://mcp.hubspot.com",
+              auth="oauth_app", allowed_auth=["oauth_app"], category="services",
+              oauth_defaults=McpAuthDefaults(
+                  authorize_url="https://mcp.hubspot.com/oauth/authorize/user",
+                  token_url="https://mcp.hubspot.com/oauth/v3/token",
+                  scopes=("oauth, crm.objects.contacts.read, "
+                          "crm.objects.companies.read, crm.objects.deals.read"),
+              ),
+              description="Contacts, companies and deals from HubSpot CRM (needs a HubSpot app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.

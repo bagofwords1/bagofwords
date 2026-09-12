@@ -91,6 +91,7 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     gmail: 'gmail.png',
     google_drive: 'google_drive.png',
     x: 'x.svg',
+    hubspot: 'hubspot.png',
 };
 
 // Computed property to generate the icon path
