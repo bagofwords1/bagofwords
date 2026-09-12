@@ -982,11 +982,26 @@ class TablesSchemaContext(ContextSection):
             # Build nested <item> elements with minimal metrics
             items_xml: List[str] = []
             cap = max(0, index_limit)
+            # Only the top-K tables get rendered inside a <connection> block, so
+            # on a multi-connection agent everything past the cap lands here with
+            # no way to tell which connection it came from. Asked to name its
+            # connections, the agent could only report the ones that made the
+            # cut and said the rest "do not have a corresponding <connection>
+            # element" — true, and exactly the gap this closes. One short
+            # attribute, and only when there is more than one connection to
+            # disambiguate.
+            distinct_conns = {
+                getattr(t, 'connection_name', None) for t in tables
+                if getattr(t, 'connection_name', None)
+            }
+            name_connections = len(distinct_conns) > 1
             for t in tables[:cap if cap > 0 else len(tables)]:
                 attrs = {
                     "name": t.name,
                     "cols": str(len(getattr(t, 'columns', []) or [])),
                 }
+                if name_connections and getattr(t, 'connection_name', None):
+                    attrs["connection"] = str(t.connection_name)
                 try:
                     if getattr(t, 'score', None) is not None:
                         attrs["score"] = str(round(float(getattr(t, 'score')), 2))

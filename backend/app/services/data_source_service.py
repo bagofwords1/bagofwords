@@ -3256,6 +3256,56 @@ class DataSourceService:
             return column.op('->>')(key)
         return func.json_extract(column, f'$.{key}')
 
+    async def classify_connection_access(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        current_user: User,
+    ) -> tuple[list[str], list[str], list[str]]:
+        """Sort an agent's connections into (open, overlay, denied) for a caller.
+
+          open    — system_only, or delegated-but-effective-auth is 'system'
+                    (service account), or an owner/admin viewing a connection
+                    they have not personally connected (display fallback; query
+                    execution still fails closed in resolve_credentials).
+          overlay — delegated and the caller runs with their OWN token: only the
+                    tables their per-user overlay marks accessible.
+          denied  — delegated, no proven access, not an owner/admin: nothing.
+
+        THE authority on "what may this user see on this agent", shared by the
+        tables selector (`_resolve_catalog_scope`) and the agent's schema
+        context (`SchemaContextBuilder`). Both used to answer it independently
+        from `connections[0]`, and both got it wrong in the same two ways: a
+        delegated connection sorting first hid every other connection, and one
+        sorting second skipped scoping entirely. One classifier means a third
+        call site cannot drift into a third variant of the same bug.
+        """
+        open_ids: list[str] = []
+        overlay_ids: list[str] = []
+        denied_ids: list[str] = []
+        for conn in list(getattr(data_source, "connections", None) or []):
+            if (getattr(conn, "auth_policy", None) or "system_only") != "user_required":
+                open_ids.append(str(conn.id))
+                continue
+            if current_user is None:
+                # No user in context (background job, system caller): the
+                # canonical catalog is the right thing to serve.
+                open_ids.append(str(conn.id))
+                continue
+            eff_auth = await self._resolve_effective_auth(
+                db, data_source, current_user, connection=conn
+            )
+            if eff_auth == "user":
+                overlay_ids.append(str(conn.id))
+            elif eff_auth == "none":
+                if await self._admin_catalog_access(db, data_source, current_user):
+                    open_ids.append(str(conn.id))
+                else:
+                    denied_ids.append(str(conn.id))
+            else:  # 'system' — service account / admin SP sees the full catalog
+                open_ids.append(str(conn.id))
+        return open_ids, overlay_ids, denied_ids
+
     async def _resolve_catalog_scope(
         self,
         db: AsyncSession,
@@ -3286,25 +3336,9 @@ class DataSourceService:
         if current_user is None or not conns:
             return lambda q: q
 
-        open_ids: list[str] = []
-        overlay_ids: list[str] = []
-        denied_ids: list[str] = []
-        for conn in conns:
-            if (getattr(conn, "auth_policy", None) or "system_only") != "user_required":
-                open_ids.append(str(conn.id))
-                continue
-            eff_auth = await self._resolve_effective_auth(
-                db, data_source, current_user, connection=conn
-            )
-            if eff_auth == "user":
-                overlay_ids.append(str(conn.id))
-            elif eff_auth == "none":
-                if await self._admin_catalog_access(db, data_source, current_user):
-                    open_ids.append(str(conn.id))
-                else:
-                    denied_ids.append(str(conn.id))
-            else:  # 'system' — service account / admin SP sees the full catalog
-                open_ids.append(str(conn.id))
+        open_ids, overlay_ids, denied_ids = await self.classify_connection_access(
+            db, data_source, current_user
+        )
 
         # Nothing delegated in play: the whole catalog is visible, and no extra
         # predicate is added at all (identical SQL to a single system_only agent).
