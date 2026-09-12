@@ -1,472 +1,82 @@
 <template>
   <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-md' }">
-    <div class="p-5">
-      <!-- Header -->
-      <div class="flex items-center justify-between mb-4">
-        <div class="flex items-center gap-3">
-          <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-6" />
-          <div>
-            <div class="font-medium text-gray-900 dark:text-white">{{ connection?.name }}</div>
-            <div class="text-xs text-gray-400 dark:text-gray-500">{{ connection?.type }}</div>
+    <div class="connection-access p-6 max-h-[calc(100dvh-4rem)] overflow-y-auto">
+      <header class="flex items-start gap-3">
+        <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-6 shrink-0" />
+        <div class="min-w-0 flex-1">
+          <h2 class="font-semibold text-gray-900 dark:text-white break-words">{{ connection?.name }}</h2>
+          <div v-if="headerStatus" class="access-meta flex flex-wrap items-center gap-x-1.5 mt-1 text-gray-500" role="status">
+            <Spinner v-if="headerStatus === 'indexing'" class="w-3 h-3" />
+            <span v-else class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(headerStatus)" />
+            <span>{{ $t(statusLabelKey(headerStatus)) }}</span>
+            <span v-if="headerCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: headerCheckedDisplay }) }}</span></span>
           </div>
         </div>
-        <button @click="isOpen = false" class="text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300">
-          <UIcon name="heroicons-x-mark" class="w-5 h-5" />
-        </button>
+        <button :aria-label="$t('common.close')" @click="isOpen = false" class="-me-2 -mt-2 p-2 rounded-md text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800"><UIcon name="heroicons-x-mark" class="w-4 h-4" /></button>
+      </header>
+      <p v-if="headerStatus === 'error' && !canUpdateDataSource" class="access-meta mt-3 text-gray-600 dark:text-gray-400">{{ $t('data.contactConnectionAdmin') }}</p>
+      <div class="access-meta mt-3 flex items-start gap-2" data-testid="connection-used-by">
+        <span class="shrink-0 text-gray-500">{{ $t('data.usedBy') }}</span>
+        <Spinner v-if="loadingAgents" class="w-3 h-3 mt-0.5 text-gray-400" />
+        <span v-else-if="agentsError" class="text-gray-500">{{ $t('data.requestFailed') }}</span>
+        <span v-else-if="!accessibleAgents.length" class="text-gray-500">{{ $t('data.noAccessibleAgents') }}</span>
+        <span v-else class="min-w-0 text-gray-700 dark:text-gray-300">
+          <template v-for="(agent, i) in accessibleAgents" :key="agent.id"><span v-if="i">, </span><span class="inline-flex items-center gap-1 align-middle"><DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" :icon="agent.icon" class="w-3.5 h-3.5 shrink-0" /><span class="break-words">{{ agent.name }}</span></span></template>
+        </span>
       </div>
 
-      <!-- Status & Info -->
-      <div class="space-y-3 py-4 border-t border-gray-100 dark:border-gray-800">
-        <!-- Status -->
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.status') }}</span>
-          <div class="flex items-center gap-2">
-            <span :class="['w-2 h-2 rounded-full', isConnected ? 'bg-green-500' : 'bg-red-500']"></span>
-            <span class="text-xs text-gray-700 dark:text-gray-300">{{ isConnected ? $t('data.connected') : $t('data.disconnected') }}</span>
-          </div>
-        </div>
-
-        <!-- Catalog count — noun follows the connection's data_shape:
-             Tables (SQL), Files (drives/mail), Collections (document stores),
-             Tools (MCP/custom_api). -->
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ countLabel }}</span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">{{ isToolShape ? toolCount : tableCount }}</span>
-        </div>
-
-        <!-- Custom queries — BOW-managed relations cached locally off this
-             connection. Hidden entirely when the connector can't host them, so
-             it never reads as "zero of a thing you could have". -->
-        <div v-if="customQueriesSupported" class="flex items-center justify-between" data-testid="conn-custom-queries-count">
-          <span class="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
-            <UIcon name="heroicons-bolt" class="w-3 h-3 text-amber-500" />
-            {{ $t('data.customQueries') }}
-          </span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">{{ customQueriesCount }}</span>
-        </div>
-
-        <!-- Data Agents -->
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.agentsLabel') }}</span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">{{ agentCount }}</span>
-        </div>
-
-        <!-- Last Checked -->
-        <div class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.lastChecked') }}</span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">{{ lastCheckedDisplay || $t('data.never') }}</span>
-        </div>
-
-        <!-- Last Indexed (terminal state) — service-principal run, admin-only.
-             Per-user viewers get their own "refreshed" line below instead. -->
-        <div v-if="canUpdateDataSource && indexingState && !isIndexingActive(indexingState) && indexingState.finished_at" class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.lastIndexed') }}</span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">
-            {{ lastIndexedDisplay }}
-            <span v-if="indexingState.stats?.elapsed_s != null" class="text-gray-400 dark:text-gray-500">
-              · {{ formatIndexDuration(indexingState.stats.elapsed_s) }}
-            </span>
-            <span v-if="indexingState.stats?.source_bytes" class="text-gray-400 dark:text-gray-500">
-              · {{ formatIndexBytes(indexingState.stats.source_bytes) }}
-            </span>
-          </span>
-        </div>
-
-        <!-- Per-user "last refreshed" — when the viewer runs on their own creds,
-             show when THEY last pulled their accessible tables (not the SP run). -->
-        <div v-if="isPerUserViewer && myLastRefreshedDisplay" class="flex items-center justify-between">
-          <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.lastRefreshed') }}</span>
-          <span class="text-xs text-gray-700 dark:text-gray-300">{{ myLastRefreshedDisplay }}</span>
-        </div>
-      </div>
-
-      <!-- Indexing block — service-principal run (live progress / logs / reindex).
-           Admin-only: this is the shared catalog index, not the viewer's. -->
-      <div v-if="canUpdateDataSource" class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <ConnectionIndexingProgress
-          v-if="indexingState"
-          :indexing="indexingState"
-          :show-logs="true"
-          :allow-cancel="true"
-          :cancelling="cancelling"
-          @cancel="cancelIndexing"
-        />
-        <div v-if="!isIndexingActive(indexingState)" class="mt-2">
-          <UButton size="xs" color="gray" variant="soft" :loading="reindexing" @click="reindex">
-            <UIcon name="heroicons-arrow-path" class="w-3.5 h-3.5 me-1" />
-            {{ indexingState?.status === 'failed' ? $t('data.retry') : $t('data.reindex') }}
-          </UButton>
-        </div>
-      </div>
-
-      <!-- Auto-reindex schedule (enterprise `scheduled_reindex`). Admin-only.
-           Periodically re-indexes the shared catalog so tables stay fresh
-           without a manual reindex. -->
-      <div v-if="canUpdateDataSource && !isIntegrationManaged" class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5">
-            <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.autoReindex') }}</span>
-            <UIcon v-if="!autoReindexLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
-          </div>
-          <UToggle
-            :model-value="autoReindexEnabled"
-            :disabled="!autoReindexLicensed || savingAutoReindex"
-            size="sm"
-            @update:model-value="onToggleAutoReindex"
-          />
-        </div>
-        <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-          {{ autoReindexLicensed ? $t('data.autoReindexHint') : $t('data.autoReindexEnterprise') }}
-        </p>
-
-        <!-- Schedule picker — either a recurring interval OR a fixed daily time.
-             Only when enabled & licensed. -->
-        <div v-if="autoReindexLicensed && autoReindexEnabled" class="mt-2 space-y-2">
-          <!-- Mode toggle -->
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.autoReindexSchedule') }}</span>
-            <div class="inline-flex rounded-md border border-gray-200 dark:border-gray-800 overflow-hidden text-xs">
-              <button
-                type="button"
-                :disabled="savingAutoReindex"
-                :class="reindexMode === 'interval' ? 'bg-blue-50 text-blue-700' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
-                class="px-2 py-1 disabled:opacity-50"
-                @click="setReindexMode('interval')"
-              >{{ $t('data.autoReindexModeInterval') }}</button>
-              <button
-                type="button"
-                :disabled="savingAutoReindex"
-                :class="reindexMode === 'time' ? 'bg-blue-50 text-blue-700' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-400'"
-                class="px-2 py-1 border-l border-gray-200 dark:border-gray-800 disabled:opacity-50"
-                @click="setReindexMode('time')"
-              >{{ $t('data.autoReindexModeTime') }}</button>
+      <section v-if="requiresUserAuth" data-testid="query-access" class="mt-5 pt-5 border-t border-gray-100 dark:border-gray-800">
+        <fieldset :disabled="switchingIdentity" :aria-label="$t('data.accessDataUsing')">
+          <legend v-if="canChooseIdentity" class="mb-3 font-medium text-gray-900 dark:text-gray-100">{{ $t('data.accessDataUsing') }}</legend>
+          <div class="space-y-4">
+            <div v-for="option in visibleIdentityOptions" :key="option.value" :data-testid="option.value === 'self' ? 'personal-account' : 'organization-account'">
+              <component :is="canChooseIdentity ? 'label' : 'div'" class="flex items-start gap-3" :class="{ 'cursor-pointer': canChooseIdentity }">
+                <input v-if="canChooseIdentity" type="radio" name="connection-query-identity" :value="option.value" :checked="queryIdentity === option.value" @change="setIdentity(option.value)" class="mt-0.5 h-4 w-4 shrink-0 accent-blue-500" />
+                <span class="min-w-0">
+                  <span class="block text-gray-900 dark:text-gray-100">{{ option.label }}</span>
+                  <span class="access-meta block mt-0.5 text-gray-500">{{ option.description }}</span>
+                </span>
+              </component>
+              <div v-if="option.value === 'self' && personalAccess" :class="{ 'ms-7': canChooseIdentity }">
+                <div v-if="!needsSignIn" class="access-meta flex flex-wrap mt-1.5 items-center gap-1.5 text-gray-500" role="status" data-testid="personal-access-status">
+                  <Spinner v-if="accessStatus === 'indexing'" class="w-3 h-3" />
+                  <span v-else class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(accessStatus)" />
+                  <span>{{ $t(statusLabelKey(accessStatus)) }}</span>
+                  <span v-if="personalCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: personalCheckedDisplay }) }}</span></span>
+                </div>
+                <div class="flex flex-wrap items-center gap-3 mt-3">
+                  <button v-if="needsSignIn" @click="openCredentialsModal" :disabled="connecting || switchingIdentity" class="access-button bg-blue-500 text-white hover:bg-blue-600"><Spinner v-if="connecting" class="w-3.5 h-3.5" />{{ $t('data.signIn') }}</button>
+                  <template v-else>
+                    <button @click="reloadMySchema" :disabled="reloadingMySchema || isIndexingActive(indexingState) || switchingIdentity" class="access-button border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800"><Spinner v-if="reloadingMySchema || isIndexingActive(indexingState)" class="w-3.5 h-3.5" />{{ reloadingMySchema || isIndexingActive(indexingState) ? $t('data.refreshing') : $t('data.refreshAccess') }}</button>
+                    <button @click="disconnect" :disabled="disconnecting || switchingIdentity" class="access-meta font-medium text-gray-500 hover:text-red-600 disabled:opacity-50">{{ disconnecting ? $t('data.disconnecting') : $t('data.signOut') }}</button>
+                  </template>
+                </div>
+              </div>
             </div>
           </div>
+        </fieldset>
+        <p v-if="personalRefreshError" role="alert" class="access-meta mt-3 text-red-600">{{ personalRefreshError }}</p>
+        <ConnectionIndexingProgress v-if="personalAccess && indexingState && indexingState.status !== 'completed'" class="mt-3" :indexing="indexingState" compact />
+        <p v-for="(problem, i) in personalWarnings" :key="i" class="access-meta mt-3 text-amber-700 whitespace-pre-wrap break-words" role="status">{{ problem.message }}</p>
+      </section>
 
-          <!-- Interval: number + unit (1 minute minimum) -->
-          <div v-if="reindexMode === 'interval'" class="flex items-center justify-between">
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.autoReindexEvery') }}</span>
-            <div class="flex items-center gap-1">
-              <input
-                type="number"
-                min="1"
-                v-model.number="intervalValue"
-                :disabled="savingAutoReindex"
-                class="w-16 text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
-                @change="onScheduleChange"
-              />
-              <select
-                v-model="intervalUnit"
-                :disabled="savingAutoReindex"
-                class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
-                @change="onScheduleChange"
-              >
-                <option value="minutes">{{ $t('data.unitMinutes') }}</option>
-                <option value="hours">{{ $t('data.unitHours') }}</option>
-              </select>
-            </div>
-          </div>
+      <footer v-if="canUpdateDataSource" class="flex mt-5 pt-4 border-t border-gray-100 dark:border-gray-800">
+        <button @click="openEdit" class="access-meta text-gray-500 hover:text-gray-900 dark:hover:text-gray-100">{{ $t('data.manageConnection') }}</button>
+      </footer>
 
-          <!-- Fixed daily time (interpreted in the org timezone) -->
-          <div v-else class="flex items-center justify-between">
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $t('data.autoReindexAt') }}</span>
-            <input
-              type="time"
-              v-model="reindexAtTime"
-              :disabled="savingAutoReindex"
-              class="text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
-              @change="onScheduleChange"
-            />
-          </div>
-
-          <p v-if="reindexScheduleError" class="text-[11px] text-amber-600">{{ reindexScheduleError }}</p>
-          <p v-else-if="reindexMode === 'time'" class="text-[11px] text-gray-400 dark:text-gray-500">{{ $t('data.autoReindexTimeHint') }}</p>
-        </div>
-
-        <!-- Last background failure, if any. -->
-        <p v-if="autoReindexError" class="text-[11px] text-red-500 mt-1.5 truncate" :title="autoReindexError">
-          {{ $t('data.autoReindexLastError') }}: {{ autoReindexError }}
-        </p>
-      </div>
-
-      <!-- Per-connection request rate limit (enterprise `connection_rate_limit`).
-           Admin-only. Hard-blocks agent queries once a fixed per-window
-           threshold is crossed; the budget is shared across all users. -->
-      <div v-if="canUpdateDataSource && !isIntegrationManaged" class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-1.5">
-            <span class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('data.rateLimit') }}</span>
-            <UIcon v-if="!rateLimitLicensed" name="heroicons-lock-closed" class="w-3 h-3 text-gray-400 dark:text-gray-500" />
-          </div>
-          <UToggle
-            :model-value="rateLimitEnabled"
-            :disabled="!rateLimitLicensed || savingRateLimit"
-            size="sm"
-            @update:model-value="onToggleRateLimit"
-          />
-        </div>
-        <p class="text-[11px] text-gray-400 dark:text-gray-500 mt-1">
-          {{ rateLimitLicensed ? $t('data.rateLimitHint') : $t('data.rateLimitEnterprise') }}
-        </p>
-
-        <!-- Per-window caps. Blank / 0 means "no limit" for that window. -->
-        <div v-if="rateLimitLicensed && rateLimitEnabled" class="mt-2 space-y-2">
-          <div
-            v-for="w in rateLimitWindows"
-            :key="w.key"
-            class="flex items-center justify-between"
-          >
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ w.label }}</span>
-            <div class="flex items-center gap-1">
-              <input
-                type="number"
-                min="0"
-                v-model.number="w.model.value"
-                :disabled="savingRateLimit"
-                :placeholder="$t('data.rateLimitNoLimit')"
-                class="w-24 text-xs border border-gray-200 dark:border-gray-700 rounded-md px-2 py-1 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-100 focus:outline-none focus:ring-1 focus:ring-blue-300 disabled:opacity-50"
-                @change="onRateLimitChange"
-              />
-              <span class="text-[11px] text-gray-400 dark:text-gray-500 w-14">{{ w.unit }}</span>
-            </div>
-          </div>
-          <p v-if="rateLimitError" class="text-[11px] text-red-500">{{ rateLimitError }}</p>
-        </div>
-      </div>
-
-      <!-- Per-user summary — honest, user-scoped view for OBO viewers: what THEY
-           can see, not the service-principal's "Discovered N tables" / logs. -->
-      <div v-else-if="isPerUserViewer" class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <div class="flex items-center gap-1.5 text-xs text-green-700">
-          <UIcon name="heroicons-check-circle" class="w-4 h-4 flex-shrink-0" />
-          <span>{{ accessibleSummary }}</span>
-        </div>
-      </div>
-
-      <!-- Query identity toggle (admin/owner on delegated connections) -->
-      <div v-if="requiresUserAuth && canSwitchIdentity" class="py-3 border-t border-gray-100 dark:border-gray-800">
-        <div class="text-xs text-gray-500 dark:text-gray-400 mb-2">{{ $t('data.runQueriesAs') }}</div>
-        <div class="grid grid-cols-2 gap-2">
-          <button
-            @click="setIdentity('service_account')"
-            :disabled="switchingIdentity"
-            :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
-                     queryIdentity === 'service_account'
-                       ? 'bg-blue-50 border-blue-300 text-blue-700'
-                       : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50']"
-          >
-            <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
-            {{ $t('data.serviceAccount') }}
-          </button>
-          <button
-            @click="setIdentity('self')"
-            :disabled="switchingIdentity"
-            :class="['inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg border disabled:opacity-60',
-                     queryIdentity === 'self'
-                       ? 'bg-blue-50 border-blue-300 text-blue-700'
-                       : 'bg-white dark:bg-gray-900 border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50']"
-          >
-            <UIcon name="heroicons-user" class="w-3.5 h-3.5" />
-            {{ $t('data.me') }}
-          </button>
-        </div>
-
-        <!-- "Me" selected: connect / disconnect / reload -->
-        <div v-if="queryIdentity === 'self'" class="mt-3">
-          <div v-if="!hasUserCredentials">
-            <button
-              @click="openCredentialsModal"
-              :disabled="connecting"
-              class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-60 disabled:cursor-not-allowed"
-            >
-              <Spinner v-if="connecting" class="w-3.5 h-3.5" />
-              <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
-              {{ $t('data.connect') }}
-            </button>
-            <p class="text-xs text-gray-400 dark:text-gray-500 mt-1.5 text-center">{{ $t('data.connectToQueryAsYou') }}</p>
-          </div>
-          <div v-else class="flex items-center gap-2">
-            <button
-              @click="reloadMySchema"
-              :disabled="reloadingMySchema"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
-            >
-              <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
-              <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
-              {{ reloadingMySchema ? $t('data.refreshing') : $t('data.reloadMyTables') }}
-            </button>
-            <button
-              @click="disconnect"
-              :disabled="disconnecting"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white dark:bg-gray-900 border border-red-200 dark:border-red-900/50 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
-            >
-              <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
-              <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
-              {{ disconnecting ? $t('data.disconnecting') : $t('data.disconnect') }}
-            </button>
-          </div>
-        </div>
-        <p v-else class="mt-2 text-xs text-gray-400 dark:text-gray-500">{{ $t('data.serviceAccountNote') }}</p>
-      </div>
-
-      <!-- Actions -->
-      <div class="flex items-center gap-2 pt-4 border-t border-gray-100 dark:border-gray-800">
-        <button
-          v-if="canUpdateDataSource"
-          @click="testConnection"
-          :disabled="testing"
-          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
-        >
-          <Spinner v-if="testing" class="w-3.5 h-3.5" />
-          <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
-          {{ testing ? $t('data.testing') : $t('data.test') }}
-        </button>
-        <!-- Full Edit button (admin with update_data_source permission) -->
-        <button
-          v-if="canUpdateDataSource"
-          @click="openEdit"
-          class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50"
-        >
-          <UIcon name="heroicons-pencil" class="w-3.5 h-3.5" />
-          {{ $t('data.edit') }}
-        </button>
-
-        <!-- Connect / Disconnect (user auth required, no admin permission) -->
-        <template v-else-if="requiresUserAuth && !canSwitchIdentity">
-          <!-- Per-user reload: refresh the tables THIS user can see (their
-               overlay) via their own creds — the per-user counterpart to the
-               admin Reindex. -->
-          <button
-            v-if="hasUserCredentials"
-            @click="reloadMySchema"
-            :disabled="reloadingMySchema"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-50"
-          >
-            <Spinner v-if="reloadingMySchema" class="w-3.5 h-3.5" />
-            <UIcon v-else name="heroicons-arrow-path" class="w-3.5 h-3.5" />
-            {{ reloadingMySchema ? $t('data.refreshing') : $t('data.reloadMyTables') }}
-          </button>
-          <button
-            v-if="hasUserCredentials"
-            @click="disconnect"
-            :disabled="disconnecting"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-red-600 bg-white dark:bg-gray-900 border border-red-200 dark:border-red-900/50 rounded-lg hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
-          >
-            <Spinner v-if="disconnecting" class="w-3.5 h-3.5" />
-            <UIcon v-else name="heroicons-arrow-right-on-rectangle" class="w-3.5 h-3.5" />
-            {{ disconnecting ? $t('data.disconnecting') : $t('data.disconnect') }}
-          </button>
-          <!-- Owner runs via the connection's system (service principal) creds. -->
-          <div
-            v-else-if="usesServiceAccount"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg"
-          >
-            <UIcon name="heroicons-shield-check" class="w-3.5 h-3.5" />
-            {{ $t('data.serviceAccount') }}
-          </div>
-          <button
-            v-else
-            @click="openCredentialsModal"
-            :disabled="connecting"
-            class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50 disabled:opacity-60 disabled:cursor-not-allowed"
-          >
-            <Spinner v-if="connecting" class="w-3.5 h-3.5" />
-            <UIcon v-else name="heroicons-key" class="w-3.5 h-3.5" />
-            {{ $t('data.connect') }}
-          </button>
-        </template>
-      </div>
-
+      <!-- Specialized connector editors retain their existing management forms. -->
+      <ConnectionDeleteAction v-if="canUpdateDataSource && (isToolShape || isIntegrationManaged)" :connection="connection" @deleted="emit('updated'); isOpen = false" />
       <!-- Test Result -->
       <div v-if="testResult" class="mt-3 text-xs text-center" :class="testResult.success ? 'text-green-600' : 'text-red-600'">
         {{ testResult.message }}
       </div>
 
-      <!-- Delete Section (only for admins) -->
-      <div v-if="canUpdateDataSource" class="pt-4 mt-4 border-t border-gray-100 dark:border-gray-800">
-        <div v-if="!confirmingDelete">
-          <button
-            @click="confirmingDelete = true"
-            class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs rounded-lg transition-colors text-red-600 bg-red-50 border border-red-200 hover:bg-red-100 cursor-pointer"
-          >
-            <UIcon name="heroicons-trash" class="w-3.5 h-3.5" />
-            {{ $t('data.deleteConnection') }}
-          </button>
-        </div>
 
-        <!-- Confirm delete -->
-        <div v-else class="space-y-3">
-          <!-- Warning for impacted agents -->
-          <div v-if="agentCount > 0" class="p-3 bg-amber-50 border border-amber-200 rounded-lg">
-            <div class="flex items-start gap-2">
-              <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
-              <div class="text-xs">
-                <p class="font-medium text-amber-800">{{ agentCount === 1 ? $t('data.impactAgentsOne', { count: agentCount }) : $t('data.impactAgentsMany', { count: agentCount }) }}</p>
-                <p class="text-amber-700 mt-1">
-                  {{ agentNames.slice(0, 3).join(', ') }}{{ agentNames.length > 3 ? ' ' + $t('data.andMore', { n: agentNames.length - 3 }) : '' }}
-                </p>
-                <p class="text-amber-600 mt-1">{{ $t('data.tablesRemovedNote') }}</p>
-              </div>
-            </div>
-          </div>
-
-          <p class="text-xs text-gray-600 dark:text-gray-400 text-center">{{ $t('data.deleteConfirm') }}</p>
-          <div class="flex gap-2">
-            <button
-              @click="confirmingDelete = false"
-              :disabled="deleting"
-              class="flex-1 px-3 py-2 text-xs text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800/50"
-            >
-              {{ $t('data.cancel') }}
-            </button>
-            <button
-              @click="deleteConnection"
-              :disabled="deleting"
-              class="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 text-xs text-white bg-red-600 rounded-lg hover:bg-red-700 disabled:opacity-50"
-            >
-              <Spinner v-if="deleting" class="w-3.5 h-3.5" />
-              {{ deleting ? $t('data.deleting') : $t('data.delete') }}
-            </button>
-          </div>
-        </div>
-      </div>
     </div>
   </UModal>
 
   <!-- Edit Connection Modal -->
-  <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-xl' }">
-    <UCard>
-      <template #header>
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2">
-            <DataSourceIcon :type="connection?.type" :connector-key="connection?.connector_key" class="h-5" />
-            <h3 class="text-lg font-semibold">{{ $t('data.editConnection') }}</h3>
-          </div>
-          <UButton color="gray" variant="ghost" icon="i-heroicons-x-mark" @click="showEditModal = false" />
-        </div>
-      </template>
-
-      <div v-if="loadingDetails" class="py-8 text-center">
-        <Spinner class="h-5 w-5 mx-auto text-gray-400 dark:text-gray-500" />
-        <p class="text-sm text-gray-500 dark:text-gray-400 mt-2">{{ $t('common.loading') }}</p>
-      </div>
-
-      <ConnectForm
-        v-else-if="editFormValues"
-        mode="edit"
-        :initialType="connection?.type"
-        :connectionId="connection?.id"
-        :initialValues="editFormValues"
-        :forceShowSystemCredentials="true"
-        :showRequireUserAuthToggle="true"
-        :showTestButton="true"
-        :showLLMToggle="false"
-        :allowNameEdit="true"
-        :hideHeader="true"
-        @success="handleEditSuccess"
-      />
-    </UCard>
-  </UModal>
+  <EditConnectionModal v-model="showEditModal" :connection="connection" :initial-values="editFormValues" :loading="loadingDetails" :last-test="editLastTest" @success="handleTested" @tested="handleTested" @deleted="handleEditSuccess" />
 
   <!-- MCP Edit Modal -->
   <AddMCPModal
@@ -512,14 +122,14 @@
 
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
-import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import EditConnectionModal from '~/components/EditConnectionModal.vue'
 import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vue'
 import { useCan } from '~/composables/usePermissions'
-import { isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
+import { getEffectiveStatus, statusDotClass, statusLabelKey, isIndexingActive, type ConnectionIndexing } from '~/composables/useConnectionStatus'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
 const props = defineProps<{
@@ -552,15 +162,13 @@ const showIntegrationEditModal = ref(false)
 const loadingDetails = ref(false)
 const connectionDetails = ref<any>(null)
 const showCredentialsModal = ref(false)
-const confirmingDelete = ref(false)
-const deleting = ref(false)
 const indexingState = ref<ConnectionIndexing | null>(null)
-const reindexing = ref(false)
+let pollGeneration = 0
 let pollTimer: ReturnType<typeof setInterval> | null = null
 const POLL_INTERVAL_MS = 2000
 
 // Permission and auth checks
-const canUpdateDataSource = computed(() => useCan('update_data_source'))
+const canUpdateDataSource = computed(() => useCan('manage_connection', { type: 'connection', id: props.connection?.id }))
 const requiresUserAuth = computed(() => props.connection?.auth_policy === 'user_required')
 // Locally-overridable user status: the query-identity PATCH returns a fresh status
 // which we apply immediately, so the modal reflects the switch without waiting on
@@ -569,7 +177,7 @@ const statusOverride = ref<any>(null)
 // Optimistic identity selection — highlights the chosen button the instant it's
 // clicked, before the request returns; cleared once the authoritative status lands.
 const pendingIdentity = ref<'self' | 'service_account' | null>(null)
-const userStatus = computed(() => statusOverride.value || props.connection?.user_status || null)
+const userStatus = computed(() => statusOverride.value || detail.value?.user_status || props.connection?.user_status || null)
 const hasUserCredentials = computed(() => !!userStatus.value?.has_user_credentials)
 // Owner/admin runs via the connection's system (service principal) creds.
 const usesServiceAccount = computed(() => userStatus.value?.effective_auth === 'system')
@@ -655,23 +263,55 @@ const accessibleSummary = computed(() => {
   return t('data.tablesAccessible', { n: tableCount.value })
 })
 
-const isConnected = computed(() => {
-  // Check multiple possible status fields
-  const conn = props.connection
-  if (!conn) return false
-  
-  // Direct status fields
-  if (conn.last_status === 'success' || conn.status === 'success') return true
-  if (conn.last_status === 'error' || conn.status === 'error') return false
-  
-  // User status
-  const userStatus = conn.user_status?.connection
-  if (userStatus === 'success') return true
-  if (userStatus === 'error' || userStatus === 'offline') return false
-  
-  // Default to true if connection exists (assume healthy)
-  return true
+const accessibleAgents = ref<Array<{id: string; name: string; icon?: string | null}>>([])
+const loadingAgents = ref(false)
+const agentsError = ref(false)
+let agentsRequest = 0
+const identityOptions = computed(() => [
+  { value: 'self' as const, label: t('data.myAccount'), description: t('data.personalAccessDescription') },
+  { value: 'service_account' as const, label: t('data.organizationAccount'), description: t('data.organizationAccessDescription') },
+])
+const canChooseIdentity = computed(() => canSwitchIdentity.value && canUpdateDataSource.value)
+const visibleIdentityOptions = computed(() => canChooseIdentity.value ? identityOptions.value
+  : identityOptions.value.filter(option => option.value === (personalAccess.value ? 'self' : 'service_account')))
+// Personal token status does not establish shared connection health. Render
+// shared health only when the payload actually provides it, otherwise show the
+// personal result beside the account it describes.
+const sharedTestStatus = computed(() => detail.value?.last_connection_status || props.connection?.last_connection_status
+  || (!personalAccess.value ? userStatus.value?.connection : null))
+const headerStatus = computed(() => {
+  if (requiresUserAuth.value && !sharedTestStatus.value) return null
+  return getEffectiveStatus({
+    last_connection_status: sharedTestStatus.value,
+    indexing: props.connection?.indexing?.scope === 'user' ? null : props.connection?.indexing,
+  })
 })
+watch(() => [props.modelValue, props.connection?.id], async () => {
+  const request = ++agentsRequest
+  accessibleAgents.value = []
+  agentsError.value = false
+  if (!props.modelValue || !props.connection?.id) return
+  loadingAgents.value = true
+  try {
+    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/accessible-agents`, { method: 'GET' })
+    if (request !== agentsRequest) return
+    agentsError.value = !!error.value
+    if (Array.isArray(data.value)) accessibleAgents.value = data.value
+  } catch { if (request === agentsRequest) agentsError.value = true }
+  finally { if (request === agentsRequest) loadingAgents.value = false }
+}, { immediate: true })
+const personalAccess = computed(() => requiresUserAuth.value && (canSwitchIdentity.value ? queryIdentity.value === 'self' : !usesServiceAccount.value))
+const needsSignIn = computed(() => personalAccess.value && !hasUserCredentials.value)
+const accessStatus = computed(() => getEffectiveStatus({
+  ...props.connection, ...detail.value,
+  user_status: personalAccess.value ? userStatus.value : { connection: detail.value?.last_connection_status || detail.value?.user_status?.connection || props.connection?.last_connection_status || userStatus.value?.connection },
+  indexing: personalAccess.value ? indexingState.value : detail.value?.indexing || props.connection?.indexing,
+}))
+const availableCount = computed(() => personalAccess.value
+  ? (indexingState.value?.stats?.table_count ?? myTableCountOverride.value ?? null)
+  : isToolShape.value ? toolCount.value : tableCount.value)
+const personalWarnings = computed(() => personalAccess.value && indexingState.value?.status === 'completed' ? (indexingState.value.events || []).filter(e => ['warning', 'warn', 'error'].includes(e.level)).slice(-3) : [])
+async function handleTested() { await fetchDetail(); emit('updated') }
 
 // Prefer a freshly-reloaded per-user count (set by reloadMySchema) over the
 // value carried on the connection prop, so the count updates without waiting
@@ -691,8 +331,6 @@ async function fetchDetail() {
     const { data, error } = await useMyFetch(`/connections/${id}`, { method: 'GET' })
     if (!error.value && data.value) {
       detail.value = data.value
-      applyAutoReindexConfig(data.value)
-      applyRateLimitConfig(data.value)
     }
   } catch { /* fall back to whatever the prop carried */ }
 }
@@ -710,15 +348,18 @@ const customQueriesSupported = computed(
   () => !!(detail.value?.custom_queries_supported ?? props.connection?.custom_queries_supported))
 const agentNames = computed(() => detail.value?.agent_names ?? (props.connection?.agent_names || []))
 
-const lastCheckedDisplay = computed(() => {
-  const lastChecked = props.connection?.last_checked_at || props.connection?.user_status?.last_checked_at
-  if (!lastChecked) return null
-  const seconds = Math.floor((Date.now() - new Date(lastChecked).getTime()) / 1000)
+function checkedAgo(ts: string | null | undefined) {
+  if (!ts) return null
+  const seconds = Math.floor((Date.now() - new Date(ts).getTime()) / 1000)
+  if (!Number.isFinite(seconds)) return null
   if (seconds < 60) return t('data.justNow')
   if (seconds < 3600) return t('data.minutesAgo', { n: Math.floor(seconds / 60) })
   if (seconds < 86400) return t('data.hoursAgo', { n: Math.floor(seconds / 3600) })
   return t('data.daysAgo', { n: Math.floor(seconds / 86400) })
-})
+}
+const headerCheckedDisplay = computed(() => checkedAgo(detail.value?.last_connection_checked_at || props.connection?.last_connection_checked_at
+  || (!personalAccess.value ? detail.value?.last_checked_at || props.connection?.last_checked_at || userStatus.value?.last_checked_at : null)))
+const personalCheckedDisplay = computed(() => checkedAgo(userStatus.value?.last_checked_at || userStatus.value?.last_used_at))
 
 const lastIndexedDisplay = computed(() => {
   const ts = indexingState.value?.finished_at
@@ -745,13 +386,17 @@ const myLastRefreshedDisplay = computed(() => {
 })
 
 async function fetchIndexing() {
+  const generation = pollGeneration
+  const id = props.connection?.id
   // Tool providers (MCP / Custom API) have no schema-indexing runs — the
   // endpoint would just 404 on every open.
-  if (!props.connection?.id || isToolShape.value) return
+  if (!props.connection?.id || !requiresUserAuth.value) return
   try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}/indexing`, { method: 'GET' })
+    const { data } = await useMyFetch(`/connections/${props.connection.id}/indexing?scope=user`, { method: 'GET' })
+    if (generation !== pollGeneration || props.connection?.id !== id || !isOpen.value) return
     if ((data as any).value) {
       indexingState.value = (data as any).value as ConnectionIndexing
+      if (indexingState.value?.status === 'completed') myRefreshedAt.value = indexingState.value.finished_at || null
     }
   } catch {
     // 404 = no indexing run ever; transient errors handled silently.
@@ -771,254 +416,24 @@ function startPollingIfActive() {
 }
 
 function stopPolling() {
+  pollGeneration++
   if (pollTimer) {
     clearInterval(pollTimer)
     pollTimer = null
   }
 }
 
-// ── Auto-reindex schedule (enterprise `scheduled_reindex`) ──────────────────
-const { hasFeature } = useEnterprise()
-const autoReindexLicensed = computed(() => hasFeature('scheduled_reindex'))
-const autoReindexEnabled = ref(true)
-const autoReindexError = ref<string | null>(null)
-const savingAutoReindex = ref(false)
-
-// Schedule: either a recurring interval (value + unit) OR a fixed daily time.
-const MIN_INTERVAL_MINUTES = 1
-const reindexMode = ref<'interval' | 'time'>('interval')
-const intervalValue = ref<number>(12)
-const intervalUnit = ref<'minutes' | 'hours'>('hours')
-const reindexAtTime = ref<string>('02:00')
-const reindexScheduleError = ref<string | null>(null)
-
-// Resolve the interval inputs to minutes, enforcing the minimum-interval floor.
-function resolvedIntervalMinutes(): number {
-  const raw = Number(intervalValue.value) || 0
-  const mins = intervalUnit.value === 'hours' ? raw * 60 : raw
-  return Math.max(MIN_INTERVAL_MINUTES, Math.round(mins))
-}
-
-function applyAutoReindexConfig(d: any) {
-  // Schedule fields only exist on the admin detail payload.
-  if (!d || !canUpdateDataSource.value || isIntegrationManaged.value) return
-  autoReindexEnabled.value = d.auto_reindex_enabled !== false
-  autoReindexError.value = d.last_reindex_error || null
-  reindexMode.value = d.reindex_schedule_mode === 'time' ? 'time' : 'interval'
-  reindexAtTime.value = d.reindex_at_time || '02:00'
-  // Prefer the minutes column; fall back to the legacy hours field. Present
-  // whole-hour intervals in hours, otherwise minutes.
-  const mins = d.reindex_interval_minutes
-    ?? (d.reindex_interval_hours ? d.reindex_interval_hours * 60 : null)
-    ?? (12 * 60)
-  if (mins % 60 === 0) {
-    intervalUnit.value = 'hours'
-    intervalValue.value = mins / 60
-  } else {
-    intervalUnit.value = 'minutes'
-    intervalValue.value = mins
-  }
-}
-
-async function saveAutoReindex() {
-  if (!props.connection?.id || savingAutoReindex.value) return
-  savingAutoReindex.value = true
-  try {
-    const body: Record<string, any> = {
-      auto_reindex_enabled: autoReindexEnabled.value,
-      reindex_schedule_mode: reindexMode.value,
-    }
-    if (reindexMode.value === 'time') {
-      body.reindex_at_time = reindexAtTime.value
-    } else {
-      body.reindex_interval_minutes = resolvedIntervalMinutes()
-    }
-    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
-      method: 'PUT',
-      body,
-    })
-    if (error.value) {
-      toast.add({
-        title: t('data.autoReindexSaveFailed'),
-        description: (error.value as any)?.data?.detail || (error.value as any)?.message,
-        color: 'red',
-      })
-    }
-  } finally {
-    savingAutoReindex.value = false
-  }
-}
-
-function onToggleAutoReindex(val: boolean) {
-  autoReindexEnabled.value = val
-  saveAutoReindex()
-}
-
-function setReindexMode(mode: 'interval' | 'time') {
-  if (reindexMode.value === mode) return
-  reindexMode.value = mode
-  onScheduleChange()
-}
-
-function onScheduleChange() {
-  reindexScheduleError.value = null
-  if (reindexMode.value === 'interval') {
-    const mins = resolvedIntervalMinutes()
-    // Reflect the enforced floor back into the inputs so the UI is honest.
-    if (mins === MIN_INTERVAL_MINUTES && resolvedRawMinutes() < MIN_INTERVAL_MINUTES) {
-      reindexScheduleError.value = t('data.autoReindexMinInterval', { n: MIN_INTERVAL_MINUTES })
-      intervalUnit.value = 'minutes'
-      intervalValue.value = MIN_INTERVAL_MINUTES
-    }
-  } else if (!reindexAtTime.value) {
-    reindexAtTime.value = '02:00'
-  }
-  saveAutoReindex()
-}
-
-function resolvedRawMinutes(): number {
-  const raw = Number(intervalValue.value) || 0
-  return intervalUnit.value === 'hours' ? raw * 60 : raw
-}
-
-// ── Per-connection request rate limit (enterprise `connection_rate_limit`) ───
-const rateLimitLicensed = computed(() => hasFeature('connection_rate_limit'))
-const rateLimitEnabled = ref(false)
-const rateLimitPerMinute = ref<number | null>(null)
-const rateLimitPerHour = ref<number | null>(null)
-const rateLimitPerDay = ref<number | null>(null)
-const rateLimitError = ref<string | null>(null)
-const savingRateLimit = ref(false)
-
-// Rendered rows; each binds to one window ref.
-const rateLimitWindows = computed(() => [
-  { key: 'minute', label: t('data.rateLimitPerMinute'), unit: t('data.rateLimitReqMin'), model: rateLimitPerMinute },
-  { key: 'hour', label: t('data.rateLimitPerHour'), unit: t('data.rateLimitReqHour'), model: rateLimitPerHour },
-  { key: 'day', label: t('data.rateLimitPerDay'), unit: t('data.rateLimitReqDay'), model: rateLimitPerDay },
-])
-
-// Normalize an input value to a non-negative int or null (blank / 0 = no limit).
-function normalizeRateLimit(v: number | null): number | null {
-  const n = Number(v)
-  if (!Number.isFinite(n) || n <= 0) return null
-  return Math.floor(n)
-}
-
-function applyRateLimitConfig(d: any) {
-  if (!d || !canUpdateDataSource.value || isIntegrationManaged.value) return
-  rateLimitEnabled.value = d.rate_limit_enabled === true
-  rateLimitPerMinute.value = d.rate_limit_per_minute ?? null
-  rateLimitPerHour.value = d.rate_limit_per_hour ?? null
-  rateLimitPerDay.value = d.rate_limit_per_day ?? null
-}
-
-async function saveRateLimit() {
-  if (!props.connection?.id || savingRateLimit.value) return
-  savingRateLimit.value = true
-  rateLimitError.value = null
-  try {
-    const body: Record<string, any> = {
-      rate_limit_enabled: rateLimitEnabled.value,
-      // Send 0 for "no limit" so a cleared field persists (the API treats
-      // 0/null identically as unlimited).
-      rate_limit_per_minute: normalizeRateLimit(rateLimitPerMinute.value) ?? 0,
-      rate_limit_per_hour: normalizeRateLimit(rateLimitPerHour.value) ?? 0,
-      rate_limit_per_day: normalizeRateLimit(rateLimitPerDay.value) ?? 0,
-    }
-    const { error } = await useMyFetch(`/connections/${props.connection.id}`, {
-      method: 'PUT',
-      body,
-    })
-    if (error.value) {
-      rateLimitError.value = (error.value as any)?.data?.detail || (error.value as any)?.message || t('data.rateLimitSaveFailed')
-      toast.add({
-        title: t('data.rateLimitSaveFailed'),
-        description: rateLimitError.value,
-        color: 'red',
-      })
-    }
-  } finally {
-    savingRateLimit.value = false
-  }
-}
-
-function onToggleRateLimit(val: boolean) {
-  rateLimitEnabled.value = val
-  saveRateLimit()
-}
-
-function onRateLimitChange() {
-  rateLimitError.value = null
-  // Reflect the normalization back into the inputs so the UI is honest.
-  rateLimitPerMinute.value = normalizeRateLimit(rateLimitPerMinute.value)
-  rateLimitPerHour.value = normalizeRateLimit(rateLimitPerHour.value)
-  rateLimitPerDay.value = normalizeRateLimit(rateLimitPerDay.value)
-  saveRateLimit()
-}
-
-async function reindex() {
-  if (!props.connection?.id || reindexing.value) return
-  reindexing.value = true
-  try {
-    const { data } = await useMyFetch(`/connections/${props.connection.id}/reindex?force=true`, { method: 'POST' })
-    const result = (data as any).value
-    if (result?.indexing) {
-      indexingState.value = result.indexing as ConnectionIndexing
-    }
-    startPollingIfActive()
-  } finally {
-    reindexing.value = false
-  }
-}
-
-const cancelling = ref(false)
-async function cancelIndexing() {
-  if (!props.connection?.id || cancelling.value) return
-  cancelling.value = true
-  try {
-    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/indexing/cancel`, { method: 'POST' })
-    if (error.value) {
-      toast.add({ title: t('data.stopIndexingFailed'), description: (error.value as any)?.data?.detail, color: 'red' })
-    } else {
-      const result = (data as any).value
-      if (result?.indexing) indexingState.value = result.indexing as ConnectionIndexing
-      // Keep polling briefly — the runner finalizes the row asynchronously.
-      fetchIndexing()
-    }
-  } catch (e: any) {
-    toast.add({ title: t('data.stopIndexingFailed'), description: e?.message, color: 'red' })
-  } finally {
-    cancelling.value = false
-  }
-}
-
-function formatIndexBytes(n?: number | null): string {
-  if (!n || n <= 0) return ''
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let size = n
-  let i = 0
-  while (size >= 1024 && i < units.length - 1) { size /= 1024; i++ }
-  return `${i === 0 ? Math.round(size) : size.toFixed(1)} ${units[i]}`
-}
-
-function formatIndexDuration(seconds?: number | null): string {
-  if (seconds == null) return ''
-  if (seconds < 60) return `${Math.round(seconds)}s`
-  const m = Math.floor(seconds / 60)
-  const s = Math.round(seconds % 60)
-  if (m < 60) return s ? `${m}m ${s}s` : `${m}m`
-  const h = Math.floor(m / 60)
-  return `${h}h ${m % 60}m`
-}
-
 const editFormValues = computed(() => {
   if (!connectionDetails.value) return null
   return {
+    management_auth: connectionDetails.value.management_auth,
+    last_connection_status: connectionDetails.value.last_connection_status,
+    last_connection_checked_at: connectionDetails.value.last_connection_checked_at,
     name: connectionDetails.value.name,
     config: connectionDetails.value.config || {},
     auth_policy: connectionDetails.value.auth_policy,
     has_credentials: connectionDetails.value.has_credentials,
-    credentials: {}
+    credentials: connectionDetails.value.credentials_meta || {}
   }
 })
 
@@ -1045,7 +460,9 @@ async function testConnection() {
   }
 }
 
+const editLastTest = ref<{ success: boolean; message: string } | null>(null)
 async function openEdit() {
+  editLastTest.value = testResult.value
   isOpen.value = false
   await nextTick()
 
@@ -1109,25 +526,21 @@ async function openCredentialsModal() {
 }
 
 const reloadingMySchema = ref(false)
+const personalRefreshError = ref('')
 async function reloadMySchema() {
-  // Per-user reindex: re-fetch THIS user's accessible tables (their overlay)
-  // via their own creds — the per-user counterpart to the admin /reindex.
-  if (!props.connection?.id || reloadingMySchema.value) return
+  if (!props.connection?.id || reloadingMySchema.value || isIndexingActive(indexingState.value)) return
   reloadingMySchema.value = true
+  personalRefreshError.value = ''
+  const id = props.connection.id
   try {
-    const { data, error } = await useMyFetch(`/connections/${props.connection.id}/my-schema/refresh`, { method: 'POST' })
-    if (!error.value) {
-      const result = data.value as any
-      if (result?.table_count != null) myTableCountOverride.value = result.table_count
-      myRefreshedAt.value = new Date().toISOString()
-      // Intentionally NOT emitting 'updated': the reload only changes this
-      // user's overlay/count, which we already reflect locally above. Emitting
-      // would trigger the parent's full refreshData (incl. the admin-only demos
-      // fetch), producing a spurious access.denied for non-admins.
-    }
-  } finally {
-    reloadingMySchema.value = false
-  }
+    const { data, error } = await useMyFetch(`/connections/${id}/my-schema/refresh?background=true`, { method: 'POST' })
+    if (!isOpen.value || props.connection?.id !== id) return
+    if (error.value) { personalRefreshError.value = (error.value as any)?.data?.detail || t('data.reindexFailed'); return }
+    indexingState.value = (data.value as any)?.indexing || null
+    startPollingIfActive()
+  } catch {
+    personalRefreshError.value = t('data.requestFailed')
+  } finally { reloadingMySchema.value = false }
 }
 
 async function disconnect() {
@@ -1147,42 +560,22 @@ function handleCredentialsSaved() {
   emit('updated')
 }
 
-async function deleteConnection() {
-  if (!props.connection?.id || deleting.value) return
-  deleting.value = true
-  try {
-    const { error } = await useMyFetch(`/connections/${props.connection.id}`, { method: 'DELETE' })
-    if (error.value) {
-      testResult.value = { success: false, message: error.value.message || t('data.deleteFailed') }
-      confirmingDelete.value = false
-    } else {
-      isOpen.value = false
-      emit('updated')
-    }
-  } catch (e: any) {
-    testResult.value = { success: false, message: e.message || t('data.deleteFailed') }
-    confirmingDelete.value = false
-  } finally {
-    deleting.value = false
-  }
-}
-
 // Reset state when modal closes
 watch(isOpen, (val) => {
   if (!val) {
     testResult.value = null
-    confirmingDelete.value = false
     connecting.value = false
     stopPolling()
     return
   }
   // Modal opened — seed indexing state from props, fetch fresh, then poll
   // if active.
+  personalRefreshError.value = ''
   myTableCountOverride.value = null
   myRefreshedAt.value = null
   statusOverride.value = null
   pendingIdentity.value = null
-  indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
+  indexingState.value = props.connection?.indexing?.scope === 'user' ? props.connection.indexing : null
   fetchIndexing().then(() => startPollingIfActive())
 })
 
@@ -1191,10 +584,18 @@ watch(() => props.connection?.id, () => {
   if (!isOpen.value) return
   statusOverride.value = null
   pendingIdentity.value = null
-  indexingState.value = (props.connection?.indexing as ConnectionIndexing) || null
+  indexingState.value = props.connection?.indexing?.scope === 'user' ? props.connection.indexing : null
   fetchIndexing().then(() => startPollingIfActive())
   fetchDetail()
 })
 
 onBeforeUnmount(() => stopPolling())
 </script>
+
+<style scoped>
+.connection-access { font-size: 13px; line-height: 20px; font-weight: 400; }
+.connection-access h2 { font-size: 16px; line-height: 24px; }
+.access-meta { font-size: 12px; line-height: 18px; }
+.access-button { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; padding: 6px 12px; border-radius: 6px; font-size: 12px; line-height: 18px; font-weight: 500; }
+.access-button:disabled { opacity: 0.5; }
+</style>
