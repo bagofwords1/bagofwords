@@ -2292,6 +2292,11 @@
   resolved "https://registry.npmjs.org/@tiptap/extension-image/-/extension-image-2.27.2.tgz"
   integrity sha512-5zL/BY41FIt72azVrCrv3n+2YJ/JyO8wxCcA4Dk1eXIobcgVyIdo4rG39gCqIOiqziAsqnqoj12QHTBtHsJ6mQ==
 
+"@tiptap/extension-image@^2.27.2":
+  version "2.27.3"
+  resolved "https://registry.yarnpkg.com/@tiptap/extension-image/-/extension-image-2.27.3.tgz#c7ef556d68a4dec85e46dfe4ff17cb9d093ded67"
+  integrity sha512-YCOxC+UOFisHVpowPc3UmUtJDV9tjKJLeHKef3DZ6h1ixOnp2LStuhy2ohcSjISg1mZlYrx+/GoYottjwj7pww==
+
 "@tiptap/extension-italic@^2.27.2":
   version "2.27.2"
   resolved "https://registry.npmjs.org/@tiptap/extension-italic/-/extension-italic-2.27.2.tgz"
@@ -2301,6 +2306,13 @@
   version "2.27.2"
   resolved "https://registry.npmjs.org/@tiptap/extension-link/-/extension-link-2.27.2.tgz"
   integrity sha512-bnP61qkr0Kj9Cgnop1hxn2zbOCBzNtmawxr92bVTOE31fJv6FhtCnQiD6tuPQVGMYhcmAj7eihtvuEMFfqEPcQ==
+  dependencies:
+    linkifyjs "^4.3.2"
+
+"@tiptap/extension-link@^2.27.2":
+  version "2.27.3"
+  resolved "https://registry.yarnpkg.com/@tiptap/extension-link/-/extension-link-2.27.3.tgz#66bc28dddbb23bc211ae1d1b0633a3329e5c0108"
+  integrity sha512-0KF+iweOlegWjsRDJO7EZL1bmmcghNmjPbcSvvyeF19Lh7Nit44dYV0w1JCDvweRRAXECYFXpxZTcIvSf0fEng==
   dependencies:
     linkifyjs "^4.3.2"
 

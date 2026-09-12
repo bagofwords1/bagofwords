@@ -45,6 +45,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import MarkdownIt from 'markdown-it'
+import DOMPurify from 'dompurify'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import DocMermaid from '~/components/dashboard/DocMermaid.vue'
 import { firstStrongDir } from '~/utils/textDirection'
@@ -128,7 +129,20 @@ const md = new MarkdownIt({ html: true, breaks: false, linkify: false })
 // (via the logical CSS below). Code blocks are skipped — they stay LTR.
 const DIR_OPEN_TOKENS = new Set([
   'paragraph_open', 'heading_open', 'bullet_list_open', 'ordered_list_open', 'list_item_open', 'blockquote_open',
+  // Tables need it most: without a dir of their own an RTL table inherits the
+  // document's LTR and lays its columns out left-to-right, mirroring the order
+  // they were authored in. Cells carry their own dir as well, so a table mixing
+  // Hebrew labels with English identifiers aligns each cell by its own content.
+  'table_open', 'tr_open', 'th_open', 'td_open',
 ])
+
+// A table wider than the panel has nowhere to go: it is squeezed until every
+// cell wraps. Wrap each one in its own scroll container (the editor gets the
+// equivalent for free from the Table extension's `.tableWrapper`).
+md.renderer.rules.table_open = (tokens, idx, options, _env, self) =>
+  '<div class="md-table-wrap">' + self.renderToken(tokens, idx, options)
+md.renderer.rules.table_close = (tokens, idx, options, _env, self) =>
+  self.renderToken(tokens, idx, options) + '</div>'
 
 md.core.ruler.push('block_dir', (state) => {
   const tokens = state.tokens
@@ -159,9 +173,13 @@ function preprocessMentions(text: string, matcher: MentionMatcher | null): strin
   })
 }
 
+// Instruction text is not only hand-written: instructions are drafted by the
+// agent and learned from sessions, and the renderer runs with html:true so
+// authored HTML passes through. Straight into v-html that is a script-execution
+// path, so sanitize exactly as DocViewer does before rendering markdown.
 function renderProse(text: string, matcher: MentionMatcher | null): string {
   if (!text.trim()) return ''
-  return md.render(preprocessMentions(text, matcher))
+  return DOMPurify.sanitize(md.render(preprocessMentions(text, matcher)))
 }
 
 // Split the markdown into prose blocks and ```mermaid diagram blocks, so a
@@ -212,60 +230,10 @@ const blocks = computed<Block[]>(() => {
 </script>
 
 <style scoped>
-.instruction-prose {
-  font-size: 13px;
-  line-height: 1.625;
-  color: #111827;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  /* `start` resolves against each block's own dir (set per block from its
-   * first strong character), so RTL blocks right-align. */
-  text-align: start;
-}
-
-.instruction-prose :deep(h1) { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; color: #111827; }
-.instruction-prose :deep(h2) { font-size: 1.1em; font-weight: 600; margin: 0.6em 0 0.2em; color: #111827; }
-.instruction-prose :deep(h3) { font-size: 1em; font-weight: 600; margin: 0.5em 0 0.15em; color: #111827; }
-
-.instruction-prose :deep(p) { margin-bottom: 0.5em; }
-.instruction-prose :deep(p:last-child) { margin-bottom: 0; }
-
-.instruction-prose :deep(ul) { padding-inline-start: 1.25em; list-style: disc; margin-bottom: 0.5em; }
-.instruction-prose :deep(ol) { padding-inline-start: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
-.instruction-prose :deep(li) { margin-bottom: 0.2em; }
-
-.instruction-prose :deep(code) {
-  background: #f3f4f6;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.9em;
-  color: #374151;
-}
-
-.instruction-prose :deep(pre) {
-  background: #f9fafb;
-  padding: 10px 12px;
-  border-radius: 6px;
-  margin-bottom: 0.5em;
-  overflow-x: auto;
-  /* Code always reads LTR (same policy as rtl.css). */
-  direction: ltr;
-  unicode-bidi: isolate;
-  text-align: left;
-}
-.instruction-prose :deep(pre code) {
-  background: none;
-  padding: 0;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-.instruction-prose :deep(blockquote) {
-  border-inline-start: 3px solid #e5e7eb;
-  padding-inline-start: 1em;
-  margin: 0.5em 0;
-  color: #6b7280;
-}
+/* Element typography for the rendered markdown lives in
+   assets/css/instruction-prose.css, shared with InstructionEditor's
+   `.tiptap-prose` so the read-only view and the editor cannot drift apart.
+   Only the mention chip — whose class differs between the two — stays here. */
 
 .instruction-prose :deep(.instruction-mention) {
   background-color: rgba(99, 102, 241, 0.12);
@@ -277,16 +245,9 @@ const blocks = computed<Block[]>(() => {
   white-space: nowrap;
 }
 
-/* Dark mode overrides. The `.dark` class lives on <html> (Tailwind darkMode:
-   'class'), outside this component's scope, so these rules are authored as
-   :global and matched by the unique `.instruction-prose` class. */
-:global(.dark .instruction-prose) { color: #e5e7eb; }
-:global(.dark .instruction-prose h1),
-:global(.dark .instruction-prose h2),
-:global(.dark .instruction-prose h3) { color: #f9fafb; }
-:global(.dark .instruction-prose code) { background: #374151; color: #e5e7eb; }
-:global(.dark .instruction-prose pre) { background: #1f2937; }
-:global(.dark .instruction-prose blockquote) { border-inline-start-color: #374151; color: #9ca3af; }
+/* The `.dark` class lives on <html> (Tailwind darkMode: 'class'), outside this
+   component's scope, so this is authored as :global and matched by the unique
+   `.instruction-prose` class. */
 :global(.dark .instruction-prose .instruction-mention) {
   background-color: rgba(129, 140, 248, 0.18);
   color: #c7d2fe;

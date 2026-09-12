@@ -59,7 +59,14 @@ test('instruction detail renders its text in the editor', async ({ page }) => {
   await expect(page.getByText('Editor Render Regression Instruction').first())
     .toBeVisible({ timeout: 45000 });
 
-  // The actual regression: the tiptap editor must mount and show the body.
+  // Viewing renders through InstructionText, not the editor: parsing an
+  // instruction into the EDITOR's schema merely to display it dropped every
+  // construct that schema lacked before it could be painted.
+  await expect(page.locator('.instruction-prose').first())
+    .toContainText(marker, { timeout: 30000 });
+
+  // Editing mounts the regular instruction editor — the actual regression.
+  await page.getByRole('button', { name: 'Edit', exact: true }).first().click();
   await expect(page.locator('.tiptap-prose').first())
     .toContainText(marker, { timeout: 30000 });
 

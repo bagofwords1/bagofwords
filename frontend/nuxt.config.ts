@@ -69,6 +69,7 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
     '~/assets/css/mobile.css',
@@ -223,6 +224,8 @@ export default defineNuxtConfig({
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
+        '@tiptap/extension-link',
+        '@tiptap/extension-image',
         '@tiptap/extension-table',
         '@tiptap/extension-table-row',
         '@tiptap/extension-table-cell',
