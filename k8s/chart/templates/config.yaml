@@ -80,6 +80,16 @@ data:
   UVICORN_WORKERS: {{ .Values.config.uvicornWorkers | quote }}
   {{- end }}
 
+  {{- if .Values.config.database.poolSize }}
+  BOW_DB_POOL_SIZE: {{ .Values.config.database.poolSize | quote }}
+  {{- end }}
+  {{- if .Values.config.database.maxOverflow }}
+  BOW_DB_MAX_OVERFLOW: {{ .Values.config.database.maxOverflow | quote }}
+  {{- end }}
+  {{- if .Values.config.database.idleSessionTimeoutMs }}
+  BOW_DB_IDLE_SESSION_TIMEOUT_MS: {{ .Values.config.database.idleSessionTimeoutMs | quote }}
+  {{- end }}
+
   bowConfig: |
     # Deployment Configuration
     base_url: ${BOW_BASE_URL}

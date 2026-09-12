@@ -88,6 +88,15 @@
         "allowMultipleOrganizations": { "type": "boolean" },
         "verifyEmails": { "type": "boolean" },
         "uvicornWorkers": { "type": ["string", "integer"] },
+        "database": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "poolSize": { "type": ["string", "integer"] },
+            "maxOverflow": { "type": ["string", "integer"] },
+            "idleSessionTimeoutMs": { "type": ["string", "integer"] }
+          }
+        },
         "otel": {
           "type": "object",
           "additionalProperties": false,

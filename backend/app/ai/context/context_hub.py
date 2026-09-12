@@ -1,6 +1,7 @@
 """
 ContextHub - Main orchestrator for all agent context.
 """
+import asyncio
 import json
 import logging
 import time
@@ -290,6 +291,10 @@ class ContextHub:
         mode: Optional[str] = None,
     ):
         self.db = db
+        # Guards `self.db` across the context builders. Every builder here is
+        # constructed with this one AsyncSession, and an AsyncSession is not
+        # safe for concurrent use — see `_run_builders`.
+        self._db_lock = asyncio.Lock()
         self.organization = organization
         self.organization_settings = organization_settings
         self.data_sources = data_sources
@@ -699,7 +704,6 @@ class ContextHub:
             The user's query/prompt. If provided, enables intelligent instruction
             search to find relevant instructions beyond just 'always' load mode.
         """
-        import asyncio
         _t0 = time.monotonic()
 
         async def _timed(name, coro):
@@ -777,15 +781,16 @@ class ContextHub:
             _INSTRUCTIONS_CACHE[instr_key] = (time.monotonic(), built)
             return built
 
-        # Run static builders in parallel; schemas/instructions come from
-        # the cache when warm.
-        schemas, instructions, resources, files = await asyncio.gather(
-            _build_or_get_schemas(),
-            _build_or_get_instructions(),
-            _timed("resources", self.resource_builder.build()),
-            _timed("files", self.files_builder.build()),
-            return_exceptions=True,
-        )
+        # Static builders share self.db too, so they run serially for the same
+        # reason as the warm ones — see _run_builders. The stakes are higher
+        # here: a lost section is the schema or the instructions, and the agent
+        # would go on to plan against a connection it thinks has no tables.
+        schemas, instructions, resources, files = await self._run_builders("prime_static", [
+            ("schemas", _build_or_get_schemas()),
+            ("instructions", _build_or_get_instructions()),
+            ("resources", _timed("resources", self.resource_builder.build())),
+            ("files", _timed("files", self.files_builder.build())),
+        ])
         _hub_logger.info(f"[context_hub:prime_static] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
 
         # Store results (handle exceptions gracefully)
@@ -795,12 +800,58 @@ class ContextHub:
         self._static_cache["resources"] = resources if not isinstance(resources, Exception) else None
         self._static_cache["files"] = files if not isinstance(files, Exception) else None
 
+    async def _run_builders(self, phase: str, builders):
+        """Run context builders that share ``self.db``, one at a time.
+
+        These used to go through ``asyncio.gather(..., return_exceptions=True)``,
+        which was wrong twice over.
+
+        It was never parallel. Every builder is constructed with the *same*
+        AsyncSession, which owns exactly one DBAPI connection, so their queries
+        could not have overlapped on the wire even in principle. What overlapped
+        was the bookkeeping around them — and an AsyncSession rejects that:
+        whichever builder called ``execute()`` while another was still
+        provisioning the connection got ``This session is provisioning a new
+        connection; concurrent operations are not permitted``. The window is
+        widest when the session holds no connection yet, which is precisely the
+        state ``agent_v2._release_db_between_steps()`` leaves it in before each
+        loop iteration's refresh — so this fired on ordinary turns, not just
+        under load. Measured against Postgres: every one of 20 refreshes
+        following a commit lost at least one section, and a 10-agent concurrent
+        run logged 26 swallowed occurrences across 98 refreshes.
+
+        And the damage was silent. Each builder catches its own failure and
+        returns an empty section, so the planner was handed
+        ``<queries>``-with-no-items — the agent's record of what it had already
+        queried — as though the report genuinely had none. A user refining a
+        previous answer ("now break that down by month") got an agent that had
+        forgotten the thing it was refining.
+
+        Serializing costs nothing because there was no parallelism to lose, and
+        anything that still fails is logged at WARNING with the section named
+        instead of vanishing into a ``return_exceptions`` tuple. Returns results
+        positionally, exceptions included, so callers keep their existing shape.
+        """
+        results = []
+        async with self._db_lock:
+            for name, coro in builders:
+                try:
+                    results.append(await coro)
+                except Exception as exc:
+                    _hub_logger.warning(
+                        "[context_hub:%s] %s builder failed — that section will be "
+                        "missing from the planner's context: %r",
+                        phase, name, exc, exc_info=True,
+                    )
+                    results.append(exc)
+        return results
+
     async def refresh_warm(self) -> None:
         """Rebuild warm sections each loop (messages, queries, observations, entities).
 
-        Runs builders in parallel where possible for faster refresh.
+        Builders run one at a time — see `_run_builders` for why gathering them
+        was never actually parallel.
         """
-        import asyncio
         _t0 = time.monotonic()
 
         async def _timed(name, coro):
@@ -828,20 +879,20 @@ class ContextHub:
         except Exception:
             user_text = ""
 
-        # Run all warm builders in parallel
-        messages, queries, mentions, entities = await asyncio.gather(
-            _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"])),
-            _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data)),
-            _timed("mentions", self.mention_builder.build()),
-            _timed("entities", self.entity_builder.build_for_turn(
+        # Warm builders all share self.db, so they run serially — see
+        # _run_builders.
+        messages, queries, mentions, entities = await self._run_builders("refresh_warm", [
+            ("messages", _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))),
+            ("queries", _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))),
+            ("mentions", _timed("mentions", self.mention_builder.build())),
+            ("entities", _timed("entities", self.entity_builder.build_for_turn(
                 top_k=5,
                 require_source_assoc=True,
                 user_text=user_text,
                 allow_llm_see_data=allow_llm_see_data,
                 data_source_ids=self._run_agent_ids(),
-            )),
-            return_exceptions=True,
-        )
+            ))),
+        ])
         _hub_logger.info(f"[context_hub:refresh_warm] all_done +{(time.monotonic()-_t0)*1000:.0f}ms")
         
         # Build observations synchronously (it's fast, no DB calls)

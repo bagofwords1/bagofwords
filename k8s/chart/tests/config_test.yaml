@@ -32,3 +32,32 @@ tests:
       - equal:
           path: data.BOW_TELEMETRY_ENABLED
           value: "true"
+
+  - it: sets the database pool env only for values that are set
+    asserts:
+      # idleSessionTimeoutMs ships with a default, so it is always rendered.
+      - equal:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+          value: "600000"
+      # poolSize / maxOverflow default to empty: the app's own defaults win and
+      # no env var is emitted at all.
+      - notExists:
+          path: data.BOW_DB_POOL_SIZE
+      - notExists:
+          path: data.BOW_DB_MAX_OVERFLOW
+
+  - it: renders the database pool env when the operator sizes it
+    set:
+      config.database.poolSize: 10
+      config.database.maxOverflow: 5
+      config.database.idleSessionTimeoutMs: 0
+    asserts:
+      - equal:
+          path: data.BOW_DB_POOL_SIZE
+          value: "10"
+      - equal:
+          path: data.BOW_DB_MAX_OVERFLOW
+          value: "5"
+      # 0 disables idle reaping — and must not be rendered as a stale default.
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
