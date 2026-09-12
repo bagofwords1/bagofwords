@@ -893,8 +893,15 @@
                 <input v-if="editing" v-model="draft.description" dir="auto" :placeholder="$t('agentsPage.addDescriptionOptional')" class="w-full text-sm text-gray-600 dark:text-gray-300 bg-transparent outline-none placeholder:text-gray-300 dark:placeholder:text-gray-600 mb-4" />
                 <p v-else-if="detail?.description" dir="auto" class="text-sm text-gray-500 dark:text-gray-400 mb-4">{{ detail.description }}</p>
                 <div v-else class="mb-4"></div>
+                <!-- Editing uses the regular instruction editor; viewing uses the
+                     same read-only renderer as every other instruction surface.
+                     Viewing through a non-editable tiptap meant the markdown was
+                     parsed into the EDITOR's schema just to be displayed, so
+                     anything that schema lacked (a table, a link, a rule) was
+                     dropped before it could ever be painted. -->
                 <div class="prose-instruction">
-                  <InstructionEditor :key="(detail?.id || 'new') + (editing ? '-edit' : '-view')" v-model="draft.text" mode="wysiwyg" :editable="editing" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
+                  <InstructionEditor v-if="editing" :key="(detail?.id || 'new') + '-edit'" v-model="draft.text" mode="wysiwyg" :editable="true" :data-source-ids="draft.data_source_ids" :is-all-data-sources="draft.data_source_ids.length === 0" :placeholder="$t('agentsPage.instructionPlaceholder')" @mention-selected="onEditorMention" />
+                  <InstructionText v-else :key="(detail?.id || 'new') + '-view'" :text="draft.text" :references="detailTextRefs" :prose="true" :markdown="true" />
                 </div>
               </div>
             </div>
@@ -1915,6 +1922,14 @@ const refIds = computed<string[]>({
     })
   },
 })
+// InstructionText takes flat references; draft rows are association rows.
+const detailTextRefs = computed(() => draft.references.map((r: any) => ({
+  id: String(r.object_id),
+  type: r.object_type,
+  name: r.display_text || null,
+  data_source_type: r.object?.data_source_type || r.object?.connection_type || null,
+})))
+
 // @-mentions in the editor must land in draft.references — the save body sends
 // only draft.references, so an unhandled mention would never become a row.
 const onEditorMention = (item: any) => {

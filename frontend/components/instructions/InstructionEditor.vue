@@ -106,6 +106,12 @@
 import { Editor, EditorContent, BubbleMenu, Extension } from '@tiptap/vue-3'
 import StarterKit from '@tiptap/starter-kit'
 import Mention from '@tiptap/extension-mention'
+import Link from '@tiptap/extension-link'
+import Image from '@tiptap/extension-image'
+import Table from '@tiptap/extension-table'
+import TableRow from '@tiptap/extension-table-row'
+import TableHeader from '@tiptap/extension-table-header'
+import TableCell from '@tiptap/extension-table-cell'
 import { Plugin, PluginKey } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 import MarkdownIt from 'markdown-it'
@@ -213,34 +219,119 @@ function serializeInlineMarks(text: string, marks: any[]): string {
   return text
 }
 
+const isListNode = (node: any): boolean =>
+  node?.type === 'bulletList' || node?.type === 'orderedList'
+
+const prefixLines = (text: string, prefix: string): string =>
+  text.split('\n').map((line) => (prefix + line).trimEnd()).join('\n')
+
+// Everything after an item's first line has to sit at the item's CONTENT
+// column, which is the width of its own marker — 2 for `- `, but 3 for `3. `
+// and 4 for `10. `. Indent a nested list by less than that and it is no longer
+// inside the item at all: the parser reads it as a new top-level list and
+// splits the parent list in two around it.
+const indentContinuation = (text: string, width: number): string => {
+  const pad = ' '.repeat(width)
+  return text
+    .split('\n')
+    .map((line, i) => (i === 0 ? line : (pad + line).trimEnd()))
+    .join('\n')
+}
+
+function serializeListWith(node: any, marker: (index: number) => string): string {
+  return (node.content || [])
+    .map((item: any, i: number) => {
+      const m = marker(i)
+      return m + indentContinuation(serializeListItem(item), m.length)
+    })
+    .join('\n')
+}
+
+// A table cell holds block content, but a GFM row is one line: flatten to a
+// single line and escape pipes so the cell boundary stays unambiguous.
+function serializeTableCell(cell: any): string {
+  return (cell?.content || [])
+    .map((n: any) => serializeNode(n))
+    .join(' ')
+    .replace(/\|/g, '\\|')
+    .replace(/\s*\n+\s*/g, ' ')
+    .trim()
+}
+
+function serializeTable(node: any): string {
+  const rows = (node.content || []).filter((r: any) => r?.type === 'tableRow')
+  if (!rows.length) return ''
+  const cellsOf = (row: any) => (row.content || []).map(serializeTableCell)
+  const grid = rows.map(cellsOf)
+  // Ragged rows are legal in ProseMirror but not in GFM — pad every row to the
+  // widest one so the delimiter row's column count always matches.
+  const width = Math.max(...grid.map((r: string[]) => r.length))
+  const line = (cells: string[]) =>
+    '| ' + Array.from({ length: width }, (_, i) => cells[i] ?? '').join(' | ') + ' |'
+  return [
+    line(grid[0]),
+    '| ' + Array.from({ length: width }, () => '---').join(' | ') + ' |',
+    ...grid.slice(1).map(line),
+  ].join('\n')
+}
+
 function serializeNode(node: any): string {
   if (!node) return ''
   switch (node.type) {
     case 'doc':
-      return (node.content || []).map(serializeNode).join('\n\n').trim()
+      return (node.content || []).map((n: any) => serializeNode(n)).join('\n\n').trim()
     case 'paragraph':
       if (!node.content?.length) return ''
-      return (node.content || []).map(serializeNode).join('')
+      return (node.content || []).map((n: any) => serializeNode(n)).join('')
     case 'heading': {
       const level = node.attrs?.level || 1
-      const inner = (node.content || []).map(serializeNode).join('')
+      const inner = (node.content || []).map((n: any) => serializeNode(n)).join('')
       return '#'.repeat(level) + ' ' + inner
     }
     case 'bulletList':
-      return (node.content || []).map((item: any) => '- ' + serializeListItem(item)).join('\n')
-    case 'orderedList':
-      return (node.content || []).map((item: any, i: number) => `${i + 1}. ` + serializeListItem(item)).join('\n')
+      return serializeListWith(node, () => '- ')
+    case 'orderedList': {
+      // A list authored as `5.` keeps its offset instead of being renumbered.
+      const start = Number(node.attrs?.start) || 1
+      return serializeListWith(node, (i) => `${start + i}. `)
+    }
     case 'listItem':
       return serializeListItem(node)
-    case 'blockquote':
-      return (node.content || []).map(serializeNode).map((s: string) => '> ' + s).join('\n')
+    case 'blockquote': {
+      // `>` belongs on every LINE, not every child node: a child that
+      // serializes to multiple lines (a list, a fence, two paragraphs) would
+      // otherwise leave the quote after its first line.
+      const inner = (node.content || []).map((n: any) => serializeNode(n)).join('\n\n')
+      return prefixLines(inner, '> ')
+    }
     case 'codeBlock': {
       const lang = node.attrs?.language || ''
-      const code = (node.content || []).map((n: any) => n.text || '').join('')
+      // The renderer emits a trailing newline inside <code>, so it comes back
+      // as part of the text node. Re-adding one on top of it would push a blank
+      // line into the fence — and another on every save after that.
+      const code = (node.content || []).map((n: any) => n.text || '').join('').replace(/\n$/, '')
       return '```' + lang + '\n' + code + '\n```'
     }
+    case 'horizontalRule':
+      return '---'
+    case 'image': {
+      const src = node.attrs?.src || ''
+      const alt = node.attrs?.alt || ''
+      const title = node.attrs?.title
+      return `![${alt}](${src}${title ? ` "${title}"` : ''})`
+    }
+    case 'table':
+      return serializeTable(node)
+    case 'tableRow':
+    case 'tableHeader':
+    case 'tableCell':
+      return serializeTableCell(node)
     case 'hardBreak':
-      return '\n'
+      // A bare newline re-parses as a soft break and gets folded away (the
+      // renderer runs with breaks:false). The backslash form survives the
+      // round-trip, and unlike two trailing spaces it also survives the
+      // per-line trimming that quoting and list indentation apply.
+      return '\\\n'
     case 'mention': {
       const label = node.attrs?.label || node.attrs?.id || ''
       // Quote names that a bare parse could not delimit, so the markdown stays
@@ -250,12 +341,22 @@ function serializeNode(node: any): string {
     case 'text':
       return serializeInlineMarks(node.text || '', node.marks || [])
     default:
-      return (node.content || []).map(serializeNode).join('')
+      return (node.content || []).map((n: any) => serializeNode(n)).join('')
   }
 }
 
+// A list item's children, unindented — the caller indents the whole block to
+// the item's content column. A nested list hangs directly off the line above it
+// (a tight list); any other following block needs the blank line that separates
+// two blocks, or the two would re-parse as one paragraph.
 function serializeListItem(node: any): string {
-  return (node.content || []).map(serializeNode).join('\n')
+  const children = node.content || []
+  let out = ''
+  children.forEach((child: any, i: number) => {
+    if (i > 0) out += isListNode(child) ? '\n' : '\n\n'
+    out += serializeNode(child)
+  })
+  return out
 }
 
 function docToMarkdown(doc: any): string {
@@ -269,15 +370,40 @@ function docToMarkdown(doc: any): string {
 let sourceMarkdown = props.modelValue || ''
 let lastEditorMarkdown: string | null = null
 
+// Constructs whose disappearance between two revisions means the editor could
+// not represent them, not that the user deleted them. Counted, not compared, so
+// an edit that legitimately removes one row still registers as a smaller count
+// on that probe alone.
+const STRUCTURE_PROBES: RegExp[] = [
+  /^[^\S\n]*\|.*\|[^\S\n]*$/gm,          // table row
+  /^[^\S\n]*(?:-{3,}|\*{3,}|_{3,})[^\S\n]*$/gm, // thematic break
+  /!\[[^\]]*\]\([^)]*\)/g,               // image
+  /\[[^\]]*\]\([^)]*\)/g,                // link (and image, counted by both)
+  /^[^\S\n]*(?:```|~~~)/gm,              // code fence
+]
+
+const countStructures = (text: string): number[] =>
+  STRUCTURE_PROBES.map((re) => (text.match(re) || []).length)
+
+// True when `candidate` holds fewer of some construct than `reference` does.
+function dropsStructure(candidate: string, reference: string): boolean {
+  const c = countStructures(candidate)
+  const r = countStructures(reference)
+  return c.some((n, i) => n < r[i])
+}
+
 function preserveSourceFormatting(previous: string, next: string): string {
   if (previous === next) return sourceMarkdown
   const dmp = new (DiffMatchPatch as any)()
   const patches = dmp.patch_make(previous, next)
   const [patched, applied] = dmp.patch_apply(patches, sourceMarkdown)
   if (applied.every(Boolean)) return patched
-  // A source that cannot accept the editor delta is already structurally
-  // different from what TipTap rendered. Fall back to its exact serialized
-  // document rather than applying a partial patch.
+  // Not every hunk landed. `next` is TipTap's serialization of the WHOLE
+  // document, so taking it wholesale also writes away anything the schema could
+  // not represent — which is how a single unsupported construct used to flatten
+  // an entire instruction. Prefer the partially patched source whenever it
+  // keeps at least as much structure as `next` would.
+  if (applied.some(Boolean) && !dropsStructure(patched, next)) return patched
   return next
 }
 
@@ -428,7 +554,14 @@ function scrollDropdownItem(index: number) {
 // is excluded) stay LTR. Applied as ProseMirror node decorations: the rendered
 // DOM gets a `dir` attribute but the document itself is untouched, so nothing
 // leaks into the serialized markdown.
-const AUTO_DIR_NODES = new Set(['paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote'])
+// Mirrors InstructionText's DIR_OPEN_TOKENS — the two lists must agree, or the
+// editor and the read-only view disagree about which way a block reads. Tables
+// matter most: with no dir of its own a table inherits the document's LTR and
+// lays an RTL table's columns out backwards.
+const AUTO_DIR_NODES = new Set([
+  'paragraph', 'heading', 'bulletList', 'orderedList', 'listItem', 'blockquote',
+  'table', 'tableRow', 'tableHeader', 'tableCell',
+])
 
 const AutoDir = Extension.create({
   name: 'autoDir',
@@ -473,8 +606,29 @@ const editorFailed = ref(false)
 const editorOptions = () => ({
   extensions: [
     StarterKit.configure({
-      heading: { levels: [1, 2, 3] },
+      // All six levels: markdown allows `####`-`######`, and a level missing
+      // from the schema is parsed as a plain paragraph — which then serializes
+      // back without its `#` marks, demoting the heading permanently.
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
     }),
+    // Every markdown construct md.render() can emit needs a matching schema
+    // node, or ProseMirror silently drops it on parse and docToMarkdown has
+    // nothing left to serialize — the construct is then deleted from the
+    // stored instruction on the next save. StarterKit covers paragraphs,
+    // headings, lists, code, quotes and rules; these cover the rest.
+    Link.configure({ openOnClick: false, autolink: false, HTMLAttributes: { rel: 'noopener noreferrer nofollow' } }),
+    // `inline` matches how the renderer emits images — always inside a
+    // paragraph, never as a sibling of one. As a block node the image forces
+    // ProseMirror to split the paragraph around it on parse, and the node can
+    // be dropped outright depending on what surrounds it.
+    Image.configure({ inline: true, allowBase64: true }),
+    // `resizable` is what installs tiptap's TableView, and with it the
+    // `.tableWrapper` scroll container — without it a table wider than the
+    // panel has nowhere to go and every cell wraps to breaking point.
+    Table.configure({ resizable: true }),
+    TableRow,
+    TableHeader,
+    TableCell,
     Mention.configure({
       HTMLAttributes: { class: 'mention-chip' },
       renderLabel: ({ node }: any) => `@${node.attrs.label ?? node.attrs.id}`,
@@ -637,73 +791,10 @@ function onRawInput() {
 }
 
 /* Tiptap editor content area */
-.wysiwyg-content :deep(.tiptap-prose) {
-  min-height: 210px;
-  padding: 8px 0;
-  font-size: 12px;
-  line-height: 1.625;
-  color: #111827;
-  outline: none;
-  font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
-  /* `start` resolves against each block's own dir (set by the auto-dir
-   * decorations), so RTL blocks right-align and LTR blocks left-align. */
-  text-align: start;
-}
-
-.wysiwyg-content :deep(.tiptap-prose:focus) {
-  outline: none;
-}
-
-/* Headings */
-.wysiwyg-content :deep(.tiptap-prose h1) { font-size: 1.25em; font-weight: 600; margin: 0.75em 0 0.25em; color: #111827; }
-.wysiwyg-content :deep(.tiptap-prose h2) { font-size: 1.1em; font-weight: 600; margin: 0.6em 0 0.2em; color: #111827; }
-.wysiwyg-content :deep(.tiptap-prose h3) { font-size: 1em; font-weight: 600; margin: 0.5em 0 0.15em; color: #111827; }
-
-/* Paragraphs */
-.wysiwyg-content :deep(.tiptap-prose p) { margin-bottom: 0.5em; }
-.wysiwyg-content :deep(.tiptap-prose p:last-child) { margin-bottom: 0; }
-
-/* Lists — logical padding so RTL lists get their markers on the right edge */
-.wysiwyg-content :deep(.tiptap-prose ul) { padding-inline-start: 1.25em; list-style: disc; margin-bottom: 0.5em; }
-.wysiwyg-content :deep(.tiptap-prose ol) { padding-inline-start: 1.25em; list-style: decimal; margin-bottom: 0.5em; }
-.wysiwyg-content :deep(.tiptap-prose li) { margin-bottom: 0.2em; }
-
-/* Inline code */
-.wysiwyg-content :deep(.tiptap-prose code) {
-  background: #f3f4f6;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-family: ui-monospace, monospace;
-  font-size: 0.9em;
-  color: #374151;
-}
-
-/* Code blocks — always LTR regardless of the surrounding text direction
- * (same policy as rtl.css: SQL / identifiers read left-to-right). */
-.wysiwyg-content :deep(.tiptap-prose pre) {
-  background: #f9fafb;
-  padding: 10px 12px;
-  border-radius: 6px;
-  margin-bottom: 0.5em;
-  overflow-x: auto;
-  direction: ltr;
-  unicode-bidi: isolate;
-  text-align: left;
-}
-.wysiwyg-content :deep(.tiptap-prose pre code) {
-  background: none;
-  padding: 0;
-  font-size: 11px;
-  line-height: 1.5;
-}
-
-/* Blockquote — logical border/padding so the bar sits on the start edge */
-.wysiwyg-content :deep(.tiptap-prose blockquote) {
-  border-inline-start: 3px solid #e5e7eb;
-  padding-inline-start: 1em;
-  margin: 0.5em 0;
-  color: #6b7280;
-}
+/* Element typography for `.tiptap-prose` lives in
+ * assets/css/instruction-prose.css, shared with InstructionText's
+ * `.instruction-prose` so the editor and the read-only view cannot drift
+ * apart. Only editor-specific chrome stays here. */
 
 /* Mention chip */
 .wysiwyg-content :deep(.mention-chip) {
@@ -790,13 +881,6 @@ function onRawInput() {
    component's scope, so these are authored as :global and matched by the
    component-unique `.wysiwyg-content` / `.bubble-*` / `.raw-textarea` classes.
    Each pairs with an equal-specificity light rule above and wins by order. */
-:global(.dark .wysiwyg-content .tiptap-prose) { color: #e5e7eb; }
-:global(.dark .wysiwyg-content .tiptap-prose h1),
-:global(.dark .wysiwyg-content .tiptap-prose h2),
-:global(.dark .wysiwyg-content .tiptap-prose h3) { color: #f9fafb; }
-:global(.dark .wysiwyg-content .tiptap-prose code) { background: #374151; color: #e5e7eb; }
-:global(.dark .wysiwyg-content .tiptap-prose pre) { background: #1f2937; }
-:global(.dark .wysiwyg-content .tiptap-prose blockquote) { border-inline-start-color: #374151; color: #9ca3af; }
 :global(.dark .wysiwyg-content .mention-chip) {
   background-color: rgba(129, 140, 248, 0.18);
   color: #c7d2fe;
