@@ -596,7 +596,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount, watch, getCurrentInstance } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, watch, nextTick, getCurrentInstance } from 'vue'
 import { useRouter } from 'vue-router'
 
 import DataSourceSelector from '@/components/prompt/DataSourceSelector.vue'
@@ -1697,6 +1697,13 @@ defineExpose({
     // the same auto-mode handling and report persistence as the dropdown rows.
     toggleDataSource: (ds: any) => dataSourceSelectorRef.value?.toggleDataSource?.(ds),
     getProject: () => currentProject.value?.id || null,
+    // Send a prompt on behalf of a control outside the box (the empty state's
+    // starter questions), through the same gating as the send button.
+    submitPrompt: async (value: string) => {
+        text.value = value
+        await nextTick()
+        submit()
+    },
 })
 
 // Keep local text in sync with parent-provided content (landing page)

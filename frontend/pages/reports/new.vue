@@ -2,8 +2,9 @@
 	<!-- Draft report: the chrome of a report with nothing behind it. No row is
 	     written until the first prompt — PromptBoxV2 creates the report and
 	     navigates to it (see its createReport), the same path the home page
-	     has always used. The composer sits in the same place as on a real
-	     report so the hand-off doesn't move it. -->
+	     has always used. The body is the report view's own empty state and the
+	     composer sits in the same place, so the hand-off changes nothing on
+	     screen except the conversation appearing. -->
 	<div class="flex flex-col h-dvh overflow-y-hidden bg-white dark:bg-gray-900 relative">
 		<header class="sticky top-0 bg-white dark:bg-gray-900 z-10 flex flex-col border-gray-200 dark:border-gray-700">
 			<div class="flex flex-row pt-1 h-[40px] pb-1 pe-2 items-center">
@@ -14,19 +15,26 @@
 			</div>
 		</header>
 
-		<!-- Where the conversation will go. Empty by definition. -->
-		<div class="flex-1 overflow-y-auto flex items-center justify-center">
-			<div class="px-4 text-center">
-				<img :src="orgIconUrl || '/assets/logo-128.png'" alt="" class="h-10 max-w-[100px] object-contain mx-auto opacity-90" />
-				<p class="mt-4 text-lg font-normal text-gray-500 dark:text-gray-400">{{ $t('home.whatCanIHelpWith') }}</p>
+		<!-- Where the conversation will go. Same scroll container and column as
+		     the report view, so the empty state lands in the same spot. -->
+		<div class="flex-1 overflow-y-auto mt-4 pb-4">
+			<div class="ps-3 pe-3 sm:ps-4 sm:pe-2 pb-[3px] max-w-2xl w-full mx-auto">
+				<ReportEmptyState
+					:mode="currentMode"
+					:available-agents="availableAgents"
+					:current-agents="currentAgents"
+					:agents-are-auto="agentsAreAuto"
+					@toggle-agent="toggleAgentSelection"
+					@starter="handleExampleClick"
+				/>
 			</div>
 		</div>
 
-		<!-- Composer: same container as the report view, so creating the report
-		     doesn't shift it. -->
+		<!-- Composer: same container as the report view. -->
 		<div class="shrink-0 bg-white dark:bg-gray-900">
 			<div :class="['mx-auto w-full', isExcel ? 'px-0' : 'px-0 max-w-none sm:px-4 sm:max-w-2xl']">
 				<PromptBoxV2
+					ref="promptBoxRef"
 					:project="draftProject"
 					:projectSelectable="true"
 					:initialSelectedDataSources="initialAgents"
@@ -34,19 +42,23 @@
 					:textareaContent="prefill"
 					:compact="isExcel"
 					@update:modelValue="(v: string) => prefill = v"
+					@update:selectedDataSources="(val: any[]) => currentAgents = val"
+					@update:availableDataSources="(val: any[]) => availableAgents = val"
+					@update:autoMode="(val: boolean) => agentsAreAuto = val"
+					@update:mode="(m: any) => currentMode = m"
 					@openInstructions="showInstructionsModal = true"
 				/>
 			</div>
 		</div>
 
-		<!-- Instructions panel, same affordance as the home page. -->
+		<!-- Instructions panel, same affordance as the report view's agent tab. -->
 		<UModal v-model="showInstructionsModal" :ui="{ width: 'sm:max-w-3xl' }">
 			<div class="h-[78vh] flex flex-col">
 				<ReportAgentPanel
 					:agents="instructionPanelAgents"
 					:show-close="true"
 					@close="showInstructionsModal = false"
-					@starter-click="onInstructionStarter"
+					@starter-click="handleExampleClick"
 				/>
 			</div>
 		</UModal>
@@ -57,6 +69,7 @@
 import PromptBoxV2 from '~/components/prompt/PromptBoxV2.vue'
 import GoBackChevron from '@/components/excel/GoBackChevron.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
+import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import { useExcel } from '~/composables/useExcel'
 
 definePageMeta({
@@ -69,8 +82,6 @@ const route = useRoute()
 const { isExcel } = useExcel()
 const { agents, selectedAgentObjects, effectiveAgentObjects } = useAgent()
 const { projects, fetchProjects } = useProjects()
-const { organization } = useOrganization()
-const { data: currentUser } = useAuth()
 
 // ── Draft context, all carried in the query string ──────────────────────
 // A draft has no row to hang context on, so the entry point that opened it
@@ -115,23 +126,33 @@ const initialAgents = computed(() => {
 	return selectedAgentObjects.value
 })
 
-const showInstructionsModal = ref(false)
-const instructionPanelAgents = computed(() => [
-	...(initialAgents.value.length ? initialAgents.value : (effectiveAgentObjects.value || [])),
-	{ id: '__global__', name: 'Global', isGlobal: true },
-])
-const onInstructionStarter = (starter: string) => {
-	const nl = (starter || '').indexOf('\n')
-	prefill.value = nl === -1 ? starter : starter.slice(nl + 1).trim()
-	showInstructionsModal.value = false
+// Live state published by the prompt box, exactly as the report view consumes
+// it — the empty state renders the selection, the box owns it.
+const promptBoxRef = ref<any>(null)
+const currentAgents = ref<any[]>([])
+const availableAgents = ref<any[]>([])
+const agentsAreAuto = ref(false)
+const currentMode = ref<'chat' | 'training'>(initialMode.value)
+
+// Route the click back through the prompt box's selector so the empty-state
+// picker and the dropdown stay one selection.
+function toggleAgentSelection(agent: any) {
+	promptBoxRef.value?.toggleDataSource?.(agent)
 }
 
-const orgIconUrl = computed(() => {
-	const orgId = organization.value?.id
-	const orgs = (currentUser.value as any)?.organizations || []
-	const org = orgs.find((o: any) => o.id === orgId) || orgs[0]
-	return org?.icon_url || null
-})
+// A starter is a prompt, so it sends — which on a draft is what creates the
+// report. Same behaviour as clicking a starter on an empty report.
+function handleExampleClick(starter: string) {
+	if (!starter) return
+	showInstructionsModal.value = false
+	promptBoxRef.value?.submitPrompt?.(starter)
+}
+
+const showInstructionsModal = ref(false)
+const instructionPanelAgents = computed(() => [
+	...(currentAgents.value.length ? currentAgents.value : (effectiveAgentObjects.value || [])),
+	{ id: '__global__', name: 'Global', isGlobal: true },
+])
 
 onMounted(() => { if (projectId.value) fetchProjects() })
 </script>
