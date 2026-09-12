@@ -8,6 +8,7 @@
 - All system email (invites, shares, welcome, password reset, verification) now goes through the organization's SMTP resolver instead of the global relay, with no silent fallback, and "Test connection" sends a real message to the caller and names the stage that failed (#1110)
 - The tables selector scopes per-user access per connection rather than per data source, so an agent with a delegated connection shows every connection's tables and no longer leaks another user's delegated models (#1111)
 - Fixed the agent losing context sections (saved queries, schemas) to a concurrent-session race after each step commit, and let the DB connection pool drain: BOW_DB_POOL_SIZE, BOW_DB_MAX_OVERFLOW and opt-in BOW_DB_IDLE_SESSION_TIMEOUT_MS (#1112)
+- Added Google Cloud Vertex AI as an LLM provider, covering Claude, Gemini and third-party MaaS models on one configuration, with ADC or service-account auth, regional/global endpoint derivation and custom model IDs (#1113)
 
 ## Version 0.0.557 (September 8, 2026)
 - Added an OpenText Documentum file connector, shipping as beta: browse, search and read documents from a repository over Documentum REST Services, scoped to a root folder, with repository username/password, an OTDS client, per-user OTDS impersonation, or OTDS sign-in (#1097)
