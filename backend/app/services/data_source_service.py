@@ -3217,6 +3217,7 @@ class DataSourceService:
         data_source: DataSource,
         current_user: User,
         connection=None,
+        cred_index=None,
     ) -> str:
         """Classify a user's CURRENT access to a (user_required) CONNECTION.
 
@@ -3241,7 +3242,8 @@ class DataSourceService:
                 return "none"
             from app.services.user_data_source_credentials_service import UserDataSourceCredentialsService
             status = await UserDataSourceCredentialsService().build_user_status_for_connection(
-                db, conn, current_user, data_source=data_source, live_test=False
+                db, conn, current_user, data_source=data_source, live_test=False,
+                cred_index=cred_index,
             )
             return status.effective_auth or "none"
         except Exception:
@@ -3280,10 +3282,37 @@ class DataSourceService:
         sorting second skipped scoping entirely. One classifier means a third
         call site cannot drift into a third variant of the same bug.
         """
+        conns = list(getattr(data_source, "connections", None) or [])
+        delegated = [
+            c for c in conns
+            if (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+        ]
+
+        # Load this user's credential rows for EVERY delegated connection up
+        # front. Resolving them one connection at a time cost 9 statements per
+        # connection (one credential lookup plus the relationship loads it
+        # drags behind it), serialized — measured dead linear, so an agent with
+        # 100 delegated connections spent ~900 round trips on a question this
+        # answers in two. `UserCredentialIndex` is the same prefetch the
+        # agent-list endpoints already use for exactly this reason.
+        cred_index = None
+        if delegated and current_user is not None:
+            from app.services.connection_identity import UserCredentialIndex
+            cred_index = await UserCredentialIndex.build(
+                db, current_user,
+                connection_ids=[str(c.id) for c in delegated],
+                data_source_ids=[str(data_source.id)],
+            )
+
+        # The owner/admin display fallback is a property of the CALLER and the
+        # agent, not of any one connection, so resolve it at most once instead
+        # of per denied connection (it resolves the full permission set).
+        admin_fallback: bool | None = None
+
         open_ids: list[str] = []
         overlay_ids: list[str] = []
         denied_ids: list[str] = []
-        for conn in list(getattr(data_source, "connections", None) or []):
+        for conn in conns:
             if (getattr(conn, "auth_policy", None) or "system_only") != "user_required":
                 open_ids.append(str(conn.id))
                 continue
@@ -3293,12 +3322,16 @@ class DataSourceService:
                 open_ids.append(str(conn.id))
                 continue
             eff_auth = await self._resolve_effective_auth(
-                db, data_source, current_user, connection=conn
+                db, data_source, current_user, connection=conn, cred_index=cred_index,
             )
             if eff_auth == "user":
                 overlay_ids.append(str(conn.id))
             elif eff_auth == "none":
-                if await self._admin_catalog_access(db, data_source, current_user):
+                if admin_fallback is None:
+                    admin_fallback = await self._admin_catalog_access(
+                        db, data_source, current_user
+                    )
+                if admin_fallback:
                     open_ids.append(str(conn.id))
                 else:
                     denied_ids.append(str(conn.id))
@@ -3967,7 +4000,22 @@ class DataSourceService:
             )
         )
         total_selected = selected_count_result.scalar() or 0
-        
+
+        # Loud when an agent crosses the point where its context stops listing
+        # every table. Not an error and not a cap: the roster keeps every
+        # connection named and describe_tables still reaches any of them. But
+        # this is the line past which "the agent didn't see my table" becomes
+        # possible, and it should be visible in the logs when it is crossed
+        # rather than inferred later from a confused answer.
+        if new_status and total_selected > self.CONTEXT_TABLE_SOFT_LIMIT:
+            logger.warning(
+                "data source %s now has %d active tables, over the %d the schema "
+                "context lists individually; past this the agent sees a "
+                "round-robin sample per connection plus the <connections> roster, "
+                "and reaches the rest through describe_tables",
+                data_source_id, total_selected, self.CONTEXT_TABLE_SOFT_LIMIT,
+            )
+
         return DeltaUpdateTablesResponse(
             activated_count=affected_count if new_status else 0,
             deactivated_count=affected_count if not new_status else 0,
@@ -4775,8 +4823,19 @@ class DataSourceService:
         
         return data_source
     
-    # Maximum tables to set as active when auto-selecting
-    MAX_ACTIVE_TABLES = 500
+    # How many of an agent's active tables the LLM context can actually carry.
+    # Mirrors agent_v2.INDEX_LIMIT: beyond this the schema context lists a
+    # round-robin sample across connections rather than every table. Every
+    # connection stays named in the <connections> roster and remains reachable
+    # with describe_tables, so nothing disappears — but the agent no longer has
+    # every table name in front of it.
+    #
+    # This replaces a `MAX_ACTIVE_TABLES = 500` that was declared here and
+    # referenced nowhere: it read like an enforced cap on activation and was
+    # not one. Activation is deliberately NOT capped — "Select all" means what
+    # it says, and silently activating 500 of 5,000 would be worse than
+    # activating them all — so this is a threshold to report, not to enforce.
+    CONTEXT_TABLE_SOFT_LIMIT = 1000
     
     # Onboarding: auto-select a focused set of tables
     ONBOARDING_MAX_TABLES = 0
@@ -5449,22 +5508,44 @@ class DataSourceService:
         return [DataSourceMembershipSchema.from_orm(m) for m in data_source_memberships]
 
     async def _get_prompt_schema(self, db: AsyncSession, data_source: DataSource, organization: Organization, current_user: User | None) -> str:
-        """Resolve a prompt-ready schema string for this data source.
-        - For system_only: use canonical via DataSource.prompt_schema
-        - For user_required with user: use per-user overlay tables and TableFormatter
+        """Resolve a prompt-ready schema string for this data source, scoped to
+        what `current_user` may actually see on each of its connections.
+
+        This gated on `data_source.auth_policy` — a field that moved to
+        `Connection`, so `getattr(..., "system_only")` always returned the
+        default and the per-user branch was unreachable. Dead code that reads
+        as live: the delegated path looked handled and never ran, so agent
+        summaries, conversation starters, descriptions and the onboarding
+        instruction draft were all written from the canonical catalog, ignoring
+        per-user access entirely.
+
+        `get_data_source_schema` already merges overlay tables (with their
+        per-user column masking) for delegated connections and canonical tables
+        for open ones, so route through it rather than re-deriving the rule a
+        third time.
         """
-        # User-required path uses per-user overlays — cache-first read, no
-        # live walk on every prompt build.
-        if getattr(data_source, "auth_policy", "system_only") == "user_required" and current_user is not None:
-            tables = await self.read_user_data_source_schema(db=db, data_source=data_source, user=current_user, active_only=True)
-            try:
-                from app.ai.prompt_formatters import TableFormatter
-                return TableFormatter(tables).table_str
-            except Exception:
-                # Fallback to no-stats canonical prompt schema
-                return await data_source.prompt_schema(db=db, with_stats=False)
-        # System path: canonical tables
-        return await data_source.prompt_schema(db=db, with_stats=False)
+        from app.ai.prompt_formatters import TableFormatter
+
+        delegated = [
+            c for c in (getattr(data_source, "connections", None) or [])
+            if (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+        ]
+        if not delegated or current_user is None:
+            return await data_source.prompt_schema(db=db, with_stats=False)
+
+        try:
+            tables = await self.get_data_source_schema(
+                db=db, data_source_id=str(data_source.id), include_inactive=False,
+                organization=organization, current_user=current_user,
+            )
+            return TableFormatter(tables).table_str
+        except Exception:
+            logger.warning(
+                "Scoped prompt schema failed for data source %s / user %s; "
+                "falling back to the canonical catalog",
+                data_source.id, getattr(current_user, "id", None), exc_info=True,
+            )
+            return await data_source.prompt_schema(db=db, with_stats=False)
 
     # ==================== Domain-Connection Architecture Methods ====================
 

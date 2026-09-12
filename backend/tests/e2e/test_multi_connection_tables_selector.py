@@ -362,3 +362,78 @@ def test_connection_filter_reaches_user_discovered_rows(monkeypatch):
     assert sorted(wh_names) == sorted(WAREHOUSE_TABLES)
     assert "ModelU1/T9" not in wh_names
     assert wh_total == len(wh_names)
+
+
+@pytest.mark.e2e
+def test_classification_cost_is_flat_in_connection_count(monkeypatch):
+    """Classifying access must not cost a round trip per connection.
+
+    It did: `_resolve_effective_auth` per delegated connection, each dragging
+    its relationship loads behind it — measured at exactly 9.0 SQL statements
+    per connection, dead linear, so a 100-connection agent spent ~900
+    serialized round trips. The tables selector runs this on every page, sort,
+    filter and search, uncached. `UserCredentialIndex` answers all of them in
+    two queries, which is what the agent-list endpoints already do.
+    """
+    from sqlalchemy import event
+    from sqlalchemy.engine import Engine
+    from app.models.connection import Connection
+    from app.models.user_connection_credentials import UserConnectionCredentials
+
+    counter = {"n": 0, "on": False}
+
+    @event.listens_for(Engine, "before_cursor_execute")
+    def _count(conn, cursor, statement, params, context, executemany):
+        if counter["on"]:
+            counter["n"] += 1
+
+    async def _agent_with(n_delegated, org_id, user_id):
+        suffix = uuid.uuid4().hex[:6]
+        async with async_session_maker() as db:
+            ds = DataSource(name=f"Flat {n_delegated} {suffix}",
+                            organization_id=org_id, is_active=True)
+            db.add(ds)
+            await db.flush()
+            for i in range(n_delegated):
+                c = Connection(organization_id=org_id, name=f"d-{i}-{suffix}",
+                               type="powerbi", config={}, auth_policy="user_required",
+                               allowed_user_auth_modes=["oauth"])
+                c.encrypt_credentials({"tenant_id": "t", "client_id": "c", "client_secret": "s"})
+                db.add(c)
+                await db.flush()
+                await db.execute(domain_connection.insert().values(
+                    data_source_id=ds.id, connection_id=c.id))
+                cred = UserConnectionCredentials(
+                    connection_id=str(c.id), user_id=str(user_id),
+                    organization_id=str(org_id), auth_mode="oauth",
+                    is_active=True, is_primary=True,
+                    last_used_at=datetime.now(timezone.utc))
+                cred.encrypt_credentials({"access_token": "tok"})
+                db.add(cred)
+            await db.commit()
+            return str(ds.id)
+
+    async def _cost(ds_id, user_id):
+        svc = DataSourceService()
+        async with async_session_maker() as db:
+            ds = await _load_ds(db, ds_id)
+            user = await db.get(User, user_id)
+            await svc.classify_connection_access(db, ds, user)  # warm
+            counter["n"], counter["on"] = 0, True
+            await svc.classify_connection_access(db, ds, user)
+            counter["on"] = False
+            return counter["n"]
+
+    ids = _run(_seed(delegated_first=True))
+    org_id, user_id = ids["org_id"], ids["users"]["analyst1"]
+
+    costs = {}
+    for n in (1, 20):
+        ds_id = _run(_agent_with(n, org_id, user_id))
+        costs[n] = _run(_cost(ds_id, user_id))
+    print(f"\nclassification cost: 1 conn={costs[1]} stmts, 20 conns={costs[20]} stmts")
+
+    assert costs[20] == costs[1], (
+        f"cost grows with connection count: {costs[1]} -> {costs[20]} "
+        f"({(costs[20] - costs[1]) / 19:.1f} statements per extra connection)"
+    )
