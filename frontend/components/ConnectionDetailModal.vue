@@ -8,7 +8,7 @@
           <div v-if="headerStatus" class="access-meta flex flex-wrap items-center gap-x-1.5 mt-1 text-gray-500" role="status">
             <Spinner v-if="headerStatus === 'indexing'" class="w-3 h-3" />
             <span v-else class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(headerStatus)" />
-            <span>{{ $t(statusLabelKey(headerStatus)) }}</span>
+            <span :class="{ 'text-red-600 dark:text-red-400': headerStatus === 'error' }">{{ $t(statusLabelKey(headerStatus)) }}</span>
             <span v-if="headerCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: headerCheckedDisplay }) }}</span></span>
           </div>
         </div>
@@ -41,7 +41,7 @@
                 <div v-if="!needsSignIn" class="access-meta flex flex-wrap mt-1.5 items-center gap-1.5 text-gray-500" role="status" data-testid="personal-access-status">
                   <Spinner v-if="accessStatus === 'indexing'" class="w-3 h-3" />
                   <span v-else class="w-1.5 h-1.5 rounded-full" :class="statusDotClass(accessStatus)" />
-                  <span>{{ $t(statusLabelKey(accessStatus)) }}</span>
+                  <span :class="{ 'text-red-600 dark:text-red-400': accessStatus === 'error' }">{{ $t(statusLabelKey(accessStatus)) }}</span>
                   <span v-if="personalCheckedDisplay" class="inline-flex items-center gap-1.5" data-testid="connection-last-checked"><span aria-hidden="true">·</span><span>{{ $t('data.lastCheckedRelative', { time: personalCheckedDisplay }) }}</span></span>
                 </div>
                 <div class="flex flex-wrap items-center gap-3 mt-3">

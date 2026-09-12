@@ -1,22 +1,22 @@
 <template>
-  <UModal v-model="open" :ui="{ width: 'sm:max-w-xl' }">
+  <UModal v-model="open" :ui="{ width: 'sm:max-w-lg' }">
     <div class="flex max-h-[calc(100dvh-3rem)] flex-col" data-testid="agent-card">
-      <header class="shrink-0 px-6 pt-6 pb-5">
-        <div class="flex items-start gap-3">
-          <DataSourceIcon :type="agent?.type || connections[0]?.type" :icon="agent?.icon" class="mt-0.5 h-8 w-8 shrink-0" />
+      <header class="shrink-0 px-5 pt-5 pb-3">
+        <div class="flex items-start gap-2.5">
+          <DataSourceIcon :type="agent?.type || connections[0]?.type" :icon="agent?.icon" class="mt-0.5 h-6 w-6 shrink-0" />
           <div class="min-w-0 flex-1">
-            <div class="flex flex-wrap items-center gap-x-3 gap-y-2">
-              <h2 class="text-lg font-semibold leading-7 text-gray-900 dark:text-white break-words">{{ agent?.name }}</h2>
+            <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <h2 class="text-base font-semibold leading-6 text-gray-900 dark:text-white break-words">{{ agent?.name }}</h2>
               <span class="inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-[11px] font-medium" :class="stageStyle.badge">
                 <span class="h-1.5 w-1.5 rounded-full" :class="stageStyle.dot" />
                 {{ $t(`agentsPage.stage.${stage}`) }}
               </span>
             </div>
-            <p v-if="agent?.description" class="mt-2 text-sm leading-5 text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words">{{ agent.description }}</p>
+            <p v-if="agent?.description" class="mt-1.5 text-xs leading-[18px] text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words">{{ agent.description }}</p>
           </div>
           <button type="button" :aria-label="$t('common.close')" class="-me-1 -mt-1 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="open = false"><UIcon name="heroicons-x-mark" class="h-4 w-4" /></button>
         </div>
-        <div class="mt-5 flex items-center gap-2 text-sm text-gray-600 dark:text-gray-400">
+        <div class="mt-3 flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
           <UIcon name="heroicons-document-text" class="h-4 w-4 text-gray-400" />
           <Spinner v-if="instructionCount == null && instructionsLoading" class="h-3 w-3" />
           <span v-else-if="instructionCount == null">— {{ $t('agentsPage.instructions') }}</span>
@@ -24,20 +24,20 @@
         </div>
       </header>
 
-      <section class="min-h-0 overflow-y-auto px-6 pb-6" :aria-label="$t('data.connectionsTitle')">
-        <h3 class="mb-2 text-xs font-medium text-gray-400 dark:text-gray-500">{{ $t('data.connectionsTitle') }}</h3>
-        <p v-if="!connections.length" class="py-4 text-sm text-gray-500">{{ $t('data.noLinkedConnections') }}</p>
-        <div v-for="row in rows" :key="row.connection.id" class="connection-row py-3.5" :data-connection-id="row.connection.id">
-          <div class="connection-name flex min-w-0 items-center gap-2.5">
-            <DataSourceIcon :type="row.connection.type" :connector-key="row.connection.connector_key" class="h-5 w-5 shrink-0" />
-            <span class="min-w-0 text-sm font-medium text-gray-800 dark:text-gray-200 break-words">{{ row.connection.name }}</span>
+      <section class="min-h-0 overflow-y-auto px-5 pb-4" :aria-label="$t('data.connectionsTitle')">
+        <h3 class="mb-1 text-[11px] font-medium text-gray-400 dark:text-gray-500">{{ $t('data.connectionsTitle') }}</h3>
+        <p v-if="!connections.length" class="py-3 text-xs text-gray-500">{{ $t('data.noLinkedConnections') }}</p>
+        <div v-for="row in rows" :key="row.connection.id" class="connection-row border-t border-gray-100 py-2.5 last-of-type:border-b dark:border-gray-800" :data-connection-id="row.connection.id">
+          <div class="connection-name flex min-w-0 items-center gap-2">
+            <DataSourceIcon :type="row.connection.type" :connector-key="row.connection.connector_key" class="h-4 w-4 shrink-0" />
+            <span :id="`agent-connection-${row.connection.id}`" class="min-w-0 text-[13px] leading-[18px] font-medium text-gray-800 dark:text-gray-200 break-words">{{ row.connection.name }}</span>
           </div>
           <div class="connection-count space-y-1 text-xs text-gray-500 dark:text-gray-400 tabular-nums" :title="row.configured ? $t('agentCard.configuredCountsHint') : undefined">
             <span v-for="count in row.counts" :key="count.key" class="block">{{ $t(count.key, { n: formatNumber(count.value) }, count.value) }}</span>
             <span v-if="!row.counts.length" aria-hidden="true">—</span>
           </div>
           <div class="connection-access text-end">
-            <button v-if="row.needsSignIn" type="button" :disabled="!!signingInId" :aria-busy="signingInId === row.connection.id" class="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-blue-500 px-2.5 text-xs font-medium text-white hover:bg-blue-600 disabled:opacity-50" @click="signInConnection(row.connection)">
+            <button v-if="row.needsSignIn" type="button" :disabled="!!signingInId" :aria-busy="signingInId === row.connection.id" :aria-describedby="`agent-connection-${row.connection.id}`" class="inline-flex h-7 items-center justify-center gap-1.5 rounded-md bg-blue-50 px-2.5 text-xs font-medium text-blue-600 hover:bg-blue-100 dark:bg-blue-500/10 dark:text-blue-400 dark:hover:bg-blue-500/20 disabled:opacity-50" @click="signInConnection(row.connection)">
               <Spinner v-if="signingInId === row.connection.id" class="h-3 w-3" />
               {{ $t('data.signIn') }}
             </button>
@@ -125,12 +125,12 @@ function onCredentialsSaved() { showCredentials.value = false; emit('changed') }
 </script>
 
 <style scoped>
-.connection-row { display: grid; grid-template-columns: minmax(0, 1fr) 104px 112px; grid-template-areas: "name count access"; align-items: center; gap: 12px; }
+.connection-row { display: grid; grid-template-columns: minmax(0, 1fr) 80px 104px; grid-template-areas: "name count access"; align-items: center; gap: 8px; }
 .connection-name { grid-area: name; }
 .connection-count { grid-area: count; }
 .connection-access { grid-area: access; }
 @media (max-width: 639px) {
-  .connection-row { grid-template-columns: minmax(0, 1fr) 104px; grid-template-areas: "name access" "count access"; row-gap: 5px; }
-  .connection-count { padding-inline-start: 30px; }
+  .connection-row { grid-template-columns: minmax(0, 1fr) 104px; grid-template-areas: "name access" "count access"; row-gap: 2px; }
+  .connection-count { padding-inline-start: 24px; }
 }
 </style>
