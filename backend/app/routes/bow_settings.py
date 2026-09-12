@@ -21,6 +21,14 @@ async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
     # instead of a login form. This says the instance is unclaimed, which is
     # already discoverable by attempting to register.
     setup_required = not await any_user_exists(db)
+
+    # True when *any* transport exists — the global bow-config client or an
+    # organization's own SMTP server. This is a pre-auth page with no org in
+    # scope, so it cannot ask per-organization; asking only about the global
+    # client hid password reset from orgs that configure SMTP through the UI.
+    from app.services.email_client_resolver import any_smtp_configured
+
+    smtp_enabled = await any_smtp_configured(db)
     
     return JSONResponse({
         "google_oauth": {
@@ -57,7 +65,7 @@ async def get_frontend_settings(db: AsyncSession = Depends(get_async_db)):
         "telemetry": {
             "enabled": settings.bow_config.telemetry.enabled and not is_testing,
         },
-        "smtp_enabled": settings.bow_config.smtp_settings is not None,
+        "smtp_enabled": smtp_enabled,
         "setup_required": setup_required,
         "version": settings.PROJECT_VERSION,
         "environment": settings.ENVIRONMENT,

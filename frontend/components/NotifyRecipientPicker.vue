@@ -178,6 +178,15 @@ const send = async () => {
             },
         })
         if (res.error.value) throw res.error.value
+        // The API reports per-channel outcomes; a 200 means the request was
+        // understood, not that the mail was accepted by a relay. Reporting
+        // "sent" regardless is how a share that never left the building looked
+        // like a success.
+        const failures = ((res.data.value as any)?.errors || []) as any[]
+        if (failures.length) {
+            throw new Error(failures.map((f: any) => f.error).filter(Boolean).join('; ')
+                || 'The mail server rejected the message')
+        }
         sendStatus.value = 'sent'
         toast.add({ title: 'Notifications sent', color: 'green' })
         emit('sent')
@@ -187,9 +196,13 @@ const send = async () => {
             message.value = ''
             sendStatus.value = null
         }, 2000)
-    } catch {
+    } catch (e: any) {
         sendStatus.value = 'failed'
-        toast.add({ title: 'Failed to send notifications', color: 'red' })
+        toast.add({
+            title: 'Failed to send notifications',
+            description: e?.data?.detail || e?.message || undefined,
+            color: 'red',
+        })
     } finally {
         isSending.value = false
     }

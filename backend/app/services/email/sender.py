@@ -16,13 +16,92 @@ import os
 import ssl
 from dataclasses import dataclass
 from email.message import EmailMessage
-from typing import Optional
+from typing import Optional, Tuple
 
 import aiosmtplib
 
 from app.services.email.oauth import OAuthSettings, get_xoauth2_string
 
 logger = logging.getLogger(__name__)
+
+
+# Which step of the SMTP conversation an error came from. Surfaced by the
+# settings "send test email" probe so an admin sees *what* the relay rejected
+# ("auth", "sender") instead of a bare transcript line.
+STAGE_CONFIG = "config"
+STAGE_CONNECT = "connect"
+STAGE_TLS = "tls"
+STAGE_AUTH = "auth"
+STAGE_SENDER = "sender"
+STAGE_RECIPIENT = "recipient"
+STAGE_SEND = "send"
+
+
+def _err(name: str):
+    """aiosmtplib error class by name, or a never-matching sentinel.
+
+    Looked up defensively so a rename across aiosmtplib majors degrades the
+    *classification* of a failure rather than raising inside the error handler.
+    """
+    return getattr(aiosmtplib, name, None) or getattr(
+        getattr(aiosmtplib, "errors", None), name, None
+    ) or type("_Missing", (Exception,), {})
+
+
+def _response_text(exc: BaseException) -> str:
+    """The server's human-readable response text, if the exception carries one."""
+    message = getattr(exc, "message", None)
+    if isinstance(message, bytes):
+        message = message.decode("utf-8", "replace")
+    return message if isinstance(message, str) else ""
+
+
+def classify_error(exc: BaseException) -> str:
+    """Map a transport exception to the stage of the SMTP conversation it hit.
+
+    The response *code* is consulted before the exception type, because a relay
+    reports "you have not authenticated" against whichever command it happened
+    to refuse. A server requiring AUTH answers ``MAIL FROM`` with
+    ``530 Authentication required``, which arrives as ``SMTPSenderRefused`` —
+    reading only the type would blame the From address for a password problem.
+    """
+    if isinstance(exc, _err("SMTPAuthenticationError")):
+        return STAGE_AUTH
+
+    code = getattr(exc, "code", None)
+    if code == 530:
+        # 530 is overloaded: "must issue a STARTTLS command first" and
+        # "authentication required" share it. The text is the only separator.
+        text = _response_text(exc).lower()
+        return STAGE_TLS if "tls" in text else STAGE_AUTH
+    if code in (534, 535, 538):
+        return STAGE_AUTH
+
+    if isinstance(exc, _err("SMTPSenderRefused")):
+        return STAGE_SENDER
+    if isinstance(exc, (_err("SMTPRecipientsRefused"), _err("SMTPRecipientRefused"))):
+        return STAGE_RECIPIENT
+    if isinstance(exc, ssl.SSLError):
+        return STAGE_TLS
+    if isinstance(exc, (_err("SMTPConnectError"), _err("SMTPConnectTimeoutError"))):
+        return STAGE_CONNECT
+    if isinstance(exc, _err("SMTPServerDisconnected")):
+        return STAGE_CONNECT
+    return STAGE_SEND
+
+
+def describe_error(exc: BaseException) -> str:
+    """A one-line, admin-readable rendering of a transport failure.
+
+    ``str(exc)`` on an aiosmtplib response error is a raw tuple
+    (``(530, '5.7.0 Authentication required', 'noreply@acme.com')``), which is
+    noise in a settings page. Prefer the code and the server's own words.
+    """
+    code = getattr(exc, "code", None)
+    text = _response_text(exc)
+    if code and text:
+        return f"{code} {text}"
+    return str(exc) or exc.__class__.__name__
 
 
 @dataclass
@@ -131,16 +210,29 @@ async def _send_xoauth2(cfg: SmtpConfig, msg: EmailMessage) -> bool:
             pass
 
 
-async def send_message(cfg: SmtpConfig, msg: EmailMessage) -> bool:
-    """Send ``msg`` via SMTP. Returns True on success, False on failure."""
+async def send_message_result(cfg: SmtpConfig, msg: EmailMessage) -> Tuple[bool, Optional[str], str]:
+    """Send ``msg``; return ``(ok, error, stage)``.
+
+    The error-preserving form of :func:`send_message`. Sending mail is the only
+    honest test of an SMTP config — a connect-and-auth probe cannot see a relay
+    that refuses the envelope sender or declines to relay to the recipient — so
+    the settings page drives this and reports the stage that failed.
+    """
     cfg = cfg.resolved()
     if not cfg.host:
         logger.warning("EMAIL_SENDER: no SMTP host configured")
-        return False
+        return False, "no SMTP host configured", STAGE_CONFIG
+    if not msg.get("From"):
+        # build_email refuses to construct this, but a caller assembling its own
+        # EmailMessage can still get here; every relay rejects a missing sender.
+        return False, "no From address configured", STAGE_CONFIG
 
     try:
         if cfg.oauth is not None:
-            return await _send_xoauth2(cfg, msg)
+            ok = await _send_xoauth2(cfg, msg)
+            return ok, (None if ok else "XOAUTH2 authentication failed"), (
+                STAGE_SEND if ok else STAGE_AUTH
+            )
 
         use_tls = cfg.security == "ssl"
         start_tls = cfg.security == "starttls"
@@ -158,7 +250,22 @@ async def send_message(cfg: SmtpConfig, msg: EmailMessage) -> bool:
             kwargs["username"] = cfg.username
             kwargs["password"] = cfg.password
         await aiosmtplib.send(msg, **kwargs)
-        return True
+        return True, None, STAGE_SEND
     except Exception as e:  # noqa: BLE001 — transport errors must not crash the agent
-        logger.warning("EMAIL_SENDER: failed to send to %s: %s", msg.get("To"), e)
-        return False
+        stage = classify_error(e)
+        detail = describe_error(e)
+        logger.warning(
+            "EMAIL_SENDER: failed to send to %s via %s:%s at stage=%s: %s",
+            msg.get("To"), cfg.host, cfg.port, stage, detail,
+        )
+        return False, detail, stage
+
+
+async def send_message(cfg: SmtpConfig, msg: EmailMessage) -> bool:
+    """Send ``msg`` via SMTP. Returns True on success, False on failure.
+
+    Bool-returning wrapper kept for the fire-and-forget senders; callers that
+    need to report *why* a send failed use :func:`send_message_result`.
+    """
+    ok, _error, _stage = await send_message_result(cfg, msg)
+    return ok

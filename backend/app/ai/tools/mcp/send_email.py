@@ -51,10 +51,14 @@ class SendEmailMCPTool(MCPTool):
     async def is_available_for_org(self, db, organization) -> bool:
         """Whether outbound email resolves for this org (AI mailbox / org SMTP /
         global), mirroring the analyst send path."""
+        from app.services.email_client_resolver import (
+            global_smtp_configured,
+            is_outbound_available,
+        )
+
         org_id = getattr(organization, "id", None)
         if not db or not org_id:
-            return settings.email_client is not None
-        from app.services.email_client_resolver import is_outbound_available
+            return global_smtp_configured()
         return await is_outbound_available(db, str(org_id), purpose="analyst")
 
     @property

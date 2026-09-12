@@ -105,45 +105,53 @@ def _user(email="member@example.com", name="Member"):
 
 
 class TestSendMemberAddedEmail:
-    def test_sends_when_membership_present(self):
-        fm = MagicMock()
-        fm.send_message = AsyncMock()
+    def test_sends_with_org_context_so_org_smtp_is_used(self):
+        """The send must carry db + organization_id.
+
+        Without them the notification service cannot see the organization's own
+        SMTP server and the mail silently leaves via the global bow-config
+        relay — which is what this notification used to do.
+        """
         db = _make_db(membership=object(), data_source=_ds(), user=_user(),
                       added_by=_user("admin@example.com", "Admin"))
 
         with patch("app.core.scheduler.claim_scheduled_run", return_value=True), \
              patch("app.settings.config.settings") as settings, \
-             patch("app.dependencies.async_session_maker", _session_maker(db)):
-            settings.email_client = fm
+             patch("app.dependencies.async_session_maker", _session_maker(db)), \
+             patch("app.services.email_client_resolver.is_outbound_available",
+                   AsyncMock(return_value=True)), \
+             patch("app.services.notification_service.notification_service") as ns:
+            ns.send_custom_email = AsyncMock(
+                return_value=MagicMock(status="sent", source="org_smtp", error=None)
+            )
             settings.bow_config = MagicMock(base_url="http://localhost:3000")
             asyncio.run(mod.send_member_added_email("ds1", "user1", "admin1", "org1"))
 
-        fm.send_message.assert_awaited_once()
-        message = fm.send_message.call_args.args[0]
-        # fastapi-mail >= 1.6 parses recipients into NameEmail objects.
-        assert [str(getattr(r, "email", r)) for r in message.recipients] == ["member@example.com"]
+        ns.send_custom_email.assert_awaited_once()
+        kwargs = ns.send_custom_email.call_args.kwargs
+        assert kwargs["recipients"] == ["member@example.com"]
+        assert kwargs["organization_id"] == "org1"
+        assert kwargs["db"] is db
+        assert kwargs["purpose"] == "system"
 
     def test_skips_when_membership_removed(self):
         """The mistake-undo path: membership gone before the delay elapsed."""
-        fm = MagicMock()
-        fm.send_message = AsyncMock()
         db = _make_db(membership=None, data_source=_ds(), user=_user(),
                       added_by=_user("admin@example.com", "Admin"))
 
         with patch("app.core.scheduler.claim_scheduled_run", return_value=True), \
              patch("app.settings.config.settings") as settings, \
-             patch("app.dependencies.async_session_maker", _session_maker(db)):
-            settings.email_client = fm
+             patch("app.dependencies.async_session_maker", _session_maker(db)), \
+             patch("app.services.notification_service.notification_service") as ns:
+            ns.send_custom_email = AsyncMock()
             settings.bow_config = MagicMock(base_url="http://localhost:3000")
             asyncio.run(mod.send_member_added_email("ds1", "user1", "admin1", "org1"))
 
-        fm.send_message.assert_not_called()
+        ns.send_custom_email.assert_not_called()
 
-    def test_creates_inapp_but_no_email_without_smtp(self):
-        """Notify-first: without SMTP the session is still opened to create the
-        in-app notification, but no email is sent."""
-        fm = MagicMock()
-        fm.send_message = AsyncMock()
+    def test_creates_inapp_but_no_email_without_any_transport(self):
+        """Notify-first: with no transport for this org the in-app notification
+        is still created, but no email is sent."""
         db = _make_db(membership=object(), data_source=_ds(), user=_user(),
                       added_by=_user("admin@example.com", "Admin"))
         maker = _session_maker(db)
@@ -151,15 +159,17 @@ class TestSendMemberAddedEmail:
         with patch("app.core.scheduler.claim_scheduled_run", return_value=True), \
              patch("app.settings.config.settings") as settings, \
              patch("app.dependencies.async_session_maker", maker), \
+             patch("app.services.email_client_resolver.is_outbound_available",
+                   AsyncMock(return_value=False)), \
+             patch("app.services.notification_service.notification_service") as ns, \
              patch("app.services.inbox_service.inbox_service") as inbox:
+            ns.send_custom_email = AsyncMock()
             inbox.notify_users = AsyncMock()
-            settings.email_client = None  # SMTP not configured
             settings.bow_config = MagicMock(base_url="http://localhost:3000")
             asyncio.run(mod.send_member_added_email("ds1", "user1", "admin1", "org1"))
 
-        maker.assert_called_once()                 # session opened for the in-app notification
         inbox.notify_users.assert_awaited_once()   # in-app notification created
-        fm.send_message.assert_not_called()        # no email without SMTP
+        ns.send_custom_email.assert_not_called()   # no email without a transport
 
     def test_skips_when_not_claim_winner(self):
         with patch("app.core.scheduler.claim_scheduled_run", return_value=False), \

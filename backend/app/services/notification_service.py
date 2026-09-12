@@ -1,5 +1,6 @@
 import asyncio
 import re
+from dataclasses import dataclass
 from typing import List, Optional
 from logging import getLogger
 
@@ -18,6 +19,23 @@ from app.services.email_renderer import (
 )
 
 logger = getLogger(__name__)
+
+
+@dataclass
+class SendOutcome:
+    """Result of one outbound send, including *which* transport carried it.
+
+    ``source`` is the deciding piece of information: "org_smtp" means the
+    organization's own relay took the message, "global" means it went out via
+    the bow-config SMTP, "none" means no transport was configured at all.
+    Without it, mail leaving through the wrong server is indistinguishable from
+    success.
+    """
+
+    ok: bool
+    source: str
+    error: Optional[str] = None
+    stage: Optional[str] = None
 
 
 def _default_locale() -> str:
@@ -108,7 +126,7 @@ class NotificationService:
         }
         return handlers.get(channel)
 
-    # ---- outbound resolution (org mailbox overrides global SMTP) ----
+    # ---- outbound resolution (org SMTP overrides global bow-config SMTP) ----
 
     async def _resolved_send(
         self,
@@ -124,13 +142,23 @@ class NotificationService:
         message_id: Optional[str] = None,
         in_reply_to: Optional[str] = None,
         references: Optional[list] = None,
-    ) -> bool:
+        retries: int = 0,
+        retry_delay: float = 1.5,
+        timeout: Optional[float] = None,
+    ) -> "SendOutcome":
         """Send mail via the purpose-resolved transport.
 
         ``purpose="analyst"`` → the AI mailbox; ``purpose="system"`` → org SMTP
         (``OrganizationSettings.config.smtp``) → global ``settings.email_client``.
         Backward compatible: no org SMTP → global; org SMTP set → used even when
         the global client is empty.
+
+        **An org that has configured and enabled its own SMTP is authoritative.**
+        When that relay refuses the mail we report the failure; we do not quietly
+        re-send through the global bow-config SMTP. Falling back would deliver
+        the message from a From identity the admin never chose and would leave a
+        broken relay looking like it worked — which is precisely how org SMTP
+        came to be silently bypassed for invites and shares.
 
         ``message_id`` / ``in_reply_to`` / ``references`` thread the message so a
         reply can be re-attached to a report (SMTP-config path only).
@@ -142,17 +170,39 @@ class NotificationService:
 
                 resolved = await resolve_outbound(db, organization_id, purpose=purpose)
             except Exception as e:  # noqa: BLE001
-                logger.warning("Email resolution failed, using global client: %s", e)
+                # Infrastructure failure (DB down), not a configuration verdict —
+                # we cannot tell whether this org has its own relay, so the
+                # global client is the only option left. Logged loudly because it
+                # may mean mail left from the wrong identity.
+                logger.warning(
+                    "Email resolution failed for org %s, using global client: %s",
+                    organization_id, e,
+                )
                 resolved = None
 
         if resolved and resolved.uses_smtp_config:
-            import os
-            import re as _re
-            from app.services.email.message_builder import build_email
-            from app.services.email.sender import send_message
+            return await self._send_via_smtp_config(
+                resolved, recipients, subject, body,
+                subtype=subtype, attachments=attachments,
+                message_id=message_id, in_reply_to=in_reply_to, references=references,
+                retries=retries, retry_delay=retry_delay, timeout=timeout,
+            )
 
-            def _to_tuple(att: dict):
-                """Normalize either attachment dict shape to (filename, bytes, mime)."""
+        return await self._send_via_global(
+            recipients, subject, body,
+            subtype=subtype, attachments=attachments,
+            retries=retries, retry_delay=retry_delay, timeout=timeout,
+        )
+
+    @staticmethod
+    def _attachment_tuples(attachments: Optional[list]) -> list:
+        """Normalize fastapi-mail attachment dicts to (filename, bytes, mime)."""
+        import os
+        import re as _re
+
+        out = []
+        for att in attachments or []:
+            try:
                 path = att.get("file")
                 with open(path, "rb") as f:
                     content = f.read()
@@ -165,17 +215,50 @@ class NotificationService:
                     mime = f"{att.get('mime_type')}/{att.get('mime_subtype', 'octet-stream')}"
                 else:
                     mime = f"{att.get('type', 'application')}/{att.get('subtype', 'octet-stream')}"
-                return (filename, content, mime)
+                out.append((filename, content, mime))
+            except Exception:  # noqa: BLE001
+                continue
+        return out
 
-            built_attachments = []
-            for att in attachments or []:
-                try:
-                    built_attachments.append(_to_tuple(att))
-                except Exception:  # noqa: BLE001
-                    continue
+    async def _send_via_smtp_config(
+        self,
+        resolved,
+        recipients: List[str],
+        subject: str,
+        body: str,
+        *,
+        subtype: str,
+        attachments: Optional[list],
+        message_id: Optional[str],
+        in_reply_to: Optional[str],
+        references: Optional[list],
+        retries: int,
+        retry_delay: float,
+        timeout: Optional[float],
+    ) -> "SendOutcome":
+        from app.services.email.message_builder import build_email
+        from app.services.email.sender import STAGE_CONFIG, send_message_result
 
-            all_ok = True
-            for rcpt in recipients:
+        if not resolved.from_address:
+            # Every relay rejects a message with no envelope sender, and
+            # build_email refuses to construct one — fail with the fix, not a
+            # transport stack trace.
+            return SendOutcome(
+                ok=False, source=resolved.source, stage=STAGE_CONFIG,
+                error="no From address configured for this SMTP server",
+            )
+
+        built_attachments = self._attachment_tuples(attachments)
+
+        # Retry only the recipients that have not been accepted yet, so a
+        # partial failure across a multi-recipient send cannot double-deliver.
+        pending = list(recipients)
+        last_error: Optional[str] = None
+        last_stage: Optional[str] = None
+
+        for attempt in range(retries + 1):
+            still_pending = []
+            for rcpt in pending:
                 msg = build_email(
                     from_address=resolved.from_address,
                     from_name=resolved.from_name,
@@ -188,35 +271,104 @@ class NotificationService:
                     references=references,
                     attachments=built_attachments or None,
                 )
-                ok = await send_message(resolved.smtp_config, msg)
-                all_ok = all_ok and ok
-            return all_ok
+                try:
+                    coro = send_message_result(resolved.smtp_config, msg)
+                    if timeout is not None:
+                        ok, error, stage = await asyncio.wait_for(coro, timeout=timeout)
+                    else:
+                        ok, error, stage = await coro
+                except asyncio.TimeoutError:
+                    ok, error, stage = False, f"timed out after {timeout}s", "connect"
+                except Exception as e:  # noqa: BLE001
+                    ok, error, stage = False, str(e) or e.__class__.__name__, "send"
+                if not ok:
+                    still_pending.append(rcpt)
+                    last_error, last_stage = error, stage
 
-        # Fallback: global fastapi-mail client.
+            pending = still_pending
+            if not pending:
+                return SendOutcome(ok=True, source=resolved.source)
+            if attempt < retries:
+                await asyncio.sleep(retry_delay * (attempt + 1))
+
+        logger.error(
+            "Email via %s failed for %s at stage=%s: %s",
+            resolved.source, pending, last_stage, last_error,
+        )
+        return SendOutcome(
+            ok=False, source=resolved.source, error=last_error, stage=last_stage,
+        )
+
+    async def _send_via_global(
+        self,
+        recipients: List[str],
+        subject: str,
+        body: str,
+        *,
+        subtype: str,
+        attachments: Optional[list],
+        retries: int,
+        retry_delay: float,
+        timeout: Optional[float],
+    ) -> "SendOutcome":
+        """Send via the global bow-config fastapi-mail client."""
         fm = settings.email_client
         if not fm:
-            return False
-        message = MessageSchema(
+            return SendOutcome(
+                ok=False, source="none", stage="config",
+                error="SMTP is not configured",
+            )
+
+        message_kwargs = dict(
             subject=subject,
             recipients=recipients,
             body=body,
             subtype=subtype,
-            attachments=attachments or [],
         )
-        await fm.send_message(message)
-        return True
+        if attachments:
+            message_kwargs["attachments"] = attachments
+        message = MessageSchema(**message_kwargs)
+
+        last_error: Optional[str] = None
+        for attempt in range(retries + 1):
+            try:
+                if timeout is not None:
+                    await asyncio.wait_for(fm.send_message(message), timeout=timeout)
+                else:
+                    await fm.send_message(message)
+                return SendOutcome(ok=True, source="global")
+            except Exception as e:  # noqa: BLE001
+                last_error = str(e) or e.__class__.__name__
+                logger.error(
+                    "Failed to send email via global SMTP (attempt %d/%d): %s",
+                    attempt + 1, retries + 1, last_error,
+                )
+                if attempt < retries:
+                    await asyncio.sleep(retry_delay * (attempt + 1))
+
+        return SendOutcome(ok=False, source="global", error=last_error, stage="send")
 
     # ---- email channel ----
 
     async def _send_email(self, recipients: List[str], context: dict) -> ChannelResult:
         db = context.get("db")
         organization_id = context.get("organization_id")
-        if settings.email_client is None and not (db is not None and organization_id):
+        # Availability is a per-org question: an org that configured its own
+        # SMTP can send even when the global bow-config client is empty.
+        if db is not None and organization_id:
+            from app.services.email_client_resolver import is_outbound_available
+
+            available = await is_outbound_available(db, organization_id, purpose="system")
+        else:
+            available = settings.email_client is not None  # no org in scope
+        if not available:
             return ChannelResult(
                 channel="email",
                 status="failed",
                 recipients=recipients,
                 error="SMTP is not configured",
+                source="none",
+                stage="config",
             )
 
         subject, html = render_notification_email(
@@ -228,71 +380,91 @@ class NotificationService:
             message=context.get("message"),
         )
 
-        async def _do_send():
-            try:
-                # Generate PDF attachment for dashboard shares (in background).
-                # Withheld in viewer-identity mode on user-scoped connections:
-                # the PDF renders the creator's snapshot, which those viewers
-                # must not receive (see viewer_data_policy) — email ships with
-                # the link only.
-                attachments = []
-                report_id = context.get("report_id")
-                if context["notification_type"] == NotificationType.SHARE_DASHBOARD and report_id:
-                    try:
-                        from app.services.report_pdf_service import ReportPdfService
-                        from app.services.viewer_data_policy import report_snapshot_withheld
-                        from app.dependencies import async_session_maker as _asm
-                        from pathlib import Path
+        async def _build_attachments() -> list:
+            # Generate the PDF attachment for dashboard shares.
+            # Withheld in viewer-identity mode on user-scoped connections:
+            # the PDF renders the creator's snapshot, which those viewers
+            # must not receive (see viewer_data_policy) — email ships with
+            # the link only.
+            attachments = []
+            report_id = context.get("report_id")
+            if context["notification_type"] == NotificationType.SHARE_DASHBOARD and report_id:
+                try:
+                    from app.services.report_pdf_service import ReportPdfService
+                    from app.services.viewer_data_policy import report_snapshot_withheld
+                    from app.dependencies import async_session_maker as _asm
+                    from pathlib import Path
 
-                        async with _asm() as policy_db:
-                            withheld = await report_snapshot_withheld(policy_db, report_id)
-                        if withheld:
-                            logger.info(
-                                "Skipping PDF attachment for shared dashboard %s: "
-                                "viewer-identity mode on user-scoped connections", report_id,
-                            )
-                        else:
-                            pdf_service = ReportPdfService()
-                            pdf_path = await pdf_service.generate_for_report(report_id)
-                            if pdf_path:
-                                pdf_file = Path(pdf_path)
-                                if pdf_file.exists():
-                                    attachments.append({
-                                        "file": str(pdf_file),
-                                        "filename": f"{context['report_title'] or 'report'}.pdf",
-                                        "type": "application",
-                                        "subtype": "pdf",
-                                    })
-                    except Exception as e:
-                        logger.warning("PDF generation failed for shared dashboard %s: %s", report_id, e)
-
-                # System mail → Org SMTP → global (never the AI mailbox). This
-                # runs as a background task, so the request db may be closed —
-                # open a fresh session for the org-SMTP lookup.
-                if organization_id:
-                    from app.dependencies import async_session_maker
-                    async with async_session_maker() as send_db:
-                        await self._resolved_send(
-                            recipients, subject, html,
-                            subtype="html", attachments=attachments or None,
-                            db=send_db, organization_id=organization_id, purpose="system",
+                    async with _asm() as policy_db:
+                        withheld = await report_snapshot_withheld(policy_db, report_id)
+                    if withheld:
+                        logger.info(
+                            "Skipping PDF attachment for shared dashboard %s: "
+                            "viewer-identity mode on user-scoped connections", report_id,
                         )
-                else:
-                    await self._resolved_send(
-                        recipients, subject, html,
-                        subtype="html", attachments=attachments or None,
-                        purpose="system",
-                    )
-                logger.info("Notification email sent to %s", recipients)
-            except Exception as e:
-                logger.error("Failed to send notification email: %s", e)
+                    else:
+                        pdf_service = ReportPdfService()
+                        pdf_path = await pdf_service.generate_for_report(report_id)
+                        if pdf_path:
+                            pdf_file = Path(pdf_path)
+                            if pdf_file.exists():
+                                attachments.append({
+                                    "file": str(pdf_file),
+                                    "filename": f"{context['report_title'] or 'report'}.pdf",
+                                    "type": "application",
+                                    "subtype": "pdf",
+                                })
+                except Exception as e:
+                    logger.warning("PDF generation failed for shared dashboard %s: %s", report_id, e)
+            return attachments
 
-        asyncio.create_task(_do_send())
+        # Awaited, not fire-and-forget: this used to spawn a background task and
+        # return "sent" immediately, so a share that never left the building
+        # reported success to the admin. The caller's modal already shows a
+        # spinner; a few honest seconds beat an instant lie. Bounded by a
+        # timeout so a hung relay cannot hold the request open.
+        attachments = await _build_attachments()
 
+        # System mail → Org SMTP → global (never the AI mailbox). The request db
+        # may be mid-transaction, so open a fresh session for the org lookup.
+        if organization_id:
+            from app.dependencies import async_session_maker
+            async with async_session_maker() as send_db:
+                outcome = await self._resolved_send(
+                    recipients, subject, html,
+                    subtype="html", attachments=attachments or None,
+                    db=send_db, organization_id=organization_id, purpose="system",
+                    retries=1, timeout=20,
+                )
+        else:
+            outcome = await self._resolved_send(
+                recipients, subject, html,
+                subtype="html", attachments=attachments or None,
+                purpose="system", retries=1, timeout=20,
+            )
+
+        if outcome.ok:
+            logger.info(
+                "Notification email sent to %s via %s", recipients, outcome.source
+            )
+            return ChannelResult(
+                channel="email",
+                status="sent",
+                recipients=recipients,
+                source=outcome.source,
+            )
+
+        logger.error(
+            "Notification email to %s failed via %s: %s",
+            recipients, outcome.source, outcome.error,
+        )
         return ChannelResult(
             channel="email",
-            status="sent",
+            status="failed",
             recipients=recipients,
+            error=outcome.error or "send failed",
+            source=outcome.source,
+            stage=outcome.stage,
         )
 
     # ---- free-form email ----
@@ -320,8 +492,13 @@ class NotificationService:
         and body provided. The send is awaited so the returned status reflects
         actual delivery to the SMTP server, not just enqueueing.
 
-        When ``db`` + ``organization_id`` are supplied and the org has an Email
-        integration, that mailbox is used (overriding the global SMTP client).
+        When ``db`` + ``organization_id`` are supplied, the transport is resolved
+        per organization: ``purpose="analyst"`` uses the AI mailbox,
+        ``purpose="system"`` uses the org's own SMTP and falls back to the global
+        bow-config client only when the org has not configured one. Callers that
+        omit the org context get the global client and therefore ignore whatever
+        the organization configured — always pass ``db`` and ``organization_id``
+        for organization-scoped mail.
 
         Reliability knobs (all opt-in, defaults preserve old behaviour):
         - ``retries``: extra attempts on failure (total tries = retries + 1),
@@ -335,80 +512,39 @@ class NotificationService:
         if subtype not in ("plain", "html"):
             subtype = "plain"
 
-        # Prefer the org's Email integration mailbox when org context is given.
-        if db is not None and organization_id:
-            try:
-                ok = await self._resolved_send(
-                    recipients,
-                    subject,
-                    body,
-                    subtype=subtype,
-                    attachments=attachments,
-                    db=db,
-                    organization_id=organization_id,
-                    purpose=purpose,
-                    message_id=message_id,
-                    in_reply_to=in_reply_to,
-                    references=references,
-                )
-                if ok:
-                    logger.info("Custom email sent to %s", recipients)
-                    return ChannelResult(
-                        channel="email",
-                        status="sent",
-                        recipients=recipients,
-                    )
-                # Not sent via the resolver — fall through to the global path.
-            except Exception as e:
-                logger.error("Org-mailbox send failed, falling back to global: %s", e)
+        outcome = await self._resolved_send(
+            recipients,
+            subject,
+            body,
+            subtype=subtype,
+            attachments=attachments,
+            db=db,
+            organization_id=organization_id,
+            purpose=purpose,
+            message_id=message_id,
+            in_reply_to=in_reply_to,
+            references=references,
+            retries=retries,
+            retry_delay=retry_delay,
+            timeout=timeout,
+        )
 
-        # Global fastapi-mail path with retries/timeout/attachments.
-        fm = settings.email_client
-        if not fm:
+        if outcome.ok:
+            logger.info("Custom email sent to %s via %s", recipients, outcome.source)
             return ChannelResult(
                 channel="email",
-                status="failed",
+                status="sent",
                 recipients=recipients,
-                error="SMTP is not configured",
+                source=outcome.source,
             )
-
-        message_kwargs = dict(
-            subject=subject,
-            recipients=recipients,
-            body=body,
-            subtype=subtype,
-        )
-        if attachments:
-            message_kwargs["attachments"] = attachments
-        message = MessageSchema(**message_kwargs)
-
-        last_error: Optional[str] = None
-        for attempt in range(retries + 1):
-            try:
-                if timeout is not None:
-                    await asyncio.wait_for(fm.send_message(message), timeout=timeout)
-                else:
-                    await fm.send_message(message)
-                logger.info("Custom email sent to %s", recipients)
-                return ChannelResult(
-                    channel="email",
-                    status="sent",
-                    recipients=recipients,
-                )
-            except Exception as e:
-                last_error = str(e) or e.__class__.__name__
-                logger.error(
-                    "Failed to send custom email (attempt %d/%d): %s",
-                    attempt + 1, retries + 1, last_error,
-                )
-                if attempt < retries:
-                    await asyncio.sleep(retry_delay * (attempt + 1))
 
         return ChannelResult(
             channel="email",
             status="failed",
             recipients=recipients,
-            error=last_error,
+            error=outcome.error or "send failed",
+            source=outcome.source,
+            stage=outcome.stage,
         )
 
     # ---- scheduled report results ----
