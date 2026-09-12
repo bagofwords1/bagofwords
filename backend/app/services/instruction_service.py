@@ -75,6 +75,42 @@ SETTLED_HUNK_KEY = "__settled__"
 VOIDED_HUNK_KEY = "__voided__"
 
 
+async def _resolve_reference_data_source(db, data_source_id):
+    """Display fields for the agent an instruction reference points at.
+
+    Returns None when the agent is gone. Loads every connection in the
+    relationship's order so ``data_source_icon_token`` matches the icon the same
+    agent shows in the agents explorer and the data tools — the two call sites
+    this replaces each took one unordered join row, so a multi-connection agent
+    could get a different icon here than anywhere else.
+    """
+    from app.models.connection import Connection
+    from app.models.domain_connection import domain_connection
+    from app.schemas.agent_icon import resolve_agent_icon_token
+
+    rows = await db.execute(
+        select(DataSource.name, DataSource.icon, Connection.type, Connection.config)
+        .select_from(DataSource)
+        .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
+        .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
+        .where(DataSource.id == data_source_id)
+        .order_by(Connection.created_at, Connection.id)
+    )
+    found = rows.all()
+    if not found:
+        return None
+
+    name, icon = found[0][0], found[0][1]
+    # outerjoin yields one all-NULL connection row for an agent with none.
+    conns = [{"type": r[2], "config": r[3]} for r in found if r[2] is not None]
+    return {
+        "data_source_name": name,
+        "data_source_type": conns[0]["type"] if conns else None,
+        "data_source_icon": icon,
+        "data_source_icon_token": resolve_agent_icon_token(icon, conns),
+    }
+
+
 class InstructionService:
     def __init__(self):
         self.reference_service = InstructionReferenceService()
@@ -5225,7 +5261,14 @@ class InstructionService:
             )
             primary_ds = primary_result.scalars().all()
             instruction_dict["primary_for"] = [
-                DataSourceMinimalSchema(id=str(ds.id), name=ds.name, icon=getattr(ds, "icon", None)).model_dump()
+                DataSourceMinimalSchema(
+                    id=str(ds.id),
+                    name=ds.name,
+                    icon=getattr(ds, "icon", None),
+                    # Input-only; lets the schema resolve icon_token (excluded
+                    # from the dump, see DataSourceMinimalSchema).
+                    connections=getattr(ds, "connections", None),
+                ).model_dump()
                 for ds in primary_ds
             ]
         except Exception as e:
@@ -5248,20 +5291,9 @@ class InstructionService:
                         ref_data["object"] = MetadataResourceSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for metadata resources
-                        from app.models.connection import Connection
-                        from app.models.domain_connection import domain_connection
-                        ds_result = await db.execute(
-                            select(DataSource.name, Connection.type, DataSource.icon)
-                            .select_from(DataSource)
-                            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
-                            .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
-                            .where(DataSource.id == referenced_obj.data_source_id)
-                        )
-                        ds_info = ds_result.first()
+                        ds_info = await _resolve_reference_data_source(db, referenced_obj.data_source_id)
                         if ds_info:
-                            ref_data["data_source_name"] = ds_info.name
-                            ref_data["data_source_type"] = ds_info.type
-                            ref_data["data_source_icon"] = ds_info.icon
+                            ref_data.update(ds_info)
                             ref_data["data_source_id"] = referenced_obj.data_source_id
                             
                     elif ref.object_type == "datasource_table":
@@ -5269,20 +5301,9 @@ class InstructionService:
                         ref_data["object"] = DataSourceTableSchema.from_orm(referenced_obj).model_dump()
                         
                         # Add data source info for datasource tables
-                        from app.models.connection import Connection
-                        from app.models.domain_connection import domain_connection
-                        ds_result = await db.execute(
-                            select(DataSource.name, Connection.type, DataSource.icon)
-                            .select_from(DataSource)
-                            .outerjoin(domain_connection, domain_connection.c.data_source_id == DataSource.id)
-                            .outerjoin(Connection, domain_connection.c.connection_id == Connection.id)
-                            .where(DataSource.id == referenced_obj.datasource_id)
-                        )
-                        ds_info = ds_result.first()
+                        ds_info = await _resolve_reference_data_source(db, referenced_obj.datasource_id)
                         if ds_info:
-                            ref_data["data_source_name"] = ds_info.name
-                            ref_data["data_source_type"] = ds_info.type
-                            ref_data["data_source_icon"] = ds_info.icon
+                            ref_data.update(ds_info)
                             ref_data["data_source_id"] = referenced_obj.datasource_id
                 else:
                     logger.warning(f"Referenced object not found: type={ref.object_type}, id={ref.object_id}")

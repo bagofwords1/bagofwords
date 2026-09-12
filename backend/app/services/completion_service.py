@@ -33,7 +33,12 @@ from app.schemas.completion_v2_schema import (
     CompletionsV2Response,
 )
 from app.services.llm_service import LLMService
-from app.serializers.completion_v2 import PREVIEW_ROWS, serialize_block_v2, serialize_block_v2_sync
+from app.serializers.completion_v2 import (
+    PREVIEW_ROWS,
+    resolve_data_sources_for_tool_executions,
+    serialize_block_v2,
+    serialize_block_v2_sync,
+)
 from app.models.visualization import Visualization
 from app.schemas.agent_execution_schema import PlanDecisionSchema
 from app.schemas.sse_schema import SSEEvent, format_sse_event
@@ -1231,6 +1236,12 @@ class CompletionService:
 
         span.add_event("batch_queries_done")
 
+        # The agents each tool execution references, resolved once for the page.
+        # The sync serializer can't query, and without this the completions list
+        # shipped no agents — leaving the data tools to infer an icon from a
+        # page-level prop that only the report page passes.
+        ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+
         # 5) Build per-completion block lists and compute aggregates using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in completion_ids}
         total_blocks = 0
@@ -1291,6 +1302,7 @@ class CompletionService:
                 widget_last_step=widget_last_step,
                 created_step=created_step,
                 created_visualizations=created_visualizations,
+                data_sources=ds_by_te.get(str(te.id)) if te else None,
             )
 
             completion_id_to_blocks[b.completion_id].append(block_schema)
@@ -1706,6 +1718,12 @@ class CompletionService:
             for v in vis_res.scalars().all():
                 visualization_map[v.id] = v
 
+        # The agents each tool execution references, resolved once for the page.
+        # The sync serializer can't query, and without this the completions list
+        # shipped no agents — leaving the data tools to infer an icon from a
+        # page-level prop that only the report page passes.
+        ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+
         # Build per-completion block lists using pre-loaded data
         completion_id_to_blocks: dict[str, list[CompletionBlockV2Schema]] = {cid: [] for cid in ids}
         latest_block_for_step = _latest_block_per_step(blocks, te_map, all_completions)
@@ -1746,6 +1764,7 @@ class CompletionService:
                 widget_last_step=widget_last_step,
                 created_step=created_step,
                 created_visualizations=created_visualizations,
+                data_sources=ds_by_te.get(str(te.id)) if te else None,
             )
             completion_id_to_blocks[b.completion_id].append(block_schema)
 

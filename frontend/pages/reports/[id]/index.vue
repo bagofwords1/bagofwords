@@ -512,7 +512,7 @@
 																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300"
 																@click="close(); openInstructionById(ins.id)"
 															>
-																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
+																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
 																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
 																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
@@ -787,7 +787,7 @@
 					<DataSourceIcon
 						v-if="currentAgents.length === 1"
 						:type="currentAgents[0].type || currentAgents[0].connections?.[0]?.type"
-						:icon="currentAgents[0].icon"
+						:icon-token="currentAgents[0].icon_token" :icon="currentAgents[0].icon"
 						class="h-3.5 flex-shrink-0"
 					/>
 					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
@@ -3723,7 +3723,10 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
-					created_step: b.tool_execution.created_step
+					created_step: b.tool_execution.created_step,
+					// Agents this call referenced, with their resolved icon_token —
+					// the data tools' source icon comes from here.
+					data_sources: b.tool_execution.data_sources
 				} : undefined
 			})) || []
 
@@ -3949,7 +3952,10 @@ async function loadPreviousCompletions() {
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
-                    created_step: b.tool_execution.created_step
+                    created_step: b.tool_execution.created_step,
+                    // Agents this call referenced, with their resolved icon_token —
+                    // the data tools' source icon comes from here.
+                    data_sources: b.tool_execution.data_sources
                 } : undefined
             })) || []
 

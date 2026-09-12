@@ -7,9 +7,9 @@
       >
         <template v-if="segment.ref">
           <DataSourceIcon
-            v-if="segment.ref.data_source_type || segment.ref.data_source_icon"
+            v-if="segment.ref.data_source_type || segment.ref.data_source_icon || segment.ref.data_source_icon_token"
             :type="segment.ref.data_source_type"
-            :icon="segment.ref.data_source_icon"
+            :icon-token="segment.ref.data_source_icon_token" :icon="segment.ref.data_source_icon"
             class="h-3 flex-shrink-0"
           />
           <Icon
@@ -70,6 +70,9 @@ interface Reference {
   type: string
   name: string | null
   data_source_type: string | null
+  // Resolved agent icon, when the chip refers to an agent.
+  data_source_icon?: string | null
+  data_source_icon_token?: string | null
 }
 
 const props = defineProps<{
@@ -85,6 +88,8 @@ const normalizedRefs = computed((): Reference[] =>
     type: r.type || r.object_type || '',
     name: r.name || r.display_text || null,
     data_source_type: r.data_source_type || null,
+    data_source_icon: (r as any).data_source_icon ?? null,
+    data_source_icon_token: (r as any).data_source_icon_token ?? null,
   }))
 )
 

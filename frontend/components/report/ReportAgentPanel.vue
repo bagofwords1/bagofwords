@@ -10,7 +10,7 @@
           <Icon name="heroicons:x-mark" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
         </button>
         <Icon v-if="(visibleAgents[0] as any).isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-        <DataSourceIcon v-else :type="visibleAgents[0].type || visibleAgents[0].connections?.[0]?.type" :connector-key="(visibleAgents[0] as any).connector_key || visibleAgents[0].connections?.[0]?.connector_key" :icon="visibleAgents[0].icon" class="h-5 flex-shrink-0" />
+        <DataSourceIcon v-else :type="visibleAgents[0].type" :connector-key="(visibleAgents[0] as any).connector_key" :icon-token="visibleAgents[0].icon_token" :icon="visibleAgents[0].icon" class="h-5 flex-shrink-0" />
         <span class="text-sm font-semibold text-gray-900 dark:text-white truncate">{{ visibleAgents[0].name }}</span>
         <span
           v-if="stageBadge(visibleAgents[0])"
@@ -27,7 +27,7 @@
           class="w-full flex items-center gap-2 px-3 py-2 border border-gray-200 dark:border-gray-800 rounded-lg text-sm hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors bg-white/80 dark:bg-gray-900/80"
         >
           <Icon v-if="(selectedAgent as any)?.isGlobal" name="heroicons:globe-alt" class="w-5 h-5 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-          <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type || selectedAgent.connections?.[0]?.type" :connector-key="(selectedAgent as any).connector_key || selectedAgent.connections?.[0]?.connector_key" :icon="selectedAgent.icon" class="h-5 flex-shrink-0" />
+          <DataSourceIcon v-else-if="selectedAgent" :type="selectedAgent.type" :connector-key="(selectedAgent as any).connector_key" :icon-token="selectedAgent.icon_token" :icon="selectedAgent.icon" class="h-5 flex-shrink-0" />
           <span class="truncate flex-1 text-start font-medium text-gray-900 dark:text-white">
             {{ selectedAgent?.name || $t('reportAgent.selectAgent') }}
           </span>
@@ -50,7 +50,7 @@
               :class="selectedAgentId === agent.id ? 'bg-indigo-50 text-indigo-700' : 'text-gray-700 dark:text-gray-300'"
             >
               <Icon v-if="(agent as any).isGlobal" name="heroicons:globe-alt" class="w-4 h-4 text-gray-500 dark:text-gray-400 flex-shrink-0" />
-              <DataSourceIcon v-else :type="agent.type || agent.connections?.[0]?.type" :connector-key="(agent as any).connector_key || agent.connections?.[0]?.connector_key" :icon="agent.icon" class="h-4 flex-shrink-0" />
+              <DataSourceIcon v-else :type="agent.type" :connector-key="(agent as any).connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-4 flex-shrink-0" />
               <span class="truncate flex-1 text-start font-medium">{{ agent.name }}</span>
               <span
                 v-if="stageBadge(agent)"
@@ -351,7 +351,7 @@
                       <!-- Data source indicator -->
                       <template v-if="inst.data_sources?.length">
                         <span v-for="ds in inst.data_sources" :key="ds.id" class="inline-flex items-center gap-0.5 px-1 py-0.5 rounded bg-gray-50 dark:bg-gray-800 text-[9px] text-gray-600 dark:text-gray-400 font-medium border border-gray-100 dark:border-gray-800">
-                          <DataSourceIcon :type="getInstructionDsType(ds)" :icon="getInstructionDsIcon(ds)" class="h-2.5 flex-shrink-0" />
+                          <DataSourceIcon :icon-token="instructionDsIconToken(ds)" class="h-2.5 flex-shrink-0" />
                           <span class="truncate max-w-[80px]">{{ ds.name }}</span>
                         </span>
                       </template>
@@ -850,20 +850,13 @@ const instructions = computed(() => selectedAgentId.value ? (instructionsCache.v
 const queries = computed(() => selectedAgentId.value ? (queriesCache.value[selectedAgentId.value] || []) : [])
 const evals = computed(() => selectedAgentId.value ? (evalsCache.value[selectedAgentId.value] || []) : [])
 
-// Resolve DS type for instruction's embedded data_source (may lack connections)
-function getInstructionDsType(ds: any): string | undefined {
-  // Try the DS object itself
-  if (ds.type) return ds.type
-  if (ds.connections?.[0]?.type) return ds.connections[0].type
-  // Look up from agents prop (which has full connection info)
-  const match = props.agents.find(a => a.id === ds.id)
-  return match?.type || match?.connections?.[0]?.type || undefined
-}
-
-function getInstructionDsIcon(ds: any): string | null | undefined {
-  if (ds.icon) return ds.icon
-  const match = props.agents.find(a => a.id === ds.id)
-  return match?.icon
+// The resolved icon for an instruction's embedded agent. The embedded shape is
+// slim and can predate the token, so fall back to the full agent from the
+// `agents` prop — but never re-derive one from type/connections here: that is
+// what made this panel disagree with the agents explorer and the data tools.
+function instructionDsIconToken(ds: any): string | null | undefined {
+  if (ds?.icon_token) return ds.icon_token
+  return props.agents.find(a => a.id === ds?.id)?.icon_token
 }
 
 function selectAgent(agentId: string) {

@@ -256,6 +256,9 @@ export interface PromptMentionRef {
   type: string
   name: string
   data_source_type?: string
+  // An AGENT mention's resolved icon. Tables carry no agent-level token and
+  // keep rendering from data_source_type, which is their connection's.
+  data_source_icon_token?: string | null
 }
 
 /**
@@ -287,6 +290,9 @@ export function promptMentionsToRefs(
         // data source's type); include it so the chip renders the correct
         // data-source icon instead of the generic fallback glyph.
         data_source_type: item.connection_type || item.data_source_type || item.icon_type || undefined,
+        // An agent mention resolves to the same icon the agents explorer and the
+        // data tools draw for it; DataSourceIcon prefers this over the type above.
+        data_source_icon_token: type === 'data_source' ? (item.icon_token ?? undefined) : undefined,
         name,
       })
     }

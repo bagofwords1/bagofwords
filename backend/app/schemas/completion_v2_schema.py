@@ -12,10 +12,20 @@ from .file_schema import FileSchema
 
 
 class ToolExecutionDataSourceSchema(BaseModel):
-    """Lightweight data source info for display in tool execution UI."""
+    """Lightweight data source info for display in tool execution UI.
+
+    Rides along with every tool execution in every view — the report page, the
+    shared ``/c/{token}`` page and the report summary — which is why the data
+    tools read their icon from here rather than from a page-level prop the
+    shared views never passed.
+    """
     id: str
     name: Optional[str] = None
     type: Optional[str] = None  # connection type e.g. 'postgres', 'bigquery'
+    # Resolved display icon ("emoji:<grapheme>" | "type:<key>" | None), from
+    # app.schemas.agent_icon — the same token the agents list and report payload
+    # carry, so one agent draws one icon everywhere.
+    icon_token: Optional[str] = None
 
 
 class ToolExecutionUISchema(ToolExecutionSchema):

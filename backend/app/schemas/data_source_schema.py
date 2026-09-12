@@ -2,35 +2,35 @@ from pydantic import BaseModel
 from typing import Any, Dict, List, Optional, Union
 
 
-def _connector_key_from_config(cfg: Any) -> Optional[str]:
-    """Preset key ('gmail', 'notion', …) for a tool-provider connection so the UI
-    renders the provider's brand icon even though the connection type is 'mcp'.
+from app.schemas.agent_icon import (
+    _connector_key_from_config,
+    resolve_agent_icon_token,
+)
+from pydantic import Field, model_validator
 
-    Prefer an explicit ``config.catalog_key``; otherwise match ``config.server_url``
-    against the MCP presets. Mirrors ``data_source_service._conn_connector_key`` so
-    report-embedded connections resolve the same key as the connections route.
-    Returns None when the config isn't a known preset connector.
+
+class AgentIconTokenMixin(BaseModel):
+    """Carries the agent's resolved icon as ``icon_token``.
+
+    Any agent-facing schema with ``icon`` and ``connections`` fields gets the
+    token for free by mixing this in — which is the point: the resolution lives
+    in one place (``app.schemas.agent_icon``) and no construction site can
+    forget it or disagree with it. ``icon``/``type``/``connector_key`` stay on
+    the payload for the connection-level UI that legitimately needs them.
     """
-    if isinstance(cfg, str):
-        import json as _json
-        try:
-            cfg = _json.loads(cfg)
-        except Exception:
-            cfg = None
-    if not isinstance(cfg, dict):
-        return None
-    if cfg.get("catalog_key"):
-        return cfg["catalog_key"]
-    server_url = cfg.get("server_url")
-    if server_url:
-        try:
-            from app.schemas.data_source_registry import mcp_presets
-            for p in mcp_presets():
-                if p.get("server_url") == server_url:
-                    return p["key"]
-        except Exception:
-            pass
-    return None
+
+    # Resolved display icon: "emoji:<grapheme>" | "type:<key>" | None.
+    # Clients render this verbatim instead of re-deriving from type/connector_key.
+    icon_token: Optional[str] = None
+
+    @model_validator(mode='after')
+    def _resolve_icon_token(self):
+        if self.icon_token is None:
+            self.icon_token = resolve_agent_icon_token(
+                getattr(self, 'icon', None),
+                getattr(self, 'connections', None),
+            )
+        return self
 
 
 class DataSourceSummarySchema(BaseModel):
@@ -52,14 +52,22 @@ class DataSourceSummarySchema(BaseModel):
     class Config:
         from_attributes = True
 
-class DataSourceMinimalSchema(BaseModel):
-    """Minimal DataSource schema."""
+class DataSourceMinimalSchema(AgentIconTokenMixin):
+    """Minimal DataSource schema — the agent chip shape used by instructions,
+    entities and prompts."""
     id: str
     name: str
     type: Optional[str] = None  # Computed from connection
     description: Optional[str] = None
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
+
+    # Input-only (never serialized): the mixin needs the agent's connections to
+    # resolve icon_token, and this shape doesn't otherwise expose them. Same
+    # trick ConnectionReportEmbedded uses for `config`. Populated automatically
+    # when validating off an ORM DataSource; pass it explicitly when building
+    # this schema field-by-field, or icon_token resolves to the override only.
+    connections: Optional[Any] = Field(default=None, exclude=True)
 
     class Config:
         from_attributes = True
@@ -224,7 +232,7 @@ class ConnectionReportEmbedded(BaseModel):
         from_attributes = True
 
 
-class DataSourceReportSchema(BaseModel):
+class DataSourceReportSchema(AgentIconTokenMixin):
     """DataSource schema used in Report responses.
 
     Serialized to anyone who can view the report — so no agent-management
@@ -268,7 +276,7 @@ class DataSourceBase(BaseModel):
     name: str = None
 
 
-class DataSourceSchema(DataSourceBase):
+class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     """Full DataSource (Domain) schema with nested connection info."""
     class Config:
         from_attributes = True
@@ -327,7 +335,7 @@ class DataSourceSchema(DataSourceBase):
         from_attributes = True
 
 
-class DataSourceListItemSchema(BaseModel):
+class DataSourceListItemSchema(AgentIconTokenMixin):
     """List item schema for DataSource with nested connection info."""
     id: str
     name: str
