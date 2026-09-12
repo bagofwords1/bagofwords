@@ -1,5 +1,14 @@
 # Release Notes
 
+## Version 0.0.558 (September 12, 2026)
+- Training mode can also edit what it produces: edit_doc, edit_artifact, read_artifact, read_query and add_parameter are available there, not just create_doc and create_artifact (#1104)
+- The Power BI connection test walks further past unqueryable models, falls back to the known catalog for delegated access, and names the models that answered 404 instead of failing generically (#1105)
+- send_email, notify and the MCP send_email tool now share one set of body formatting rules, so the agent stops emitting markdown that arrives as literal punctuation (#1108)
+- Instructions no longer lose tables, links, images, rules and h4-h6 when rendered or re-saved; the read-only renderer and the editor are driven from one stylesheet and the rendered HTML is sanitized (#1109)
+- All system email (invites, shares, welcome, password reset, verification) now goes through the organization's SMTP resolver instead of the global relay, with no silent fallback, and "Test connection" sends a real message to the caller and names the stage that failed (#1110)
+- The tables selector scopes per-user access per connection rather than per data source, so an agent with a delegated connection shows every connection's tables and no longer leaks another user's delegated models (#1111)
+- Fixed the agent losing context sections (saved queries, schemas) to a concurrent-session race after each step commit, and let the DB connection pool drain: BOW_DB_POOL_SIZE, BOW_DB_MAX_OVERFLOW and opt-in BOW_DB_IDLE_SESSION_TIMEOUT_MS (#1112)
+
 ## Version 0.0.557 (September 8, 2026)
 - Added an OpenText Documentum file connector, shipping as beta: browse, search and read documents from a repository over Documentum REST Services, scoped to a root folder, with repository username/password, an OTDS client, per-user OTDS impersonation, or OTDS sign-in (#1097)
 - Saved queries can be authored by hand from an agent's Queries panel with a "New query" button: a workbench layout with the code editor, a parameters sidebar and a results preview (Cmd/Ctrl+Enter to run), previewed through the new stateless `POST /api/entities/preview` endpoint before anything is saved. Entity managers publish directly; other members create a suggestion pending review, mirroring the report's Save Query tiers. The slug is derived from the title and parameter declarations are validated strictly on save (#1098, includes #1088)
