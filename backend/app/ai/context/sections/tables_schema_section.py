@@ -976,18 +976,30 @@ class TablesSchemaContext(ContextSection):
                 return xml_tag("tables", "\n".join(tables_xml))
 
         @staticmethod
-        def _connection_key(t) -> str | None:
-            """Identity of the connection a table came from.
+        def _connection_key(t):
+            """Identity of the connection a table came from: (id, name).
 
-            The id when there is one, the name only as a fallback. Keying on the
-            name alone merged two connections that happen to share a display
-            name into one roster entry — and an agent cannot tell apart, or
-            scope a discovery call to, connections it sees as one.
+            BOTH halves are load-bearing, for opposite reasons:
+
+            * the id, because two connections can share a display name, and an
+              agent cannot tell apart — or scope describe_tables to — connections
+              it sees as one;
+            * the name, because one physical connection can expose two client
+              identities, the live source and its ``::fast`` sibling serving
+              materialized custom queries. They share a connection_id on
+              purpose, so keying on the id alone merges them under whichever
+              name comes first and points half the tables at a client that
+              cannot serve them.
+
+            Same key as `_group_tables_by_connection`, whose docstring covers
+            the second case; the two must agree or the roster names connections
+            the <connection> blocks do not.
             """
             cid = getattr(t, 'connection_id', None)
-            if cid:
-                return str(cid)
-            return getattr(t, 'connection_name', None) or None
+            name = getattr(t, 'connection_name', None) or None
+            if not cid and not name:
+                return None
+            return (str(cid) if cid else "", name or "")
 
         def _connection_roster(self) -> list:
             """(id, name, type, table_count) per connection, in first-seen order.

@@ -166,3 +166,33 @@ def test_duplicate_connection_names_stay_separate():
     assert '<connections count="2">' in xml
     assert _roster_entries(xml) == [("conn-a", "Warehouse"), ("conn-b", "Warehouse")]
     assert 'tables="3"' in xml and 'tables="2"' in xml
+
+
+def test_fast_sibling_stays_a_separate_identity():
+    """One physical connection can expose two client identities: the live
+    source and its `::fast` sibling serving materialized custom queries. They
+    share a connection_id ON PURPOSE, so keying the roster on the id alone
+    merged them under whichever name came first — and the coder maps that name
+    onto a client_key, so half the tables pointed at a client that cannot serve
+    them. Same key as _group_tables_by_connection."""
+    ds = TablesSchemaContext.DataSource(
+        info=DataSourceSummarySchema(id="ds-1", name="Fast Agent", type="postgresql"),
+        tables=[
+            _table("cached.q1", "warehouse::fast", conn_type="duckdb", conn_id="conn-w"),
+            _table("public.live_orders", "warehouse", conn_id="conn-w"),
+            _table("public.other", "warehouse2", conn_id="conn-x"),
+        ],
+    )
+    xml = ds._render_connections_roster_xml()
+    assert '<connections count="3">' in xml
+    assert _roster_entries(xml) == [
+        ("conn-w", "warehouse::fast"),
+        ("conn-w", "warehouse"),
+        ("conn-x", "warehouse2"),
+    ]
+    # And the index must alias each table to its OWN identity, not the sibling's.
+    index = ds._render_names_index(index_limit=200)
+    aliases = dict(re.findall(r'<item name="([^"]+)"[^>]*\bc="([^"]+)"', index))
+    assert aliases["cached.q1"] != aliases["public.live_orders"], (
+        f"the ::fast sibling and the live source share an alias: {aliases}"
+    )

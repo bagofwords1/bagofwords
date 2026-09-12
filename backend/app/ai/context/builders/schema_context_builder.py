@@ -342,11 +342,15 @@ class SchemaContextBuilder:
                         UserDataSourceTable.user_id == str(self.user.id),
                         UserDataSourceTable.is_accessible == True,
                         # Only the connections this user actually runs delegated
-                        # on. NULL predates connection-aware overlays and is
-                        # this user's own row either way, so it is admitted.
-                        or_(
-                            UserDataSourceTable.connection_id.is_(None),
-                            UserDataSourceTable.connection_id.in_(overlay_conn_ids),
+                        # on. A NULL connection_id predates connection-aware
+                        # overlays (or the migration could not attribute it):
+                        # unknown provenance, which is not permission. While a
+                        # connection on this agent is DENIED, such a row may be
+                        # that connection's, so being authorized on a different
+                        # one does not justify it — same rule as the tables
+                        # selector (`_overlay_connection_predicate`).
+                        _DSS._overlay_connection_predicate(
+                            overlay_conn_ids, denied_conn_ids
                         ),
                     )
                 )

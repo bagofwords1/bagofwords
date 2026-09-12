@@ -3155,6 +3155,23 @@ class DataSourceService:
         if not visible_ids:
             return []
 
+        # The overlay speaks ONLY for the connections the caller currently runs
+        # delegated on. An overlay row survives a connection moving to a service
+        # account (query identity switched to `service_account`, so the
+        # classifier now calls it open), and keeping that stale personal row
+        # suppressed the canonical schema through `covered` below — the agent
+        # kept serving one user's narrowed column set for a connection everyone
+        # now shares. Same NULL-provenance rule as the row predicate.
+        open_ids, overlay_ids, denied_ids = buckets
+        allowed_conn_ids = set(overlay_ids)
+        allow_unattributed = bool(overlay_ids) and not denied_ids
+
+        def _overlay_row_allowed(t) -> bool:
+            cid = getattr(t, "connection_id", None)
+            if not cid:
+                return allow_unattributed
+            return str(cid) in allowed_conn_ids
+
         overlay_tables = []
         try:
             overlay_tables = [
@@ -3162,7 +3179,7 @@ class DataSourceService:
                     db=db, data_source=data_source, user=current_user,
                     active_only=not include_inactive,
                 )
-                if str(getattr(t, "id", "")) in visible_ids
+                if str(getattr(t, "id", "")) in visible_ids and _overlay_row_allowed(t)
             ]
         except Exception:
             logger.warning(
@@ -3178,7 +3195,7 @@ class DataSourceService:
         # raised, where falling back to canonical would turn a transient failure
         # into a masking bypass.
         canonical_eligible = await self._open_catalog_table_ids(
-            db, data_source, open_ids=buckets[0], candidate_ids=visible_ids
+            db, data_source, open_ids=open_ids, candidate_ids=visible_ids
         )
         covered = {str(getattr(t, "id", "")) for t in overlay_tables}
         canonical_tables = await data_source.get_schemas(
@@ -3459,6 +3476,35 @@ class DataSourceService:
                 open_ids.append(str(conn.id))
         return open_ids, overlay_ids, denied_ids
 
+    @staticmethod
+    def _overlay_connection_predicate(overlay_ids: list[str], denied_ids: list[str]):
+        """Which of a caller's overlay rows their CURRENT access still justifies.
+
+        A row names the connection it describes, except for rows written before
+        overlays were connection-aware (and rows the migration could not
+        attribute, because the canonical table was never linked). Those keep
+        connection_id NULL, which is unknown provenance, not permission — and
+        the rule for unknown provenance is what this decides:
+
+          * no delegated connection authorized  -> nothing. The rows only record
+            what the caller COULD see before access was revoked.
+          * some connection denied              -> named rows on authorized
+            connections only. A NULL row may well BE the denied connection's,
+            and admitting it on the strength of a different connection the
+            caller happens to still hold is exactly the leak: deactivate A's
+            credentials while B stays valid and A's legacy models stayed
+            visible. They come back when a proven identity rediscovers them.
+          * nothing denied                      -> NULL rows too. There is no
+            revoked connection for them to have come from, and excluding them
+            would drop a legacy single-connection agent's whole catalog.
+        """
+        if not overlay_ids:
+            return sa_false()
+        named = UserOverlayTable.connection_id.in_(overlay_ids)
+        if denied_ids:
+            return named
+        return or_(UserOverlayTable.connection_id.is_(None), named)
+
     async def _resolve_catalog_scope(
         self,
         db: AsyncSession,
@@ -3522,24 +3568,9 @@ class DataSourceService:
             UserOverlayTable.is_accessible == True,  # noqa: E712
             UserOverlayTable.data_source_table_id.isnot(None),
         )
-        if overlay_ids:
-            # Rows written before overlays carried a connection (and rows for a
-            # canonical table the SP never linked) keep connection_id NULL; they
-            # stay admitted because they are already this user's own rows.
-            overlay_rows = overlay_rows.where(
-                or_(
-                    UserOverlayTable.connection_id.is_(None),
-                    UserOverlayTable.connection_id.in_(overlay_ids),
-                )
-            )
-        else:
-            # No connection on this agent is currently authorized for the
-            # caller's own token. Their overlay rows are then only a record of
-            # what they COULD see before access was revoked or credentials
-            # deactivated, so nothing may be admitted on their strength —
-            # leaving this unrestricted kept previously discovered semantic
-            # models visible through the unlinked-row branch below.
-            overlay_rows = overlay_rows.where(sa_false())
+        overlay_rows = overlay_rows.where(
+            self._overlay_connection_predicate(overlay_ids, denied_ids)
+        )
 
         branches = []
         if open_ids:

@@ -101,8 +101,13 @@ def engine(request, tmp_path):
             pytest.skip("set BOW_TEST_PG_URL to also run against PostgreSQL")
         eng = sa.create_engine(url)
         schema = f"mig_{uuid.uuid4().hex[:8]}"
-        with eng.begin() as conn:
-            conn.execute(sa.text(f'CREATE SCHEMA "{schema}"'))
+        try:
+            with eng.begin() as conn:
+                conn.execute(sa.text(f'CREATE SCHEMA "{schema}"'))
+        except sa.exc.OperationalError as e:
+            # A configured-but-unreachable PostgreSQL is an environment
+            # problem, not a failure of the migration under test.
+            pytest.skip(f"PostgreSQL at BOW_TEST_PG_URL is unreachable: {e}")
         eng = sa.create_engine(
             url, connect_args={"options": f"-csearch_path={schema}"}
         )

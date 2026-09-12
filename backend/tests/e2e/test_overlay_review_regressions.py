@@ -361,3 +361,77 @@ def test_newly_attached_connection_is_warmed(monkeypatch):
     by_name = _run(_full_schema(ids))
     assert "FromA" in by_name
     assert "FromB" in by_name, "the later-attached connection was never warmed"
+
+
+# ---------------------------------------------------------------------------
+# Second review round
+# ---------------------------------------------------------------------------
+
+def test_denied_connection_legacy_overlay_is_not_saved_by_another_connection(monkeypatch):
+    """A denied connection's UNATTRIBUTED overlay row must not ride in on a
+    different connection the caller still holds.
+
+    The first fix only closed the case where NO connection was authorized. With
+    A denied and B still authorized, the NULL-connection allowance admitted A's
+    legacy rows anyway — and a NULL connection_id is unknown provenance, not
+    permission.
+    """
+    ids = _run(_seed(n_delegated=2))
+    a, b = ids["pbi_ids"]
+    _install_catalog(monkeypatch, {a: {"PrivateA": ["id"]}, b: {"FromB": ["id"]}})
+
+    assert "PrivateA" in _run(_full_schema(ids))
+
+    async def _make_legacy_and_revoke_a():
+        """A's row loses its connection (what the migration leaves behind for a
+        row whose canonical table was never linked), then A is deactivated."""
+        async with async_session_maker() as db:
+            await db.execute(
+                update(UserOverlayTable)
+                .where(UserOverlayTable.connection_id == a)
+                .values(connection_id=None)
+            )
+            await db.execute(
+                update(UserConnectionCredentials)
+                .where(UserConnectionCredentials.connection_id == a)
+                .values(is_active=False)
+            )
+            await db.commit()
+    _run(_make_legacy_and_revoke_a())
+    _WARM_ATTEMPTS.clear()
+
+    after = _run(_full_schema(ids))
+    assert "FromB" in after, "the still-authorized connection is unaffected"
+    assert "public.customers" in after, "the open connection is unaffected"
+    assert "PrivateA" not in after, (
+        "a denied connection's unattributed overlay row stayed visible because "
+        "another connection was authorized"
+    )
+
+
+def test_service_account_switch_serves_the_canonical_schema(monkeypatch):
+    """When a connection moves to a service account the classifier calls it
+    open — and a leftover personal overlay must stop speaking for it, or the
+    agent keeps serving one user's narrowed columns to everyone."""
+    ids = _run(_seed())
+    pbi_id = ids["pbi_ids"][0]
+    _install_catalog(monkeypatch, {pbi_id: {"Secrets": ["id"]}})
+    _run(_seed_wide_canonical(ids["ds_id"], pbi_id))
+
+    before = _run(_full_schema(ids))
+    assert before["Secrets"] == ["id"], "delegated: the user's own masked columns"
+
+    # The connection is now classified OPEN for this caller (service account).
+    real = DataSourceService.classify_connection_access
+
+    async def _all_open(self, db, data_source, current_user):
+        open_ids, overlay_ids, denied_ids = await real(self, db, data_source, current_user)
+        return (open_ids + overlay_ids, [], denied_ids)
+    monkeypatch.setattr(DataSourceService, "classify_connection_access", _all_open)
+
+    after = _run(_full_schema(ids))
+    assert "Secrets" in after
+    assert after["Secrets"] == ["id", "salary"], (
+        f"a stale personal overlay suppressed the service account's schema: "
+        f"{after['Secrets']}"
+    )
