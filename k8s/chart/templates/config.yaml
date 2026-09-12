@@ -97,15 +97,30 @@ data:
   {{- /*
     idle_session_timeout is PostgreSQL 14+, and an unrecognised startup parameter
     fails EVERY connection — so this may only default on for a server whose
-    version we control. That is the bundled subchart (PostgreSQL 17), i.e.
-    postgresql.enabled is not false and no external database.host is set.
-    Pointing the chart at an external server leaves it unset, and an operator on
-    14+ opts in by setting it; setting it explicitly always wins.
+    version we control: the bundled subchart (PostgreSQL 17).
+
+    "Bundled" means this ConfigMap itself emits a BOW_DATABASE_URL pointing at
+    `<release>-postgresql` AND nothing can replace it — mirror the conditions on
+    that URL above, and exclude both Secret paths. A Secret is the documented way
+    to supply BOW_DATABASE_URL (see k8s/README.md), and `config.secretRef` is
+    loaded after this ConfigMap via envFrom, so either one can point the app at
+    an external server of unknown version while every value tested here is still
+    at its default. Missing the default costs a quiet worker nothing but some
+    idle connections; getting it wrong fails every connection on upgrade.
+
+    An explicit setting always wins, which is how an operator on a known 14+
+    server opts in regardless of how the URL is supplied.
   */}}
   {{- $idle := .Values.config.database.idleSessionTimeoutMs }}
+  {{- $urlFromSecret := or (not (empty .Values.postgresql.auth.existingSecret)) (not (empty .Values.config.secretRef)) }}
+  {{- $bundledDb := and
+        (eq (default "password" .Values.database.auth.provider) "password")
+        (not (eq .Values.postgresql.enabled false))
+        (empty .Values.database.host)
+        (not $urlFromSecret) }}
   {{- if not (or (kindIs "invalid" $idle) (eq (toString $idle) "")) }}
   BOW_DB_IDLE_SESSION_TIMEOUT_MS: {{ $idle | quote }}
-  {{- else if and (not (eq .Values.postgresql.enabled false)) (empty .Values.database.host) }}
+  {{- else if $bundledDb }}
   BOW_DB_IDLE_SESSION_TIMEOUT_MS: "600000"
   {{- end }}
 

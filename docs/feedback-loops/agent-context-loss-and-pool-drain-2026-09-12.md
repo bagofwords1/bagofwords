@@ -204,14 +204,25 @@ startup parameter makes every connection fail** (verified —
 `UndefinedObjectError`). It is therefore off by default and opt-in via
 `BOW_DB_IDLE_SESSION_TIMEOUT_MS`.
 
-The chart defaults it on, but **only for the bundled subchart** (PostgreSQL 17,
-a version we control). An earlier revision defaulted it in `values.yaml`, which
-review caught: the ConfigMap emitted it for external databases too, so an
-existing deployment pointed at an external PostgreSQL 13 would have had every
-connection fail on upgrade — reintroducing through Helm exactly the hard break
-the backend default was written to avoid. It is now conditioned on
-`postgresql.enabled` and an empty `database.host`, and an operator on an
-external 14+ server opts in explicitly.
+The chart defaults it on, but **only where it can be certain the app is talking
+to the bundled subchart** (PostgreSQL 17, a version we control). Getting that
+condition right took two rounds of review, both times on the same asymmetry:
+missing the default costs a quiet worker some idle connections, while applying
+it to a server older than 14 fails every connection on upgrade.
+
+- The first revision defaulted it in `values.yaml`, so the ConfigMap emitted it
+  for external databases too — reintroducing through Helm exactly the hard break
+  the backend's opt-in default was written to avoid.
+- The second conditioned it on `postgresql.enabled` and an empty
+  `database.host`, which still missed the *documented* Secret install: with
+  `postgresql.auth.existingSecret` / `config.secretRef` set, the chart emits no
+  URL of its own and the Secret supplies `BOW_DATABASE_URL` — pointing anywhere
+  — while both of those values sit at their bundled defaults.
+
+The condition now mirrors the URL-generating branch exactly: password auth, the
+subchart enabled, no external `database.host`, and neither Secret path in play.
+An explicit setting always wins, which is how an operator on a known 14+ server
+opts in regardless of how the URL is supplied.
 
 Also caught in review: the ConfigMap tested these values by truthiness, so a
 deliberate `maxOverflow: 0` was dropped and the backend fell back to its own

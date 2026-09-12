@@ -62,6 +62,58 @@ tests:
       - notExists:
           path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
 
+  - it: leaves the idle-session timeout unset when the URL comes from a Secret
+    set:
+      postgresql.auth.existingSecret: bowapp-secrets
+      config.secretRef: bowapp-secrets
+    asserts:
+      # The documented Secret install (k8s/README.md) supplies BOW_DATABASE_URL
+      # itself and is loaded after this ConfigMap via envFrom, so it can point
+      # at an external server of unknown version while postgresql.enabled and
+      # database.host are both still at their bundled defaults.
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+      # Guard the premise: with a Secret in play the chart emits no URL of its
+      # own, which is exactly why it cannot know the server version.
+      - notExists:
+          path: data.BOW_DATABASE_URL
+
+  - it: leaves the idle-session timeout unset for an existingSecret alone
+    set:
+      postgresql.auth.existingSecret: bowapp-secrets
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: leaves the idle-session timeout unset for a config.secretRef alone
+    set:
+      config.secretRef: bowapp-secrets
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: leaves the idle-session timeout unset for an IAM-authenticated database
+    set:
+      database.auth.provider: aws_iam
+      database.host: rds.example.com
+      database.username: bow
+      database.name: bow
+    asserts:
+      - notExists:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+
+  - it: honours an explicit idle-session timeout under a Secret install
+    set:
+      postgresql.auth.existingSecret: bowapp-secrets
+      config.secretRef: bowapp-secrets
+      config.database.idleSessionTimeoutMs: 600000
+    asserts:
+      # However the URL is supplied, an operator who knows their server is 14+
+      # can still opt in.
+      - equal:
+          path: data.BOW_DB_IDLE_SESSION_TIMEOUT_MS
+          value: "600000"
+
   - it: honours an explicit idle-session timeout on an external database
     set:
       database.host: rds.example.com

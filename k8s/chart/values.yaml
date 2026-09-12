@@ -138,11 +138,16 @@ config:
     # quiet worker's backends drain instead of holding slots for the life of the
     # process. A connection pool never shrinks on its own. `0` disables.
     # REQUIRES PostgreSQL 14+: on older servers the parameter is rejected at
-    # connect time and *every* connection fails. Left empty here, which means
-    # `600000` (10 min) when the bundled PostgreSQL 17 subchart is in use, and
-    # unset when the chart points at an external `database.host` — whose version
-    # this chart cannot know. On an external server 14 or newer, set it
-    # explicitly to get the same draining behaviour.
+    # connect time and *every* connection fails. Left empty here, which applies
+    # `600000` (10 min) only when this chart can be certain the app is talking to
+    # the bundled PostgreSQL 17 subchart — that is, it generates the database URL
+    # itself and nothing can override it. It stays unset when the URL is
+    # delegated elsewhere and the version is therefore unknown: an external
+    # `database.host`, an IAM-authenticated `database.auth.provider`,
+    # `postgresql.enabled: false`, or a Secret supplying `BOW_DATABASE_URL` via
+    # `postgresql.auth.existingSecret` / `config.secretRef`.
+    # Set it explicitly on any server you know is 14 or newer to get the same
+    # draining behaviour — an explicit value always wins.
     idleSessionTimeoutMs: ""
   otel:
     # -- Enable OpenTelemetry tracing export.
