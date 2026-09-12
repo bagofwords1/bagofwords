@@ -857,7 +857,7 @@
                           <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
                             <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ activeSuggestion?.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
-                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ms-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" :title="$t('agentsPage.tipViewTrace')" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
+                            <button v-if="canViewConsole && (activeSuggestion?.completion_id || activeSuggestion?.report_id)" type="button" class="ms-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" :title="$t('agentsPage.tipViewTrace')" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
                           <!-- Brief evidence stamped by the AI when it proposed this change -->
                           <span v-if="activeSuggestion?.evidence" class="block mb-1.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-3">{{ activeSuggestion.evidence }}</span>
@@ -1236,7 +1236,7 @@ import TraceModal from '~/components/console/TraceModal.vue'
 import ReviewFeed from '~/components/ReviewFeed.vue'
 import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import DiffMatchPatch from 'diff-match-patch'
-import { useCan, useCanAny, useCanAll } from '~/composables/usePermissions'
+import { useCan, useCanAny, useCanAll, useCanAccessMonitoring } from '~/composables/usePermissions'
 import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 import { getEffectiveStatus, statusDotClass } from '~/composables/useConnectionStatus'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
@@ -3125,7 +3125,12 @@ const toggleHistory = () => { if (canEditDetail.value) showHistory.value = !show
 const sourceLabel = (pb: any) => pb?.source === 'ai' ? 'AI' : 'Proposed'
 
 // Agent trace: open the report/completion that produced this suggestion.
-const canViewConsole = computed(() => useCan('view_console'))
+// A suggestion carries only trace coordinates (report_id/completion_id), not
+// the agents behind that report, so gate on console access — org-wide or an
+// agent manager — and let ConsoleScope.assert_report_visible scope the
+// per-report drill-down server-side. (`view_console`, used here before, was
+// never a registry permission and hid this from everyone but a full admin.)
+const canViewConsole = computed(() => useCanAccessMonitoring())
 const showTraceModal = ref(false)
 const traceReportId = ref<string | null>(null)
 const traceCompletionId = ref<string | null>(null)

@@ -714,7 +714,7 @@ import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
-import { useCan, useCanAny } from '~/composables/usePermissions'
+import { useCanAny, useCanAccessMonitoring } from '~/composables/usePermissions'
 import { useAgent } from '~/composables/useAgent'
 import { onClickOutside } from '@vueuse/core'
 
@@ -939,7 +939,11 @@ const toast = useToast()
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
-const canViewConsole = computed(() => useCan('view_console'))
+// Builds carry trace coordinates but not the agents behind the report, so gate
+// on console access (org-wide or agent manager) and let the backend's
+// ConsoleScope scope the per-report drill-down. `view_console` was never a
+// registry permission — it hid this from everyone but a full org admin.
+const canViewConsole = computed(() => useCanAccessMonitoring())
 
 // TraceModal state (opened from the "View trace" button on builds that were
 // produced by an agent execution).
