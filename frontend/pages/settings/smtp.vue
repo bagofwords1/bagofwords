@@ -5,7 +5,7 @@
       <p class="text-sm text-gray-500 dark:text-gray-400 font-normal mb-6">
         The server used to send your organization's <strong>system emails</strong> —
         report shares, scheduled‑report results, invites, welcome and account emails.
-        When enabled, it overrides the global SMTP configured in <code>bow-config</code>.
+        When enabled, it overrides the SMTP server configured globally.
       </p>
     </h2>
 
@@ -35,12 +35,12 @@
               System email is sent through the server below.
             </template>
             <template v-else-if="serverState.global_configured">
-              Off — system email falls back to the global SMTP from <code>bow-config</code>.
+              Off — system email falls back to the globally configured SMTP server.
               Your settings below are kept.
             </template>
             <template v-else>
-              Off — and no global SMTP is configured, so <strong>no system email will be
-              sent at all</strong>. Your settings below are kept.
+              Off — and no SMTP server is configured globally, so <strong>no system email
+              will be sent at all</strong>. Your settings below are kept.
             </template>
           </p>
         </div>
@@ -186,7 +186,7 @@ const activeBanner = computed(() => {
     return {
       class: 'border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-950 text-amber-800 dark:text-amber-200',
       icon: 'i-heroicons-information-circle',
-      title: 'System email uses the global bow-config SMTP.',
+      title: 'System email uses the globally configured SMTP server.',
       detail: 'Enable a custom SMTP server below to send from your own relay instead.',
     }
   }
@@ -344,7 +344,7 @@ function failureCopy(stage?: string): { text: string; hint: string } {
 
 function sourceLabel(source?: string) {
   if (source === 'org_smtp') return 'this SMTP server'
-  if (source === 'global') return 'the global bow-config SMTP'
+  if (source === 'global') return 'the globally configured SMTP server'
   if (source === 'ai_mailbox') return 'the AI mailbox'
   return 'no transport'
 }
