@@ -536,8 +536,11 @@
 												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
 											</button>
 
-											<!-- AI message timestamp -->
-											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">{{ formatMessageDate(m.created_at) }}</span>
+											<!-- Total run duration + AI message timestamp -->
+											<span v-if="runDurationLabel(m)" class="text-[10px] text-gray-400 ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
+											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">
+												<span v-if="runDurationLabel(m)" class="me-1">·</span>{{ formatMessageDate(m.created_at) }}
+											</span>
 										</div>
 									</div>
 
@@ -1128,6 +1131,10 @@ interface ChatMessage {
 	created_at?: string
 	// Backend system completion id used for sigkill
 	system_completion_id?: string
+	// Wall-clock time of the run behind this completion, stamped server-side when
+	// the agent execution finishes. Absent on the live SSE path (completion.finished
+	// is emitted before the execution is finalized) — see clientRunMs.
+	total_duration_ms?: number | null
 	sigkill?: string | null
 	feedback_score?: number
 	// Transient streaming error message (set from SSE completion.error)
@@ -1855,6 +1862,51 @@ function formatMessageDate(date?: string) {
 		month: 'short', day: 'numeric',
 		hour: 'numeric', minute: '2-digit'
 	})
+}
+
+// ---- Run duration (completion footer) ----
+// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
+// elapsed time is off by the local timezone offset.
+function parseServerTimestamp(v: any): number | null {
+	if (!v) return null
+	const s = String(v)
+	const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
+	return Number.isNaN(t) ? null : t
+}
+
+// Client-measured run time. The server stamps AgentExecution.total_duration_ms
+// only after the run's tail work lands, which is deliberately *after*
+// completion.finished is emitted (agent_v2 emits early so the UI flips out of
+// "thinking" immediately). So on the live path we measure it here; the server
+// value takes over once it arrives.
+//
+// Keyed by the *server* completion id, never the `system-<ts>` placeholder id:
+// the refetch that follows a run swaps the placeholder for the server row, and
+// a placeholder-keyed entry would be orphaned the moment it lands.
+const clientRunMs = ref<Map<string, number>>(new Map())
+
+function runKey(m: ChatMessage): string {
+	return String(m.system_completion_id || m.id)
+}
+
+// Same format as the prompt box's live thinking timer (PromptBoxV2), so the
+// final number reads as the natural end of the counter the user just watched.
+function formatRunDuration(ms: number): string {
+	const s = Math.max(0, Math.round(ms / 1000))
+	if (s < 60) return `${s}s`
+	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// Hide sub-2s runs — same threshold GenericTool uses for tool durations, so
+// trivial turns don't carry a noisy "1s".
+const MIN_RUN_DURATION_MS = 2000
+
+function runDurationLabel(m: ChatMessage): string {
+	const ms = (typeof m.total_duration_ms === 'number' && m.total_duration_ms > 0)
+		? m.total_duration_ms
+		: clientRunMs.value.get(runKey(m))
+	if (typeof ms !== 'number' || ms < MIN_RUN_DURATION_MS) return ''
+	return formatRunDuration(ms)
 }
 
 // ---- Inbound webhook event-entry helpers ----
@@ -3520,6 +3572,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
+			// Measure the run here: the server's total_duration_ms isn't stamped
+			// yet at this point (see clientRunMs), so without this the footer
+			// would show nothing until the next load.
+			{
+				const key = runKey(sysMessage)
+				const startedAt = parseServerTimestamp(sysMessage.created_at)
+				if (startedAt !== null && !clientRunMs.value.has(key)) {
+					clientRunMs.value.set(key, Date.now() - startedAt)
+				}
+			}
 			if (completionStatus) {
 				if (sysMessage.status !== 'error' && sysMessage.status !== 'stopped') {
 					sysMessage.status = completionStatus as any
@@ -3743,6 +3805,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				completion: c.completion,
 				completion_blocks: blocks,
 				created_at: c.created_at,
+				total_duration_ms: c.total_duration_ms ?? null,
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
@@ -3968,6 +4031,7 @@ async function loadPreviousCompletions() {
                 prompt: c.prompt,
                 completion_blocks: blocks,
                 created_at: c.created_at,
+                total_duration_ms: c.total_duration_ms ?? null,
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
@@ -4652,6 +4716,10 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		role: 'system',
 		status: 'in_progress',
 		model: data.model_id || undefined,
+		// Naive-UTC, matching the server's shape. Anchors the footer's run
+		// duration (and its timestamp) on the live path, where no server row
+		// has been merged into this placeholder yet.
+		created_at: new Date().toISOString().replace('Z', ''),
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)

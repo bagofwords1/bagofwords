@@ -146,6 +146,9 @@ class CompletionV2Schema(BaseModel):
     message_type: Optional[str] = None
 
     agent_execution_id: Optional[str] = None
+    # Wall-clock time of the agent execution behind this completion, stamped when
+    # the run finishes (AgentExecution.total_duration_ms). None while in progress.
+    total_duration_ms: Optional[float] = None
 
     prompt: Optional[Dict[str, Any]] = None
 
