@@ -1794,12 +1794,29 @@ class DataSourceService:
             # Channel availability gating (external channels only).
             if not d.is_available_in(channel):
                 continue
-            conn = d.connections[0] if d.connections else None
-            # Only include data sources with system_only auth policy
-            # Skip user_required data sources since channel mentions can't use individual user credentials
-            auth_policy = conn.auth_policy if conn else "system_only"
-            if auth_policy == "user_required":
+            # Only include data sources every channel member can actually
+            # query. A channel mention is public and cannot stand in for an
+            # individual's credentials, so ANY delegated connection disqualifies
+            # the agent — not just the first one.
+            #
+            # This asked `connections[0]`, so a MIXED agent (system_only
+            # warehouse first, delegated Power BI second) reported
+            # "system_only" and was offered in the channel anyway — precisely
+            # what this filter exists to prevent. Channel members who have not
+            # connected their own account then get "Connect required" from an
+            # agent the channel advertised, and an owner or admin mentioning it
+            # reaches the system-credentials fallback in a public channel.
+            if any(
+                (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+                for c in (d.connections or [])
+            ):
                 continue
+            # Legacy response fields only: the schema still carries a single
+            # `type` and `auth_policy`, so they report the first connection's.
+            # Everything that decides BEHAVIOUR above is per connection; these
+            # two are display shape the API has always had.
+            conn = d.connections[0] if d.connections else None
+            auth_policy = (getattr(conn, "auth_policy", None) or "system_only") if conn else "system_only"
 
             connections_list = await self._build_connections_list(
                 db=db,
