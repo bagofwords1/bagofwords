@@ -41,6 +41,15 @@ class FileEntry(BaseModel):
             "directly instead of reading each message just to get its date."
         ),
     )
+    sender: Optional[str] = Field(
+        None,
+        description=(
+            "For EMAIL items, the sender's address. Together with "
+            "`modified_at` (the received date) this answers \"who sent what, "
+            "when\" from the listing alone — no need to open each message. "
+            "None for ordinary files."
+        ),
+    )
     web_url: Optional[str] = None
 
 
