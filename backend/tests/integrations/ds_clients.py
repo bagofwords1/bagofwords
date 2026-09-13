@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 DATA_SOURCES = [
     "netapp_ontap",  # customer-run ONTAP validation; see tools/netapp/README.md
+    "brocade",  # Real switch or tools/brocade/simulated_api.py; credentials via integrations.json.
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
@@ -324,6 +325,14 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
             "password": os.environ["NETAPP_PASSWORD"],
             "ca_certificate": os.environ.get("NETAPP_CA_PEM"),
             "allow_http": os.environ.get("NETAPP_SIMULATOR") == "true",
+        }
+    if name == "brocade" and os.environ.get("BROCADE_TEST_URL"):
+        return {
+            "url": os.environ["BROCADE_TEST_URL"],
+            "username": os.environ["BROCADE_USER"],
+            "password": os.environ["BROCADE_PASSWORD"],
+            "vf_ids": os.environ.get("BROCADE_TEST_VF_IDS", ""),
+            "allow_http": os.environ.get("BROCADE_TEST_ALLOW_HTTP") == "true",
         }
     if name == "sharepoint_onprem" and os.environ.get("SHAREPOINT_TEST_SITE_URL"):
         return {
