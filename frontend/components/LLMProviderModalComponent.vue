@@ -36,7 +36,7 @@
                         </span>
                     </div>
                     <div v-if="selectedProvider.type !== 'new_provider'" class="space-y-4">
-                        <div class="" v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock' && !(isAzureSelected && selectedProvider.credentials.auth_mode && selectedProvider.credentials.auth_mode !== 'api_key')">
+                        <div class="" v-if="selectedProvider?.provider_type !== 'bedrock' && selectedProvider?.type !== 'bedrock' && selectedProvider?.provider_type !== 'vertex' && selectedProvider?.type !== 'vertex' && !(isAzureSelected && selectedProvider.credentials.auth_mode && selectedProvider.credentials.auth_mode !== 'api_key')">
                             <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
                                 API Key
                             </label>
@@ -113,6 +113,51 @@
                                 <label class="text-sm text-gray-700 dark:text-gray-300">Verify SSL</label>
                             </div>
                         </div>
+                        <!-- Vertex: existing provider edit -->
+                        <template v-if="selectedProvider?.provider_type === 'vertex' || selectedProvider?.type === 'vertex'">
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Project ID <span class="text-red-500">*</span></label>
+                                <input
+                                    v-model="selectedProvider.credentials.project_id"
+                                    type="text"
+                                    placeholder="e.g. my-project-123456"
+                                    class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Location</label>
+                                <input
+                                    v-model="selectedProvider.credentials.location"
+                                    type="text"
+                                    placeholder="global"
+                                    class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500"
+                                />
+                                <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Leave as <span class="font-mono">global</span> unless you need a specific region — newer Gemini models and all third-party models are served only there.</p>
+                            </div>
+                            <div>
+                                <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Authentication</label>
+                                <div class="flex gap-2 mt-2">
+                                    <button type="button" @click="selectedProvider.credentials.auth_mode = 'adc'"
+                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'adc') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                        Default Credentials
+                                    </button>
+                                    <button type="button" @click="selectedProvider.credentials.auth_mode = 'service_account'"
+                                        :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', selectedProvider.credentials.auth_mode === 'service_account' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                        Service Account Key
+                                    </button>
+                                </div>
+                                <p v-if="!selectedProvider.credentials.auth_mode || selectedProvider.credentials.auth_mode === 'adc'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses Application Default Credentials (Workload Identity, GCE metadata, GOOGLE_APPLICATION_CREDENTIALS)</p>
+                            </div>
+                            <template v-if="selectedProvider.credentials.auth_mode === 'service_account'">
+                                <div>
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Account Key JSON <span class="text-red-500">*</span></label>
+                                    <textarea v-model="selectedProvider.credentials.service_account_json" rows="5"
+                                        placeholder="Keep blank to use stored key"
+                                        class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full text-xs font-mono focus:outline-none focus:border-blue-500"></textarea>
+                                    <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Needs the <span class="font-mono">roles/aiplatform.user</span> role.</p>
+                                </div>
+                            </template>
+                        </template>
                         <!-- Bedrock: existing provider edit -->
                         <template v-if="selectedProvider?.provider_type === 'bedrock' || selectedProvider?.type === 'bedrock'">
                             <div>
@@ -435,6 +480,32 @@
                                     :placeholder="getFieldPlaceholder(field)"
                                     class="border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full h-9 text-sm focus:outline-none focus:border-blue-500" />
                             </div>
+                            <!-- Vertex: auth mode for new provider -->
+                            <template v-if="providerForm.provider_type === 'vertex'">
+                                <div class="mt-3">
+                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Authentication</label>
+                                    <div class="flex gap-2 mt-2">
+                                        <button type="button" @click="providerForm.credentials.auth_mode = 'adc'"
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', (!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'adc') ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                            Default Credentials
+                                        </button>
+                                        <button type="button" @click="providerForm.credentials.auth_mode = 'service_account'"
+                                            :class="['px-3 py-1.5 text-sm rounded-lg border cursor-pointer', providerForm.credentials.auth_mode === 'service_account' ? 'border-blue-500 bg-blue-50 dark:bg-blue-950 text-blue-700' : 'border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800']">
+                                            Service Account Key
+                                        </button>
+                                    </div>
+                                    <p v-if="!providerForm.credentials.auth_mode || providerForm.credentials.auth_mode === 'adc'" class="text-xs text-gray-500 dark:text-gray-400 mt-1.5">Uses Application Default Credentials (Workload Identity, GCE metadata, GOOGLE_APPLICATION_CREDENTIALS)</p>
+                                </div>
+                                <template v-if="providerForm.credentials.auth_mode === 'service_account'">
+                                    <div class="mt-3">
+                                        <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Service Account Key JSON <span class="text-red-500">*</span></label>
+                                        <textarea v-model="providerForm.credentials.service_account_json" rows="5"
+                                            placeholder='{"type": "service_account", "project_id": "...", "private_key": "..."}'
+                                            class="mt-2 border border-gray-300 dark:border-gray-600 rounded-lg px-4 py-2 w-full text-xs font-mono focus:outline-none focus:border-blue-500"></textarea>
+                                        <p class="text-xs text-gray-500 dark:text-gray-400 mt-1">Paste the whole key file. Needs the <span class="font-mono">roles/aiplatform.user</span> role. Project ID is taken from the key if left blank above.</p>
+                                    </div>
+                                </template>
+                            </template>
                             <!-- Bedrock: auth info for new provider -->
                             <template v-if="providerForm.provider_type === 'bedrock'">
                                 <div class="mt-3">
@@ -931,6 +1002,15 @@ const canTestConnection = computed(() => {
         // Existing provider: must have provider_type and some credential (api_key may be blank to use stored)
         return !!selectedProvider.value.provider_type;
     }
+    // Vertex: ADC needs no stored credential at all, only a project
+    if (providerForm.value.provider_type === 'vertex') {
+        const creds = providerForm.value.credentials;
+        if (creds?.auth_mode === 'service_account') {
+            // project_id may be omitted — it is read from the key JSON
+            return !!creds.service_account_json;
+        }
+        return !!creds?.project_id;
+    }
     // Bedrock with IAM auth doesn't require api_key
     if (providerForm.value.provider_type === 'bedrock') {
         const creds = providerForm.value.credentials;
@@ -969,6 +1049,10 @@ const credentialFieldsForNewProvider = computed<CredentialField[]>(() => {
     if (providerType === 'bedrock') {
         // Only show region; auth_mode and api_key are rendered as custom UI
         return filtered.filter(f => f.key === 'region');
+    }
+    if (providerType === 'vertex') {
+        // Only show project_id / location; auth_mode and the key JSON render as custom UI
+        return filtered.filter(f => f.key === 'project_id' || f.key === 'location');
     }
     if (providerType === 'azure') {
         // Only show endpoint_url; auth_mode / api_key / Entra fields render as custom UI
@@ -1118,6 +1202,15 @@ watch(providerModalOpen, (newValue) => {
                     (selectedProvider.value.credentials as any).api_key = null;
                 }
             }
+            // Hydrate Vertex project/location/auth_mode for edit. The key JSON is
+            // left blank on purpose: blank means "keep the stored key".
+            if ((selectedProvider.value.provider_type === 'vertex' || selectedProvider.value.type === 'vertex')) {
+                const vcfg = selectedProvider.value.additional_config || {};
+                if (vcfg.project_id) (selectedProvider.value.credentials as any).project_id = vcfg.project_id;
+                (selectedProvider.value.credentials as any).location = vcfg.location || 'global';
+                (selectedProvider.value.credentials as any).auth_mode = vcfg.auth_mode || 'adc';
+                (selectedProvider.value.credentials as any).service_account_json = null;
+            }
         }
     }
 });
@@ -1180,6 +1273,15 @@ watch(() => props.editProviderId, (newId) => {
                 } else if (cfg.auth_mode !== 'api_key') {
                     (selectedProvider.value.credentials as any).api_key = null;
                 }
+            }
+            // Hydrate Vertex project/location/auth_mode for edit. The key JSON is
+            // left blank on purpose: blank means "keep the stored key".
+            if ((selectedProvider.value.provider_type === 'vertex' || selectedProvider.value.type === 'vertex')) {
+                const vcfg = selectedProvider.value.additional_config || {};
+                if (vcfg.project_id) (selectedProvider.value.credentials as any).project_id = vcfg.project_id;
+                (selectedProvider.value.credentials as any).location = vcfg.location || 'global';
+                (selectedProvider.value.credentials as any).auth_mode = vcfg.auth_mode || 'adc';
+                (selectedProvider.value.credentials as any).service_account_json = null;
             }
         }
     }
@@ -1386,6 +1488,14 @@ watch(selectedProvider, (newValue) => {
             if (newValue.credentials.endpoint_url === undefined) {
                 (newValue.credentials as any).endpoint_url = null;
             }
+        }
+        // Ensure Vertex fields exist so the edit form renders stored values
+        if ((newValue.provider_type === 'vertex' || newValue.type === 'vertex')) {
+            const cfg = (newValue as any)?.additional_config || {};
+            if (cfg.project_id) (newValue.credentials as any).project_id = cfg.project_id;
+            (newValue.credentials as any).location = cfg.location || 'global';
+            (newValue.credentials as any).auth_mode = cfg.auth_mode || 'adc';
+            (newValue.credentials as any).service_account_json = null;
         }
         // Hydrate the native web-search opt-in from additional_config (OpenAI/Azure)
         if ((newValue.provider_type === 'openai' || newValue.type === 'openai' || newValue.provider_type === 'azure' || newValue.type === 'azure')) {

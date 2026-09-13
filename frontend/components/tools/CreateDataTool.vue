@@ -16,8 +16,8 @@
         <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
             <span v-if="gidx > 0" class="ms-1 text-gray-300 dark:text-gray-600">|</span>
-            <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.title" />
-            <span v-if="group.type === 'bow'" class="ms-1 text-gray-500 dark:text-gray-400">{{ $t('tools.createData.bowSource') }} ·</span>
+            <DataSourceIcon :icon-token="group.iconToken" class="h-2.5 ms-1" :title="group.title" />
+            <span v-if="group.isBow" class="ms-1 text-gray-500 dark:text-gray-400">{{ $t('tools.createData.bowSource') }} ·</span>
             <span class="ms-1 text-gray-500 dark:text-gray-400 inline-flex items-center flex-wrap" :title="group.title">
               <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
                 <UIcon
@@ -170,11 +170,13 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
+// The agent shape the ticker needs: an id to match tables_by_source against and
+// the backend's pre-resolved icon. Deliberately not `type`/`connections` — an
+// icon derived from those here disagreed with every other view (see
+// composables/useToolTables.ts).
 interface DataSource {
   id: string
-  type?: string
-  data_source_type?: string
-  connections?: Array<{ id: string; type: string }>
+  icon_token?: string | null
 }
 
 interface Props {
@@ -391,8 +393,16 @@ const executedOnCache = computed(() => {
 })
 const isCached = (n: string) => isCachedTable(n) || executedOnCache.value
 
+// Prefer the agents the backend attached to THIS tool execution: that list rides
+// along in every view (report page, shared /c/{token}, trace modal), whereas the
+// `dataSources` prop is only passed on the report page — which is why the shared
+// views used to fall back to a generic icon. The prop stays as a fallback.
+const iconAgents = computed<DataSource[]>(
+  () => (props.toolExecution as any)?.data_sources || props.dataSources || [],
+)
+
 const groupedTables = computed<ToolTableGroup[]>(() =>
-  groupToolTables((props.toolExecution as any)?.arguments_json, props.dataSources)
+  groupToolTables((props.toolExecution as any)?.arguments_json, iconAgents.value)
 )
 
 // Hide the data preview by default for small table results (< 10 rows).

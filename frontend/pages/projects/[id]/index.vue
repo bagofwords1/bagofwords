@@ -25,11 +25,9 @@
                         <button
                             name="new-report-in-project"
                             @click="createReportInProject"
-                            :disabled="creating"
-                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-50"
+                            class="inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] font-medium rounded-md bg-blue-600 text-white hover:bg-blue-700"
                         >
-                            <Spinner v-if="creating" class="animate-spin w-4 h-4" />
-                            <UIcon v-else name="i-heroicons-plus" class="w-4 h-4" />
+                            <UIcon name="i-heroicons-plus" class="w-4 h-4" />
                             {{ $t('nav.newReport') }}
                         </button>
                         <UTooltip :text="$t('projects.tabs.settings')">
@@ -123,8 +121,7 @@
                                     <p class="mt-3 text-[13px] text-gray-500 dark:text-gray-400">{{ $t('projects.emptyProject') }}</p>
                                     <button
                                         @click="createReportInProject"
-                                        :disabled="creating"
-                                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+                                        class="mt-3 inline-flex items-center gap-1.5 px-3 py-1.5 text-[13px] rounded-md border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800"
                                     >
                                         <UIcon name="i-heroicons-plus" class="w-4 h-4" />{{ $t('nav.newReport') }}
                                     </button>
@@ -247,7 +244,7 @@
                                                     :disabled="savingAgents"
                                                     @click="addAgent(agent.id)"
                                                 >
-                                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="h-3.5 shrink-0" />
+                                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
                                                     <span class="flex-1 truncate text-start">{{ agent.name }}</span>
                                                 </button>
                                                 <div v-if="!agentCandidates.length" class="px-2 py-1.5 text-gray-400">{{ $t('projects.settings.noAgents') }}</div>
@@ -258,7 +255,7 @@
                             </div>
                             <div v-if="project.data_sources?.length" class="space-y-1">
                                 <div v-for="agent in project.data_sources" :key="agent.id" class="group/agent flex items-center gap-1.5 text-[12px] text-gray-600 dark:text-gray-300">
-                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="h-3.5 shrink-0" />
+                                    <DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="h-3.5 shrink-0" />
                                     <span class="flex-1 truncate">{{ agent.name }}</span>
                                     <button
                                         v-if="project.can_manage"
@@ -435,14 +432,12 @@ const { getCronLabel } = useCronLabel()
 const toast = useToast()
 const { data: currentUser } = useAuth()
 const { fetchProjects, updateProject, deleteProject } = useProjects()
-const { newReportPayload } = useNewReportProjectContext()
 const { organization } = useOrganization()
 
 const projectId = computed(() => String(route.params.id))
 
 const project = ref<any>(null)
 const loadingProject = ref(true)
-const creating = ref(false)
 const savingSettings = ref(false)
 const confirmDeleteOpen = ref(false)
 const deleting = ref(false)
@@ -752,31 +747,11 @@ const formatDate = (value: string | null) => {
     } catch { return '' }
 }
 
-const createReportInProject = async () => {
-    if (creating.value) return
-    creating.value = true
-    try {
-        // Empty data_sources + project_id: the backend copies the project's
-        // default agents onto the report, and only when the caller didn't pick
-        // agents explicitly. See useNewReportProjectContext — every "New
-        // report" entry point builds the payload the same way.
-        const resp: any = await useMyFetch('/reports', {
-            method: 'POST',
-            body: JSON.stringify({
-                title: 'untitled report',
-                files: [],
-                ...newReportPayload([]),
-            }),
-        })
-        if (resp?.error?.value) throw resp.error.value
-        const data = resp.data?.value as any
-        await router.push(`/reports/${data.id}`)
-    } catch (e: any) {
-        toast.add({ title: t('common.error'), description: String(e?.data?.detail || e?.message || ''), color: 'red' })
-    } finally {
-        creating.value = false
-    }
-}
+// Opens a draft scoped to this project; the report row is written only when
+// the user sends the first prompt, carrying ?project= through to the create
+// call (see useNewReportProjectContext). Agents stay empty so the backend
+// copies the project's defaults, exactly as this POST used to.
+const createReportInProject = () => router.push({ path: '/reports/new', query: { project: projectId.value } })
 
 const saveSettings = async () => {
     if (savingSettings.value) return

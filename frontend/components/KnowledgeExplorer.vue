@@ -91,7 +91,7 @@
           <template v-else>
             <div v-for="grp in pendingGroups" :key="grp.id">
               <div class="px-2 py-1 flex items-center gap-1.5 text-[11px] font-semibold text-gray-500 dark:text-gray-400">
-                <DataSourceIcon v-if="grp.type || grp.icon" :type="grp.type" :connector-key="grp.connector_key" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
+                <DataSourceIcon v-if="grp.type || grp.icon || grp.icon_token" :type="grp.type" :connector-key="grp.connector_key" :icon-token="grp.icon_token" :icon="grp.icon" class="w-3.5 h-3.5 shrink-0" />
                 <UIcon v-else name="i-heroicons-globe-alt" class="w-3.5 h-3.5 text-gray-400 dark:text-gray-500 shrink-0" />
                 <span class="flex-1 truncate">{{ grp.name }}</span>
                 <span class="text-gray-400 dark:text-gray-500 tabular-nums">{{ grp.rows.length }}</span>
@@ -118,7 +118,7 @@
             <div v-if="searchResults.agents.length">
               <div class="px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">Agents</div>
               <button v-for="a in searchResults.agents" :key="a.id" type="button" class="w-full flex items-center gap-2 h-8 rounded-md text-[13px] text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70 px-2" @click="onAgentClick(a)">
-                <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon="a.icon" class="w-4 h-4 shrink-0" />
+                <DataSourceIcon :type="a.type" :connector-key="a.connector_key" :icon-token="a.icon_token" :icon="a.icon" class="w-4 h-4 shrink-0" />
                 <span class="flex-1 text-start truncate">{{ a.name }}</span>
               </button>
             </div>
@@ -207,7 +207,7 @@
 
           <template v-for="agent in agents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
-              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
+              <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
               <!-- Content sections need a queryable agent, so they stay hidden while
                    the viewer hasn't signed in with their own credentials. Settings
@@ -415,7 +415,7 @@
                 <div class="text-center" data-testid="agent-hero">
                   <div class="mb-2 flex justify-center">
                     <AgentIconPicker v-if="agentDetail && agentCanUpdate" :model-value="agentDetail.icon" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :connections="agentDetail.connections || []" icon-only icon-class="h-7 w-7" @change="setAgentIcon" />
-                    <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon="agentDetail.icon" class="h-7 w-7" />
+                    <DataSourceIcon v-else-if="agentDetail" :type="agentDetail.type" :connector-key="agentDetail.connector_key" :icon-token="agentDetail.icon_token" :icon="agentDetail.icon" class="h-7 w-7" />
                   </div>
                   <h2 dir="auto" class="break-words text-lg font-semibold leading-7 text-gray-900 dark:text-white">{{ agentDetail?.name || agentViewName }}</h2>
                   <div v-if="editingDesc || agentDetail?.description || agentCanUpdate" class="mx-auto mt-1.5 max-w-sm">
@@ -563,7 +563,7 @@
               </template>
               <template v-else>
                 <button type="button" class="flex items-center gap-1.5 min-w-0 rounded px-1 -mx-1 hover:bg-gray-100 dark:hover:bg-gray-800/70" :title="$t('agentsPage.tipOpenAgent')" @click="openAgent(panelView.agentId)">
-                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" :icon="panelAgent?.icon" class="w-[18px] h-[18px] shrink-0" />
+                  <DataSourceIcon :type="panelAgent?.type" :connector-key="panelAgent?.connector_key" :icon-token="panelAgent?.icon_token" :icon="panelAgent?.icon" class="w-[18px] h-[18px] shrink-0" />
                   <span class="text-[13px] font-medium text-gray-700 dark:text-gray-300 truncate hover:text-gray-900 dark:hover:text-white">{{ panelAgent?.name || $t('agentsPage.agent') }}</span>
                 </button>
                 <UIcon name="i-heroicons-chevron-right" class="w-3.5 h-3.5 text-gray-300 dark:text-gray-600 shrink-0 rtl:rotate-180" />
@@ -796,7 +796,7 @@
                           <span class="flex items-center gap-1.5 mb-1.5">
                             <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="activeSuggestion?.source === 'ai' ? 'bg-violet-500' : 'bg-blue-500'"></span>
                             <span class="text-[10px] text-gray-500 dark:text-gray-400 truncate">{{ activeSuggestion?.source === 'ai' ? $t('agentsPage.aiSuggestion') : $t('agentsPage.proposed') }}<template v-if="activeSuggestion?.created_at"> · {{ fmtDate(activeSuggestion.created_at) }}</template></span>
-                            <button v-if="activeSuggestion?.completion_id || activeSuggestion?.report_id" type="button" class="ms-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" :title="$t('agentsPage.tipViewTrace')" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
+                            <button v-if="canViewConsole && (activeSuggestion?.completion_id || activeSuggestion?.report_id)" type="button" class="ms-1 text-gray-300 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 transition-colors" :title="$t('agentsPage.tipViewTrace')" @click.stop="openTrace(activeSuggestion)"><UIcon name="i-heroicons-arrows-pointing-out" class="w-3 h-3" /></button>
                           </span>
                           <!-- Brief evidence stamped by the AI when it proposed this change -->
                           <span v-if="activeSuggestion?.evidence" class="block mb-1.5 text-[10px] leading-snug text-gray-400 dark:text-gray-500 italic line-clamp-3">{{ activeSuggestion.evidence }}</span>
@@ -874,7 +874,7 @@
                 <KSelect v-if="metaEditable" v-model="draft.data_source_ids" :options="agentOptsForDraft" multiple :placeholder="$t('agentsPage.allAgentsPlaceholder')" icon="i-heroicons-cube" @update:modelValue="onMetaChange" />
                 <template v-else>
                   <span v-if="(detail.data_sources || []).length === 0" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><UIcon name="i-heroicons-globe-alt" class="w-3 h-3 text-gray-400 dark:text-gray-500" />{{ $t('agentsPage.allAgentsPlaceholder') }}</span>
-                  <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
+                  <span v-for="ds in detail.data_sources" :key="ds.id" class="inline-flex items-center gap-1 px-2 h-7 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 text-[11px]"><DataSourceIcon :type="ds.type" :connector-key="ds.connector_key" :icon-token="ds.icon_token" :icon="ds.icon" class="w-3 h-3" />{{ ds.name }}</span>
                 </template>
                 <!-- Folder (cosmetic placement), one per scope. Picking a
                      folder here files the instruction without a drag; "Top
@@ -1177,7 +1177,9 @@ import ReviewFeed from '~/components/ReviewFeed.vue'
 import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import AgentInstructionPreview from '~/components/instructions/AgentInstructionPreview.vue'
 import DiffMatchPatch from 'diff-match-patch'
-import { useCan, useCanAny, useCanAll } from '~/composables/usePermissions'
+import { useCan, useCanAny, useCanAll, useCanAccessMonitoring } from '~/composables/usePermissions'
+// No useConnectionSignIn here: the landing's sign-in button opens AgentCardModal,
+// which owns the OAuth-only direct-redirect path (see its triggerUserSignIn call).
 import { getEffectiveStatus, statusDotClass, statusLabelKey, needsConnectionSignIn } from '~/composables/useConnectionStatus'
 import { useInstructionHelpers, type Instruction } from '~/composables/useInstructionHelpers'
 import { useOrgSettings } from '~/composables/useOrgSettings'
@@ -2191,31 +2193,19 @@ const onAgentClick = (agent: any) => {
   if (!isOpen('agent:' + agent.id)) expand('agent:' + agent.id)
   openAgent(agent.id)
 }
-const createReportForAgent = async (id: string) => {
-  if (startingReport.value || !agentCanCreateReport.value) return
-  startingReport.value = true; startingStarterIdx.value = null
-  try {
-    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'New report', data_sources: [id] } })
-    const rid = (data.value as any)?.id
-    if (error.value || !rid) throw new Error('Failed to create report')
-    await navigateTo(`/reports/${rid}`)
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
-  finally { startingReport.value = false }
-}
+// Opens a draft scoped to this agent. Nothing is written until the user sends
+// a prompt; ?agents= is an explicit scope, so it lands on the created report
+// as its data_sources (and overrides project defaults) exactly as this POST did.
+const createReportForAgent = (id: string) => navigateTo({ path: '/reports/new', query: { agents: id } })
 // Start a training session for an agent: a new report scoped to ONLY this
 // agent/data source, switched to training mode, with a pre-filled (non-submitting)
 // prompt — mirrors the legacy agents page.
-const startTrainingSessionForAgent = async (agentId: string) => {
+const startTrainingSessionForAgent = (agentId: string) => {
   if (!agentId) return
   const prompt = 'I need to update the instruction for this agent with '
-  try {
-    const { data, error } = await useMyFetch<any>('/reports', { method: 'POST', body: { title: 'Training session', data_sources: [agentId] } })
-    const rid = (data.value as any)?.id
-    if (error.value || !rid) throw new Error('Failed to create report')
-    const { error: modeErr } = await useMyFetch(`/reports/${rid}`, { method: 'PUT', body: { mode: 'training' } })
-    if (modeErr.value) throw new Error(String(modeErr.value))
-    await navigateTo({ path: `/reports/${rid}`, query: { prompt } })
-  } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+  // The draft carries the mode instead of the old create-then-PUT: the create
+  // endpoint takes `mode` and runs the same training-mode permission gate on it.
+  return navigateTo({ path: '/reports/new', query: { agents: agentId, mode: 'training', prompt } })
 }
 // description inline edit
 const startEditDesc = () => { descForm.value = agentDetail.value?.description || ''; editingDesc.value = true; nextTick(() => descInputRef.value?.focus()) }
@@ -2479,7 +2469,7 @@ const loadPendingChanges = async () => {
 // collapse into one synthetic "Global" group. Each group keeps a stable label
 // and icon so the flat list reads like the tree's agent sections.
 const pendingGroups = computed(() => {
-  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; rows: Instruction[] }>()
+  const map = new Map<string, { id: string; name: string; type?: string; connector_key?: string; icon?: string | null; icon_token?: string | null; rows: Instruction[] }>()
   // The pending_only list is served by the same optimistic sweep as the dots —
   // hide rows the authoritative pass has since proven resolved.
   for (const ins of pendingRows.value.filter(r => canEditInstruction(r) && !verifiedNotPending.value.has(r.id))) {
@@ -2492,7 +2482,7 @@ const pendingGroups = computed(() => {
       for (const ds of dss) {
         if (!map.has(ds.id)) {
           const agent = agents.value.find(a => a.id === ds.id)
-          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, connector_key: agent?.connector_key, rows: [] })
+          map.set(ds.id, { id: ds.id, name: ds.name, type: agent?.type || (ds as any).type, icon: agent?.icon ?? (ds as any).icon, icon_token: agent?.icon_token ?? (ds as any).icon_token, connector_key: agent?.connector_key, rows: [] })
         }
         map.get(ds.id)!.rows.push(ins)
       }
@@ -3106,7 +3096,12 @@ const toggleHistory = () => { if (canEditDetail.value) showHistory.value = !show
 const sourceLabel = (pb: any) => pb?.source === 'ai' ? 'AI' : 'Proposed'
 
 // Agent trace: open the report/completion that produced this suggestion.
-const canViewConsole = computed(() => useCan('view_console'))
+// A suggestion carries only trace coordinates (report_id/completion_id), not
+// the agents behind that report, so gate on console access — org-wide or an
+// agent manager — and let ConsoleScope.assert_report_visible scope the
+// per-report drill-down server-side. (`view_console`, used here before, was
+// never a registry permission and hid this from everyone but a full admin.)
+const canViewConsole = computed(() => useCanAccessMonitoring())
 const showTraceModal = ref(false)
 const traceReportId = ref<string | null>(null)
 const traceCompletionId = ref<string | null>(null)

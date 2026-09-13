@@ -179,15 +179,13 @@ try {
   await page.getByRole('menuitem',{name:'Download agent data',exact:true}).click();
   expect((await download).suggestedFilename()).toBe('Revenue-agent-export.zip');
   expect(exportCalls).toBe(1);
-  await page.getByTestId('agent-new-report').evaluate(el=>{el.click();el.click()});
-  await expect.poll(()=>reportCalls.length).toBe(1);
-  expect(reportCalls[0].data_sources).toEqual([agentId]);
-  await expect(page.getByTestId('agent-new-report')).toBeDisabled();
-  releaseReport();await expect(page.getByTestId('agent-new-report')).toBeEnabled();
+  // "New report" opens a DRAFT scoped to this agent rather than POSTing a row;
+  // that is asserted at the very end of this file, because the click navigates
+  // away from the harness page. The starters below still POST.
   await page.getByTestId('agent-starters').getByRole('button',{name:'What changed in sales?',exact:true}).click();
-  await expect.poll(()=>reportCalls.length).toBe(2);
-  expect(reportCalls[1].new_message).toBe('Compare sales with the previous month.');
-  expect(reportCalls[1].data_sources).toEqual([agentId]);releaseReport();
+  await expect.poll(()=>reportCalls.length).toBe(1);
+  expect(reportCalls[0].new_message).toBe('Compare sales with the previous month.');
+  expect(reportCalls[0].data_sources).toEqual([agentId]);releaseReport();
   await expect(page.getByTestId('agent-new-report')).toBeEnabled();
   empty=true;noActivity=true;await load();
   await expect(page.getByTestId('agent-starters')).toHaveCount(0);
@@ -234,6 +232,13 @@ try {
   await page.screenshot({path:out+'dark-mobile.png'});
   expect(await previewBody.locator('.instruction-prose').evaluate(el=>getComputedStyle(el).color)).toBe('rgb(156, 163, 175)');
   expect(errors).toEqual([]);
+  // Last, because it leaves the harness page: "New report" opens a draft scoped
+  // to this agent (?agents= carries the scope onto the report the draft creates)
+  // and writes nothing until the user sends a prompt — so no POST /reports.
+  const callsBeforeDraft = reportCalls.length;
+  await page.getByTestId('agent-new-report').click();
+  await page.waitForURL(/\/reports\/new\?.*agents=landing-agent/);
+  expect(reportCalls.length).toBe(callsBeforeDraft);
   console.log('PASS: centered compact layout, counts, expansion, editing, export, report payloads/duplicate prevention, empty states, role gates, full/partial sign-in, Hebrew, mobile and dark mode.');
  }
  }

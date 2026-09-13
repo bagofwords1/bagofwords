@@ -29,7 +29,7 @@
                             <DataSourceIcon
                                 v-if="selectedDsFilter"
                                 :type="(selectedDsFilter as any).type || (selectedDsFilter as any).connections?.[0]?.type"
-                                :icon="(selectedDsFilter as any).icon"
+                                :icon-token="(selectedDsFilter as any).icon_token" :icon="(selectedDsFilter as any).icon"
                                 class="h-4 flex-shrink-0"
                             />
                             <Icon v-else name="heroicons:funnel" class="w-4 h-4 text-gray-400 dark:text-gray-500 flex-shrink-0" />
@@ -64,7 +64,7 @@
                                     @click="dsFilterId = d.id; dsFilterDropdownOpen = false"
                                     class="w-full flex items-center gap-2 px-2 py-1.5 text-xs hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors text-start border-t border-gray-100 dark:border-gray-800"
                                 >
-                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
+                                    <DataSourceIcon :type="(d as any).type || (d as any).connections?.[0]?.type" :icon-token="(d as any).icon_token" :icon="(d as any).icon" class="h-4 flex-shrink-0" />
                                     <span class="truncate flex-1 font-medium">{{ (d as any).name }}</span>
                                     <Icon v-if="dsFilterId === d.id" name="heroicons:check" class="w-3 h-3 text-blue-500" />
                                 </button>
@@ -714,7 +714,7 @@ import GitBranchIcon from '~/components/icons/GitBranchIcon.vue'
 import InstructionGlobalCreateComponent from '~/components/InstructionGlobalCreateComponent.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import type { Instruction } from '~/composables/useInstructionHelpers'
-import { useCan, useCanAny } from '~/composables/usePermissions'
+import { useCanAny, useCanAccessMonitoring } from '~/composables/usePermissions'
 import { useAgent } from '~/composables/useAgent'
 import { onClickOutside } from '@vueuse/core'
 
@@ -939,7 +939,11 @@ const toast = useToast()
 // on every build operation via _enforce_build_ds_access.
 const canCreateBuilds = computed(() => useCanAny('manage_instructions', 'data_source'))
 const canManageTests = computed(() => useCanAny('manage_evals', 'data_source'))
-const canViewConsole = computed(() => useCan('view_console'))
+// Builds carry trace coordinates but not the agents behind the report, so gate
+// on console access (org-wide or agent manager) and let the backend's
+// ConsoleScope scope the per-report drill-down. `view_console` was never a
+// registry permission — it hid this from everyone but a full org admin.
+const canViewConsole = computed(() => useCanAccessMonitoring())
 
 // TraceModal state (opened from the "View trace" button on builds that were
 // produced by an agent execution).

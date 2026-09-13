@@ -134,7 +134,7 @@
                   {{ modelDisplayName(row.case?.prompt_json?.model_id, row.case) }}
                 </span>
                 <span v-for="dsId in (row.case?.data_source_ids_json || [])" :key="dsId" class="inline-flex items-center gap-1" v-show="dataSourceById[dsId]">
-                  <DataSourceIcon v-if="dataSourceById[dsId]" :type="dataSourceById[dsId].type" :icon="dataSourceById[dsId].icon" class="h-3" />
+                  <DataSourceIcon v-if="dataSourceById[dsId]" :type="dataSourceById[dsId].type" :icon-token="dataSourceById[dsId].icon_token" :icon="dataSourceById[dsId].icon" class="h-3" />
                   {{ dataSourceById[dsId]?.name }}
                 </span>
                 <NuxtLink v-if="row.result.report_id" :to="`/reports/${row.result.report_id}`" target="_blank" class="ms-auto inline-flex items-center gap-1 text-blue-500 hover:underline">

@@ -152,8 +152,7 @@
                                         <UTooltip :text="instruction.data_sources.map((ds: any) => ds.name).join(', ')">
                                             <div class="flex items-center gap-1">
                                                 <DataSourceIcon
-                                                    :type="getDataSourceType(instruction) as any"
-                                                    :icon="getDataSourceIcon(instruction)"
+                                                    :icon-token="getDataSourceIconToken(instruction)"
                                                     :class="compact ? 'h-3 w-3' : 'h-3.5 w-3.5'"
                                                     class="flex-shrink-0"
                                                 />
@@ -273,8 +272,9 @@ const props = withDefaults(defineProps<{
     instructions: Instruction[]
     loading?: boolean
     compact?: boolean
-    // Optional: provide full data sources list so we can resolve missing ds.type from list endpoints
-    dataSources?: Array<{ id: string; type?: string | null }>
+    // Optional: the full agents list, so a slim embedded agent (which may carry
+    // no resolved icon) can be looked up by id.
+    dataSources?: Array<{ id: string; type?: string | null; icon_token?: string | null }>
 
     // Selection
     selectable?: boolean
@@ -333,23 +333,21 @@ const emit = defineEmits<{
 const helpers = useInstructionHelpers()
 const expandedRows = ref<Set<string>>(new Set())
 
-const dataSourceTypeById = computed<Record<string, string | null | undefined>>(() => {
+const iconTokenById = computed<Record<string, string | null | undefined>>(() => {
     const out: Record<string, string | null | undefined> = {}
     for (const ds of props.dataSources || []) {
-        out[ds.id] = ds.type
+        out[ds.id] = ds.icon_token
     }
     return out
 })
 
-const getDataSourceType = (instruction: Instruction) => {
-    const first = instruction.data_sources?.[0]
-    if (!first) return null
-    return first.type ?? dataSourceTypeById.value[first.id] ?? null
-}
-
-const getDataSourceIcon = (instruction: Instruction) => {
+// The agent's resolved icon, from the embedded row or (when that shape predates
+// the token) the agents list. Nothing is derived from type/icon here — that is
+// what made this table disagree with the agents explorer.
+const getDataSourceIconToken = (instruction: Instruction) => {
     const first: any = instruction.data_sources?.[0]
-    return first?.icon ?? null
+    if (!first) return null
+    return first.icon_token ?? iconTokenById.value[first.id] ?? null
 }
 
 const toggleExpand = (id: string) => {
