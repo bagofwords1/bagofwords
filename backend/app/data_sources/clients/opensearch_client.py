@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
@@ -216,6 +217,8 @@ class OpenSearchClient(DataSourceClient):
                 for s in (self._request("GET", path) or {}).get("data_streams") or []:
                     if s.get("name"):
                         streams.setdefault(s["name"], s)
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
         return list(streams.values())
@@ -233,6 +236,8 @@ class OpenSearchClient(DataSourceClient):
             path = f"/{','.join(self._patterns)}/_mapping" if self._patterns else "/_mapping"
             mappings_by_index = self._request("GET", path)
             aliases_by_index = self._request("GET", "/_alias")
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving OpenSearch mappings: {e}")
             return []
@@ -245,7 +250,7 @@ class OpenSearchClient(DataSourceClient):
 
         tables: List[Table] = []
         alias_members: Dict[str, List[str]] = {}
-        for index_name, body in sorted(mappings_by_index.items()):
+        for index_name, body in discovery_items(sorted(mappings_by_index.items()), 'indices', label=lambda pair: pair[0]):
             # Backing indices are queried through their stream, never directly.
             if index_name in stream_backing:
                 continue
@@ -257,7 +262,7 @@ class OpenSearchClient(DataSourceClient):
                 alias_members.setdefault(alias, []).append(index_name)
 
         by_name = {t.name: t for t in tables}
-        for alias, members in sorted(alias_members.items()):
+        for alias, members in discovery_items(sorted(alias_members.items()), 'aliases', label=lambda pair: pair[0]):
             if alias.startswith("."):
                 continue
             tables.append(self._union_table(
@@ -304,6 +309,8 @@ class OpenSearchClient(DataSourceClient):
         for chunk in chunks:
             try:
                 fetched.update(self._request("GET", f"/{','.join(chunk)}/_mapping") or {})
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
 
@@ -322,7 +329,8 @@ class OpenSearchClient(DataSourceClient):
             tables.append(self._union_table(name, members, "data_stream", backing))
         return tables
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         return self.get_tables()
 
     def get_schema(self, index_name: str) -> Table:

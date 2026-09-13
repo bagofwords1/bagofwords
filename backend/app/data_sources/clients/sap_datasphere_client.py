@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional, Tuple
@@ -206,7 +207,8 @@ class SapDatasphereClient(DataSourceClient):
             seen_pages += 1
         return assets
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         return self.get_tables()
 
     def get_tables(self) -> List[Table]:
@@ -216,7 +218,7 @@ class SapDatasphereClient(DataSourceClient):
             return self._schemas_cache
 
         tables: List[Table] = []
-        for asset in self._list_assets():
+        for asset in discovery_items(self._list_assets(), 'assets', label=lambda asset: asset.get('name')):
             name = asset.get("name") or ""
             space = asset.get("spaceName") or asset.get("spaceId") or ""
             if not name or not space:
@@ -278,6 +280,8 @@ class SapDatasphereClient(DataSourceClient):
             if resp.status_code >= 300:
                 return []
             root = ET.fromstring(resp.content)
+        except IndexingCancelled:
+            raise
         except Exception:
             return []
 

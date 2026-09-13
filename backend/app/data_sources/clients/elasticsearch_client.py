@@ -45,6 +45,7 @@ cluster privilege (see there). Discovery is likewise per-pattern and lenient:
 one unreadable or currently-empty glob degrades to "that pattern contributed
 nothing" instead of zeroing the whole catalog.
 """
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 import base64
 import json
 import logging
@@ -366,6 +367,8 @@ class ElasticsearchClient(DataSourceClient):
                 for s in (self._request("GET", path) or {}).get("data_streams") or []:
                     if s.get("name"):
                         streams.setdefault(s["name"], s)
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
         return list(streams.values())
@@ -417,6 +420,8 @@ class ElasticsearchClient(DataSourceClient):
                             properties[field] = {"type": variant["type"]}
                     if properties:
                         mappings[target] = {"mappings": {"properties": properties}}
+                except IndexingCancelled:
+                    raise
                 except Exception as e:
                     errors.append(f"{target}: {e}")
                 continue
@@ -424,6 +429,8 @@ class ElasticsearchClient(DataSourceClient):
             try:
                 mappings.update(self._request("GET", path,
                                               params=self._target_params(target)) or {})
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 errors.append(f"{target or '_all'}: {e}")
         return mappings, errors
@@ -442,6 +449,8 @@ class ElasticsearchClient(DataSourceClient):
             try:
                 aliases.update(self._request("GET", path,
                                              params=self._target_params(target)) or {})
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
         return aliases
@@ -480,7 +489,7 @@ class ElasticsearchClient(DataSourceClient):
         concrete: Dict[str, Table] = {}
         pattern_members: Dict[str, List[str]] = {}
         alias_members: Dict[str, List[str]] = {}
-        for index_name, body in sorted(mappings_by_index.items()):
+        for index_name, body in discovery_items(sorted(mappings_by_index.items()), 'indices', label=lambda pair: pair[0]):
             if index_name in stream_backing:
                 continue
             if index_name.startswith(".") and not self._targets_system:
@@ -511,7 +520,7 @@ class ElasticsearchClient(DataSourceClient):
                 tables.append(table)
 
         by_name = {t.name: t for t in tables}
-        for alias, members in sorted(alias_members.items()):
+        for alias, members in discovery_items(sorted(alias_members.items()), 'aliases', label=lambda pair: pair[0]):
             if alias.startswith("."):
                 continue
             member_tables = [concrete[m] for m in members if m in concrete]
@@ -561,6 +570,8 @@ class ElasticsearchClient(DataSourceClient):
         for chunk in chunks:
             try:
                 fetched.update(self._request("GET", f"/{','.join(chunk)}/_mapping") or {})
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
 
@@ -620,6 +631,8 @@ class ElasticsearchClient(DataSourceClient):
             spaces = self._kibana_request("GET", "/api/spaces/space")
             ids = [s.get("id") for s in spaces if s.get("id")]
             return ids or ["default"]
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.warning(f"Kibana spaces enumeration failed ({e}); using default space")
             return ["default"]
@@ -653,6 +666,8 @@ class ElasticsearchClient(DataSourceClient):
                 json_body=[{"type": t, "id": i} for t, i in refs])
             return {(o.get("type"), o.get("id")): o
                     for o in (body.get("saved_objects") or []) if not o.get("error")}
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.warning(f"Kibana _bulk_get failed: {e}")
             return {}
@@ -822,6 +837,8 @@ class ElasticsearchClient(DataSourceClient):
                     continue  # maps, links, images — no query content
                 panel["title"] = title
                 out.append(panel)
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 logger.warning(f"Kibana panel parse failed on dashboard "
                                f"'{(attrs.get('title') or '?')}': {e}")
@@ -866,13 +883,15 @@ class ElasticsearchClient(DataSourceClient):
 
     def _kibana_dashboard_tables(self) -> List[Table]:
         tables: List[Table] = []
-        for space in self._kibana_spaces():
+        for space in discovery_items(self._kibana_spaces(), 'dashboard_spaces', label=str):
             for dash in self._find_saved_objects(space, "dashboard"):
                 if len(tables) >= MAX_KIBANA_OBJECTS:
                     return tables
                 try:
                     panels = self._resolve_dashboard_panels(space, dash)
                     tables.append(self._dashboard_table(space, dash, panels))
+                except IndexingCancelled:
+                    raise
                 except Exception as e:
                     logger.warning(
                         f"Kibana dashboard catalog skipped "
@@ -881,7 +900,7 @@ class ElasticsearchClient(DataSourceClient):
 
     def _kibana_saved_search_tables(self) -> List[Table]:
         tables: List[Table] = []
-        for space in self._kibana_spaces():
+        for space in discovery_items(self._kibana_spaces(), 'saved_search_spaces', label=str):
             for so in self._find_saved_objects(space, "search"):
                 if len(tables) >= MAX_KIBANA_OBJECTS:
                     return tables
@@ -922,10 +941,14 @@ class ElasticsearchClient(DataSourceClient):
         tables: List[Table] = []
         try:
             tables.extend(self._kibana_dashboard_tables())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.warning(f"Kibana dashboard catalog failed: {e}")
         try:
             tables.extend(self._kibana_saved_search_tables())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.warning(f"Kibana saved-search catalog failed: {e}")
         return tables
@@ -942,7 +965,8 @@ class ElasticsearchClient(DataSourceClient):
             raise ValueError(f"Kibana dashboard not found in space '{space}': {name}")
         return matches[0]
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         tables = self.get_tables()
         tables.extend(self._kibana_knowledge_tables())
         return tables

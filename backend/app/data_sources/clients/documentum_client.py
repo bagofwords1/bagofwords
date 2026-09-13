@@ -18,6 +18,7 @@ Auth (see docs/documentum-auth.md):
     authorization-code flow.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import io
 import json
@@ -606,6 +607,7 @@ class DocumentumClient(DataSourceClient):
         except Exception as exc:
             return {"success": False, "message": str(exc)}
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None):
         if self.index_mode == "none":
             return []

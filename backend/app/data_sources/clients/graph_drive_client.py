@@ -11,6 +11,7 @@ LIST_FILES + READ_FILE are also declared so a future agent-tool layer can
 call the corresponding methods directly.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import io
 import json
@@ -1132,6 +1133,7 @@ class GraphDriveClient(DataSourceClient):
         except Exception as e:
             return _result(False, str(e))
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """Catalog rows for the files in scope, per the connection's index tier.
 

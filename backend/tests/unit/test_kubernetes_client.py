@@ -492,8 +492,9 @@ class TestCatalog:
 
     def test_discovery_reports_progress_and_survives_crd_errors(self, fake_api):
         seen = []
-        make_client().get_schemas(progress_callback=lambda phase, item, done, total: seen.append((phase, item)))
-        assert seen and all(p == "custom resources" for p, _ in seen)
+        tables = make_client().get_schemas(progress_callback=lambda phase, item, done, total: seen.append((phase, item)))
+        names = {table.name for table in tables}
+        assert any(phase == "custom resources" and item in names for phase, item in seen)
         fake_api.overrides["/apis/apiextensions.k8s.io/v1/customresourcedefinitions"] = api_error(403, "forbidden")
         names = {t.name for t in make_client().get_schemas()}
         assert set(_CATALOG) <= names                       # the fixed catalog never depends on CRD access

@@ -1,15 +1,16 @@
 <template>
-  <div class="w-full">
+  <div class="w-full" :class="{ 'connection-form-minimal': embedded }">
     <div v-if="selectedType" class="bg-white dark:bg-gray-900 rounded-lg p-4">
       <div v-if="!hideHeader" class="flex items-center gap-2 mb-3">
         <DataSourceIcon :type="selectedType" class="h-5" />
         <span class="text-sm text-gray-800 dark:text-gray-200">{{ selectedTitle }}</span>
       </div>
 
-      <form @submit.prevent="onSubmit" class="space-y-3">
-        <div v-if="props.allowNameEdit !== false" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
-          <label class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('data.connectionName') }}</label>
-          <input v-model="name" type="text" :placeholder="$t('data.connectionNamePlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+      <fieldset :disabled="readOnly" :inert="readOnly || undefined" data-testid="connection-settings-fields">
+      <form ref="formElement" @submit.prevent="onSubmit" :class="embedded ? 'connection-fields' : 'space-y-3'">
+        <div v-if="props.allowNameEdit !== false" class="connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
+          <label for="connection-name" class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-1 block">{{ $t('data.connectionName') }}</label>
+          <input id="connection-name" v-model="name" type="text" :placeholder="$t('data.connectionNamePlaceholder')" class="border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-1.5 w-full text-sm focus:outline-none focus:border-blue-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
         </div>
 
         <!-- Setup guide: numbered steps the admin runs on the remote system BEFORE
@@ -37,21 +38,23 @@
           </ol>
         </div>
 
-        <div v-if="fields.config" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
-          <div class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('data.configuration') }}</div>
-          <div v-for="field in configFields" :key="field.field_name" class="mb-2" @input="clearTestResult()">
+        <div v-if="fields.config" class="connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
+          <div v-if="!embedded" class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">{{ $t('data.configuration') }}</div>
+
+          <div class="connection-config-grid">
+          <div v-for="field in configFields" :key="field.field_name" class="mb-2" :class="{ 'connection-field-port': field.field_name === 'port', 'connection-field-host': field.field_name === 'host' }" @input="clearTestResult()">
             <div class="mb-1">
               <label :for="field.field_name" class="text-xs text-gray-700 dark:text-gray-300">{{ field.title || field.field_name }}</label>
               <span v-if="field.description" class="text-xs text-gray-400 dark:text-gray-600 ms-3">{{ field.description }}</span>
             </div>
-            <input v-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+            <select v-if="fieldOptions(field).length" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+              <option v-for="opt in fieldOptions(field)" :key="String(opt.value)" :value="opt.value">{{ opt.label }}</option>
+            </select>
+            <input v-else-if="field.type === 'string' && uiType(field) !== 'textarea' && uiType(field) !== 'password'" type="text" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
             <input v-else-if="field.type === 'integer' || field.type === 'number' || uiType(field) === 'number'" type="number" v-model.number="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" :min="field.minimum" :max="field.maximum" />
             <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.config[field.field_name]" size="xs" color="blue" />
             <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.config[field.field_name]" :id="field.field_name" class="mt-1 block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" rows="3" />
             <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
-            <select v-else-if="uiType(field) === 'select' || (Array.isArray(field.enum) && field.enum.length)" v-model="formData.config[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
-              <option v-for="opt in (field.enum || [])" :key="opt" :value="opt">{{ (field['ui:enumLabels'] && field['ui:enumLabels'][opt]) || opt }}</option>
-            </select>
             <div v-else-if="uiType(field) === 'keyvalue'" class="space-y-1.5">
               <div v-for="(row, idx) in (kvRowsMap[field.field_name] || [])" :key="idx" class="flex items-center gap-2">
                 <input type="text" v-model="row.k" @input="kvSync(field.field_name)" :placeholder="$t('data.kvParameter')" class="block w-1/2 px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm" />
@@ -80,8 +83,10 @@
           </div>
         </div>
 
-        <div v-if="true" class="p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
-          <div class="flex items-center justify-between mb-2">
+
+        </div>
+        <div v-if="!embedded || coreCredentialFields.length || authOptions.length > 1 || showRequireUserAuth" class="connection-credentials connection-section p-3 rounded border border-gray-200 dark:border-gray-700 dark:bg-gray-800/40">
+          <div v-if="!embedded || hasExistingCredentials" class="flex items-center justify-between mb-2">
             <div class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ $t('data.systemCredentials') }}</div>
             <div class="flex items-center gap-2">
               <span v-if="credentialsLocked" class="text-xs text-green-600">✓ {{ $t('data.credentialsSet') }}</span>
@@ -94,7 +99,7 @@
                 {{ $t('data.change') }}
               </button>
               <button
-                v-if="hasExistingCredentials && !credentialsLocked"
+                v-if="hasExistingCredentials && !credentialsLocked && !unifiedEdit"
                 type="button"
                 @click="lockCredentials"
                 class="text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300"
@@ -104,38 +109,38 @@
             </div>
           </div>
 
-          <div v-if="authOptions.length" class="w-48 mb-2">
-            <USelectMenu v-if="authOptions.length > 1" v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
+          <div v-if="authOptions.length > 1" class="connection-auth-selector w-48 mb-2">
+            <USelectMenu v-model="selectedAuth" :options="authOptions" option-attribute="label" value-attribute="value" @change="handleAuthChange" />
           </div>
 
           <!-- Locked state: show masked fields -->
           <div v-if="credentialsLocked && showSystemCredentialFields">
             <div v-for="field in coreCredentialFields" :key="field.field_name" class="mb-2">
               <label class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
-              <input type="text" disabled value="••••••••" class="block w-full px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-900 text-sm text-gray-400 dark:text-gray-600 cursor-not-allowed" />
+              <input type="text" :id="field.field_name" disabled :value="isSecretField(field) ? '••••••••' : formData.credentials[field.field_name]" class="block w-full px-3 py-1.5 border border-gray-200 dark:border-gray-700 rounded-md bg-gray-50 dark:bg-gray-900 text-sm text-gray-400 dark:text-gray-600 cursor-not-allowed" />
             </div>
           </div>
 
           <!-- Unlocked state: editable fields -->
-          <template v-if="!credentialsLocked">
-            <template v-if="showSystemCredentialFields" v-for="field in coreCredentialFields" :key="field.field_name">
-              <div class="mb-2" @input="clearTestResult()">
+          <div v-if="!credentialsLocked && showSystemCredentialFields" class="connection-credential-grid">
+            <template v-for="field in coreCredentialFields" :key="field.field_name">
+              <div class="connection-field mb-2" @input="clearTestResult()">
                 <label :for="field.field_name" class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
-                <select v-if="Array.isArray(field.enum) && field.enum.length" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
-                  <option v-for="opt in field.enum" :key="opt" :value="opt">{{ (field['ui:enumLabels'] && field['ui:enumLabels'][opt]) || opt }}</option>
+                <select v-if="fieldOptions(field).length" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100">
+                  <option v-for="opt in fieldOptions(field)" :key="String(opt.value)" :value="opt.value">{{ opt.label }}</option>
                 </select>
-                <input v-else-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+                <input v-else-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" />
                 <UToggle v-else-if="field.type === 'boolean' || uiType(field) === 'boolean' || uiType(field) === 'toggle'" v-model="formData.credentials[field.field_name]" size="xs" color="blue" />
-                <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" rows="3" />
-                <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+                <textarea v-else-if="uiType(field) === 'textarea'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" rows="3" />
+                <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" />
                 <!-- Fallback for schemas without ui:type — without this the field
                      would not render at all. Secret-looking names get masked. -->
-                <input v-else :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+                <input v-else :type="isPasswordField(field.field_name) ? 'password' : 'text'" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" />
               </div>
             </template>
-          </template>
+          </div>
 
-          <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="flex items-center gap-2 mb-2 mt-4">
+          <div v-if="showRequireUserAuth && (isCreateMode || isCreateConnectionOnly || isConnectionEdit)" class="connection-auth-toggle flex items-center gap-2 mb-2 mt-4">
             <UToggle color="blue" v-model="require_user_auth" @change="clearTestResult()" />
             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('data.requireUserAuth') }}</span>
           </div>
@@ -148,8 +153,8 @@
               <template v-for="field in oauthCredentialFields" :key="field.field_name">
                 <div class="mb-2" @input="clearTestResult()">
                   <label :for="field.field_name" class="block text-xs text-gray-700 dark:text-gray-300 mb-1">{{ field.title || field.field_name }}</label>
-                  <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
-                  <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="field.title || field.field_name" />
+                  <input v-if="uiType(field) === 'string'" type="text" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" />
+                  <input v-else-if="uiType(field) === 'password' || field.type === 'password'" type="password" v-model="formData.credentials[field.field_name]" :id="field.field_name" class="block w-full px-3 py-1.5 border border-gray-300 dark:border-gray-600 rounded-md focus:outline-none focus:border-blue-500 text-sm bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" :placeholder="credentialPlaceholder(field)" />
                 </div>
               </template>
             </div>
@@ -157,7 +162,7 @@
 
         </div>
 
-        <div class="pt-1">
+        <div v-if="!embedded" class="pt-1">
           <div v-if="showLLMToggle !== false" class="flex items-center gap-2 mb-2">
             <UToggle color="blue" v-model="use_llm_onboarding" />
             <span class="text-xs text-gray-700 dark:text-gray-300">{{ $t('data.useLlmToLearn') }}</span>
@@ -196,6 +201,7 @@
           </div>
         </div>
       </form>
+      </fieldset>
     </div>
   </div>
 
@@ -208,6 +214,8 @@ import { useEnterprise } from '~/ee/composables/useEnterprise'
 const { isLicensed } = useEnterprise()
 
 const props = defineProps<{
+  readOnly?: boolean,
+  unifiedEdit?: boolean,
   mode?: 'onboarding'|'create'|'edit'|'create_connection_only',
   initialType?: string,
   initialName?: string,
@@ -220,9 +228,10 @@ const props = defineProps<{
   forceShowSystemCredentials?: boolean,
   showRequireUserAuthToggle?: boolean,
   initialRequireUserAuth?: boolean,
+  embedded?: boolean,
   hideHeader?: boolean
 }>()
-const emit = defineEmits<{ (e: 'submitted', payload: any): void; (e: 'success', dataSource: any): void; (e: 'change:type', type: string): void; (e: 'change:auth', authType: string | null): void }>()
+const emit = defineEmits<{ (e: 'state', state: { busy: boolean; error: string; warning: string; message: string; settingsChanged: boolean }): void; (e: 'submitted', payload: any): void; (e: 'success', dataSource: any): void; (e: 'change:type', type: string): void; (e: 'change:auth', authType: string | null): void }>()
 
 const toast = useToast()
 const route = useRoute()
@@ -397,18 +406,21 @@ const isConnectionEdit = computed(() => isEditMode.value && !!props.connectionId
 // Credentials lock state: locked by default in edit mode when credentials already exist
 const hasExistingCredentials = computed(() => isConnectionEdit.value && props.initialValues?.has_credentials)
 const credentialsLocked = ref(false)
+const savedCredentialValues = ref<Record<string, any>>({})
+const savedCredentialAuth = ref<string | undefined>()
+const testedSettings = ref('')
+const settingsSignature = () => JSON.stringify([formData.config, formData.credentials, selectedAuth.value, require_user_auth.value])
+const settingsChanged = computed(() => !!testedSettings.value && testedSettings.value !== settingsSignature())
 
 function unlockCredentials() {
+  savedCredentialAuth.value = selectedAuth.value
   credentialsLocked.value = false
-  clearTestResult()
 }
 
 function lockCredentials() {
+  selectedAuth.value = savedCredentialAuth.value
   credentialsLocked.value = true
-  // Reset credential fields to empty so stale values aren't sent
-  for (const key of Object.keys(formData.credentials)) {
-    formData.credentials[key] = ''
-  }
+  formData.credentials = { ...savedCredentialValues.value }
   clearTestResult()
 }
 
@@ -466,6 +478,27 @@ const selectedTitle = computed(() => {
   return match?.title || selectedType.value
 })
 
+function fieldOptions(field: any): Array<{ value: string | number | boolean; label: string }> {
+  const options = [field.enum, field['ui:options'], field.options]
+    .find(value => Array.isArray(value) && value.length) || []
+  return options.map((option: any) => {
+    const value = typeof option === 'object' && option !== null ? option.value : option
+    const label = field['ui:enumLabels']?.[String(value)]
+      ?? (typeof option === 'object' && option !== null ? option.label : undefined)
+      ?? String(value)
+    return { value, label }
+  })
+}
+
+function isSecretField(field: any) {
+  return uiType(field) === 'password' || field.type === 'password' || isPasswordField(field.field_name)
+}
+
+function credentialPlaceholder(field: any) {
+  if (props.readOnly && hasExistingCredentials.value && isSecretField(field)) return '••••••••'
+  return hasExistingCredentials.value && isSecretField(field) ? t('data.keepSavedSecret') : field.title || field.field_name
+}
+
 function isPasswordField(fieldName: string) {
   const s = String(fieldName).toLowerCase()
   return s.includes('password') || s.includes('secret') || s.includes('token') || s.includes('key')
@@ -521,10 +554,12 @@ async function fetchFields() {
         formData.config = { ...formData.config, ...restConfig }
         initKeyValueFields()
         initJsonFields()
-        formData.credentials = { ...formData.credentials, ...(iv.credentials || {}) }
+        formData.credentials = { ...formData.credentials, ...(iv.credentials_meta || {}), ...(iv.credentials || {}) }
+        savedCredentialValues.value = { ...formData.credentials }
+        testedSettings.value = settingsSignature()
         connectionTestPassed.value = true
         // Lock credentials if they already exist on the server
-        if (iv.has_credentials) {
+        if (iv.has_credentials && !props.unifiedEdit) {
           credentialsLocked.value = true
         }
       } catch {}
@@ -588,6 +623,7 @@ function handleAuthChange() {
   initFormDefaults(false)
   // Restore config so only credentials are reset
   formData.config = keepConfig as any
+  clearTestResult()
   emit('change:auth', selectedAuth.value ?? null)
 }
 
@@ -596,6 +632,10 @@ const canSubmit = computed(() => !!selectedType.value && !submitting.value)
 // Strip empty-string credential values (e.g., optional oauth_client_id left blank)
 function cleanCredentials(creds: Record<string, any>): Record<string, any> {
   return Object.fromEntries(Object.entries(creds).filter(([_, v]) => v != null && v !== ''))
+}
+
+function editedCredentials() {
+  return Object.fromEntries(Object.entries(cleanCredentials(formData.credentials)).filter(([key, value]) => value !== savedCredentialValues.value[key]))
 }
 
 // Blank inputs are stripped by cleanCredentials, so a required-but-empty field
@@ -625,8 +665,20 @@ function describeApiError(err: any): string | null {
   return parts.length ? parts.join('; ') : null
 }
 
+const formElement = ref<HTMLFormElement | null>(null)
+const submitError = ref('')
+watch([submitting, isTestingConnection, submitError, testResultMessage, testResultLevel, settingsChanged], () => {
+  emit('state', { busy: submitting.value || isTestingConnection.value, error: submitError.value || (testResultLevel.value === 'error' ? testResultMessage.value : ''), warning: testResultLevel.value === 'warning' ? testResultMessage.value : '', message: testResultLevel.value === 'success' ? testResultMessage.value : '', settingsChanged: settingsChanged.value })
+})
+defineExpose({ connect: () => formElement.value?.requestSubmit(), test: testConnection })
+
 async function onSubmit() {
-  if (submitting.value || !selectedType.value) return
+  if (submitting.value || isTestingConnection.value || !selectedType.value) return
+  submitError.value = ''
+  if (props.embedded) {
+    await testConnection()
+    if (!connectionTestPassed.value) return
+  }
   submitting.value = true
   try {
     const payload: any = {
@@ -654,7 +706,7 @@ async function onSubmit() {
       if (!credentialsLocked.value) {
         const hasNewCredentials = Object.values(formData.credentials).some(v => v && String(v).trim())
         if (hasNewCredentials) {
-          connectionPayload.credentials = cleanCredentials(formData.credentials)
+          connectionPayload.credentials = editedCredentials()
         }
       }
 
@@ -666,6 +718,7 @@ async function onSubmit() {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.updateConnectionFailed')
+        submitError.value = describeApiError(err) || String(detail)
         toast.add({ title: t('data.updateConnectionFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isEditMode.value && props.dataSourceId) {
@@ -677,6 +730,7 @@ async function onSubmit() {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.updateDataSourceFailed')
+        submitError.value = describeApiError(err) || String(detail)
         toast.add({ title: t('data.updateDataSourceFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else if (isCreateConnectionOnly.value) {
@@ -696,6 +750,7 @@ async function onSubmit() {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.createConnectionFailed')
+        submitError.value = describeApiError(err) || String(detail)
         toast.add({ title: t('data.createConnectionFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     } else {
@@ -707,10 +762,12 @@ async function onSubmit() {
         const errAny = (res.error as any)
         const err = (errAny && (errAny.value || errAny)) || {}
         const detail = err?.data?.detail || err?.data?.message || err?.message || t('data.createDataSourceFailed')
+        submitError.value = describeApiError(err) || String(detail)
         toast.add({ title: t('data.createDataSourceFailed'), description: String(detail), icon: 'i-heroicons-x-circle', color: 'red' })
       }
     }
   } catch (e: any) {
+    submitError.value = describeApiError(e) || e?.message || t('data.unexpectedError')
     toast.add({ title: t('data.errorTitle'), description: describeApiError(e) || e?.message || t('data.unexpectedError'), icon: 'i-heroicons-x-circle', color: 'red' })
   } finally {
     submitting.value = false
@@ -733,7 +790,7 @@ async function testConnection() {
       }
       // Only send credential overrides if user explicitly unlocked them
       if (!credentialsLocked.value && showSystemCredentialFields.value && formData.credentials && Object.keys(formData.credentials).length > 0) {
-        overrides.credentials = cleanCredentials(formData.credentials)
+        overrides.credentials = editedCredentials()
       }
       res = await useMyFetch(`/connections/${props.connectionId}/test`, {
         method: 'POST',
@@ -772,6 +829,7 @@ async function testConnection() {
     const savableViaUserAuth = !ok && require_user_auth.value && connectivityOk
     const msg = data?.message || (ok ? t('data.connectionSuccessful') : t('data.connectionFailed'))
 
+    testedSettings.value = settingsSignature()
     connectionTestPassed.value = ok || savableViaUserAuth
     if (ok) {
       testResultLevel.value = 'success'
@@ -793,14 +851,15 @@ async function testConnection() {
 }
 
 function clearTestResult() {
+  submitError.value = ''
   connectionTestPassed.value = false
   testResultMessage.value = ''
   testResultLevel.value = null
 }
 
-watch(require_user_auth, () => {
+watch([() => formData.config, () => formData.credentials, selectedAuth, require_user_auth], () => {
   clearTestResult()
-})
+}, { deep: true, flush: 'sync' })
 
 watch(
   () => props.initialName,
@@ -819,5 +878,20 @@ onMounted(() => { fetchAvailable() })
 </script>
 
 <style scoped>
+.connection-form-minimal > div { padding: 0; background: transparent; }
+.connection-fields { display: flex; flex-direction: column; gap: 16px; }
+.connection-form-minimal .connection-section { padding: 0; margin: 0; border: 0; background: transparent; }
+.connection-form-minimal label { display: block; font-size: 13px; font-weight: 500; margin: 0 0 6px; }
+.connection-form-minimal input, .connection-form-minimal select, .connection-form-minimal textarea { border-radius: 8px; padding: 8px 12px; border-color: rgb(229 231 235); box-shadow: none; }
+.connection-form-minimal select { padding-inline-end: 32px; }
+.connection-form-minimal input:focus, .connection-form-minimal select:focus, .connection-form-minimal textarea:focus { border-color: rgb(107 114 128); outline: 2px solid rgb(156 163 175 / .15); outline-offset: 1px; }
+.connection-form-minimal input:disabled { color: rgb(107 114 128); background: transparent; }
+.connection-form-minimal .connection-config-grid { display: grid; grid-template-columns: minmax(0, 1fr) 100px; gap: 16px 12px; }
+.connection-form-minimal .connection-config-grid > div { grid-column: 1 / -1; margin: 0; }
+.connection-form-minimal .connection-config-grid > .connection-field-host { grid-column: 1; }
+.connection-form-minimal .connection-config-grid > .connection-field-port { grid-column: 2; }
+.connection-form-minimal .connection-config-grid span { display: block; margin: 0 0 6px; font-size: 11px; line-height: 1.5; }
+.connection-form-minimal .connection-credentials, .connection-form-minimal .connection-credential-grid { display: flex; flex-direction: column; gap: 16px; }
+.connection-form-minimal .connection-field, .connection-form-minimal .connection-auth-selector, .connection-form-minimal .connection-auth-toggle { margin: 0; }
+:global(.dark .connection-form-minimal input), :global(.dark .connection-form-minimal select), :global(.dark .connection-form-minimal textarea) { border-color: rgb(55 65 81); }
 </style>
-

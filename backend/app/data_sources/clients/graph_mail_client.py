@@ -12,6 +12,7 @@ The shared execution layer still materializes message bodies as session files
 when needed, but the planner and the user see email vocabulary throughout.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import urllib.parse
 from typing import Any, List, Optional
@@ -107,7 +108,8 @@ class GraphMailClient(GraphDriveClient):
         return header + "\n" + content
 
     # Email has no pre-indexed admin catalog — it's searched/read live per user.
-    def get_schemas(self, *args, **kwargs) -> List:
+    @discovery_progress
+    def get_schemas(self, *args, progress_callback=None, **kwargs) -> List:
         return []
 
     def test_connection(self) -> dict:

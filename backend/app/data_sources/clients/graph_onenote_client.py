@@ -42,6 +42,7 @@ usual document pipeline, and embedded video — which nothing can read — is
 reported explicitly with the page's OneNote link instead of silently dropped.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import html as _html
 import logging
@@ -712,6 +713,7 @@ class GraphOneNoteClient(GraphDriveClient):
             return entry.get("onenote") or entry
         return {}
 
+    @discovery_progress
     def get_schemas(
         self,
         progress_callback: Optional[ProgressCallback] = None,

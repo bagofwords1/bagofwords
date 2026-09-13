@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items
 import re
 from typing import Dict, List, Optional
 from xml.etree.ElementTree import Element
@@ -117,7 +118,13 @@ class XmlaClient(DataSourceClient):
         # so both phases share the same failure classification.
         try:
             self.connect()
-            catalogs = self._list_catalogs()
+            if self.catalog:
+                # A configured name is not evidence of connectivity. Probe the
+                # scoped catalog through XMLA before reporting a successful test.
+                self._list_cubes(self.catalog)
+                catalogs = [self.catalog]
+            else:
+                catalogs = self._list_catalogs()
         except Exception as e:
             return self._classify_failure(e)
 
@@ -267,10 +274,11 @@ class XmlaClient(DataSourceClient):
         cube's metadata (e.g. Tabular vs Multidimensional). Default: none."""
         return {}
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """Return one Table per cube across all (scoped) catalogs."""
         tables: List[Table] = []
-        for catalog in self._list_catalogs():
+        for catalog in discovery_items(self._list_catalogs(), 'catalogs', label=str):
             tables.extend(self._cube_tables_for_catalog(catalog, self._catalog_context(catalog)))
         return tables
 
@@ -282,7 +290,7 @@ class XmlaClient(DataSourceClient):
         shared Multidimensional contract.
         """
         tables: List[Table] = []
-        for cube in self._list_cubes(catalog):
+        for cube in discovery_items(self._list_cubes(catalog), 'cubes', label=lambda cube: cube.get('name')):
             cube_name = cube["name"]
             columns: List[TableColumn] = []
 

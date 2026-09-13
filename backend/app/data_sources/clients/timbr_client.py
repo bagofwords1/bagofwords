@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, TableFormatter
 from typing import List, Dict, Optional, Set
@@ -102,6 +103,8 @@ class TimbrClient(DataSourceClient):
                 timeout=60,
             )
             return data.get("data", [])
+        except IndexingCancelled:
+            raise
         except Exception:
             return []
 
@@ -207,7 +210,8 @@ class TimbrClient(DataSourceClient):
     # Schema discovery
     # ------------------------------------------------------------------
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         return self.get_tables()
 
     def get_tables(self) -> List[Table]:
@@ -227,11 +231,13 @@ class TimbrClient(DataSourceClient):
         concept_schema = self._get_concept_schema()
         if concept_schema:
             concepts = self._get_concepts()
-            for name, desc in concepts.items():
+            for name, desc in discovery_items(concepts.items(), 'concepts', label=lambda pair: pair[0]):
                 try:
                     table = self._describe_concept(name, desc, concept_schema)
                     if table is not None:
                         tables.append(table)
+                except IndexingCancelled:
+                    raise
                 except Exception as e:
                     logger.warning(f"Failed to describe concept '{name}': {e}")
                     tables.append(Table(
@@ -428,6 +434,8 @@ class TimbrClient(DataSourceClient):
             try:
                 table = self._parse_view(row)
                 tables.append(table)
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 logger.warning(f"Failed to parse view '{name}': {e}")
                 tables.append(Table(
