@@ -33,11 +33,13 @@ export BOW_DATABASE_URL=sqlite:///db/netapp-tests.db
 export TESTING=true
 uv run pytest tests/unit/test_netapp_ontap_client.py -q --noconftest
 uv run pytest tests/e2e/test_netapp_ontap.py tests/e2e/test_data_source.py tests/e2e/test_connection.py --db=sqlite -q
+uv run pytest tests/unit/test_query_timeout.py tests/unit/test_query_concurrency.py tests/unit/test_query_cancellation.py tests/unit/test_usage_metering_buffer.py --db=sqlite -q
 ```
 
 Observed initial red: the registry test failed with the unknown-source exception
 above. Observed final green: **44 connector unit tests**, **1 NetApp API/database
-end-to-end test**, and **11 generic connection/data-source end-to-end tests**.
+end-to-end test**, **11 generic connection/data-source end-to-end tests**, and
+**62 shared-executor regressions** (timeouts, concurrency, cancellation and usage).
 The HTTP request boundary alone is replaced in deterministic connector tests;
 the client, normalization, dispatch, schema indexing and code executor are real.
 
@@ -123,8 +125,8 @@ PORT=13000 HOST=127.0.0.1 node .output/server/index.mjs
 Observed build: exit 0, `Build complete!`. The first attempt ran while Nuxt dev
 held its build lock; stopping that isolated dev server allowed the build.
 A shared-executor test attempt incorrectly used `--noconftest` for database-dependent
-usage tests, causing missing ORM-model registration; those checks require normal
-conftest loading.
+usage tests, causing missing ORM-model registration; those checks passed after restoring normal
+conftest loading (62 passed, no skips).
 
 The build emits warnings; this report does not claim warning-free output.
 
