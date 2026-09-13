@@ -66,3 +66,21 @@ The production Nuxt build completed successfully, and its served UI also passed 
 This proves connector/application behavior for the modeled XML contracts, including failure behavior and RCA evidence preservation. It does not prove compatibility across real switch models, all 9.1.1c resource revisions, account roles, retention limits or SAN operating conditions. Module discovery reports advertisement, not actual read permission. Retained events are not guaranteed incident-window coverage; rates/counters and defined/effective zoning remain distinct.
 
 Real acceptance still requires the applicable 9.1.1c API contract, sanitized response replay and bounded read-only checks on representative customer hardware/FIDs/roles. Do not label the connector hardware-certified or claim that simulation establishes root cause in a real incident.
+
+## Deployment-managed CA follow-up
+
+Brocade now follows the existing SharePoint Server trust pattern: `REQUESTS_CA_BUNDLE` selects a deployment-mounted PEM bundle; unset/empty uses the default trust store. Verification remains enabled and the per-connection CA path and verification toggle are removed. NetApp, ServiceNow and SharePoint implementations were not changed.
+
+The new regression first produced two failures: the deployment CA was ignored, and the form exposed certificate overrides. After the change, all four new cases pass; the full connector/lifecycle/license suite passes 82/82 tests. A real local HTTPS test proves that an untrusted certificate fails, the configured CA succeeds, and a hostname mismatch still fails:
+
+```sh
+cd backend
+TESTING=true BOW_DATABASE_URL=sqlite:///db/brocade-test.db \
+  uv run pytest tests/integrations/test_brocade_tls.py -q
+```
+
+The test generates its own short-lived certificate and synthetic API; it needs no customer credentials. The existing production frontend build was reused because the change is entirely in the backend-generated form schema. The updated form has no certificate controls and its connection test still discovers 12 tables.
+
+| Previous form | Deployment-managed trust |
+| --- | --- |
+| ![Previous certificate controls](../../media/pr/brocade-rca-connector/connection-before-ca-change.png) | ![Simplified form](../../media/pr/brocade-rca-connector/connection.png) |

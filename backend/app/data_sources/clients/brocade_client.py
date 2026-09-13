@@ -6,6 +6,7 @@ customer FOS 9.1.1c compatibility still requires a real-switch acceptance pass.
 import base64
 import json
 import math
+import os
 import re
 import threading
 import time
@@ -112,7 +113,7 @@ class BrocadeClient(DataSourceClient):
     relative_date_hint = 'Use lookback="30m" or "24h" on events/congestion_samples; port_statistics has no arbitrary history.'
 
     def __init__(self, url, username, password, vf_ids='', include_advanced=False,
-                 verify_ssl=True, ca_bundle=None, allow_http=False, login_scheme='Custom_Basic',
+                 allow_http=False, login_scheme='Custom_Basic',
                  timeout=30, max_rows=10000, max_response_bytes=8388608):
         parsed = urlsplit(str(url))
         if (parsed.scheme not in ('http', 'https') or not parsed.hostname or parsed.username or
@@ -136,7 +137,6 @@ class BrocadeClient(DataSourceClient):
         self.url = str(url).rstrip('/')
         self.username, self.password = username, password
         self.include_advanced = include_advanced
-        self.verify = ca_bundle or verify_ssl
         self.login_scheme, self.timeout = login_scheme, timeout
         self.max_rows, self.max_response_bytes = max_rows, max_response_bytes
         self._definitions = definitions()
@@ -166,7 +166,7 @@ class BrocadeClient(DataSourceClient):
             try:
                 with session.request(method, self.url + path,
                         params={'vf-id': vf_id} if vf_id is not None else None,
-                        timeout=min(self.timeout, remaining), verify=self.verify,
+                        timeout=min(self.timeout, remaining), verify=session.verify,
                         allow_redirects=False, stream=True) as response:
                     body = bytearray()
                     for chunk in response.iter_content(65536):
@@ -223,6 +223,8 @@ class BrocadeClient(DataSourceClient):
             deadline = time.monotonic() + 120
             with requests.Session() as session:
                 session.trust_env = False
+                # Match SharePoint Server: CA trust is deployment-owned; never disable TLS verification.
+                session.verify = os.environ.get("REQUESTS_CA_BUNDLE") or True
                 token = base64.b64encode(f'{self.username}:{self.password}'.encode()).decode()
                 session.headers.update({'Authorization': self.login_scheme + ' ' + token,
                     'Accept': 'application/yang-data+xml', 'Content-Type': 'application/yang-data+xml',

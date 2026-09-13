@@ -251,3 +251,26 @@ def test_hardware_union_preserves_fractional_temperatures(client, boundary):
     assert next(c.dtype for c in schema.columns if c.name == 'temperature') == 'number'
     frame = client.execute_query(table='hardware', filter={'temperature': {'gt': 42.1}})
     assert len(frame) == 1 and frame.iloc[0]['temperature'] == 42.5
+
+
+@pytest.mark.parametrize('bundle', [None, '', '/etc/bow/company-ca.pem'])
+def test_tls_trust_uses_deployment_ca_with_verification_enabled(boundary, monkeypatch, bundle):
+    if bundle is None:
+        monkeypatch.delenv('REQUESTS_CA_BUNDLE', raising=False)
+    else:
+        monkeypatch.setenv('REQUESTS_CA_BUNDLE', bundle)
+    observed = []
+    original = requests.Session.request
+    def request(session, method, url, **kwargs):
+        observed.append(kwargs.get('verify', session.verify))
+        return original(session, method, url, **kwargs)
+    monkeypatch.setattr(requests.Session, 'request', request)
+    BrocadeClient('https://switch.example', 'lab-reader', 'synthetic-only').get_tables()
+    assert observed and all(value == (bundle or True) for value in observed)
+
+
+def test_connection_form_does_not_expose_certificate_overrides():
+    from app.schemas.data_sources.configs import BrocadeConfig
+    properties = BrocadeConfig.model_json_schema()['properties']
+    assert 'ca_bundle' not in properties
+    assert 'verify_ssl' not in properties

@@ -39,7 +39,7 @@ For the app, select **Brocade Fabric OS**, enter `http://127.0.0.1:18092`, restr
 
 ## Production connection
 
-Use the switch HTTPS management origin, a read-only account authorized for the required FIDs and diagnostic resources, and certificate verification. For a private CA, configure the CA bundle path on the backend server. `Custom_Basic` session login is the default; `Basic` can be selected for a switch whose documented login endpoint uses that scheme. Both modes use the returned session Authorization header and logout afterward.
+Use the switch HTTPS management origin, a read-only account authorized for the required FIDs and diagnostic resources, and certificate verification. TLS certificate verification is always enabled. For a private CA, mount the PEM CA bundle in the backend/container and set `REQUESTS_CA_BUNDLE` to its path, matching SharePoint Server. With that variable unset or empty, the default Requests trust store is used. There is no per-connection certificate path or disable-verification toggle. `Custom_Basic` session login is the default; `Basic` can be selected for a switch whose documented login endpoint uses that scheme. Both modes use the returned session Authorization header and logout afterward.
 
 A connection covers one management endpoint. The connector does not authenticate to discovered neighbors. Configure additional switch connections for fabric-wide investigations. No SSH, RPC, raw URL execution, counter clearing or configuration writes are exposed.
 
