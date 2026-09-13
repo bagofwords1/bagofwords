@@ -940,16 +940,60 @@ async def auto_provision_connection_credentials(
         )
 
     # Trigger overlay sync (best-effort; never fails the provisioning above).
+    #
+    # Sync per DATA SOURCE, not per connection. `get_user_data_source_schema`
+    # already fans out over every per-user connection on the data source, so
+    # looping connections here made an agent with N connections cost N x N
+    # crawls — 10,000 SharePoint round trips for a 100-connection agent.
+    #
+    # The list is materialised from `pending_overlay` BEFORE any sync runs,
+    # while the objects are still live on `db`.
+    ds_ids: list = []
+    seen_ds: set = set()
     for connection in pending_overlay:
+        for ds in (connection.data_sources or []):
+            if str(ds.id) not in seen_ds:
+                seen_ds.add(str(ds.id))
+                ds_ids.append(str(ds.id))
+
+    # Each sync gets its OWN session. A failure here is routine — a user who
+    # genuinely cannot read one SharePoint site gets a 403 — but rolling back a
+    # SHARED session expires its identity map, and the next iteration's
+    # attribute access then needs IO that async SQLAlchemy cannot perform
+    # implicitly, raising MissingGreenlet and aborting every remaining sync.
+    # That turned one inaccessible source into an empty catalog for every other
+    # agent the user had just been provisioned for.
+    from app.dependencies import async_session_maker
+    from app.models.user import User
+    from sqlalchemy.orm import selectinload
+
+    synced = 0
+    for ds_id in ds_ids:
         try:
             from app.services.data_source_service import DataSourceService
-            ds_service = DataSourceService()
-            for ds in (connection.data_sources or []):
-                await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=user)
-            await db.commit()
+            async with async_session_maker() as sync_db:
+                ds = (await sync_db.execute(
+                    select(DataSource)
+                    .options(selectinload(DataSource.connections))
+                    .where(DataSource.id == ds_id)
+                )).scalars().first()
+                sync_user = await sync_db.get(User, str(user.id))
+                if ds is None or sync_user is None:
+                    continue
+                await DataSourceService().get_user_data_source_schema(
+                    db=sync_db, data_source=ds, user=sync_user
+                )
+                await sync_db.commit()
+                synced += 1
         except Exception as e:
-            logger.warning(f"Overlay sync after OBO provision failed for connection {connection.id}: {e}")
-            await db.rollback()
+            logger.warning(
+                f"Overlay sync after OBO provision failed for data source {ds_id}: {e}"
+            )
+
+    if ds_ids:
+        logger.info(
+            f"OBO overlay sync for user {user.id}: {synced}/{len(ds_ids)} data source(s) synced"
+        )
 
     return summary
 
