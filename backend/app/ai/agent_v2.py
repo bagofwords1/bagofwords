@@ -456,6 +456,15 @@ class AgentV2:
         self.organization = organization
         # Resolved once per run by _code_visible_for_run(); None = not yet resolved.
         self._code_visible_cache = None
+        # The asker's id as a SCALAR, captured here for the same reason
+        # report_id is (see below): reading `head_completion.user` later can
+        # return None or raise MissingGreenlet once a concurrent commit has
+        # expired the instance — and a code-visibility lookup that quietly
+        # fails open would stream code to a user whose role withholds it.
+        self._asker_user_id = (
+            str(getattr(head_completion, "user_id", "") or "") or None
+            if head_completion is not None else None
+        )
         self.organization_settings = organization_settings
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
@@ -4525,6 +4534,7 @@ class AgentV2:
                             active_artifact=active_artifact,
                             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
+                            can_view_code=await self._code_visible_for_run(),
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
@@ -6894,6 +6904,7 @@ class AgentV2:
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
+            can_view_code=await self._code_visible_for_run(),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
@@ -7055,28 +7066,44 @@ class AgentV2:
         background task, long after the originating request's context is gone,
         so the request-scoped contextvar used by the REST serializers is not
         available here — the permission has to be resolved from the run's own
-        user. System/non-user runs (schedules, webhooks) have no viewer to
-        protect and stream normally.
+        user.
+
+        Reads the cached scalar id, never `head_completion.user`: that
+        relationship comes back None (or raises MissingGreenlet) once a
+        concurrent commit has expired the instance, and an earlier version of
+        this method treated that as "no user, stream normally" — which silently
+        disabled the whole gate for real runs while every unit test passed.
+
+        System/non-user runs (schedules, webhooks) have no viewer to protect and
+        stream normally.
         """
         if getattr(self, "_code_visible_cache", None) is not None:
             return self._code_visible_cache
 
-        visible = True
+        user_id = getattr(self, "_asker_user_id", None)
+        if not user_id or self.organization is None:
+            # No human asker: a scheduled or webhook run has no one to withhold
+            # code from.
+            self._code_visible_cache = True
+            return True
+
         try:
-            user = getattr(self.head_completion, "user", None) if self.head_completion else None
-            if user is not None and self.organization is not None:
-                from app.core.permission_resolver import resolve_permissions
-                from app.core.code_visibility import can_view_code
-                resolved = await resolve_permissions(
-                    self.db, str(user.id), str(self.organization.id)
-                )
-                visible = can_view_code(resolved)
+            from app.core.permission_resolver import resolve_permissions
+            from app.core.code_visibility import can_view_code
+
+            resolved = await resolve_permissions(
+                self.db, user_id, str(self.organization.id)
+            )
+            visible = can_view_code(resolved)
         except Exception:
-            # Never let a permission lookup break a live run. Falling open here
-            # matches the REST layer's real protection: the persisted payload is
-            # re-serialized (and re-redacted) on every subsequent page load.
-            logger.warning("code visibility resolution failed for run", exc_info=True)
-            visible = True
+            # Fail CLOSED. A failed lookup for a known user must not hand them
+            # code their role may withhold; the run still works, it just omits
+            # the code the REST layer would have redacted anyway.
+            logger.warning(
+                "code visibility resolution failed for user=%s; withholding code",
+                user_id, exc_info=True,
+            )
+            visible = False
 
         self._code_visible_cache = visible
         return visible
