@@ -27,6 +27,7 @@ source: nested relationship payloads are flattened to dotted columns, and a
 result with no rows still carries the columns the SELECT list asked for.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import json
 import logging
@@ -605,6 +606,7 @@ class SalesforceClient(DataSourceClient):
             ordered = ordered[:MAX_INDEX_OBJECTS]
         return ordered
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """Discover object schemas dynamically (standard + custom)."""
         names = self._discover_object_names()

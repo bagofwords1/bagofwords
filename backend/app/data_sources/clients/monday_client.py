@@ -15,6 +15,7 @@ label text ("Done" matches nothing; its index does). The client translates
 label text in `compare_value` to indices using the board's column settings so
 generated queries can filter by the human-readable label.
 """
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 import json
 import logging
 import re
@@ -236,6 +237,8 @@ class MondayClient(DataSourceClient):
                     "success": True,
                     "message": f"Connected to monday.com on account '{account.get('name')}'",
                 }
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 
@@ -644,6 +647,7 @@ class MondayClient(DataSourceClient):
             },
         )
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None) -> List[Table]:
         boards = self._fetch_boards(deep=True)
         names = self._table_names(boards)
@@ -654,7 +658,7 @@ class MondayClient(DataSourceClient):
             tables.append(self._build_table(name, board, board_names_by_id))
             if progress_callback and (i % 25 == 0 or i == total - 1):
                 try:
-                    progress_callback(current=i + 1, total=total, message=f"Indexed {i + 1}/{total} boards")
+                    progress_callback("boards", name, i + 1, total)
                 except TypeError:
                     pass
         return tables

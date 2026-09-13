@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
@@ -179,6 +180,8 @@ class JaegerClient(DataSourceClient):
         try:
             with self.connect() as session:
                 services = self._services(session)
+        except IndexingCancelled:
+            raise
         except Exception:
             # Discovery is best-effort — the schema is fixed regardless, and a
             # transient API hiccup shouldn't blank the catalog.
@@ -186,7 +189,9 @@ class JaegerClient(DataSourceClient):
 
         if progress_callback:
             try:
-                progress_callback(1, 1, f"Discovered {len(services)} services")
+                progress_callback("services", None, len(services), len(services))
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
 
@@ -246,6 +251,7 @@ class JaegerClient(DataSourceClient):
         ]
         return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None):
         return self.get_tables(progress_callback=progress_callback)
 
@@ -472,6 +478,8 @@ class JaegerClient(DataSourceClient):
                 }
         except requests.exceptions.RequestException as e:
             return {"success": False, "message": f"Connection error: {e}"}
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 

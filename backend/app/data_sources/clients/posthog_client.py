@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 import logging
@@ -214,7 +215,8 @@ class PostHogClient(DataSourceClient):
                     "message": f"Connection error: {str(e)}"
                 }
 
-    def get_schemas(self) -> list:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> list:
         """Return predefined HogQL table schemas."""
         return POSTHOG_SCHEMAS
 

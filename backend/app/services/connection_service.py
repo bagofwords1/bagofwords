@@ -612,24 +612,15 @@ class ConnectionService:
 
         if "credentials" in updates:
             new_credentials = updates.pop("credentials")
-            if new_credentials and not any(v is None for v in new_credentials.values()):
-                # The edit form never re-sends secret fields the admin left
-                # blank (client_secret / bearer token / api_key are write-only
-                # placeholders). Carry those forward from the stored blob so an
-                # endpoint/scope edit doesn't wipe the secret. This is the bug
-                # that broke X OAuth: editing the connection dropped
-                # client_secret, and the next token exchange failed with
-                # "client_secret_basic requires a client_secret".
-                _SECRET_KEYS = ("client_secret", "oauth_client_secret", "token", "api_key")
-                try:
-                    existing = connection.decrypt_credentials() or {}
-                except Exception:
-                    existing = {}
-                for k in _SECRET_KEYS:
-                    if k not in new_credentials and existing.get(k):
-                        new_credentials[k] = existing[k]
-                connection.encrypt_credentials(new_credentials)
-                connection_changed = True
+            if new_credentials:
+                # Credential edits are partial updates, like test overrides:
+                # omitted/blank values keep the saved value. Never replace the
+                # entire blob when rotating a single secret or identifier.
+                existing = connection.decrypt_credentials() or {}
+                changes = {k: v for k, v in new_credentials.items() if v is not None and v != ""}
+                if changes:
+                    connection.encrypt_credentials({**existing, **changes})
+                    connection_changed = True
 
         if connection_changed:
             # Drop pooled engines for the PREVIOUS config while it is still on
@@ -1012,8 +1003,9 @@ class ConnectionService:
             success = bool(connection_status.get("success")) if isinstance(connection_status, dict) else bool(connection_status)
 
             # Cache the test result
-            connection.last_connection_status = "success" if success else "not_connected"
-            connection.last_connection_checked_at = datetime.utcnow()
+            if current_user is None:
+                connection.last_connection_status = "success" if success else "not_connected"
+                connection.last_connection_checked_at = datetime.utcnow()
 
             # Update is_active for system_only connections
             if connection.auth_policy == "system_only":
@@ -1032,8 +1024,9 @@ class ConnectionService:
             return connection_status
 
         except Exception as e:
-            connection.last_connection_status = "not_connected"
-            connection.last_connection_checked_at = datetime.utcnow()
+            if current_user is None:
+                connection.last_connection_status = "not_connected"
+                connection.last_connection_checked_at = datetime.utcnow()
 
             if connection.auth_policy == "system_only":
                 connection.is_active = False
@@ -1720,7 +1713,7 @@ class ConnectionService:
         ClientClass = resolve_client_class(connection.type)
         logger.info(f"construct_client: Resolved ClientClass={ClientClass.__name__}")
 
-        config = json.loads(connection.config) if isinstance(connection.config, str) else (connection.config or {})
+        config = json.loads(connection.config) if isinstance(connection.config, str) else dict(connection.config or {})
         # Merge config overrides (non-empty values win)
         if config_overrides:
             for k, v in config_overrides.items():
@@ -1859,6 +1852,7 @@ class ConnectionService:
             get_user_conn_cred_row,
             is_admin_or_owner,
             QUERY_IDENTITY_SERVICE,
+            management_requires_user_auth,
         )
 
         row = await get_user_conn_cred_row(db, connection, current_user)
@@ -1871,7 +1865,7 @@ class ConnectionService:
             admin_or_owner = await is_admin_or_owner(db, connection, current_user)
             pref = identity_pref_from_row(row)
 
-            if pref == QUERY_IDENTITY_SERVICE and admin_or_owner:
+            if pref == QUERY_IDENTITY_SERVICE and admin_or_owner and not management_requires_user_auth(connection):
                 return connection.decrypt_credentials() or {}
 
             if row_has_token(row):

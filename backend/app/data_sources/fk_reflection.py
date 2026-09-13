@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable, Sequence
 
+from app.data_sources.clients.progress import discovery_items, IndexingCancelled
 import sqlalchemy
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
@@ -106,6 +107,8 @@ def _reflect_schema(
     """
     try:
         raw = inspector.get_multi_foreign_keys(schema=schema)
+    except IndexingCancelled:
+        raise
     except Exception:
         logger.debug(
             "FK reflection unavailable for schema %r", schema, exc_info=True
@@ -149,6 +152,8 @@ def attach_foreign_keys(
 
     try:
         inspector = sqlalchemy.inspect(connection)
+    except IndexingCancelled:
+        raise
     except Exception:
         logger.warning("Could not build inspector for FK reflection", exc_info=True)
         return 0
@@ -167,7 +172,7 @@ def attach_foreign_keys(
         target_schemas = sorted(derived) if derived else [None]
 
     attached = 0
-    for schema in target_schemas:
+    for schema in discovery_items(target_schemas, "relationship_schemas", label=str):
         for key, fk_list in _reflect_schema(inspector, schema).items():
             table = tables.get(key_fn(*key))
             if table is None:

@@ -4,6 +4,7 @@ from app.core.permissions_registry import (
     BASELINE_PERMISSIONS,
     DEFAULT_ADMIN_PERMISSIONS,
     DEFAULT_MEMBER_PERMISSIONS,
+    DEFAULT_ON_PERMISSIONS,
     HIDDEN_PERMISSION_CATEGORIES,
     MERGED_CATEGORIES,
     PERMISSION_CATEGORIES,
@@ -19,6 +20,7 @@ EXPECTED_ORG_PERMS = {
     "manage_instructions",
     "manage_entities",
     "manage_evals",
+    "view_code", "run_custom_code",
     "view_members", "manage_members", "manage_service_accounts",
     "manage_settings", "manage_llm",
     "view_audit_logs", "manage_identity_providers",
@@ -27,7 +29,7 @@ EXPECTED_ORG_PERMS = {
 
 def test_all_permissions_is_exactly_expected_set():
     assert ALL_PERMISSIONS == EXPECTED_ORG_PERMS
-    assert len(ALL_PERMISSIONS) == 18
+    assert len(ALL_PERMISSIONS) == 20
 
 
 def test_full_admin_access_is_not_in_all_permissions():
@@ -97,8 +99,37 @@ def test_baseline_permissions_are_valid_and_never_the_wildcard():
     assert "full_admin_access" not in BASELINE_PERMISSIONS
 
 
-def test_member_role_is_seeded_with_the_baseline_set():
-    assert set(DEFAULT_MEMBER_PERMISSIONS) == set(BASELINE_PERMISSIONS)
+def test_member_role_is_seeded_with_baseline_plus_default_on():
+    """The member seed is a strict SUPERSET of the baseline set.
+
+    These two were identical until code visibility became withholdable. They
+    can no longer be equal: a baseline permission is granted to every member by
+    the resolver and therefore cannot be withheld by any role, so `view_code`
+    had to live outside the baseline while still being on by default. Asserting
+    the intended relationship keeps that distinction honest — equality here
+    would mean someone quietly made a withholdable permission ungrantable.
+    """
+    assert set(BASELINE_PERMISSIONS) < set(DEFAULT_MEMBER_PERMISSIONS)
+    assert set(DEFAULT_MEMBER_PERMISSIONS) == (
+        set(BASELINE_PERMISSIONS) | set(DEFAULT_ON_PERMISSIONS)
+    )
+
+
+def test_default_on_permissions_are_grantable_not_baseline():
+    """Each default-on permission must be withholdable, i.e. visible in the
+    role editor and absent from the baseline. A permission that is both
+    default-on and baseline is a checkbox that does nothing."""
+    for perm in DEFAULT_ON_PERMISSIONS:
+        assert perm in ALL_PERMISSIONS, f"{perm} is not a registered permission"
+        assert perm not in BASELINE_PERMISSIONS, (
+            f"{perm} is baseline, so no role can withhold it"
+        )
+        visible = {p for perms in PERMISSION_CATEGORIES.values() for p in perms}
+        assert perm in visible, f"{perm} is not visible in the role editor"
+
+
+def test_code_permissions_are_registered():
+    assert PERMISSION_CATEGORIES["Code"] == ["view_code", "run_custom_code"]
 
 
 def test_instructions_and_entities_are_separate_categories():

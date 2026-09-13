@@ -134,7 +134,11 @@ const successDetails = computed(() => {
   return details.length > 0 ? details.join(' • ') : null
 })
 
+// Gated on `view_code`; the server redacts the same field server-side.
+const canViewCode = useCanViewCode()
+
 const codeContent = computed(() => {
+  if (!canViewCode.value) return ''
   return props.toolExecution.result_json?.code || ''
 })
 

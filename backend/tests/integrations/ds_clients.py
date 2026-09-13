@@ -22,6 +22,8 @@ logger = logging.getLogger(__name__)
 # SOURCE OF TRUTH: Data sources to test
 # =============================================================================
 DATA_SOURCES = [
+    "netapp_ontap",  # customer-run ONTAP validation; see tools/netapp/README.md
+    "brocade",  # Real switch or tools/brocade/simulated_api.py; credentials via integrations.json.
     "sharepoint_onprem",  # Real SharePoint Server; configure in integrations.json.
     "postgresql",
     "mysql",
@@ -316,6 +318,22 @@ def ds_kwargs(name: str) -> Dict[str, Any]:
     Extract and normalize kwargs for a data source from credentials.
     Skips the test if the data source is missing or disabled.
     """
+    if name == "netapp_ontap" and os.environ.get("NETAPP_URL"):
+        return {
+            "url": os.environ["NETAPP_URL"],
+            "username": os.environ["NETAPP_USERNAME"],
+            "password": os.environ["NETAPP_PASSWORD"],
+            "ca_certificate": os.environ.get("NETAPP_CA_PEM"),
+            "allow_http": os.environ.get("NETAPP_SIMULATOR") == "true",
+        }
+    if name == "brocade" and os.environ.get("BROCADE_TEST_URL"):
+        return {
+            "url": os.environ["BROCADE_TEST_URL"],
+            "username": os.environ["BROCADE_USER"],
+            "password": os.environ["BROCADE_PASSWORD"],
+            "vf_ids": os.environ.get("BROCADE_TEST_VF_IDS", ""),
+            "allow_http": os.environ.get("BROCADE_TEST_ALLOW_HTTP") == "true",
+        }
     if name == "sharepoint_onprem" and os.environ.get("SHAREPOINT_TEST_SITE_URL"):
         return {
             "site_url": os.environ["SHAREPOINT_TEST_SITE_URL"],
@@ -418,6 +436,9 @@ def get_client(ds_name: str, **kwargs):
     Dynamically import and instantiate a data source client.
     Mirrors the logic in DataSourceService._resolve_client_by_type().
     """
+    if ds_name == "netapp_ontap":
+        from app.schemas.data_source_registry import resolve_client_class
+        return resolve_client_class(ds_name)(**kwargs)
     module_name = f"app.data_sources.clients.{ds_name.lower()}_client"
     # Convert snake_case to TitleCase for class name (e.g., aws_redshift -> AwsRedshift)
     title = "".join(word[:1].upper() + word[1:] for word in ds_name.split("_"))

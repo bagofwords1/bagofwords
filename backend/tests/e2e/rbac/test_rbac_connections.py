@@ -246,3 +246,49 @@ def test_connection_grant_alone_can_create_agents(
         headers=hdr,
     )
     assert no_conn.status_code == 403, no_conn.text
+
+
+@pytest.mark.e2e
+def test_credential_metadata_is_admin_only(test_client, conn_world, grant_resource):
+    """Visible connection access must not expose saved credential identifiers."""
+    w = conn_world
+    admin_headers = _hdr(w['admin']['token'], w['org_id'])
+    response = test_client.put(f"/api/connections/{w['c1']}", headers=admin_headers,
+                              json={'credentials': {'tenant_id': 'tenant-demo', 'user': 'reader', 'password': 'secret-demo'}})
+    assert response.status_code == 200
+    admin = test_client.get(f"/api/connections/{w['c1']}", headers=admin_headers)
+    assert admin.status_code == 200
+    assert admin.json()['credentials_meta'] == {'tenant_id': 'tenant-demo', 'user': 'reader'}
+    grant = grant_resource(resource_type='data_source', resource_id=w['agent_on_c1'], principal_type='user', principal_id=w['plain']['user_id'], permissions=['manage'], user_token=w['admin']['token'], org_id=w['org_id'])
+    assert grant.status_code == 200
+    connection_grant = grant_resource(resource_type='connection', resource_id=w['c1'], principal_type='user', principal_id=w['plain']['user_id'], permissions=['manage_connection'], user_token=w['admin']['token'], org_id=w['org_id'])
+    assert connection_grant.status_code == 200
+    member = test_client.get(f"/api/connections/{w['c1']}", headers=_hdr(w['plain']['token'], w['org_id']))
+    assert member.status_code == 200
+    assert member.json()['credentials_meta'] is None
+    assert member.json()['has_credentials'] is False
+
+@pytest.mark.e2e
+def test_connection_used_by_only_returns_accessible_agents(test_client, conn_world, grant_resource):
+    world = conn_world
+    admin, viewer = world['admin'], world['plain']
+    org, connection = world['org_id'], world['c1']
+    hidden = test_client.post('/api/data_sources', json=_agent_on([connection], name='Restricted finance'), headers=_hdr(admin['token'], org))
+    assert hidden.status_code == 200, hidden.text
+    granted = grant_resource(resource_type='data_source', resource_id=world['agent_on_c1'], principal_type='user', principal_id=viewer['user_id'], permissions=['query'], user_token=admin['token'], org_id=org)
+    assert granted.status_code == 200, granted.text
+    url = f'/api/connections/{connection}/accessible-agents'
+    visible = test_client.get(url, headers=_hdr(viewer['token'], org))
+    assert visible.status_code == 200, visible.text
+    assert {item['id'] for item in visible.json()} == {world['agent_on_c1']}
+    assert hidden.json()['name'] not in visible.text
+    all_agents = test_client.get(url, headers=_hdr(admin['token'], org))
+    assert all_agents.status_code == 200, all_agents.text
+    assert {item['id'] for item in all_agents.json()} == {world['agent_on_c1'], hidden.json()['id']}
+    inherited = test_client.get(url, headers=_hdr(world['manager']['token'], org))
+    assert inherited.status_code == 200, inherited.text
+    assert {item['id'] for item in inherited.json()} == {world['agent_on_c1'], hidden.json()['id']}
+    denied = test_client.get(url, headers=_hdr(world['creator']['token'], org))
+    assert denied.status_code in (200, 403), denied.text
+    if denied.status_code == 200:
+        assert denied.json() == []

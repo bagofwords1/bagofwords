@@ -17,7 +17,9 @@
             <div class="flex items-center gap-2 mb-1">
               <span
                 class="text-[10px] px-1.5 py-0.5 rounded border"
-                :class="detail?.type === 'metric' ? 'text-emerald-700 border-emerald-200 bg-emerald-50' : 'text-blue-700 border-blue-200 bg-blue-50'"
+                :class="detail?.type === 'metric'
+                  ? 'text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/15'
+                  : 'text-blue-700 dark:text-blue-300 border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/15'"
               >{{ (detail?.type || '').toUpperCase() }}</span>
               <span
                 v-if="paramSpecs.length"
@@ -44,7 +46,7 @@
               >{{ $t('queries.draftBadge') }}</span>
               <span
                 v-else-if="entityType === 'suggested'"
-                class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 border-amber-200 bg-amber-50 dark:bg-amber-950"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/15"
               >{{ $t('queries.suggestedBadge') }}</span>
             </div>
             <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
@@ -62,7 +64,7 @@
             </div>
           </div>
           <div class="flex-shrink-0 ms-auto flex items-center gap-2">
-            <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 dark:bg-red-950 text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50" @click="deleteEntity" :disabled="deleting">
+            <button v-if="canDeleteEntities" class="text-[11px] px-2 py-0.5 rounded border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50" @click="deleteEntity" :disabled="deleting">
               <span v-if="deleting">{{ $t('queries.detail.deletingInProgress') }}</span>
               <span v-else>{{ $t('queries.detail.deleteAction') }}</span>
             </button>
@@ -79,7 +81,7 @@
           <div v-if="detail?.last_refreshed_at" class="text-[11px] text-gray-400">{{ $t('queries.detail.refreshedLabel', { when: timeAgo(detail?.last_refreshed_at as any) }) }}</div>
 
           <!-- Workflow actions -->
-          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 bg-amber-50 dark:bg-amber-950 text-amber-700 hover:bg-amber-100 dark:hover:bg-amber-900/50" @click="suggestEntity" :disabled="suggesting">
+          <button v-if="canSuggest" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-amber-300 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-950 text-amber-700 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/50" @click="suggestEntity" :disabled="suggesting">
             <span v-if="suggesting">{{ $t('queries.detail.suggestingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.suggestAction') }}</span>
           </button>
@@ -89,12 +91,12 @@
             <span v-else>{{ $t('queries.detail.withdrawAction') }}</span>
           </button>
 
-          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 bg-green-50 dark:bg-green-950 text-green-700 hover:bg-green-100 dark:hover:bg-green-900/50" @click="approveSuggestion" :disabled="approving">
+          <button v-if="canApprove" class="ms-auto text-[11px] px-2 py-0.5 rounded border border-green-300 dark:border-green-500/40 bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300 hover:bg-green-100 dark:hover:bg-green-900/50" @click="approveSuggestion" :disabled="approving">
             <span v-if="approving">{{ $t('queries.detail.approvingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.approveAction') }}</span>
           </button>
 
-          <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 bg-red-50 dark:bg-red-950 text-red-700 hover:bg-red-100 dark:hover:bg-red-900/50" @click="rejectSuggestion" :disabled="rejecting">
+          <button v-if="canApprove" class="text-[11px] px-2 py-0.5 rounded border border-red-300 dark:border-red-500/40 bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/50" @click="rejectSuggestion" :disabled="rejecting">
             <span v-if="rejecting">{{ $t('queries.detail.rejectingInProgress') }}</span>
             <span v-else>{{ $t('queries.detail.rejectAction') }}</span>
           </button>
@@ -137,7 +139,7 @@
           <span
             v-for="spec in identityParamSpecs"
             :key="spec.name"
-            class="px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-600 border border-indigo-200 text-[10px]"
+            class="px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-500/15 text-indigo-600 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-500/30 text-[10px]"
           >{{ spec.label || spec.name }}: {{ $t('queries.detail.paramScopedToYou') }}</span>
           <button
             v-if="editableParamSpecs.length"

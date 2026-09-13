@@ -20,6 +20,7 @@ model and user see), and this client translates display → internal on the way
 out and internal → display on the way back.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 
 import json
 import logging
@@ -235,9 +236,12 @@ class SharepointListsClient(GraphDriveClient):
 
     # ------------------------------------------------------------- catalog
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None) -> List[Table]:
         try:
             lists = self._included_lists()
+        except IndexingCancelled:
+            raise
         except Exception as e:
             # App-only crawl without Sites.Read.All application permission is
             # the expected pre-sign-in state — an empty catalog, not a failure.
@@ -254,7 +258,7 @@ class SharepointListsClient(GraphDriveClient):
 
         tables: List[Table] = []
         seen_names: Dict[str, int] = {}
-        for l in lists:
+        for l in discovery_items(lists, "lists", label=lambda item: item.get("displayName") or item.get("name")):
             cols = self._fetch_columns(l["id"])
             name = l.get("displayName") or l.get("name") or l["id"]
             if name.lower() in seen_names:
@@ -519,6 +523,8 @@ class SharepointListsClient(GraphDriveClient):
             details["site_id"] = _step("site_ms", self._resolve_site_id)
             try:
                 lists = _step("lists_ms", self._included_lists)
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 if not self._user_token_provided:
                     # App-only without Sites.Read.All application permission —
@@ -538,6 +544,8 @@ class SharepointListsClient(GraphDriveClient):
                 True,
                 f"Connected. Found {len(lists)} list{'s' if len(lists) != 1 else ''}: {names}{more}.",
             )
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return _result(False, str(e))
 

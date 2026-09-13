@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 
@@ -299,7 +300,9 @@ class PrometheusClient(DataSourceClient):
                 if progress_callback:
                     done = min(i + self._SERIES_BATCH, total)
                     try:
-                        progress_callback(done, total, f"Indexed {done}/{total} metrics")
+                        progress_callback("metrics", batch[-1] if batch else None, done, total)
+                    except IndexingCancelled:
+                        raise
                     except Exception:
                         pass
 
@@ -334,6 +337,7 @@ class PrometheusClient(DataSourceClient):
                 )
             return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None):
         return self.get_tables(progress_callback=progress_callback)
 
@@ -438,6 +442,8 @@ class PrometheusClient(DataSourceClient):
                 try:
                     info = self._api(session, "/api/v1/status/buildinfo") or {}
                     version = info.get("version")
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
                 msg = "Successfully connected to Prometheus"
@@ -446,6 +452,8 @@ class PrometheusClient(DataSourceClient):
                 return {"success": True, "message": msg}
         except requests.exceptions.RequestException as e:
             return {"success": False, "message": f"Connection error: {e}"}
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 

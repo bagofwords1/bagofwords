@@ -1,0 +1,125 @@
+import { chromium, expect } from '@playwright/test';
+import { mkdirSync, writeFileSync, existsSync, unlinkSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { loadConnectionRegistry } from './connection-registry.mjs';
+const registry = loadConnectionRegistry();
+const previewPath = fileURLToPath(new URL('../../pages/users/connection-setup-evidence.vue', import.meta.url));
+if (existsSync(previewPath)) throw new Error('Preview route already exists; refusing to overwrite it.');
+writeFileSync(previewPath, `<template><div :data-created-count="created" class="min-h-screen bg-gray-50 p-12"><AddConnectionModal @created="created++" v-model="open" initial-selected-type="postgresql" /></div></template>
+<script setup lang="ts">
+definePageMeta({ auth: false, layout: false });
+const created = ref(0); const open = ref(false); onMounted(() => { open.value = true });
+</script>`);
+try {
+const browser = await chromium.launch();
+const out=fileURLToPath(new URL('../../../media/pr/connection-setup', import.meta.url));
+mkdirSync(out,{recursive:true});
+const context = await browser.newContext({viewport:{width:1440,height:1000},recordVideo:{dir:out+'/video',size:{width:1440,height:1000}}});
+const page=await context.newPage();
+const errors=[];page.on('pageerror',e=>errors.push(e.message));
+let testOk=false, createCount=0, updates=0, retries=0;
+let status={id:'run-1',status:'running',phase:'processing_columns',current_item:'public.orders.id',progress_done:90,progress_total:100,started_at:new Date().toISOString(),events:[{ts:new Date().toISOString(),level:'info',phase:'reading_columns',message:'Phase: reading_columns'},{ts:new Date().toISOString(),level:'info',phase:'processing_columns',message:'public.orders.id (90/100)'}]};
+await page.route('**/api/**',async route=>{
+const url=new URL(route.request().url());if(!url.pathname.startsWith('/api/')) return route.continue();
+let body={};
+if(url.pathname.endsWith('/available_data_sources')) body=registry.available;
+else if(url.pathname.endsWith('/license')) body={licensed:true,tier:'enterprise',features:[]};
+else if(url.pathname.endsWith('/fields')) body=registry.fields.postgresql;
+else if(url.pathname.endsWith('/test_connection')||url.pathname.endsWith('/test')) body={success:testOk,message:testOk?'Connection successful':'Authentication failed. Check your username and password.'};
+else if(url.pathname.endsWith('/connections')&&route.request().method()==='POST') {createCount++;body={id:'demo-connection',name:'Analytics',type:'postgresql',indexing:status};}
+else if(url.pathname.endsWith('/connections/demo-connection')&&route.request().method()==='PUT') {updates++;body={id:'demo-connection',name:'Analytics',type:'postgresql'};}
+else if(url.pathname.endsWith('/indexing')) body=status;
+else if(url.pathname.endsWith('/reindex')) {retries++;status={...status,id:'run-2',status:'running',progress_done:5,error:null};body={indexing:status};}
+else if(url.pathname.includes('organizations')||url.pathname.includes('catalog')||url.pathname.includes('presets')||url.pathname.includes('demos')) body=[];
+else if(url.pathname.endsWith('/config/i18n')) body={default_locale:'en',enabled_locales:['en','es','he']};
+await route.fulfill({json:body});
+});
+await page.goto(`${process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:3100'}/users/connection-setup-evidence`);
+await page.locator('#host').waitFor();
+await page.waitForTimeout(350);
+await page.screenshot({path:out+'/after.png'});
+await page.locator('#connection-name').fill('Analytics');
+await page.locator('#host').fill('db.example.com');
+await page.locator('#database').fill('analytics');
+await page.locator('#user').fill('readonly');
+await page.locator('#password').fill('synthetic-example');
+await page.locator('#sslmode').selectOption('require');
+await page.getByRole('button',{name:'Connect',exact:true}).click();
+await expect(page.getByRole('alert')).toContainText('Authentication failed');
+await expect(page.locator('#host')).toHaveValue('db.example.com');
+await expect(page.locator('#host')).toBeEnabled();
+expect(createCount).toBe(0);
+await page.screenshot({path:out+'/connection-error.png'});
+testOk=true;
+await page.getByRole('button',{name:'Connect',exact:true}).click();
+await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow','90');
+await expect(page.locator('#host')).toBeDisabled();
+await page.getByRole('button',{name:/Show logs/}).click();
+await page.screenshot({path:out+'/progress.png'});
+status={...status,phase:'relationships',progress_done:5};
+await expect(page.getByRole('progressbar')).toHaveAttribute('aria-valuenow','5');
+await expect(page.locator('aside')).toContainText('Reading relationships');
+await expect(page.locator('aside')).toContainText('Previous stages');
+status={...status,status:'failed',error:'Permission denied while reading relationships.'};
+await expect(page.getByRole('button',{name:'Retry',exact:true})).toBeEnabled();
+await expect(page.locator('#host')).toBeEnabled();
+await expect(page.locator('aside')).toContainText('Connection saved. Schema discovery failed.');
+await page.screenshot({path:out+'/discovery-error.png'});
+await page.locator('#user').fill('catalog_reader');
+await page.getByRole('button',{name:'Retry',exact:true}).click();
+await expect.poll(()=>retries).toBe(1);
+expect(updates).toBe(1);expect(createCount).toBe(1);
+status={...status,status:'completed',progress_done:100,stats:{table_count:27,elapsed_s:12}};
+await expect(page.getByRole('button',{name:'Done',exact:true})).toBeEnabled();
+await expect(page.locator('aside')).toContainText('27');
+await page.screenshot({path:out+'/completed.png'});
+const countsBeforeRetest = {createCount, updates, retries};
+testOk=false;
+await page.getByRole('button',{name:'Test again',exact:true}).click();
+await expect(page.locator('aside')).toContainText('Authentication failed');
+await expect(page.locator('aside')).toContainText('27');
+await expect(page.getByRole('button',{name:'Done',exact:true})).toBeEnabled();
+await page.screenshot({path:out+'/retest-failed.png'});
+testOk=true;
+await page.getByRole('button',{name:'Test again',exact:true}).click();
+await expect(page.locator('aside')).toContainText('Connection successful');
+expect({createCount, updates, retries}).toEqual(countsBeforeRetest);
+await page.screenshot({path:out+'/retest-passed.png'});
+await page.getByRole('button',{name:'Done',exact:true}).click();
+await expect(page.locator('#host')).toHaveCount(0);
+await expect(page.locator('[data-created-count]')).toHaveAttribute('data-created-count','1');
+// Closing while discovery continues must also notify the caller exactly once.
+status = {...status, status:'running', progress_done:5};
+await page.reload(); await page.locator('#host').waitFor();
+await page.locator('#host').fill('db.example.com');
+await page.locator('#database').fill('analytics');
+await page.locator('#user').fill('readonly');
+await page.locator('#password').fill('synthetic-example');
+await page.getByRole('button',{name:'Connect',exact:true}).click();
+await expect(page.getByRole('progressbar')).toBeVisible();
+await page.getByRole('button',{name:'Close',exact:true}).click();
+await expect(page.locator('#host')).toHaveCount(0);
+await expect(page.locator('[data-created-count]')).toHaveAttribute('data-created-count','1');
+await page.evaluate(()=>localStorage.setItem('bow.locale','he'));
+await page.reload();await page.locator('#host').waitFor();
+await expect(page.locator('html')).toHaveAttribute('dir','rtl');
+await page.screenshot({path:out+'/after-he.png'});
+await page.evaluate(()=>localStorage.setItem('bow.locale','en'));
+await page.setViewportSize({width:390,height:844});await page.reload();await page.locator('#host').waitFor();
+await expect(page.getByRole('button',{name:'Connect',exact:true})).toBeInViewport();
+await page.screenshot({path:out+'/after-mobile.png'});
+for (const locale of ['en','es','he','fr','de','it','pt','sv','ru','ar']) {
+  await page.evaluate(locale => localStorage.setItem('bow.locale',locale), locale);
+  await page.reload(); await page.locator('#host').waitFor();
+  await expect(page.locator('html')).toHaveAttribute('lang',locale);
+  await expect(page.locator('aside')).not.toContainText('data.setup');
+}
+await page.setViewportSize({width:1440,height:1000});
+await page.evaluate(()=>{localStorage.setItem('bow.locale','en');localStorage.setItem('nuxt-color-mode','dark')});
+await page.reload(); await page.locator('#host').waitFor();
+await page.waitForTimeout(350);
+await page.screenshot({path:out+'/after-dark.png'});
+expect(errors).toEqual([]);
+console.log('PASS: 10 locale rendering; dark mode; connection failure and preserved values; one-action create; stage transition; discovery failure; edit/retry without duplicates; completion; Hebrew RTL; mobile.');
+await context.close();await browser.close();
+} finally { unlinkSync(previewPath); }

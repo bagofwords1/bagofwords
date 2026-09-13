@@ -16,6 +16,10 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import time
+from contextvars import ContextVar
+from functools import wraps
+from collections.abc import Sized
 from typing import Any, Awaitable, Callable, Optional, Union
 
 
@@ -42,13 +46,15 @@ class IndexingCancelled(Exception):
 class ProgressReporter:
     """Cheap no-op when no callback is set; else forwards emissions."""
 
-    __slots__ = ("_cb", "_phase", "_done", "_total")
+    __slots__ = ("_cb", "_phase", "_done", "_total", "_last_emit", "_last_bucket")
 
     def __init__(self, callback: Optional[ProgressCallback] = None) -> None:
         self._cb = callback
         self._phase: Optional[str] = None
         self._done = 0
         self._total = 0
+        self._last_emit = float("-inf")
+        self._last_bucket = -1
 
     @property
     def enabled(self) -> bool:
@@ -59,11 +65,11 @@ class ProgressReporter:
         self._phase = phase
         self._done = 0
         self._total = total
-        self._emit(None)
+        self._emit(None, force=True)
 
     def set_total(self, total: int) -> None:
         self._total = total
-        self._emit(None)
+        self._emit(None, force=True)
 
     def item(self, current_item: Optional[str], done: Optional[int] = None) -> None:
         """Report progress on a single item within the current phase."""
@@ -82,11 +88,19 @@ class ProgressReporter:
         if total is not None:
             self._total = total
         self._done = self._total
-        self._emit(None)
+        self._emit(None, force=True)
 
-    def _emit(self, current_item: Optional[str]) -> None:
+    def _emit(self, current_item: Optional[str], *, force: bool = False) -> None:
         if self._cb is None:
             return
+        now = time.monotonic()
+        bucket = int(100 * self._done / self._total) if self._total > 0 else -1
+        # Keep small catalogs detailed. Large/unknown crawls emit percentage
+        # milestones or at most ten updates/second, plus every stage boundary.
+        if not force and max(self._total, self._done) > 1000 and bucket == self._last_bucket and now - self._last_emit < 0.1:
+            return
+        self._last_emit = now
+        self._last_bucket = bucket
         try:
             result = self._cb(self._phase, current_item, self._done, self._total)
             if inspect.isawaitable(result):
@@ -112,3 +126,81 @@ def noop_reporter() -> ProgressReporter:
 
 def make_reporter(callback: Optional[ProgressCallback]) -> ProgressReporter:
     return ProgressReporter(callback)
+
+# Discovery helpers share a reporter within one synchronous crawl. ContextVar
+# keeps concurrent connections isolated and avoids mutable client-level state.
+
+_discovery_reporter: ContextVar[Optional[ProgressReporter]] = ContextVar('discovery_reporter', default=None)
+
+
+def discovery_progress(fn):
+    """Give a discovery entry point a start/end lifecycle without extra I/O.
+
+    The decorated method explicitly declares progress_callback. Helpers called
+    by that method can report existing work through discovery_items/phase.
+    Executor tasks should report completion from their submitting thread.
+    """
+    signature = inspect.signature(fn)
+    @wraps(fn)
+    def run(*args, **kwargs):
+        callback = signature.bind_partial(*args, **kwargs).arguments.get('progress_callback')
+        if callback is None:
+            return fn(*args, **kwargs)
+        reporter = make_reporter(callback)
+        token = _discovery_reporter.set(reporter)
+        try:
+            reporter.phase('discovering_schema')
+            result = fn(*args, **kwargs)
+            reporter.phase('catalog_ready', total=len(result) if isinstance(result, Sized) else 0)
+            reporter.done()
+            return result
+        finally:
+            _discovery_reporter.reset(token)
+    return run
+
+
+def discovery_phase(phase: str) -> None:
+    reporter = _discovery_reporter.get()
+    if reporter is not None:
+        reporter.phase(phase)
+
+
+def discovery_items(items, phase: str, *, label=None, total=None):
+    """Report one existing iterable without materializing it or extra queries.
+
+    Counts are work items within this stage, not a global catalog percentage.
+    Labels must be metadata identifiers, never rows of customer data or secrets.
+    Unknown totals remain indeterminate until the iterable is exhausted.
+    """
+    reporter = _discovery_reporter.get()
+    if reporter is None:
+        return items
+
+    def iterate():
+        count = len(items) if total is None and isinstance(items, Sized) else (total or 0)
+        reporter.phase(phase, total=count)
+        done = 0
+        for item in items:
+            # Nested stages can change the shared reporter; restore this stage
+            # before reporting its next work item.
+            if reporter._phase != phase:
+                reporter.phase(phase, total=count)
+            try:
+                name = label(item) if label is not None else None
+            except Exception:
+                name = None
+            reporter.item(name, done=done)
+            yield item
+            done += 1
+        if reporter._phase != phase:
+            reporter.phase(phase, total=count)
+        reporter.done(total=done)
+    return iterate()
+
+
+def discovery_summary(phase: str, count: int) -> None:
+    """Report an observed outcome after that work has finished."""
+    reporter = _discovery_reporter.get()
+    if reporter is not None:
+        reporter.phase(phase, total=count)
+        reporter.done()

@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, TableFormatter
 
@@ -90,7 +91,8 @@ class NetsuiteClient(DataSourceClient):
         except Exception as e:
             return {"success": False, "message": str(e)}
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         with self.connect() as session:
             # Bulk fetch: 2 queries total instead of 1+N
             raw_tables = self._execute_suiteql(session, "SELECT tableName, description FROM metadata.tables")
@@ -102,12 +104,12 @@ class NetsuiteClient(DataSourceClient):
 
             # Group columns by table name
             columns_by_table = {}
-            for c in raw_columns:
+            for c in discovery_items(raw_columns, 'columns', label=lambda column: self._get_field(column, 'tableName', '') + '.' + self._get_field(column, 'columnName', '')):
                 tname = self._get_field(c, "tableName", "").lower()
                 columns_by_table.setdefault(tname, []).append(c)
 
             tables = []
-            for tbl in raw_tables:
+            for tbl in discovery_items(raw_tables, 'tables', label=lambda table: self._get_field(table, 'tableName')):
                 table_name = self._get_field(tbl, "tableName")
                 if not table_name:
                     continue

@@ -3677,6 +3677,25 @@ class DataSourceService:
         # requests. The reverse ordering leaked instead of hid: with the
         # system_only connection first no scoping was applied at all, so one
         # user saw another user's delegated-catalog tables.
+        #
+        # Populate-on-first-read, exactly as the unpaginated
+        # `get_data_source_schema` does. The scope predicate below filters a
+        # delegated connection through a per-user overlay, and on a freshly
+        # created agent nothing has written that overlay yet. Only an explicit
+        # refresh or the login-time OBO provisioning writes it, so without this
+        # warm the tables selector — which ALWAYS paginates, and is therefore
+        # the only path real users take — renders "No tables found" and does
+        # not heal on its own: the admin saves the agent with zero tables.
+        # A no-op once warm.
+        delegated_conns = [
+            c for c in (data_source.connections or [])
+            if (getattr(c, "auth_policy", None) or "system_only") == "user_required"
+        ]
+        if delegated_conns and current_user is not None:
+            await self._warm_user_overlay_if_empty(
+                db, data_source, current_user, delegated_conns
+            )
+
         _scope = await self._resolve_catalog_scope(db, data_source, current_user)
 
         # Exclude file-source catalog rows from the Tables view: a file connection

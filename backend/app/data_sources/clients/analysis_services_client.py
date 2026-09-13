@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from typing import Dict, List, Optional
 from xml.etree.ElementTree import Element
 from xml.sax.saxutils import escape as xml_escape
@@ -372,6 +373,8 @@ class AnalysisServicesClient(XmlaClient):
     def _optional_tmschema_rows(self, catalog: str, rowset: str) -> List[Dict]:
         try:
             return self._tmschema_rows(catalog, rowset)
+        except IndexingCancelled:
+            raise
         except Exception:
             # TMSCHEMA is administrator-only on SSAS. A read-only connection is
             # the normal deployment and must retain the complete CSDL baseline.
@@ -389,6 +392,8 @@ class AnalysisServicesClient(XmlaClient):
         """
         try:
             table_rows = self._tmschema_rows(catalog, "TABLES")
+        except IndexingCancelled:
+            raise
         except Exception:
             return tables
 
@@ -629,15 +634,18 @@ class AnalysisServicesClient(XmlaClient):
 
         return tables
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """Discover physical tables for Tabular and cubes for Multidimensional."""
         if self._schemas_cache is not None:
             return self._schemas_cache
 
         tables: List[Table] = []
-        for catalog in self._list_catalogs():
+        for catalog in discovery_items(self._list_catalogs(), 'catalogs', label=str):
             try:
                 schema = self._discover_csdl_schema(catalog)
+            except IndexingCancelled:
+                raise
             except Exception:
                 context = {"modelType": "MULTIDIMENSIONAL", "supportsDax": False, "preferredDialect": "MDX"}
                 tables.extend(self._cube_tables_for_catalog(catalog, context))

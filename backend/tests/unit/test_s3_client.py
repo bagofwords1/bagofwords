@@ -367,3 +367,19 @@ class TestAuth:
         c._client()
         assert calls["session_kwargs"] == {"region_name": "us-east-1"}
         assert "assumed_role_arn" not in calls  # nothing assumed
+
+
+class TestDiscoveryProgress:
+    def test_metadata_catalog_reports_files_without_content_requests(self):
+        client, stub = _make_client(index_mode='metadata')
+        stub.add_response('list_objects_v2', {
+            'Contents': [{'Key': 'docs/a.csv', 'Size': 12}, {'Key': 'docs/b.pdf', 'Size': 24}],
+            'IsTruncated': False,
+        })
+        events = []
+        with stub:
+            tables = client.get_schemas(progress_callback=lambda *event: events.append(event))
+            stub.assert_no_pending_responses()
+        assert len(tables) == 2
+        assert any(phase == 'files' and item and done > 0 for phase, item, done, total in events)
+        assert events[-1][2:] == (len(tables), len(tables))

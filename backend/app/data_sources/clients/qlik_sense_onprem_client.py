@@ -35,6 +35,7 @@ What gets extracted (the Power BI connector is the bar):
 """
 
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 
 import asyncio
 import logging
@@ -302,6 +303,8 @@ class QlikSenseOnPremClient(DataSourceClient):
         if self._client_key_password:
             try:
                 key_pem = self._decrypt_key(key_pem)
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 raise RuntimeError(f"Could not decrypt the Qlik client key with the given password: {e}")
 
@@ -1149,19 +1152,27 @@ class QlikSenseOnPremClient(DataSourceClient):
             )]
         return tables
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         apps = self.list_apps()
         if not apps:
             return []
         tables: List[Table] = []
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as pool:
-            futures = {pool.submit(self._crawl_app, app): app for app in apps}
-            for fut in as_completed(futures):
-                try:
-                    tables.extend(fut.result() or [])
-                except Exception as e:
-                    app = futures[fut]
-                    logger.warning("Unhandled Qlik crawl exception for %s: %s", app.get("id"), e)
+            try:
+                futures = {pool.submit(self._crawl_app, app): app for app in apps}
+                for fut in discovery_items(as_completed(futures), 'applications', label=lambda fut: futures[fut].get('name') or futures[fut].get('id'), total=len(futures)):
+                    try:
+                        tables.extend(fut.result() or [])
+                    except IndexingCancelled:
+                        raise
+                    except Exception as e:
+                        app = futures[fut]
+                        logger.warning("Unhandled Qlik crawl exception for %s: %s", app.get("id"), e)
+            except IndexingCancelled:
+                for pending in futures:
+                    pending.cancel()
+                raise
         return tables
 
     def get_schema(self, table_name: str) -> Table:

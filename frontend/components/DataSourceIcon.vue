@@ -82,6 +82,7 @@ const normalizeType = (raw: string) => {
 // assets live under /data_sources_icons with mixed extensions, and the catalog
 // key isn't always the filename (e.g. atlassian → jira).
 const CONNECTOR_ICON_FILE: Record<string, string> = {
+    netapp_ontap: 'netapp_ontap.png',
     monday: 'monday.svg',
     notion: 'notion.png',
     atlassian: 'jira.png',
@@ -91,6 +92,7 @@ const CONNECTOR_ICON_FILE: Record<string, string> = {
     gmail: 'gmail.png',
     google_drive: 'google_drive.png',
     x: 'x.svg',
+    hubspot: 'hubspot.png',
 };
 
 // Computed property to generate the icon path
@@ -109,6 +111,7 @@ const iconPath = computed(() => {
     // Explicit brand icons for data-source types whose asset is an SVG (the
     // default resolver below only tries `<type>.png`).
     const TYPE_ICON_FILE: Record<string, string> = {
+        brocade: 'brocade.png',
         csv: 'csv.png',
         gmail_mail: 'gmail.png',
         outlook_mail: 'outlook_mail.svg',

@@ -202,9 +202,27 @@ def test_agent_creator_can_train_agent_they_created(
         headers=_hdr(creator["token"], org),
     )
     assert rep.status_code in (200, 201), rep.text
-    # The forbidden agent is dropped from the report (no access), so it has no
-    # trainable agent → training is denied.
-    assert _set_mode(test_client, creator["token"], org, rep.json()["id"], "training").status_code == 403
+
+    # THIS is the security property: the forbidden agent is silently dropped, so
+    # it is never trainable regardless of what the mode switch returns. Asserted
+    # directly rather than inferred from a 403 on the mode switch — that
+    # inference is what made this test stale (see below).
+    attached = {ds["id"] for ds in (rep.json().get("data_sources") or [])}
+    assert admin_agent["id"] not in attached, (
+        "an agent the creator cannot access must not attach to their report"
+    )
+
+    # The report is therefore left with no trainable agent, and entering
+    # training mode on it is ALLOWED — an agent manager may train against BOW
+    # run history with no business source attached
+    # (_assert_can_enter_training_mode falls through to resolve_console_scope
+    # when training_ds_ids is empty). That history is scoped to the agents they
+    # manage, which is their own agent and never the admin's.
+    #
+    # This assertion read 403 until the BOW training source landed and
+    # deliberately opened the empty-report case; the expectation was stale, not
+    # the behaviour.
+    assert _set_mode(test_client, creator["token"], org, rep.json()["id"], "training").status_code == 200
 
 
 # ── Write scoping (HTTP routes) ──────────────────────────────────────────────

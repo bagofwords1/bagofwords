@@ -454,6 +454,17 @@ class AgentV2:
         # site — TestRunService stubs reports as ``report_type="test"``.
         self.is_eval_run = bool(report and getattr(report, 'report_type', None) == 'test')
         self.organization = organization
+        # Resolved once per run by _code_visible_for_run(); None = not yet resolved.
+        self._code_visible_cache = None
+        # The asker's id as a SCALAR, captured here for the same reason
+        # report_id is (see below): reading `head_completion.user` later can
+        # return None or raise MissingGreenlet once a concurrent commit has
+        # expired the instance — and a code-visibility lookup that quietly
+        # fails open would stream code to a user whose role withholds it.
+        self._asker_user_id = (
+            str(getattr(head_completion, "user_id", "") or "") or None
+            if head_completion is not None else None
+        )
         self.organization_settings = organization_settings
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
@@ -874,20 +885,11 @@ class AgentV2:
             usage_session_maker=async_session_maker,
             usage_context=self.usage_limit_context,
         )
-        # Initialize Judge using ContextHub's instruction builder
-        self.judge = Judge(
-            model=self.small_model,
-            organization_settings=self.organization_settings,
-            instruction_context_builder=self.context_hub.instruction_builder,
-            usage_session_maker=async_session_maker,
-            # Do NOT pass usage_context here. The Judge scores via
-            # asyncio.to_thread(llm.inference) (a worker thread), which routes the
-            # sync quota check through UsageLimitContext.run_blocking(). With no
-            # loop bound on the context that spins up a throwaway event loop and
-            # contends for the context's _cache_lock (created on the main loop),
-            # raising "Lock is bound to a different event loop" mid-run. Token
-            # recording still works via usage_session_maker.
-        )
+        # NOTE: no Judge instance is built here. Background scoring constructs
+        # its own short-lived Judge per phase (see _run_early_scoring_background
+        # / _run_late_scoring_background), each on self.small_model. An eagerly
+        # built self.judge sat unused here and only invited scoring paths to
+        # diverge from it on which model they billed.
 
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
@@ -1670,7 +1672,13 @@ class AgentV2:
             # only retry the write, never re-run the model.
             if self._llm_judgement_enabled():
                 judge = Judge(
-                    model=self.model,
+                    # Must be small_model, not self.model: _llm_judgement_enabled()
+                    # gates on judge_model_allowed(self.small_model), whose whole
+                    # point is that background scoring of live chat never gets
+                    # billed to the org's big default. self.model is also mutated
+                    # by _apply_effective_model() on routing escalation/fallback,
+                    # which would make the judge's model vary per run.
+                    model=self.small_model,
                     organization_settings=self.organization_settings,
                     usage_session_maker=async_session_maker,
                     # No usage_context: Judge runs in a worker thread; routing the
@@ -1700,7 +1708,8 @@ class AgentV2:
             # loop so a locked-SQLite write never triggers a redundant model call.
             if self._llm_judgement_enabled():
                 judge = Judge(
-                    model=self.model,
+                    # small_model, not self.model — see note in early scoring.
+                    model=self.small_model,
                     organization_settings=self.organization_settings,
                     usage_session_maker=async_session_maker,
                     # No usage_context: see note above (cross-loop _cache_lock).
@@ -4523,6 +4532,7 @@ class AgentV2:
                             active_artifact=active_artifact,
                             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
                             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
+                            can_view_code=await self._code_visible_for_run(),
                             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
                             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
                             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
@@ -6892,6 +6902,7 @@ class AgentV2:
             active_artifact=active_artifact,
             limit_row_count=int(self.organization_settings.get_config("limit_row_count").value) if self.organization_settings.get_config("limit_row_count") and self.organization_settings.get_config("limit_row_count").value else None,
             allow_llm_see_data=bool(getattr(self.organization_settings.get_config("allow_llm_see_data"), "value", True)),
+            can_view_code=await self._code_visible_for_run(),
             mcp_tools_enabled=bool(getattr(self.organization_settings.get_config("enable_mcp_tools"), "value", False)),
             web_fetch_enabled=bool(getattr(self.organization_settings.get_config("enable_web_fetch"), "value", False)),
             ml_training_enabled=ml_training_settings(self.organization_settings)[0],
@@ -7046,8 +7057,72 @@ class AgentV2:
                 span.set_attribute(f"planner.events.{event_type}", count)
             span.end()
 
+    async def _code_visible_for_run(self) -> bool:
+        """Whether the human who started this run may see generated code.
+
+        Resolved once per agent run and cached. The agent streams from a
+        background task, long after the originating request's context is gone,
+        so the request-scoped contextvar used by the REST serializers is not
+        available here — the permission has to be resolved from the run's own
+        user.
+
+        Reads the cached scalar id, never `head_completion.user`: that
+        relationship comes back None (or raises MissingGreenlet) once a
+        concurrent commit has expired the instance, and an earlier version of
+        this method treated that as "no user, stream normally" — which silently
+        disabled the whole gate for real runs while every unit test passed.
+
+        System/non-user runs (schedules, webhooks) have no viewer to protect and
+        stream normally.
+        """
+        if getattr(self, "_code_visible_cache", None) is not None:
+            return self._code_visible_cache
+
+        user_id = getattr(self, "_asker_user_id", None)
+        if not user_id or self.organization is None:
+            # No human asker: a scheduled or webhook run has no one to withhold
+            # code from.
+            self._code_visible_cache = True
+            return True
+
+        try:
+            from app.core.permission_resolver import resolve_permissions
+            from app.core.code_visibility import can_view_code
+
+            resolved = await resolve_permissions(
+                self.db, user_id, str(self.organization.id)
+            )
+            visible = can_view_code(resolved)
+        except Exception:
+            # Fail CLOSED. A failed lookup for a known user must not hand them
+            # code their role may withhold; the run still works, it just omits
+            # the code the REST layer would have redacted anyway.
+            logger.warning(
+                "code visibility resolution failed for user=%s; withholding code",
+                user_id, exc_info=True,
+            )
+            visible = False
+
+        self._code_visible_cache = visible
+        return visible
+
     async def _emit_sse_event(self, event: SSEEvent):
         """Emit SSE event via event queue and optionally websocket."""
+        # Withhold generated code from a viewer without `view_code`. Done at the
+        # single emit chokepoint rather than at each of the two forwarding sites,
+        # so a third forwarder cannot bypass it.
+        try:
+            data = getattr(event, "data", None)
+            if isinstance(data, dict) and isinstance(data.get("payload"), dict):
+                if not await self._code_visible_for_run():
+                    from app.core.code_visibility import redact_progress_payload
+                    event.data = {
+                        **data,
+                        "payload": redact_progress_payload(data["payload"], False),
+                    }
+        except Exception:
+            logger.debug("sse code redaction skipped", exc_info=True)
+
         with tracer.start_as_current_span("agent.sse_enqueue") as span:
             span.set_attribute("sse.event", event.event)
             span.set_attribute("sse.queue_present", bool(self.event_queue))

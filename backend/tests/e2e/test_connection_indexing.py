@@ -340,3 +340,44 @@ def test_indexing_idempotent_while_running(
     assert id1 == id2, (r1.json(), r2.json())
 
     _poll_until_terminal(test_client, conn_id, token, org_id)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("discovery_fails", [False, True])
+def test_short_discovery_stages_remain_in_activity_log(
+    create_connection, test_client, create_user, login_user, whoami, monkeypatch, discovery_fails,
+):
+    """Phase history must survive coalescing even when no poll sees a stage."""
+    from app.services.connection_service import ConnectionService
+
+    _skip_if_no_chinook()
+    original = ConnectionService.refresh_schema
+
+    async def quick_stages(self, *args, **kwargs):
+        callback = kwargs.get('progress_callback')
+        if callback:
+            # Run synchronously on the runner loop before yielding: no DB
+            # flush can execute between these short metadata operations.
+            callback('catalog', None, 0, 10)
+            callback('catalog', 'public.orders', 9, 10)
+            callback('columns', None, 0, 40)
+            callback('columns', 'public.orders.id', 2, 40)
+        if discovery_fails:
+            raise RuntimeError('Metadata access denied')
+        return await original(self, *args, **kwargs)
+
+    monkeypatch.setattr(ConnectionService, 'refresh_schema', quick_stages)
+    user = create_user()
+    token = login_user(user['email'], user['password'])
+    org_id = whoami(token)['organizations'][0]['id']
+    connection = create_connection(
+        name='Short discovery stages', type='sqlite',
+        config={'database': str(CONNECTION_TEST_DB_PATH)}, credentials={},
+        user_token=token, org_id=org_id,
+    )
+    final = _poll_until_terminal(test_client, connection['id'], token, org_id)
+    assert final['status'] == ('failed' if discovery_fails else 'completed'), final
+    phases = [event['phase'] for event in final['events']]
+    assert 'catalog' in phases and 'columns' in phases, phases
+    assert phases.index('catalog') < phases.index('columns')
+    assert any('public.orders' in event['message'] for event in final['events'])

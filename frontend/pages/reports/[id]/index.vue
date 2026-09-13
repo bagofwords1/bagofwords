@@ -102,9 +102,9 @@
 
 				<!-- Fork summary separator -->
 				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
-					<div class="flex-1 border-t border-dashed border-gray-200"></div>
+					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 					<span class="text-[10px] text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
-					<div class="flex-1 border-t border-dashed border-gray-200"></div>
+					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 				</div>
 
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
@@ -118,19 +118,19 @@
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
 
 						<!-- Fork summary card (special rendering) -->
-						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
+						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 dark:border-amber-500/30 bg-amber-50/50 dark:bg-amber-500/10 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
 								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
 							</div>
-							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
+							<div class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
 
 						<!-- Scheduled prompt: collapsible header + user bubble when expanded -->
 						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
 							<button
 								@click="toggleScheduledExpand(m.id)"
-								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
 								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
@@ -255,7 +255,7 @@
 														<AuthenticatedImage
 															:file-id="file.id"
 															:alt="file.filename"
-															img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+															img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
 															@click="openImagePreview(file)" />
 													</div>
 												</div>
@@ -500,7 +500,7 @@
 											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }" ref="instructionsPopoverRef">
 												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
 													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
-													<span class="text-xs text-gray-700 font-normal">{{ $t('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
+													<span class="text-xs text-gray-700 dark:text-gray-300 font-normal">{{ $t('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
@@ -517,7 +517,9 @@
 																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
 																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
-																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
+																	:class="(ins.load_mode || 'always') === 'always'
+																		? 'bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-400'
+																		: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400'">
 																	{{ getLoadModeLabel(ins.load_mode) }}
 																</span>
 															</div>
@@ -533,7 +535,7 @@
 												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors group"
 												:title="$t('reportView.viewAgentTrace')"
 											>
-												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
+												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900 dark:group-hover:text-gray-100" />
 											</button>
 
 											<!-- Total run duration + AI message timestamp -->
@@ -632,7 +634,7 @@
 		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
-					<span class="font-medium bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md">Note
+					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
 						This report is a report generated from a test run
 					</span>
 					</span>
@@ -640,7 +642,7 @@
 			</div>
 		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
 					<span>This session was created via MCP. The conversation reflects tool calls made by an external AI assistant. You can view the generated data and visualizations above.</span>
 				</span>
@@ -648,7 +650,7 @@
 		</div>
 		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
 					<span>This session was created via Slack.</span>
 				</span>
@@ -656,7 +658,7 @@
 		</div>
 		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
 					<span>This session was created via Microsoft Teams.</span>
 				</span>
@@ -664,7 +666,7 @@
 		</div>
 		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-green-50 text-green-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-green-50 dark:bg-green-500/15 text-green-700 dark:text-green-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
 					<span>This session was created via Excel.</span>
 				</span>
@@ -5493,6 +5495,50 @@ onMounted(async () => {
 	:where(p, h1, h2, h3, h4, h5, h6, ul, ol, li, blockquote, table):is([dir="rtl"], [dir="ltr"]) {
 		unicode-bidi: isolate;
 	}
+}
+
+/* ─── Dark mode: markdown answer body ──────────────────────────────────────
+   Every surface above is a hardcoded light literal (bg-white tables, bg-gray-50
+   code slabs, text-gray-900 links), so on a dark page the answer renders white
+   slabs with near-invisible text. Mirrors the palette in InstructionText.vue.
+
+   The `.dark` class lives on <html> (Tailwind darkMode: 'class'), outside this
+   component's scope, so — as in ChangelogModal/InstructionEditor — these are
+   authored as :global and matched by the component's own wrapper classes.
+   A `:global(.dark) .markdown-wrapper :deep(...)` prefix compiles to an
+   invalid selector and silently drops. `.markdown-wrapper` stays in the chain
+   because the light rules above compile to
+   `.markdown-wrapper[data-v-…] .markdown-content <el>` — three class-level
+   units — so a `.dark .markdown-content <el>` override would lose on
+   specificity instead of winning by source order. */
+:global(.dark .markdown-wrapper .markdown-content pre) {
+	background-color: #1f2937;
+}
+:global(.dark .markdown-wrapper .markdown-content code) {
+	background-color: #374151;
+	color: #e5e7eb;
+}
+:global(.dark .markdown-wrapper .markdown-content pre code) {
+	background: none;
+	color: #e5e7eb;
+}
+:global(.dark .markdown-wrapper .markdown-content a) {
+	color: #93c5fd;
+}
+:global(.dark .markdown-wrapper .markdown-content a:hover) {
+	color: #bfdbfe;
+}
+:global(.dark .markdown-wrapper .markdown-content blockquote) {
+	border-color: #4b5563;
+}
+:global(.dark .markdown-wrapper .markdown-content table th),
+:global(.dark .markdown-wrapper .markdown-content table td) {
+	background-color: #111827;
+	border-color: #374151;
+	color: #e5e7eb;
+}
+:global(.dark .markdown-wrapper .markdown-content table th) {
+	background-color: #1f2937;
 }
 
 

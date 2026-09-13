@@ -24,6 +24,7 @@ extracted text, keyword indexing) is shared with `network_dir` via the same
 helpers, so this client only owns S3 I/O + confinement.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 
 import base64
 import hashlib
@@ -379,6 +380,8 @@ class S3Client(DataSourceClient):
         if ext == "json":
             try:
                 return json.loads(data.decode("utf-8", errors="replace"))
+            except IndexingCancelled:
+                raise
             except Exception:
                 return data.decode("utf-8", errors="replace")
         if ext in TEXT_EXTS:
@@ -400,6 +403,8 @@ class S3Client(DataSourceClient):
                 return etag
             lm = head.get("LastModified")
             return f"{int(head.get('ContentLength', 0))}:{lm.timestamp() if lm else ''}"
+        except IndexingCancelled:
+            raise
         except Exception:
             return None
 
@@ -534,6 +539,8 @@ class S3Client(DataSourceClient):
                     candidates.append({"id": str(fid), "skip_reason": SKIP_ACCESS_DENIED})
                 except ValueError:
                     candidates.append({"id": str(fid), "skip_reason": SKIP_NOT_FOUND})
+                except IndexingCancelled:
+                    raise
                 except Exception as e:
                     # botocore 404 (NoSuchKey / missing head) → not_found; any
                     # other API failure → unreadable.
@@ -610,6 +617,8 @@ class S3Client(DataSourceClient):
                 parts = [f"{name}\n{df.to_csv(index=False, header=False)}" for name, df in frames.items()]
                 return "\n".join(parts)[:max_chars]
             return data.decode("utf-8", errors="ignore")[:max_chars]
+        except IndexingCancelled:
+            raise
         except Exception:
             return ""
 
@@ -639,9 +648,12 @@ class S3Client(DataSourceClient):
             n = resp.get("KeyCount", 0)
             where = f"s3://{self.bucket}/{self.prefix}".rstrip("/")
             return {"success": True, "message": f"Connected — objects visible under {where}"}
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None) -> List[Table]:
         """Index the bucket/prefix into catalog rows (bounded by
         max_catalog_objects). Honors the index tier: `none` caches nothing
@@ -678,6 +690,8 @@ class S3Client(DataSourceClient):
                     meta["indexed"] = True
                     if meta["keywords"]:
                         description += " Keywords: " + ", ".join(meta["keywords"][:15]) + "."
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     meta["indexed"] = False
             tables.append(Table(
@@ -690,7 +704,9 @@ class S3Client(DataSourceClient):
             ))
             if progress_callback:
                 try:
-                    progress_callback(i + 1, len(files))
+                    progress_callback("files", f.get("path") or f.get("name"), i + 1, len(files))
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
         if truncated:
