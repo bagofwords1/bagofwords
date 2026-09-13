@@ -4,7 +4,7 @@ The prior sign-in view reused AgentConnectionsModal and mixed user access with c
 
 ## Layout and data
 
-The header shows the agent's icon, title, lifecycle stage and optional description. Instruction count sits above Connections. Desktop connection rows align name, formatted resource counts and access; mobile places counts beneath the name. Sign-in is the only per-connection action. The existing management dialog remains behind its existing settings entry point.
+The header shows the agent's icon, title and lifecycle stage. An optional full-width description follows it above Connections; the card omits instruction totals. Desktop connection rows align name, formatted resource counts and access; mobile places counts beneath the name. Sign-in is the only per-connection action. The existing management dialog remains behind its existing settings entry point.
 
 `KnowledgeExplorer.vue` opens the card from Sign in for one or many pending connections and now preserves `reliability_status` from the API (previously dropped by its list mapper, which would incorrectly render Training as Production).
 
@@ -33,3 +33,5 @@ Evidence: `media/pr/agent-card/{before,after,loading,he,mobile}.png` and `flow.g
 Compact typography refinement: 512px maximum width, 16px title, 13px connection names, 12px descriptions/status, smaller icons and tighter row/header padding. A synthetic two-connection preview measured 576×292px before and 512×232.5px after at the same 1200×850 viewport. Desktop, Hebrew, and 390px mobile captures are in `media/pr/agent-card-compact/`; mobile has no horizontal overflow. This is a presentation-only change; access and sign-in behavior are unchanged.
 
 Sign-in styling follow-up: subtle top/bottom row dividers group each connector with a pale-blue sign-in action; the connector name also describes its button for assistive technology. ConnectionDetail renders failed shared/personal status labels red while leaving last-checked metadata neutral. Synthetic browser verification confirmed authorization targets the chosen Power BI connection, the error label resolves to red, and the Hebrew/mobile layouts fit. Before/after captures: `media/pr/connection-polish/`. The connection-status regression still passes.
+
+Description refinement: the description is a separate, full-width 13px block with 20px line height and darker neutral text. Removed the instruction-count row. The existing agent-card browser regression checks this layout and sign-in behavior. Matched before/after and Hebrew/mobile captures are in `media/pr/agent-card-description/`.
