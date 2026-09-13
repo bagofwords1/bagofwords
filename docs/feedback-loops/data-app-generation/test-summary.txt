@@ -1,0 +1,8 @@
+unit-complete.log: 135 passed, 161 warnings in 3.17s
+authoring-tests.log: 68 passed, 118 warnings in 5.29s
+e2e.log: 33 passed, 2813 warnings in 54.21s
+export-tests.log: 16 passed, 420 warnings in 20.87s
+Complex backend parameter checks: 49 passed
+Runtime before: 14 failures / 6 passes; after: 20 passes / 0 failures
+Provenance: baseline click intercepted; current LTR and Hebrew RTL pass
+Catalog expectation failures were corrected; unit-complete.log is the final complete result.

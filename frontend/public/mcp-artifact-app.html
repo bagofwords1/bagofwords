@@ -49,7 +49,7 @@
     MCP delivers ARTIFACT_DATA via postMessage rather than inlined srcdoc.
   -->
   <!-- Keep the ?v in sync with ARTIFACT_GLOBALS_VERSION in utils/artifactIframe.ts -->
-  <script src="/libs/artifact-globals.js?v=11"></script>
+  <!-- Runtime loads after persisted version metadata arrives. -->
 
   <style>
     html, body, #root {
@@ -354,7 +354,16 @@
           setArtifactData({
             report: data.report,
             visualizations: data.visualizations,
-            current_user: data.current_user || null
+            current_user: data.current_user || null,
+            runtime: data.runtime || { version: 0 }
+          });
+
+          await new Promise(function(resolve, reject) {
+            var script = document.createElement('script');
+            script.src = '/libs/artifact-globals.js?v=11';
+            script.onload = resolve;
+            script.onerror = function() { reject(new Error('Artifact runtime could not load')); };
+            document.head.appendChild(script);
           });
 
           // Inject the LLM-generated artifact code

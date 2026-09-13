@@ -14,13 +14,9 @@ class CreateArtifactInput(BaseModel):
     prompt: str = Field(..., description=(
         "PRECONDITION: If existing viz_ids in `past_observations` or message history already cover the user's dashboard ask, call this tool directly with those viz_ids. Only call `create_data` first when the dashboard needs data those viz_ids don't provide.\n\n"
         "THE DESIGN PLAN — the build spec for this artifact, written BEFORE the code and then followed exactly. Six short lines:\n"
-        "## Subject & job — one concrete subject, its audience, the single question the page answers; monitoring / exploration / narrative.\n"
-        "## Theme — which built-in theme (ledger, nocturne, atelier, signal, meadow, slate, sunset, graphite) and why it fits THIS subject, plus overrides "
-        "(accent hex, second accent, display face, radius). If the user named colors, a brand or a mood, encode their words here — they win.\n"
-        "## Hero — the one element that carries the thesis (a headline number with its comparison, a dominant chart, a ranked list) and where the boldness goes.\n"
-        "## Layout — the archetype (headline+grid, editorial column, split canvas, control room, bento) and, per viz in `visualization_ids`, its placement and chart form.\n"
-        "## Comparison — what every KPI is compared to (prior period, target, share) and the window named in its label.\n"
-        "## Interaction — the filters/params, which vizs each drives (every viz sharing the column), global vs local.\n\n"
+        "Describe the user task, primary working surface, data bindings, supported interactions, "
+        "visual direction, and loading/error/empty states. A dashboard is one possible data-app view. "
+        "Themes, hero numbers, KPI rows, cards, and tabs are optional; choose by the task.\n\n"
         "CONTRACT: If your plan specifies a cross-viz behavior (global filter, time comparison, slice/groupby, rank-across, drill-down), you MUST have already completed the Dashboard Contract preflight (see planner instructions): every viz_id in `visualization_ids` satisfies that contract directly, or you rebuilt its data via `create_data` this turn, or it was dropped/substituted because it was meaningless under the contract.\n\n"
         "CONTINUITY: When a `current_artifact` exists and the user is asking to improve/enhance/rework it, your plan describes a CHANGE to that artifact, not a fresh build. "
         "Preserve the existing title and theme unless the user asked to change them. Describe ALL existing vizs in the layout plus the new additions. "
@@ -34,9 +30,8 @@ class CreateArtifactInput(BaseModel):
     code: Optional[str] = Field(default=None, description=(
         "THE ARTIFACT SOURCE, AUTHORED BY YOU — this is the primary path. "
         "For mode='page': the complete `<script type=\"text/babel\">...</script>` JSX per the "
-        "ARTIFACT AUTHORING REFERENCE in your instructions: setTheme(...) once at top level (the theme from "
-        "your design plan), id-keyed data access via vizById(\"<uuid>\"), token utilities (bg-surface, text-ink, "
-        "font-display…) instead of raw colors, useParams() for declared query parameters. "
+        "ARTIFACT AUTHORING REFERENCE: id-keyed data access via vizById, custom React/CSS or "
+        "optional design-kit components, and useParams() for declared backend query parameters. "
         "For mode='slides': the complete python-pptx script (must call prs.save(_pptx_output_path)). "
         "The tool applies the deterministic contracts (viz references, params wiring) and render-validates "
         "ONCE — on failure it returns the exact errors and persists nothing; fix the code and call again. "
@@ -44,7 +39,7 @@ class CreateArtifactInput(BaseModel):
         "Omitting code falls back to legacy in-tool generation (deprecated — always author the code yourself)."
     ))
     title: Optional[str] = Field(None, description="Title for the artifact, make it concise and descriptive for end users. Should be in the same language as the user/prompt. Must be viewer-agnostic: never a person's name/email or a possessive built from one ('Yochay's Catalog' -> 'Album Catalog') — artifacts are shared, and per-viewer personalization happens inside the artifact via current_user, not in its title.")
-    mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for dashboards or 'slides' for presentations")
+    mode: Literal["page", "slides"] = Field(default="page", description="Artifact mode: 'page' for data apps (including dashboards) or 'slides' for presentations")
     file_ids: Optional[List[str]] = Field(
         default=None,
         description=(

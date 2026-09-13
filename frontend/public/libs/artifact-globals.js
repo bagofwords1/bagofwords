@@ -302,8 +302,6 @@
       'html { color-scheme: light; }',
       'html.dark { color-scheme: dark; }',
       'body { background: var(--bow-bg, #fff); color: var(--bow-ink, #111); font-family: var(--bow-font-body, system-ui, sans-serif); -webkit-font-smoothing: antialiased; }',
-      '#root h1, #root h2 { font-family: var(--bow-font-display, inherit); letter-spacing: -0.015em; text-wrap: balance; }',
-      '#root h1 { font-weight: 600; }',
       '#root table, #root .tabular { font-variant-numeric: tabular-nums; }',
       '#root :focus-visible { outline: 2px solid var(--bow-accent); outline-offset: 2px; }',
       '#root ::selection { background: color-mix(in srgb, var(--bow-accent) 22%, transparent); }',
@@ -354,6 +352,58 @@
   // ── ECharts theme from tokens ───────────────────────────────────────────────
   function _registerChartTheme(theme, pal, dark) {
     if (typeof echarts === 'undefined') return;
+    if (LEGACY) {
+      echarts.registerTheme('bow', {
+        color: ['#3B82F6', '#10B981', '#8B5CF6', '#F59E0B', '#EF4444', '#06B6D4', '#EC4899', '#14B8A6', '#60A5FA', '#34D399'],
+        backgroundColor: 'transparent',
+        categoryAxis: {
+          axisLine: { show: false }, axisTick: { show: false },
+          axisLabel: { color: '#64748b', fontSize: 12 }, splitLine: { show: false }
+        },
+        valueAxis: {
+          axisLine: { show: false }, axisTick: { show: false },
+          axisLabel: { color: '#64748b', fontSize: 12 }, splitLine: { lineStyle: { color: '#f1f5f9' } }
+        },
+        line: { smooth: true, symbol: 'none', lineStyle: { width: 2 } },
+        bar: { itemStyle: { borderRadius: [6, 6, 0, 0] } },
+        pie: { itemStyle: { borderRadius: 6 } },
+        grid: { left: 40, right: 20, top: 20, bottom: 40, containLabel: true },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.95)',
+          borderColor: 'rgba(51, 65, 85, 0.5)',
+          borderWidth: 1, borderRadius: 12, padding: [12, 16],
+          textStyle: { color: '#fff', fontSize: 13 }, trigger: 'axis'
+        }
+      });
+
+      // Dark-mode counterpart, picked automatically when the iframe <html> carries
+      // the `dark` class (host app in dark mode).
+      echarts.registerTheme('bow-dark', {
+        color: ['#60A5FA', '#34D399', '#A78BFA', '#FBBF24', '#F87171', '#22D3EE', '#F472B6', '#2DD4BF', '#93C5FD', '#6EE7B7'],
+        backgroundColor: 'transparent',
+        categoryAxis: {
+          axisLine: { show: false }, axisTick: { show: false },
+          axisLabel: { color: '#94a3b8', fontSize: 12 }, splitLine: { show: false }
+        },
+        valueAxis: {
+          axisLine: { show: false }, axisTick: { show: false },
+          axisLabel: { color: '#94a3b8', fontSize: 12 }, splitLine: { lineStyle: { color: 'rgba(148, 163, 184, 0.15)' } }
+        },
+        legend: { textStyle: { color: '#cbd5e1' } },
+        line: { smooth: true, symbol: 'none', lineStyle: { width: 2 } },
+        bar: { itemStyle: { borderRadius: [6, 6, 0, 0] } },
+        pie: { itemStyle: { borderRadius: 6 } },
+        grid: { left: 40, right: 20, top: 20, bottom: 40, containLabel: true },
+        tooltip: {
+          backgroundColor: 'rgba(15, 23, 42, 0.98)',
+          borderColor: 'rgba(71, 85, 105, 0.6)',
+          borderWidth: 1, borderRadius: 12, padding: [12, 16],
+          textStyle: { color: '#fff', fontSize: 13 }, trigger: 'axis'
+        }
+      });
+
+      return;
+    }
     var text = { color: pal.ink2, fontFamily: theme.fonts.body, fontSize: 12 };
     var spec = {
       color: pal.chart,
@@ -622,6 +672,7 @@
     var inflightSeq = {};
     var commitSeq = 0;
     var loading = false;
+    var hostLoading = false;
     var error = null;
     var listeners = [];
     var timer = null;
@@ -653,12 +704,13 @@
           var confirmed = (ack !== null) ? (inflightSeq[k] <= ack) : (JSON.stringify(values[k]) === JSON.stringify(inflight[k]));
           if (confirmed) { delete inflight[k]; delete inflightSeq[k]; }
         }
-        loading = false;
-        error = null;
+        loading = hostLoading || Object.keys(inflight).length > 0;
+        // Data delivery may follow a failure status; it must not erase it.
         notify();
       },
       _status: function(payload) {
-        loading = !!(payload && payload.loading);
+        hostLoading = !!(payload && payload.loading);
+        loading = hostLoading;
         error = (payload && payload.error) || null;
         notify();
       },
@@ -1753,7 +1805,7 @@
   window.EChart = function(props) {
     var ref = React.useRef(null);
     var chartRef = React.useRef(null);
-    var ht = props.height || 320;
+    var ht = props.height || (LEGACY ? 400 : 320);
     var _gen = React.useState(0), gen = _gen[0], setGen = _gen[1];
     React.useEffect(function() {
       function bump() { setGen(function(c) { return c + 1; }); }
@@ -1859,10 +1911,24 @@
       if (raw && !/^\d+$/.test(raw)) byId = window.vizById(raw);
       targets.push({ rect: r, vizIndex: parseInt(raw, 10) || 0, viz: byId, calc: el.getAttribute('data-bow-calc') || null, title: el.getAttribute('data-bow-title') || null });
     }
+    var markerPositions = [];
     var markers = targets.map(function(t, i) {
+      var top = Math.max(2, t.rect.top + 6);
+      var left = rtl ? t.rect.left + 4 : t.rect.right - 24;
+      if (!LEGACY) {
+        // Nested source-backed elements can share a corner. Keep each detail
+        // control reachable instead of placing one button over another.
+        left = Math.max(4, Math.min(left, window.innerWidth - 24));
+        while (markerPositions.some(function(p) { return Math.abs(p.left - left) < 24 && Math.abs(p.top - top) < 24; })) {
+          var nextLeft = left + (rtl ? 24 : -24);
+          if (nextLeft < 4 || nextLeft > window.innerWidth - 24) top += 24;
+          else left = nextLeft;
+        }
+        markerPositions.push({ left: left, top: top });
+      }
       return h('button', { key: 'm' + i, type: 'button', 'data-bow-ibtn': '1', 'aria-label': 'Details',
         onClick: function(e) { e.stopPropagation(); setTab('data'); setOpenT(t); },
-        style: { position: 'fixed', top: Math.max(2, t.rect.top + 6), left: rtl ? t.rect.left + 4 : t.rect.right - 24, zIndex: 99998 },
+        style: { position: 'fixed', top: top, left: left, zIndex: 99998 },
         className: 'inline-flex items-center justify-center w-5 h-5 rounded-full bg-surface/80 backdrop-blur text-ink-3 hover:text-ink border border-line shadow-card transition-colors' }, _infoGlyph(14));
     });
     var panel = null;

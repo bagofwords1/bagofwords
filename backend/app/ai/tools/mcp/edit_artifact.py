@@ -284,7 +284,7 @@ class EditArtifactMCPTool(MCPTool):
             organization_id=str(organization.id),
             title=new_title,
             mode=artifact.mode,
-            content={"code": new_code, "visualization_ids": included_viz_ids},
+            content={**content, "code": new_code, "visualization_ids": included_viz_ids},
             generation_prompt=input_data.edit_instruction,
             version=new_version,
             status="completed",

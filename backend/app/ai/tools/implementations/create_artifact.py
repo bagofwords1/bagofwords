@@ -302,6 +302,7 @@ class CreateArtifactTool(Tool):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>window.ARTIFACT_DATA = {data_json};</script>
   {page_scripts}
   <style>
     html, body, #root {{ height: 100%; margin: 0; padding: 0; }}
@@ -389,7 +390,7 @@ class CreateArtifactTool(Tool):
         return [e for e in (errors or []) if not e.startswith("[console.error]")]
 
     @staticmethod
-    def params_wiring_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+    def params_wiring_errors(code: str, artifact_data: Dict[str, Any], *, previous_code: Optional[str] = None, previous_visualization_ids: Optional[List[str]] = None) -> List[str]:
         """Contract check: declared input params must be WIRED in the code.
 
         A dashboard whose queries declare input parameters but whose code never
@@ -399,6 +400,20 @@ class CreateArtifactTool(Tool):
         repair loop as render errors. Identity params are exempt: they render
         as a badge, not a control.
         """
+        # An ordinary legacy edit must not retrofit requirements introduced
+        # after that dashboard was saved. Still reject newly broken wiring.
+        version = ((artifact_data or {}).get("runtime") or {}).get("version") or 0
+        if previous_code is not None and int(version) < ARTIFACT_RUNTIME_VERSION:
+            previous_data = artifact_data
+            if previous_visualization_ids is not None:
+                previous_data = {**artifact_data, "visualizations": [
+                    v for v in artifact_data.get("visualizations", [])
+                    if str(v.get("id")) in previous_visualization_ids
+                ]}
+            before = CreateArtifactTool.params_wiring_errors(previous_code, previous_data)
+            after = CreateArtifactTool.params_wiring_errors(code, artifact_data)
+            return [error for error in after if error not in before]
+
         names: List[str] = []
         seen: set = set()
         for v in (artifact_data or {}).get("visualizations") or []:
@@ -420,7 +435,10 @@ class CreateArtifactTool(Tool):
                 "option.value (never the label), drive a loading state from "
                 "useParams().loading, and render useParams().error when set."
             ]
-        missing = [n for n in names if n not in src]
+        # Declaration-driven custom controls bind names dynamically. This is
+        # a limited wiring diagnostic, not proof of browser behavior.
+        dynamic = "declarations" in src and (".map(" in src or ".map (" in src)
+        missing = [] if dynamic else [n for n in names if n not in src]
         if missing:
             return [
                 "[params contract] Parameter(s) " + ", ".join(missing) + " are declared "
@@ -875,7 +893,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             profile["parameters"] = [
                 {
                     k: p.get(k)
-                    for k in ("name", "type", "label", "source", "default", "required", "options")
+                    for k in ("name", "type", "label", "source", "default", "required", "options", "options_source", "strict_options", "description")
                     if p.get(k) is not None or k in ("name", "source")
                 }
                 for p in params
@@ -1459,6 +1477,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 # New artifacts always run on the themed runtime.
                 "runtime": {"version": ARTIFACT_RUNTIME_VERSION},
             }
+            from types import SimpleNamespace
+            from app.services.artifact_payload import collect_params
+            artifact_data["params"] = await collect_params(db, SimpleNamespace(
+                report_id=str(report.id), content={"visualization_ids": included_viz_ids},
+            ))
             # Inline embedded files as data URIs so the headless render
             # (which has no auth context) can show images/PDFs via <BowFile>.
             if included_files:
@@ -2292,172 +2315,10 @@ prs.save(_pptx_output_path)
 Create a beautiful, varied presentation following these design principles. Each slide should look DIFFERENT from the others. Use visual elements, accent shapes, and thoughtful color choices:"""
 
     def _build_page_system_prompt(self) -> str:
-        """Static system prompt for page/dashboard generation.
+        """Shared cacheable data-app guidance and runtime API contract."""
+        from app.ai.agents.planner.data_app_authoring import DATA_APP_AUTHORING
 
-        Contains only stable reference material (sandbox runtime docs,
-        component contract, filtering rules, design guidance, output format).
-        Kept free of per-call state so provider prompt caching can reuse it
-        across every create/edit call.
-        """
-        return f"""Role: you are the design lead of a small studio known for its versatility, building a React dashboard for the request and data in the user message. Every client gets a visual identity pitched at what the subject calls for; nothing you ship looks templated. Follow this reference.
-
-═══════════════════════════════════════════════════════════════════════════════
-STEP 0 — THE DESIGN PLAN (write it before any code; it goes in `prompt` as the build spec)
-═══════════════════════════════════════════════════════════════════════════════
-Decide, in this order, and state each choice in one line:
-1. SUBJECT & JOB — one concrete subject, its audience, the single question the page answers.
-   Kind: monitoring ("is anything wrong?"), exploration ("let me slice it"), or narrative ("what happened and why").
-2. THEME — one built-in theme (ledger, nocturne, atelier, signal, meadow, slate, sunset, graphite) chosen for THIS
-   subject, plus any overrides (accent, second accent, display face, radius) that make it specific. A music catalog and a
-   cash-flow review must not share a look. If the user named colors, a brand or a mood, their words win — encode them as overrides.
-3. HERO — the one element that carries the thesis: a large number with its comparison, a dominant chart, or a ranked list.
-   Render it lifted (variant="lift" or "accent", or size="lg" on a KPICard); spend your boldness there and keep everything around it quiet.
-4. LAYOUT ARCHETYPE — pick one:
-   • Headline + grid: a KPI row of 3–5 KPICards computed from the rows (total, distinct count, average, leader, share) → one explaining chart
-     full-width (the hero, lifted) → breakdowns two-up → detail table last. Two full-width charts in a row is not a layout.
-   • Editorial column: a narrow reading column (max-w-3xl) where charts interleave with short findings; for narrative pages.
-   • Split canvas: a left rail (filters, KPIs, notes) and a large right canvas holding the hero chart.
-   • Control room: dense tiles of equal rhythm, status encoded in color, for monitoring; sparklines in every tile.
-   • Bento: an asymmetric grid (col-span-2 / row-span-2 tiles) where size = importance.
-5. COMPARISON — every KPI states what it is compared to, COMPUTED FROM THE ROWS (share of total, vs the previous period in the data, vs the
-   average, rank). Name the window in the label. Never invent a comparison the data cannot support — omit it instead. A comparison that reads
-   "100.0% of all revenue" or "+0.0%" in the default unfiltered view is not a comparison: pick one that is informative at rest (vs the prior
-   period, vs the average, the leader's share) or drop it and write a plain subtitle.
-6. INTERACTION — which filters/params, which vizs they drive (all that share the column), local vs global.
-Then build exactly that plan.
-
-═══════════════════════════════════════════════════════════════════════════════
-TASTE — what separates a designed dashboard from a filled template
-═══════════════════════════════════════════════════════════════════════════════
-• Not everything is a card. Borders, fills, radius and shadow each say "separate object"; spend them by role. Lift the hero
-  (variant="lift" or "accent"), keep supporting sections plain (variant="plain") or inset, and put the table in a quiet card.
-  A page of identical white boxes with the same shadow is the look to avoid.
-• Typography carries the page. Titles in the display face at real sizes (PageHeader size="lg" for the opening), section
-  titles small and confident, eyebrows in tracked uppercase, numerals in the theme's numeric face. Set a scale and stay on it.
-• Titles are findings, not labels: "Rock carries 37% of revenue" beats "Revenue by Genre". Write the subtitle as one
-  sentence a reader would say out loud. Never invent a number — every figure in copy comes from the data.
-• Ground the design in the subject's world: its units, its vocabulary, its scale (tracks, albums, invoices, tickets,
-  patients). One detail only this subject would have is worth more than any decoration.
-• Neutrals are chosen, not inherited: the theme's bg/surface/ink already carry a hue bias — use them, never gray-*/slate-*.
-• Semantic color (positive/warning/negative) is separate from the accent and only ever means good/at-risk/bad.
-• One entity, one color across the page: if a rep, genre or market is chart-1 in the trend, it is chart-1 in every other panel. Build the
-  color map once (name → t.colors.chart[i]) and reuse it; charts that recolor the same names read as unrelated.
-• Avoid the AI-dashboard look: rainbow KPI cards, a gradient accent bar on every tile, emoji as icons, an accent for every
-  chart, `rounded-2xl shadow-lg` stamped on everything, centered text everywhere, purple-to-blue gradients, pies with
-  eight slices. When nothing is specified, do not spend that freedom on those defaults.
-• Space is a material: `space-y-6 md:space-y-8` between sections, `gap-4/5` inside grids, `p-6 md:p-8` on the page. Let
-  content set heights; never stretch a chart to fill dead space.
-• Motion: none, or one deliberate moment. Never opacity-0 waiting on a scroll observer — the page must read at rest.
-• A ranked chart shows the TOP 8–12, never every category: 25 bars in a 320px panel is an unreadable label stack. Slice the sorted array
-  (`.slice(0, 10)`), say so in the subtitle ("Top 10 by revenue"), and put the long tail in the detail table. The same goes for a category
-  axis on a two-up chart — fewer categories or a taller panel, never smaller type.
-• Charts are drawn to scale: one axis per chart, labels that name real values, sorted horizontal bars for rankings,
-  a line for time, a treemap/stacked bar for composition (a pie only under 5 slices), never a dual axis. Emphasize the
-  endpoint or the max bar with the accent; keep the rest in the palette. Format every number with fmt(): fmt(n, {{currency:true}}) → $49.62 /
-  $2.3K / $1.2M, fmt(n) → 1.2K, fmt(n, {{pct:true}}) → 12.4% (n already a percentage), share(part, whole) → 35.8% for any proportion — never hand-roll `(n/1000).toFixed(1) + 'K'` (it prints $0.0K for small values).
-• Empty and loading states are designed: <EmptyState> after a filter clears everything, <LoadingSpinner> before data.
-
-═══════════════════════════════════════════════════════════════════════════════
-LAYOUT RECIPES (Tailwind — fluid, mobile-first). WIDTHS THAT MATTER: inside the app the dashboard pane is ~900–1000px wide, so `md:` (≥768px) is the
-breakpoint that shapes the main layout and `lg:` (≥1024px) only kicks in on the full-width shared page; phones are ~400px. Build the primary grids
-with md:, add a third/fourth column with lg:/xl: only where it still reads well.
-═══════════════════════════════════════════════════════════════════════════════
-Page:      <div className="min-h-full bg-bg text-ink font-body p-5 md:p-8 space-y-6 md:space-y-8 max-w-screen-2xl mx-auto">
-KPI row:   <div className="grid grid-cols-2 md:grid-cols-4 gap-4">   (2-up on phones → 4-up in the pane)
-Hero+side: <div className="grid grid-cols-1 md:grid-cols-3 gap-5"> <SectionCard className="md:col-span-2" …/> <SectionCard …/> </div>
-Two-up:    <div className="grid grid-cols-1 md:grid-cols-2 gap-5">  — breakdowns side by side (never a single column of full-width charts)
-Bento:     <div className="grid grid-cols-2 md:grid-cols-4 gap-4"> tiles with md:col-span-2 / md:row-span-2 — a row-span-2 tile must hold content that
-           fills it (a taller chart, height≈2× the neighbours', or a list); a short chart floating in a tall tile reads as broken
-Split:     <div className="grid grid-cols-1 md:grid-cols-[260px_1fr] gap-6"> <aside className="space-y-4">…</aside> <main>…</main> </div>
-Editorial: <div className="max-w-3xl mx-auto space-y-10">
-Rules: no fixed pixel widths on containers; charts get a fixed height and w-full; tables wrap in overflow-x-auto; filter bars wrap
-(FilterBar does); large numbers scale (text-3xl md:text-4xl); nothing may cause horizontal page scroll at any width.
-
-{SANDBOX_RUNTIME_PROMPT}
-
-═══════════════════════════════════════════════════════════════════════════════
-VIEW HINTS & FILTER FEASIBILITY
-═══════════════════════════════════════════════════════════════════════════════
-• `view_config.aggregation` (sum/avg/count/min/max) means the rows are granular: aggregate before rendering (reduce / Map). For
-  pie/heatmap/bar by category, group then aggregate — never read the first matching row. `series_aggregations` apply per series.
-• `view_config.default_filters` seed the initial filter state once on mount so the opening view matches the author's intent.
-• Before wiring a cross-viz filter, check every participating viz has the column (use `fieldMap` for renames). If some lack it
-  because the query didn't project it, do not ship a dead filter — end your response saying which query needs the column.
-  Global filters (2+ vizs) sit in a top FilterBar; a filter only one viz supports sits inside that viz's section.
-• Server-side params (declared in the prompt) are the primary filter mechanism when present; useFilters is for cheap
-  within-snapshot slicing only. Each declared param gets exactly one control wired to setParam with the declared name.
-
-═══════════════════════════════════════════════════════════════════════════════
-CORRECTNESS (each of these is checked; a failure returns an error and persists nothing)
-═══════════════════════════════════════════════════════════════════════════════
-• Wrap everything in <script type="text/babel"> … </script>; all code inside `function App() {{…}}` plus the ReactDOM render line.
-• setTheme(…) is called once at top level, before App.
-• Every visualization in the payload is bound by its uuid via vizById("…") and rendered; no vizById() of an id not in the payload, and no
-  positional access (data.visualizations[0], viz[1]) — it is rejected on the themed runtime.
-• Every declared server-side parameter is wired through useParams().setParam with its exact name.
-• Hooks at the top, unconditionally. Null-guard rows, cells and current_user. No imports. No hardcoded data or invented numbers.
-• Provenance on every metric, chart and table (viz prop or data-bow-viz). No UUIDs, branding or emoji in visible text.
-• ONE statement per line; break long expressions; name intermediates instead of nesting calls more than ~3 deep — a dropped
-  bracket in a 300-char one-liner is the most common failure. Concise by omitting redundancy, never by minifying.
-
-═══════════════════════════════════════════════════════════════════════════════
-OUTPUT FORMAT — the shape of a finished page (headline + grid archetype shown; adapt to your plan)
-═══════════════════════════════════════════════════════════════════════════════
-```
-<script type="text/babel">
-setTheme('atelier', {{ accent: '#5b2fd6', accent2: '#ff6b5e' }});
-
-function App() {{
-  const data = useArtifactData();
-  const t = useTheme();
-  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
-  const sales = vizById("<uuid from YOUR VISUALIZATIONS>");
-  const all = sales ? sales.rows : [];
-  const rows = useMemo(() => filterRows(all), [all, filterRows]);
-  const total = useMemo(() => rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0), [rows]);
-  const grandTotal = useMemo(() => all.reduce((s, r) => s + (Number(r.revenue) || 0), 0), [all]);
-  const byGenre = useMemo(() => {{
-    const m = new Map();
-    rows.forEach(r => m.set(r.genre, (m.get(r.genre) || 0) + (Number(r.revenue) || 0)));
-    return [...m.entries()].sort((a, b) => b[1] - a[1]);
-  }}, [rows]);
-  const countries = useMemo(() => [...new Set(all.map(r => r.country))].filter(Boolean).sort(), [all]);
-  if (!data || !sales) return <div className="flex items-center justify-center h-screen text-ink-3"><LoadingSpinner size={{32}} /></div>;
-  const leader = byGenre[0];
-  return (
-    <div className="min-h-full bg-bg text-ink font-body p-5 md:p-8 space-y-6 md:space-y-8 max-w-screen-2xl mx-auto">
-      <PageHeader eyebrow="Sales · 2021–2025" size="lg" title={{leader ? `${{leader[0]}} carries ${{share(leader[1], total)}} of revenue` : 'Revenue'}}
-        subtitle="Invoices across every market. Pick a country to re-cut every panel below." />
-      <FilterBar onReset={{Object.keys(filters).length ? resetFilters : null}}>
-        <FilterSelect label="Country" options={{countries}} selected={{filters.country || []}} onChange={{v => setFilter('country', v)}} />
-      </FilterBar>
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        <KPICard title="Revenue" value={{fmt(total, {{currency: true}})}} delta={{grandTotal ? total / grandTotal - 1 : null}} deltaPct deltaLabel="vs all markets" icon="badge-dollar-sign" variant="lift" viz={{sales}} rows={{rows}} calc="SUM(revenue)" />
-        <KPICard title="Orders" value={{fmt(rows.length)}} subtitle={{`${{share(rows.length, all.length)}} of all orders`}} icon="receipt" viz={{sales}} rows={{rows}} calc="COUNT(*)" />
-        <KPICard title="Avg order" value={{fmt(rows.length ? total / rows.length : 0, {{currency: true, decimals: 2}})}} subtitle="per invoice line" icon="scale" viz={{sales}} rows={{rows}} calc="SUM(revenue) / COUNT(*)" />
-        <KPICard title="Top genre" value={{leader ? leader[0] : '—'}} subtitle={{leader ? `${{fmt(leader[1], {{currency: true}})}} · ${{share(leader[1], total)}} share` : ''}} icon="music" variant="accent" viz={{sales}} rows={{rows}} calc="MAX(SUM(revenue) by genre)" />
-      </div>
-      <SectionCard eyebrow="Trend" title="Revenue by month" subtitle="Every invoice line, summed per month" variant="lift" viz={{sales}} rows={{rows}} calc="SUM(revenue) by month">
-        <EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: monthsOf(rows) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'line', data: revenueByMonth(rows), areaStyle: {{ opacity: 0.12 }} }}] }}}} />
-      </SectionCard>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <SectionCard title="Genres, ranked" subtitle="Share of the current selection" variant="plain" viz={{sales}} rows={{rows}} calc="SUM(revenue) by genre">
-          <EChart height={{320}} option={{{{ grid: {{ left: 4, right: 40 }}, yAxis: {{ type: 'category', data: byGenre.map(g => g[0]).reverse() }}, xAxis: {{ type: 'value' }},
-            series: [{{ type: 'bar', data: byGenre.map((g, i) => ({{ value: g[1], itemStyle: {{ color: i === 0 ? t.colors.accent : t.colors.chart[1] }} }})).reverse(), label: {{ show: true, position: 'right', formatter: p => fmt(p.value, {{ currency: true }}) }} }}] }}}} />
-        </SectionCard>
-        <SectionCard title="Top customers" subtitle="By revenue in the selection" variant="inset" viz={{sales}} rows={{rows}}>
-          <DataTable viz={{sales}} rows={{topCustomers(rows)}} pageSize={{10}} density="compact" exportable={{false}} />
-        </SectionCard>
-      </div>
-    </div>
-  );
-}}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-</script>
-```
-(monthsOf / revenueByMonth / topCustomers stand for small helpers you write with reduce/Map; every number above comes from `rows`.)
-Structure: `setTheme` once at top level; all code inside `function App() {{ … }}` with hooks first, then the early return, then the JSX; the render call last.
-"""
+        return DATA_APP_AUTHORING + "\n\n" + SANDBOX_RUNTIME_PROMPT
 
     def _build_page_prompt(
         self,
@@ -2769,4 +2630,3 @@ Now create the dashboard:"""
 
         # Fallback: return the response as-is
         return response.strip()
-

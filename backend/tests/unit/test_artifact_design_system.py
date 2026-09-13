@@ -40,10 +40,9 @@ def test_runtime_version_matches_globals_and_iframe():
     assert f"ARTIFACT_GLOBALS_VERSION = '{ARTIFACT_RUNTIME_VERSION}'" in IFRAME.read_text(encoding="utf-8")
 
 
-def test_design_gate_requires_set_theme_on_themed_runtime():
-    code = '<script type="text/babel">\nfunction App() { return <div className="bg-bg text-ink" />; }\n</script>'
-    errs = design_errors(code, THEMED)
-    assert len(errs) == 1 and "setTheme" in errs[0]
+def test_custom_apps_do_not_require_a_theme():
+    code = '<script type="text/babel">function App() { return <main className="bg-white text-black" />; }</script>'
+    assert design_errors(code, THEMED) == []
     assert design_errors("setTheme('ledger');\n" + code, THEMED) == []
 
 
@@ -53,12 +52,9 @@ def test_design_gate_never_retro_fails_legacy_artifacts():
     assert design_errors(code, {"visualizations": []}) == []
 
 
-def test_design_gate_flags_raw_palette_soup():
-    code = "setTheme('slate');\n" + '<div className="bg-slate-50 text-slate-900 border-slate-200 bg-gray-100 text-gray-500 border-blue-200 bg-blue-500" />'
-    errs = design_errors(code, THEMED)
-    assert any("raw palette" in e for e in errs)
-    # a couple of stray classes are tolerated (an accent border here or there)
-    assert design_errors("setTheme('slate');<div className='bg-blue-50 text-slate-500' />", THEMED) == []
+def test_custom_palette_is_not_a_correctness_error():
+    code = '<div className="bg-slate-50 text-slate-900 border-slate-200 bg-gray-100 text-gray-500 border-blue-200 bg-blue-500" />'
+    assert design_errors(code, THEMED) == []
 
 
 def test_design_gate_rejects_positional_access_on_themed_runtime():

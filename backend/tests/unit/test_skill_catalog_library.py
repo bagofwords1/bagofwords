@@ -26,11 +26,8 @@ from app.ai.skills.catalog import (
 CURATED_ORDER = [
     "train-agent",
     "audit-instructions",
-    # dashboard-theme sits beside complex-dashboard: the latter covers the
-    # filter/parameter mechanism, this one what belongs on a dashboard and how
-    # it looks. It carries the house style the themed artifact runtime reads,
-    # so it ships on rather than waiting to be discovered.
-    "dashboard-theme",
+    # Task-based app design is the default; dashboards remain a supported view.
+    "data-app-design",
     "complex-dashboard",
     "migrate-bi-dashboard",
     "usage-review",

@@ -358,6 +358,7 @@ class ThumbnailService:
 <html>
 <head>
   <meta charset="UTF-8">
+  <script>window.ARTIFACT_DATA = {data_json};</script>
   {page_scripts}
   <style>html, body, #root {{ height: 100%; margin: 0; padding: 0; }}</style>
 </head>

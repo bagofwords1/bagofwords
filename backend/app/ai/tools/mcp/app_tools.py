@@ -223,6 +223,7 @@ class GetArtifactDataMCPTool(MCPTool):
                 "id": str(report.id) if report else str(artifact.report_id),
                 "title": report.title if report else "",
             },
+            "runtime": {"version": int(content.get("runtime_version") or 0)},
             "code": code,
             "mode": artifact.mode or "page",
             "visualizations": visualizations,

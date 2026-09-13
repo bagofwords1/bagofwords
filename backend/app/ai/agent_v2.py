@@ -4316,6 +4316,8 @@ class AgentV2:
             # edit_artifact ~24 times until the step limit and then narrate the
             # refused edit as if it had succeeded — so the escalation is what
             # keeps the turn both honest and bounded.
+            from app.ai.agents.planner.artifact_refinement import ArtifactRefinementBudget
+            artifact_refinement_budget = ArtifactRefinementBudget()
             total_artifact_calls = 0
             max_total_artifact_calls = 4
             artifact_refusals = {"n": 0}
@@ -5574,6 +5576,12 @@ class AgentV2:
                                 # escalation a small model loops on the refusal to
                                 # the step limit and then claims the refused edit
                                 # succeeded.
+                                if not artifact_refinement_budget.allow(tool_name, tool_input or {}):
+                                    return await _refuse_before_dispatch({
+                                        "summary": "The optional visual refinement was already used. Finish with the saved artifact; requested changes and functional repairs remain available.",
+                                        "error": {"code": "visual_refinement_exhausted", "message": "One automatic visual refinement is allowed per request."},
+                                    })
+
                                 if tool_name in ("create_artifact", "edit_artifact") and total_artifact_calls >= max_total_artifact_calls:
                                     artifact_refusals["n"] += 1
                                     # Name the state that DID save. A refusal is a

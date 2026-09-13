@@ -1,0 +1,30 @@
+[
+  {
+    "renderer": "preview",
+    "version": 0,
+    "expected": "0.4%",
+    "actual": "0.4%",
+    "pass": true
+  },
+  {
+    "renderer": "thumbnail",
+    "version": 0,
+    "expected": "0.4%",
+    "actual": "0.4%",
+    "pass": true
+  },
+  {
+    "renderer": "preview",
+    "version": 11,
+    "expected": "37.0%",
+    "actual": "37.0%",
+    "pass": true
+  },
+  {
+    "renderer": "thumbnail",
+    "version": 11,
+    "expected": "37.0%",
+    "actual": "37.0%",
+    "pass": true
+  }
+]

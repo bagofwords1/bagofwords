@@ -28,7 +28,7 @@ from app.services.artifact_libs import (
     get_offline_host_script,
     read_pdf_worker_source,
 )
-from app.services.artifact_payload import collect_artifact_payload, collect_params
+from app.services.artifact_payload import collect_artifact_payload
 from app.services.jsx_transpile import (
     extract_babel_source,
     json_for_script,
@@ -176,8 +176,6 @@ async def build_standalone_html(db, artifact) -> str:
         raise ExportUnavailable(str(e)) from e
     if payload is None:
         raise ExportUnavailable("The report backing this dashboard no longer exists")
-
-    payload["params"] = await collect_params(db, artifact)
 
     code, removed = _strip_remote_references(raw_code)
     if removed:

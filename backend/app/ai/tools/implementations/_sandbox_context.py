@@ -28,7 +28,8 @@ Babel already loaded as globals. NEVER write `import` statements (they throw
 are globals too: useState, useEffect, useRef, useMemo, useCallback — call EVERY
 hook unconditionally at the TOP of a component, before any early return.
 
-THEMES — setTheme(name, overrides?) selects the design system. Call it ONCE at the
+OPTIONAL DESIGN KIT — custom React markup and CSS are first-class. The default
+theme is usable without setTheme. setTheme(name, overrides?) selects a theme; if used, call it once at the
 top of the script, before `function App()`. It writes the tokens below as CSS
 variables; components, Tailwind utilities and charts all derive from them and
 adapt to the viewer's light/dark mode automatically.
@@ -53,9 +54,10 @@ TOKEN UTILITIES (Tailwind classes that follow the theme; prefer these over raw c
   Colors   bg-bg bg-surface bg-surface-2 bg-accent bg-accent-2 bg-ink · text-ink text-ink-2 text-ink-3 text-accent text-accent-ink text-bg
            border-line border-line-2 border-accent · text-positive text-warning text-negative (semantic, never decorative)
            bg-chart-1 … bg-chart-8 (the chart palette) · opacity modifiers work: bg-accent/10, text-ink/60
-  Type     font-display (headings, hero numbers) · font-body (everything else) · font-mono · font-numeric (the theme's numeral face) · tracking-eyebrow
+  Type     font-display (optional display headings) · font-body (everything else) · font-mono · font-numeric (the theme's numeral face) · tracking-eyebrow
   Shape    rounded-card rounded-control rounded-chip · shadow-card shadow-lift
-  Raw hex, slate-*, gray-*, blue-* classes are wrong in a themed artifact: they ignore the theme and break dark mode.
+  Custom colors/CSS are allowed. Use tokens when you want automatic theme adaptation;
+  ensure custom surfaces and text remain readable in the app's supported color modes.
 
 DATA ACCESS:
   const data = useArtifactData();           // null while loading → render <LoadingSpinner/>; then { report, visualizations, files, current_user }
@@ -86,16 +88,16 @@ FILES: <BowFile id="<file_id>" fit="contain|cover" className="" /> renders an em
   Absolutely-positioned children become annotations over the file. Never use a raw <img src> or inline base64.
 
 COMPONENTS (all globals; `className` MERGES with the defaults — layout classes like `lg:col-span-2 h-full` add, while a bg-/text-color/border-color/rounded-/shadow-/padding class REPLACES the default of that kind):
-  <PageHeader eyebrow="" title="" subtitle="" size="lg" actions={[…]} />  — the opening: display-face title, one-line thesis as subtitle.
+  <PageHeader eyebrow="" title="" subtitle="" size="lg" actions={[…]} />  — optional header; use a stable app title and helpful context.
   <KPICard title="" value={fmt(n,{currency:true})} delta={0.184} deltaPct deltaLabel="vs last year" invertDelta spark={[…numbers]} icon="trending-up"
            subtitle="" variant="card|plain|inset|lift|accent|inverse|outline" size="md|lg" viz={vizById("…")} rows={filtered} calc="SUM(x)" />
-    Every KPI gets a comparison (delta or subtitle) — a number with no comparison is not information. `delta` is a ratio when deltaPct (0.18 = +18%).
+    Add a comparison only when it is useful and backed by a valid baseline. `delta` is a ratio when deltaPct (0.18 = +18%).
   <SectionCard title="" subtitle="" eyebrow="" actions={[…]} variant="card|plain|inset|lift|accent|inverse|outline" padding="none|sm|md|lg" viz={…} rows={…} calc="">…</SectionCard>
   <EChart height={N} option={{…}} viz={…} rows={…} calc="" palette={[…]} onClick={fn} />  — themed ECharts wrapper; pass `viz` when it is not inside a SectionCard.
   <DataTable viz={…} rows={filtered} columns={[{field:'album_title',headerName:'Album'},…] } pageSize={15} density="compact" searchable striped sortable exportable selectable onRowClick={(row)=>…}
     Pass `columns` with a readable `headerName` (and only the columns worth showing) whenever the raw field names are database-shaped
     (TOTALDURATIONMS, unit_price); the table title-cases what it can but cannot invent "Duration" from "TOTALDURATIONMILLISECONDS".
-             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — the default table: sort, paginate, RTL, CSV, print-safe.
+             renderCell={(value,row,col)=>node|null} format={(n,col)=>string} maxHeight={400} />  — optional table: sort, paginate, RTL, CSV, print-safe.
   <FilterBar onReset={resetFilters}> <FilterSelect label options selected onChange single searchable placeholder /> <FilterSearch label value onChange placeholder />
              <FilterDateRange label value onChange type="date|month|datetime-local" /> </FilterBar>
   <Segmented options={[{value,label,icon}]} value onChange />   <Badge tone="neutral|accent|positive|warning|negative|inverse|outline" icon dot>…</Badge>
@@ -115,7 +117,7 @@ PROVENANCE (required — the ⓘ popover lets readers inspect the data behind ev
 
 CHARTS: <EChart option={{ xAxis:{type:'category',data:[…]}, yAxis:{type:'value'}, series:[{type:'bar',data:[…]}] }} /> — the 'bow' theme sets palette, fonts, axes,
   grid and tooltip; write only the data mapping unless the design needs more. All ECharts types work (line, bar, pie, scatter, heatmap, treemap, sankey, radar, gauge, calendar…).
-  Color one series by role with useTheme().colors (e.g. itemStyle:{color: t.colors.accent}); never invent hex colors outside the theme.
+  Color one series by role with useTheme().colors (e.g. itemStyle:{color: t.colors.accent}); or use a deliberate custom palette with consistent entity colors.
 """.strip()
 
 
@@ -131,7 +133,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "shadow-card/lift, bg-chart-1..8), Babel (JSX transpilation), lucide icons via <Icon name=... />, "
     "setTheme(name, overrides) — themes: ledger, nocturne, atelier, signal, meadow, slate, sunset, graphite "
     "(called once at top level; writes the design tokens and the ECharts 'bow' theme; legacy artifacts "
-    "without setTheme render in the pre-v11 slate/blue look), useTheme() (current tokens), "
+    "without runtime metadata render in the pre-v11 slate/blue look), useTheme() (current tokens), "
     "useArtifactData() hook (returns { report, visualizations, files, current_user } or null while loading), "
     "vizById(uuid) (id-keyed data access), "
     "useCurrentUser() hook (the viewing user { id, name, email, image_url, role, profile_attributes, groups } or null for "
@@ -146,7 +148,7 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "filtering; filterRows(rows, fieldMap?) remaps column names), "
     "<EChart option=... height=N viz=... /> (themed ECharts wrapper — all chart types), "
     "components: PageHeader, KPICard (title, value, delta, deltaPct, deltaLabel, spark, icon, variant, size), "
-    "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (the default table renderer: sort, "
+    "SectionCard (title, subtitle, eyebrow, actions, variant, padding), DataTable (optional table renderer: sort, "
     "paginate, RTL, CSV, print-safe), FilterBar, FilterSelect (single/multi, searchable), FilterSearch, FilterDateRange, "
     "Segmented, Badge, Delta, Sparkline, ProgressBar, Icon, Eyebrow, Divider, EmptyState, LoadingSpinner, BowFile, "
     "fmt(), exportCSV(). className MERGES with component defaults (layout classes add; a bg-/text-color/border-color/"

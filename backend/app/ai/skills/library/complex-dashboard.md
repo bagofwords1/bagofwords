@@ -3,14 +3,18 @@ key: complex-dashboard
 title: Complex parameterized dashboards
 description: Use when building or editing a dashboard with filters or several linked queries — plan the parameters first, then build, then verify the wiring.
 category: dashboard
-version: "1.0"
+version: "1.1"
 order: 30
 default_enabled: true
 modes: [chat]
 tags: [dashboard, parameters, artifacts]
 ---
 
-A dashboard with a filter is not a set of charts — it is a contract. Every
+Apply these parameter mechanisms to connected data apps. Dashboard-specific
+composition applies only when the user actually requests a dashboard; catalogs,
+record explorers, and other workflows follow the data-app design guidance.
+
+A dashboard with a filter is a data contract. Every
 query the filter should drive has to declare it, the control has to bind to the
 declared name, and the choices have to come from somewhere that does not
 collapse when the filter is applied. Get any of those wrong and you ship a
@@ -24,8 +28,9 @@ set, declaring the parameters, and wiring them into the artifact.
 
 ## 1. Plan before the first tool call
 
-Write the plan out and get it agreed before creating anything. Retrofitting a
-filter contract costs a rebuild of every query it touches.
+Resolve the parameter contract from the request and available data before
+creating queries. Ask only when a material requirement is missing; an already
+authorized build does not need a separate planning approval.
 
 - **The question set.** What each tile answers. A tile that does not support
   the dashboard's headline question does not belong on it.

@@ -250,7 +250,7 @@ class EditArtifactTool(Tool):
 
             # Deterministic gates — hard, no repair (the planner corrects and retries).
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
-            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)
+            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
@@ -330,6 +330,19 @@ class EditArtifactTool(Tool):
             await db.commit()
             await db.refresh(new_artifact)
 
+        from app.ai.tools.implementations._sandbox_context import ANON_PREVIEW_NOTE, STATIC_PREVIEW_NOTE
+        review_images = {}
+        allow_screenshot = True
+        settings = runtime_ctx.get("settings")
+        if settings is not None:
+            try:
+                allow_screenshot = settings.get_config("allow_llm_see_data").value
+            except Exception:
+                pass
+        if screenshot_b64 and allow_screenshot and getattr(runtime_ctx.get("model"), "supports_vision", False):
+            review_images["images"] = [{"data": screenshot_b64, "media_type": "image/png", "source_type": "base64"}]
+            review_images["preview_note"] = ANON_PREVIEW_NOTE + " " + STATIC_PREVIEW_NOTE
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -346,9 +359,12 @@ class EditArtifactTool(Tool):
                     "code": new_code,
                 },
                 "observation": {
+                    **review_images,
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{new_version}. "
-                        "Contracts verified and render validated. No further verification needed."
+                        "Contracts verified. "
+                        + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),
                     "mode": new_artifact.mode,
