@@ -340,7 +340,10 @@ def test_histogram_buckets_reflect_the_range_and_the_query(runs, world):
 
 def test_summary_line_is_computed_from_the_query(runs, world):
     s = _ok(runs("status:error"))["summary"]
-    assert s == {"matched": 2, "errors": 2, "users": 2, "cost_usd": pytest.approx(0.55), "p50_ms": pytest.approx(42_000)}
+    # `unindexed` counts runs in range the rollup sweep has not reached yet; the
+    # fixture seeds none, so it is 0 here. Kept in the exact-equality assertion so
+    # the summary's shape stays pinned and a new field cannot appear unnoticed.
+    assert s == {"matched": 2, "errors": 2, "users": 2, "cost_usd": pytest.approx(0.55), "p50_ms": pytest.approx(42_000), "unindexed": 0}
     s = _ok(runs("tools:0"))["summary"]
     assert s["matched"] == 3 and s["errors"] == 1
 
