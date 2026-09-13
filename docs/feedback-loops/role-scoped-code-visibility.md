@@ -113,6 +113,18 @@ the builder — which is the point of that env var.
 Every attempt produced: *"The query I used was: SELECT COUNT(*) as
 total_invoices FROM Invoice"*.
 
+The wording shipped is the simplest of the four, since none of them changed the
+outcome on the direct ask and a shorter constraint costs less of the context it
+shares with tool protocol and analytics standards:
+
+> This user does not see code. Answer in plain business language, with no code,
+> SQL or technical jargon.
+
+It carries a second rule beyond code — register — which is a product choice, not
+something derivable from the permission: `view_code` says what someone may see,
+not how technical they are. Worth revisiting if a technical user with code
+withheld finds the tone patronising.
+
 ## Conclusions
 
 **The constraint reaches the model and the model does not obey it** on Claude

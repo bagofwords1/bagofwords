@@ -13,7 +13,7 @@ import pytest
 from app.ai.agents.planner.prompt_builder_v3 import PromptBuilderV3
 from app.schemas.ai.planner import PlannerInput
 
-MARKER = "does not see generated code"
+MARKER = "does not see code"
 
 
 def _system(**overrides):
@@ -57,13 +57,15 @@ def test_org_constraints_section_omitted_when_nothing_constrains():
     assert "ORG CONSTRAINTS" not in _system()
 
 
-def test_constraint_tells_the_model_what_to_do_instead():
-    """Without a sanctioned alternative the model has only "show it" or "refuse
-    blankly". Naming the fallback is what keeps a refusal from reading as a
-    broken answer."""
+def test_constraint_covers_both_code_and_register():
+    """Two rules ride in one line: no code in the answer, and plain language
+    rather than jargon. Asserting both stops a future edit from quietly
+    shortening the constraint down to only one of them."""
     sys_prompt = _system(can_view_code=False)
     start = sys_prompt.index(MARKER)
-    assert "plain words" in sys_prompt[start:start + 400]
+    line = sys_prompt[start:start + 300]
+    assert "no code, SQL or technical jargon" in line
+    assert "plain business language" in line
 
 
 def test_constraint_is_short():

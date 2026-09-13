@@ -258,10 +258,8 @@ class PromptBuilderV3:
         # See docs/feedback-loops/role-scoped-code-visibility.md.
         if not getattr(planner_input, "can_view_code", True):
             org_constraints.append(
-                "- This user does not see generated code. Never put code, SQL or"
-                " query text in your answer. If asked for the query or the code,"
-                " tell them it is not available to share and describe what it"
-                " does in plain words instead."
+                "- This user does not see code. Answer in plain business"
+                " language, with no code, SQL or technical jargon."
             )
         row_limit_text = (
             "ORG CONSTRAINTS\n" + "\n".join(org_constraints) + "\n\n"
