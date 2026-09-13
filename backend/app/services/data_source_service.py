@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from app.models.user import User
 
@@ -5268,6 +5269,85 @@ class DataSourceService:
         await db.commit()
         
     
+    #: How many of an agent's connections a single Reload crawls at once.
+    #: The crawl is network-bound, so refreshing them one after another made an
+    #: agent-level Reload scale linearly with connection count — 5m17s for a
+    #: 100-connection agent, with no progress shown anywhere.
+    #: Override with BOW_RELOAD_CONCURRENCY.
+    _RELOAD_CONCURRENCY = max(1, int(os.environ.get("BOW_RELOAD_CONCURRENCY", "4")))
+
+    async def _refresh_shared_connections(
+        self, shared_conns, current_user: User, caller_id: "str | None",
+    ) -> dict:
+        """Refresh each shared connection's catalog, a few at a time.
+
+        Every task gets its OWN session and its OWN ConnectionService: a single
+        AsyncSession is not safe for concurrent use, and the post-refresh stash
+        (`last_refresh_fresh_tables` / `last_refresh_identity_user_id`) is
+        instance state that concurrent runs would otherwise overwrite for each
+        other. The tasks touch disjoint rows — one connection each — and this
+        mirrors what the background indexer already does per job.
+
+        Returns the per-connection prefetch map the overlay sync reuses, so a
+        Reload still crawls each source only once.
+        """
+        from app.dependencies import async_session_maker
+        from app.models.connection import Connection
+        from app.services.connection_service import ConnectionService
+        from app.services.connection_indexing_service import ConnectionIndexingService
+
+        prefetched_by_conn: dict = {}
+        sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
+        timeouts: list = []
+
+        async def _one(conn_id: str, auth_policy: str) -> None:
+            async with sem:
+                async with async_session_maker() as conn_db:
+                    conn = await conn_db.get(Connection, conn_id)
+                    if conn is None:
+                        return
+                    user_in_session = (
+                        await conn_db.get(User, str(current_user.id))
+                        if current_user is not None else None
+                    )
+                    # Wait for any active indexing run before refreshing.
+                    try:
+                        await ConnectionIndexingService().wait_for_active(conn_db, conn_id)
+                    except TimeoutError as exc:
+                        timeouts.append(str(exc))
+                        return
+                    logger.info(
+                        f"refresh_data_source_schema: refresh_schema for connection {conn_id} "
+                        f"(auth_policy={auth_policy})"
+                    )
+                    svc = ConnectionService()
+                    # Interactive reload: only introspect NEW datasets; known
+                    # ones are rebuilt from the indexed catalog (column-level
+                    # drift is picked up by scheduled/background reindexing,
+                    # which runs with the default full introspection).
+                    await svc.refresh_schema(
+                        db=conn_db, connection=conn, current_user=user_in_session,
+                        introspection="incremental",
+                    )
+                    await conn_db.commit()
+                    fetched = getattr(svc, "last_refresh_fresh_tables", None)
+                    fetched_as = getattr(svc, "last_refresh_identity_user_id", None)
+                    if fetched is not None and fetched_as is not None and fetched_as == caller_id:
+                        prefetched_by_conn[conn_id] = fetched
+
+        results = await asyncio.gather(
+            *(_one(str(c.id), getattr(c, "auth_policy", None)) for c in shared_conns),
+            return_exceptions=True,
+        )
+        if timeouts:
+            raise HTTPException(status_code=504, detail=timeouts[0])
+        for r in results:
+            if isinstance(r, BaseException):
+                # One unreachable connection must not sink the whole Reload —
+                # the others' catalogs are still worth returning.
+                logger.warning(f"refresh_data_source_schema: connection refresh failed: {r}")
+        return prefetched_by_conn
+
     async def refresh_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         # Get the DataSource model instance with connections eagerly loaded
         result = await db.execute(
@@ -5350,27 +5430,9 @@ class DataSourceService:
                 # list threw away the only thing that made it reusable — which
                 # connection each table came from — so it could not be handed to
                 # a per-connection overlay sync without cross-contaminating them.
-                prefetched_by_conn: dict[str, list] = {}
-
-                for conn in shared_conns:
-                    # Wait for any active indexing run before refreshing synchronously.
-                    try:
-                        await indexing_service.wait_for_active(db, str(conn.id))
-                    except TimeoutError as exc:
-                        raise HTTPException(status_code=504, detail=str(exc)) from exc
-                    logger.info(f"refresh_data_source_schema: refresh_schema for connection {conn.id} (auth_policy={conn.auth_policy})")
-                    # Interactive reload: only introspect NEW datasets; known
-                    # ones are rebuilt from the indexed catalog (column-level
-                    # drift is picked up by scheduled/background reindexing,
-                    # which runs with the default full introspection).
-                    await connection_service.refresh_schema(
-                        db=db, connection=conn, current_user=current_user,
-                        introspection="incremental",
-                    )
-                    fetched = getattr(connection_service, "last_refresh_fresh_tables", None)
-                    fetched_as = getattr(connection_service, "last_refresh_identity_user_id", None)
-                    if fetched is not None and fetched_as is not None and fetched_as == caller_id:
-                        prefetched_by_conn[str(conn.id)] = fetched
+                prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
+                    shared_conns, current_user=current_user, caller_id=caller_id,
+                )
 
                 prefetched = prefetched_by_conn or None
 
