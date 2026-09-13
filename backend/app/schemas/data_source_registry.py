@@ -46,6 +46,8 @@ from app.schemas.data_sources.configs import (
     TableauConfig,
     SalesforceConfig,
     MondayConfig,
+    NetAppOntapConfig,
+    NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
     KubernetesConfig,
@@ -847,6 +849,18 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         }),
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
         requires_license="enterprise",
+    ),
+    "netapp_ontap": DataSourceRegistryEntry(
+        type="netapp_ontap",
+        category="infra",
+        title="NetApp ONTAP",
+        description="Investigate storage incidents with read-only inventory, topology, performance, events and diagnostic tables. ONTAP 9.14.1 contract; customer validation required.",
+        config_schema=NetAppOntapConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=NetAppOntapCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.netapp_ontap_client.NetAppOntapClient",
+        version="beta",
     ),
     "kubernetes": DataSourceRegistryEntry(
         type="kubernetes",

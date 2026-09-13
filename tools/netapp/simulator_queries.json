@@ -1,0 +1,14 @@
+[
+ {"table":"volumes","fields":["uuid","name","space.size","space.used"],"limit":100},
+ {"table":"volume_aggregates"},
+ {"table":"nodes"},
+ {"table":"svms"},
+ {"table":"luns","fields":["uuid","name","serial_number","location.volume.uuid"]},
+ {"table":"lun_maps"},
+ {"table":"ems_events","lookback":"24h"},
+ {"table":"volume_metrics","parent":{"volume.uuid":"volume-1"},"lookback":"24h"},
+ {"table":"snapmirror_relationships","fields":["uuid","healthy","state","unhealthy_reason"]},
+ {"table":"snapshots","parent":{"volume.uuid":"volume-1"}},
+ {"table":"diag_protocols_nfs_export_policies_policy_id_rules","parent":{"policy.id":"17"},"fields":["index","clients"]},
+ {"table":"diag_cluster_counter_tables_counter_table_name_rows","parent":{"counter_table.name":"synthetic_volume"}}
+]

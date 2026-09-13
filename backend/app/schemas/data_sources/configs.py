@@ -3636,7 +3636,22 @@ class CustomAPIOAuthAppCredentials(MCPOAuthAppCredentials):
     pass
 
 
+class NetAppOntapCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="ONTAP account with HTTP application access and read-only diagnostic permissions.")
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class NetAppOntapConfig(BaseModel):
+    url: str = Field(..., title="Cluster management URL", description="Reachable ONTAP management origin, for example https://cluster.example:443. Targets ONTAP 9.14.1.")
+    ca_certificate: Optional[str] = Field(None, title="Trusted CA certificate", description="Optional PEM CA certificate for the cluster. Certificate verification is always enabled.", json_schema_extra={"ui:type": "textarea"})
+    timeout: int = Field(30, ge=1, le=120, title="Request timeout (seconds)")
+    max_rows: int = Field(10000, ge=1, le=100000, title="Maximum complete result rows", description="Queries exceeding this ceiling fail explicitly; they never return silently truncated evidence.")
+    allow_http: bool = Field(False, title="Allow HTTP for a simulator", description="Only enable for an isolated simulated API. Real clusters should use HTTPS.")
+
+
 __all__ = [
+    "NetAppOntapConfig",
+    "NetAppOntapCredentials",
     # Configs
     "PostgreSQLConfig",
     "SQLiteConfig",

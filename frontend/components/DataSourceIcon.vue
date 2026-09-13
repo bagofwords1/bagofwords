@@ -82,6 +82,7 @@ const normalizeType = (raw: string) => {
 // assets live under /data_sources_icons with mixed extensions, and the catalog
 // key isn't always the filename (e.g. atlassian → jira).
 const CONNECTOR_ICON_FILE: Record<string, string> = {
+    netapp_ontap: 'netapp_ontap.png',
     monday: 'monday.svg',
     notion: 'notion.png',
     atlassian: 'jira.png',
