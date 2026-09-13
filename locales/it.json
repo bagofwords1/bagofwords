@@ -532,6 +532,7 @@
     "training": "Addestramento",
     "schedulePrompt": "Pianifica un prompt",
     "selectModel": "Seleziona modello",
+    "createReportFailed": "Impossibile creare il report",
     "untitled": "Senza titolo",
     "estimating": "Stima in corso…",
     "estimateUnavailable": "Stima non disponibile",

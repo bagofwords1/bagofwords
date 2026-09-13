@@ -21,6 +21,12 @@ class ReportCreate(ReportBase):
     # Start the report in a mode (the home prompt box's Chat/Training picker).
     # Omit for chat. Training is gated exactly like ReportUpdate.mode.
     mode: Optional[Literal["chat", "training"]] = None
+    # Report-level LLM override, picked in the composer before the report
+    # existed. Same meaning as ReportUpdate.model_id and validated the same
+    # way, minus the "" sentinel: there is no prior value to clear on create,
+    # so omitted/None simply means "no override, resolve the default at run
+    # time" — which is also what Auto sends.
+    model_id: Optional[str] = None
 
 class ReportUpdate(BaseModel):
     title: Optional[str] = None

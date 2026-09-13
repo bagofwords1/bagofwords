@@ -563,6 +563,7 @@
     "training": "Training",
     "schedulePrompt": "Schedule a prompt",
     "selectModel": "Select Model",
+    "createReportFailed": "Couldn't create the report",
     "untitled": "Untitled",
     "estimating": "Estimating…",
     "estimateUnavailable": "Estimate unavailable",

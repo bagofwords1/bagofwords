@@ -546,6 +546,7 @@
     "training": "Entrenamiento",
     "schedulePrompt": "Programar una consulta",
     "selectModel": "Seleccionar modelo",
+    "createReportFailed": "No se pudo crear el informe",
     "untitled": "Sin título",
     "estimating": "Estimando…",
     "estimateUnavailable": "Estimación no disponible",

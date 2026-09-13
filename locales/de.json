@@ -532,6 +532,7 @@
     "training": "Training",
     "schedulePrompt": "Prompt planen",
     "selectModel": "Modell auswählen",
+    "createReportFailed": "Bericht konnte nicht erstellt werden",
     "untitled": "Ohne Titel",
     "estimating": "Schätzt …",
     "estimateUnavailable": "Schätzung nicht verfügbar",

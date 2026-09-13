@@ -532,6 +532,7 @@
     "training": "تدريب",
     "schedulePrompt": "جدولة طلب",
     "selectModel": "اختر نموذجًا",
+    "createReportFailed": "تعذّر إنشاء التقرير",
     "untitled": "بدون عنوان",
     "estimating": "جارٍ التقدير…",
     "estimateUnavailable": "التقدير غير متاح",

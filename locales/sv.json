@@ -532,6 +532,7 @@
     "training": "Träning",
     "schedulePrompt": "Schemalägg en prompt",
     "selectModel": "Välj modell",
+    "createReportFailed": "Det gick inte att skapa rapporten",
     "untitled": "Namnlös",
     "estimating": "Uppskattar…",
     "estimateUnavailable": "Uppskattning ej tillgänglig",
