@@ -26,6 +26,8 @@ from app.ai.skills.catalog import (
 CURATED_ORDER = [
     "train-agent",
     "audit-instructions",
+    # Task-based app design is the default; dashboards remain a supported view.
+    "data-app-design",
     "complex-dashboard",
     "migrate-bi-dashboard",
     "usage-review",

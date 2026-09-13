@@ -23,7 +23,7 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.edit_artifact import EditArtifactInput, EditArtifactOutput
-from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors
+from app.ai.tools.implementations._artifact_refs import migrate_positional_viz_refs, viz_reference_errors, design_errors
 from app.models.artifact import Artifact
 
 logger = logging.getLogger(__name__)
@@ -164,7 +164,11 @@ class EditArtifactTool(Tool):
         from app.services.artifact_payload import collect_artifact_payload
         shim = SimpleNamespace(
             report_id=artifact.report_id,
-            content={"visualization_ids": merged_viz_ids, "files": content.get("files") or []},
+            content={
+                "visualization_ids": merged_viz_ids,
+                "files": content.get("files") or [],
+                "runtime_version": content.get("runtime_version"),
+            },
         )
         artifact_data = await collect_artifact_payload(db, shim)
         if artifact_data is None:
@@ -246,7 +250,8 @@ class EditArtifactTool(Tool):
 
             # Deterministic gates — hard, no repair (the planner corrects and retries).
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
-            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data)
+            gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
+            gate_errors += design_errors(new_code, artifact_data)
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
@@ -281,6 +286,11 @@ class EditArtifactTool(Tool):
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if content.get("files"):
             new_content["files"] = content.get("files")
+        # The runtime generation travels with the row: a legacy artifact stays
+        # legacy across edits (its code was written for that look); a themed
+        # one stays themed.
+        if content.get("runtime_version"):
+            new_content["runtime_version"] = content.get("runtime_version")
         new_artifact = Artifact(
             report_id=artifact.report_id,
             user_id=str(user.id) if user else artifact.user_id,
@@ -320,6 +330,19 @@ class EditArtifactTool(Tool):
             await db.commit()
             await db.refresh(new_artifact)
 
+        from app.ai.tools.implementations._sandbox_context import ANON_PREVIEW_NOTE, STATIC_PREVIEW_NOTE
+        review_images = {}
+        allow_screenshot = True
+        settings = runtime_ctx.get("settings")
+        if settings is not None:
+            try:
+                allow_screenshot = settings.get_config("allow_llm_see_data").value
+            except Exception:
+                pass
+        if screenshot_b64 and allow_screenshot and getattr(runtime_ctx.get("model"), "supports_vision", False):
+            review_images["images"] = [{"data": screenshot_b64, "media_type": "image/png", "source_type": "base64"}]
+            review_images["preview_note"] = ANON_PREVIEW_NOTE + " " + STATIC_PREVIEW_NOTE
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
@@ -336,9 +359,12 @@ class EditArtifactTool(Tool):
                     "code": new_code,
                 },
                 "observation": {
+                    **review_images,
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{new_version}. "
-                        "Contracts verified and render validated. No further verification needed."
+                        "Contracts verified. "
+                        + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
+                        + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),
                     "artifact_id": str(new_artifact.id),
                     "mode": new_artifact.mode,

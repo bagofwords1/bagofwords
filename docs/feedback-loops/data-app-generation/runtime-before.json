@@ -1,0 +1,281 @@
+{
+  "baseline": true,
+  "results": [
+    {
+      "version": 0,
+      "dark": false,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "legacyChart",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "optimisticValue",
+      "status": "PASS"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "legacyChart",
+      "status": "PASS"
+    }
+  ],
+  "failures": [
+    {
+      "version": 0,
+      "dark": false,
+      "label": "pendingRemainsVisible",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "queryErrorRemainsVisible",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "The expression evaluated to a falsy value:\n\n  assert.ok(result.errorAfterData)\n"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "customHeading",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\n'600' !== '700'\n"
+    },
+    {
+      "version": 0,
+      "dark": false,
+      "label": "legacyChart",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\n320 !== 400\n"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "pendingRemainsVisible",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "queryErrorRemainsVisible",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "The expression evaluated to a falsy value:\n\n  assert.ok(result.errorAfterData)\n"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "customHeading",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\n'600' !== '700'\n"
+    },
+    {
+      "version": 0,
+      "dark": true,
+      "label": "legacyChart",
+      "actual": {
+        "legacy": true,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "0.4%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\n320 !== 400\n"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "pendingRemainsVisible",
+      "actual": {
+        "legacy": false,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "37.0%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "queryErrorRemainsVisible",
+      "actual": {
+        "legacy": false,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "37.0%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "The expression evaluated to a falsy value:\n\n  assert.ok(result.errorAfterData)\n"
+    },
+    {
+      "version": 11,
+      "dark": false,
+      "label": "customHeading",
+      "actual": {
+        "legacy": false,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "37.0%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\n'600' !== '700'\n"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "pendingRemainsVisible",
+      "actual": {
+        "legacy": false,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "37.0%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\nfalse !== true\n"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "queryErrorRemainsVisible",
+      "actual": {
+        "legacy": false,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "37.0%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "The expression evaluated to a falsy value:\n\n  assert.ok(result.errorAfterData)\n"
+    },
+    {
+      "version": 11,
+      "dark": true,
+      "label": "customHeading",
+      "actual": {
+        "legacy": false,
+        "loadingDuringUpdate": false,
+        "optimisticValue": "Europe",
+        "errorAfterData": null,
+        "percentage": "37.0%",
+        "headingWeight": "600",
+        "chartHeight": 320,
+        "smooth": false,
+        "gridLeft": 8
+      },
+      "message": "Expected values to be strictly equal:\n\n'600' !== '700'\n"
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-from typing import Any, List, Optional
+from typing import Any, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -22,6 +22,10 @@ class EditArtifactInput(BaseModel):
     """
 
     artifact_id: str = Field(..., description="Id of the page-mode artifact to edit.")
+    purpose: Literal["requested_change", "visual_refinement"] = Field(
+        default="requested_change",
+        description="Use visual_refinement for an optional screenshot-driven aesthetic edit after success (at most one per user request). Requested edits and functional repairs use requested_change.",
+    )
     edits: List[ArtifactEditOp] = Field(..., min_length=1, description="Ordered find/replace operations, applied atomically (all or none).")
     visualization_ids: Optional[List[str]] = Field(default=None, description="NEW visualization ids to add to the artifact's data payload (existing ones are kept automatically). Your edits must add code sections rendering them via vizById(\"<uuid>\").")
     remove_visualization_ids: Optional[List[str]] = Field(default=None, description="Visualization ids to REMOVE from the payload. Your edits must delete every code section referencing them.")

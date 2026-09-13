@@ -4,3 +4,7 @@
 *.js
 !artifact-globals.js
 !artifact-offline-host.js
+!artifact-tailwind.js
+# Vendored fonts (+ the generated @font-face sheet) are downloaded too.
+fonts/
+artifact-fonts.css

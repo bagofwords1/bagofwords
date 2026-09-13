@@ -39,6 +39,7 @@ from app.ai.tools.implementations._sandbox_context import (
     SANDBOX_RUNTIME_PROMPT,
     ANON_PREVIEW_NOTE,
     STATIC_PREVIEW_NOTE,
+    ARTIFACT_RUNTIME_VERSION,
     build_identity_context,
 )
 from app.ai.tools.implementations._artifact_images import load_image_bytes
@@ -118,7 +119,7 @@ class CreateArtifactTool(Tool):
                 # compatible Chromium exists on disk.
                 _exe = os.environ.get("BOW_CHROMIUM_EXECUTABLE") or None
                 browser = await p.chromium.launch(headless=True, executable_path=_exe)
-                page = await browser.new_page(viewport={"width": 1280, "height": 720})
+                page = await browser.new_page(viewport={"width": 1280, "height": 900})
 
                 # Capture JS errors during render. Both channels matter:
                 # pageerror catches thrown/uncaught exceptions (incl. Babel
@@ -301,6 +302,7 @@ class CreateArtifactTool(Tool):
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <script>window.ARTIFACT_DATA = {data_json};</script>
   {page_scripts}
   <style>
     html, body, #root {{ height: 100%; margin: 0; padding: 0; }}
@@ -388,7 +390,7 @@ class CreateArtifactTool(Tool):
         return [e for e in (errors or []) if not e.startswith("[console.error]")]
 
     @staticmethod
-    def params_wiring_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+    def params_wiring_errors(code: str, artifact_data: Dict[str, Any], *, previous_code: Optional[str] = None, previous_visualization_ids: Optional[List[str]] = None) -> List[str]:
         """Contract check: declared input params must be WIRED in the code.
 
         A dashboard whose queries declare input parameters but whose code never
@@ -398,6 +400,20 @@ class CreateArtifactTool(Tool):
         repair loop as render errors. Identity params are exempt: they render
         as a badge, not a control.
         """
+        # An ordinary legacy edit must not retrofit requirements introduced
+        # after that dashboard was saved. Still reject newly broken wiring.
+        version = ((artifact_data or {}).get("runtime") or {}).get("version") or 0
+        if previous_code is not None and int(version) < ARTIFACT_RUNTIME_VERSION:
+            previous_data = artifact_data
+            if previous_visualization_ids is not None:
+                previous_data = {**artifact_data, "visualizations": [
+                    v for v in artifact_data.get("visualizations", [])
+                    if str(v.get("id")) in previous_visualization_ids
+                ]}
+            before = CreateArtifactTool.params_wiring_errors(previous_code, previous_data)
+            after = CreateArtifactTool.params_wiring_errors(code, artifact_data)
+            return [error for error in after if error not in before]
+
         names: List[str] = []
         seen: set = set()
         for v in (artifact_data or {}).get("visualizations") or []:
@@ -419,7 +435,10 @@ class CreateArtifactTool(Tool):
                 "option.value (never the label), drive a loading state from "
                 "useParams().loading, and render useParams().error when set."
             ]
-        missing = [n for n in names if n not in src]
+        # Declaration-driven custom controls bind names dynamically. This is
+        # a limited wiring diagnostic, not proof of browser behavior.
+        dynamic = "declarations" in src and (".map(" in src or ".map (" in src)
+        missing = [] if dynamic else [n for n in names if n not in src]
         if missing:
             return [
                 "[params contract] Parameter(s) " + ", ".join(missing) + " are declared "
@@ -447,7 +466,7 @@ class CreateArtifactTool(Tool):
 
         error_text = "\n".join(f"- {e}" for e in errors[:5])
 
-        fix_prompt = f"""You previously wrote the React dashboard code below. It runs in a sandboxed iframe (React 18 + Babel standalone + Tailwind + ECharts via <EChart>, data via useArtifactData()). When rendered, it produced these errors:
+        fix_prompt = f"""You previously wrote the React dashboard code below. It runs in a sandboxed iframe (React 18 + Babel standalone + Tailwind with theme tokens + ECharts via <EChart>, setTheme()/useTheme(), data via useArtifactData()/vizById()). When rendered, it produced these errors:
 
 {error_text}
 
@@ -717,10 +736,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         # The viz-reference contract rides along too: a reference to a viz that
         # isn't in the payload (or a payload viz the code never renders) is a
         # silent-wrong-data defect no screenshot can catch.
-        from app.ai.tools.implementations._artifact_refs import viz_reference_errors
+        from app.ai.tools.implementations._artifact_refs import viz_reference_errors, design_errors
         wiring = self.params_wiring_errors(code, artifact_data) if mode == "page" else []
         if mode == "page":
-            wiring = wiring + viz_reference_errors(code, artifact_data)
+            wiring = wiring + viz_reference_errors(code, artifact_data) + design_errors(code, artifact_data)
 
         original_code = code
         original_screenshot = screenshot
@@ -755,7 +774,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             fatal = self.fatal_render_errors(errors)
             wiring = self.params_wiring_errors(candidate, artifact_data) if mode == "page" else []
             if mode == "page":
-                wiring = wiring + viz_reference_errors(candidate, artifact_data)
+                wiring = wiring + viz_reference_errors(candidate, artifact_data) + design_errors(candidate, artifact_data)
 
         if strict and not fatal and wiring:
             # Strict (planner-authored) mode: contract errors are as fatal as
@@ -874,7 +893,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             profile["parameters"] = [
                 {
                     k: p.get(k)
-                    for k in ("name", "type", "label", "source", "default", "required", "options")
+                    for k in ("name", "type", "label", "source", "default", "required", "options", "options_source", "strict_options", "description")
                     if p.get(k) is not None or k in ("name", "source")
                 }
                 for p in params
@@ -1455,7 +1474,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 # exercises the null-guard path in every artifact before it is
                 # persisted.
                 "current_user": None,
+                # New artifacts always run on the themed runtime.
+                "runtime": {"version": ARTIFACT_RUNTIME_VERSION},
             }
+            from types import SimpleNamespace
+            from app.services.artifact_payload import collect_params
+            artifact_data["params"] = await collect_params(db, SimpleNamespace(
+                report_id=str(report.id), content={"visualization_ids": included_viz_ids},
+            ))
             # Inline embedded files as data URIs so the headless render
             # (which has no auth context) can show images/PDFs via <BowFile>.
             if included_files:
@@ -1508,6 +1534,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         content: Dict[str, Any] = {
             "code": code,
             "visualization_ids": included_viz_ids,
+            # Stored rows are never rewritten; this stamp tells every host which
+            # runtime generation (design system, className semantics) to apply.
+            "runtime_version": ARTIFACT_RUNTIME_VERSION,
         }
 
         # Embedded files (generated images / uploaded images/PDFs) referenced by
@@ -2133,6 +2162,19 @@ Vary layouts between:
   never overlap a subtitle, accent line or chart with the title block.
 
 ═══════════════════════════════════════════════════════════════════════════════
+CHART CHECKLIST — verify each line against your code before you finish
+═══════════════════════════════════════════════════════════════════════════════
+1. SORTED. A ranked bar is sorted by value. A time axis is sorted ASCENDING (oldest → newest):
+   `rows.slice().sort((a, b) => String(a.month).localeCompare(String(b.month)))` — never trust the row order.
+2. TRIMMED. A ranked chart renders `.slice(0, 10)` (8–12 max) and its subtitle says so. The tail belongs in the table.
+3. ONE COLOR. A single-series chart is ONE color: the theme's first palette entry, or t.colors.accent for the hero.
+   Per-bar colors are only for highlighting ONE bar (the leader, the selected value) against the rest.
+4. FORMATTED. Axis and label formatters use fmt(): `axisLabel: {{ formatter: v => fmt(v, {{ currency: true }}) }}`.
+   Any proportion in a title, subtitle or cell comes from share(part, whole).
+5. FITS. Horizontal bars need ~26px of height per bar (10 bars ≈ 300px). A legend gets its own row.
+   Long category names get `axisLabel: {{ width: 110, overflow: 'truncate' }}`.
+
+═══════════════════════════════════════════════════════════════════════════════
 OUTPUT FORMAT - Example with Design Principles Applied
 ═══════════════════════════════════════════════════════════════════════════════
 
@@ -2273,226 +2315,10 @@ prs.save(_pptx_output_path)
 Create a beautiful, varied presentation following these design principles. Each slide should look DIFFERENT from the others. Use visual elements, accent shapes, and thoughtful color choices:"""
 
     def _build_page_system_prompt(self) -> str:
-        """Static system prompt for page/dashboard generation.
+        """Shared cacheable data-app guidance and runtime API contract."""
+        from app.ai.agents.planner.data_app_authoring import DATA_APP_AUTHORING
 
-        Contains only stable reference material (sandbox runtime docs,
-        component contract, filtering rules, design guidance, output format).
-        Kept free of per-call state so provider prompt caching can reuse it
-        across every create/edit call.
-        """
-        return f"""Role: frontend developer and data visualization engineer. You build React dashboard artifacts from the user's design request and visualization data (both provided in the user message), following this reference.
-
-═══════════════════════════════════════════════════════════════════════════════
-REFERENCE — TOOLS, COMPONENTS & DATA
-═══════════════════════════════════════════════════════════════════════════════
-
-{SANDBOX_RUNTIME_PROMPT}
-
-CHARTING:
-
-**`<EChart height={{N}} option={{{{...}}}} />`** — chart wrapper. Supports ALL ECharts chart types. 'bow' theme pre-configures colors, tooltip, grid, axes. For standard charts, only write data mapping:
-```jsx
-<EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.name) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'bar', data: rows.map(r => r.val) }}] }}}} />
-<EChart height={{300}} option={{{{ tooltip: {{ trigger: 'item' }}, series: [{{ type: 'pie', radius: ['45%','75%'], data: rows.map(r => ({{ value: r.amt, name: r.lbl }})) }}] }}}} />
-<EChart height={{300}} option={{{{ xAxis: {{ type: 'category', data: rows.map(r => r.date) }}, yAxis: {{ type: 'value' }}, series: [{{ type: 'line', data: rows.map(r => r.val), areaStyle: {{ opacity: 0.15 }} }}] }}}} />
-```
-For advanced charts (radar, gauge, treemap, sunburst, funnel, sankey, calendar heatmap, parallel coordinates, graph), pass the full ECharts option — the theme still provides colors and tooltip:
-```jsx
-<EChart height={{300}} option={{{{ radar: {{ indicator: indicators }}, series: [{{ type: 'radar', data: radarData }}] }}}} />
-<EChart height={{250}} option={{{{ series: [{{ type: 'gauge', data: [{{ value: 72 }}], detail: {{ formatter: '{{value}}%' }} }}] }}}} />
-<EChart height={{400}} option={{{{ series: [{{ type: 'treemap', data: treeData }}] }}}} />
-```
-
-AVAILABLE COMPONENTS (convenience shortcuts — not requirements):
-- `<KPICard title="" value={{fmt(n, {{currency:true}})}} subtitle="" color="#3B82F6" className="" titleClassName="" subtitleClassName="" style={{{{}}}} />` — `className` replaces default theme (bg-white, border, text-slate-900). `titleClassName`/`subtitleClassName` replace title/subtitle defaults. `style` for inline overrides. Theme these to match your color story:
-  - Dark: `className="bg-slate-900 border-slate-700 text-white" titleClassName="text-slate-400"`
-  - Colored: `className="bg-indigo-50 border-indigo-200 text-indigo-900" titleClassName="text-indigo-600"`
-- `<SectionCard title="" subtitle="" className="" titleClassName="" subtitleClassName="" style={{{{}}}}>...children...</SectionCard>` — same theming: `className` replaces defaults, `titleClassName`/`subtitleClassName` for text. Theme to match.
-- `<FilterSelect label="" options={{arr}} selected={{arr}} onChange={{fn}} single={{bool}} searchable={{bool}} className="" style={{{{}}}} />` — dropdown (portaled). Multi-select by default: `onChange` receives the full ARRAY of selected `option.value`s. Pass `single` for a one-value choice (radio list, picking replaces the selection and closes the dropdown, no "Clear all"): `onChange` then receives `[value]`. Built-in search at 8+ options. `className` replaces default theme (bg-white border-slate-200 text-slate-900) — pass e.g. `className="bg-slate-900 border-slate-700 text-slate-100"` for dark.
-- `<FilterSearch label="" value={{str}} onChange={{e => setFilter(field, e.target.value)}} placeholder="Search..." className="" style={{{{}}}} />` — text search. `className` replaces default theme.
-- `<FilterDateRange label="" value={{filters[field] || {{}}}} onChange={{val => setFilter(field, val)}} type="date" className="" style={{{{}}}} />` — date range picker. `className` replaces default theme.
-- `fmt(n, opts)` — `{{currency:true}}`, `{{pct:true}}`, auto K/M/B
-- `<LoadingSpinner size={{32}} />`
-
-All components are fully themeable via `className`/`titleClassName`/`subtitleClassName`/`style`. Don't leave default white/slate styling when your design calls for something different. If the design needs something these can't express — build custom React + Tailwind.
-
-**HOST DARK MODE:** The sandbox runs Tailwind with `darkMode: 'class'`; the host toggles a `dark` class on `<html>` to match the viewer's theme (live, no reload). Component DEFAULTS already adapt (they carry `dark:` variants), as do the iframe body and charts (bow/bow-dark ECharts themes). So: prefer the defaults when no specific color story is requested — they look right in both modes. When you hardcode light colors on custom markup or via `className` overrides, pair them with `dark:` variants (`bg-white dark:bg-slate-900 text-slate-900 dark:text-slate-100`). **When the USER asks for a dark design** (dark regardless of their app theme): put `className="dark"` (plus your dark page background) on the artifact's ROOT wrapper div — Tailwind's class strategy matches ancestors, so every built-in component flips to its dark variant automatically. NEVER mix a dark page background with default light cards; if you don't use the root `dark` class, you must restyle EVERY component (`className` on each KPICard/SectionCard/DataTable/filter) to match the dark background.
-
-**INFO POPOVER (required):** Pass `viz={{vizById("<uuid>")}}` (or the const you bound from it) to every `<KPICard>` and `<SectionCard>` you build from a visualization. This renders a small built-in "ⓘ" button that lets users inspect the data behind each component (Data tab with rows, Code tab with the query). Use the id of the visualization the card is derived from (the primary one if it combines several). When a card renders FILTERED rows (you called `filterRows(vizById("<uuid>").rows)`), ALSO pass `rows={{<those filtered rows>}}` so the popover shows the filtered view that matches the component, not the full dataset. When a card AGGREGATES or derives its value client-side, ALSO pass `calc="<formula>"` describing the math with real column names, e.g. `calc="SUM(UnitPrice × Quantity) grouped by GenreName"` or `calc="COUNT(DISTINCT CustomerId)"` — the popover shows it as a "Calculation" line. If you render a chart with a bare `<EChart>` that is NOT inside a `<SectionCard>`, pass `viz={{vizById("<uuid>")}}` (and `rows`/`calc` if relevant) to the `<EChart>` itself so it still gets the popover.
-
-**CUSTOM MARKUP — add `data-bow-*` attributes (required):** Whenever you build your OWN containers instead of `<KPICard>`/`<SectionCard>`/`<EChart>` (custom `<div>` KPI tiles, chart wrappers, tables), annotate each item's outer element with `data-bow-viz="N"` (source visualization index) and `data-bow-calc="<formula>"` when the value is derived. A global overlay then renders the same Data/Code/Calc popover on each item. Example: `<div data-bow-viz={{0}} data-bow-calc="SUM(UnitPrice × Quantity)">...custom tile...</div>`. EVERY metric, chart, and table must be reachable via either a prebuilt component's `viz` prop OR a `data-bow-viz` attribute — never leave an item with no way to inspect its data.
-
-DATA ACCESS:
-
-```javascript
-const data = useArtifactData(); // Returns null while loading
-// data = {{ report: {{id, title}}, visualizations: [...] }}
-```
-
-Each visualization:
-```js
-{{
-  id: "uuid",
-  title: "Visualization Title",
-  columns: [{{ "headerName": "Album Title", "field": "AlbumTitle", "dtype": "object", "unique_count": 150 }}, ...],
-  rows: [{{ "AlbumTitle": "Battlestar Galactica", "total_revenue": 35.82 }}, ...],
-  row_count: 4321,   // TRUE dataset size
-  view: {{ /* chart config hints */ }},
-  dataModel: {{ /* series/axis config */ }}
-}}
-```
-
-- Use `column.field` to access row values: `row[column.field]`
-- Use `column.headerName` for display labels
-- Column metadata includes `dtype` (pandas type) and `unique_count` — use these for filter/format decisions
-- **Do not hardcode data** — all values should come from the viz data payload (`vizById("<uuid>").rows`)
-- **DATA ACCESS IS ID-KEYED (MANDATORY):** every visualization in YOUR VISUALIZATIONS has an `id` (uuid). Bind data with `vizById("<that uuid>")` — e.g. `const revTrend = vizById("2f9c…");` — NEVER by position (`viz[0]`, `viz[1]`, `data.visualizations[N]`). Positional indexes silently repoint at the wrong dataset when the viz set changes; id-keyed access is stable. Copy each uuid EXACTLY from the `id` field of the viz it renders. (The uuids live in code only — never display them in visible text.)
-- **Sample vs full data:** the `rows`/`sample_rows` shown in the user message are a SAMPLE (capped at 100 rows per visualization) for generation and preview. At runtime the dashboard receives the FULL dataset — `row_count` rows. `row_count` is the true dataset size; `sample_row_count` is the sample size. Write code that works on the full dataset (aggregate with reduce/Map, paginate long tables) and NEVER hardcode workarounds for the sample size.
-- **Defensive coding**: Row values and properties can be `null`/`undefined`. Use optional chaining or fallbacks before calling `.includes()`, `.toLowerCase()`, `.startsWith()`, `.split()`, etc. Example: `(row.name || '').includes('x')` or `String(val ?? '').toLowerCase()`. Do not call string methods on a value that could be nullish.
-
-View hints — honor the viz config:
-The `view_config` on each visualization describes how the author wants the data rendered. Follow it when generating code.
-
-- `view_config.aggregation` (`"sum" | "avg" | "count" | "min" | "max"`): the raw rows are granular, so aggregate the relevant value column before rendering (especially for `count`, `metric_card`, `pie_chart`, `heatmap`). Use `rows.reduce(...)`. Example for a metric card with aggregation=sum:
-  ```js
-  const revenue = vizById("<uuid of the revenue viz>");
-  const total = useMemo(
-    () => revenue.rows.reduce((s, r) => s + (Number(r.revenue) || 0), 0),
-    [revenue]
-  );
-  ```
-  For pie/heatmap/bar charts that group by a category, group first and aggregate the value per group rather than using the first matching row.
-
-- `view_config.series_aggregations` (array of `{{key, aggregation}}`): apply the given aggregation per series when building multi-series bar/line/area charts.
-
-- `view_config.default_filters` (array of `{{column, operator, value}}`): the author wants the dashboard to open with these filters already applied. Seed them on first mount so the initial view matches the intent, for example:
-  ```js
-  const {{ filters, setFilter, filterRows }} = useFilters();
-  useEffect(() => {{
-    // Seed defaults once — operators follow the useFilters contract.
-    {{/* for each entry in view_config.default_filters */}}
-    setFilter('column_name', value);
-  }}, []);
-  ```
-  If the underlying runtime uses richer operators (`equals`, `greater_than`, etc.), either call `setFilter` with the operator-aware object it expects, or compute the filtered rows directly via `filterRows(vizById("<uuid>").rows)` once the filter is seeded. Render the filtered view when defaults are present so the initial numbers match the author's intent.
-
-FILTERING:
-- Use `useFilters()` hook for cross-visualization filtering — returns `{{ filters, setFilter, resetFilters, filterRows }}`
-- YOU choose which columns to filter — use `dtype` and `unique_count` from the column metadata:
-  - `<FilterSelect>` for low-cardinality columns (`unique_count` < ~50, dtype "object"/"int64" with few values)
-  - `<FilterSearch>` for high-cardinality text columns (`unique_count` > 50, dtype "object")
-  - `<FilterDateRange>` for date/time columns (dtype contains "datetime" or values are date strings)
-- Get unique values directly: `[...new Set(vizById("<uuid>").rows.map(r => r[field]))]`
-
-FILTER FEASIBILITY AUDIT — DO THIS FIRST, BEFORE WRITING CODE:
-Before wiring any cross-viz filter, verify it will actually work. A filter that looks wired but silently leaves some vizs untouched is a broken dashboard, not a partial one.
-
-For each dimension you intend to filter by:
-1. **Enumerate participating vizs** — which vizs should this filter affect? (Usually: any viz whose topic logically shares the dimension, e.g. a "customer" filter should affect every viz about customers, payments, orders, etc.)
-2. **Check column presence** — does each participating viz have the filter column (directly, or via a rename you can handle with `fieldMap`)? Check the `columns` array in YOUR VISUALIZATIONS below.
-3. **Decide per dimension**:
-   - ALL participants have the column → wire the global filter, use `fieldMap` for renames.
-   - SOME participants lack the column but the gap is genuine (no join key in the source data) → make the filter LOCAL to the vizs that support it; do not pretend it affects others.
-   - SOME participants lack the column but they should have it (the underlying data supports it, the query just didn't project the column) → **do not wire the filter; do not build the dashboard with a dead filter.** End your response by reporting the gap so the planner can recreate the offending queries before you try again. Example: "Cannot wire `customer_id` filter — `payments` viz lacks `customer_id` but `payments.customer_id` exists in schema. Recreate the payments query with `customer_id` projected, then retry create_artifact."
-
-FILTER PLACEMENT — global vs local:
-- **Global filter** (column present in 2+ vizs AFTER the audit above): place in a top-level filter bar above all content. Use one shared filter + `fieldMap` for renames, not duplicates.
-- **Local filter** (column present in only 1 viz): place INSIDE that viz's `<SectionCard>`, visually next to the chart/table it affects.
-- When a filter affects multiple vizs, add visible UI indication that they're linked.
-
-FILTER DATA FLOW:
-- Every viz that passes the feasibility audit for a filter should use `filterRows()` as its data source — for charts, tables, and any KPI/summary derived from that viz.
-- KPI cards that summarize filtered data (sum, count, avg) should be computed from filtered rows, not from raw `vizById("<uuid>").rows`.
-- Do not call `filterRows` on a viz that doesn't have the filter column just to "be safe" — silently passing rows through makes the filter look active when it isn't. Audit first, wire second.
-
-EXAMPLE 1 — Global "region" filter affecting KPIs + bar chart + table:
-  const {{ filters, setFilter, resetFilters, filterRows }} = useFilters();
-  const regions = useMemo(() => [...new Set(vizSales.rows.map(r => r.region))], [vizSales]);
-  // ALL downstream from vizSales uses filtered:
-  const filteredSales = filterRows(vizSales.rows);
-  const totalRevenue = useMemo(() => filteredSales.reduce((s, r) => s + r.revenue, 0), [filteredSales]);
-  const chartData = useMemo(() => ({{ labels: filteredSales.map(r => r.month), values: filteredSales.map(r => r.revenue) }}), [filteredSales]);
-  // Cross-viz filtering with field mapping:
-  const filteredDetails = filterRows(vizDetails.rows, {{ region: 'RegionName' }});
-  // Layout: <FilterSelect> in top bar, KPIs below, charts below that
-
-EXAMPLE 2 — Local filter inside a SectionCard:
-  const {{ filters, setFilter, filterRows }} = useFilters();
-  const filtered = filterRows(vizProducts.rows);
-  // Layout: <SectionCard title="Products"><FilterSelect .../><EChart ... /></SectionCard>
-
-- Include a Reset button when any filters are active (`Object.keys(filters).length > 0`)
-- After filtering, if a visualization has zero matching rows, display "No data matches current filters"
-
-═══════════════════════════════════════════════════════════════════════════════
-DESIGN GUIDANCE (use when the user hasn't specified styling)
-═══════════════════════════════════════════════════════════════════════════════
-
-If the user specified a theme/style/colors above, follow that — skip this section.
-Otherwise, design a visually striking, publication-quality dashboard — not a generic template.
-
-COLOR & IDENTITY:
-- Pick a cohesive color story that fits the data topic. A finance dashboard should feel different from a music dashboard, which should feel different from a healthcare dashboard.
-- Choose one dominant color (60-70%), 1-2 supporting tones, and one accent for highlights/CTAs.
-- Do NOT default to generic blue. Blue is fine if it fits the topic — but earn it, don't default to it.
-- Theme ALL components (KPICard, SectionCard, filters) to match — use `className`, `titleClassName`, `subtitleClassName` props. Default white/slate is only appropriate for a clean/minimal design intent.
-
-LAYOUT & HIERARCHY:
-- Lead with the most important insight — KPIs or headline metric at the top.
-- Create clear visual hierarchy: primary chart large, secondary charts smaller, supporting data compact.
-- Use intentional whitespace — not "fill every pixel" but not "float in empty space" either.
-- Vary card sizes and chart heights to create rhythm. A grid of same-sized boxes is boring.
-
-TYPOGRAPHY & POLISH:
-- Clean, modern typography. Titles concise and descriptive, not generic ("Revenue by Region" not "Chart 1").
-- Subtle shadows, rounded corners, light borders — enough depth to feel crafted, not flat.
-- Light mode default. Dark mode only if the topic or user suggests it.
-
-CHART SELECTION:
-- Choose the best visualization for the data shape — don't default to bar charts for everything.
-- Standard charts (bar, line, pie, area) for simple relationships. Advanced charts (radar, gauge, treemap, funnel, sankey, heatmap) when the data structure rewards it.
-- Show data from different angles without redundancy. Each chart should reveal something the others don't.
-
-The goal: it should look like a designer built it for this specific dataset, not like a template was filled in.
-
-═══════════════════════════════════════════════════════════════════════════════
-RESPONSIVE LAYOUT (REQUIRED — always applies, even when the user specified a theme/style)
-═══════════════════════════════════════════════════════════════════════════════
-
-The dashboard is embedded in an iframe whose width is NOT fixed — the SAME code renders in a narrow chat side-panel (~360–480px), a normal report view (~900px), and a full-screen / published view (up to ~1920px). It MUST reflow gracefully at every width with NO horizontal page scroll and NO clipped or squished content. Build it fluid and mobile-first; only deviate if the user EXPLICITLY asked for a fixed width.
-
-Concrete rules — follow all of them:
-- **Outer container:** fluid width, never a fixed pixel width. Use `w-full min-h-full` (add `max-w-screen-2xl mx-auto` only if you want to cap width on huge screens). Responsive padding: `p-4 md:p-6 lg:p-8`. NEVER `w-[1200px]`, `min-w-[...]`, or any fixed-pixel width on layout containers.
-- **KPI / stat rows:** use a responsive grid that collapses on narrow screens, e.g. `grid grid-cols-2 md:grid-cols-4 gap-4` (2-up on mobile → 4-up on desktop). Do NOT use a flex row of fixed-width cards that overflows.
-- **Chart grids:** start single-column and add columns at breakpoints, e.g. `grid grid-cols-1 lg:grid-cols-2 gap-6`. A primary/feature chart can stay full-width (`col-span-full` or its own row). Never lock a multi-column grid with no single-column fallback.
-- **Charts:** give each `<EChart>` a `w-full` container and a fixed `height` (px) — it auto-resizes to its container via ResizeObserver, so width takes care of itself. Do not set a pixel width on charts.
-- **Tables & wide content:** wrap in `<div className="overflow-x-auto">` so a wide table scrolls inside its card instead of blowing out the page width. Use `min-w-full` on the `<table>`, not a fixed width.
-- **Filter bars:** `flex flex-wrap gap-3` so filters wrap to the next line on narrow widths instead of overflowing.
-- **Text & numbers:** allow large KPI numbers to scale (e.g. `text-2xl md:text-3xl`) and use `truncate`/`break-words` where labels can be long, so nothing overflows its card.
-- **Sanity check:** before finishing, mentally render at ~380px wide — every row must wrap to 1–2 columns, no element wider than the viewport, no horizontal scrollbar on the body.
-
-═══════════════════════════════════════════════════════════════════════════════
-OUTPUT FORMAT
-═══════════════════════════════════════════════════════════════════════════════
-
-```
-<script type="text/babel">
-function App() {{
-  const data = useArtifactData();
-  if (!data) return <div className="flex items-center justify-center h-screen text-gray-400"><LoadingSpinner size={{32}} /></div>;
-  // Id-keyed data access — one binding per viz, uuid copied from its `id`:
-  const revTrend = vizById("<uuid from YOUR VISUALIZATIONS>");
-  // ... concise dashboard code
-}}
-ReactDOM.createRoot(document.getElementById('root')).render(<App />);
-</script>
-```
-
-Structure: all code should be inside `function App() {{ ... }}` with `ReactDOM.createRoot(document.getElementById('root')).render(<App />);` at the end. Do not put return statements outside a function.
-
-Rules: `<script type="text/babel">` wrapper. `useArtifactData()` for data; bind each viz by id with `vizById("<uuid>")` — NEVER positional `viz[N]`. `<EChart option={{...}} />` for charts. Pass `viz={{vizById("<uuid>")}}` (or the binding you made from it) to every KPICard/SectionCard so the built-in info popover shows the data behind it. RESPONSIVE — fluid width, responsive grids (`grid-cols-1 md:grid-cols-2 lg:grid-cols-N`), no fixed-pixel widths, no horizontal page scroll at any width (see RESPONSIVE LAYOUT section above); required unless the user asked for a fixed width. Handle zero rows. No hardcoded data. No UUIDs, branding, or emoji in user-visible text (uuids belong in vizById() calls only). Guard nullish values before string methods (use `(val || '')` or `String(val ?? '')`).
-
-**Code formatting:** Keep the code concise by omitting redundancy (unnecessary comments, default props, theme styling the 'bow' theme already provides) — never by minifying. Write ONE statement per line and break long expressions across lines: syntax errors report line:col, and a 300-char one-liner makes both authoring mistakes and fixing them far more likely. Name an intermediate variable instead of nesting calls more than ~3 levels deep (paren-soup like `f(g(h(x)))))` is where unbalanced brackets come from). Use as much space as the design needs — fidelity to the user's request is more important than brevity."""
+        return DATA_APP_AUTHORING + "\n\n" + SANDBOX_RUNTIME_PROMPT
 
     def _build_page_prompt(
         self,
@@ -2804,4 +2630,3 @@ Now create the dashboard:"""
 
         # Fallback: return the response as-is
         return response.strip()
-

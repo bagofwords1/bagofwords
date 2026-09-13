@@ -23,15 +23,18 @@ _CANDIDATE_DIRS = [
 # Libraries needed for dashboard (page) mode artifacts
 _PAGE_LIBS = [
     "tailwindcss-3.4.16.js",
+    "artifact-tailwind.js",
     "react-18.development.js",
     "react-dom-18.development.js",
     "babel-standalone.min.js",
     "echarts-5.min.js",
+    "lucide.min.js",
 ]
 
 # Libraries needed for slides mode artifacts
 _SLIDES_LIBS = [
     "tailwindcss-3.4.16.js",
+    "artifact-tailwind.js",
 ]
 
 # Libraries for the standalone HTML export. Two deliberate differences from
@@ -42,9 +45,11 @@ _SLIDES_LIBS = [
 # ~1.6MB before data.
 _EXPORT_LIBS = [
     "tailwindcss-3.4.16.js",
+    "artifact-tailwind.js",
     "react-18.production.min.js",
     "react-dom-18.production.min.js",
     "echarts-5.min.js",
+    "lucide.min.js",
 ]
 
 # Only inlined when the artifact actually embeds a PDF — 320KB of viewer plus
@@ -55,6 +60,12 @@ _PDF_WORKER_LIB = "pdf.worker.min.js"
 
 _GLOBALS_FILENAME = "artifact-globals.js"
 _OFFLINE_HOST_FILENAME = "artifact-offline-host.js"
+# Vendored typefaces (scripts/download-vendor-libs.sh writes the @font-face
+# rules with /libs/fonts/... urls). Headless renders navigate a file:// page
+# and the standalone export runs offline, so the faces are inlined as data
+# URIs. Optional: a deployment without fonts degrades to the system stack.
+_FONTS_CSS_FILENAME = "artifact-fonts.css"
+_FONTS_DIRNAME = "fonts"
 
 
 def _read_globals() -> str:
@@ -109,6 +120,39 @@ def _read_lib(libs_dir: Path, filename: str) -> str:
     return _read_file_cached(str(path), path.stat().st_mtime)
 
 
+@lru_cache(maxsize=8)
+def _inline_fonts_css_cached(css_path: str, mtime: float) -> str:
+    import base64
+    import re as _re
+
+    css = Path(css_path).read_text(encoding="utf-8")
+    fonts_dir = Path(css_path).parent / _FONTS_DIRNAME
+
+    def _inline(m: "_re.Match[str]") -> str:
+        name = m.group(1)
+        f = fonts_dir / name
+        try:
+            b64 = base64.b64encode(f.read_bytes()).decode("ascii")
+        except OSError:
+            return m.group(0)
+        return f"url(data:font/woff2;base64,{b64})"
+
+    return _re.sub(r"url\(/libs/fonts/([^)]+)\)", _inline, css)
+
+
+def get_inline_fonts_style() -> str:
+    """A <style> tag carrying the vendored @font-face rules with the woff2 files
+    inlined as data URIs, or "" when no fonts were vendored (system fallback)."""
+    libs_dir = _find_libs_dir()
+    if libs_dir is None:
+        return ""
+    css_path = libs_dir / _FONTS_CSS_FILENAME
+    if not css_path.is_file():
+        logger.warning("artifact fonts not vendored (%s missing) — themed artifacts fall back to system faces", css_path)
+        return ""
+    return f"<style>{_inline_fonts_css_cached(str(css_path), css_path.stat().st_mtime)}</style>"
+
+
 def get_inline_scripts(mode: str = "page") -> str:
     """Return inline <script> tags with vendored JS library contents.
 
@@ -137,6 +181,11 @@ def get_inline_scripts(mode: str = "page") -> str:
     for filename in lib_files:
         content = _read_lib(libs_dir, filename)  # raises FileNotFoundError if missing
         parts.append(f"<script>{content}</script>")
+
+    # Vendored typefaces for the themed design system (inlined; optional).
+    fonts = get_inline_fonts_style()
+    if fonts:
+        parts.append(fonts)
 
     # Add global setup for page mode (hooks, EChart wrapper, filters, etc.)
     if mode == "page":
@@ -176,7 +225,9 @@ def get_export_vendor_scripts(include_pdf: bool = False) -> str:
     if include_pdf:
         files.append(_PDF_LIB)
 
-    return "\n".join(f"<script>{_read_lib(libs_dir, f)}</script>" for f in files)
+    scripts = "\n".join(f"<script>{_read_lib(libs_dir, f)}</script>" for f in files)
+    fonts = get_inline_fonts_style()
+    return scripts + ("\n" + fonts if fonts else "")
 
 
 def get_globals_script() -> str:

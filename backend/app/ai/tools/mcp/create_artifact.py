@@ -14,6 +14,7 @@ from app.ai.llm import LLM
 from app.models.user import User
 from app.models.organization import Organization
 from app.models.artifact import Artifact
+from app.ai.tools.implementations._sandbox_context import ARTIFACT_RUNTIME_VERSION
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.schemas.mcp import MCPCreateArtifactInput, MCPCreateArtifactOutput
@@ -186,7 +187,8 @@ class CreateArtifactMCPTool(MCPTool):
             organization_id=str(organization.id),
             title=input_data.title or "Dashboard",
             mode=input_data.mode,
-            content={"code": code, "visualization_ids": included_viz_ids},
+            content={"code": code, "visualization_ids": included_viz_ids,
+                     **({"runtime_version": ARTIFACT_RUNTIME_VERSION} if input_data.mode == "page" else {})},
             generation_prompt=input_data.prompt,
             version=1,
             status="completed",

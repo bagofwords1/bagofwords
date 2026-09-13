@@ -18,7 +18,7 @@
  * code ("DataTable is not defined"). Bump this whenever artifact-globals.js
  * gains or changes a global.
  */
-export const ARTIFACT_GLOBALS_VERSION = '10'; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
+export const ARTIFACT_GLOBALS_VERSION = '11'; // v11: themed design system (setTheme/useTheme, token utilities, Icon/Sparkline/Delta/PageHeader…, className merge); v10: FilterSelect single-select mode; // v10: FilterSelect single-select mode (scalar params); v9: vizById() id-keyed data access + dark-mode variants + forced-dark wrapper
 
 export interface ArtifactIframeFile {
   id: string;
@@ -84,6 +84,13 @@ export interface ArtifactIframeData {
   current_user?: ArtifactViewerContext | null;
   /** Declared query parameters + current values (useParams() runtime). */
   params?: ArtifactParamsPayload | null;
+  /**
+   * Sandbox runtime generation the artifact was authored for (from
+   * content.runtime_version). >= 11 enables the themed design system and
+   * merge-semantics className; absent/0 keeps the legacy look so stored
+   * artifacts never change appearance.
+   */
+  runtime?: { version: number } | null;
 }
 
 export interface ArtifactIframeOptions {
@@ -332,16 +339,18 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="/libs/tailwindcss-3.4.16.js">${SC}
-  <script>tailwind.config = { darkMode: 'class' };${SC}
+  <script src="/libs/artifact-tailwind.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
   <script crossorigin src="${reactSrc}">${SC}
   <script crossorigin src="${reactDomSrc}">${SC}
   <script src="/libs/babel-standalone.min.js">${SC}
   <script src="/libs/echarts-5.min.js">${SC}
+  <script src="/libs/lucide.min.js">${SC}
   <script src="/libs/pdf.min.js">${SC}
+  <link rel="stylesheet" href="/libs/artifact-fonts.css?v=${ARTIFACT_GLOBALS_VERSION}">
   <style>
     html, body, #root { height: 100%; margin: 0; padding: 0; }
-    body { font-family: system-ui, -apple-system, sans-serif; background-color: #ffffff; color: #0f172a; }
-    html.dark body { background-color: #111827; color: #e5e7eb; }
+    body { font-family: var(--bow-font-body, system-ui, -apple-system, sans-serif); background-color: var(--bow-bg, #ffffff); color: var(--bow-ink, #0f172a); }
+    html.dark body { background-color: var(--bow-bg, #111827); color: var(--bow-ink, #e5e7eb); }
   </style>
 </head>
 <body>

@@ -2847,6 +2847,19 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 	// user, a scheduled run). Artifact creations only take over the pane for
 	// the viewer's own runs.
 	const ownStream = opts.ownStream !== false
+	// Artifact state must converge even when transcript blocks have not arrived
+	// (or were replaced during reconnect). It is not a chat-block side effect.
+	if (eventType === 'tool.finished' && payload.status === 'success' &&
+		(payload.tool_name === 'create_artifact' || payload.tool_name === 'edit_artifact')) {
+		hasArtifacts.value = true
+		const artifactId = payload.result_json?.artifact_id
+		// Retain the target while the frame is unmounted (e.g. Summary is open).
+		if (ownStream && artifactId) requestedArtifactId.value = artifactId
+		window.dispatchEvent(new CustomEvent('artifact:created', {
+			detail: { report_id, artifact_id: artifactId, select: ownStream }
+		}))
+		void checkHasArtifacts()
+	}
 	if (!eventType || sysMessageIndex === -1) return
 
 	if (!messages.value[sysMessageIndex]) return
@@ -3497,30 +3510,6 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 						for (const slide of slides) {
 							slide.status = 'done'
 						}
-						// Update hasArtifacts state and dispatch event to notify ArtifactFrame
-						hasArtifacts.value = true
-						try {
-							window.dispatchEvent(new CustomEvent('artifact:created', {
-								detail: {
-									report_id: report_id,
-									artifact_id: payload.result_json?.artifact_id,
-									select: ownStream
-								}
-							}))
-						} catch {}
-					}
-					// If artifact was edited successfully, refresh ArtifactFrame with the new version
-					if (payload.tool_name === 'edit_artifact' && payload.status === 'success') {
-						hasArtifacts.value = true
-						try {
-							window.dispatchEvent(new CustomEvent('artifact:created', {
-								detail: {
-									report_id: report_id,
-									artifact_id: payload.result_json?.artifact_id,
-									select: ownStream
-								}
-							}))
-						} catch {}
 					}
 					// write_to_excel now dispatches applyToExcel on tool.partial and
 					// awaits the taskpane's ack (see the tool.partial handler above),
@@ -5033,11 +5022,11 @@ async function recoverStreamAfterError(sysId: string): Promise<boolean> {
 		} catch {}
 	}
 	if (!cid) return false
-	startWatchStream(cid, { sysId })
+	startWatchStream(cid, { sysId, ownStream: true })
 	return true
 }
 
-async function startWatchStream(completionId: string, opts: { sysId?: string } = {}) {
+async function startWatchStream(completionId: string, opts: { sysId?: string; ownStream?: boolean } = {}) {
 	if (!completionId || typeof window === 'undefined') return
 	if (watchTarget === completionId) return
 	stopWatchStream()
@@ -5067,7 +5056,7 @@ async function startWatchStream(completionId: string, opts: { sysId?: string } =
 				} as any)
 				const res: Response = (raw?.data?.value ?? raw?.data) as unknown as Response
 				if (!res?.ok || !res?.body) throw new Error(`Watch stream HTTP error: ${res?.status}`)
-				;({ sawDone, gotEvents } = await consumeWatchStream(res, completionId, opts.sysId, gen))
+				;({ sawDone, gotEvents } = await consumeWatchStream(res, completionId, opts.sysId, gen, opts.ownStream === true))
 			} catch (e) {
 				// Aborted (superseded / watchdog) or network error — loop decides.
 			} finally {
@@ -5095,7 +5084,7 @@ async function startWatchStream(completionId: string, opts: { sysId?: string } =
 // Parse and dispatch a watch SSE stream. Returns sawDone=true when the server
 // closed the stream with [DONE] (terminal), gotEvents=true when at least one
 // event was dispatched (used to reset reconnect backoff).
-async function consumeWatchStream(res: Response, completionId: string, sysId: string | undefined, gen: number): Promise<{ sawDone: boolean, gotEvents: boolean }> {
+async function consumeWatchStream(res: Response, completionId: string, sysId: string | undefined, gen: number, ownStream = false): Promise<{ sawDone: boolean, gotEvents: boolean }> {
 	const reader = res.body!.getReader()
 	const decoder = new TextDecoder()
 	let buffer = ''
@@ -5131,9 +5120,9 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 					const parsed = JSON.parse(dataStr)
 					const payload = parsed.data ?? parsed
 					const idx = findWatchMessageIndex(completionId, sysId)
-					if (idx !== -1) {
+					if (idx !== -1 || currentEvent === 'tool.finished') {
 						gotEvents = true
-						await handleStreamingEvent(currentEvent, payload, idx, { ownStream: false })
+						await handleStreamingEvent(currentEvent, payload, idx, { ownStream })
 						scheduleFollowScroll()
 					}
 				} catch (e) {

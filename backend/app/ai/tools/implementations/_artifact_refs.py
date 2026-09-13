@@ -211,3 +211,30 @@ def viz_reference_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
                     "from the dashboard."
                 )
     return errors
+
+
+def design_errors(code: str, artifact_data: Dict[str, Any]) -> List[str]:
+    """Protect stable data bindings on new runtimes; aesthetics are optional.
+
+    Legacy positional references remain valid. New apps bind by ID so adding
+    or removing a dataset cannot silently repoint an existing view.
+    """
+    runtime = (artifact_data or {}).get("runtime") or {}
+    try:
+        version = int(runtime.get("version") or 0)
+    except (TypeError, ValueError):
+        version = 0
+    if version < 11:
+        return []
+    src = code or ""
+    if not src.strip():
+        return []
+    errors: List[str] = []
+    positional = VIZ_POSITIONAL_RE.findall(src) + DATA_VIZ_POSITIONAL_RE.findall(src)
+    if positional:
+        errors.append(
+            "[design] The code reads visualizations by position (viz[N] / data.visualizations[N]) — on the "
+            "themed runtime every viz must be bound by id: const x = vizById(\"<uuid>\") (copy the uuid from "
+            "YOUR VISUALIZATIONS). Positional access silently repoints at the wrong dataset when the viz set changes."
+        )
+    return errors

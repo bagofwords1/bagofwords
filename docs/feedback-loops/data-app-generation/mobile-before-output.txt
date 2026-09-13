@@ -1,0 +1,13 @@
+[
+  {
+    "slug": "catalog",
+    "detailTop": 2230,
+    "pass": false
+  },
+  {
+    "slug": "reps",
+    "detailTop": 710,
+    "pass": false
+  }
+]
+Selecting a record on mobile must bring its detail into view
