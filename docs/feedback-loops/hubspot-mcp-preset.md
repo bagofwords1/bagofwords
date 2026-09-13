@@ -152,10 +152,35 @@ https://mcp.hubspot.com/oauth/authorize/user
 
 Points to check: PKCE `S256` (what HubSpot advertises), scopes space-delimited
 per RFC 6749 (the registry stores them comma-separated; `_normalize_scopes`
-converts), and **no `resource` parameter**. Fetching that URL returns HTTP 200
-and HubSpot's own OAuth UI (`__hsipltan = "oauth-ui"`), not a 400 — i.e. HubSpot
-accepts the endpoint, parameters and scopes as a well-formed authorize request.
-With a real HubSpot app's client_id this is the consent screen.
+converts), and **no `resource` parameter**.
+
+> **Do not try to validate this URL with curl.** An earlier version of this doc
+> claimed that fetching it returns HTTP 200 and HubSpot's OAuth UI
+> (`__hsipltan = "oauth-ui"`) "i.e. HubSpot accepts the endpoint, parameters and
+> scopes". That inference is wrong. `/oauth/authorize/user` serves a static SPA
+> shell and validates client-side: with a real client_id, a bogus one, an added
+> `scope`, or the canonical vs. a regional host, the response is **byte-identical**
+> (91583 bytes, HTTP 200). The same is true of `app.hubspot.com/oauth/authorize`.
+> A 200 here proves only that the host is reachable.
+>
+> To validate credentials server-side, use the **token** endpoint instead — it
+> discriminates (see below). To validate the authorize URL itself, a human has to
+> open it in a browser.
+
+A server-side credential check that does work, with no consent and no browser:
+
+```bash
+curl -s -X POST https://mcp.hubspot.com/oauth/v3/token \
+  -d "grant_type=client_credentials&client_id=$CID&client_secret=$SECRET"
+```
+
+- correct secret → `{"status":"BAD_SCOPES", ...}` — client auth passed
+- wrong secret   → `{"status":"BAD_CLIENT_SECRET", ...}`
+
+Adding valid-looking scopes then returns
+`USER_LEVEL_CLIENT_CREDENTIALS_NOT_SUPPORTED`: the `client_credentials` grant is
+**not** available for a HubSpot *MCP Connector* app, so there is no way to obtain
+a token without a human completing consent. Plan verification around that.
 
 ## Loop C — UI (Playwright)
 

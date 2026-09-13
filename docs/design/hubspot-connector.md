@@ -141,15 +141,38 @@ ceiling.
 
 ## Authentication
 
-Reuse the HubSpot app from the MCP preset work — same OAuth endpoints, already
-verified end to end:
+**Not the same OAuth endpoints as the MCP preset.** An earlier draft of this doc
+said "reuse the HubSpot app — same OAuth endpoints"; that is wrong. The MCP
+preset and this connector talk to different hosts, and therefore different OAuth
+endpoints:
 
-- authorize `https://mcp.hubspot.com/oauth/authorize/user`
-- token `https://mcp.hubspot.com/oauth/v3/token`, `client_secret_post`, PKCE S256
+| | MCP preset | This connector |
+|---|---|---|
+| authorize | `mcp.hubspot.com/oauth/authorize/user` | `app.hubspot.com/oauth/authorize` |
+| token | `mcp.hubspot.com/oauth/v3/token` | `api.hubapi.com/oauth/v1/token` |
+| resource | `mcp.hubspot.com` | `api.hubapi.com` |
+
+The right-hand column is confirmed from HubSpot's published OAuth v1 spec
+(`servers: [https://api.hubapi.com]`, `POST /oauth/v1/token`).
+
+Whether the **app** can be shared is still open, and matters more than the
+endpoints. The credential HubSpot issues for the MCP path comes from a distinct
+*MCP Connector* app type (its own section in the developer UI, and
+`client_credentials` on it returns `USER_LEVEL_CLIENT_CREDENTIALS_NOT_SUPPORTED`).
+A conventional public app may be required here instead. Two things to settle
+with a real token, in order:
+
+1. Introspect an MCP-issued token at `GET /oauth/v1/access-tokens/{token}`
+   (Oauth v1 spec). If it resolves — returning portal, app id and scopes — the
+   two surfaces share a token family and one sign-in could serve both. If it
+   401s, they are separate audiences and this connector needs its own OAuth leg,
+   meaning users sign in twice.
+2. If separate, decide whether that second sign-in is acceptable or whether the
+   connector should default to a private app token instead.
 
 A private-app **access token** variant is worth offering as the default for a
-system-scoped connection: it is a single pasted secret with no OAuth app to
-register, which is a much shorter path to a working connector.
+system-scoped connection regardless: a single pasted secret, no OAuth app to
+register, and it sidesteps the question entirely.
 
 `test_connection()` should call something cheap and universally available —
 `GET /crm/v3/properties/contacts?limit=1` — rather than a search, so it does not
