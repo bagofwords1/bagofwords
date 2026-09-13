@@ -144,6 +144,43 @@ def dataset(path):
                 "create_time": now.isoformat(),
             }
         ]
+    if path == "/api/network/fc/fabrics/fabric-sim/switches":
+        return [
+            {
+                "name": f"switch-{i}",
+                "fabric": {"name": "fabric-sim"},
+                "vendor": "SYNTHETIC",
+            }
+            for i in range(3)
+        ]
+    if path == "/api/network/fc/fabrics/fabric-sim/zones":
+        return [{"name": "zone-sim", "fabric": {"name": "fabric-sim"}}]
+    if path == "/api/network/fc/interfaces/fc-lif-1":
+        return {"uuid": "fc-lif-1", "name": "fcp-a", "enabled": True}
+    if path == "/api/cluster/sensors/node-1/5":
+        return {"node": {"uuid": "node-1"}, "index": 5, "name": "synthetic-temperature"}
+    if path == "/api/security/ssh":
+        return {"max_instances": 10}
+    if path == "/api/security/authentication/cluster/ad-proxy":
+        return {"svm": {"uuid": "svm-1", "name": "production"}}
+    if path == "/api/protocols/fpolicy/svm-1/connections/node-1/policy-sim/192.0.2.1":
+        return {
+            "state": "connected",
+            "node": {"uuid": "node-1"},
+            "svm": {"uuid": "svm-1"},
+        }
+    if path == "/api/protocols/nfs/services/svm-1/metrics":
+        return [
+            {
+                "v4": {
+                    "timestamp": (now - timedelta(minutes=i)).isoformat(),
+                    "duration": "PT15S",
+                    "status": "ok",
+                    "iops": {"total": 100 + i},
+                }
+            }
+            for i in range(1, 4)
+        ]
     if path.endswith("/metrics"):
         return [
             {
@@ -219,6 +256,21 @@ class Handler(BaseHTTPRequestHandler):
             )
         u = urlsplit(self.path)
         params = parse_qs(u.query)
+        if (
+            u.path
+            in {
+                "/api/security/ssh",
+                "/api/security/authentication/cluster/ad-proxy",
+                "/api/protocols/fpolicy/svm-1/connections/node-1/policy-sim/192.0.2.1",
+            }
+            and params
+        ):
+            return self.reply(400, {"error": {"code": "unsupported_control"}})
+        if (
+            u.path == "/api/protocols/nfs/services/svm-1/metrics"
+            and not {"timestamp", "interval"} <= params.keys()
+        ):
+            return self.reply(400, {"error": {"code": "missing_time_bounds"}})
         data = dataset(u.path)
         if data is None:
             return self.reply(

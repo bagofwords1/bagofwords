@@ -37,7 +37,9 @@ metrics = client.execute_query({
 
 Queries accept JSON strings or dicts and return pandas DataFrames. Scalar fields
 use dotted names; arrays remain structured. Use `get_schema` for an unfamiliar
-`diag_...` table and supply its exact parent names. No raw URL, headers, method,
+`diag_...` table and supply its exact parent names. Retrieval timestamps are UTC pandas datetime columns. Numeric parent identifiers
+are validated before HTTP while parent-only identity columns remain strings.
+No raw URL, headers, method,
 SQL or CLI escape hatch exists. Each call uses one explicitly scoped parent.
 
 Supported controls: `table`, `fields`, `filter`, `parent`, `lookback` or
@@ -108,6 +110,9 @@ Canonical parsed JSON SHA-256:
 
 The checked-in catalog is a reduced schema/description derivative of that vendor
 specification. Regenerate with `python3 tools/netapp/generate_catalog.py swagger.json`.
+Path-item and operation parameters are merged with operation-level overrides;
+generation and loading reject inconsistent parent/time contracts.
+Refresh schemas on connections indexed before a catalog correction.
 Review exclusions and field/parameter profiles before updating it; a new Swagger
 entry must not silently expand the runtime surface. MCP request code was inspected
 as reference; no MCP code or runtime dependency is included.

@@ -153,3 +153,48 @@ a historical capacity/configuration store. Raw counters require their definition
 and appropriately timed samples. CLI-only diagnostics, excluded operations and
 external switch/host evidence remain visible coverage gaps. The release state is
 **implemented and simulated-API verified; awaiting customer validation**.
+
+## PR review follow-up — catalog/executor contract
+
+Review of PR #1122 found six valid issues. The generator at the original
+`tools/netapp/generate_catalog.py:175` read operation parameters only, losing
+path-item parameters on 19 resources. The runtime at the original
+`netapp_ontap_client.py:378` could then send an unsubstituted path and attribute
+its failure to the appliance. The generator also discarded NFS's documented
+`timestamp` filter because response timestamps are nested under protocol versions.
+
+The additional regressions first produced **13 failures** against the reviewed
+code. Generator/loader guard tests were separately run with the original generator
+and client restored temporarily: **7 failures**, then restored to the fixed code.
+The permanent tests are `test_netapp_ontap_client.py` and
+`test_netapp_catalog_generator.py`; run both with `--noconftest` for the pure
+HTTP-boundary/contract loop. The same API/database commands above remain valid.
+
+The corrected generator resolves parameter references, merges path and operation
+parameters by `(in, name)` with operation overrides, and applies the result to
+parents, filters and controls. Generation and loading reject inconsistent parent
+or history contracts; execution independently refuses leftover braces before HTTP.
+NFS remains historical, with the documented time filter and nested timestamps,
+durations and status fields retained in results. All three transport controls are
+sent only when declared. Empty/blank cluster UUIDs fail explicitly; retrieval times
+have UTC datetime dtype, including empty and derived frames. Numeric parents are
+validated against both the path parameter and any corresponding numeric column
+before making a request; parent-only identity columns retain their existing string
+representation.
+
+Observed follow-up results: **65 unit/generator tests passed**, including request
+construction for all **465 REST-backed selectable tables** (464 profiles plus the
+constituent view), catalog-wide parent/time invariants, and both empty/populated
+retrieval timestamps. **12 API/database tests passed**. The expanded simulator
+verified **20/20 actual HTTP diagnostic queries**, adding FC fabric switches/zones,
+FC interface detail, NFS history, a numeric sensor identifier and all three
+control-free resources. The simulator rejects undeclared controls on those three
+resources and requires NFS time bounds. The standard NetApp integration check
+also passed. Catalog regeneration was checked for exact deterministic equality.
+
+These tests establish structural request correctness across the catalog and
+representative HTTP behavior. They still do not establish that all 466 tables
+return data on an actual appliance. Existing NetApp connections indexed before
+this fix should refresh their schemas to pick up the corrected parent metadata.
+The frontend was unchanged by this follow-up; the previously captured build/UI
+evidence remains applicable.

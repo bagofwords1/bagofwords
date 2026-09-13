@@ -170,14 +170,25 @@ def generate(spec):
         )
         if name in resources:
             raise ValueError("Table name collision: " + name)
+        # Swagger operation parameters override path-item parameters by (in, name).
+        merged = {}
+        for param in item.get("parameters", []) + op.get("parameters", []):
+            if "$ref" in param:
+                param = spec["parameters"][param["$ref"].split("/")[-1]]
+            merged[(param["in"], param["name"])] = param
+        parameters = list(merged.values())
         params = {}
         parents = []
-        for param in op.get("parameters", []):
-            if "$ref" in param:
-                param = spec.get("parameters", {}).get(param["$ref"].split("/")[-1], {})
+        parent_types = {}
+        for param in parameters:
             k = param.get("name", "")
             if param.get("in") == "path":
                 parents.append(k)
+                parent_types[k] = {
+                    a: param[a]
+                    for a in ("type", "format", "minimum", "maximum", "enum")
+                    if a in param
+                }
             if (
                 param.get("in") != "query"
                 or k in CONTROLS
@@ -186,9 +197,11 @@ def generate(spec):
                 or any(x in k for x in ["reset", "rediscover", "refresh"])
             ):
                 continue
-            # Filtering is restricted to documented response fields or interval.
+            # Keep documented time filters even when timestamps are nested in the response.
             if k in cols or k in {
                 "interval",
+                "timestamp",
+                "time",
                 "is_constituent",
                 "list_destinations_only",
             }:
@@ -207,21 +220,35 @@ def generate(spec):
         )
         if reason:
             continue
+        if set(re.findall(r"\{([^}]+)\}", path)) != set(parents):
+            raise ValueError(f"Unbound or extraneous path parameters: {path}")
+        history = path.endswith("/metrics")
+        time_fields = [
+            k
+            for k in cols
+            if k.rsplit(".", 1)[-1] in {"timestamp", "duration", "status"}
+        ]
+        if history and (
+            not {"timestamp", "time"}.intersection(params)
+            or "interval" not in params
+            or not any(k.rsplit(".", 1)[-1] == "timestamp" for k in cols)
+        ):
+            raise ValueError(f"Historical metrics lack a time contract: {path}")
         resources[name] = {
             "path": path,
             "collection": bool(record),
             "controls": [
-                p.get("name")
-                for p in op.get("parameters", [])
-                if p.get("name") in CONTROLS
+                p.get("name") for p in parameters if p.get("name") in CONTROLS
             ],
             "fields": cols,
             "filters": params,
             "parents": parents,
+            "parent_types": parent_types,
+            "time_fields": time_fields if history else [],
             "description": clean(op.get("summary") or op.get("description")).split(
                 "Related ONTAP commands"
             )[0],
-            "history": path.endswith("/metrics"),
+            "history": history,
             "curated": path in aliases,
         }
     return {

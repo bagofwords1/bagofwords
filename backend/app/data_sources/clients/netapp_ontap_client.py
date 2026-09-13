@@ -37,6 +37,17 @@ class OntapQueryError(ValueError):
 @lru_cache(maxsize=1)
 def _catalog():
     catalog = json.loads(Path(__file__).with_name("netapp").joinpath("catalog.json").read_text())
+    for name, resource in catalog["resources"].items():
+        placeholders = re.findall(r"\{([^}]+)\}", resource["path"])
+        if set(placeholders) != set(resource["parents"]) or len(resource["parents"]) != len(set(resource["parents"])):
+            raise OntapQueryError("InvalidCatalog", f"Invalid parent contract for {name}.")
+        bound = re.sub(r"\{[^}]+\}", "bound", resource["path"])
+        if "{" in bound or "}" in bound:
+            raise OntapQueryError("InvalidCatalog", f"Malformed path template for {name}.")
+        if resource["history"] and (
+            not {"timestamp", "time"}.intersection(resource["filters"]) or "interval" not in resource["filters"]
+        ):
+            raise OntapQueryError("InvalidCatalog", f"Invalid historical time contract for {name}.")
     catalog["resources"]["volume_constituents"] = {
         **catalog["resources"]["volumes"],
         "description": "FlexGroup constituent volumes; physical layout diagnostics, excluded from logical volume totals.",
@@ -176,6 +187,9 @@ Use coverage_report() for documented exclusions and observed availability; this 
         meta = {
             "endpoint": "/api" + r["path"],
             "parents": r["parents"],
+            "parent_types": r["parent_types"],
+            "controls": r["controls"],
+            "time_fields": r["time_fields"],
             "filters": r["filters"],
             "availability": self._availability.get(table_name, "unverified"),
             "contract": "9.14.1",
@@ -244,7 +258,10 @@ Use coverage_report() for documented exclusions and observed availability; this 
                 "UnsupportedVersion",
                 "This connector requires the ONTAP 9.14 release family; verify the appliance version.",
             )
-        self._cluster = str(frame.iloc[0].get("uuid", self._cluster))
+        identity = frame.iloc[0].get("uuid")
+        if not isinstance(identity, str) or not identity.strip():
+            raise OntapQueryError("InvalidResponse", "Cluster identity is absent.")
+        self._cluster = identity
         return {
             "success": True,
             "message": f"Connected to ONTAP {version if isinstance(version, str) else '9.14.1'}. Diagnostic coverage is verified per query; full customer validation remains required.",
@@ -384,7 +401,24 @@ Use coverage_report() for documented exclusions and observed availability; this 
                 or any(c in v for c in "\\\r\n\x00")
             ):
                 raise OntapQueryError("InvalidQuery", "Parent identifiers must be nonempty path segments.")
+            contract = resource["parent_types"].get(k, {})
+            value = v
+            field_contract = resource["fields"].get(k, {})
+            if contract.get("type") == "integer" or field_contract.get("type") == "integer":
+                if not re.fullmatch(r"[+-]?[0-9]{1,20}", v):
+                    raise OntapQueryError("InvalidQuery", f"Parent {k} must be an integer identifier.")
+                value = int(v)
+                bits = 32 if contract.get("format", field_contract.get("format")) == "int32" else 64
+                lower = int(contract.get("minimum", -(2 ** (bits - 1))))
+                upper = int(contract.get("maximum", 2 ** (bits - 1) - 1))
+                if not lower <= value <= upper:
+                    raise OntapQueryError("InvalidQuery", f"Parent {k} is outside its declared range.")
+            enum_value = value if contract.get("type") == "integer" else v
+            if contract.get("enum") and enum_value not in contract["enum"]:
+                raise OntapQueryError("InvalidQuery", f"Parent {k} is not a supported identifier.")
             path = path.replace("{" + k + "}", quote(v, safe=""))
+        if "{" in path or "}" in path:
+            raise OntapQueryError("InvalidQuery", "Unresolved resource path; no request was sent.")
         # Omitted fields means inexpensive identity/default fields, never fields=*.
         default = [
             k
@@ -392,17 +426,11 @@ Use coverage_report() for documented exclusions and observed availability; this 
             if k in resource["fields"]
         ]
         if resource["history"]:
-            default += [k for k in resource["fields"] if k.startswith(("iops.", "latency.", "throughput."))]
+            default += [k for k in resource["fields"] if {"iops", "latency", "throughput"}.intersection(k.split("."))]
         fields = self._expand(
             spec["fields"] if "fields" in spec else (default or list(resource["fields"])[:12]), resource
         )
-        fields = list(
-            dict.fromkeys(
-                fields
-                + [k for k in _KEYS if k in resource["fields"]]
-                + [k for k in ["timestamp", "duration", "status"] if resource["history"] and k in resource["fields"]]
-            )
-        )
+        fields = list(dict.fromkeys(fields + [k for k in _KEYS if k in resource["fields"]] + resource["time_fields"]))
         filters = spec.get("filter", {})
         if not isinstance(filters, dict):
             raise OntapQueryError("InvalidQuery", "filter must be an object.")
@@ -452,10 +480,13 @@ Use coverage_report() for documented exclusions and observed availability; this 
         if set(time_params) & set(params):
             raise OntapQueryError("InvalidQuery", "Time filters cannot override time controls.")
         params.update(time_params)
-        params["fields"] = ",".join(fields)
+        if "fields" in resource["controls"]:
+            params["fields"] = ",".join(fields)
         if resource["collection"]:
-            params["max_records"] = min(500, limit)
-            params["return_timeout"] = 15
+            if "max_records" in resource["controls"]:
+                params["max_records"] = min(500, limit)
+            if "return_timeout" in resource["controls"]:
+                params["return_timeout"] = 15
         query_id = str(uuid.uuid4())
         with self._lock:
             try:
@@ -500,6 +531,7 @@ Use coverage_report() for documented exclusions and observed availability; this 
                     frame[k] = pd.array(frame[k], dtype="string")
             except (ValueError, TypeError, OverflowError):
                 raise OntapQueryError("InvalidResponse", f"Invalid value type for {k}.") from None
+        frame["_bow_retrieved_at"] = pd.to_datetime(frame["_bow_retrieved_at"], utc=True)
         return frame
 
     @staticmethod
@@ -560,9 +592,11 @@ Use coverage_report() for documented exclusions and observed availability; this 
                 )
                 if len(rows) > spec.get("limit", self.max_rows):
                     raise OntapQueryError("ResultLimitExceeded", "Narrow the volume membership query.")
-        return pd.DataFrame(
+        frame = pd.DataFrame(
             rows, columns=list(dict.fromkeys(["volume.uuid", "aggregate.uuid"] + selected + list(_META)))
         )
+        frame["_bow_retrieved_at"] = pd.to_datetime(frame["_bow_retrieved_at"], utc=True)
+        return frame
 
     def _pages(self, path, params, limit, deadline, collection):
         current = self.url + path + "?" + urlencode(params)

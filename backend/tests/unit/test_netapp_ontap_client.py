@@ -340,3 +340,157 @@ def test_malformed_query_values_are_typed_errors(client, http, query):
     with pytest.raises(OntapQueryError, match="InvalidQuery"):
         client.execute_query(query)
     assert not http[1]
+
+
+def test_catalog_parents_bind_every_placeholder(client):
+    import re
+
+    for table in client.get_tables():
+        meta = (table.metadata_json or {}).get("netapp")
+        if meta:
+            assert set(re.findall(r"\{([^}]+)\}", meta["endpoint"])) == set(meta["parents"]), table.name
+
+
+def test_all_history_tables_have_time_filters(client):
+    for table in client.get_tables():
+        meta = (table.metadata_json or {}).get("netapp")
+        if meta and meta["history"]:
+            assert {"timestamp", "time"} & meta["filters"].keys(), table.name
+
+
+def test_nfs_history_retains_nested_quality_and_time(client, http):
+    http[0].append(
+        (
+            200,
+            {
+                "records": [
+                    {
+                        "v4": {
+                            "timestamp": "2026-01-01T00:00:00Z",
+                            "duration": "PT15S",
+                            "status": "ok",
+                            "iops": {"total": 8},
+                        }
+                    }
+                ]
+            },
+        )
+    )
+    frame = client.execute_query(
+        {
+            "table": "diag_protocols_nfs_services_svm_uuid_metrics",
+            "parent": {"svm.uuid": "svm-a"},
+            "lookback": "1h",
+            "fields": ["v4.iops.total"],
+        }
+    )
+    assert {"v4.timestamp", "v4.duration", "v4.status"} <= set(frame.columns)
+    assert "timestamp" in parse_qs(urlsplit(http[1][0].url).query)
+    assert frame.iloc[0]["v4.iops.total"] == 8
+
+
+@pytest.mark.parametrize("table", ["diag_security_ssh", "diag_security_authentication_cluster_ad_proxy"])
+def test_queries_only_send_declared_controls(client, http, table):
+    http[0].append((200, {"records": []}))
+    client.execute_query({"table": table})
+    assert not parse_qs(urlsplit(http[1][0].url).query)
+
+
+@pytest.mark.parametrize("identity", [None, "", "   "])
+def test_missing_cluster_identity_is_rejected(client, http, identity):
+    http[0].append((200, {"uuid": identity, "version": {"generation": 9, "major": 14, "minor": 1}}))
+    with pytest.raises(OntapQueryError) as error:
+        client.test_connection()
+    assert error.value.code == "InvalidResponse"
+
+
+@pytest.mark.parametrize(
+    "table,records",
+    [
+        ("volumes", []),
+        ("volumes", [{"uuid": "a"}]),
+        ("volume_aggregates", []),
+        ("volume_aggregates", [{"uuid": "a", "aggregates": [{"uuid": "b"}]}]),
+    ],
+)
+def test_retrieval_timestamp_supports_datetime_operations(client, http, table, records):
+    http[0].append((200, {"records": records}))
+    frame = client.execute_query({"table": table})
+    assert str(frame["_bow_retrieved_at"].dtype) == "datetime64[ns, UTC]"
+    assert len(frame["_bow_retrieved_at"].dt.floor("h")) == len(frame)
+
+
+def test_invalid_integer_parent_rejected_before_http(client, http):
+    with pytest.raises(OntapQueryError) as error:
+        client.execute_query(
+            {"table": "diag_cluster_sensors_node_uuid_index", "parent": {"node.uuid": "n", "index": "not-a-number"}}
+        )
+    assert error.value.code == "InvalidQuery"
+    assert not http[1]
+
+
+def test_every_advertised_rest_table_can_construct_a_bounded_request(client, http):
+    from urllib.parse import quote
+
+    for table in client.get_tables():
+        meta = (table.metadata_json or {}).get("netapp")
+        if not meta:
+            continue
+        parents = {}
+        for key, contract in meta["parent_types"].items():
+            value = (contract.get("enum") or [None])[0]
+            if value is None:
+                value = (
+                    max(0, int(contract.get("minimum", 0)))
+                    if contract["type"] == "integer" or any(c.name == key and c.dtype == "int" for c in table.columns)
+                    else "synthetic-parent"
+                )
+            parents[key] = str(value)
+        query = {"table": table.name, "parent": parents}
+        if meta["history"]:
+            query["lookback"] = "1h"
+        http[0].append((200, {"records": []} if meta["collection"] else {}))
+        frame = client.execute_query(query)
+        request = http[1][-1]
+        expected = meta["endpoint"]
+        for key, value in parents.items():
+            expected = expected.replace("{" + key + "}", quote(value, safe=""))
+        assert urlsplit(request.url).path == expected, table.name
+        assert set(parse_qs(urlsplit(request.url).query)) <= set(meta["controls"]) | set(meta["filters"]), table.name
+        assert str(frame["_bow_retrieved_at"].dtype) == "datetime64[ns, UTC]"
+
+
+@pytest.mark.parametrize("change", ["missing_parent", "extra_parent", "broken_template", "missing_time_filter"])
+def test_malformed_catalog_is_rejected_before_any_http(client, http, monkeypatch, change):
+    from pathlib import Path
+
+    from app.data_sources.clients.netapp_ontap_client import _catalog
+
+    original = Path.read_text
+    catalog = json.loads(original(Path(__file__).parents[2] / "app/data_sources/clients/netapp/catalog.json"))
+    resource = catalog["resources"]["volume_metrics"]
+    if change == "missing_parent":
+        resource["parents"] = []
+    elif change == "extra_parent":
+        resource["parents"].append("extra")
+    elif change == "broken_template":
+        resource["path"] += "{"
+    else:
+        resource["filters"].pop("timestamp")
+
+    def read(path, *args, **kwargs):
+        return (
+            json.dumps(catalog)
+            if path.name == "catalog.json" and path.parent.name == "netapp"
+            else original(path, *args, **kwargs)
+        )
+
+    monkeypatch.setattr(Path, "read_text", read)
+    _catalog.cache_clear()
+    try:
+        with pytest.raises(OntapQueryError) as error:
+            client.get_tables()
+        assert error.value.code == "InvalidCatalog"
+        assert not http[1]
+    finally:
+        _catalog.cache_clear()

@@ -1,14 +1,129 @@
 [
- {"table":"volumes","fields":["uuid","name","space.size","space.used"],"limit":100},
- {"table":"volume_aggregates"},
- {"table":"nodes"},
- {"table":"svms"},
- {"table":"luns","fields":["uuid","name","serial_number","location.volume.uuid"]},
- {"table":"lun_maps"},
- {"table":"ems_events","lookback":"24h"},
- {"table":"volume_metrics","parent":{"volume.uuid":"volume-1"},"lookback":"24h"},
- {"table":"snapmirror_relationships","fields":["uuid","healthy","state","unhealthy_reason"]},
- {"table":"snapshots","parent":{"volume.uuid":"volume-1"}},
- {"table":"diag_protocols_nfs_export_policies_policy_id_rules","parent":{"policy.id":"17"},"fields":["index","clients"]},
- {"table":"diag_cluster_counter_tables_counter_table_name_rows","parent":{"counter_table.name":"synthetic_volume"}}
+  {
+    "table": "volumes",
+    "fields": [
+      "uuid",
+      "name",
+      "space.size",
+      "space.used"
+    ],
+    "limit": 100
+  },
+  {
+    "table": "volume_aggregates"
+  },
+  {
+    "table": "nodes"
+  },
+  {
+    "table": "svms"
+  },
+  {
+    "table": "luns",
+    "fields": [
+      "uuid",
+      "name",
+      "serial_number",
+      "location.volume.uuid"
+    ]
+  },
+  {
+    "table": "lun_maps"
+  },
+  {
+    "table": "ems_events",
+    "lookback": "24h"
+  },
+  {
+    "table": "volume_metrics",
+    "parent": {
+      "volume.uuid": "volume-1"
+    },
+    "lookback": "24h"
+  },
+  {
+    "table": "snapmirror_relationships",
+    "fields": [
+      "uuid",
+      "healthy",
+      "state",
+      "unhealthy_reason"
+    ]
+  },
+  {
+    "table": "snapshots",
+    "parent": {
+      "volume.uuid": "volume-1"
+    }
+  },
+  {
+    "table": "diag_protocols_nfs_export_policies_policy_id_rules",
+    "parent": {
+      "policy.id": "17"
+    },
+    "fields": [
+      "index",
+      "clients"
+    ]
+  },
+  {
+    "table": "diag_cluster_counter_tables_counter_table_name_rows",
+    "parent": {
+      "counter_table.name": "synthetic_volume"
+    }
+  },
+  {
+    "table": "diag_network_fc_fabrics_fabric_name_switches",
+    "parent": {
+      "fabric.name": "fabric-sim"
+    }
+  },
+  {
+    "table": "diag_network_fc_fabrics_fabric_name_zones",
+    "parent": {
+      "fabric.name": "fabric-sim"
+    }
+  },
+  {
+    "table": "diag_network_fc_interfaces_uuid",
+    "parent": {
+      "uuid": "fc-lif-1"
+    }
+  },
+  {
+    "table": "diag_protocols_nfs_services_svm_uuid_metrics",
+    "parent": {
+      "svm.uuid": "svm-1"
+    },
+    "lookback": "1h",
+    "fields": [
+      "v4.iops.total"
+    ]
+  },
+  {
+    "table": "diag_cluster_sensors_node_uuid_index",
+    "parent": {
+      "node.uuid": "node-1",
+      "index": "5"
+    },
+    "fields": [
+      "index",
+      "name"
+    ]
+  },
+  {
+    "table": "diag_security_ssh"
+  },
+  {
+    "table": "diag_security_authentication_cluster_ad_proxy"
+  },
+  {
+    "table": "diag_protocols_fpolicy_svm_uuid_connections_node_uuid_policy_name_server",
+    "parent": {
+      "svm.uuid": "svm-1",
+      "node.uuid": "node-1",
+      "policy.name": "policy-sim",
+      "server": "192.0.2.1"
+    }
+  }
 ]
