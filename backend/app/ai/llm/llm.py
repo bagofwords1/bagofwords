@@ -495,8 +495,9 @@ class LLM:
             )
         return OpenAi(
             # The SDK requires a non-empty api_key even though the auth flow
-            # overwrites the Authorization header on every request.
-            api_key="vertex-oauth",
+            # overwrites the Authorization header on every request. This is a
+            # non-secret placeholder (see vertex_auth.OPENAI_PLACEHOLDER_API_KEY).
+            api_key=vertex_auth.OPENAI_PLACEHOLDER_API_KEY,
             base_url=vertex_auth.openai_base_url(project_id, vertex_auth.MAAS_LOCATION),
             temperature=configured_temperature,
             default_headers=custom_headers,

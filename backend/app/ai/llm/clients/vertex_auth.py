@@ -65,6 +65,13 @@ _SPECIAL_HOSTS = {
 # that cannot succeed.
 MAAS_LOCATION = "global"
 
+# The OpenAI-compatible client requires a non-empty ``api_key`` at
+# construction time, but Vertex MaaS auth overwrites the Authorization header
+# on every request (see ``GoogleBearerAuth``). This placeholder therefore is
+# never sent as a credential and carries no secret value — it exists solely to
+# satisfy the SDK's non-empty check.
+OPENAI_PLACEHOLDER_API_KEY = "vertex-oauth"
+
 _CACHE: dict[str, Any] = {}
 _CACHE_LOCK = threading.Lock()
 
