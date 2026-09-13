@@ -149,5 +149,33 @@ onMounted(() => {
      balham's own greys once --ag-border-color follows the theme. */
   --ag-row-border-color: var(--ag-border-color);
   --ag-header-column-separator-color: var(--ag-border-color);
+  /* The wrappers declare these as var(--ag-header-background-color), but that
+     resolves on the WRAPPER — i.e. to the flat card background, not to the
+     tinted header below. Re-declare them here so they resolve against this
+     element's header color and hovering a header cell doesn't flash it flat. */
+  --ag-header-cell-hover-background-color: var(--ag-header-background-color);
+  --ag-header-cell-moving-background-color: var(--ag-header-background-color);
+}
+
+/* Both wrappers set --ag-header-background-color to the same token as the body
+   (cardBackground), so once the tokens actually reached the grid the header row
+   collapsed onto the rows and the only separation left was the border under
+   .ag-header. Tint it toward the text color instead of picking a literal: that
+   darkens the header in light mode and lifts it in dark mode while staying in
+   the card's own hue family, so it also holds for the named report themes
+   (retro, hacker, …) without giving each one a header token of its own.
+
+   Gated on @supports because a custom property accepts any token stream at
+   parse time — without the gate, a browser that can't do color-mix would take
+   this declaration and then drop the property at computed-value time, leaving
+   the header with no background at all rather than the plain inherit above. */
+@supports (color: color-mix(in srgb, red 6%, blue)) {
+  .ag-grid-themed .ag-grid {
+    --ag-header-background-color: color-mix(
+      in srgb,
+      var(--ag-foreground-color) 6%,
+      var(--ag-background-color)
+    );
+  }
 }
 </style>
