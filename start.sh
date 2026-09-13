@@ -3,12 +3,32 @@
 # Set environment variables
 export ENVIRONMENT=production
 
-# Generate BOW_ENCRYPTION_KEY if not provided (must happen BEFORE workers fork)
+# Resolve BOW_ENCRYPTION_KEY (must happen BEFORE workers fork so every worker
+# shares the same key). Resolution order:
+#   1. BOW_ENCRYPTION_KEY env var (explicit key management: k8s Secrets, vaults)
+#   2. Keyfile at BOW_ENCRYPTION_KEY_FILE (default /app/backend/data/encryption.key,
+#      a docker-compose volume) — also works with Docker secrets via
+#      BOW_ENCRYPTION_KEY_FILE=/run/secrets/bow_encryption_key
+#   3. Generate a key and persist it to the keyfile so it survives restarts
+KEY_FILE="${BOW_ENCRYPTION_KEY_FILE:-/app/backend/data/encryption.key}"
 if [ -z "$BOW_ENCRYPTION_KEY" ]; then
-    export BOW_ENCRYPTION_KEY=$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")
-    echo "⚠️  WARNING: No BOW_ENCRYPTION_KEY provided. Generated a temporary key."
-    echo "⚠️  Users will be logged out if the container restarts!"
-    echo "⚠️  For production, set: -e BOW_ENCRYPTION_KEY=<your-persistent-key>"
+    # -r guards against a non-empty but unreadable keyfile: without it, cat
+    # fails and an empty key would be exported while claiming success.
+    if [ -s "$KEY_FILE" ] && [ -r "$KEY_FILE" ] && KEY_FROM_FILE="$(cat "$KEY_FILE")" && [ -n "$KEY_FROM_FILE" ]; then
+        export BOW_ENCRYPTION_KEY="$KEY_FROM_FILE"
+        echo "Loaded BOW_ENCRYPTION_KEY from $KEY_FILE"
+    else
+        export BOW_ENCRYPTION_KEY="$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")"
+        if mkdir -p "$(dirname "$KEY_FILE")" 2>/dev/null \
+           && (umask 077 && printf '%s' "$BOW_ENCRYPTION_KEY" > "$KEY_FILE") 2>/dev/null; then
+            echo "Generated a new BOW_ENCRYPTION_KEY and saved it to $KEY_FILE."
+            echo "It will be reused on restarts. Back this file up — losing it makes stored credentials undecryptable."
+        else
+            echo "⚠️  WARNING: No BOW_ENCRYPTION_KEY provided and $KEY_FILE is not writable."
+            echo "⚠️  Generated a TEMPORARY key: stored credentials become undecryptable after a restart!"
+            echo "⚠️  Mount a volume at $(dirname "$KEY_FILE") or set: -e BOW_ENCRYPTION_KEY=<your-persistent-key>"
+        fi
+    fi
 fi
 
 # =============================================================================
