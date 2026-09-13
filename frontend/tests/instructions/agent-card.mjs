@@ -34,8 +34,9 @@ try {
  if(process.env.BEFORE==='1') {await page.screenshot({path:out+'before.png'});console.log('BASELINE: management-style connection dialog.');}
  else {
   await expect(dialog.getByText('Training',{exact:true})).toBeVisible();
-  const instructions=dialog.getByText('12 instructions',{exact:true});await expect(instructions).toBeVisible();
-  expect((await instructions.boundingBox()).y).toBeLessThan((await dialog.getByText('Connections',{exact:true}).boundingBox()).y);
+  const description=dialog.getByTestId('agent-card-description');await expect(description).toHaveText(agent.description);
+  expect((await description.boundingBox()).y).toBeLessThan((await dialog.getByText('Connections',{exact:true}).boundingBox()).y);
+  await expect(dialog.getByText('12 instructions',{exact:true})).toHaveCount(0);
   await expect(dialog.getByText('1,234 tables',{exact:true})).toBeVisible();await expect(dialog.getByText('100 boards',{exact:true})).toBeVisible();
   await expect(dialog.getByText('Signed in',{exact:true})).toHaveCount(2);await expect(dialog.locator('time')).toHaveCount(0);
   await expect(dialog.getByText(/Discovered|Link connection|Show logs/)).toHaveCount(0);
@@ -43,7 +44,7 @@ try {
   await dialog.getByRole('button',{name:'Sign in',exact:true}).click();await expect.poll(()=>calls.length).toBe(1);expect(calls[0]).toContain('/monday/');await expect(dialog.locator('button[aria-busy="true"]')).toHaveCount(1);await page.screenshot({path:out+'loading.png'});release();
   await load();await page.evaluate(()=>localStorage.setItem('bow.locale','he'));await page.goto('http://localhost:3100/users/agent-card-evidence');await page.getByRole('button',{name:'התחבר',exact:true}).click();await expect(dialog.getByText('Power BI',{exact:true})).toBeVisible();await page.waitForTimeout(350);await page.screenshot({path:out+'he.png'});
   await page.setViewportSize({width:390,height:844});await page.waitForTimeout(350);await page.screenshot({path:out+'mobile.png'});expect(await dialog.evaluate(el=>el.scrollWidth<=window.innerWidth)).toBe(true);expect(errors).toEqual([]);
-  console.log('PASS: stage, description, instructions above connections, formatted counts, no fabricated sign-in dates, targeted sign-in, Hebrew and mobile.');
+  console.log('PASS: stage, description above connections, no instruction count, formatted counts, no fabricated sign-in dates, targeted sign-in, Hebrew and mobile.');
  }
  await page.context().close();
 } catch(e) {await page?.screenshot({path:out+'failure.png'});throw e;} finally {await browser?.close();unlinkSync(preview);}

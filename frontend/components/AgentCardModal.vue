@@ -12,16 +12,10 @@
                 {{ $t(`agentsPage.stage.${stage}`) }}
               </span>
             </div>
-            <p v-if="agent?.description" class="mt-1.5 text-xs leading-[18px] text-gray-500 dark:text-gray-400 whitespace-pre-wrap break-words">{{ agent.description }}</p>
           </div>
           <button type="button" :aria-label="$t('common.close')" class="-me-1 -mt-1 rounded-md p-1.5 text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800" @click="open = false"><UIcon name="heroicons-x-mark" class="h-4 w-4" /></button>
         </div>
-        <div class="mt-3 flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
-          <UIcon name="heroicons-document-text" class="h-4 w-4 text-gray-400" />
-          <Spinner v-if="instructionCount == null && instructionsLoading" class="h-3 w-3" />
-          <span v-else-if="instructionCount == null">— {{ $t('agentsPage.instructions') }}</span>
-          <span v-else>{{ $t('agentsPage.countInstructions', { n: formatNumber(instructionCount) }, instructionCount) }}</span>
-        </div>
+        <p v-if="agent?.description" class="mt-4 mb-1 text-[13px] leading-5 text-gray-600 dark:text-gray-300 whitespace-pre-wrap break-words" data-testid="agent-card-description">{{ agent.description }}</p>
       </header>
 
       <section class="min-h-0 overflow-y-auto px-5 pb-4" :aria-label="$t('data.connectionsTitle')">
