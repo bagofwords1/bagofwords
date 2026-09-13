@@ -35,9 +35,22 @@ class Google(LLMClient):
     MIN_THINKING_BUDGET = 128
 
     def __init__(self, api_key: str | None = None, temperature: float | None = None,
-                 default_headers: dict | None = None):
+                 default_headers: dict | None = None, vertex: dict | None = None):
         super().__init__()
-        client_kwargs: dict = {"api_key": api_key}
+        # ``vertex`` routes Gemini through Vertex AI instead of the Gemini
+        # Developer API: {"project", "location", "credentials"}. google-genai
+        # serves both from one client, so everything below is shared — only
+        # the constructor and the accepted model ids differ (the newer ids,
+        # e.g. gemini-3.6-flash, exist only on the global endpoint).
+        if vertex:
+            client_kwargs: dict = {
+                "vertexai": True,
+                "project": vertex["project"],
+                "location": vertex.get("location") or "global",
+                "credentials": vertex.get("credentials"),
+            }
+        else:
+            client_kwargs = {"api_key": api_key}
         if default_headers:
             client_kwargs["http_options"] = types.HttpOptions(headers=default_headers)
         self.client = genai.Client(**client_kwargs)

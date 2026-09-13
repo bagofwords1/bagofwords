@@ -134,6 +134,9 @@ class ConnectionDetailSchema(BaseModel):
     agent_count: int = 0
     agent_names: List[str] = []  # Names of linked agents (for delete confirmation)
     has_credentials: bool = False  # Whether system credentials are set
+    management_auth: str = "system"  # system | user, independent of query identity
+    last_connection_status: Optional[str] = None
+    last_connection_checked_at: Optional[str] = None
     # Non-secret credential fields, safe to send back so the edit form can
     # pre-fill them (OAuth endpoints, client_id, scopes, api_key header). Secrets
     # (client_secret, token, api_key, password) are NEVER included.
@@ -235,4 +238,3 @@ class ConnectionIndexingSchema(ConnectionIndexingProgress):
     connection_id: str
     created_at: Optional[str] = None
     updated_at: Optional[str] = None
-

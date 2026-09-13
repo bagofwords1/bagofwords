@@ -1421,25 +1421,68 @@ class InstructionContextBuilder:
             usage_count=usage_count,
         )
     
-    async def _get_user_inaccessible_table_ids(self) -> Set[str]:
-        """Return datasource_table IDs the current user explicitly cannot access.
+    async def _get_user_inaccessible_table_ids(self, candidate_ids: Set[str]) -> Set[str]:
+        """Of `candidate_ids`, the datasource_table IDs this user may NOT see.
 
-        Only applies when user_data_source_tables rows exist (i.e. the connection
-        uses auth_policy='user_required' and an overlay sync has run).  If there
-        are no overlay rows for the user, returns an empty set (= no filtering).
+        An ALLOW-list, evaluated per connection. This used to be a deny-list —
+        it collected only the rows a per-user overlay had explicitly marked
+        `is_accessible=False`, so a table the user had no overlay row for at
+        all counted as accessible. On a delegated connection that is precisely
+        the table they cannot reach: one user's Power BI models are absent from
+        another user's overlay rather than present-and-denied. Instructions
+        written against them therefore leaked into the other user's prompt.
+
+        Scoped through DataSourceService._resolve_catalog_scope, the same
+        predicate the tables selector and the schema context use, so an
+        instruction can only ride on a table the agent itself would show.
+        Bounded by the tables actually referenced, so it costs one query per
+        data source those references span (typically one).
         """
-        if not self.current_user:
+        if not self.current_user or not candidate_ids:
             return set()
 
-        result = await self.db.execute(
-            select(UserDataSourceTable.data_source_table_id)
-            .where(
-                UserDataSourceTable.user_id == str(self.current_user.id),
-                UserDataSourceTable.is_accessible == False,
-                UserDataSourceTable.data_source_table_id.isnot(None),
-            )
-        )
-        return {row[0] for row in result.all()}
+        from app.models.datasource_table import DataSourceTable
+        from app.models.data_source import DataSource
+        from app.services.data_source_service import DataSourceService
+        from sqlalchemy.orm import selectinload
+
+        ids = list(candidate_ids)
+        rows = (await self.db.execute(
+            select(DataSourceTable.id, DataSourceTable.datasource_id)
+            .where(DataSourceTable.id.in_(ids))
+        )).all()
+        by_ds: Dict[str, Set[str]] = {}
+        for tid, ds_id in rows:
+            by_ds.setdefault(str(ds_id), set()).add(str(tid))
+
+        # A reference whose table no longer exists is NOT treated as
+        # inaccessible. "Deleted" is not a per-user access fact, and counting it
+        # as one would newly hide instructions whose only reference happens to
+        # point at a pruned table — a behaviour change unrelated to the leak
+        # this closes. Unknown ids simply drop out of the calculation, exactly
+        # as they did under the deny-list.
+        inaccessible: Set[str] = set()
+
+        svc = DataSourceService()
+        for ds_id, table_ids in by_ds.items():
+            ds = (await self.db.execute(
+                select(DataSource)
+                .options(selectinload(DataSource.connections))
+                .where(DataSource.id == ds_id)
+            )).scalar_one_or_none()
+            if ds is None:
+                inaccessible |= table_ids
+                continue
+            scope = await svc._resolve_catalog_scope(self.db, ds, self.current_user)
+            visible = {
+                str(r) for r in (await self.db.execute(
+                    scope(select(DataSourceTable.id).where(
+                        DataSourceTable.id.in_(list(table_ids))
+                    ))
+                )).scalars().all()
+            }
+            inaccessible |= (table_ids - visible)
+        return inaccessible
 
     async def _filter_instructions_by_table_accessibility(
         self,
@@ -1453,8 +1496,7 @@ class InstructionContextBuilder:
         - At least one referenced table accessible → keep
         - No current_user → keep all (system/admin context)
         """
-        inaccessible = await self._get_user_inaccessible_table_ids()
-        if not inaccessible:
+        if not self.current_user:
             return instructions
 
         # Batch-load table references for all candidate instructions
@@ -1473,7 +1515,15 @@ class InstructionContextBuilder:
         # Build map: instruction_id -> set of referenced table IDs
         refs_by_instruction: Dict[str, Set[str]] = {}
         for inst_id, table_id in ref_result.all():
-            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+            refs_by_instruction.setdefault(inst_id, set()).add(str(table_id))
+
+        # Evaluate access over exactly the tables referenced. The allow-list
+        # needs the candidates up front, so this runs AFTER the references are
+        # loaded rather than before.
+        candidates = {t for refs in refs_by_instruction.values() for t in refs}
+        inaccessible = await self._get_user_inaccessible_table_ids(candidates)
+        if not inaccessible:
+            return instructions
 
         filtered = []
         for inst in instructions:
@@ -1500,8 +1550,7 @@ class InstructionContextBuilder:
 
         Used in build-based loading where we have InstructionItem (not ORM Instruction).
         """
-        inaccessible = await self._get_user_inaccessible_table_ids()
-        if not inaccessible:
+        if not self.current_user:
             return items
 
         item_ids = [item.id for item in items]
@@ -1518,7 +1567,14 @@ class InstructionContextBuilder:
 
         refs_by_instruction: Dict[str, Set[str]] = {}
         for inst_id, table_id in ref_result.all():
-            refs_by_instruction.setdefault(inst_id, set()).add(table_id)
+            refs_by_instruction.setdefault(inst_id, set()).add(str(table_id))
+
+        # Allow-list over exactly the referenced tables (see
+        # _get_user_inaccessible_table_ids).
+        candidates = {t for refs in refs_by_instruction.values() for t in refs}
+        inaccessible = await self._get_user_inaccessible_table_ids(candidates)
+        if not inaccessible:
+            return items
 
         filtered = []
         for item in items:

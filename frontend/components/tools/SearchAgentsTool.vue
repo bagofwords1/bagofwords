@@ -27,7 +27,7 @@
               :key="a.id"
               :type="a.type"
               :connector-key="a.connector_key"
-              :icon="a.icon"
+              :icon-token="a.icon_token" :icon="a.icon"
               class="w-3.5 h-3.5 flex-shrink-0"
             />
             <span v-if="agents.length > 8" class="ms-0.5 text-[10px] text-gray-400 flex-shrink-0">+{{ agents.length - 8 }}</span>
@@ -48,7 +48,7 @@
             <DataSourceIcon
               :type="a.type"
               :connector-key="a.connector_key"
-              :icon="a.icon"
+              :icon-token="a.icon_token" :icon="a.icon"
               class="w-3.5 h-3.5 me-1.5 flex-shrink-0"
             />
             <span class="font-medium text-gray-700 dark:text-gray-300 truncate">{{ a.name }}</span>

@@ -6,6 +6,7 @@ authorization-code flow, and the resulting access token is what this client
 uses to read files. No service-account / domain-wide delegation in v1.
 """
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, discovery_items
 
 import io
 import json
@@ -156,7 +157,7 @@ class GoogleDriveClient(DataSourceClient):
 
     def _walk(self, folder_id: str, prefix: str = "") -> List[dict]:
         results: List[dict] = []
-        for entry in self._list_in_folder(folder_id):
+        for entry in discovery_items(self._list_in_folder(folder_id), 'listing_files', label=lambda entry: entry.get('name')):
             mime = entry.get("mimeType", "")
             name = entry.get("name", "")
             path = f"{prefix}/{name}" if prefix else name
@@ -386,10 +387,11 @@ class GoogleDriveClient(DataSourceClient):
         except Exception as e:
             return {"success": False, "message": str(e)}
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         files = self.list_files()
         tables: List[Table] = []
-        for f in files:
+        for f in discovery_items(files, 'files', label=lambda f: f.get('name')):
             tables.append(Table(
                 name=f["path"] or f["name"],
                 description=f"File '{f['name']}' ({f.get('mime_type') or 'unknown'}).",

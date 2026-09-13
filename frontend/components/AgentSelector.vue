@@ -56,17 +56,17 @@
         <template v-if="nav">
           <UTooltip v-if="collapsed" :text="navLabel" :popper="{ placement: 'right' }">
             <span class="relative flex items-center justify-center w-5 h-5">
-              <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" :connector-key="navSelected.connections?.[0]?.connector_key" :icon="navSelected.icon" class="w-[18px] h-[18px] rounded" />
-              <DataSourceIcon v-else-if="navIconAgents.length" :type="navIconAgents[0].type" :connector-key="navIconAgents[0].connector_key" :icon="navIconAgents[0].icon" class="w-[18px] h-[18px] rounded" />
+              <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" :connector-key="navSelected.connections?.[0]?.connector_key" :icon-token="navSelected.icon_token" :icon="navSelected.icon" class="w-[18px] h-[18px] rounded" />
+              <DataSourceIcon v-else-if="navIconAgents.length" :type="navIconAgents[0].type" :connector-key="navIconAgents[0].connector_key" :icon-token="navIconAgents[0].icon_token" :icon="navIconAgents[0].icon" class="w-[18px] h-[18px] rounded" />
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
               <span v-if="!navSelected && agents.length > 1" class="absolute -top-1.5 -right-1.5 min-w-[14px] h-3.5 px-1 rounded-full bg-gray-900 text-white text-[8px] font-semibold leading-none flex items-center justify-center">{{ agents.length > 9 ? '9+' : agents.length }}</span>
             </span>
           </UTooltip>
           <template v-else>
             <span class="flex items-center justify-center">
-              <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" :connector-key="navSelected.connections?.[0]?.connector_key" :icon="navSelected.icon" class="w-[18px] h-[18px] rounded" />
+              <DataSourceIcon v-if="navSelected" :type="navSelected.connections?.[0]?.type" :connector-key="navSelected.connections?.[0]?.connector_key" :icon-token="navSelected.icon_token" :icon="navSelected.icon" class="w-[18px] h-[18px] rounded" />
               <span v-else-if="navIconAgents.length" class="flex -space-x-1.5 items-center">
-                <DataSourceIcon v-for="(it, i) in navIconAgents" :key="i" :type="it.type" :connector-key="it.connector_key" :icon="it.icon" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
+                <DataSourceIcon v-for="(it, i) in navIconAgents" :key="i" :type="it.type" :connector-key="it.connector_key" :icon-token="it.icon_token" :icon="it.icon" class="w-[18px] h-[18px] ring-2 ring-white rounded-full bg-white" />
               </span>
               <UIcon v-else name="heroicons-cube" class="w-[18px] h-[18px]" />
             </span>
@@ -134,10 +134,10 @@
                     ]"
                   >
                     <DataSourceIcon
-                      v-if="a.connections?.[0]?.type || a.icon"
+                      v-if="a.connections?.[0]?.type || a.icon || a.icon_token"
                       :type="a.connections?.[0]?.type"
                       :connector-key="a.connections?.[0]?.connector_key"
-                      :icon="a.icon"
+                      :icon-token="a.icon_token" :icon="a.icon"
                       class="h-4 w-4 flex-shrink-0"
                     />
                     <UIcon v-else name="heroicons-circle-stack" class="w-4 h-4 text-gray-400 flex-shrink-0" />

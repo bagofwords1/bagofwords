@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, discovery_summary, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ForeignKey, ServiceFormatter
 from typing import List, Dict, Optional, Tuple
@@ -356,6 +357,8 @@ class PowerBIClient(DataSourceClient):
                 timeout=30, max_attempts=1,
             )
             return resp.status_code < 300
+        except IndexingCancelled:
+            raise
         except Exception:
             return False
 
@@ -637,6 +640,7 @@ class PowerBIClient(DataSourceClient):
         restricted to the configured `workspaces` filter when one is set
         (matches on workspace name or ID, case-insensitive).
         """
+        discovery_phase('listing_workspaces')
         self.connect()
         url = f"{self.BASE_URL}/groups"
 
@@ -1079,6 +1083,8 @@ UNION(
 
         try:
             df = self._execute_dax_internal(workspace_id, dataset_id, self._RELATIONSHIPS_DAX)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             msg = str(e)
             # 401/403/404 are about THIS dataset (no Build permission, RLS,
@@ -1296,6 +1302,7 @@ UNION(
         Batch admin scan: up to 100 workspaces per request.
         Returns dict keyed by dataset_id -> (tables, relationships) from _parse_admin_scan_tables.
         """
+        discovery_phase('admin_scan')
         import time
         import logging
 
@@ -1344,16 +1351,20 @@ UNION(
                         if ds_id:
                             results[ds_id] = self._parse_admin_scan_tables(ds)
 
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 logging.debug(f"Batch admin scan error: {e}")
                 continue
 
         return results
 
+    @discovery_progress
     def get_schemas(
         self,
         force_refresh: bool = False,
         prior_tables: Optional[Dict[str, Dict]] = None,
+        progress_callback=None,
     ) -> List[Table]:
         """
         Build Table objects representing all internal tables across all datasets.
@@ -1408,6 +1419,8 @@ UNION(
                 ds_id = meta.get("datasetId")
                 if ds_id and (entry.get("columns") or []):
                     prior_by_dataset.setdefault(str(ds_id), []).append((prior_name, entry))
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
 
@@ -1419,22 +1432,33 @@ UNION(
         ws_reports: Dict[str, List[Dict]] = {}    # ws_id -> reports
 
         with ThreadPoolExecutor(max_workers=10) as pool:
-            ds_futures = {pool.submit(self.list_datasets, ws["id"]): ws for ws in workspaces}
-            rpt_futures = {pool.submit(self.list_reports, ws["id"]): ws for ws in workspaces}
+            try:
+                ds_futures = {pool.submit(self.list_datasets, ws["id"]): ws for ws in workspaces}
+                rpt_futures = {pool.submit(self.list_reports, ws["id"]): ws for ws in workspaces}
 
-            for fut in as_completed(ds_futures):
-                ws = ds_futures[fut]
-                try:
-                    ws_datasets[ws["id"]] = fut.result()
-                except Exception:
-                    ws_datasets[ws["id"]] = []
+                for fut in discovery_items(as_completed(ds_futures), 'workspace_models', label=lambda fut: ds_futures[fut].get('name'), total=len(ds_futures)):
+                    ws = ds_futures[fut]
+                    try:
+                        ws_datasets[ws["id"]] = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        ws_datasets[ws["id"]] = []
 
-            for fut in as_completed(rpt_futures):
-                ws = rpt_futures[fut]
-                try:
-                    ws_reports[ws["id"]] = fut.result()
-                except Exception:
-                    ws_reports[ws["id"]] = []
+                for fut in discovery_items(as_completed(rpt_futures), 'workspace_reports', label=lambda fut: rpt_futures[fut].get('name'), total=len(rpt_futures)):
+                    ws = rpt_futures[fut]
+                    try:
+                        ws_reports[ws["id"]] = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        ws_reports[ws["id"]] = []
+            except IndexingCancelled:
+                for pending in ds_futures:
+                    pending.cancel()
+                for pending in rpt_futures:
+                    pending.cancel()
+                raise
 
         # Collect all (workspace, dataset) pairs. Every semantic model the
         # identity can list is discovered — including Fabric default semantic
@@ -1480,6 +1504,8 @@ UNION(
         try:
             if ws_ids:
                 admin_scan_results = self._batch_admin_scan(ws_ids)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logging.debug(f"Batch admin scan unavailable, falling back to COLUMNSTATISTICS: {e}")
 
@@ -1499,7 +1525,7 @@ UNION(
         # directly rather than indexing a join-less schema.
         rel_only_tasks: List[Tuple[str, str, str]] = []  # (ws_id, ds_id, key)
 
-        for ws, ds, ws_id in introspect_tasks:
+        for ws, ds, ws_id in discovery_items(introspect_tasks, 'model_metadata', label=lambda task: task[1].get('name')):
             ds_id = ds.get("id")
             key = f"{ws_id}:{ds_id}"
             scan_tables, scan_rels = admin_scan_results.get(ds_id, ([], []))
@@ -1512,21 +1538,28 @@ UNION(
 
         if fallback_tasks:
             with ThreadPoolExecutor(max_workers=10) as pool:
-                tbl_futures = {}
-                for ws, ds, ws_id, key in fallback_tasks:
-                    ds_id = ds.get("id")
-                    tbl_futures[pool.submit(self.get_dataset_tables_with_reason, ws_id, ds_id)] = key
+                try:
+                    tbl_futures = {}
+                    for ws, ds, ws_id, key in fallback_tasks:
+                        ds_id = ds.get("id")
+                        tbl_futures[pool.submit(self.get_dataset_tables_with_reason, ws_id, ds_id)] = key
 
-                for fut in as_completed(tbl_futures):
-                    key = tbl_futures[fut]
-                    try:
-                        tbls, rels, reason = fut.result()
-                        ds_table_results[key] = (tbls, rels)
-                        if not tbls and reason:
-                            ds_reasons[key] = reason
-                    except Exception as e:
-                        ds_table_results[key] = ([], [])
-                        ds_reasons[key] = f"introspection error: {self._short_error(e)}"
+                    for fut in discovery_items(as_completed(tbl_futures), 'model_introspection', label=lambda fut: tbl_futures[fut], total=len(tbl_futures)):
+                        key = tbl_futures[fut]
+                        try:
+                            tbls, rels, reason = fut.result()
+                            ds_table_results[key] = (tbls, rels)
+                            if not tbls and reason:
+                                ds_reasons[key] = reason
+                        except IndexingCancelled:
+                            raise
+                        except Exception as e:
+                            ds_table_results[key] = ([], [])
+                            ds_reasons[key] = f"introspection error: {self._short_error(e)}"
+                except IndexingCancelled:
+                    for pending in tbl_futures:
+                        pending.cancel()
+                    raise
 
         if rel_only_tasks:
             # Serial, and stops early: the FIRST dataset settles whether this
@@ -1534,7 +1567,7 @@ UNION(
             # nothing to gain from asking the rest (see
             # `_get_relationships_via_dax`). Costs one request per dataset when
             # supported, one request total when not.
-            for ws_id, ds_id, key in rel_only_tasks:
+            for ws_id, ds_id, key in discovery_items(rel_only_tasks, 'relationships', label=lambda task: task[1]):
                 if self._info_functions_supported is False:
                     break
                 rels = self._get_relationships_via_dax(ws_id, ds_id)
@@ -1544,7 +1577,7 @@ UNION(
                     ds_table_results[key] = (tbls, rels)
 
         # Phase 4: Assemble Table objects (CPU-only, no I/O)
-        for ws, ds, ws_id in all_ds_tasks:
+        for ws, ds, ws_id in discovery_items(all_ds_tasks, 'assembling_models', label=lambda task: task[1].get('name')):
             ws_name = ws.get("name") or ws_id
             ds_id = ds.get("id")
             ds_name = ds.get("name") or ds_id
@@ -1703,6 +1736,9 @@ UNION(
                 "PowerBI discovery: %d table(s), %d relationship(s)", len(tables), total_fks
             )
 
+        discovery_summary('reused_models', len(all_ds_tasks) - len(introspect_tasks))
+        discovery_summary('inspected_models', len(introspect_tasks))
+        discovery_summary('unreadable_models', len(self.discovery_diagnostics))
         self._schemas_cache = tables
         return tables
 
@@ -1748,21 +1784,28 @@ UNION(
 
         out: List[Tuple[Dict, Dict, str]] = []
         with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = [pool.submit(_probe, d) for d in probed]
-            for fut in as_completed(futures):
-                try:
-                    ds_id, meta, ok = fut.result()
-                except Exception:
-                    continue
-                if not ok:
-                    continue
-                ws_id = meta.get("workspaceId")
-                out.append((
-                    {"id": ws_id, "name": meta.get("workspaceName") or ws_id},
-                    {"id": ds_id, "name": meta.get("datasetName") or ds_id,
-                     "configuredBy": meta.get("configuredBy"), "webUrl": meta.get("webUrl")},
-                    ws_id,
-                ))
+            try:
+                futures = [pool.submit(_probe, d) for d in probed]
+                for fut in as_completed(futures):
+                    try:
+                        ds_id, meta, ok = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        continue
+                    if not ok:
+                        continue
+                    ws_id = meta.get("workspaceId")
+                    out.append((
+                        {"id": ws_id, "name": meta.get("workspaceName") or ws_id},
+                        {"id": ds_id, "name": meta.get("datasetName") or ds_id,
+                         "configuredBy": meta.get("configuredBy"), "webUrl": meta.get("webUrl")},
+                        ws_id,
+                    ))
+            except IndexingCancelled:
+                for pending in futures:
+                    pending.cancel()
+                raise
         if out:
             logging.info(
                 "PowerBI discovery: %d/%d unlisted dataset(s) reachable item-level for this identity",
@@ -1786,6 +1829,8 @@ UNION(
                 timeout=30,
             )
             return resp.status_code < 300
+        except IndexingCancelled:
+            raise
         except Exception:
             return False
 
@@ -1850,6 +1895,8 @@ UNION(
             for fk in entry.get("fks") or []:
                 try:
                     fks.append(fk if isinstance(fk, ForeignKey) else ForeignKey(**fk))
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     continue
 

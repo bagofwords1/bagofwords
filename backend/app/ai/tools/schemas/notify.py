@@ -5,6 +5,9 @@ from pydantic import BaseModel, Field
 from app.ai.tools.schemas.send_email import (
     EmailAttachmentSpec,
     SendEmailAttachmentResult,  # noqa: F401  (re-exported for convenience)
+    EMAIL_BODY_RULES,
+    EMAIL_HTML_RULES,
+    EMAIL_BODY_FORMAT_RULE,
 )
 
 
@@ -39,15 +42,14 @@ class NotifyInput(BaseModel):
         ...,
         min_length=1,
         description=(
-            "The message body. Write it like a person would — short, natural, direct. "
-            "Plain text by default. If you set body_format='html', keep the HTML simple "
-            "(basic tags like <p>, <ul>/<li>, <strong>, small <table>); avoid heavy "
-            "templated layouts, inline CSS, banners, or branded headers/footers."
+            "The message body. Write it like a person would — short, natural, and direct. "
+            "It may be delivered as an email, so the same rules apply.\n\n"
+            f"{EMAIL_BODY_RULES}\n\n{EMAIL_HTML_RULES}"
         ),
     )
     body_format: Literal["text", "html"] = Field(
         default="text",
-        description="'text' (default, preferred) or 'html' for light structure.",
+        description=EMAIL_BODY_FORMAT_RULE,
     )
     attachments: List[EmailAttachmentSpec] = Field(
         default_factory=list,

@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    BrocadeConfig,
+    BrocadeCredentials,
     SharePointOnpremConfig,
     SharePointOnpremNtlmCredentials,
     DocumentumConfig,
@@ -46,6 +48,8 @@ from app.schemas.data_sources.configs import (
     TableauConfig,
     SalesforceConfig,
     MondayConfig,
+    NetAppOntapConfig,
+    NetAppOntapCredentials,
     ServiceNowConfig,
     ZabbixConfig,
     KubernetesConfig,
@@ -848,6 +852,18 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
         requires_license="enterprise",
     ),
+    "netapp_ontap": DataSourceRegistryEntry(
+        type="netapp_ontap",
+        category="infra",
+        title="NetApp ONTAP",
+        description="Investigate storage incidents with read-only inventory, topology, performance, events and diagnostic tables. ONTAP 9.14.1 contract; customer validation required.",
+        config_schema=NetAppOntapConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username / Password", schema=NetAppOntapCredentials, scopes=["system"]),
+        }),
+        client_path="app.data_sources.clients.netapp_ontap_client.NetAppOntapClient",
+        version="beta",
+    ),
     "kubernetes": DataSourceRegistryEntry(
         type="kubernetes",
         category="infra",
@@ -878,6 +894,19 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
         ],
         client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
+    "brocade": DataSourceRegistryEntry(
+        type="brocade",
+        category="infra",
+        title="Brocade Fabric OS",
+        description="Investigate Fibre Channel ports, optics, zoning, congestion and events with read-only diagnostics.",
+        config_schema=BrocadeConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username + Password", schema=BrocadeCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.brocade_client.BrocadeClient",
         version="beta",
         requires_license="enterprise",
     ),
@@ -2122,6 +2151,20 @@ _TOOLS_GOOGLE_DRIVE = [
     "get_file_metadata", "get_file_permissions", "create_file",
 ]
 
+_TOOLS_HUBSPOT = [
+    # Discovered live from HubSpot's MCP server (tools/list, 2026-09) — not a
+    # guess. `query_crm_data` is the notable one: HubSpot CRM over SQL.
+    "query_crm_data", "search_crm_objects", "get_crm_objects", "search_properties",
+    "get_properties", "discover_hubspot_schema", "search_owners", "get_user_details",
+    "get_organization_details", "manage_segment", "search_conversations",
+    "get_conversation_channel_metadata", "read_campaign_data",
+    "manage_campaign_objects", "get_campaign_attribution_reports",
+    "manage_marketing_email", "get_marketing_email_analytics", "manage_landing_page",
+    "get_content_analytics_report", "get_aeo_metrics", "manage_aeo_prompts",
+    "manage_aeo_recommendations", "manage_onboarding", "tool_guidance",
+    "submit_feedback",
+]
+
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_MONDAY,
@@ -2146,6 +2189,32 @@ MCP_PRESETS: List[McpPreset] = [
                   scopes="read:user, repo, read:org",
               ),
               description="Repos, issues and PRs (needs a GitHub OAuth app)."),
+    # HubSpot's hosted CRM MCP server. No DCR — its AS metadata advertises no
+    # registration_endpoint (live probe 2026-09) — so the admin registers a
+    # HubSpot app, like github above. server_url is the bare ORIGIN: HubSpot
+    # serves MCP at the root and /mcp is a 404; since the connect form matches a
+    # preset by exact server_url, adding a path also breaks preset recognition in
+    # edit mode. Endpoints are the MCP-specific pair HubSpot advertises, not the
+    # classic app.hubspot.com/api.hubapi.com ones; it takes client_secret_post
+    # (our default → left unset) and PKCE S256. Scopes are declared on the app and
+    # gated by portal tier (scopes_supported is empty). NOTE: for a HubSpot *MCP
+    # Connector* app the `scope` parameter is not what grants access — a live
+    # sign-in (2026-09) returned a fixed 37-scope bundle from the app's own
+    # config, unrelated to the 4 scopes requested here. The value below is kept
+    # only as documentation of the minimum an admin should configure on the app;
+    # it neither widens nor narrows what HubSpot actually grants. No audience:
+    # HubSpot doesn't advertise RFC 8707, so we must not send `resource` on the
+    # token request. See docs/feedback-loops/hubspot-mcp-preset.md.
+    McpPreset(key="hubspot", title="HubSpot", server_url="https://mcp.hubspot.com",
+              auth="oauth_app", allowed_auth=["oauth_app"], category="services",
+              oauth_defaults=McpAuthDefaults(
+                  authorize_url="https://mcp.hubspot.com/oauth/authorize/user",
+                  token_url="https://mcp.hubspot.com/oauth/v3/token",
+                  scopes=("oauth, crm.objects.contacts.read, "
+                          "crm.objects.companies.read, crm.objects.deals.read"),
+              ),
+              sample_tools=_TOOLS_HUBSPOT,
+              description="CRM records, SQL queries, and marketing data from HubSpot (needs a HubSpot app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.

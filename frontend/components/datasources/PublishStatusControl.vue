@@ -4,19 +4,19 @@
         v-if="canManage"
         :items="items"
         :popper="{ placement: 'bottom-end' }"
-        :ui="{ width: 'w-[26rem]', item: { padding: 'px-3 py-2' } }"
+        :ui="{ width: subtle ? 'w-[26rem] max-w-[calc(100vw-2rem)]' : 'w-[26rem]', item: { padding: 'px-3 py-2' } }"
     >
         <button
             type="button"
             :disabled="saving"
             :class="[
-                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors',
-                meta.badge,
+                'inline-flex items-center gap-1.5 transition-colors',
+                subtle ? 'rounded py-1 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200' : ['rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge],
                 saving ? 'opacity-60 cursor-wait' : 'hover:brightness-95',
             ]"
         >
             <span :class="['w-1.5 h-1.5 rounded-full flex-shrink-0', meta.dot]" />
-            {{ meta.label }}
+            {{ $t(`agentsPage.stage.${stage}`) }}
             <UIcon name="heroicons-chevron-down" class="w-3 h-3 opacity-60" />
         </button>
 
@@ -36,11 +36,11 @@
 
     <!-- Non-manager: read-only badge (only meaningful when not plain Production) -->
     <span
-        v-else-if="stage !== 'production'"
-        :class="['inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge]"
+        v-else-if="subtle || stage !== 'production'"
+        :class="['inline-flex items-center gap-1.5', subtle ? 'text-[11px] text-gray-500 dark:text-gray-400' : ['rounded-full border px-2.5 py-1 text-xs font-medium', meta.badge]]"
     >
         <span :class="['w-1.5 h-1.5 rounded-full flex-shrink-0', meta.dot]" />
-        {{ meta.label }}
+        {{ $t(`agentsPage.stage.${stage}`) }}
     </span>
 </template>
 
@@ -58,11 +58,13 @@ const props = defineProps<{
     dataSourceId: string
     status: string                       // publish_status
     reliabilityStatus?: string           // ok | training | development
+    subtle?: boolean
 }>()
 
 const emit = defineEmits<{ (e: 'updated', value: { publish_status: string; reliability_status?: string }): void }>()
 
 const toast = useToast?.()
+const { t } = useI18n()
 const saving = ref(false)
 
 const canManage = computed(() => useCan('manage', { type: 'data_source', id: props.dataSourceId }))
@@ -72,7 +74,7 @@ const meta = computed(() => stageMeta(stage.value))
 // UDropdown expects an array of groups (array of arrays).
 const items = computed(() => [
     STAGE_OPTIONS.map((opt) => ({
-        label: opt.label,
+        label: t(`agentsPage.stage.${opt.value}`),
         description: opt.description,
         value: opt.value,
         dot: opt.dot,

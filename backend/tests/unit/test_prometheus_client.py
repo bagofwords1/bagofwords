@@ -116,7 +116,9 @@ def _schema_routes():
 
 def test_get_schemas_models_each_metric_as_a_table(monkeypatch):
     _install(monkeypatch, _schema_routes())
-    tables = PrometheusClient(base_url="http://h:9090").get_schemas()
+    events = []
+    tables = PrometheusClient(base_url="http://h:9090").get_schemas(progress_callback=lambda *e: events.append(e))
+    assert any(e[0] == 'metrics' and e[2] > 0 for e in events)
 
     by_name = {t.name: t for t in tables}
     # Every discovered metric name becomes a table.

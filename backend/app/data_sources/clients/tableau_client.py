@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional
@@ -176,7 +177,8 @@ class TableauClient(DataSourceClient):
             results = [r for r in results if r.get("project_id") == self.default_project_id]
         return results
 
-    def get_schemas(self, prior_tables: Optional[Dict[str, Dict]] = None) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, prior_tables: Optional[Dict[str, Dict]] = None, progress_callback=None) -> List[Table]:
         """
         Build Table objects representing published datasources with columns
         discovered by combining VizQL read-metadata with Metadata GraphQL API (publishedDatasources).
@@ -209,11 +211,13 @@ class TableauClient(DataSourceClient):
                 luid = meta.get("datasourceLuid")
                 if luid and (entry.get("columns") or []):
                     prior_by_luid[str(luid)] = entry
+            except IndexingCancelled:
+                raise
             except Exception:
                 continue
 
         introspect: List[Dict] = []
-        for ds in datasources:
+        for ds in discovery_items(datasources, 'datasets', label=lambda ds: ds.get('name') or ds.get('id')):
             entry = prior_by_luid.get(str(ds.get("id")))
             if entry is not None:
                 tables.append(self._table_from_prior(ds, entry))
@@ -228,32 +232,39 @@ class TableauClient(DataSourceClient):
             )
 
         with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = {pool.submit(self._combined_fields_for_datasource, ds["id"]): ds for ds in introspect}
-            for fut in as_completed(futures):
-                ds = futures[fut]
-                try:
-                    ds_description, fields = fut.result()
-                except Exception:
-                    continue
-                columns = [
-                    TableColumn(
-                        name=(f.get("fieldCaption") or f.get("fieldName") or ""),
-                        dtype=(f.get("dataType") or "unknown"),
-                        description=f.get("description"),
-                        metadata=f.get("metadata"),
-                    )
-                    for f in fields
-                ]
-                table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
-                tables.append(Table(
-                    name=table_name,
-                    description=ds_description,
-                    columns=columns,
-                    pks=[],
-                    fks=[],
-                    is_active=True,
-                    metadata_json=self._datasource_metadata(ds, table_name),
-                ))
+            try:
+                futures = {pool.submit(self._combined_fields_for_datasource, ds["id"]): ds for ds in introspect}
+                for fut in discovery_items(as_completed(futures), 'dataset_schemas', label=lambda fut: futures[fut].get('name') or futures[fut].get('id'), total=len(futures)):
+                    ds = futures[fut]
+                    try:
+                        ds_description, fields = fut.result()
+                    except IndexingCancelled:
+                        raise
+                    except Exception:
+                        continue
+                    columns = [
+                        TableColumn(
+                            name=(f.get("fieldCaption") or f.get("fieldName") or ""),
+                            dtype=(f.get("dataType") or "unknown"),
+                            description=f.get("description"),
+                            metadata=f.get("metadata"),
+                        )
+                        for f in fields
+                    ]
+                    table_name = f"{(ds.get('project_name') or '').strip()}/{ds.get('name') or ds.get('id')}".strip("/")
+                    tables.append(Table(
+                        name=table_name,
+                        description=ds_description,
+                        columns=columns,
+                        pks=[],
+                        fks=[],
+                        is_active=True,
+                        metadata_json=self._datasource_metadata(ds, table_name),
+                    ))
+            except IndexingCancelled:
+                for pending in futures:
+                    pending.cancel()
+                raise
         return tables
 
     def _table_from_prior(self, ds: Dict, entry: Dict) -> Table:

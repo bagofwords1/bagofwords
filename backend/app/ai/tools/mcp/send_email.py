@@ -33,8 +33,10 @@ class SendEmailMCPTool(MCPTool):
         "of your organization via 'recipients' (their email addresses; outside addresses "
         "are rejected). You are always included, and every recipient also gets an in-app "
         "notification. Use it when the user asks to be emailed — or to notify a teammate — "
-        "something (a summary, a result, an export). Keep the body short and natural; "
-        "default to plain text. Attachments (optional, up to 5) are generated from objects "
+        "something (a summary, a result, an export). Keep the body short and natural, and "
+        "write it as an email: plain text, NO MARKDOWN ('**bold**', '# headers' and "
+        "'| col |' tables arrive as literal punctuation) — see the 'body' field for the "
+        "full rules. Attachments (optional, up to 5) are generated from objects "
         "in a report — reference a visualization_id / query_id (CSV/XLSX), artifact_id "
         "(PPTX/PDF), or file_id, and pass the owning report_id."
     )
@@ -49,10 +51,14 @@ class SendEmailMCPTool(MCPTool):
     async def is_available_for_org(self, db, organization) -> bool:
         """Whether outbound email resolves for this org (AI mailbox / org SMTP /
         global), mirroring the analyst send path."""
+        from app.services.email_client_resolver import (
+            global_smtp_configured,
+            is_outbound_available,
+        )
+
         org_id = getattr(organization, "id", None)
         if not db or not org_id:
-            return settings.email_client is not None
-        from app.services.email_client_resolver import is_outbound_available
+            return global_smtp_configured()
         return await is_outbound_available(db, str(org_id), purpose="analyst")
 
     @property

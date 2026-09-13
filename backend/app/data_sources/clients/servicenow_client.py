@@ -9,6 +9,7 @@ Schema discovery reads ServiceNow's own metadata tables in bulk
 full snapshot — custom `u_*`/`x_*` tables included — is a handful of requests,
 not one per table. Reference-type fields become foreign keys.
 """
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 import io
 import json
 import re
@@ -291,6 +292,8 @@ class ServiceNowClient(DataSourceClient):
             detail = response.text[:500]
             try:
                 detail = response.json().get("error", {}).get("message", detail)
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
             raise RuntimeError(f"ServiceNow API error ({response.status_code}): {detail}")
@@ -498,7 +501,7 @@ class ServiceNowClient(DataSourceClient):
         targets = self._targets_without_metadata()
         schemas: List[Table] = []
         failures: List[str] = []
-        for target in targets:
+        for target in discovery_items(targets, 'tables', label=str):
             try:
                 rows = self._sample_rows(session, target)
             except RuntimeError as e:
@@ -518,7 +521,8 @@ class ServiceNowClient(DataSourceClient):
             )
         return schemas
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         if self.infer_schema_from_data:
             with self.connect() as session:
                 return self._schemas_from_data(session)
@@ -545,7 +549,7 @@ class ServiceNowClient(DataSourceClient):
                 by_table.setdefault(_scalar(row.get("name")), []).append(row)
 
             schemas = []
-            for target in targets:
+            for target in discovery_items(targets, 'tables', label=str):
                 table = self._build_table(target, hierarchy, by_table)
                 if table.columns:
                     schemas.append(table)

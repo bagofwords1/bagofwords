@@ -37,6 +37,7 @@ Auth mirrors the S3/Athena idiom so boto3 session construction is familiar:
 static keys, keys + STS assume-role, or boto3's default chain (env vars,
 instance profile, EKS IRSA).
 """
+from app.data_sources.clients.progress import discovery_progress, IndexingCancelled
 import json
 import logging
 import re
@@ -175,6 +176,8 @@ class AwsCloudWatchClient(DataSourceClient):
         try:
             session = self._session()
             clients = (session.client("logs"), session.client("cloudwatch"))
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"Error connecting to AWS CloudWatch ({self.region}): {e}")
         yield clients
@@ -204,6 +207,8 @@ class AwsCloudWatchClient(DataSourceClient):
             if ts.tzinfo is None:
                 ts = ts.tz_localize("UTC")
             return int(ts.timestamp())
+        except IndexingCancelled:
+            raise
         except Exception:
             raise ValueError(
                 f"Unparseable time {value!r}. Use a relative offset ('-1h', '-7d'), "
@@ -247,6 +252,8 @@ class AwsCloudWatchClient(DataSourceClient):
                 start=window_start,
                 end=window_end,
             )
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.info("CloudWatch: field sampling skipped for %s: %s", group_name, e)
             return fields
@@ -341,7 +348,9 @@ class AwsCloudWatchClient(DataSourceClient):
             )
             if progress_callback:
                 try:
-                    progress_callback(i + 1, total, f"Indexed {i + 1}/{total} log groups")
+                    progress_callback("log_groups", name, i + 1, total)
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
         return tables
@@ -361,6 +370,8 @@ class AwsCloudWatchClient(DataSourceClient):
                         bucket = grouped.setdefault(key, set())
                         for d in m.get("Dimensions", []):
                             bucket.add(d["Name"])
+            except IndexingCancelled:
+                raise
             except Exception as e:
                 logger.info("CloudWatch: metric discovery failed for %s: %s", ns, e)
 
@@ -395,7 +406,9 @@ class AwsCloudWatchClient(DataSourceClient):
             )
             if progress_callback:
                 try:
-                    progress_callback(i + 1, total, f"Indexed {i + 1}/{total} metrics")
+                    progress_callback("metrics", f"{ns}/{metric}", i + 1, total)
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
         return tables
@@ -406,6 +419,7 @@ class AwsCloudWatchClient(DataSourceClient):
             tables.extend(self._metric_tables(cw, progress_callback=progress_callback))
             return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         return self.get_tables(progress_callback=progress_callback)
 
@@ -475,6 +489,8 @@ class AwsCloudWatchClient(DataSourceClient):
         query already ended, which is not an error worth surfacing."""
         try:
             logs.stop_query(queryId=query_id)
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.debug("CloudWatch: stop_query(%s) ignored: %s", query_id, e)
 
@@ -551,6 +567,8 @@ class AwsCloudWatchClient(DataSourceClient):
                     variants.append(dims)
                     if len(variants) >= MAX_METRIC_QUERIES:
                         return variants
+        except IndexingCancelled:
+            raise
         except Exception as e:
             logger.info("CloudWatch: dimension resolution failed for %s/%s: %s",
                         namespace, metric_name, e)
@@ -706,6 +724,8 @@ class AwsCloudWatchClient(DataSourceClient):
             with self.connect() as (logs, cw):
                 try:
                     groups = self._list_log_groups(logs)
+                except IndexingCancelled:
+                    raise
                 except Exception as e:
                     return {
                         "success": False,
@@ -714,6 +734,8 @@ class AwsCloudWatchClient(DataSourceClient):
                 try:
                     cw.list_metrics(**({"Namespace": self.metric_namespaces[0]}
                                        if self.metric_namespaces else {}))
+                except IndexingCancelled:
+                    raise
                 except Exception as e:
                     return {
                         "success": False,
@@ -728,6 +750,8 @@ class AwsCloudWatchClient(DataSourceClient):
                 if not groups and not self.metric_namespaces:
                     msg += ". No log groups found and no metric namespaces configured — this connection would index nothing."
                 return {"success": True, "message": msg + "."}
+        except IndexingCancelled:
+            raise
         except Exception as e:
             return {"success": False, "message": str(e)}
 

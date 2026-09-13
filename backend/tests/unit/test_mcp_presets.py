@@ -54,7 +54,7 @@ def test_dcr_allowlist_includes_preset_hosts_only():
 # invariant endpoints by hand.
 
 def test_oauth_app_presets_prefill_endpoints():
-    for key in ("x", "github", "google_drive"):
+    for key in ("x", "github", "google_drive", "hubspot"):
         d = mcp_preset(key).oauth_defaults
         assert d is not None, f"{key} should carry oauth_defaults"
         assert d.authorize_url and d.authorize_url.startswith("https://")
@@ -91,6 +91,94 @@ def test_preset_allowed_auth_gating():
     assert mcp_preset("monday").allowed_auth == ["dcr"]
     # oauth_app-only presets.
     assert mcp_preset("github").allowed_auth == ["oauth_app"]
+    assert mcp_preset("hubspot").allowed_auth == ["oauth_app"]
+
+
+# ── HubSpot ────────────────────────────────────────────────────────────────
+# HubSpot's hosted CRM MCP server. Probed live 2026-09; each assertion below
+# pins something the probe established and that is easy to "correct" wrongly.
+
+def test_hubspot_preset_is_oauth_app_not_dcr():
+    # HubSpot's AS metadata advertises no registration_endpoint, so the tile must
+    # not offer the zero-setup DCR path — it needs a registered HubSpot app.
+    hs = mcp_preset("hubspot")
+    assert hs is not None, "hubspot must be in the MCP catalog"
+    assert hs.auth == "oauth_app"
+    assert "dcr" not in (hs.allowed_auth or [])
+
+
+def test_hubspot_server_url_has_no_path():
+    # HubSpot serves MCP at the ROOT of mcp.hubspot.com; /mcp is a 404. The
+    # connect form matches presets by exact server_url, so a path here breaks
+    # both the connection and preset recognition in edit mode.
+    assert mcp_preset("hubspot").server_url == "https://mcp.hubspot.com"
+
+
+def test_hubspot_uses_mcp_scoped_oauth_endpoints():
+    # The MCP server advertises its own endpoints, NOT HubSpot's classic
+    # app.hubspot.com / api.hubapi.com OAuth pair.
+    d = mcp_preset("hubspot").oauth_defaults
+    assert d.authorize_url == "https://mcp.hubspot.com/oauth/authorize/user"
+    assert d.token_url == "https://mcp.hubspot.com/oauth/v3/token"
+    assert "app.hubspot.com" not in d.authorize_url
+    assert "api.hubapi.com" not in d.token_url
+
+
+def test_hubspot_token_auth_and_audience_defaults():
+    d = mcp_preset("hubspot").oauth_defaults
+    # HubSpot advertises client_secret_post, which is our default → left unset
+    # rather than restated (X sets client_secret_basic because it differs).
+    assert d.token_endpoint_auth_method is None
+    # HubSpot does not advertise RFC 8707 resource indicators; sending an
+    # unexpected `resource` on the token request risks a rejection.
+    assert d.audience is None
+
+
+def test_hubspot_scopes_are_read_only_and_normalize():
+    from app.routes.connection_oauth import _normalize_scopes
+    d = mcp_preset("hubspot").oauth_defaults
+    normalized = _normalize_scopes(d.scopes)
+    scopes = normalized.split()
+    # `oauth` is required of every HubSpot app; the CRM scopes are the read-only
+    # set available on every portal tier.
+    assert "oauth" in scopes
+    assert "crm.objects.contacts.read" in scopes
+    # Default must not request write access.
+    assert not [s for s in scopes if s.endswith(".write")]
+    # RFC 6749 wants space-delimited scopes on the authorize request.
+    assert "," not in normalized
+
+
+def test_hubspot_sample_tools_are_the_discovered_ones():
+    # Filled from a live tools/list against a real portal (2026-09), not guessed.
+    # query_crm_data is the one that matters: HubSpot CRM over SQL.
+    tools = mcp_preset("hubspot").sample_tools
+    assert tools and "query_crm_data" in tools
+    assert {"search_crm_objects", "get_properties", "search_properties"} <= set(tools)
+
+
+def test_hubspot_preset_scopes_are_documentation_only():
+    # A HubSpot MCP Connector app grants a fixed bundle from its own config; the
+    # `scope` parameter does not control it (verified live: 4 requested, 37
+    # granted). The value is kept as guidance for configuring the app, so it must
+    # stay read-only and must not imply write access.
+    from app.routes.connection_oauth import _normalize_scopes
+    scopes = _normalize_scopes(mcp_preset("hubspot").oauth_defaults.scopes).split()
+    assert not [s for s in scopes if s.endswith(".write")]
+
+
+def test_hubspot_is_a_services_tile_and_serializes():
+    hs = next(p for p in mcp_presets() if p["key"] == "hubspot")
+    assert hs["category"] == "services"          # a SaaS app, like Salesforce
+    assert hs["transport"] == "streamable_http"
+    assert hs["title"] == "HubSpot"
+    assert hs["oauth_defaults"]["authorize_url"].startswith("https://mcp.hubspot.com/")
+
+
+def test_hubspot_host_enters_the_discovery_allowlist():
+    # allowed_dcr_hosts() derives from preset hosts, so adding the tile widens
+    # the SSRF allowlist by exactly this host and nothing else.
+    assert "mcp.hubspot.com" in allowed_dcr_hosts()
 
 
 def test_scope_normalization_comma_or_space():

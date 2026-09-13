@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.models.connection import Connection
+from app.models.data_source import DataSource
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.settings.logging_config import get_logger
 
@@ -781,7 +782,13 @@ async def auto_provision_connection_credentials(
     # Find eligible connections
     stmt = (
         select(Connection)
-        .options(selectinload(Connection.organization), selectinload(Connection.data_sources))
+        .options(
+            selectinload(Connection.organization),
+            # The overlay sync below walks data_source.connections; without this
+            # nested load it lazy-loads inside the async session and raises
+            # MissingGreenlet, poisoning the transaction.
+            selectinload(Connection.data_sources).selectinload(DataSource.connections),
+        )
         .where(
             Connection.auth_policy == "user_required",
             Connection.type.in_(list(ENTRA_OBO_CONNECTION_TYPES)),
@@ -791,6 +798,7 @@ async def auto_provision_connection_credentials(
     connections = result.scalars().all()
 
     summary = {"provisioned": [], "skipped": [], "failed": []}
+    pending_overlay: list = []
 
     for connection in connections:
         # Check allowed_user_auth_modes includes oauth
@@ -847,22 +855,30 @@ async def auto_provision_connection_credentials(
             db.add(row)
 
         summary["provisioned"].append({"connection_id": connection.id, "type": connection.type})
+        pending_overlay.append(connection)
 
-        # Trigger overlay sync (best-effort)
-        try:
-            from app.services.data_source_service import DataSourceService
-            ds_service = DataSourceService()
-            for ds in (connection.data_sources or []):
-                await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=user)
-        except Exception as e:
-            logger.warning(f"Overlay sync after OBO provision failed for connection {connection.id}: {e}")
-
+    # Persist the credentials BEFORE the best-effort overlay sync. The sync
+    # touches many lazy relationships; letting it run first means one failure
+    # leaves the session in a rolled-back state and the (successful) OBO
+    # credentials are lost with it — the user then silently has no access.
     if summary["provisioned"]:
         await db.commit()
         logger.info(
             f"OBO auto-provisioned {len(summary['provisioned'])} connection(s) for user {user.id}: "
             f"{[c['connection_id'] for c in summary['provisioned']]}"
         )
+
+    # Trigger overlay sync (best-effort; never fails the provisioning above).
+    for connection in pending_overlay:
+        try:
+            from app.services.data_source_service import DataSourceService
+            ds_service = DataSourceService()
+            for ds in (connection.data_sources or []):
+                await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=user)
+            await db.commit()
+        except Exception as e:
+            logger.warning(f"Overlay sync after OBO provision failed for connection {connection.id}: {e}")
+            await db.rollback()
 
     return summary
 

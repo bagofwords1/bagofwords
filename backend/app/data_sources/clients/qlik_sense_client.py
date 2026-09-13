@@ -25,6 +25,7 @@ Out of scope for v1: on-prem Enterprise on Windows, OAuth2 Authorization Code
 """
 
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 
 import asyncio
 import json
@@ -363,7 +364,8 @@ class QlikSenseClient(DataSourceClient):
 
         return []
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """
         Full-tenant crawl: list_apps() then parallel per-app REST metadata,
         with QIX fallback for apps that don't expose REST metadata.
@@ -374,13 +376,20 @@ class QlikSenseClient(DataSourceClient):
 
         tables: List[Table] = []
         with ThreadPoolExecutor(max_workers=self.max_concurrency) as pool:
-            futures = {pool.submit(self._crawl_app, app): app for app in apps}
-            for fut in as_completed(futures):
-                try:
-                    tables.extend(fut.result() or [])
-                except Exception as e:
-                    app = futures[fut]
-                    logger.warning("Unhandled crawl exception for %s: %s", app.get("id"), e)
+            try:
+                futures = {pool.submit(self._crawl_app, app): app for app in apps}
+                for fut in discovery_items(as_completed(futures), 'applications', label=lambda fut: futures[fut].get('name') or futures[fut].get('id'), total=len(futures)):
+                    try:
+                        tables.extend(fut.result() or [])
+                    except IndexingCancelled:
+                        raise
+                    except Exception as e:
+                        app = futures[fut]
+                        logger.warning("Unhandled crawl exception for %s: %s", app.get("id"), e)
+            except IndexingCancelled:
+                for pending in futures:
+                    pending.cancel()
+                raise
         return tables
 
     def get_schema(self, table_name: str) -> Table:

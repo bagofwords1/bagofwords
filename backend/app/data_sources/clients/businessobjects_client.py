@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 from app.ai.prompt_formatters import Table, TableColumn, ServiceFormatter
 from typing import List, Dict, Optional, Any
@@ -169,12 +170,16 @@ class BusinessObjectsClient(DataSourceClient):
         token = None
         try:
             token = resp.headers.get("X-SAP-LogonToken")
+        except IndexingCancelled:
+            raise
         except Exception:
             token = None
         if not token:
             try:
                 payload = resp.json() or {}
                 token = payload.get("logonToken") or payload.get("logontoken")
+            except IndexingCancelled:
+                raise
             except Exception:
                 token = None
         if token:
@@ -197,6 +202,8 @@ class BusinessObjectsClient(DataSourceClient):
     def _body_snippet(resp) -> str:
         try:
             return (resp.text or "")[:300]
+        except IndexingCancelled:
+            raise
         except Exception:
             return ""
 
@@ -214,7 +221,8 @@ class BusinessObjectsClient(DataSourceClient):
     # Discovery — universes
     # ------------------------------------------------------------------
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         return self.get_tables()
 
     def get_tables(self) -> List[Table]:
@@ -224,7 +232,7 @@ class BusinessObjectsClient(DataSourceClient):
             return self._schemas_cache
 
         tables: List[Table] = []
-        for uni in self._list_universes():
+        for uni in discovery_items(self._list_universes(), 'universes', label=lambda uni: uni.get('name')):
             uid = str(uni.get("id") or "").strip()
             name = uni.get("name") or ""
             if not uid or not name:

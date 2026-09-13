@@ -18,6 +18,7 @@ from app.schemas.completion_v2_schema import (
     ToolExecutionUISchema,
     ToolExecutionDataSourceSchema,
 )
+from app.schemas.agent_icon import resolve_agent_icon_token
 from app.schemas.widget_schema import WidgetSchema
 from app.schemas.step_schema import StepSchema
 from app.schemas.visualization_schema import VisualizationSchema
@@ -85,7 +86,15 @@ def _extract_data_source_ids(tool_execution: ToolExecution) -> List[str]:
 async def _resolve_data_sources(
     db: AsyncSession, ds_ids: List[str]
 ) -> List[ToolExecutionDataSourceSchema]:
-    """Look up DataSource name + first Connection type for a list of DS IDs."""
+    """Look up display info for a list of DS IDs: name, first connection type,
+    and the agent's resolved ``icon_token``.
+
+    Every connection is selected, ordered the same way ``DataSource.connections``
+    is, because the icon of a multi-connection agent depends on all of them (a
+    notion connection gives the agent notion's logo even when it isn't first).
+    The previous version selected one unordered join row, which made both the
+    type and the icon depend on whichever row the database happened to return.
+    """
     if not ds_ids:
         return []
 
@@ -97,22 +106,67 @@ async def _resolve_data_sources(
         select(
             DataSource.id,
             DataSource.name,
+            DataSource.icon,
             Connection.type,
+            Connection.config,
         )
         .join(domain_connection, domain_connection.c.data_source_id == DataSource.id)
         .join(Connection, Connection.id == domain_connection.c.connection_id)
         .where(DataSource.id.in_(ds_ids))
+        .order_by(Connection.created_at, Connection.id)
     )
-    # Take first connection type per DS
-    seen: Dict[str, ToolExecutionDataSourceSchema] = {}
-    for row in rows:
-        ds_id = str(row[0])
-        if ds_id not in seen:
-            seen[ds_id] = ToolExecutionDataSourceSchema(
-                id=ds_id, name=row[1], type=row[2]
-            )
+
+    names: Dict[str, Optional[str]] = {}
+    icons: Dict[str, Optional[str]] = {}
+    conns: Dict[str, List[Dict[str, Any]]] = {}
+    for ds_id_raw, name, icon, conn_type, conn_config in rows:
+        ds_id = str(ds_id_raw)
+        names.setdefault(ds_id, name)
+        icons.setdefault(ds_id, icon)
+        conns.setdefault(ds_id, []).append({"type": conn_type, "config": conn_config})
+
     # Return in original order
-    return [seen[did] for did in ds_ids if did in seen]
+    return [
+        ToolExecutionDataSourceSchema(
+            id=did,
+            name=names[did],
+            type=(conns[did][0]["type"] if conns.get(did) else None),
+            icon_token=resolve_agent_icon_token(icons[did], conns.get(did)),
+        )
+        for did in ds_ids
+        if did in names
+    ]
+
+
+async def resolve_data_sources_for_tool_executions(
+    db: AsyncSession, tool_executions: List[Any]
+) -> Dict[str, List[ToolExecutionDataSourceSchema]]:
+    """Map tool-execution id -> the agents it references, in ONE query for the
+    whole page.
+
+    The per-block async serializer resolves one tool execution at a time, which a
+    list endpoint can't afford; without this the list paths shipped no agents at
+    all and the client was left to guess an icon from whatever else it had. Use
+    this wherever blocks are serialized in bulk.
+    """
+    by_te: Dict[str, List[str]] = {}
+    all_ids: List[str] = []
+    for te in tool_executions or []:
+        if te is None:
+            continue
+        ds_ids = _extract_data_source_ids(te)
+        if ds_ids:
+            by_te[str(te.id)] = ds_ids
+            all_ids.extend(ds_ids)
+    if not all_ids:
+        return {}
+
+    resolved = await _resolve_data_sources(db, list(dict.fromkeys(all_ids)))
+    index = {ds.id: ds for ds in resolved}
+    return {
+        te_id: [index[did] for did in ds_ids if did in index]
+        for te_id, ds_ids in by_te.items()
+    }
 
 
 # How many result rows to embed inline in the completions list as a preview.
@@ -236,8 +290,37 @@ def _tool_execution_schema_data(tool_execution: ToolExecution) -> Dict[str, Any]
         for field in ToolExecutionSchema.model_fields
         if field != "result_json"
     }
-    data["result_json"] = redact_deep_display(
-        project_tool_result_for_ui(getattr(tool_execution, "result_json", None))
+    from app.core.code_visibility import (
+        code_visible_now,
+        redact_tool_arguments,
+        redact_tool_result,
+        redact_tool_timings,
+    )
+
+    _code_ok = code_visible_now()
+    _tool = getattr(tool_execution, "tool_name", None)
+
+    # Per-query timing telemetry embeds the executed statement verbatim, so it
+    # is a code surface in its own right — found by diffing an admin's payload
+    # against a restricted viewer's against a live stack, not by reading code.
+    data["sub_timings_json"] = redact_tool_timings(
+        data.get("sub_timings_json"), _code_ok, _tool
+    )
+
+    # The tool CALL carries code too (e.g. write_csv's `arguments_json.code`),
+    # which the UI reads as a fallback — redacting only the result would leave
+    # the same source one key away.
+    data["arguments_json"] = redact_tool_arguments(
+        data.get("arguments_json"), _code_ok, _tool
+    )
+    # Order matters: project (bound rows) → PII-redact → code-redact. The code
+    # gate runs last so it also covers anything the projection copied forward.
+    data["result_json"] = redact_tool_result(
+        redact_deep_display(
+            project_tool_result_for_ui(getattr(tool_execution, "result_json", None))
+        ),
+        _code_ok,
+        _tool,
     )
     return data
 

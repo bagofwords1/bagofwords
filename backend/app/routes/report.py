@@ -398,9 +398,14 @@ async def notify_report(
     if payload.type in (NotificationType.SHARE_DASHBOARD, NotificationType.SHARE_CONVERSATION) and not payload.share_url:
         raise HTTPException(status_code=400, detail="share_url is required for share notifications")
 
-    # Guard: email channel requires SMTP
-    if NotificationChannel.EMAIL in payload.channels and not app_settings.email_client:
-        raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
+    # Guard: email channel requires a transport. Asked per organization — an org
+    # with its own SMTP server can send even when the global bow-config SMTP is
+    # empty, so this must not key off the startup-global client alone.
+    if NotificationChannel.EMAIL in payload.channels:
+        from app.services.email_client_resolver import is_outbound_available
+
+        if not await is_outbound_available(db, str(organization.id), purpose="system"):
+            raise HTTPException(status_code=400, detail="Email notifications are not available (SMTP not configured)")
 
     # Build share_url for schedule type if not provided
     share_url = payload.share_url or f"{app_settings.bow_config.base_url}/r/{report.id}"
@@ -440,6 +445,10 @@ async def notify_report(
         message=payload.message,
         report_id=str(report.id),
         locale=_locale_from_org(organization),
+        # Without these the share mail bypasses the org's configured SMTP server
+        # and goes out via the global bow-config relay.
+        db=db,
+        organization_id=str(organization.id),
     )
 
     # Audit log

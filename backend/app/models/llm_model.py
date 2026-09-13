@@ -232,6 +232,71 @@ LLM_MODEL_DETAILS = [
         "input_cost_per_million_tokens_usd": 0.30,
         "output_cost_per_million_tokens_usd": 2.50
     },
+    # Google Cloud Vertex AI. A deliberately small, curated subset rather than
+    # a mirror: what a project can actually call depends on which publisher
+    # models its admin enabled in Model Garden and on per-base-model quota, so
+    # the catalog cannot be authoritative here. It exists so that a new
+    # provider has a default to test the connection against and something to
+    # preselect; everything else is added as a custom model (vertex model ids
+    # are admin-owned — see EDITABLE_MODEL_ID_PROVIDER_TYPES).
+    #
+    # The ids are intentionally the same strings the first-party catalogs use,
+    # so the same model has one name across providers. LLMModel._get_static_details
+    # matches on model_id alone and will resolve such a duplicate to the
+    # first-party entry — harmless, because Vertex list pricing matches
+    # first-party for both families.
+    {
+        "name": "Gemini 3.8 Flash",
+        "model_id": "gemini-3.8-flash",
+        "provider_type": "vertex",
+        "is_preset": True,
+        "is_enabled": True,
+        # Gemini carries both defaults: it is the cheapest verified-working
+        # family here, and unlike the Pro channel its ids are not previews.
+        "is_default": True,
+        "is_small_default": True,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        "input_cost_per_million_tokens_usd": 1.50,
+        "output_cost_per_million_tokens_usd": 7.50
+    },
+    {
+        # The Pro tier has no stable id — as on the Gemini Developer API, it is
+        # preview-only. Selectable but deliberately not a default: the previous
+        # id (gemini-3-pro-preview) already 404s on Vertex, which is exactly the
+        # failure a default must not be exposed to.
+        "name": "Gemini 3.1 Pro Preview",
+        "model_id": "gemini-3.1-pro-preview",
+        "provider_type": "vertex",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "is_small_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1048576,
+        "max_output_tokens": 65536,
+        # Tiered: $4.00 / $18.00 above a 200k-token prompt.
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 12.00
+    },
+    {
+        "name": "Claude Sonnet 5",
+        "model_id": "claude-sonnet-5",
+        "provider_type": "vertex",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "input_cost_per_million_tokens_usd": 3.00,
+        "output_cost_per_million_tokens_usd": 15.00
+    },
+    # Third-party MaaS models (xai/grok-*, zai-org/glm-*, meta/llama-*) are
+    # deliberately NOT in the catalog: each needs its own Model Garden
+    # enablement before it resolves at all, and they carry no list price we can
+    # report. The OpenAI-compatible transport that serves them is still wired
+    # (see LLM._build_vertex_client) — add one as a custom model to use it.
     {
         # Image-generation model (produces images), not a chat model. Gated by
         # supports_image_generation; consumed by LLM.generate_image / the

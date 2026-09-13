@@ -4,6 +4,7 @@ from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
 from anthropic import Anthropic as AnthropicAPI, AsyncAnthropic
+from anthropic import AnthropicVertex as AnthropicVertexAPI, AsyncAnthropicVertex
 
 from app.ai.llm.clients.base import LLMClient
 from app.ai.llm.image_utils import normalize_image_input
@@ -53,20 +54,41 @@ def _accepts_temperature(model_id: str) -> bool:
 
 
 class Anthropic(LLMClient):
-    def __init__(self, api_key: str, base_url: str = None, temperature: Optional[float] = None,
-                 default_headers: Optional[dict] = None):
+    def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
+                 default_headers: Optional[dict] = None, vertex: Optional[dict] = None):
         super().__init__()
         # base_url was accepted but silently dropped here, so every caller got
         # api.anthropic.com no matter what it asked for. It is a real routing
         # input: Anthropic models hosted on Azure AI Foundry answer the same
         # Messages API under ``<resource>/anthropic/v1``.
-        client_kwargs: dict = {"api_key": api_key}
-        if base_url:
-            client_kwargs["base_url"] = base_url
-        if default_headers:
-            client_kwargs["default_headers"] = default_headers
-        self.client = AnthropicAPI(**client_kwargs)
-        self.async_client = AsyncAnthropic(**client_kwargs)
+        #
+        # ``vertex`` swaps the transport for Claude models hosted on Google
+        # Cloud Vertex AI: {"project_id", "region", "credentials"}. Vertex
+        # speaks the same Messages API, so only client construction differs —
+        # every request builder, translator and usage reader below is shared.
+        # base_url is always supplied by the caller (app.ai.llm.clients.
+        # vertex_auth) because the pinned SDK mis-derives the non-regional
+        # endpoints; see that module for why.
+        if vertex:
+            client_kwargs: dict = {
+                "project_id": vertex["project_id"],
+                "region": vertex.get("region") or "global",
+                "credentials": vertex.get("credentials"),
+            }
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            if default_headers:
+                client_kwargs["default_headers"] = default_headers
+            self.client = AnthropicVertexAPI(**client_kwargs)
+            self.async_client = AsyncAnthropicVertex(**client_kwargs)
+        else:
+            client_kwargs = {"api_key": api_key}
+            if base_url:
+                client_kwargs["base_url"] = base_url
+            if default_headers:
+                client_kwargs["default_headers"] = default_headers
+            self.client = AnthropicAPI(**client_kwargs)
+            self.async_client = AsyncAnthropic(**client_kwargs)
         self.max_tokens = 32768
         # Admin-configured override, or the historical default. Either way the
         # _accepts_temperature gate stays authoritative: model families that

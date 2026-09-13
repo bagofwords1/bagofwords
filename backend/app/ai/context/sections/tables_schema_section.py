@@ -975,6 +975,107 @@ class TablesSchemaContext(ContextSection):
                 tables_xml = [render_table(t) for t in top_tables]
                 return xml_tag("tables", "\n".join(tables_xml))
 
+        @staticmethod
+        def _connection_key(t):
+            """Identity of the connection a table came from: (id, name).
+
+            BOTH halves are load-bearing, for opposite reasons:
+
+            * the id, because two connections can share a display name, and an
+              agent cannot tell apart — or scope describe_tables to — connections
+              it sees as one;
+            * the name, because one physical connection can expose two client
+              identities, the live source and its ``::fast`` sibling serving
+              materialized custom queries. They share a connection_id on
+              purpose, so keying on the id alone merges them under whichever
+              name comes first and points half the tables at a client that
+              cannot serve them.
+
+            Same key as `_group_tables_by_connection`, whose docstring covers
+            the second case; the two must agree or the roster names connections
+            the <connection> blocks do not.
+            """
+            cid = getattr(t, 'connection_id', None)
+            name = getattr(t, 'connection_name', None) or None
+            if not cid and not name:
+                return None
+            return (str(cid) if cid else "", name or "")
+
+        def _connection_roster(self) -> list:
+            """(id, name, type, table_count) per connection, in first-seen order.
+
+            Derived from `self.tables` — the SCOPED table set — and never from
+            the data source's connection list. A connection this caller is
+            denied contributes no tables, so it contributes no roster entry
+            either; reading the agent's connections directly would name it and
+            undo the per-user scoping the builder just applied.
+            """
+            seen: dict = {}
+            for t in (self.tables or []):
+                key = self._connection_key(t)
+                if not key:
+                    continue
+                entry = seen.get(key)
+                if entry is None:
+                    cid = getattr(t, 'connection_id', None)
+                    seen[key] = {"key": key,
+                                 "id": str(cid) if cid else "",
+                                 "name": getattr(t, 'connection_name', None) or "",
+                                 "type": getattr(t, 'connection_type', None) or "",
+                                 "count": 1,
+                                 "alias": str(len(seen) + 1)}
+                else:
+                    entry["count"] += 1
+            return list(seen.values())
+
+        def _render_connections_roster_xml(self, full_cap: int = 200) -> str:
+            """Every connection this caller can see, named, with its table count.
+
+            Only the top-K tables render inside a <connection> block and the
+            index is capped, so on a large agent both are a SAMPLE: at 100
+            connections x 100 tables the agent saw 10 connections and had no
+            way to learn the other 90 existed — it answered "1 connection" for
+            a three-connection agent and would answer "10" for a hundred. The
+            roster is the complete list, and it is what makes describe_tables
+            (which already takes connection_ids) reachable for the tail.
+
+            Mirrors <available_agents>/<more_agents>, which solves the same
+            problem one level up for agents.
+            """
+            roster = self._connection_roster()
+            if len(roster) < 2:
+                return ""   # single-connection agents already read unambiguously
+            head = roster[:full_cap]
+            lines = [f'<connections count="{len(roster)}">']
+            for c in head:
+                lines.append(
+                    f'  <connection c="{c["alias"]}" id="{xml_escape(c["id"])}" '
+                    f'name="{xml_escape(c["name"])}" '
+                    f'type="{xml_escape(c["type"])}" tables="{c["count"]}"/>'
+                )
+            tail = roster[full_cap:]
+            if tail:
+                # Past the cap: id and name only, no type or table count. The id
+                # is the half that cannot be dropped — describe_tables takes
+                # connection_ids, so a connection listed by name alone is one the
+                # agent can see but not query, which is worse than not listing
+                # it. Same trade <more_agents> makes, with the id kept.
+                lines.append(f'  <more_connections count="{len(tail)}">')
+                for c in tail:
+                    lines.append(
+                        f'    <connection c="{c["alias"]}" id="{xml_escape(c["id"])}" '
+                        f'name="{xml_escape(c["name"])}"/>'
+                    )
+                lines.append('  </more_connections>')
+            lines.append(
+                '  ALL connections on this agent are listed above; the sample and '
+                'index below are a subset. Index items carry c="N" matching the c '
+                'attribute here. Reach any connection\'s tables with '
+                'describe_tables(connection_ids=[...]) using the id attribute.'
+            )
+            lines.append("</connections>")
+            return "\n".join(lines)
+
         def _render_names_index(self, index_limit: int = 200) -> str:
             tables = list(self.tables or [])
             if not tables:
@@ -982,11 +1083,40 @@ class TablesSchemaContext(ContextSection):
             # Build nested <item> elements with minimal metrics
             items_xml: List[str] = []
             cap = max(0, index_limit)
+            # An ALIAS, not the name. Spelling the connection out on every item
+            # cost 30-52 bytes each — at the 1000-item cap that was 30-52 KB,
+            # around a third of the whole rendered context, to repeat a handful
+            # of strings a thousand times. The roster above maps c="N" back to
+            # the name once.
+            alias_by_key = {c["key"]: c["alias"] for c in self._connection_roster()}
+            name_connections = len(alias_by_key) > 1
+            if cap and len(tables) > cap and len(alias_by_key) > 1:
+                # Round-robin the cap across connections instead of taking the
+                # global top N. Rank-ordered truncation clusters: at 100
+                # connections x 100 tables the first 1000 rows all came from the
+                # same handful of connections, so ninety connections had every
+                # one of their tables cut and vanished from the agent's view
+                # entirely. Interleaving gives each connection an equal share,
+                # so a connection loses depth rather than existence. Order
+                # WITHIN each connection is preserved, so the best tables of
+                # each still come first.
+                from itertools import zip_longest
+                buckets: dict = {}
+                for t in tables:
+                    buckets.setdefault(self._connection_key(t) or "", []).append(t)
+                tables = [
+                    t for row in zip_longest(*buckets.values())
+                    for t in row if t is not None
+                ]
             for t in tables[:cap if cap > 0 else len(tables)]:
                 attrs = {
                     "name": t.name,
                     "cols": str(len(getattr(t, 'columns', []) or [])),
                 }
+                if name_connections:
+                    alias = alias_by_key.get(self._connection_key(t))
+                    if alias:
+                        attrs["c"] = alias
                 try:
                     if getattr(t, 'score', None) is not None:
                         attrs["score"] = str(round(float(getattr(t, 'score')), 2))
@@ -1052,6 +1182,13 @@ class TablesSchemaContext(ContextSection):
             status_xml = ds._render_status_xml()
             if status_xml:
                 inner_parts.append(status_xml)
+            # Before the sample: the sample and index are both capped, so the
+            # roster is the only complete statement of what this agent connects
+            # to, and the model should read it before drawing conclusions from
+            # a truncated list.
+            roster_xml = ds._render_connections_roster_xml()
+            if roster_xml:
+                inner_parts.append(roster_xml)
             if getattr(ds.info, 'context', None):
                 inner_parts.append(xml_tag("description", xml_escape(ds.info.context)))
             if sample_xml:

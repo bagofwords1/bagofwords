@@ -1,4 +1,6 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_phase
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients.progress import make_reporter, IndexingCancelled
 
 import pandas as pd
 import sqlalchemy
@@ -92,15 +94,21 @@ class PostgresqlClient(DataSourceClient):
             print(f"Error executing SQL: {e}")
             raise
 
-    def get_tables(self) -> List[Table]:
+    def get_tables(self, progress_callback=None) -> List[Table]:
         """Get tables with graceful fallback if enriched query fails."""
         try:
-            return self._get_tables_enriched()
+            return self._get_tables_enriched(progress_callback) if progress_callback else self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
-            return self._get_tables_basic()
+            make_reporter(progress_callback).phase("metadata_fallback")
+            return self._get_tables_basic(progress_callback) if progress_callback else self._get_tables_basic()
 
-    def _get_tables_enriched(self) -> List[Table]:
+    def _get_tables_enriched(self, progress_callback=None) -> List[Table]:
         """Get tables with column/table comments via pg_description. May fail on some configurations."""
+        discovery_phase('reading_columns')
+        reporter = make_reporter(progress_callback)
+        reporter.phase("reading_columns")
         with self.connect() as conn:
             params = {"database": self.database}
             where_clauses = [
@@ -137,10 +145,12 @@ class PostgresqlClient(DataSourceClient):
             result = conn.execute(sql, params).fetchall()
 
             tables = {}
+            reporter.phase("processing_columns", total=len(result))
             for row in result:
                 table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
+                reporter.tick(f"{fqn}.{column_name}")
                 if key not in tables:
                     tables[key] = Table(
                         name=fqn,
@@ -158,8 +168,11 @@ class PostgresqlClient(DataSourceClient):
 
             # Materialized views are not exposed via information_schema, so fetch
             # them separately from pg_catalog and merge into the result.
+            reporter.phase("materialized_views")
             self._append_materialized_views(conn, tables, with_comments=True)
+            reporter.phase("relationships", total=len(tables))
             self._attach_foreign_keys(conn, tables)
+            reporter.done()
             return list(tables.values())
 
     def _append_materialized_views(self, conn, tables: dict, with_comments: bool) -> None:
@@ -236,8 +249,11 @@ class PostgresqlClient(DataSourceClient):
                 description=col_comment
             ))
 
-    def _get_tables_basic(self) -> List[Table]:
+    def _get_tables_basic(self, progress_callback=None) -> List[Table]:
         """Get tables without comments (original query - always works)."""
+        discovery_phase('metadata_fallback')
+        reporter = make_reporter(progress_callback)
+        reporter.phase("reading_columns")
         try:
             with self.connect() as conn:
                 params = {"database": self.database}
@@ -263,10 +279,12 @@ class PostgresqlClient(DataSourceClient):
                 result = conn.execute(sql, params).fetchall()
 
                 tables = {}
+                reporter.phase("processing_columns", total=len(result))
                 for row in result:
                     table_schema, table_name, column_name, data_type = row
                     key = (table_schema, table_name)
                     fqn = f"{table_schema}.{table_name}"
+                    reporter.tick(f"{fqn}.{column_name}")
                     if key not in tables:
                         tables[key] = Table(
                             name=fqn, columns=[], pks=[], fks=[], metadata_json={"schema": table_schema}
@@ -274,9 +292,14 @@ class PostgresqlClient(DataSourceClient):
                     tables[key].columns.append(TableColumn(name=column_name, dtype=data_type))
 
                 # Materialized views are absent from information_schema; merge them in.
+                reporter.phase("materialized_views")
                 self._append_materialized_views(conn, tables, with_comments=False)
+                reporter.phase("relationships", total=len(tables))
                 self._attach_foreign_keys(conn, tables)
+                reporter.done()
                 return list(tables.values())
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
@@ -300,9 +323,10 @@ class PostgresqlClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
-        """Get schemas for all tables in the specified database."""
-        return self.get_tables()
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
+        """Discover metadata with phase updates and no additional queries."""
+        return self.get_tables(progress_callback) if progress_callback else self.get_tables()
 
     def prompt_schema(self):
         schemas = self.get_schemas()

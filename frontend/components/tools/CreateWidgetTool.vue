@@ -230,7 +230,9 @@ const progressStageLabel = computed(() => {
 const dataModelType = computed(() => props.toolExecution.result_json?.data_model?.type || null)
 const dataModelColumns = computed(() => props.toolExecution.result_json?.data_model?.columns || [])
 
-const codeContent = computed(() => props.toolExecution?.created_step?.code || props.toolExecution.result_json?.code || '')
+// Gated on `view_code`; the server redacts the same fields server-side.
+const canViewCode = useCanViewCode()
+const codeContent = computed(() => !canViewCode.value ? '' : (props.toolExecution?.created_step?.code || props.toolExecution.result_json?.code || ''))
 const successDetails = computed(() => {
   if (status.value !== 'success') return null
   const totalRows = props.toolExecution.result_json?.stats?.total_rows || props.toolExecution.result_json?.widget_data?.info?.total_rows

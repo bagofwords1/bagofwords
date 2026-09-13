@@ -14,7 +14,7 @@
             {{ $t('tools.createData.bowSource') }}
           </span>
           <button
-            v-if="queryId && canEditCode && (canEdit || !readonly)"
+            v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
             @click.stop="onEditClick"
             class="text-xs px-2 py-0.5 text-gray-400 rounded transition-colors flex items-center"
             :title="$t('tools.widgetPreview.editQueryCode')"
@@ -263,7 +263,7 @@
 
                     <!-- Edit button -->
                     <button
-                      v-if="queryId && canEditCode && (canEdit || !readonly)"
+                      v-if="queryId && canRunCustomCode && (canEdit || !readonly)"
                       @click="onEditClick"
                       class="text-xs px-2 py-1 text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700 rounded transition-colors flex items-center"
                       :title="$t('tools.widgetPreview.editCode')"
@@ -424,7 +424,6 @@
 import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
-import { useOrgSettings } from '~/composables/useOrgSettings'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
@@ -464,7 +463,10 @@ const props = defineProps<{
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
-const { canEditCode } = useOrgSettings()
+// The "edit query" affordance needs both: something to show (`view_code`) and
+// the right to change it (`run_custom_code`, enforced on the run route).
+const canRunCustomCode = useCanRunCustomCode()
+const canViewCode = useCanViewCode()
 const { isExcel } = useExcel()
 const { t } = useI18n()
 const toast = useToast()
@@ -1063,11 +1065,15 @@ const hasData = computed(() => {
   return !!effectiveStep.value
 })
 
-// Check if code is available
-const hasCode = computed(() => !!effectiveStep.value?.code)
+// Check if code is available. The permission is part of the condition, not just
+// the presence of a string: the server already redacts `code` to null, so this
+// is the belt to that braces — a payload cached client-side from before a role
+// change (or optimistic state from the live stream) must not resurrect the tab.
+const hasCode = computed(() => canViewCode.value && !!effectiveStep.value?.code)
 
 // Executed queries from backend (captured from client.execute_query calls)
 const executedQueries = computed(() => {
+  if (!canViewCode.value) return []
   const queries = props.toolExecution?.result_json?.executed_queries
   return Array.isArray(queries) ? queries : []
 })
