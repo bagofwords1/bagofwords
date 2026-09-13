@@ -885,20 +885,11 @@ class AgentV2:
             usage_session_maker=async_session_maker,
             usage_context=self.usage_limit_context,
         )
-        # Initialize Judge using ContextHub's instruction builder
-        self.judge = Judge(
-            model=self.small_model,
-            organization_settings=self.organization_settings,
-            instruction_context_builder=self.context_hub.instruction_builder,
-            usage_session_maker=async_session_maker,
-            # Do NOT pass usage_context here. The Judge scores via
-            # asyncio.to_thread(llm.inference) (a worker thread), which routes the
-            # sync quota check through UsageLimitContext.run_blocking(). With no
-            # loop bound on the context that spins up a throwaway event loop and
-            # contends for the context's _cache_lock (created on the main loop),
-            # raising "Lock is bound to a different event loop" mid-run. Token
-            # recording still works via usage_session_maker.
-        )
+        # NOTE: no Judge instance is built here. Background scoring constructs
+        # its own short-lived Judge per phase (see _run_early_scoring_background
+        # / _run_late_scoring_background), each on self.small_model. An eagerly
+        # built self.judge sat unused here and only invited scoring paths to
+        # diverge from it on which model they billed.
 
         # Knowledge harness phase replaces the legacy SuggestInstructions post-loop generator.
         # See _run_knowledge_harness for the agentic post-analysis reflection flow.
@@ -1681,7 +1672,13 @@ class AgentV2:
             # only retry the write, never re-run the model.
             if self._llm_judgement_enabled():
                 judge = Judge(
-                    model=self.model,
+                    # Must be small_model, not self.model: _llm_judgement_enabled()
+                    # gates on judge_model_allowed(self.small_model), whose whole
+                    # point is that background scoring of live chat never gets
+                    # billed to the org's big default. self.model is also mutated
+                    # by _apply_effective_model() on routing escalation/fallback,
+                    # which would make the judge's model vary per run.
+                    model=self.small_model,
                     organization_settings=self.organization_settings,
                     usage_session_maker=async_session_maker,
                     # No usage_context: Judge runs in a worker thread; routing the
@@ -1711,7 +1708,8 @@ class AgentV2:
             # loop so a locked-SQLite write never triggers a redundant model call.
             if self._llm_judgement_enabled():
                 judge = Judge(
-                    model=self.model,
+                    # small_model, not self.model — see note in early scoring.
+                    model=self.small_model,
                     organization_settings=self.organization_settings,
                     usage_session_maker=async_session_maker,
                     # No usage_context: see note above (cross-loop _cache_lock).
