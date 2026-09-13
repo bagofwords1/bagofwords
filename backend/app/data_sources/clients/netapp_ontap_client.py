@@ -23,6 +23,7 @@ import requests
 
 from app.ai.prompt_formatters import ForeignKey, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
+from app.data_sources.clients.progress import discovery_items, discovery_progress
 
 
 class OntapQueryError(ValueError):
@@ -151,8 +152,12 @@ Counter tables expose raw samples and definitions: use counter metadata and two 
 Use coverage_report() for documented exclusions and observed availability; this connector has simulated-API verification, not appliance certification."""
 
     def get_tables(self):
-        return [self.get_schema(n) for n in _catalog()["resources"]] + [self.get_schema("volume_aggregates")]
+        # The catalog is a local JSON contract, so every table is known up front
+        # and discovery reports a bounded count rather than an open spinner.
+        names = list(_catalog()["resources"]) + ["volume_aggregates"]
+        return [self.get_schema(n) for n in discovery_items(names, "tables", label=str)]
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None):
         return self.get_tables()
 
