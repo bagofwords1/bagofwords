@@ -10,7 +10,7 @@
         <!-- Top tabs -->
         <nav class="px-4 flex items-center space-x-4 border-b flex-shrink-0">
           <button
-            v-if="canEditCode"
+            v-if="canViewCode"
             class="py-2 text-xs transition-colors border-b-2 -mb-px"
             :class="activeTab === 'code' ? 'text-blue-600 border-blue-600 font-medium' : 'text-gray-500 dark:text-gray-400 border-transparent hover:text-gray-700 dark:hover:text-gray-300'"
             @click="activeTab = 'code'"
@@ -25,7 +25,7 @@
                part of the query — declarations + code must stay consistent);
                this button only shows/hides the sidebar. -->
           <button
-            v-if="canEditCode && activeTab === 'code'"
+            v-if="canRunCustomCode && activeTab === 'code'"
             class="ms-auto my-1.5 px-2.5 py-1 text-[11px] rounded border transition-colors"
             data-testid="params-tab"
             :class="paramsSidebarOpen ? 'bg-blue-600 text-white border-blue-600' : 'text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800'"
@@ -35,7 +35,7 @@
 
         <!-- Content -->
         <section class="flex-1 flex flex-col overflow-hidden min-h-0">
-          <div v-if="canEditCode && activeTab === 'code'" class="h-full flex overflow-hidden">
+          <div v-if="canViewCode && activeTab === 'code'" class="h-full flex overflow-hidden">
            <div class="flex-1 min-w-0 h-full flex flex-col">
             <!-- Editor section - exactly half height, fixed and non-scrollable -->
             <div class="h-1/2 p-4 flex flex-col border-b">
@@ -44,13 +44,13 @@
                   <MonacoEditor
                     v-model="editorCode"
                     lang="python"
-                    :options="{ theme: 'vs', automaticLayout: false, minimap: { enabled: false }, wordWrap: 'on' }"
+                    :options="{ theme: 'vs', automaticLayout: false, minimap: { enabled: false }, wordWrap: 'on', readOnly: !canRunCustomCode }"
                     style="height: 100%"
                   />
                 </div>
               </ClientOnly>
               <div v-if="errorMsg" class="mt-2 text-xs text-red-600">{{ errorMsg }}</div>
-              <div class="mt-3 flex items-center justify-end space-x-2">
+              <div v-if="canRunCustomCode" class="mt-3 flex items-center justify-end space-x-2">
                 <button class="px-3 py-1.5 text-xs rounded bg-gray-800 text-white hover:bg-gray-700" :disabled="running" @click="runNewStep">
                   <span v-if="running && runMode === 'save'">Saving…</span>
                   <span v-else>
@@ -222,7 +222,6 @@ import QueryParamsPanel from './QueryParamsPanel.vue'
 import {
   cleanParamSpecs, collectTestValues, zeroRowsHint as zeroRowsHintFor,
 } from '~/composables/useQueryParams'
-import { useOrgSettings } from '~/composables/useOrgSettings'
 
 interface Props {
   visible: boolean
@@ -256,9 +255,14 @@ const open = computed({
   }
 })
 
-const { canEditCode } = useOrgSettings()
+// Two distinct gates: `view_code` shows the Query tab at all, `run_custom_code`
+// allows editing and executing it. Both are enforced server-side (the code is
+// redacted out of the payload, and the run/preview routes 403) — these only
+// decide what to render.
+const canViewCode = useCanViewCode()
+const canRunCustomCode = useCanRunCustomCode()
 
-const activeTab = ref<'code' | 'visuals'>(canEditCode.value ? 'code' : 'visuals')
+const activeTab = ref<'code' | 'visuals'>(canViewCode.value ? 'code' : 'visuals')
 
 // ── Query parameters ────────────────────────────────────────────────────────
 // Declared ParamSpec rows (persisted on the Query via Save) + test values for
@@ -306,7 +310,7 @@ function collectedTestValues(): Record<string, any> {
   return collectTestValues(paramSpecs.value, paramTestValues.value)
 }
 
-watch(canEditCode, (v) => {
+watch(canViewCode, (v) => {
   if (!v) activeTab.value = 'visuals'
 })
 
@@ -408,7 +412,7 @@ watch(() => props.visible, async (v) => {
     errorMsg.value = ''
     preview.value = null
     currentStepId.value = props.stepId || null
-    if (!canEditCode.value) activeTab.value = 'visuals'
+    if (!canViewCode.value) activeTab.value = 'visuals'
     appliedParams.value = null
     await syncQueryIdOnOpen()
     await loadQueryData()

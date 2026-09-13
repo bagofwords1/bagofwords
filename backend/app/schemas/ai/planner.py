@@ -175,6 +175,12 @@ class PlannerInput(BaseModel):
     # so it knows not to attempt to retrieve raw values.
     allow_llm_see_data: bool = True
 
+    # RBAC: when False, the asker's role withholds `view_code`, so the backend
+    # strips generated code out of every payload they receive. Surfaced to the
+    # planner so the prose answer matches — otherwise the model happily pastes
+    # the same SQL into a markdown fence, which no serializer can redact.
+    can_view_code: bool = True
+
     # Feature flags
     mcp_tools_enabled: bool = False
     web_fetch_enabled: bool = False

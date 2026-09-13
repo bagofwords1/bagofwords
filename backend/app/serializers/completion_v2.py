@@ -290,8 +290,37 @@ def _tool_execution_schema_data(tool_execution: ToolExecution) -> Dict[str, Any]
         for field in ToolExecutionSchema.model_fields
         if field != "result_json"
     }
-    data["result_json"] = redact_deep_display(
-        project_tool_result_for_ui(getattr(tool_execution, "result_json", None))
+    from app.core.code_visibility import (
+        code_visible_now,
+        redact_tool_arguments,
+        redact_tool_result,
+        redact_tool_timings,
+    )
+
+    _code_ok = code_visible_now()
+    _tool = getattr(tool_execution, "tool_name", None)
+
+    # Per-query timing telemetry embeds the executed statement verbatim, so it
+    # is a code surface in its own right — found by diffing an admin's payload
+    # against a restricted viewer's against a live stack, not by reading code.
+    data["sub_timings_json"] = redact_tool_timings(
+        data.get("sub_timings_json"), _code_ok, _tool
+    )
+
+    # The tool CALL carries code too (e.g. write_csv's `arguments_json.code`),
+    # which the UI reads as a fallback — redacting only the result would leave
+    # the same source one key away.
+    data["arguments_json"] = redact_tool_arguments(
+        data.get("arguments_json"), _code_ok, _tool
+    )
+    # Order matters: project (bound rows) → PII-redact → code-redact. The code
+    # gate runs last so it also covers anything the projection copied forward.
+    data["result_json"] = redact_tool_result(
+        redact_deep_display(
+            project_tool_result_for_ui(getattr(tool_execution, "result_json", None))
+        ),
+        _code_ok,
+        _tool,
     )
     return data
 

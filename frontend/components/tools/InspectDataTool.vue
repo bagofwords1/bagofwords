@@ -179,8 +179,12 @@ const duration = computed<string>(() => {
   return `${(ms / 1000).toFixed(1)}s`
 })
 
-// Code: prefer final result, fall back to streamed progress code
+// Code: prefer final result, fall back to streamed progress code.
+// Gated on `view_code`; the section is `v-if="code"` so an empty string already
+// removes the whole disclosure row, header included.
+const canViewCode = useCanViewCode()
 const code = computed<string>(() => {
+  if (!canViewCode.value) return ''
   const rj = props.toolExecution?.result_json || {}
   return rj.code || (props.toolExecution as any).progress_code || ''
 })

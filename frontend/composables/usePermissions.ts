@@ -21,6 +21,14 @@ const ORG_PERM_IMPLIES_RESOURCE: Record<string, Record<string, string[]>> = {
   manage_connections:  { connection: ['manage_connection', 'create_data_sources'] },
 }
 
+// Mirror of backend ORG_PERM_IMPLIES_ORG in app/core/permission_resolver.py.
+// The resolver already closes the set server-side, so this is belt-and-braces
+// for any path that reads a role's raw permission list (e.g. the role editor
+// preview) rather than a resolved one.
+const ORG_PERM_IMPLIES_ORG: Record<string, string[]> = {
+  run_custom_code: ['view_code'],
+}
+
 const isImpliedByOrgPerm = (
   orgPerms: string[],
   resourceType: string,
@@ -73,8 +81,11 @@ export const useCan = (permission: string, resource?: { type: string; id: string
   if (permissions.value.includes('full_admin_access')) return true
 
   if (!resource) {
-    // Org-level check
-    return permissions.value.includes(permission)
+    // Org-level check, closed over the org→org implication map.
+    if (permissions.value.includes(permission)) return true
+    return permissions.value.some(
+      (held) => ORG_PERM_IMPLIES_ORG[held]?.includes(permission),
+    )
   }
 
   // Resource-level check (with org-perm implication tier)
@@ -214,3 +225,16 @@ export const useCanAny = (permission: string, resourceType?: string) => {
   }
   return false
 }
+
+// Generated code (SQL/Python) visibility. The backend redacts `code` out of
+// every payload for a user without `view_code`, so these only decide whether to
+// render the affordance — they are never the boundary.
+//
+// Returned as computeds, matching the convention elsewhere: `useCan` reads
+// permission state that loads asynchronously, so a value captured once in
+// `<script setup>` would be stuck at whatever it was before whoami resolved.
+export const useCanViewCode = () => computed(() => useCan('view_code'))
+
+// Editing and executing caller-supplied code. Enforced server-side on the
+// query run/preview routes; `run_custom_code` implies `view_code`.
+export const useCanRunCustomCode = () => computed(() => useCan('run_custom_code'))

@@ -19,7 +19,6 @@ type OrganizationSettingsResponse = {
     ai_features?: Record<string, Feature>
     allow_llm_see_data?: Feature
     allow_file_upload?: Feature
-    allow_code_editing?: Feature
     enable_llm_judgement?: Feature
     [key: string]: any
   }
@@ -88,7 +87,6 @@ export const useOrgSettings = () => {
 
   const isJudgeEnabled = computed(() => featureEnabled(getFeature('enable_llm_judgement')))
   const canUploadFiles = computed(() => featureEnabled(getFeature('enable_file_upload')))
-  const canEditCode = computed(() => featureEnabled(getFeature('enable_code_editing')))
   const isMcpEnabled = computed(() => featureEnabled(getFeature('mcp_enabled')))
   const isMcpToolsEnabled = computed(() => featureEnabled(getFeature('enable_mcp_tools')))
   const allowLlmSeeData = computed(() => featureEnabled(getFeature('allow_llm_see_data')))
@@ -104,7 +102,6 @@ export const useOrgSettings = () => {
     // flags
     isJudgeEnabled,
     canUploadFiles,
-    canEditCode,
     isMcpEnabled,
     isMcpToolsEnabled,
     allowLlmSeeData,
