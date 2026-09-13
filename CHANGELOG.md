@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.559 (September 13, 2026)
+- Connection setup and management are now one flow with an explicit account scope: connecting, signing in and managing a connection share a single screen, cards are compact, organization vs. personal accounts and per-user sign-in state are spelled out, failures are styled as failures rather than empty states, and schema discovery reports bounded progress across connectors. The agent landing page shows which connections it can reach, and an agent's description gets its own full-width block (#1119)
+- Fixed delegated (user_required) connections: the paginated schema read now warms a user's catalog overlay like its non-paginated twin, so an agent's Select Tables step no longer renders "No tables found" against a fully indexed connection; a failed post-login overlay sync no longer discards the OBO credentials it was provisioned with; and the OAuth redirect_uri honors X-Forwarded-Host, so sign-in works behind a proxy that rewrites Host (#1119)
+- Added HubSpot's hosted CRM MCP server as a one-click catalog preset, connected through an admin-registered HubSpot app (client id/secret) with read-only CRM scopes by default; tools are discovered per connection rather than declared up front (#1120)
+- Added a NetApp ONTAP connector, shipping as beta: inventory, topology, performance, events and other diagnostics from an on-premises cluster are cataloged as 466 selectable tables against the ONTAP 9.14.1 REST contract, queried read-only with verified TLS, explicit scoping and time/row/response budgets, and returned with missing values, source identity and query provenance preserved. Verified against a simulator, not yet against a customer appliance (#1122)
+- Dark mode now covers the report view, the AgGrid tables and the query panel: grid cells, headers and borders inherit the app's theme tokens instead of balham's palette, and rendered markdown, badges and the instructions popover get dark variants (#1123)
+
 ## Version 0.0.558 (September 12, 2026)
 - Training mode can also edit what it produces: edit_doc, edit_artifact, read_artifact, read_query and add_parameter are available there, not just create_doc and create_artifact (#1104)
 - The Power BI connection test walks further past unqueryable models, falls back to the known catalog for delegated access, and names the models that answered 404 instead of failing generically (#1105)
