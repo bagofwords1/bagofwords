@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import threading
 import time
 from datetime import datetime
@@ -83,6 +84,31 @@ def _start_background_loop() -> asyncio.AbstractEventLoop:
     return loop
 
 
+#: How many indexing runs may crawl a source at once.
+#: Creating connections in bulk (an import, a scripted rollout) dispatched one
+#: job per connection with nothing holding them back, so 100 new SharePoint
+#: connections opened 100 simultaneous Graph crawls — enough to saturate the
+#: loop and the outbound pool, and to slow down unrelated requests (including
+#: an in-flight login) for minutes. Jobs still start immediately; they just
+#: queue on this gate instead of all crawling at once.
+#: Override with BOW_INDEXING_CONCURRENCY.
+_INDEXING_CONCURRENCY = max(1, int(os.environ.get("BOW_INDEXING_CONCURRENCY", "4")))
+_indexing_gate: "asyncio.Semaphore | None" = None
+_indexing_gate_lock = threading.Lock()
+
+
+def _get_indexing_gate() -> asyncio.Semaphore:
+    """The concurrency gate, created on first use.
+
+    Only ever awaited from the background loop, so a single instance is safe.
+    """
+    global _indexing_gate
+    with _indexing_gate_lock:
+        if _indexing_gate is None:
+            _indexing_gate = asyncio.Semaphore(_INDEXING_CONCURRENCY)
+        return _indexing_gate
+
+
 def _get_background_loop() -> asyncio.AbstractEventLoop:
     global _background_loop
     with _background_loop_lock:
@@ -96,9 +122,13 @@ def shutdown_background_loop(timeout: float = 5.0) -> None:
     a leaked indexing job from holding a Postgres `idle in transaction` lock
     across test boundaries (which blocks the per-test schema reset).
     """
-    global _background_loop
+    global _background_loop, _indexing_gate
     with _background_loop_lock:
         loop = _background_loop
+        # The gate belongs to the loop it was created on; drop it alongside so
+        # the next loop builds a fresh one.
+        with _indexing_gate_lock:
+            _indexing_gate = None
         if loop is None or loop.is_closed():
             _background_loop = None
             return
@@ -296,6 +326,16 @@ class ConnectionIndexingService:
         return row
 
     async def _run(self, indexing_id: str) -> None:
+        """Gate wrapper around `_run_inner`.
+
+        Runs queue on `_get_indexing_gate()` so a bulk dispatch (N connections
+        created at once) crawls a few sources at a time instead of all N. The
+        row stays PENDING while queued, which is what the UI already renders.
+        """
+        async with _get_indexing_gate():
+            await self._run_inner(indexing_id)
+
+    async def _run_inner(self, indexing_id: str) -> None:
         """Runner that opens a fresh session and executes `refresh_schema` (SQL connections)
         or `refresh_tools` (MCP/custom_api connections).
 

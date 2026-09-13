@@ -1072,3 +1072,22 @@ async def persist_source_document(
     except Exception as e:
         logger.warning("persist_source_document: failed for %s: %s", file_id, e)
         return None
+
+
+def email_inventory_row(e: dict) -> str:
+    """One line of a mailbox listing for the model-facing observation.
+
+    `list_emails` / `search_email` advertise that they return "messages with
+    their id, subject, sender and received time". The data is there (the mail
+    clients emit `from` / `modified_at`), but the generic file row renders only
+    name/path/size, so the model saw `Subject [id=...]` and had to call
+    read_email once per message just to learn the sender and date. This renders
+    the fields the tool description promises.
+    """
+    subject = str(e.get("name") or "(no subject)")
+    bits = [subject]
+    if e.get("sender"):
+        bits.append(f"from {e['sender']}")
+    if e.get("modified_at"):
+        bits.append(str(e["modified_at"]))
+    return " — ".join(bits) + f" [id={e.get('id')}]"

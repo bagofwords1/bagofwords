@@ -77,6 +77,18 @@ class ListFilesTool(Tool):
     #: superseded, so only the latest listing pays the cost.
     _OBS_INVENTORY_MAX_ROWS = 50
 
+    def _inventory_row(self, e: dict) -> str:
+        """One line of the model-facing inventory. Overridden by ListEmailsTool
+        so a mailbox listing carries sender + received date — the fields its
+        tool description promises — instead of only a subject and an opaque id,
+        which forced a read_email per message just to learn who sent it."""
+        bits = [str(e.get("name") or "?")]
+        if e.get("path") and e.get("path") != e.get("name"):
+            bits.append(str(e["path"]))
+        if e.get("size") is not None:
+            bits.append(f"{e['size']} B")
+        return " — ".join(bits) + f" [id={e.get('id')}]"
+
     def _end(self, connection_id: str, entries: List[dict], truncated: bool, source: str, hint: str = "", runtime_ctx: Dict[str, Any] = None) -> ToolEndEvent:
         # Repeat-enumeration guard: rephrased re-listing of an already-listed
         # connection gets a result-time nudge to use the note/inventory instead.
@@ -96,14 +108,9 @@ class ListFilesTool(Tool):
             "success": True,
         }
         if entries:
-            rows = []
-            for e in entries[: self._OBS_INVENTORY_MAX_ROWS]:
-                bits = [str(e.get("name") or "?")]
-                if e.get("path") and e.get("path") != e.get("name"):
-                    bits.append(str(e["path"]))
-                if e.get("size") is not None:
-                    bits.append(f"{e['size']} B")
-                rows.append(" — ".join(bits) + f" [id={e.get('id')}]")
+            rows = [
+                self._inventory_row(e) for e in entries[: self._OBS_INVENTORY_MAX_ROWS]
+            ]
             if len(entries) > self._OBS_INVENTORY_MAX_ROWS:
                 rows.append(
                     f"… +{len(entries) - self._OBS_INVENTORY_MAX_ROWS} more — "
@@ -147,6 +154,10 @@ class ListFilesTool(Tool):
                 "mime_type": f.get("mime_type"),
                 "size": f.get("size"),
                 "modified_at": f.get("modified_at"),
+                # Mail clients surface the sender as "from" (graph_mail_client /
+                # gmail_mail_client `_msg_to_item`). It has no meaning for
+                # ordinary files, so it stays None for them.
+                "sender": f.get("sender") or f.get("from"),
                 "web_url": f.get("web_url"),
             })
         truncated = len(files) > _MAX_RESULTS

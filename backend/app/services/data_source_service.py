@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import os
 
 from app.models.user import User
 
@@ -78,6 +79,14 @@ from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobSta
 from app.models.git_repository import GitRepository
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class _UncommittedInSession(Exception):
+    """A row the parallel overlay sync could not see from a fresh session.
+
+    Raised so the caller falls back to its own session rather than reporting a
+    spurious failure for a data source that simply has not been committed yet.
+    """
 from sqlalchemy.future import select
 from app.schemas.data_source_schema import (
     DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate,
@@ -4505,23 +4514,80 @@ class DataSourceService:
         tables: list = []
         last_error: Exception | None = None
         failed = 0
-        for conn in conns:
-            try:
-                tables.extend(await self._sync_user_overlay_for_connection(
-                    db=db, data_source=data_source, user=user, connection=conn,
-                    prefetched_tables=prefetched_by_conn.get(str(conn.id)),
-                    progress_callback=progress_callback,
-                ))
-            except Exception as e:
-                # One unreachable connection must not cost the user the catalogs
-                # of the others.
-                failed += 1
-                last_error = e
-                logger.warning(
-                    "Per-user overlay sync failed for connection %s (data source %s, user %s)",
-                    getattr(conn, "id", None), data_source.id, getattr(user, "id", None),
-                    exc_info=True,
-                )
+
+        async def _sync_one(conn, sync_db, ds, usr):
+            return await self._sync_user_overlay_for_connection(
+                db=sync_db, data_source=ds, user=usr, connection=conn,
+                prefetched_tables=prefetched_by_conn.get(str(conn.id)),
+                progress_callback=progress_callback,
+            )
+
+        def _note_failure(conn, e):
+            nonlocal failed, last_error
+            # One unreachable connection must not cost the user the catalogs
+            # of the others.
+            failed += 1
+            last_error = e
+            logger.warning(
+                "Per-user overlay sync failed for connection %s (data source %s, user %s)",
+                getattr(conn, "id", None), data_source.id, getattr(user, "id", None),
+                exc_info=True,
+            )
+
+        if len(conns) <= 1:
+            # Single connection: stay on the caller's session. Opening another
+            # would not help, and callers whose data_source is still uncommitted
+            # in this transaction would not be able to see it from a new one.
+            for conn in conns:
+                try:
+                    tables.extend(await _sync_one(conn, db, data_source, user))
+                except Exception as e:
+                    _note_failure(conn, e)
+        else:
+            # Each connection is a live network round trip (a Drive walk, a
+            # tenant crawl), so syncing them one after another made a user's
+            # first sign-in scale linearly with the agent's connection count —
+            # about five minutes for a 100-connection SharePoint agent. Crawl a
+            # few at a time, each on its own session: one AsyncSession is not
+            # concurrency-safe, and the overlay rows a task writes are scoped to
+            # its own connection, so they never collide.
+            from app.dependencies import async_session_maker
+            from app.models.connection import Connection as _Connection
+
+            sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
+            ds_id, user_id = str(data_source.id), str(user.id)
+
+            async def _run(conn_id: str):
+                async with sem:
+                    async with async_session_maker() as sync_db:
+                        ds = (await sync_db.execute(
+                            select(DataSource)
+                            .options(selectinload(DataSource.connections))
+                            .where(DataSource.id == ds_id)
+                        )).scalars().first()
+                        usr = await sync_db.get(User, user_id)
+                        conn = await sync_db.get(_Connection, conn_id)
+                        if ds is None or usr is None or conn is None:
+                            # Not visible from a fresh session (e.g. still
+                            # uncommitted): let the caller's session handle it.
+                            raise _UncommittedInSession(conn_id)
+                        out = await _sync_one(conn, sync_db, ds, usr)
+                        await sync_db.commit()
+                        return out
+
+            results = await asyncio.gather(
+                *(_run(str(c.id)) for c in conns), return_exceptions=True
+            )
+            for conn, res in zip(conns, results):
+                if isinstance(res, _UncommittedInSession):
+                    try:
+                        tables.extend(await _sync_one(conn, db, data_source, user))
+                    except Exception as e:
+                        _note_failure(conn, e)
+                elif isinstance(res, BaseException):
+                    _note_failure(conn, res)
+                else:
+                    tables.extend(res or [])
         if failed == len(conns) and last_error is not None:
             # Nothing synced at all. Callers distinguish "this user legitimately
             # sees no tables" from "the fetch could not run" by the exception —
@@ -5268,6 +5334,85 @@ class DataSourceService:
         await db.commit()
         
     
+    #: How many of an agent's connections a single Reload crawls at once.
+    #: The crawl is network-bound, so refreshing them one after another made an
+    #: agent-level Reload scale linearly with connection count — 5m17s for a
+    #: 100-connection agent, with no progress shown anywhere.
+    #: Override with BOW_RELOAD_CONCURRENCY.
+    _RELOAD_CONCURRENCY = max(1, int(os.environ.get("BOW_RELOAD_CONCURRENCY", "4")))
+
+    async def _refresh_shared_connections(
+        self, shared_conns, current_user: User, caller_id: "str | None",
+    ) -> dict:
+        """Refresh each shared connection's catalog, a few at a time.
+
+        Every task gets its OWN session and its OWN ConnectionService: a single
+        AsyncSession is not safe for concurrent use, and the post-refresh stash
+        (`last_refresh_fresh_tables` / `last_refresh_identity_user_id`) is
+        instance state that concurrent runs would otherwise overwrite for each
+        other. The tasks touch disjoint rows — one connection each — and this
+        mirrors what the background indexer already does per job.
+
+        Returns the per-connection prefetch map the overlay sync reuses, so a
+        Reload still crawls each source only once.
+        """
+        from app.dependencies import async_session_maker
+        from app.models.connection import Connection
+        from app.services.connection_service import ConnectionService
+        from app.services.connection_indexing_service import ConnectionIndexingService
+
+        prefetched_by_conn: dict = {}
+        sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
+        timeouts: list = []
+
+        async def _one(conn_id: str, auth_policy: str) -> None:
+            async with sem:
+                async with async_session_maker() as conn_db:
+                    conn = await conn_db.get(Connection, conn_id)
+                    if conn is None:
+                        return
+                    user_in_session = (
+                        await conn_db.get(User, str(current_user.id))
+                        if current_user is not None else None
+                    )
+                    # Wait for any active indexing run before refreshing.
+                    try:
+                        await ConnectionIndexingService().wait_for_active(conn_db, conn_id)
+                    except TimeoutError as exc:
+                        timeouts.append(str(exc))
+                        return
+                    logger.info(
+                        f"refresh_data_source_schema: refresh_schema for connection {conn_id} "
+                        f"(auth_policy={auth_policy})"
+                    )
+                    svc = ConnectionService()
+                    # Interactive reload: only introspect NEW datasets; known
+                    # ones are rebuilt from the indexed catalog (column-level
+                    # drift is picked up by scheduled/background reindexing,
+                    # which runs with the default full introspection).
+                    await svc.refresh_schema(
+                        db=conn_db, connection=conn, current_user=user_in_session,
+                        introspection="incremental",
+                    )
+                    await conn_db.commit()
+                    fetched = getattr(svc, "last_refresh_fresh_tables", None)
+                    fetched_as = getattr(svc, "last_refresh_identity_user_id", None)
+                    if fetched is not None and fetched_as is not None and fetched_as == caller_id:
+                        prefetched_by_conn[conn_id] = fetched
+
+        results = await asyncio.gather(
+            *(_one(str(c.id), getattr(c, "auth_policy", None)) for c in shared_conns),
+            return_exceptions=True,
+        )
+        if timeouts:
+            raise HTTPException(status_code=504, detail=timeouts[0])
+        for r in results:
+            if isinstance(r, BaseException):
+                # One unreachable connection must not sink the whole Reload —
+                # the others' catalogs are still worth returning.
+                logger.warning(f"refresh_data_source_schema: connection refresh failed: {r}")
+        return prefetched_by_conn
+
     async def refresh_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         # Get the DataSource model instance with connections eagerly loaded
         result = await db.execute(
@@ -5350,27 +5495,9 @@ class DataSourceService:
                 # list threw away the only thing that made it reusable — which
                 # connection each table came from — so it could not be handed to
                 # a per-connection overlay sync without cross-contaminating them.
-                prefetched_by_conn: dict[str, list] = {}
-
-                for conn in shared_conns:
-                    # Wait for any active indexing run before refreshing synchronously.
-                    try:
-                        await indexing_service.wait_for_active(db, str(conn.id))
-                    except TimeoutError as exc:
-                        raise HTTPException(status_code=504, detail=str(exc)) from exc
-                    logger.info(f"refresh_data_source_schema: refresh_schema for connection {conn.id} (auth_policy={conn.auth_policy})")
-                    # Interactive reload: only introspect NEW datasets; known
-                    # ones are rebuilt from the indexed catalog (column-level
-                    # drift is picked up by scheduled/background reindexing,
-                    # which runs with the default full introspection).
-                    await connection_service.refresh_schema(
-                        db=db, connection=conn, current_user=current_user,
-                        introspection="incremental",
-                    )
-                    fetched = getattr(connection_service, "last_refresh_fresh_tables", None)
-                    fetched_as = getattr(connection_service, "last_refresh_identity_user_id", None)
-                    if fetched is not None and fetched_as is not None and fetched_as == caller_id:
-                        prefetched_by_conn[str(conn.id)] = fetched
+                prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
+                    shared_conns, current_user=current_user, caller_id=caller_id,
+                )
 
                 prefetched = prefetched_by_conn or None
 

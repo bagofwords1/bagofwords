@@ -480,13 +480,15 @@ async def _handle_callback(provider: str, request: Request, code: Optional[str],
         except Exception as e:
             _auth_logger.warning(f"OIDC group sync failed for user {user.id}: {e}", exc_info=True)
 
-    # Phase 2: Auto-provision OAuth credentials for Entra-based data sources via OBO
+    # Phase 2: Auto-provision OAuth credentials for Entra-based data sources via OBO.
+    # Dispatched to the background loop rather than awaited: the work walks every
+    # Entra connection in the org, so awaiting it made login latency scale with
+    # connection count (~85s, and a browser timeout, at ~100 connections). Nothing
+    # in the login response depends on it — the agent pages poll connection status.
     if access_token and _is_entra_provider(provider):
         try:
-            from app.services.connection_oauth_service import auto_provision_connection_credentials
-            from app.dependencies import async_session_maker
-            async with async_session_maker() as db:
-                await auto_provision_connection_credentials(db, user, access_token)
+            from app.services.connection_oauth_service import schedule_auto_provision
+            schedule_auto_provision(str(user.id), access_token)
         except Exception as e:
             _auth_logger.warning(f"OBO auto-provision after login failed for user {user.id}: {e}")
 

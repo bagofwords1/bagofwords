@@ -4,6 +4,7 @@ OAuth Delegated Credentials Service.
 Handles OAuth authorization code flow for per-user data source authentication.
 Maps connection types to their OAuth provider configuration and manages token lifecycle.
 """
+import asyncio
 import base64
 import hashlib
 import os
@@ -760,6 +761,66 @@ async def exchange_obo_token(
 # Auto-provision connection credentials after Entra ID login
 # ---------------------------------------------------------------------------
 
+def _obo_identity_key(connection) -> Optional[tuple]:
+    """The identity of the OBO exchange a connection needs, or None if it can't
+    be determined.
+
+    Two connections pointing at the same Entra app and asking for the same scope
+    receive byte-identical tokens, so the exchange only has to happen once. An
+    org that registers a hundred SharePoint sites against one app registration
+    needs one round trip, not a hundred — which is the difference between a
+    login that returns promptly and one that hangs for well over a minute.
+
+    The secret is fingerprinted rather than used directly: cache keys surface in
+    tracebacks and repr output.
+    """
+    try:
+        creds = connection.decrypt_credentials() or {}
+    except Exception:
+        return None
+    tenant_id = creds.get("tenant_id")
+    client_id = creds.get("oauth_client_id") or creds.get("client_id")
+    client_secret = creds.get("oauth_client_secret") or creds.get("client_secret")
+    scope = _OBO_SCOPES.get(connection.type)
+    if not (tenant_id and client_id and client_secret and scope):
+        return None
+    secret_fp = hashlib.sha256(client_secret.encode()).hexdigest()[:16]
+    return (tenant_id, client_id, secret_fp, scope)
+
+
+async def _auto_provision_in_background(user_id: str, login_access_token: str) -> None:
+    """Body of the backgrounded auto-provision. Opens its own session — the
+    login request's session is long gone by the time this runs."""
+    from app.dependencies import async_session_maker
+    from app.models.user import User
+
+    try:
+        async with async_session_maker() as db:
+            user = await db.get(User, str(user_id))
+            if user is None:
+                logger.warning(f"OBO auto-provision: user {user_id} not found")
+                return
+            await auto_provision_connection_credentials(db, user, login_access_token)
+    except Exception as e:
+        logger.warning(f"OBO auto-provision (background) failed for user {user_id}: {e}")
+
+
+def schedule_auto_provision(user_id: str, login_access_token: str) -> None:
+    """Kick auto-provisioning off the login request path.
+
+    Provisioning walks every Entra connection in the org, so its cost scales
+    with connection count while the user waits on the OIDC callback. Nothing in
+    the login response depends on the result — the agent pages poll connection
+    status — so it runs on the shared background loop instead.
+    """
+    from app.services.connection_indexing_service import _get_background_loop
+
+    loop = _get_background_loop()
+    asyncio.run_coroutine_threadsafe(
+        _auto_provision_in_background(str(user_id), login_access_token), loop
+    )
+
+
 async def auto_provision_connection_credentials(
     db: AsyncSession,
     user,
@@ -799,6 +860,8 @@ async def auto_provision_connection_credentials(
 
     summary = {"provisioned": [], "skipped": [], "failed": []}
     pending_overlay: list = []
+    # One exchange per distinct (tenant, app, scope) — see _obo_identity_key.
+    obo_cache: dict = {}
 
     for connection in connections:
         # Check allowed_user_auth_modes includes oauth
@@ -825,9 +888,16 @@ async def auto_provision_connection_credentials(
                 summary["skipped"].append({"connection_id": connection.id, "reason": "valid_credentials_exist"})
                 continue
 
-        # Perform OBO exchange
+        # Perform OBO exchange (reusing the token when another connection on
+        # this same app registration and scope already exchanged one).
         try:
-            tokens = await exchange_obo_token(login_access_token, connection)
+            cache_key = _obo_identity_key(connection)
+            if cache_key is not None and cache_key in obo_cache:
+                tokens = obo_cache[cache_key]
+            else:
+                tokens = await exchange_obo_token(login_access_token, connection)
+                if cache_key is not None:
+                    obo_cache[cache_key] = tokens
         except Exception as e:
             logger.warning(f"OBO auto-provision failed for connection {connection.id}: {e}")
             summary["failed"].append({"connection_id": connection.id, "error": str(e)})
@@ -864,21 +934,66 @@ async def auto_provision_connection_credentials(
     if summary["provisioned"]:
         await db.commit()
         logger.info(
-            f"OBO auto-provisioned {len(summary['provisioned'])} connection(s) for user {user.id}: "
+            f"OBO auto-provisioned {len(summary['provisioned'])} connection(s) for user {user.id} "
+            f"using {len(obo_cache)} token exchange(s): "
             f"{[c['connection_id'] for c in summary['provisioned']]}"
         )
 
     # Trigger overlay sync (best-effort; never fails the provisioning above).
+    #
+    # Sync per DATA SOURCE, not per connection. `get_user_data_source_schema`
+    # already fans out over every per-user connection on the data source, so
+    # looping connections here made an agent with N connections cost N x N
+    # crawls — 10,000 SharePoint round trips for a 100-connection agent.
+    #
+    # The list is materialised from `pending_overlay` BEFORE any sync runs,
+    # while the objects are still live on `db`.
+    ds_ids: list = []
+    seen_ds: set = set()
     for connection in pending_overlay:
+        for ds in (connection.data_sources or []):
+            if str(ds.id) not in seen_ds:
+                seen_ds.add(str(ds.id))
+                ds_ids.append(str(ds.id))
+
+    # Each sync gets its OWN session. A failure here is routine — a user who
+    # genuinely cannot read one SharePoint site gets a 403 — but rolling back a
+    # SHARED session expires its identity map, and the next iteration's
+    # attribute access then needs IO that async SQLAlchemy cannot perform
+    # implicitly, raising MissingGreenlet and aborting every remaining sync.
+    # That turned one inaccessible source into an empty catalog for every other
+    # agent the user had just been provisioned for.
+    from app.dependencies import async_session_maker
+    from app.models.user import User
+    from sqlalchemy.orm import selectinload
+
+    synced = 0
+    for ds_id in ds_ids:
         try:
             from app.services.data_source_service import DataSourceService
-            ds_service = DataSourceService()
-            for ds in (connection.data_sources or []):
-                await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=user)
-            await db.commit()
+            async with async_session_maker() as sync_db:
+                ds = (await sync_db.execute(
+                    select(DataSource)
+                    .options(selectinload(DataSource.connections))
+                    .where(DataSource.id == ds_id)
+                )).scalars().first()
+                sync_user = await sync_db.get(User, str(user.id))
+                if ds is None or sync_user is None:
+                    continue
+                await DataSourceService().get_user_data_source_schema(
+                    db=sync_db, data_source=ds, user=sync_user
+                )
+                await sync_db.commit()
+                synced += 1
         except Exception as e:
-            logger.warning(f"Overlay sync after OBO provision failed for connection {connection.id}: {e}")
-            await db.rollback()
+            logger.warning(
+                f"Overlay sync after OBO provision failed for data source {ds_id}: {e}"
+            )
+
+    if ds_ids:
+        logger.info(
+            f"OBO overlay sync for user {user.id}: {synced}/{len(ds_ids)} data source(s) synced"
+        )
 
     return summary
 
