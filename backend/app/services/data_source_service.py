@@ -79,6 +79,14 @@ from app.models.metadata_indexing_job import MetadataIndexingJob, IndexingJobSta
 from app.models.git_repository import GitRepository
 
 from sqlalchemy.ext.asyncio import AsyncSession
+
+
+class _UncommittedInSession(Exception):
+    """A row the parallel overlay sync could not see from a fresh session.
+
+    Raised so the caller falls back to its own session rather than reporting a
+    spurious failure for a data source that simply has not been committed yet.
+    """
 from sqlalchemy.future import select
 from app.schemas.data_source_schema import (
     DataSourceCreate, DataSourceBase, DataSourceSchema, DataSourceUpdate,
@@ -4506,23 +4514,80 @@ class DataSourceService:
         tables: list = []
         last_error: Exception | None = None
         failed = 0
-        for conn in conns:
-            try:
-                tables.extend(await self._sync_user_overlay_for_connection(
-                    db=db, data_source=data_source, user=user, connection=conn,
-                    prefetched_tables=prefetched_by_conn.get(str(conn.id)),
-                    progress_callback=progress_callback,
-                ))
-            except Exception as e:
-                # One unreachable connection must not cost the user the catalogs
-                # of the others.
-                failed += 1
-                last_error = e
-                logger.warning(
-                    "Per-user overlay sync failed for connection %s (data source %s, user %s)",
-                    getattr(conn, "id", None), data_source.id, getattr(user, "id", None),
-                    exc_info=True,
-                )
+
+        async def _sync_one(conn, sync_db, ds, usr):
+            return await self._sync_user_overlay_for_connection(
+                db=sync_db, data_source=ds, user=usr, connection=conn,
+                prefetched_tables=prefetched_by_conn.get(str(conn.id)),
+                progress_callback=progress_callback,
+            )
+
+        def _note_failure(conn, e):
+            nonlocal failed, last_error
+            # One unreachable connection must not cost the user the catalogs
+            # of the others.
+            failed += 1
+            last_error = e
+            logger.warning(
+                "Per-user overlay sync failed for connection %s (data source %s, user %s)",
+                getattr(conn, "id", None), data_source.id, getattr(user, "id", None),
+                exc_info=True,
+            )
+
+        if len(conns) <= 1:
+            # Single connection: stay on the caller's session. Opening another
+            # would not help, and callers whose data_source is still uncommitted
+            # in this transaction would not be able to see it from a new one.
+            for conn in conns:
+                try:
+                    tables.extend(await _sync_one(conn, db, data_source, user))
+                except Exception as e:
+                    _note_failure(conn, e)
+        else:
+            # Each connection is a live network round trip (a Drive walk, a
+            # tenant crawl), so syncing them one after another made a user's
+            # first sign-in scale linearly with the agent's connection count —
+            # about five minutes for a 100-connection SharePoint agent. Crawl a
+            # few at a time, each on its own session: one AsyncSession is not
+            # concurrency-safe, and the overlay rows a task writes are scoped to
+            # its own connection, so they never collide.
+            from app.dependencies import async_session_maker
+            from app.models.connection import Connection as _Connection
+
+            sem = asyncio.Semaphore(self._RELOAD_CONCURRENCY)
+            ds_id, user_id = str(data_source.id), str(user.id)
+
+            async def _run(conn_id: str):
+                async with sem:
+                    async with async_session_maker() as sync_db:
+                        ds = (await sync_db.execute(
+                            select(DataSource)
+                            .options(selectinload(DataSource.connections))
+                            .where(DataSource.id == ds_id)
+                        )).scalars().first()
+                        usr = await sync_db.get(User, user_id)
+                        conn = await sync_db.get(_Connection, conn_id)
+                        if ds is None or usr is None or conn is None:
+                            # Not visible from a fresh session (e.g. still
+                            # uncommitted): let the caller's session handle it.
+                            raise _UncommittedInSession(conn_id)
+                        out = await _sync_one(conn, sync_db, ds, usr)
+                        await sync_db.commit()
+                        return out
+
+            results = await asyncio.gather(
+                *(_run(str(c.id)) for c in conns), return_exceptions=True
+            )
+            for conn, res in zip(conns, results):
+                if isinstance(res, _UncommittedInSession):
+                    try:
+                        tables.extend(await _sync_one(conn, db, data_source, user))
+                    except Exception as e:
+                        _note_failure(conn, e)
+                elif isinstance(res, BaseException):
+                    _note_failure(conn, res)
+                else:
+                    tables.extend(res or [])
         if failed == len(conns) and last_error is not None:
             # Nothing synced at all. Callers distinguish "this user legitimately
             # sees no tables" from "the fetch could not run" by the exception —
