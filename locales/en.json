@@ -1653,6 +1653,8 @@
       "manage_instructions": "Manage instructions",
       "manage_entities": "Manage entities",
       "manage_evals": "Manage evals",
+      "view_code": "View generated code",
+      "run_custom_code": "Edit and run custom code",
       "view_members": "View members",
       "manage_members": "Manage members",
       "manage_service_accounts": "Manage service accounts",

@@ -1627,6 +1627,8 @@
       "manage_instructions": "Gestionar instrucciones",
       "manage_entities": "Gestionar entidades",
       "manage_evals": "Gestionar evaluaciones",
+      "view_code": "Ver código generado",
+      "run_custom_code": "Editar y ejecutar código personalizado",
       "view_members": "Ver miembros",
       "manage_members": "Gestionar miembros",
       "manage_settings": "Gestionar ajustes",

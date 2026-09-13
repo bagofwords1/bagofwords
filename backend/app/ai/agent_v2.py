@@ -454,6 +454,8 @@ class AgentV2:
         # site — TestRunService stubs reports as ``report_type="test"``.
         self.is_eval_run = bool(report and getattr(report, 'report_type', None) == 'test')
         self.organization = organization
+        # Resolved once per run by _code_visible_for_run(); None = not yet resolved.
+        self._code_visible_cache = None
         self.organization_settings = organization_settings
         self.top_k_schema = organization_settings.get_config("top_k_schema").value
         self.top_k_metadata_resources = organization_settings.get_config("top_k_metadata_resources").value
@@ -7046,8 +7048,56 @@ class AgentV2:
                 span.set_attribute(f"planner.events.{event_type}", count)
             span.end()
 
+    async def _code_visible_for_run(self) -> bool:
+        """Whether the human who started this run may see generated code.
+
+        Resolved once per agent run and cached. The agent streams from a
+        background task, long after the originating request's context is gone,
+        so the request-scoped contextvar used by the REST serializers is not
+        available here — the permission has to be resolved from the run's own
+        user. System/non-user runs (schedules, webhooks) have no viewer to
+        protect and stream normally.
+        """
+        if getattr(self, "_code_visible_cache", None) is not None:
+            return self._code_visible_cache
+
+        visible = True
+        try:
+            user = getattr(self.head_completion, "user", None) if self.head_completion else None
+            if user is not None and self.organization is not None:
+                from app.core.permission_resolver import resolve_permissions
+                from app.core.code_visibility import can_view_code
+                resolved = await resolve_permissions(
+                    self.db, str(user.id), str(self.organization.id)
+                )
+                visible = can_view_code(resolved)
+        except Exception:
+            # Never let a permission lookup break a live run. Falling open here
+            # matches the REST layer's real protection: the persisted payload is
+            # re-serialized (and re-redacted) on every subsequent page load.
+            logger.warning("code visibility resolution failed for run", exc_info=True)
+            visible = True
+
+        self._code_visible_cache = visible
+        return visible
+
     async def _emit_sse_event(self, event: SSEEvent):
         """Emit SSE event via event queue and optionally websocket."""
+        # Withhold generated code from a viewer without `view_code`. Done at the
+        # single emit chokepoint rather than at each of the two forwarding sites,
+        # so a third forwarder cannot bypass it.
+        try:
+            data = getattr(event, "data", None)
+            if isinstance(data, dict) and isinstance(data.get("payload"), dict):
+                if not await self._code_visible_for_run():
+                    from app.core.code_visibility import redact_progress_payload
+                    event.data = {
+                        **data,
+                        "payload": redact_progress_payload(data["payload"], False),
+                    }
+        except Exception:
+            logger.debug("sse code redaction skipped", exc_info=True)
+
         with tracer.start_as_current_span("agent.sse_enqueue") as span:
             span.set_attribute("sse.event", event.event)
             span.set_attribute("sse.queue_present", bool(self.event_queue))

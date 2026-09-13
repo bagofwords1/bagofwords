@@ -2231,6 +2231,28 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Not found")
 
         from app.schemas.step_schema import PublicStepSchema
+        # Code visibility on the published-report path.
+        #
+        # This route is undecorated and takes an OPTIONAL user, so it never goes
+        # through requires_permission and would otherwise inherit the deny
+        # default — silently stopping published reports from showing code.
+        #
+        # But defaulting it to permissive outright is a bypass: a signed-in
+        # member whose role withholds `view_code` could just open the shared
+        # link and read the SQL there. So the decision splits on identity —
+        # anonymous readers hold no role and keep the pre-existing behavior;
+        # a signed-in reader is held to the role they actually have.
+        from app.core.code_visibility import can_view_code, set_code_visibility
+        from app.core.permission_resolver import resolve_permissions
+
+        if user is not None and getattr(report, "organization_id", None):
+            resolved = await resolve_permissions(
+                db, str(user.id), str(report.organization_id)
+            )
+            set_code_visibility(can_view_code(resolved))
+        else:
+            set_code_visibility(True)
+
         # Convert view to dict if it's not already
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
 
