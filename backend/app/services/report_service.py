@@ -880,6 +880,11 @@ class ReportService:
         # agent list is known (project defaults may fill it in).
         requested_mode = report_data.mode or 'chat'
         del report_data.mode
+        # Report-level LLM override from the composer. Popped like the fields
+        # above so it never reaches the ORM unvalidated via Report(**dict) —
+        # it is set below, after the same strict check the update path runs.
+        requested_model_id = report_data.model_id
+        del report_data.model_id
 
         # Create the report object
         report = Report(**report_data.dict())
@@ -912,6 +917,16 @@ class ReportService:
                 db, current_user, organization, [str(x) for x in data_source_ids]
             )
         report.mode = requested_mode
+        # Same gate as ReportUpdate.model_id: the creator must actually be able
+        # to use the model, so a hand-rolled payload can't pin one they have no
+        # grant for. Checked here, before anything is written, for the same
+        # reason the training gate is.
+        if requested_model_id:
+            from app.services.llm_service import LLMService
+            await LLMService().validate_model_for_user(
+                db, organization, current_user, requested_model_id
+            )
+            report.model_id = requested_model_id
         # Ensure a default theme is set for new reports
         if getattr(report, 'theme_name', None) in (None, ''):
             report.theme_name = 'default'

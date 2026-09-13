@@ -747,6 +747,7 @@ const pickProject = async (proj: any | null, close: () => void) => {
 const canCreateInstructions = computed(() => canManageInstructionsForSelectedAgents.value)
 
 const { t } = useI18n()
+const toast = useToast()
 const text = ref('')
 const placeholder = computed(() => props.compact ? t('prompt.placeholderCompact') : t('prompt.placeholderDefault'))
 const mode = ref<'chat' | 'training'>(props.initialMode || 'chat')
@@ -1742,6 +1743,10 @@ async function createReport() {
             isSubmitting.value = false
             return
         }
+        // One payload, same as an in-report send. This used to be hand-rolled a
+        // second time here and drifted from buildSubmitPayload — that is how the
+        // model pick came to be dropped on create while mode was persisted.
+        const payload = buildSubmitPayload()
         // Project context comes from the route (a project page, or the draft
         // page's ?project=), and the picker overrides it once the user has
         // touched it — including a deliberate "No project", which has to clear
@@ -1749,13 +1754,20 @@ async function createReport() {
         const body: Record<string, any> = {
             title: 'untitled report',
             files: successfullyUploadedFiles.value?.map((file: any) => file.id) || [],
-            new_message: text.value,
             // Persist the picker's mode on the report itself. The query
             // param below only shapes the FIRST completion; without this
             // the report loads as chat and the picker snaps back.
-            mode: mode.value,
+            mode: payload.mode,
             ...newReportPayload(selectedDataSources.value?.map((ds: any) => String(ds.id)) || [])
         }
+        // And the model, for exactly the same reason the mode is here: the query
+        // param steers the first completion only, so without this the report row
+        // keeps a null override and the picker snaps back to the user/org default
+        // as soon as we navigate. Auto is null — no override to store, the
+        // backend router resolves it per run — so omit the key entirely rather
+        // than sending an empty string, which is the update route's "clear it"
+        // sentinel and means nothing on create.
+        if (payload.model_id) body.model_id = payload.model_id
         if (projectExplicitlyPicked.value) {
             if (currentProject.value?.id) body.project_id = currentProject.value.id
             else delete body.project_id
@@ -1764,43 +1776,46 @@ async function createReport() {
             method: 'POST',
             body: JSON.stringify(body)
         })
-        if ((response as any)?.error?.value) {
-            throw new Error('Report creation failed')
+        const err = (response as any)?.error?.value
+        if (err) {
+            // FastAPI's `detail` is a string for our own HTTPExceptions but a
+            // list of objects for a validation error — only show the readable
+            // kind, otherwise the toast would read "[object Object]".
+            const detail = err?.data?.detail
+            throw new Error(
+                (typeof detail === 'string' && detail)
+                || err?.message
+                || t('prompt.createReportFailed')
+            )
         }
         const data = (response as any)?.data?.value as any
         if (data?.id) {
-            // Build mentions from inlineMentions only (no automatic data sources)
-            const mentionsByType = {
-                data_sources: inlineMentions.value.filter((m: any) => m.type === 'data_source'),
-                tables: inlineMentions.value.filter((m: any) => m.type === 'datasource_table'),
-                files: inlineMentions.value.filter((m: any) => m.type === 'file'),
-                entities: inlineMentions.value.filter((m: any) => m.type === 'entity'),
-                instructions: inlineMentions.value.filter((m: any) => m.type === 'instruction')
-            }
-            const mentions = [
-                { name: 'DATA SOURCES', items: mentionsByType.data_sources },
-                { name: 'TABLES', items: mentionsByType.tables },
-                { name: 'FILES', items: mentionsByType.files },
-                { name: 'ENTITIES', items: mentionsByType.entities },
-                { name: 'INSTRUCTIONS', items: mentionsByType.instructions }
-            ]
-
             router.push({
                 path: `/reports/${data.id}`,
                 query: {
-                    new_message: text.value,
-                    mode: mode.value,
+                    new_message: payload.text,
+                    mode: payload.mode,
                     // Map the 'auto' sentinel back to '' (→ null on the report page)
                     // so the backend router engages; sending the raw 'auto' string
                     // is not a real model id and 400s the first completion.
-                    model_id: modelIdForPayload.value || '',
-                    mentions: encodeURIComponent(JSON.stringify(mentions))
+                    model_id: payload.model_id || '',
+                    mentions: encodeURIComponent(JSON.stringify(payload.mentions)),
+                    // Attached images, so the first user bubble renders its chips
+                    // the way every later turn does. They are already on the
+                    // report (body.files above); this is display only.
+                    ...(payload.files?.length
+                        ? { files: encodeURIComponent(JSON.stringify(payload.files)) }
+                        : {})
                 }
             })
         }
         text.value = ''
-    } catch (error) {
+    } catch (error: any) {
         console.error('Failed to create report:', error)
+        // The draft page has no other channel for this. Without it a rejected
+        // create (the training-mode gate, project access, a model the user may
+        // not use) just re-arms the send button and shows nothing at all.
+        toast.add({ title: error?.message || t('prompt.createReportFailed'), color: 'red' })
         isSubmitting.value = false
     }
 }

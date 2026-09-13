@@ -532,6 +532,7 @@
     "training": "Обучение",
     "schedulePrompt": "Запланировать запрос",
     "selectModel": "Выберите модель",
+    "createReportFailed": "Не удалось создать отчёт",
     "untitled": "Без названия",
     "estimating": "Оценка…",
     "estimateUnavailable": "Оценка недоступна",

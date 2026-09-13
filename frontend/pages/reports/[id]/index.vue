@@ -5299,7 +5299,15 @@ onMounted(async () => {
 		} catch {}
 		const mode = typeof route.query.mode === 'string' ? route.query.mode : 'chat'
 		const model_id = typeof route.query.model_id === 'string' ? route.query.model_id : null
-		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined })
+		// Images attached in the composer before this report existed. They are
+		// already on the report row; this only lets the first user bubble show
+		// its chips instead of appearing bare until a reload.
+		let files: any[] = []
+		try {
+			const rawFiles = typeof route.query.files === 'string' ? decodeURIComponent(route.query.files) : ''
+			if (rawFiles) files = JSON.parse(rawFiles)
+		} catch {}
+		onSubmitCompletion({ text: route.query.new_message as string, mentions, mode, model_id: model_id || undefined, files })
 	} else if (route.query.prompt && messages.value.length == 0) {
 		// Pre-fill the prompt box without submitting (e.g. a training session draft).
 		prefillText.value = route.query.prompt as string

@@ -546,6 +546,7 @@
     "training": "אימון",
     "schedulePrompt": "תזמון הנחיה",
     "selectModel": "בחירת מודל",
+    "createReportFailed": "לא ניתן ליצור את הדוח",
     "untitled": "ללא כותרת",
     "estimating": "מעריך…",
     "estimateUnavailable": "בדיקת איכות לא זמינה",
