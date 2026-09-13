@@ -149,11 +149,22 @@ def test_hubspot_scopes_are_read_only_and_normalize():
     assert "," not in normalized
 
 
-def test_hubspot_has_no_invented_sample_tools():
-    # HubSpot publishes no machine-readable tool list and tools/list needs auth,
-    # so the preset ships none rather than guesses; refresh_tools discovers the
-    # real catalog per connection.
-    assert mcp_preset("hubspot").sample_tools is None
+def test_hubspot_sample_tools_are_the_discovered_ones():
+    # Filled from a live tools/list against a real portal (2026-09), not guessed.
+    # query_crm_data is the one that matters: HubSpot CRM over SQL.
+    tools = mcp_preset("hubspot").sample_tools
+    assert tools and "query_crm_data" in tools
+    assert {"search_crm_objects", "get_properties", "search_properties"} <= set(tools)
+
+
+def test_hubspot_preset_scopes_are_documentation_only():
+    # A HubSpot MCP Connector app grants a fixed bundle from its own config; the
+    # `scope` parameter does not control it (verified live: 4 requested, 37
+    # granted). The value is kept as guidance for configuring the app, so it must
+    # stay read-only and must not imply write access.
+    from app.routes.connection_oauth import _normalize_scopes
+    scopes = _normalize_scopes(mcp_preset("hubspot").oauth_defaults.scopes).split()
+    assert not [s for s in scopes if s.endswith(".write")]
 
 
 def test_hubspot_is_a_services_tile_and_serializes():

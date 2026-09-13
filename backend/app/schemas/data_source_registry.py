@@ -2122,6 +2122,20 @@ _TOOLS_GOOGLE_DRIVE = [
     "get_file_metadata", "get_file_permissions", "create_file",
 ]
 
+_TOOLS_HUBSPOT = [
+    # Discovered live from HubSpot's MCP server (tools/list, 2026-09) — not a
+    # guess. `query_crm_data` is the notable one: HubSpot CRM over SQL.
+    "query_crm_data", "search_crm_objects", "get_crm_objects", "search_properties",
+    "get_properties", "discover_hubspot_schema", "search_owners", "get_user_details",
+    "get_organization_details", "manage_segment", "search_conversations",
+    "get_conversation_channel_metadata", "read_campaign_data",
+    "manage_campaign_objects", "get_campaign_attribution_reports",
+    "manage_marketing_email", "get_marketing_email_analytics", "manage_landing_page",
+    "get_content_analytics_report", "get_aeo_metrics", "manage_aeo_prompts",
+    "manage_aeo_recommendations", "manage_onboarding", "tool_guidance",
+    "submit_feedback",
+]
+
 MCP_PRESETS: List[McpPreset] = [
     McpPreset(key="monday", title="Monday", server_url="https://mcp.monday.com/mcp",
               allowed_auth=["dcr"], sample_tools=_TOOLS_MONDAY,
@@ -2154,13 +2168,14 @@ MCP_PRESETS: List[McpPreset] = [
     # edit mode. Endpoints are the MCP-specific pair HubSpot advertises, not the
     # classic app.hubspot.com/api.hubapi.com ones; it takes client_secret_post
     # (our default → left unset) and PKCE S256. Scopes are declared on the app and
-    # gated by portal tier (scopes_supported is empty), so the default is the
-    # read-only CRM set every tier has, plus the `oauth` scope HubSpot requires;
-    # admins widen it in the form. No audience: HubSpot doesn't advertise RFC 8707,
-    # so we must not send `resource` on the token request. sample_tools stays None
-    # — HubSpot publishes no machine-readable tool list and tools/list needs auth,
-    # so refresh_tools discovers the real catalog per connection rather than the
-    # form showing guesses. See docs/feedback-loops/hubspot-mcp-preset.md.
+    # gated by portal tier (scopes_supported is empty). NOTE: for a HubSpot *MCP
+    # Connector* app the `scope` parameter is not what grants access — a live
+    # sign-in (2026-09) returned a fixed 37-scope bundle from the app's own
+    # config, unrelated to the 4 scopes requested here. The value below is kept
+    # only as documentation of the minimum an admin should configure on the app;
+    # it neither widens nor narrows what HubSpot actually grants. No audience:
+    # HubSpot doesn't advertise RFC 8707, so we must not send `resource` on the
+    # token request. See docs/feedback-loops/hubspot-mcp-preset.md.
     McpPreset(key="hubspot", title="HubSpot", server_url="https://mcp.hubspot.com",
               auth="oauth_app", allowed_auth=["oauth_app"], category="services",
               oauth_defaults=McpAuthDefaults(
@@ -2169,7 +2184,8 @@ MCP_PRESETS: List[McpPreset] = [
                   scopes=("oauth, crm.objects.contacts.read, "
                           "crm.objects.companies.read, crm.objects.deals.read"),
               ),
-              description="Contacts, companies and deals from HubSpot CRM (needs a HubSpot app)."),
+              sample_tools=_TOOLS_HUBSPOT,
+              description="CRM records, SQL queries, and marketing data from HubSpot (needs a HubSpot app)."),
     # Google first-party remote MCP servers (per-user OAuth via a Google OAuth
     # client; no DCR — the authorize flow audience-binds the token to the MCP
     # resource via RFC 8707). Files come back as blobs → materialized for analysis.

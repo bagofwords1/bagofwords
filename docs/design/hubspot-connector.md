@@ -4,10 +4,12 @@
 
 Add a data source type `hubspot` that lets the agent **query** a HubSpot portal
 — contacts, companies, deals, tickets, engagements and custom objects — and get
-rows back as a DataFrame. Model it on the existing **ServiceNow** connector, not
-on Salesforce or a SQL connector: HubSpot is an HTTP API with no query language,
-so `execute_query` takes a **JSON query spec** and `get_schemas` builds tables
-from the portal's own property definitions.
+rows back as a DataFrame, with `get_schemas` building tables from the portal's
+own property definitions.
+
+The original plan modelled `execute_query` on **ServiceNow** (a JSON query spec),
+on the premise that HubSpot has no query language. That premise was wrong — see
+the notice below before building anything.
 
 This follows `.agents/skills/add-connection-type/SKILL.md`. A connector is
 registry-driven: the frontend form, auth variants and client resolution all
@@ -16,6 +18,35 @@ derive from one entry in `backend/app/schemas/data_source_registry.py`.
 All API facts below were taken from HubSpot's published OpenAPI specs
 (`https://api.hubspot.com/public/api/spec/v1/specs` → per-API `openApi` URL),
 not from documentation prose. Anything unverified is called out as such.
+
+> ## ⚠️ Superseded in part by a live sign-in (2026-09)
+>
+> This plan was written believing **HubSpot has no query language**, and therefore
+> modelled the connector on ServiceNow (a JSON filter spec) with aggregation done
+> in pandas. A real portal sign-in disproved that premise.
+>
+> HubSpot's MCP server exposes **`query_crm_data` — CRM over SQL**, with
+> aggregates, `GROUP BY`, `DATE_TRUNC`, `MEDIAN` and cross-object traversal.
+> Verified: `SELECT COUNT(*) FROM CONTACT` → 1239. So HubSpot is far closer to
+> **Salesforce/SOQL** than to ServiceNow, and the "aggregation ceiling" this doc
+> treats as the defining constraint largely does not exist.
+>
+> Two things sharpen rather than remove the plan:
+>
+> * **SQL appears to be MCP-only.** `crm.hubsql.execute` is granted, but no public
+>   REST endpoint was found (six paths probed, all 404) and HubSQL is in none of
+>   HubSpot's 121 published API specs. A native connector cannot call it over REST
+>   today — it would have to go through the MCP server, or fall back to the Search
+>   API described below.
+> * **One app and one token serve both surfaces** — the MCP-issued token works
+>   against `api.hubapi.com` (`GET /crm/v3/properties/contacts` → 409 properties).
+>   No second sign-in. This closes the open question in the Authentication section.
+>
+> Consequently the connector's value is no longer "make HubSpot queryable" — the
+> shipped MCP preset already does that. It is the **indexed catalog** (409 contact
+> properties in planner context), tracked queries and reports, and `data_shape=
+> "tables"` integration. Re-scope before building. Details and evidence:
+> `docs/feedback-loops/hubspot-mcp-preset.md`, Loop D.
 
 ## This is not the MCP preset
 
@@ -28,11 +59,15 @@ It is a different archetype and the two are complementary, not alternatives:
 | `catalog_ownership` | `none` | `shared` |
 | `is_connection` | `False` | `True` (default) |
 | Agent sees | whatever tools HubSpot's server exposes | an indexed catalog + `execute_query` |
-| Good at | actions ("log a call on this deal") | analysis ("pipeline by owner by quarter") |
+| Good at | actions, and ad-hoc SQL via `query_crm_data` | the same, plus an indexed catalog and tracked reports |
 
-The MCP tile cannot answer analytical questions: there is no catalog in the
-planner's context and no query surface, only fixed tool calls. Gmail already sets
-the precedent for this pairing — a native connector alongside an MCP path.
+An earlier version of this section claimed "the MCP tile cannot answer analytical
+questions… no query surface, only fixed tool calls." That is **false**: one of its
+tools is `query_crm_data`, CRM over SQL. What the tile genuinely lacks is a
+*catalog* — the planner sees no schema, so it must discover properties by calling
+tools mid-conversation instead of reasoning over 409 known columns up front. Gmail
+still sets the precedent for the pairing — a native connector alongside an MCP
+path.
 
 ## The query surface — Search API, not GraphQL
 
@@ -286,19 +321,29 @@ same icon, which is correct and intended.
 - Do not let `is_connection` default get overridden — it must stay `True`, or
   schema indexing skips the type.
 
-## Open questions (need a real portal)
+## Open questions
 
-- **The result cap.** The Search API's 10,000-result ceiling is documentation
-  prose, not in the OpenAPI spec — confirm it before hardcoding `MAX_ROWS`, and
-  make it configurable rather than a magic number.
-- **Association filtering.** The endpoint claims searching "through
-  associations"; the actual request shape needs confirming before the system
-  prompt teaches it.
-- **Aggregation ceiling.** With no server-side aggregation and a hard result cap,
-  "revenue by owner across 50k deals" may simply not be answerable through
-  search. Two escape hatches exist and should be evaluated in that order:
-  the **Exports API** (`Exports`, v3 STABLE) for bulk pulls, and the repo's own
-  `backend/app/data_sources/fast/` materialization layer — which turns "no
-  aggregation API" into "aggregate locally in DuckDB", and already has a
-  non-SQL precedent in `fast/posthog_source.py`. That is a phase 2, not part of
-  the first connector.
+Resolved by the 2026-09 sign-in (evidence in the feedback-loop doc, Loop D):
+~~one sign-in or two~~ — one app and one token serve both surfaces;
+~~is there a query language~~ — yes, SQL via `query_crm_data`;
+~~can the catalog be built from properties~~ — yes, 409 contact properties
+returned over REST with the same token.
+
+Still open:
+
+- **The Search API result cap.** The 10,000 ceiling is documentation prose, not
+  in the OpenAPI spec, and the test portal (1,239 contacts) was too small to
+  reach it. Confirm before hardcoding `MAX_ROWS`, and keep it configurable.
+- **HubSQL over REST.** `crm.hubsql.execute` is granted and SQL works through the
+  MCP tool, but no public REST endpoint was found and HubSQL appears in none of
+  the 121 published specs. If it stays MCP-only, a native connector's
+  `execute_query` has to either call the MCP server or use the Search API — that
+  is the main design fork left.
+- **`/collector/graphql`** is real but scope-gated (403, "app hasn't been granted
+  all required scopes"); capabilities still unassessed.
+- **Association filtering** in the Search API — request shape unconfirmed.
+- **Aggregation via Search.** Only relevant if the connector uses the Search API
+  rather than SQL. If so, the escape hatches remain the **Exports API**
+  (v3 STABLE) and the repo's `backend/app/data_sources/fast/` materialization
+  layer, which turns "no aggregation API" into "aggregate locally in DuckDB"
+  (non-SQL precedent: `fast/posthog_source.py`).

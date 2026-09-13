@@ -50,19 +50,17 @@ without a path segment, so it is the one most likely to get "corrected". Since
 breaks preset recognition in edit mode as well as the connection itself. Loop B
 below asserts both directions.
 
-**3. Scopes and audience are deliberately conservative.** HubSpot advertises
-`scopes_supported: []` — its scopes are declared on the app and further gated by
-the portal's subscription tier, so no list is universally valid. The default is
-the read-only CRM set available on every tier, plus `oauth` (which HubSpot apps
-must request); admins widen it in the form. No `audience` is set: HubSpot does
-not advertise RFC 8707 resource indicators, and our token exchange would send an
-unexpected `resource` parameter if one were configured.
+**3. Scopes are set on the HubSpot app, not by us; audience is unset.** HubSpot
+advertises `scopes_supported: []`, and Loop D showed why: for an MCP Connector
+app the `scope` parameter is inert — 4 requested, **37 granted**, the bundle
+coming from the app's own configuration. The preset's `scopes` value is therefore
+documentation of a sane minimum, not a control. No `audience` is set: HubSpot
+does not advertise RFC 8707 resource indicators, and our token exchange would
+send an unexpected `resource` parameter if one were configured.
 
-`sample_tools` is `None` on purpose. HubSpot publishes no machine-readable tool
-list (the docs page is client-rendered; the `@hubspot/mcp-server` npm package is
-the *developer* MCP, a different server) and `tools/list` needs auth — so any
-list here would be guesswork shown to admins as fact. The form falls back to
-"discovered after connecting" and `refresh_tools` fills in the real catalog.
+`sample_tools` shipped as `None` (no machine-readable list is published, and
+`tools/list` needs auth) and was filled in from a **live** `tools/list` once a
+real portal was connected — see Loop D. They are discovered names, not guesses.
 
 ## Loop A — deterministic (no external services)
 
@@ -112,7 +110,7 @@ curl -s -H "Authorization: Bearer $JWT" -H "X-Organization-Id: $ORG" \
     "token_url": "https://mcp.hubspot.com/oauth/v3/token",
     "scopes": "oauth, crm.objects.contacts.read, crm.objects.companies.read, crm.objects.deals.read",
     "audience": null, "token_endpoint_auth_method": null },
-  "sample_tools": null }
+  "sample_tools": ["query_crm_data", "search_crm_objects", ...] }
 ```
 
 ```bash
@@ -210,8 +208,86 @@ instead. And when reading field values back, enumerate `input` and `select`
 separately: indices taken from a combined query do not line up against an
 input-only locator.
 
+## Loop D — full sign-in against a real portal (2026-09)
+
+Run with a real HubSpot **MCP Connector** app against an EU portal
+(`hub_id 149316337`). This closed every open question above.
+
+**The install flow.** A human must click through consent — `client_credentials`
+is unavailable (see above), so there is no headless path. Generate the PKCE pair
+yourself rather than using HubSpot's builder: the builder's *Regenerate* button
+silently replaces the verifier, and a challenge/verifier mismatch fails the
+exchange with `BAD_CODE_VERIFIER` (which, usefully, is a *different* error from
+`BAD_AUTH_CODE` — the code was recognised).
+
+Confirmed working, exactly as the preset generates it:
+
+```
+https://mcp.hubspot.com/oauth/authorize/user
+  ?response_type=code&client_id=…&redirect_uri=…
+  &code_challenge=…&code_challenge_method=S256&scope=…
+```
+
+HubSpot redirects that to a **portal-scoped regional** URL
+(`https://mcp-eu1.hubspot.com/oauth/<hub_id>/authorize/user?…`), preserving the
+query string. So the preset's canonical, portal-less `server_url` is correct for
+an EU portal — HubSpot does the regional routing itself. Do not hardcode a
+regional host or a portal segment.
+
+Token exchange at `https://mcp.hubspot.com/oauth/v3/token` returns a bearer token
+(`expires_in: 1800`) plus a refresh token, and carries `hub_id`, `user_id`,
+`token_use` and `scopes`.
+
+**The `scope` parameter does not do what it looks like.** We requested 4 scopes;
+HubSpot granted **37**, a fixed bundle from the app's own configuration. The
+parameter is neither honoured nor rejected — sending it is harmless but controls
+nothing. Scopes are configured on the HubSpot app, not by us. The preset keeps
+its `scopes` value only as documentation of a sane minimum.
+
+Notably granted: `crm.hubsql.execute`, `crm.objects.custom.read`,
+`crm.objects.owners.read`.
+
+**MCP works over the canonical host for an EU portal.** `initialize` →
+`HubSpot MCP 1.0`; `tools/list` → **25 tools**. Session id comes back in the
+`mcp-session-id` response header and must be echoed on later calls, after a
+`notifications/initialized`.
+
+**`query_crm_data` — HubSpot CRM over SQL.** The headline find, and the reason
+the connector design doc changed. Verified live:
+
+```sql
+SELECT COUNT(*) FROM CONTACT            -- → "The total count is 1239."
+```
+
+Supported: aggregates, `GROUP BY`, `DATE_TRUNC(prop,'DAY|WEEK|MONTH|QUARTER|YEAR')`,
+`MEDIAN`, `ORDER BY`, `LIKE`, `IS NULL`, `BETWEEN`, and cross-object traversal via
+`OBJECT.property` (max 2 associated types).
+Unsupported: `JOIN`, `UNION`, subqueries, CTEs, `HAVING`, `SELECT DISTINCT`,
+`COUNT(DISTINCT x)`, `AS` aliases, `CASE WHEN`, `IF()`, `COALESCE`, string
+functions. `tool_guidance` must be called first (argument is `toolNames`, an
+array — not `toolName`).
+
+**One app, one token, both surfaces.** The MCP-issued token is an ordinary
+HubSpot token:
+
+| Check | Result |
+|---|---|
+| `GET api.hubapi.com/oauth/v1/access-tokens/{token}` | 200 — app_id, hub_id, user, 37 scopes |
+| `GET api.hubapi.com/crm/v3/properties/contacts` | 200 — **409 properties**, custom ones included |
+| `POST /crm/v3/objects/contacts/search` | 200 — `total: 1239` |
+| `GET /crm-object-schemas/v3/schemas` | 200 — 0 (portal has no custom objects) |
+| `POST /collector/graphql` | 403 — "app hasn't been granted all required scopes" |
+
+So a planned native CRM connector needs **no second sign-in** — one app and one
+token serve both the MCP tools and the REST API.
+
 ## What is not covered
 
-A real portal sign-in (token exchange, refresh, and live `tools/list`) needs a
-HubSpot public app's client id/secret. The tool catalog, and therefore whether
-any tool needs scopes beyond the read-only default, is unverified until then.
+- **The Search API's 10,000-result cap.** The test portal holds 1,239 contacts,
+  so the ceiling could not be reached. Still unverified.
+- **HubSQL over REST.** `crm.hubsql.execute` is granted and SQL works through the
+  MCP tool, but no public REST endpoint was found (six plausible paths, all 404)
+  and HubSQL appears in none of the 121 published API specs. Treat SQL as
+  MCP-only until HubSpot documents otherwise.
+- **`/collector/graphql`** is real and reachable but scope-gated (403); its
+  capabilities remain unassessed.
