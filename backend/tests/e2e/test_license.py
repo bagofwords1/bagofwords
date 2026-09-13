@@ -507,6 +507,7 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is False
         assert is_datasource_allowed("qvd") is False
+        assert is_datasource_allowed("brocade") is False
 
     def test_enterprise_datasource_allowed_with_license(self, test_client, patch_license_key):
         """Enterprise data sources allowed with valid license."""
@@ -528,6 +529,7 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is True
         assert is_datasource_allowed("qvd") is True
+        assert is_datasource_allowed("brocade") is True
 
     def test_enterprise_datasource_with_explicit_features(self, test_client, patch_license_key):
         """License with explicit ds_ features restricts to those only."""
@@ -551,6 +553,7 @@ class TestDataSourceLicensing:
 
         assert is_datasource_allowed("powerbi") is True
         assert is_datasource_allowed("qvd") is False  # Not in features
+        assert is_datasource_allowed("brocade") is False
 
 
 @pytest.mark.e2e

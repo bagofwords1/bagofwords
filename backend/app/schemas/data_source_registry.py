@@ -9,6 +9,8 @@ from pydantic import BaseModel
 from app.schemas.data_sources.configs import (
     # Configs
     PostgreSQLConfig,
+    BrocadeConfig,
+    BrocadeCredentials,
     SharePointOnpremConfig,
     SharePointOnpremNtlmCredentials,
     DocumentumConfig,
@@ -878,6 +880,19 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             ),
         ],
         client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
+        version="beta",
+        requires_license="enterprise",
+    ),
+    "brocade": DataSourceRegistryEntry(
+        type="brocade",
+        category="infra",
+        title="Brocade Fabric OS",
+        description="Investigate Fibre Channel ports, optics, zoning, congestion and events with read-only diagnostics.",
+        config_schema=BrocadeConfig,
+        credentials_auth=AuthOptions(default="userpass", by_auth={
+            "userpass": AuthVariant(title="Username + Password", schema=BrocadeCredentials, scopes=["system", "user"]),
+        }),
+        client_path="app.data_sources.clients.brocade_client.BrocadeClient",
         version="beta",
         requires_license="enterprise",
     ),

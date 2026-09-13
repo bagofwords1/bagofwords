@@ -1,0 +1,11 @@
+services:
+  brocade-simulator:
+    build: .
+    ports:
+      - "127.0.0.1:18092:8080"
+    environment:
+      BROCADE_SIM_USER: ${BROCADE_SIM_USER:-lab-reader}
+      BROCADE_SIM_PASSWORD: ${BROCADE_SIM_PASSWORD:-synthetic-only}
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]

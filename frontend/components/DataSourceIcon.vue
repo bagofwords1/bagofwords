@@ -109,6 +109,7 @@ const iconPath = computed(() => {
     // Explicit brand icons for data-source types whose asset is an SVG (the
     // default resolver below only tries `<type>.png`).
     const TYPE_ICON_FILE: Record<string, string> = {
+        brocade: 'brocade.png',
         csv: 'csv.png',
         gmail_mail: 'gmail.png',
         outlook_mail: 'outlook_mail.svg',

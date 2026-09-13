@@ -1,0 +1,78 @@
+{
+  "verification": "HTTP contract only; endpoint provenance must be recorded separately",
+  "primary_tables": 12,
+  "queries": [
+    {
+      "table": "switches",
+      "rows": 1,
+      "columns": 41,
+      "passed": true
+    },
+    {
+      "table": "ports",
+      "rows": 2,
+      "columns": 110,
+      "passed": true
+    },
+    {
+      "table": "port_statistics",
+      "rows": 2,
+      "columns": 82,
+      "passed": true
+    },
+    {
+      "table": "transceivers",
+      "rows": 1,
+      "columns": 62,
+      "passed": true
+    },
+    {
+      "table": "connected_devices",
+      "rows": 1,
+      "columns": 35,
+      "passed": true
+    },
+    {
+      "table": "fabric_links",
+      "rows": 1,
+      "columns": 110,
+      "passed": true
+    },
+    {
+      "table": "zones",
+      "rows": 2,
+      "columns": 13,
+      "passed": true
+    },
+    {
+      "table": "zone_members",
+      "rows": 5,
+      "columns": 16,
+      "passed": true
+    },
+    {
+      "table": "health",
+      "rows": 3,
+      "columns": 11,
+      "passed": true
+    },
+    {
+      "table": "congestion_samples",
+      "rows": 2,
+      "columns": 19,
+      "passed": true
+    },
+    {
+      "table": "events",
+      "rows": 2,
+      "columns": 27,
+      "passed": true
+    },
+    {
+      "table": "hardware",
+      "rows": 5,
+      "columns": 61,
+      "passed": true
+    }
+  ]
+}

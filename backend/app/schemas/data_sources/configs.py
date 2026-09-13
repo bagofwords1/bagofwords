@@ -3636,7 +3636,24 @@ class CustomAPIOAuthAppCredentials(MCPOAuthAppCredentials):
     pass
 
 
+class BrocadeCredentials(BaseModel):
+    username: str = Field(..., title="Username", description="A switch account with read access to the required fabrics.", json_schema_extra={"ui:type": "string"})
+    password: str = Field(..., title="Password", json_schema_extra={"ui:type": "password"})
+
+
+class BrocadeConfig(BaseModel):
+    url: str = Field(..., title="Switch URL", description="HTTPS management address of the Brocade switch.", json_schema_extra={"ui:type": "string"})
+    vf_ids: str = Field("", title="Fabric IDs", description="Optional comma-separated fabric IDs to restrict queries. Each logical-switch query must specify a fabric ID.", json_schema_extra={"ui:type": "string"})
+    include_advanced: bool = Field(False, title="Include advanced diagnostic tables", description="The default catalog contains 12 primary investigation tables.")
+    verify_ssl: bool = Field(True, title="Verify TLS certificate")
+    ca_bundle: Optional[str] = Field(None, title="CA certificate file", description="Optional CA bundle path on the application server.", json_schema_extra={"ui:type": "string"})
+    allow_http: bool = Field(False, title="Allow HTTP for a local simulator", description="Only loopback addresses are accepted over HTTP.")
+    login_scheme: Literal["Basic", "Custom_Basic"] = Field("Custom_Basic", title="Login scheme", description="Use Custom_Basic or Basic, as supported by your switch.")
+
+
 __all__ = [
+    "BrocadeConfig",
+    "BrocadeCredentials",
     # Configs
     "PostgreSQLConfig",
     "SQLiteConfig",
