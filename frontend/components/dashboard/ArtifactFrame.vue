@@ -1835,6 +1835,7 @@ async function switchToArtifact(artifactId: string) {
 // or updates the artifact already on screen)
 async function handleArtifactCreated(event: Event) {
   const detail = (event as CustomEvent).detail || {};
+  if (detail.report_id && detail.report_id !== props.reportId) return;
   const artifactId = detail.artifact_id;
   const takeover = detail.select !== false;
   if (!takeover && artifactId && selectedArtifactId.value &&
