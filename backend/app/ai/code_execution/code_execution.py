@@ -796,7 +796,10 @@ class QueryCapturingClientWrapper:
             capture = _describe_keyword_call(kwargs)
         else:
             capture = query
-        if isinstance(capture, dict) and getattr(self._original, "_bow_source_id", None):
+        if isinstance(capture, dict) and (
+            getattr(self._original, "_bow_source_id", None)
+            or getattr(self._original, "capture_structured_queries", False)
+        ):
             capture = json.dumps(capture, sort_keys=True, default=str)
         if isinstance(capture, str):
             self._captured_queries.append(capture)
