@@ -186,6 +186,7 @@ const TOOL_LABELS: Record<string, { running: string; done: string }> = {
     describe_tables: { running: 'Describing tables', done: 'Described tables' },
     describe_entity: { running: 'Reading entity', done: 'Read entity' },
     read_query: { running: 'Reading query', done: 'Read query' },
+    run_query: { running: 'Running query', done: 'Ran query' },
     read_artifact: { running: 'Reading dashboard', done: 'Read dashboard' },
     inspect_data: { running: 'Inspecting data', done: 'Inspected data' },
     search_files: { running: 'Searching files', done: 'Searched files' },

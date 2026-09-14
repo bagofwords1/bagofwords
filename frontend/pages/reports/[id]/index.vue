@@ -995,6 +995,7 @@ import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
+import RunQueryTool from '~/components/tools/RunQueryTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -2403,6 +2404,8 @@ function getToolComponent(toolName: string) {
 			return ReadArtifactTool
 		case 'read_query':
 			return ReadQueryTool
+		case 'run_query':
+			return RunQueryTool
 		case 'search_reports':
 			return SearchReportsTool
 		case 'read_report':

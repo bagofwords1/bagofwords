@@ -38,6 +38,7 @@ SUMMARIZED_TOOL_NAMES = frozenset(
     {
         "create_data",
         "read_query",
+        "run_query",
         "write_csv",
         "read_file",
         "read_email",
@@ -424,6 +425,31 @@ def build_tool_context_summary(
         ):
             if result_json.get(field) is not None:
                 projection[field] = result_json.get(field)
+        return projection
+
+    if name == "run_query":
+        # Provenance first: applied_params says WHICH question these rows
+        # answer. Dropping it would leave a later turn unable to tell this
+        # slice from the query's stored snapshot.
+        projection: dict[str, Any] = {
+            "version": CONTEXT_SUMMARY_VERSION,
+            "success": result_json.get("success"),
+        }
+        for field in (
+            "query_id",
+            "step_id",
+            "title",
+            "applied_params",
+            "cached",
+            "missing_params",
+            "data_model",
+            "error",
+        ):
+            if result_json.get(field) is not None:
+                projection[field] = result_json.get(field)
+        preview = _tool_ui_preview(result_json)
+        if preview.get("columns") or preview.get("row_count") is not None:
+            projection["data_preview"] = preview
         return projection
 
     if name == "read_query":

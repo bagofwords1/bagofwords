@@ -421,6 +421,7 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
     "create_data",       # run a fresh query inside the viewer's own thread
     "inspect_data",
     "read_query",
+    "run_query",         # re-run a shared query with the viewer's own values
     "read_artifact",
     "list_files",
     "read_file",
