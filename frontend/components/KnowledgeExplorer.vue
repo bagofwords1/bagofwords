@@ -1169,6 +1169,7 @@ import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
+import { fileIcon } from '~/utils/fileTree'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
@@ -3445,14 +3446,6 @@ const loadAgentMeta = async (id: string) => {
 
 // ── File preview ────────────────────────────────────────
 const TEXT_EXT = /\.(md|markdown|txt|csv|tsv|json|sql|ya?ml|log|xml|html?|ini|toml|env|sh)$/i
-const fileIcon = (ct?: string, name?: string) => {
-  const c = ct || ''
-  if (/^image\//.test(c) || /\.(png|jpe?g|gif|webp|svg)$/i.test(name || '')) return 'i-heroicons-photo'
-  if (c === 'application/pdf' || /\.pdf$/i.test(name || '')) return 'i-heroicons-document'
-  if (/csv|excel|spreadsheet/.test(c) || /\.(csv|tsv|xlsx?)$/i.test(name || '')) return 'i-heroicons-table-cells'
-  if (/^text\/|json/.test(c) || TEXT_EXT.test(name || '')) return 'i-heroicons-document-text'
-  return 'i-heroicons-paper-clip'
-}
 const isImage = (f: any) => /^image\//.test(f?.content_type || '') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f?.filename || '')
 const isPdf = (f: any) => f?.content_type === 'application/pdf' || /\.pdf$/i.test(f?.filename || '')
 const isText = (f: any) => /^text\/|json|csv/.test(f?.content_type || '') || TEXT_EXT.test(f?.filename || '')
