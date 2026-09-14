@@ -80,14 +80,28 @@ def _report():
     return r
 
 
-async def _run_hydration(session, rerun_side_effect, pending):
-    """Drive hydrate_fork against `session`, stubbing everything external."""
+async def _run_hydration(session, rerun_side_effect, pending, with_client=False,
+                         client_fails=False):
+    """Drive hydrate_fork against `session`, stubbing everything external.
+
+    `with_client=True` gives the forker a usable client on one source — the
+    difference between "this query broke" and "this identity has no access to
+    the source at all", which is what decides whether the fork is retired.
+    """
     svc = ForkService()
     rerun = AsyncMock(side_effect=rerun_side_effect)
+    # `client_fails` is a source that WAS tried and yielded no client — the
+    # absence of access itself, as opposed to there being no source to try.
+    agents = [MagicMock()] if (with_client or client_fails) else []
+    clients = {"agent:conn": MagicMock()} if with_client else {}
+    construct = (AsyncMock(side_effect=Exception("403 forbidden")) if client_fails
+                 else AsyncMock(return_value=clients))
     with patch("app.dependencies.async_session_maker", return_value=session), \
          patch("app.services.step_service.StepService.rerun_step", rerun), \
          patch("app.ai.tools.implementations.agent_focus_common.resolve_run_agents",
-               AsyncMock(return_value=[])), \
+               AsyncMock(return_value=agents)), \
+         patch("app.services.data_source_service.DataSourceService.construct_clients",
+               construct), \
          patch("app.services.thumbnail_service.ThumbnailService.regenerate_for_report",
                AsyncMock(return_value=None)) as thumb:
         out = await svc.hydrate_fork(
@@ -143,8 +157,8 @@ async def test_a_failed_run_is_rolled_back_so_its_code_is_never_persisted():
     out, _, _ = await _run_hydration(session, _rerun, {"s2": "denied", "s1": "ok"})
 
     assert out == {"succeeded": 1, "failed": 1, "deleted": False}
-    # setup + one per step + settle
-    assert session.sessions_opened == 4
+    # setup + (heartbeat + run) per step + settle
+    assert session.sessions_opened == 6
     assert session.rollbacks == 1, "a failed run left its code assignment in the session"
     # Partial access keeps the fork (option 3); each step leaves 'pending'.
     assert not session.deleted
@@ -190,14 +204,17 @@ async def test_refusal_and_broken_query_get_different_reasons():
 
 @pytest.mark.asyncio
 async def test_no_access_at_all_deletes_the_fork():
-    """A forker who could run nothing has no access to the source: the fork
-    would be empty charts with no way to fill them."""
+    """A forker REFUSED every query has no access to the source: the fork
+    would be empty charts with no way to fill them.
+
+    Only refusals retire a fork — see the broken-query test below."""
     report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
     org.get_settings = AsyncMock(return_value=None)
     session = _Session(report, user, org)
 
     async def _rerun(db, step_id, **kwargs):
-        raise RuntimeError("401 Unauthorized")
+        # The shape every client raises: "<operation> failed: HTTP <status>".
+        raise RuntimeError('DAX query failed: HTTP 401 {"model":"shared_orders"}')
 
     with patch("app.services.report_service.ReportService.archive_report",
                AsyncMock()) as archive:
@@ -223,9 +240,121 @@ async def test_no_access_at_all_deletes_the_fork():
                     if w.startswith("UPDATE reports ") and "status='archived'" in w)
     settled = next(i for i, w in enumerate(session.writes)
                    if w.startswith("UPDATE steps ") and "status='error'" in w)
-    first_commit = session.writes.index("-- commit --")
-    assert archived < first_commit and settled < first_commit, (
+    # No commit may fall BETWEEN them. (Not "before the first commit": the
+    # per-step heartbeat commits on its own session as the pass runs, so by
+    # here several commits have already gone by.)
+    between = session.writes[min(settled, archived):max(settled, archived)]
+    assert "-- commit --" not in between, (
         "the fork was left live in the window between settling and archiving")
+
+
+@pytest.mark.asyncio
+async def test_a_fork_whose_queries_merely_BROKE_is_kept():
+    """Only a refusal retires a fork.
+
+    `failed` catches every exception, so a provider timeout or a query that
+    simply broke landed there beside a real refusal — and retiring on those
+    destroyed the fork (nothing un-archives a report) while telling the forker
+    "none of its queries could be run with your credentials", an affirmative
+    claim about permissions the failure never supported. The refused/broke
+    split already drawn for the per-step message is honoured here too.
+    """
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+
+    async def _rerun(db, step_id, **kwargs):
+        raise TimeoutError("read timed out")
+
+    with patch("app.services.report_service.ReportService.archive_report",
+               AsyncMock()) as archive:
+        out, _, _ = await _run_hydration(session, _rerun, {"s1": "a", "s2": "b"}, with_client=True)
+
+    assert out == {"succeeded": 0, "failed": 2, "deleted": False}
+    archive.assert_not_awaited()
+    assert not any("status='archived'" in w for w in session.writes)
+    # Each step still carries its own neutral reason, so the page can explain
+    # the empty charts and the forker can retry instead of re-forking.
+    assert len(session.settled("steps", "error")) == 1
+
+
+@pytest.mark.asyncio
+async def test_one_refusal_among_broken_queries_does_not_retire_the_fork():
+    """The mixed case: a refusal AND a breakage, nothing succeeded. The
+    breakage means "no access to anything" is not established, so the fork
+    stays and each step keeps its own (different) reason."""
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+
+    async def _rerun(db, step_id, **kwargs):
+        if step_id == "s1":
+            raise RuntimeError('DAX query failed: HTTP 403 {"model":"m"}')
+        raise KeyError("region")
+
+    with patch("app.services.report_service.ReportService.archive_report",
+               AsyncMock()) as archive:
+        out, _, _ = await _run_hydration(
+            session, _rerun, {"s1": "a", "s2": "b"}, with_client=True,
+        )
+
+    assert out["deleted"] is False
+    archive.assert_not_awaited()
+    errs = session.settled("steps", "error")
+    assert len(errs) == 2, "refusal and breakage must not share one reason"
+
+
+@pytest.mark.asyncio
+async def test_no_usable_client_still_retires_the_fork():
+    """The primary retire case, and why it cannot be judged on the exception.
+
+    A forker with no usable identity has no entry under the source's
+    `ds_clients` key, so step code fails with a KeyError — which no
+    provider-status check recognises. What proves the absence of access is that
+    a source WAS tried and yielded no client at all, so that is what is tested
+    here, not the shape of the error each query raised.
+    """
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+
+    async def _rerun(db, step_id, **kwargs):
+        raise KeyError("agent:conn")
+
+    with patch("app.services.report_service.ReportService.archive_report",
+               AsyncMock()) as archive:
+        out, _, _ = await _run_hydration(
+            session, _rerun, {"s1": "a"}, client_fails=True,
+        )
+
+    assert out["deleted"] is True, out
+    archive.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_pending_steps_are_heartbeated_as_the_pass_runs():
+    """`is_hydrating` ages a pending step out after a fixed window. Keyed on
+    created_at that window was a budget for the WHOLE pass, so a hydration
+    slower than it read as dead while still running and refresh-on-view
+    re-ran the same steps as the owner underneath it. Each iteration now
+    touches the steps still owed, so the window bounds the gap BETWEEN steps."""
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+
+    out, _, _ = await _run_hydration(
+        session, AsyncMock(return_value=MagicMock()), {"s1": "a", "s2": "b", "s3": "c"},
+    )
+
+    assert out["succeeded"] == 3
+    beats = [w for w in session.writes
+             if w.startswith("UPDATE steps ") and "updated_at" in w
+             and "status='success'" not in w]
+    assert len(beats) == 3, "every step must be preceded by a heartbeat"
+    # A beat only ever covers what is still OWED — never a step already run,
+    # which would resurrect a settled row's pending clock.
+    assert "'s1'" in beats[0] and "'s3'" in beats[0]
+    assert "'s1'" not in beats[-1] and "'s3'" in beats[-1]
 
 
 # ── rerun_step's own half of the contract ───────────────────────────────────

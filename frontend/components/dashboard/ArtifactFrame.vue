@@ -1514,6 +1514,10 @@ const snapshotWithheld = ref(false);
 // the whole dashboard to the gate; now the charts they can read render and
 // only these are called out (see showViewerGate).
 const withheldCharts = ref<Array<{ title: string; noAccess: boolean }>>([]);
+// Set when the charts named above are the OWNER's own failed steps (a fork
+// whose hydration ran only part of the dashboard) rather than snapshots
+// withheld from a viewer. Banner-only: it must never reach showViewerGate.
+const ownerFailedCharts = ref(false);
 // Every query on the dashboard is withheld — nothing to render but the gate.
 const allWithheld = ref(false);
 // Some own run was refused by the provider (classified server-side as
@@ -1521,7 +1525,8 @@ const allWithheld = ref(false);
 const viewerRunNoAccess = ref(false);
 // The dashboard renders, but some of its charts are unavailable to this viewer.
 const partiallyWithheld = computed(() =>
-  snapshotWithheld.value && !showViewerGate.value && withheldCharts.value.length > 0);
+  (snapshotWithheld.value || ownerFailedCharts.value)
+  && !showViewerGate.value && withheldCharts.value.length > 0);
 // True when any of the dashboard's queries reads a delegated (per-user
 // credential) source: View-as swaps identity params only — source-level rows
 // still come back under the caller's own credentials, so the preview must
@@ -2122,6 +2127,8 @@ async function fetchData(artifactId?: string) {
     let failedReason: string | null = null;
     const nextWithheldCharts: Array<{ title: string; noAccess: boolean }> = [];
     let visibleQueries = 0;
+    // The owner's own steps that hydration could not run — banner, not gate.
+    let anyOwnerFailed = false;
     let anyNoAccess = false;
 
     const nextParamSpecs: Record<string, any[]> = {};
@@ -2150,7 +2157,30 @@ async function fetchData(artifactId?: string) {
           title: query.title || 'Untitled',
           noAccess: vr?.error_code === 'no_access',
         });
-      } else {
+      } else if (step?.status === 'error' && step?.status_reason) {
+        // The step's OWNER seeing their own failed step — a forker whose
+        // hydration could run only part of the dashboard. `snapshot_withheld`
+        // is a viewer-only marker, always false here, so without this branch
+        // the two sentences hydrate_fork carefully writes onto the step reached
+        // nobody: the charts it could not run rendered blank, with no banner
+        // and no explanation. `error_code` tells "you may not read this" from
+        // "this query broke" without matching on prose.
+        //
+        // Sets its own flag, NOT `anyWithheld`: that one drives showViewerGate,
+        // and the owner must never be shown the viewer's sign-in/connect gate
+        // for their own fork. This feeds the banner alone.
+        anyOwnerFailed = true;
+        nextWithheldCharts.push({
+          title: query.title || 'Untitled',
+          noAccess: step.error_code === 'no_access',
+        });
+      } else if (step) {
+        // Only a step that actually loaded counts as viewable. A failed fetch
+        // (or a query with no default step) leaves `step` null, and
+        // `snapshot_withheld` then reads undefined — which counted it as
+        // visible, lifted the gate, and ran the artifact against rows that are
+        // uniformly empty: the render crash the gate exists to prevent. An
+        // unreadable step is not a readable one, so it stays out of the count.
         visibleQueries += 1;
       }
       if (vr) {
@@ -2172,7 +2202,10 @@ async function fetchData(artifactId?: string) {
           // Withheld from this viewer: rows are empty on purpose. Exposed so
           // artifact code (and anything reading ARTIFACT_DATA) can tell an
           // unavailable chart from one with genuinely no rows.
-          unavailable: !!step?.snapshot_withheld,
+          unavailable: !!step?.snapshot_withheld || step?.status === 'error',
+          // The reason this chart is empty, in the words the server chose.
+          // Empty for a chart that simply has no rows.
+          unavailableReason: step?.status === 'error' ? (step?.status_reason || '') : '',
           // Provenance surfaced in the built-in InfoPopover on prebuilt comps
           code: step?.code || '',
           description: viz.description || query.description || step?.description || '',
@@ -2225,6 +2258,7 @@ async function fetchData(artifactId?: string) {
     }
     snapshotWithheld.value = anyWithheld;
     withheldCharts.value = nextWithheldCharts;
+    ownerFailedCharts.value = anyOwnerFailed;
     allWithheld.value = queries.length > 0 && visibleQueries === 0;
     viewerRunNoAccess.value = anyNoAccess;
     hasOwnResult.value = anyOwnResult;

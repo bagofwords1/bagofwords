@@ -39,7 +39,16 @@ NO_ACCESS_REASON = "You do not have access to the data behind this query."
 # fixed reason and the withheld response body exist to prevent. Reporting a
 # broken reference as a refusal is the safe direction of the two; the real
 # cause is in the logs (hydrate_fork logs every failure with its exception).
-_ACCESS_DENIED = re.compile(r"\bHTTP\s+(?:401|403)\b|PowerBIEntityNotFound", re.IGNORECASE)
+# Anchored to the "<operation> failed: HTTP <status>" shape every client
+# raises (powerbi, powerbi_report_server, tableau, sisense, xmla_base, ...)
+# rather than matching a bare status anywhere in the string: the body is
+# interpolated right after it, so an unanchored pattern also fired on a 403
+# quoted INSIDE a provider response — relabelling an unrelated failure "no
+# access", dropping its real cause from the step, and counting it as a
+# refusal during fork hydration.
+_ACCESS_DENIED = re.compile(
+    r"failed:\s*HTTP\s+(?:401|403)\b|PowerBIEntityNotFound", re.IGNORECASE
+)
 
 
 def is_access_denied(error: object) -> bool:

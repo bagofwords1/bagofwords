@@ -2238,9 +2238,14 @@ const FORK_HYDRATION_WINDOW_MS = 600_000
 // Bumped when hydration settles, to remount the dashboard on the filled data.
 const artifactFrameKey = ref(0)
 const FORK_HYDRATION_POLL_MS = 1000
-// Two minutes. The backend already stops reporting a step as hydrating after
-// five, so this cap only guards against a request loop that never settles.
-const FORK_HYDRATION_MAX_POLLS = 120
+// Must outlast the server's own patience: fork_service treats a pending step
+// as settled only once its heartbeat is FORK_HYDRATION_STALE_SECONDS (300s)
+// old, so a client that gave up sooner — this was 120 — dropped its spinner
+// onto a still-empty dashboard while `fork_status` was answering "hydrating"
+// and refresh-on-view was still skipping for it. Nothing then filled the page
+// until a manual reload. Keep the two in step.
+const FORK_HYDRATION_STALE_SECONDS = 300
+const FORK_HYDRATION_MAX_POLLS = Math.ceil((FORK_HYDRATION_STALE_SECONDS * 1000) / FORK_HYDRATION_POLL_MS) + 5
 let forkHydrationTimer: ReturnType<typeof setTimeout> | null = null
 
 // A fork young enough to still be hydrating. Anything else — a non-fork, or a
@@ -2285,8 +2290,18 @@ async function watchForkHydration() {
     forkHydrating.value = await fetchForkHydrating()
     forkStatusChecked.value = true
     if (!forkHydrating.value) {
-        // Settled before we asked — possibly after the completions load
-        // already tried the panel (and deferred). Fetch it now.
+        // Settled before we asked — the common case for any fork opened from a
+        // link after its hydration finished, and for an outright refusal, which
+        // settles in the time it takes the provider to say no. This path used
+        // to skip the archived check that `onForkHydrated` does, so a fork
+        // hydration had retired rendered as an empty dashboard — the one
+        // outcome the "nothing ran" explanation exists to prevent.
+        if (report.value?.status === 'archived') {
+            forkNothingRan.value = true
+            return
+        }
+        // Possibly settled after the completions load already tried the panel
+        // (and deferred). Fetch it now.
         await enrichForkedQueries()
         return
     }

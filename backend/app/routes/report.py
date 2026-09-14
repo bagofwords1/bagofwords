@@ -369,9 +369,24 @@ async def fork_report(
         spawn(fork_service.hydrate_fork(
             fork_id=str(new_report.id),
             user_id=str(current_user.id),
-            organization_id=str(organization.id),
+            # The FORK's org, not the request's active one. Eligibility gates on
+            # membership in the SOURCE report's org, and the fork is created
+            # there too, so a user who belongs to two orgs can fork a report in
+            # one while browsing as the other. Hydration resolves org settings
+            # (and, for a report with no attached agents, the agent roster
+            # itself) from this id, so the request's org would run the fork's
+            # queries under the wrong org's limits and feature gates.
+            organization_id=str(new_report.organization_id),
             pending_code=pending_code,
         ))
+    elif getattr(new_report, "needs_thumbnail", False):
+        # An RLS-only fork copies its rows but not the creator's picture of
+        # them, and has no hydration pass to draw a replacement — so it is
+        # asked for here, after the fork's own transaction has committed.
+        from app.core.fire_and_forget import spawn
+        from app.services.thumbnail_service import ThumbnailService
+
+        spawn(ThumbnailService().regenerate_for_report(str(new_report.id)))
     await audit_service.log(
         db=db,
         organization_id=organization.id,

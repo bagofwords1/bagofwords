@@ -802,7 +802,12 @@ async function loadVisualizationData(artifactId?: string) {
                     title: (query as any).title || 'Untitled',
                     noAccess: vr?.error_code === 'no_access',
                 });
-            } else {
+            } else if (step.value) {
+                // Only a step that actually loaded counts as viewable — see
+                // the matching guard in ArtifactFrame. A null step (failed
+                // fetch, or no default step) has an undefined
+                // `snapshot_withheld`, which used to read as "visible" and
+                // lift the gate onto uniformly empty rows.
                 visibleQueries += 1;
             }
             if (vr) {

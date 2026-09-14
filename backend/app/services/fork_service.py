@@ -8,7 +8,7 @@ Generates an AI summary of the original conversation as the first message.
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional, Dict, List, Any, NamedTuple
+from typing import Optional, Dict, List, Any, NamedTuple, Tuple
 
 from fastapi import HTTPException
 from sqlalchemy import select
@@ -33,11 +33,17 @@ artifact_service = ArtifactService()
 # Step status for a fork step that hydrate_fork has not run yet.
 FORK_PENDING_STATUS = "pending"
 
-# A step still 'pending' after this long is not being hydrated any more —
-# the worker that owned the detached task restarted or crashed mid-run. Past
-# it the fork is treated as settled, so the page stops waiting and
-# refresh-on-view is no longer held off. Generous next to the observed
-# ~0.4s per query: a slow provider must not be mistaken for a dead task.
+# A pending step whose HEARTBEAT stopped this long ago is not being hydrated
+# any more — the worker that owned the detached task restarted or crashed
+# mid-run. Past it the fork is treated as settled, so the page stops waiting
+# and refresh-on-view is no longer held off. Because hydration touches its
+# remaining pending steps as it goes, this bounds the gap BETWEEN two steps,
+# not the length of the whole pass: a fork with hundreds of slow queries keeps
+# reporting itself alive, while a dead worker is still noticed within it.
+#
+# The report page derives its own poll cap from this value (see
+# FORK_HYDRATION_MAX_POLLS in pages/reports/[id]/index.vue) so the client never
+# gives up while the server still calls the fork hydrating.
 FORK_HYDRATION_STALE_SECONDS = 300
 
 
@@ -60,6 +66,10 @@ class DuplicatedAssets(NamedTuple):
     # under the forker's own credentials and writes the code back only where
     # that succeeded. Empty for system-only forks, which copy code as before.
     pending_code: Dict[str, str] = {}
+    # True when the fork was withheld the creator's thumbnail but has no
+    # hydration pass queued to draw its own — RLS-only forks, which copy their
+    # rows but not the creator's picture of them.
+    needs_thumbnail: bool = False
 
 
 class ForkService:
@@ -227,6 +237,9 @@ class ForkService:
         # detached from this request (and this session), so the route owns
         # spawning it. Empty for system-only forks, which are complete already.
         new_report.pending_code = assets.pending_code
+        # An RLS-only fork has no hydration pass to regenerate its thumbnail
+        # (see the copy policy in _copy_assets), so it is asked for separately.
+        new_report.needs_thumbnail = assets.needs_thumbnail
         return new_report
 
     async def is_hydrating(self, db: AsyncSession, report_id: str) -> bool:
@@ -234,9 +247,17 @@ class ForkService:
 
         True while any of the report's steps is still FORK_PENDING_STATUS —
         a status only fork creation sets, so ordinary reports can never read as
-        hydrating. Steps pending for longer than FORK_HYDRATION_STALE_SECONDS
+        hydrating. Steps untouched for longer than FORK_HYDRATION_STALE_SECONDS
         do not count: their task died with its worker, and without the cutoff
         the page would wait forever and refresh-on-view would stay held off.
+
+        The cutoff reads ``updated_at``, not ``created_at``, because hydration
+        heartbeats its still-pending steps as it works (see ``hydrate_fork``).
+        Against ``created_at`` the window was a fixed budget for the WHOLE
+        pass, so a hydration that legitimately ran long — many queries, or a
+        slow provider — read as dead while it was still working: the page
+        stopped waiting, and refresh-on-view stopped skipping and re-ran the
+        very same steps as the owner, concurrently with the live pass.
 
         The one answer to "is the fork ready?" — the report page polls it
         before rendering, and refresh-on-view consults it so the queries are
@@ -253,7 +274,7 @@ class ForkService:
             .where(
                 Query.report_id == str(report_id),
                 Step.status == FORK_PENDING_STATUS,
-                Step.created_at >= cutoff,
+                Step.updated_at >= cutoff,
             )
         )).scalar() or 0
         return pending > 0
@@ -294,6 +315,8 @@ class ForkService:
         secondary query), but it is behaviour of generated code, not a guarantee
         this function enforces.
         """
+        from sqlalchemy import update
+
         from app.dependencies import async_session_maker
         from app.models.organization import Organization
         from app.models.step import Step
@@ -338,12 +361,21 @@ class ForkService:
             # cannot be built at all fails its steps, which is the correct
             # outcome — that IS "no access".
             db_clients = {}
+            # Did we ATTEMPT any source, and end up with nothing usable? That
+            # is the codebase's primary "no access" signal — step code reaches
+            # its source through `ds_clients[...]`, so a forker with no usable
+            # identity has no client under that key and the lookup raises a
+            # KeyError, which no provider-status check would ever recognise.
+            # Distinguished from "there were no sources to try", which says
+            # nothing about access.
+            sources_attempted = 0
             try:
                 from app.services.data_source_service import DataSourceService
                 from app.ai.tools.implementations.agent_focus_common import resolve_run_agents
 
                 ds_service = DataSourceService()
                 for data_source in await resolve_run_agents(db, organization, user, report):
+                    sources_attempted += 1
                     try:
                         db_clients.update(
                             await ds_service.construct_clients(db, data_source, current_user=user)
@@ -368,7 +400,43 @@ class ForkService:
         # this — expire_on_commit is off — which is why success-then-failure
         # worked and only failure-then-anything broke.) Separate sessions share
         # no state, so a failure cannot reach the next step.
-        for step_id, code in (pending_code or {}).items():
+        pending_ids = [str(i) for i in (pending_code or {})]
+
+        async def _heartbeat(remaining: list[str]) -> None:
+            """Mark the steps this pass still owes as alive.
+
+            `is_hydrating` ages a pending step out after
+            FORK_HYDRATION_STALE_SECONDS so a fork orphaned by a dead worker
+            cannot wait forever. Without this touch that window was a budget
+            for the whole pass, and a hydration slower than it — a big
+            dashboard, or a provider having a bad day — was declared dead while
+            still running: the page dropped its spinner onto a half-empty
+            dashboard, and refresh-on-view started the same queries again as
+            the owner, underneath the pass still writing them.
+
+            Its own session, committed immediately, so a later per-step
+            rollback cannot take the heartbeat with it.
+            """
+            if not remaining:
+                return
+            try:
+                async with async_session_maker() as hdb:
+                    await hdb.execute(
+                        update(Step)
+                        .where(
+                            Step.id.in_(remaining),
+                            Step.status == FORK_PENDING_STATUS,
+                        )
+                        .values(updated_at=datetime.utcnow())
+                    )
+                    await hdb.commit()
+            except Exception:
+                # A missed beat only risks an early "settled"; never fail the
+                # hydration over it.
+                logger.debug("Fork hydration: heartbeat failed for %s", fork_id, exc_info=True)
+
+        for position, (step_id, code) in enumerate((pending_code or {}).items()):
+            await _heartbeat(pending_ids[position:])
             async with async_session_maker() as sdb:
                 report, user, organization = await _load(sdb)
                 if report is None or user is None:
@@ -410,8 +478,6 @@ class ForkService:
             # provider's own error text is never surfaced; it can quote table
             # and model names, the very detail the withheld code was kept back
             # to protect.
-            from sqlalchemy import update
-
             if succeeded:
                 await db.execute(
                     update(Step)
@@ -454,7 +520,32 @@ class ForkService:
                     .where(Report.id == str(fork_id))
                     .values(last_run_at=datetime.utcnow())
                 )
-            nothing_ran = bool(failed) and not succeeded
+            # Retire the fork only where "no access" is actually established.
+            # Two ways it is:
+            #
+            #   1. No usable client for any source that WAS tried. Step code
+            #      reaches its source through `ds_clients[...]`, so an identity
+            #      with no client has no key to look up and fails with a
+            #      KeyError — not a provider status, which is why this cannot be
+            #      judged from the exceptions alone. The primary case.
+            #   2. Every failure was a recognised provider refusal.
+            #
+            # Anything else keeps the fork. `failed` catches EVERY exception, so
+            # a provider timeout or a query that simply broke used to land here
+            # too — and retiring on those told the forker "none of its queries
+            # could be run with your credentials" (an affirmative claim about
+            # their permissions that the failure never supported) and destroyed
+            # the fork for what may have been a thirty-second blip, with no way
+            # back: nothing un-archives a report. The refused/broke split is
+            # already drawn above for the per-step message; it is honoured here
+            # too, so a fork whose queries merely broke is kept with each step
+            # carrying its own reason and the forker can retry, not re-fork.
+            no_usable_identity = sources_attempted > 0 and not db_clients
+            nothing_ran = (
+                not succeeded
+                and bool(failed)
+                and (no_usable_identity or (bool(refused) and not broke))
+            )
             if nothing_ran:
                 # Archived in the SAME commit that settles the steps. Split
                 # across two commits, a status poll landing between them sees
@@ -732,12 +823,13 @@ class ForkService:
             await db.flush()
 
         # -- Artifact (depends on viz_id_map) --
-        new_artifact = await self._duplicate_artifact(
-            db, original, new_report, user, viz_id_map, strict_source,
+        new_artifact, needs_thumbnail = await self._duplicate_artifact(
+            db, original, new_report, user, viz_id_map, strict_source, user_scoped,
         )
 
         return DuplicatedAssets(
             widget_id_map, query_id_map, viz_id_map, new_artifact, pending_code,
+            needs_thumbnail,
         )
 
     async def _duplicate_artifact(
@@ -748,8 +840,13 @@ class ForkService:
         user: User,
         viz_id_map: Dict[str, str],
         strict_source: bool = False,
-    ) -> Optional[Artifact]:
+        user_scoped: bool = False,
+    ) -> Tuple[Optional[Artifact], bool]:
         """Duplicate the latest artifact with remapped visualization_ids.
+
+        Returns the new artifact and whether the fork must draw its own
+        thumbnail because it was withheld the creator's and has no hydration
+        pass queued to replace it.
 
         `strict_source` marks a source whose materialized output belongs to the
         creator's identity. Two fields on the artifact are derived from that
@@ -758,7 +855,7 @@ class ForkService:
         """
         latest = await artifact_service.get_latest_by_report(db, str(original.id))
         if not latest:
-            return None
+            return None, False
 
         # Remap every visualization id the artifact carries — not only the
         # `visualization_ids` list, but the ids baked into its source too.
@@ -816,6 +913,18 @@ class ForkService:
         # must not call it: the hydration pass regenerates the thumbnail from
         # the forker's own run instead (rerun_report_steps already does this
         # whenever a step produced fresh data).
+        #
+        # Only `user_scoped` forks get that hydration pass, though — it is
+        # spawned off `pending_code`, which only user-scoped steps enter. An
+        # RLS-only fork (strict_source true, user_scoped false) is therefore
+        # withheld the creator's thumbnail with nothing queued to make its own,
+        # and kept the creator's card picture on main. Ask for one directly;
+        # the fork's steps carry their own rows, so there is something to draw.
+        # Recorded, not acted on: this runs before the fork's transaction
+        # commits, so a task spawned here could look for a report that is not
+        # there yet. The route spawns it after the commit, exactly as it does
+        # for `pending_code`.
+        needs_thumbnail = bool(latest.thumbnail_path) and strict_source and not user_scoped
         if latest.thumbnail_path and not strict_source:
             try:
                 from app.services.thumbnail_service import ThumbnailService
@@ -828,7 +937,7 @@ class ForkService:
             except Exception as e:
                 logger.warning("Failed to copy thumbnail during fork: %s", e)
 
-        return new_artifact
+        return new_artifact, needs_thumbnail
 
     async def _create_fork_summary(
         self,
