@@ -29,12 +29,14 @@
       </div>
     </Transition>
 
-    <!-- Result preview. Rendered from THIS run's rows — never re-hydrated from
-         the stored step, whose snapshot answers the query's default values. -->
+    <!-- Result preview. Rendered from THIS run's rows; `viewer-run` keeps it
+         that way, re-requesting the same slice whenever the card refreshes
+         rather than falling back to the query's saved snapshot. -->
     <Transition name="fade">
       <div v-if="!detailsCollapsed && isSuccess && hasData">
         <ToolWidgetPreview
           :tool-execution="enhancedExecution"
+          :viewer-run="viewerRun"
           :readonly="readonly"
           :can-expand="canExpand"
           @editQuery="$emit('editQuery', $event)"
@@ -142,13 +144,26 @@ const hasData = computed<boolean>(() => {
 })
 
 /**
- * ToolWidgetPreview renders from a step, but this run deliberately created
- * none. Hand it a synthetic one carrying THIS run's rows.
+ * Which slice this card shows, so every hydration path in ToolWidgetPreview
+ * re-requests THESE values instead of fetching the query's default step.
  *
- * The id is intentionally NOT the executed step's id: ReadQueryTool hydrates a
- * real step_id from /api/steps/{id}, which would replace these rows with the
- * stored snapshot — i.e. the default values — while the header still claimed
- * the requested ones.
+ * A synthetic step id is not enough on its own: the preview derives its query
+ * id from `result_json.query_id`, and the report serializer caps a card's rows
+ * at 20 and marks it `truncated`, so a larger run would refetch the default
+ * step on reload, expand or export and silently show the saved snapshot under
+ * a header still naming the requested params.
+ */
+const viewerRun = computed(() => {
+  const qid = rj.value.query_id
+  if (!qid || !isSuccess.value) return null
+  return { queryId: String(qid), params: appliedParams.value || {} }
+})
+
+/**
+ * ToolWidgetPreview renders from a step, but this run deliberately created
+ * none. Hand it a synthetic one carrying THIS run's rows, and the values they
+ * answer — `applied_params` is what seeds the card's parameter controls and
+ * what the hydration above re-requests.
  */
 const enhancedExecution = computed<any>(() => {
   const te: any = props.toolExecution
@@ -165,6 +180,7 @@ const enhancedExecution = computed<any>(() => {
     id: `run-query-${te?.id || 'result'}`,
     title: title.value || 'Untitled',
     data: rj.value.data || previewData,
+    applied_params: rj.value.applied_params || null,
     data_model: rj.value.data_model || { type: 'table' },
     view: rj.value.view || { type: rj.value.data_model?.type || 'table' },
     status: 'success',

@@ -979,6 +979,16 @@
       "retrying": "Erneuter Versuch · Versuch {n}",
       "visualizing": "Wird visualisiert"
     },
+    "runQuery": {
+      "running": "„{title}“ wird ausgeführt…",
+      "runningWith": "„{title}“ wird mit {params} ausgeführt…",
+      "ran": "„{title}“ ausgeführt",
+      "ranWith": "„{title}“ mit {params} ausgeführt",
+      "failed": "„{title}“ konnte nicht ausgeführt werden",
+      "needsInput": "„{title}“ benötigt Parameterwerte",
+      "needsValues": "Warten auf Werte für:",
+      "cachedHint": "Aus Ihrem zwischengespeicherten Ergebnis für diese Werte geliefert – die Quelle wurde nicht erneut abgefragt"
+    },
     "createArtifact": {
       "creating": "Artefakt wird erstellt",
       "created": "Artefakt erstellt",

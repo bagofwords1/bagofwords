@@ -993,6 +993,16 @@
       "retrying": "מנסה שוב · ניסיון {n}",
       "visualizing": "ממחיש"
     },
+    "runQuery": {
+      "running": "מריץ את \"{title}\"…",
+      "runningWith": "מריץ את \"{title}\" עם {params}…",
+      "ran": "הורץ \"{title}\"",
+      "ranWith": "הורץ \"{title}\" עם {params}",
+      "failed": "הרצת \"{title}\" נכשלה",
+      "needsInput": "\"{title}\" דורש ערכי פרמטרים",
+      "needsValues": "ממתין לערכים עבור:",
+      "cachedHint": "הוגש מהתוצאה השמורה שלך עבור ערכים אלה — המקור לא תושאל מחדש"
+    },
     "createArtifact": {
       "creating": "יוצר פריט",
       "created": "הפריט נוצר",

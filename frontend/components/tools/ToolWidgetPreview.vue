@@ -424,6 +424,7 @@
 import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
+import { cardHydrationRequest } from '~/utils/viewerRunHydration'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
@@ -460,6 +461,14 @@ const props = defineProps<{
   // Show the Edit button even in readonly mode (readonly hides the whole
   // bottom action bar; hosts like the Data modal want edit without the bar)
   canEdit?: boolean
+  /**
+   * This card shows ONE viewer-run parameter slice (run_query), not the
+   * query's saved snapshot. Set it and every hydration path re-requests that
+   * slice instead of fetching the default step, which answers different
+   * values. Without it a >20-row run reverts to the saved snapshot on reload,
+   * expand or export while the header still names the requested params.
+   */
+  viewerRun?: { queryId: string; params: Record<string, any> } | null
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
@@ -889,16 +898,54 @@ async function loadReportSnapshotIfNeeded() {
   } catch {}
 }
 
+/**
+ * The step payload this card should display, for every path that refreshes it.
+ *
+ * A viewer-run card shows one parameter slice; the query's default step
+ * answers the saved values, so fetching it would swap the rows out from under
+ * a header that still names the requested params. Re-request the same slice
+ * instead — it is served from the per-viewer cache (StepUserResult, keyed by
+ * the params fingerprint), so this is a lookup, not a re-execution, and it
+ * returns every row rather than the 20-row serialized preview.
+ *
+ * Identity-sourced values are dropped before submitting: the server resolves
+ * those from the session and rejects any the client sends.
+ */
+async function fetchCardStep(): Promise<any | null> {
+  const req = cardHydrationRequest({
+    viewerRun: props.viewerRun,
+    queryId: queryId.value,
+    currentApplied: cardAppliedParams.value,
+    paramSpecs: cardParamSpecs.value,
+  })
+  if (!req) return null
+
+  const { data, error } = await useMyFetch(
+    req.url,
+    req.method === 'POST' ? { method: 'POST', body: req.body } : { method: 'GET' },
+  )
+  if (error.value) return null
+
+  if (req.method === 'GET') return ((data.value as any) || {}).step || null
+
+  const res: any = data.value
+  if (!res || res.status === 'error') return null
+  // Keep the card's own view/data_model; only the rows and the values they
+  // answer come from the run.
+  const base = JSON.parse(JSON.stringify(effectiveStep.value || {}))
+  return {
+    ...base,
+    data: res.data || {},
+    applied_params: res.applied_params || req.body?.params || {},
+  }
+}
+
 async function hydrateLatestStep() {
   isHydratingStep.value = true
   try {
-    const qid = queryId.value
-    if (qid) {
-      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-      if (!error.value) {
-        const fetched = ((data.value as any) || {}).step || null
-        if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
-      }
+    if (props.viewerRun?.queryId || queryId.value) {
+      const fetched = await fetchCardStep()
+      if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
       return
     }
     // No query to resolve (legacy execute tools, deduplicated step payloads):
@@ -1412,22 +1459,20 @@ onMounted(() => {
       const detail: any = (ev as any)?.detail || {}
       if (!detail?.query_id) return
       if (String(detail.query_id) !== String(queryId.value || '')) return
-      // Always fetch the latest default step from backend to avoid stale payloads
+      // Always refetch from the backend to avoid stale payloads. On a
+      // viewer-run card that means re-running the same slice against the new
+      // default step — the broadcast payload is the default snapshot, which
+      // answers other values, so it is never adopted there.
       ;(async () => {
         try {
-          const { data, error } = await useMyFetch(`/api/queries/${detail.query_id}/default_step`, { method: 'GET' })
-          if (!error.value) {
-            const fetched = ((data.value as any) || {}).step || null
-            if (fetched) {
-              stepOverride.value = JSON.parse(JSON.stringify(fetched))
-            } else if (detail.step) {
-              stepOverride.value = JSON.parse(JSON.stringify(detail.step))
-            }
-          } else if (detail.step) {
+          const fetched = await fetchCardStep()
+          if (fetched) {
+            stepOverride.value = JSON.parse(JSON.stringify(fetched))
+          } else if (detail.step && !props.viewerRun?.queryId) {
             stepOverride.value = JSON.parse(JSON.stringify(detail.step))
           }
         } catch {
-          if (detail.step) {
+          if (detail.step && !props.viewerRun?.queryId) {
             stepOverride.value = JSON.parse(JSON.stringify(detail.step))
           }
         }
@@ -1447,12 +1492,9 @@ onMounted(() => {
       hydratedVisualization.value = null
       ;(async () => {
         try {
-          const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-          if (!error.value) {
-            const fetched = ((data.value as any) || {}).step || null
-            if (fetched) {
-              stepOverride.value = JSON.parse(JSON.stringify(fetched))
-            }
+          const fetched = await fetchCardStep()
+          if (fetched) {
+            stepOverride.value = JSON.parse(JSON.stringify(fetched))
           }
         } catch {}
       })()
@@ -1518,14 +1560,10 @@ async function handleEntitySaved() {
 
   // Refresh the step to get the updated created_entity_id
   try {
-    const qid = queryId.value
-    if (qid) {
-      const { data, error } = await useMyFetch(`/api/queries/${qid}/default_step`, { method: 'GET' })
-      if (!error.value) {
-        const fetched = ((data.value as any) || {}).step || null
-        if (fetched) {
-          stepOverride.value = JSON.parse(JSON.stringify(fetched))
-        }
+    if (queryId.value || props.viewerRun?.queryId) {
+      const fetched = await fetchCardStep()
+      if (fetched) {
+        stepOverride.value = JSON.parse(JSON.stringify(fetched))
       }
     }
   } catch (e) {
