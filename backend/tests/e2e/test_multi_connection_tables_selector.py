@@ -92,7 +92,9 @@ async def _seed(delegated_first: bool):
     (OBO) Power BI. `delegated_first` controls which one the ordered
     relationship yields as `connections[0]`, which is the whole point."""
     suffix = uuid.uuid4().hex[:8]
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # `created_at` is TIMESTAMP WITHOUT TIME ZONE: asyncpg rejects a tz-aware
+    # value for it, while SQLite accepts one, so keep these seeds naive UTC.
+    base = datetime(2026, 1, 1)
     async with async_session_maker() as db:
         org = Organization(name=f"MultiConn Org {suffix}")
         db.add(org)
