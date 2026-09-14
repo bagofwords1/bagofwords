@@ -193,6 +193,8 @@ export interface BlockGroup {
   durationComplete: boolean
   /** Handled-error members absorbed into this group (amber count on header). */
   issueCount: number
+  /** Actions still awaiting query completion, separate from findings. */
+  pendingCount: number
   /** "4 reads · 2 searches" */
   verbSummary: string
   /** LLM-generated `title` of the LAST block in the group, if any. */
@@ -267,12 +269,20 @@ function buildGroup(run: any[]): BlockGroup {
   let active = false
   let runningLabel = ''
   let issueCount = 0
+  const pendingActions = new Set<string>()
   // Wall-clock span material: earliest member start -> latest member end.
   let minStart = Infinity
   let maxEnd = -Infinity
   let startsKnown = 0
   let endsKnown = 0
   for (const b of run) {
+    if (verificationKey(b)) {
+      const result = b?.tool_execution?.result_json
+      const action = result?.action_id || b?.tool_execution?.arguments_json?.evidence_for_action_id || String(b.id)
+      const state = result?.evidence?.update_status
+      if (state === 'pending') pendingActions.add(action)
+      else if (state) pendingActions.delete(action)
+    }
     const name = b?.tool_execution?.tool_name || ''
     if (name && !toolNames.includes(name)) toolNames.push(name)
     const fam = verbFamily(name)
@@ -328,6 +338,7 @@ function buildGroup(run: any[]): BlockGroup {
     durationMs,
     durationComplete,
     issueCount,
+    pendingCount: pendingActions.size,
     verbSummary,
     lastTitle,
     toolNames,
@@ -345,7 +356,7 @@ function verificationKey(block: any): string {
 function verificationHasIssue(block: any): boolean {
   if (!verificationKey(block)) return false
   const e = block?.tool_execution?.result_json?.evidence
-  return !!e?.errors?.length || !!e?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request', 'pending'].includes(e?.update_status)
+  return !!e?.errors?.length || !!e?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request'].includes(e?.update_status)
 }
 
 /**

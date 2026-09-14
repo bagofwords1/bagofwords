@@ -148,15 +148,19 @@ class _PreviewRoute:
 
 
 def _preview_service():
-    service = ArtifactPreviewService({
-        "report": SimpleNamespace(id="report-1"),
-        "organization": SimpleNamespace(id="org-1"),
-        "user": SimpleNamespace(id="user-1"),
-    })
+    service = ArtifactPreviewService(_preview_runtime_context())
     service.artifact = {"id": "artifact-1"}
     service.query_ids = {"query-a", "query-b"}
     service.origin = "https://preview.test"
     return service
+
+
+def _preview_runtime_context():
+    return {
+        "report": SimpleNamespace(id="report-1"),
+        "organization": SimpleNamespace(id="org-1"),
+        "user": SimpleNamespace(id="user-1"),
+    }
 
 
 async def _complete_query(service, action_id, *, applied_params, status="success", acknowledge=True):
@@ -556,3 +560,483 @@ async def test_empty_date_filtered_result_is_inconclusive_even_when_update_was_a
     evidence = service.evidence(since=0, update_status=status)
     assert status == "data_received"  # Transport succeeded; business correctness is a separate check.
     assert any(c["code"] == "empty_date_result" and c["status"] == "inconclusive" for c in evidence["result_checks"])
+
+
+class _GetResponse:
+    def __init__(self, status_code, payload=None):
+        self.status_code = status_code
+        self.payload = payload or {}
+
+    def json(self):
+        return self.payload
+
+
+class _GetClient:
+    def __init__(self, status_code, payload=None):
+        self.response = _GetResponse(status_code, payload)
+
+    async def get(self, path):
+        return self.response
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [401, 403, 404])
+async def test_preview_recheck_classifies_auth_and_missing_artifacts_as_restricted(status_code):
+    from app.ai.tools.implementations._artifact_browser import run_artifact_operation
+    from app.ai.tools.schemas.browser import BrowserSnapshotInput
+
+    service = _preview_service()
+    service.client = _GetClient(status_code)
+
+    with pytest.raises(PermissionError):
+        await run_artifact_operation(
+            SimpleNamespace(preview=service), "snapshot", BrowserSnapshotInput(session_id="preview"), {}
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status_code", [500, 502, 503])
+async def test_preview_recheck_classifies_server_failures_as_unavailable(status_code):
+    from app.ai.tools.implementations._artifact_browser import run_artifact_operation
+    from app.ai.tools.schemas.browser import BrowserSnapshotInput
+    from app.services.artifact_preview_service import PreviewUnavailableError
+
+    service = _preview_service()
+    service.client = _GetClient(status_code)
+
+    with pytest.raises(PreviewUnavailableError):
+        await run_artifact_operation(
+            SimpleNamespace(preview=service), "snapshot", BrowserSnapshotInput(session_id="preview"), {}
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("restricted", [True, False], ids=["restricted", "unavailable"])
+async def test_failed_preview_recheck_never_returns_snapshot_or_evidence(restricted):
+    from app.ai.tools.implementations._artifact_browser import artifact_operation_failure
+    from app.services.artifact_preview_service import PreviewUnavailableError
+
+    error_type = PermissionError if restricted else PreviewUnavailableError
+
+    class DeniedFrame:
+        def locator(self, selector):
+            raise AssertionError("A failed access recheck must not inspect the page")
+
+    class DeniedPreview:
+        def identity(self):
+            raise AssertionError("A failed access recheck must not read artifact metadata")
+
+        def evidence(self, *args, **kwargs):
+            raise AssertionError("A failed access recheck must not read stored evidence")
+
+    session = SimpleNamespace(
+        session_id="session-sensitive",
+        preview=DeniedPreview(),
+        frame=DeniedFrame(),
+        action_lock=None,
+    )
+    result = await artifact_operation_failure(
+        session, error_type("The access check failed"), {}
+    )
+
+    for payload in result.values():
+        assert payload["success"] is False
+        assert not {"snapshot", "evidence", "artifact", "parameters"} & payload.keys()
+    assert result["output"]["error_code"] == ("preview_restricted" if restricted else "preview_unavailable")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("exception_type", "expected_code"),
+    [(PermissionError, "preview_restricted"), (None, "preview_unavailable")],
+)
+async def test_preview_startup_access_failure_never_returns_evidence(monkeypatch, exception_type, expected_code):
+    import app.services.artifact_preview_service as preview_module
+    from app.ai.tools.implementations.browser_navigate import BrowserNavigateTool
+
+    status_code = 403 if exception_type else 503
+    clients = []
+
+    class FailingClient:
+        def __init__(self, **kwargs):
+            self.closed = False
+            clients.append(self)
+
+        async def get(self, path):
+            return _GetResponse(status_code)
+
+        async def aclose(self):
+            self.closed = True
+
+    async def write_token(user):
+        return "test-token"
+
+    monkeypatch.setattr(preview_module.httpx, "AsyncClient", FailingClient)
+    monkeypatch.setattr("app.core.auth.get_jwt_strategy", lambda: SimpleNamespace(write_token=write_token))
+    events = [event async for event in BrowserNavigateTool().run_stream(
+        {"artifact_id": "artifact-1"}, _preview_runtime_context()
+    )]
+
+    payload = events[-1].payload
+    assert payload["output"]["success"] is False
+    assert payload["output"]["error_code"] == expected_code
+    assert all(payload["output"].get(key) is None for key in ("snapshot", "evidence", "artifact", "parameters"))
+    assert all(payload["observation"].get(key) is None for key in ("snapshot", "evidence", "artifact", "parameters"))
+    assert clients[0].closed is True
+
+
+class _NoDialogFrame:
+    def locator(self, selector):
+        return self
+
+    async def count(self):
+        return 0
+
+
+class _SnapshotPage:
+    url = "https://preview.test/artifact-preview/artifact-1"
+
+
+@pytest.mark.asyncio
+async def test_bare_preview_snapshot_only_reports_undelivered_historical_errors(monkeypatch):
+    from app.ai.tools.implementations import _artifact_browser as artifact_browser
+    from app.ai.tools.schemas.browser import BrowserSnapshotInput
+
+    service = _preview_service()
+    service.artifact = {"id": "artifact-1", "version": 1, "content": {"code": ""}}
+    service.url = "https://preview.test/artifact-preview/artifact-1"
+    service.client = _GetClient(200, {"id": "artifact-1"})
+    service.action_id = service.begin_action()
+    service.record("error", source="runtime", message="old failure")
+    # The prior tool response already delivered this event. A plain snapshot
+    # rechecks current page state and must not turn the old failure into new output.
+    service.evidence(since=0)
+
+    async def snapshot(*args, **kwargs):
+        return "- generic: current page", False
+
+    monkeypatch.setattr(artifact_browser, "build_snapshot", snapshot)
+    session = SimpleNamespace(
+        preview=service,
+        session_id="preview-session",
+        frame=_NoDialogFrame(),
+        page=_SnapshotPage(),
+        action_lock=__import__("asyncio").Lock(),
+    )
+
+    result = await artifact_browser.run_artifact_operation(
+        session, "snapshot", BrowserSnapshotInput(session_id=session.session_id), {}
+    )
+
+    assert result["output"]["evidence"]["errors"] == []
+    assert result["output"]["evidence"]["update_status"] != "failed"
+
+
+@pytest.mark.asyncio
+async def test_explicit_preview_action_replay_still_includes_its_historical_error(monkeypatch):
+    from app.ai.tools.implementations import _artifact_browser as artifact_browser
+    from app.ai.tools.schemas.browser import BrowserSnapshotInput
+
+    service = _preview_service()
+    service.artifact = {"id": "artifact-1", "version": 1, "content": {"code": ""}}
+    service.url = "https://preview.test/artifact-preview/artifact-1"
+    service.client = _GetClient(200, {"id": "artifact-1"})
+    action_id = service.begin_action()
+    service.record("error", source="runtime", message="action failed")
+    service.evidence(since=0)
+
+    async def snapshot(*args, **kwargs):
+        return "- generic: current page", False
+
+    monkeypatch.setattr(artifact_browser, "build_snapshot", snapshot)
+    session = SimpleNamespace(
+        preview=service,
+        session_id="preview-session",
+        frame=_NoDialogFrame(),
+        page=_SnapshotPage(),
+        action_lock=__import__("asyncio").Lock(),
+    )
+
+    result = await artifact_browser.run_artifact_operation(
+        session,
+        "snapshot",
+        BrowserSnapshotInput(session_id=session.session_id, evidence_for_action_id=action_id, since_cursor=0),
+        {},
+    )
+
+    assert result["output"]["evidence"]["update_status"] == "failed"
+    assert any(event["message"] == "action failed" for event in result["output"]["evidence"]["errors"])
+
+
+@pytest.mark.asyncio
+async def test_manager_returns_missing_stale_connector_id_so_navigation_can_open_fresh(monkeypatch):
+    from app.ai.tools.implementations import browser_navigate
+    from app.ai.tools.implementations.browser_navigate import BrowserNavigateTool
+    import playwright.async_api
+    from app.ai.tools.implementations._browser_common import BrowserSessionManager
+
+    manager = BrowserSessionManager()
+    monkeypatch.setattr(browser_navigate, "session_manager", manager)
+    monkeypatch.setattr(browser_navigate, "build_snapshot", _fake_snapshot)
+    monkeypatch.setattr(browser_navigate, "detect_block", _no_block)
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
+    ctx = _browser_runtime_context()
+    events = [event async for event in BrowserNavigateTool().run_stream(
+        {"url": "https://allowed.example.test/dashboard", "session_id": "stale-connector-session"}, ctx
+    )]
+
+    result = events[-1].payload
+    assert result["output"]["success"] is True
+    assert result["output"]["session_id"] != "stale-connector-session"
+    assert manager.get(result["output"]["session_id"], ctx) is not None
+    await manager.close_report("report-a")
+
+
+@pytest.mark.asyncio
+async def test_manager_strict_navigation_lookup_rejects_cross_scope_ids(monkeypatch):
+    import playwright.async_api
+    from app.ai.tools.implementations._browser_common import BrowserSessionManager
+
+    manager = BrowserSessionManager()
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
+    owner = {
+        "organization": SimpleNamespace(id="tenant-a"),
+        "user": SimpleNamespace(id="member-a"),
+        "report": SimpleNamespace(id="report-a"),
+        "agent_execution_id": "run-a",
+    }
+    other = {**owner, "user": SimpleNamespace(id="member-b"), "report": SimpleNamespace(id="report-b")}
+    foreign = await manager.open("report-b", [], False, runtime_ctx=other)
+
+    with pytest.raises(PermissionError):
+        manager.get(foreign.session_id, owner, strict=True)
+    await manager.close_report("report-b")
+
+
+@pytest.mark.asyncio
+async def test_navigation_rejects_preview_session_ids(monkeypatch):
+    import playwright.async_api
+    from app.ai.tools.implementations import browser_navigate
+    from app.ai.tools.implementations.browser_navigate import BrowserNavigateTool
+    from app.ai.tools.implementations._browser_common import BrowserSessionManager
+
+    manager = BrowserSessionManager()
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
+    ctx = _browser_runtime_context()
+
+    class FakePreview:
+        async def route(self, *args, **kwargs):
+            return None
+
+        async def close(self):
+            return None
+
+    preview = await manager.open("report-a", [], False, runtime_ctx=ctx, preview=FakePreview())
+    monkeypatch.setattr(browser_navigate, "session_manager", manager)
+    events = [event async for event in BrowserNavigateTool().run_stream(
+        {"url": "https://allowed.example.test/dashboard", "session_id": preview.session_id}, ctx
+    )]
+
+    assert events[-1].payload["output"]["success"] is False
+    assert events[-1].payload["output"]["error_code"] == "session_scope_mismatch"
+    await manager.close_report("report-a")
+
+
+class _FakePage:
+    url = "about:blank"
+
+    async def goto(self, url, **kwargs):
+        self.url = url
+        return SimpleNamespace(status=200)
+
+    async def title(self):
+        return "Allowed page"
+
+
+def _browser_runtime_context():
+    connection = SimpleNamespace(
+        type="browser",
+        config={"url_patterns": ["https://allowed.example.test/*"], "allow_downloads": False},
+    )
+    report = SimpleNamespace(
+        id="report-a",
+        data_sources=[SimpleNamespace(connections=[connection])],
+    )
+    return {
+        "organization": SimpleNamespace(id="tenant-a"),
+        "user": SimpleNamespace(id="member-a"),
+        "report": report,
+        "agent_execution_id": "run-a",
+    }
+
+
+async def _fake_snapshot(*args, **kwargs):
+    return "- heading \"Allowed page\"", False
+
+
+async def _no_block(*args, **kwargs):
+    return None
+
+
+class _FakeContext:
+    def __init__(self):
+        self.page = _FakePage()
+        self.download_handler = None
+
+    async def new_page(self):
+        return self.page
+
+    async def route(self, *args, **kwargs):
+        return None
+
+    async def route_web_socket(self, *args, **kwargs):
+        return None
+
+    async def close(self):
+        return None
+
+
+class _FakeBrowser:
+    async def new_context(self, **kwargs):
+        return _FakeContext()
+
+    async def close(self):
+        return None
+
+
+class _FakeChromium:
+    async def launch(self, **kwargs):
+        return _FakeBrowser()
+
+
+class _FakePlaywright:
+    def __init__(self):
+        self.chromium = _FakeChromium()
+
+    async def stop(self):
+        return None
+
+
+class _FakePlaywrightFactory:
+    async def start(self):
+        return _FakePlaywright()
+
+
+@pytest.mark.asyncio
+async def test_capacity_reclaims_only_idle_connector_sessions(monkeypatch):
+    import time
+    import playwright.async_api
+    from app.ai.tools.implementations._browser_common import (
+        BrowserSessionManager,
+    )
+
+    manager = BrowserSessionManager()
+    ctx = {
+        "organization": SimpleNamespace(id="tenant-a"),
+        "user": SimpleNamespace(id="member-new"),
+        "report": SimpleNamespace(id="report-new"),
+        "agent_execution_id": "run-new",
+    }
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
+    monkeypatch.setattr("app.ai.tools.implementations._browser_common.MAX_CONCURRENT_SESSIONS", 3)
+    idle_ctx = {
+        "organization": SimpleNamespace(id="tenant-old"),
+        "user": SimpleNamespace(id="member-old"),
+        "report": SimpleNamespace(id="report-old"),
+        "agent_execution_id": "idle-run",
+    }
+    idle = await manager.open("report-old", [], False, runtime_ctx=idle_ctx)
+    await manager.close_execution("idle-run")
+    idle.last_used = time.monotonic() - 10
+    active_ctx = {
+        "organization": SimpleNamespace(id="tenant-a"),
+        "user": SimpleNamespace(id="member-active"),
+        "report": SimpleNamespace(id="report-active"),
+        "agent_execution_id": "active-run",
+    }
+    active = await manager.open("report-active", [], False, runtime_ctx=active_ctx)
+    active.last_used = time.monotonic() - 20
+    class FakePreview:
+        async def route(self, *args, **kwargs):
+            return None
+
+        async def close(self):
+            return None
+
+    preview_ctx = {
+        "organization": SimpleNamespace(id="tenant-a"),
+        "user": SimpleNamespace(id="member-preview"),
+        "report": SimpleNamespace(id="report-preview"),
+        "agent_execution_id": "preview-run",
+    }
+    preview = await manager.open("report-preview", [], False, runtime_ctx=preview_ctx, preview=FakePreview())
+    preview.last_used = time.monotonic() - 30
+
+    opened = await manager.open("report-new", ["https://example.test/*"], False, runtime_ctx=ctx)
+
+    assert manager.get(idle.session_id, idle_ctx) is None
+    assert manager.get(active.session_id, active_ctx) is active
+    assert manager.get(preview.session_id, preview_ctx) is preview
+    assert manager.get(opened.session_id, ctx) is opened
+    await manager.close_report("report-new")
+    await manager.close_report("report-active")
+    await manager.close_report("report-preview")
+
+
+@pytest.mark.asyncio
+async def test_connector_session_tracks_multiple_live_executions_independently(monkeypatch):
+    import playwright.async_api
+    from app.ai.tools.implementations._browser_common import BrowserSessionManager
+
+    manager = BrowserSessionManager()
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
+    first_ctx = _browser_runtime_context()
+    second_ctx = {**first_ctx, "agent_execution_id": "run-b"}
+
+    first = await manager.open("report-a", ["https://allowed.example.test/*"], False, runtime_ctx=first_ctx)
+    second = await manager.open("report-a", ["https://allowed.example.test/*"], False, runtime_ctx=second_ctx)
+
+    assert second is first
+    assert first.active_execution_ids == {"run-a", "run-b"}
+    await manager.close_execution("run-a")
+    assert first.active_execution_ids == {"run-b"}
+    assert manager.get(first.session_id, second_ctx) is first
+    await manager.close_execution("run-b")
+    assert first.active_execution_ids == set()
+    assert manager.get(first.session_id, second_ctx) is first
+    await manager.close_report("report-a")
+
+
+@pytest.mark.asyncio
+async def test_full_capacity_of_active_sessions_is_preserved_and_new_open_fails(monkeypatch):
+    import time
+    import playwright.async_api
+    from app.ai.tools.implementations._browser_common import BrowserSessionManager
+
+    manager = BrowserSessionManager()
+    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
+    monkeypatch.setattr("app.ai.tools.implementations._browser_common.MAX_CONCURRENT_SESSIONS", 3)
+    contexts = []
+    sessions = []
+    for index in range(3):
+        ctx = {
+            "organization": SimpleNamespace(id="tenant-capacity"),
+            "user": SimpleNamespace(id=f"member-{index}"),
+            "report": SimpleNamespace(id=f"report-{index}"),
+            "agent_execution_id": f"run-{index}",
+        }
+        contexts.append(ctx)
+        sessions.append(await manager.open(str(ctx["report"].id), [], False, runtime_ctx=ctx))
+        sessions[-1].last_used = time.monotonic() - 3600
+
+    with pytest.raises(RuntimeError):
+        await manager.open("report-over-capacity", [], False, runtime_ctx={
+            "organization": SimpleNamespace(id="tenant-capacity"),
+            "user": SimpleNamespace(id="member-new"),
+            "report": SimpleNamespace(id="report-new"),
+            "agent_execution_id": "run-new",
+        })
+
+    assert all(manager.get(session.session_id, ctx) is session for session, ctx in zip(sessions, contexts))
+    for session in sessions:
+        await manager.close_report(session.scope[2])

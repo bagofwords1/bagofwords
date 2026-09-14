@@ -67,12 +67,15 @@ class BrowserNavigateTool(Tool):
                 result = await navigate_artifact(data, runtime_ctx)
                 yield ToolEndEvent(type="tool.end", payload=result)
             except Exception as e:
-                yield self._fail(str(e)[:1500], "preview_unavailable")
+                yield self._fail(str(e)[:1500], "preview_restricted" if isinstance(e, PermissionError) else "preview_unavailable")
             return
 
         if data.session_id:
-            prior = session_manager.get(data.session_id, runtime_ctx)
-            if prior is None or prior.preview:
+            try:
+                prior = session_manager.get(data.session_id, runtime_ctx, strict=True)
+                if prior is not None and prior.preview:
+                    raise PermissionError("Internal previews cannot navigate external URLs")
+            except PermissionError:
                 yield self._fail("This session cannot be used for URL navigation", "session_scope_mismatch")
                 return
 

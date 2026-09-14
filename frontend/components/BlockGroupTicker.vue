@@ -17,6 +17,7 @@
 			</Transition>
 		</span>
 		<span v-if="group.issueCount" class="text-amber-500">· {{ $t('tools.browser.checkIssues', { count: group.issueCount }) }}</span>
+		<span v-if="group.pendingCount" class="text-gray-400">· {{ $t('tools.browser.updateStates.pending') }}</span>
 	</button>
 </template>
 

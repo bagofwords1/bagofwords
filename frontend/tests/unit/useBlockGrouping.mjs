@@ -334,6 +334,25 @@ console.log('useBlockGrouping: all assertions passed')
 }
 console.log('useBlockGrouping: verification lifecycle assertions passed')
 
+// Pending evidence stays neutral and disappears when the same action settles.
+{
+  const check = (action, status) => chip('browser_snapshot', { te: {
+    arguments_json: { _verification_group_id: 'waiting-checks' },
+    result_json: { action_id: action, evidence: { update_status: status } },
+  } })
+  const waiting = check('filter-change', 'pending')
+  const group = computeBlockGroups([waiting]).headerAt[waiting.id]
+  assert.equal(group.issueCount, 0)
+  assert.equal(group.pendingCount, 1)
+  const stillWaiting = computeBlockGroups([waiting, check('other-change', 'data_received')]).headerAt[waiting.id]
+  assert.equal(stillWaiting.pendingCount, 1)
+  for (const status of ['data_received', 'data_not_acknowledged', 'failed']) {
+    const settled = computeBlockGroups([waiting, check('filter-change', status)]).headerAt[waiting.id]
+    assert.equal(settled.pendingCount, 0)
+    assert.equal(settled.issueCount, status === 'data_received' ? 0 : 1)
+  }
+}
+
 // A successful request with inconclusive business evidence remains a finding.
 for (const code of ['empty_date_result', 'partial_result']) {
   const block = chip('browser_act', { te: {

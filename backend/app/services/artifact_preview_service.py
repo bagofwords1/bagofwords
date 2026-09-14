@@ -20,6 +20,10 @@ from app.ai.code_execution.query_params import param_values_equal
 from app.schemas.param_schema import parse_param_specs
 
 
+class PreviewUnavailableError(RuntimeError):
+    """The access check could not complete; protected evidence stays withheld."""
+
+
 class ArtifactPreviewService:
     def __init__(self, runtime_ctx: dict):
         self.ctx = runtime_ctx
@@ -93,9 +97,14 @@ class ArtifactPreviewService:
                 "result_truncated": isinstance(total, int) and total > returned}
 
     async def _get(self, path):
-        response = await self.client.get(path)
+        try:
+            response = await self.client.get(path)
+        except httpx.RequestError as exc:
+            raise PreviewUnavailableError("Preview backend is unavailable; retry verification") from exc
+        if response.status_code in {401, 403, 404}:
+            raise PermissionError(f"Preview access denied (HTTP {response.status_code})")
         if response.status_code != 200:
-            raise PermissionError(f"Preview access failed (HTTP {response.status_code})")
+            raise PreviewUnavailableError(f"Preview backend is unavailable (HTTP {response.status_code}); retry verification")
         return response.json()
 
     def record(self, kind: str, **fields):
@@ -241,8 +250,10 @@ class ArtifactPreviewService:
             raise ValueError("Expected query IDs must belong to this artifact")
         return {"query_ids": sorted(ids), "params": params}
 
-    async def wait(self, action_id=None, expectation=None, timeout=15):
-        since = self.actions.get(action_id, 0)
+    async def wait(self, action_id=None, expectation=None, timeout=15, since=None):
+        # Explicit action checks retain their history; bare snapshots describe
+        # only the evidence they will deliver, not every past page failure.
+        since = self.actions[action_id] if action_id else (self.delivered if since is None else since)
         if expectation is not None:
             self.expectations[action_id] = self.validate_expectation(expectation)
         expectation = self.expectations.get(action_id) or {}

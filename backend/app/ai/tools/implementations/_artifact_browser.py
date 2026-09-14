@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 
 from app.ai.tools.implementations._browser_common import build_snapshot, mask_secrets_style, save_bytes, session_manager
-from app.services.artifact_preview_service import ArtifactPreviewService
+from app.services.artifact_preview_service import ArtifactPreviewService, PreviewUnavailableError
 
 
 async def navigate_artifact(data, ctx):
@@ -51,6 +51,10 @@ async def navigate_artifact(data, ctx):
         if "s" not in locals():
             await preview.close()
             raise
+        if isinstance(exc, (PermissionError, PreviewUnavailableError)):
+            result = await artifact_operation_failure(s, exc, ctx)
+            await session_manager._close(s.session_id)
+            return result
         # Startup errors are evidence too: return them before disposing the
         # incomplete session, rather than losing them behind a timeout.
         preview.record("error", source="navigation", message=str(exc)[:1500])
@@ -104,7 +108,7 @@ async def run_artifact_operation(s, operation, data, ctx):
                 await locator.scroll_into_view_if_needed(timeout=10000)
             status = await preview.wait(action_id, data.expect_query_update)
         elif operation == "snapshot" and not action_id:
-            status = await preview.wait(timeout=15)
+            status = await preview.wait(timeout=15, since=getattr(data, "since_cursor", None))
         elif action_id:
             if action_id not in preview.actions:
                 raise ValueError("Unknown action in this preview")
@@ -153,8 +157,9 @@ async def artifact_operation_failure(session, exc, ctx):
     """Return recoverable context without leaking evidence after access denial."""
     message = str(exc)[:1500]
     output = {"success": False, "error_message": message,
-              "error_code": "preview_restricted" if isinstance(exc, PermissionError) else "artifact_action_failed"}
-    if not isinstance(exc, PermissionError):
+              "error_code": "preview_restricted" if isinstance(exc, PermissionError) else
+                            "preview_unavailable" if isinstance(exc, PreviewUnavailableError) else "artifact_action_failed"}
+    if not isinstance(exc, (PermissionError, PreviewUnavailableError)):
         preview = session.preview
         output.update(session_id=session.session_id, artifact=preview.identity(),
                       action_id=preview.action_id, evidence=preview.evidence(),

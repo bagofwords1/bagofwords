@@ -13,6 +13,7 @@
         <span v-else class="flex items-center min-w-0" :class="isError ? 'text-gray-600 dark:text-gray-400' : 'text-gray-600 dark:text-gray-400'">
           <Icon :name="headerIcon" class="w-3 h-3 me-1.5 shrink-0" :class="iconColor" />
           <span class="truncate">{{ doneLabel }}</span>
+          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-gray-400">{{ $t('tools.browser.updateStates.pending') }}</span>
           <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-gray-400 dark:text-gray-500">{{ displayUrl }}</span>
           <span v-if="blockedReason" class="ms-1.5 text-[10px] text-amber-500 shrink-0">{{ blockedReason }}</span>
           <Icon
@@ -123,11 +124,12 @@ const doneLabel = computed(() => {
   if (isError.value) return t('tools.browser.failed')
   return args.value?.title || verb.value.done
 })
-const headerIcon = computed(() => isError.value ? 'heroicons-globe-alt' : 'heroicons-globe-alt')
+const headerIcon = computed(() => rj.value?.evidence?.update_status === 'pending' ? 'heroicons-clock' : 'heroicons-globe-alt')
 const iconColor = computed(() => {
-  if (rj.value?.evidence?.errors?.length || rj.value?.evidence?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request', 'pending'].includes(rj.value?.evidence?.update_status)) return 'text-amber-500'
+  if (rj.value?.evidence?.errors?.length || rj.value?.evidence?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request'].includes(rj.value?.evidence?.update_status)) return 'text-amber-500'
   if (isError.value) return 'text-orange-500'
   if (blockedReason.value) return 'text-amber-500'
+  if (rj.value?.evidence?.update_status === 'pending') return 'text-gray-400'
   return 'text-green-500'
 })
 

@@ -575,7 +575,8 @@ const useMyFetch: typeof useApplicationFetch = (async (request: any, options: an
 }) as typeof useApplicationFetch;
 
 let verificationRevision = 0;
-const verificationRequests = new Set<string>();
+// A full payload carries only the latest accepted result for each query.
+const verificationRequests = new Map<string, string>();
 function verificationEvent(kind: string, fields: Record<string, any> = {}) {
   if (!props.verificationPreview) return;
   window.dispatchEvent(new CustomEvent('bow:artifact-evidence', {
@@ -1226,7 +1227,7 @@ async function runParamQueries(
         return;
       }
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
-      if (props.verificationPreview && res.verification_request_id) verificationRequests.add(res.verification_request_id);
+      if (props.verificationPreview && res.verification_request_id) verificationRequests.set(qid, res.verification_request_id);
       for (const viz of visualizationsData.value) {
         if (viz.queryId === qid) {
           viz.rows = res.data?.rows || [];
@@ -2066,7 +2067,10 @@ function sendDataToIframe() {
     ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {})
   }));
 
-  verificationEvent('data_sent', { data_revision: verificationRevision, request_ids: [...verificationRequests] });
+  verificationEvent('data_sent', {
+    data_revision: verificationRevision,
+    request_ids: [...new Set(visualizationsData.value.map(v => verificationRequests.get(v.queryId)).filter(Boolean))],
+  });
   try {
     iframeRef.value.contentWindow.postMessage({
       type: 'ARTIFACT_DATA',
@@ -2194,6 +2198,8 @@ async function fetchData(artifactId?: string) {
 
     // Reorder vizData to match artifact's visualization_ids order
     // (artifact code references viz[0], viz[1], etc. by index)
+    // These are newly fetched snapshots, not the previous parameter-run results.
+    verificationRequests.clear();
     const vizIds = selectedArtifact.value?.content?.visualization_ids;
     if (vizIds && vizIds.length > 0) {
       const vizMap = new Map(vizData.map(v => [v.id, v]));
