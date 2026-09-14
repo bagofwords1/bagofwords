@@ -31,7 +31,10 @@ class _FakeDB:
 
 def _agent(attached_ids, explicit_focus=None, used=(), set_by_use=False):
     a = AgentV2.__new__(AgentV2)
-    a.report = SimpleNamespace(focused_data_source_ids=list(explicit_focus or []))
+    a.report = SimpleNamespace(id="rep-1", focused_data_source_ids=list(explicit_focus or []))
+    # AgentV2.__init__ caches this scalar alongside `report` (reading the live
+    # ORM instance can raise MissingGreenlet); `_mlog` logs it on these paths.
+    a.report_id = str(a.report.id)
     a.db = _FakeDB()
     a.data_sources = [SimpleNamespace(id=i) for i in attached_ids]
     a.used_agent_ids = set(used)

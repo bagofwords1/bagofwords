@@ -373,5 +373,14 @@ async def test_read_query_loads_only_requested_query_graph(artifact_context, loo
     assert loaded.get("Artifact", set()) == set()
     assert loaded.get("Completion", set()) == set()
     assert loaded.get("Widget", set()) == set()
-    for unrelated_table in ("reports", "artifacts", "completions"):
+    for unrelated_table in ("artifacts", "completions"):
         assert not any(f"from {unrelated_table}" in statement for statement in statements)
+    # `reports` IS touched now: read_query gates saved monitoring data through
+    # bow_source_access, which resolves each result's report with single-column
+    # reads (Query.report_id, then Report.bow_source_access). That is not the
+    # graph hydration this test guards against — `loaded["Report"]` above stays
+    # empty — so allow the gate's column reads and nothing wider.
+    report_reads = [statement for statement in statements if "from reports" in statement]
+    assert all("reports.bow_source_access" in statement for statement in report_reads), (
+        "read_query hydrated the owning report instead of reading the access column"
+    )
