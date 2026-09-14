@@ -444,6 +444,7 @@
       <!-- Polish Prompt Box -->
       <div
         v-if="polishPromptVisible"
+        ref="polishBoxRef"
         class="absolute z-30 w-80 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
         :style="polishPromptPosition"
       >
@@ -457,19 +458,23 @@
         <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 truncate">
           &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
         </div>
-        <form @submit.prevent="submitPolishPrompt" class="flex gap-2">
-          <input
+        <!-- Grows with the instruction up to ~6 lines, then scrolls, so a long
+             prompt stays readable. Enter applies; Shift+Enter breaks the line. -->
+        <form @submit.prevent="submitPolishPrompt" class="flex flex-col gap-2">
+          <textarea
             ref="polishInputRef"
             v-model="polishInstruction"
-            type="text"
+            rows="2"
+            dir="auto"
             placeholder="e.g. make this bigger, change colors..."
-            class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            class="block w-full resize-none max-h-36 overflow-y-auto text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            @keydown.enter.exact.prevent="submitPolishPrompt"
             @keydown.escape="cancelPolishPrompt"
           />
           <button
             type="submit"
             :disabled="!polishInstruction.trim()"
-            class="px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            class="self-end px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {{ $t('artifactFrame.apply') }}
           </button>
@@ -491,7 +496,7 @@
           </div>
 
           <!-- Modal Content - Full artifact iframe or SlideViewer -->
-          <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+          <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
             <!-- Slides with previews use SlideViewer -->
             <SlideViewer
               v-if="isFullscreenOpen && hasSlidesWithPreviews && selectedArtifact"
@@ -602,16 +607,47 @@ const iframeError = ref<string | null>(null);
 const isPolishMode = ref(false);
 const polishPromptVisible = ref(false);
 const polishInstruction = ref('');
-const polishInputRef = ref<HTMLInputElement | null>(null);
+const polishInputRef = ref<HTMLTextAreaElement | null>(null);
+const polishContainerRef = ref<HTMLElement | null>(null);
+const polishBoxRef = ref<HTMLElement | null>(null);
+const polishBoxHeight = ref(0);
 const polishSelectedElement = ref<{ tag: string; classes: string; text: string; htmlSnippet: string; rect: { top: number; left: number; width: number; height: number } } | null>(null);
 
 const polishPromptPosition = computed(() => {
   if (!polishSelectedElement.value?.rect) return { top: '50%', left: '50%' };
   const r = polishSelectedElement.value.rect;
-  // Position below the element, clamped within the container
-  const top = Math.min(Math.max(r.top + r.height + 8, 8), 500);
-  const left = Math.min(Math.max(r.left, 8), 400);
+  const gap = 8;
+  const containerWidth = polishContainerRef.value?.clientWidth ?? Infinity;
+  const containerHeight = polishContainerRef.value?.clientHeight ?? Infinity;
+  const boxWidth = polishBoxRef.value?.offsetWidth ?? 320;
+  const boxHeight = polishBoxHeight.value;
+  // Below the element when the box fits there, else above it; either way
+  // clamped inside the container. The box grows with the instruction, so this
+  // re-runs on every height change rather than assuming a fixed size.
+  let top = r.top + r.height + gap;
+  if (top + boxHeight > containerHeight - gap && r.top - gap - boxHeight >= gap) {
+    top = r.top - gap - boxHeight;
+  }
+  top = Math.max(gap, Math.min(top, containerHeight - boxHeight - gap));
+  const left = Math.max(gap, Math.min(r.left, containerWidth - boxWidth - gap));
   return { top: top + 'px', left: left + 'px' };
+});
+
+watch(polishBoxRef, (el, _prev, onCleanup) => {
+  if (!el) return;
+  polishBoxHeight.value = el.offsetHeight;
+  const observer = new ResizeObserver(() => { polishBoxHeight.value = el.offsetHeight; });
+  observer.observe(el);
+  onCleanup(() => observer.disconnect());
+});
+
+// Fit the instruction box to its text; max-h caps it and scrolling takes over.
+watch(polishInstruction, async () => {
+  await nextTick();
+  const el = polishInputRef.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 });
 
 function togglePolishMode() {
