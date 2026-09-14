@@ -273,6 +273,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
+import RunQueryTool from '~/components/tools/RunQueryTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -568,6 +569,8 @@ function getToolComponent(toolName: string) {
             return DescribeEntityTool
         case 'read_query':
             return ReadQueryTool
+        case 'run_query':
+            return RunQueryTool
         case 'read_resources':
             return ReadResourcesTool
         case 'inspect_data':

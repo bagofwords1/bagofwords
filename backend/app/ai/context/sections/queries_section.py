@@ -21,6 +21,10 @@ class QueryObservation(BaseModel):
     stats: Dict[str, Any] = {}
     data_preview: Optional[str] = None
     visualizations: List[QueryVisualizationSummary] = []
+    # Declared ParamSpec dicts. Rendered so the planner can see that a query
+    # takes VALUES — and which names — without spending a read_query call.
+    # Mirrors how <entities> advertises its params for describe_entity.
+    parameters: Optional[List[Dict[str, Any]]] = None
 
 
 class QueriesSection(ContextSection):
@@ -43,6 +47,23 @@ class QueriesSection(ContextSection):
                 inner.append(xml_tag("stats", xml_escape(str(it.stats))))
             if it.data_preview:
                 inner.append(xml_tag("data_preview", xml_escape(it.data_preview)))
+            if it.parameters:
+                param_parts: List[str] = []
+                for p in it.parameters:
+                    if not isinstance(p, dict) or not p.get("name"):
+                        continue
+                    attrs = {
+                        "name": str(p.get("name")),
+                        "type": str(p.get("type") or "string"),
+                        "source": str(p.get("source") or "input"),
+                    }
+                    if p.get("required"):
+                        attrs["required"] = "true"
+                    if p.get("default") is not None:
+                        attrs["default"] = xml_escape(str(p.get("default")))
+                    param_parts.append(xml_tag("param", xml_escape(str(p.get("label") or "")), attrs))
+                if param_parts:
+                    inner.append(xml_tag("parameters", "\n".join(param_parts)))
             # Visualizations
             if it.visualizations:
                 viz_parts: List[str] = []

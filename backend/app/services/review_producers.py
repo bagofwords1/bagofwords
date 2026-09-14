@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 DEFAULT_WINDOW_HOURS = 24 * 7
 SLOW_QUERY_MS = 90_000                        # > 90s is "slow"
-QUERY_TOOLS = ("create_data", "read_query")   # tools that run a data query
+QUERY_TOOLS = ("create_data", "read_query", "run_query")  # tools that run a data query
 LOW_CONFIDENCE_MIN_OCCURRENCES = 5            # only notify after the 5th low score in the window
 
 

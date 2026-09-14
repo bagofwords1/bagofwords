@@ -73,6 +73,14 @@ def _preview_table(column_names: List[str], rows: Any) -> Optional[str]:
         return None
 
 
+def _param_dicts(raw: Any) -> Optional[List[Dict[str, Any]]]:
+    """Declared ParamSpec dicts as stored on the Query, or None."""
+    if not isinstance(raw, list):
+        return None
+    out = [p for p in raw if isinstance(p, dict) and p.get("name")]
+    return out or None
+
+
 class QueryContextBuilder:
     def __init__(self, db: AsyncSession, organization, report):
         self.db = db
@@ -127,7 +135,7 @@ class QueryContextBuilder:
     async def _get_report_queries(self, report_id: str, max_queries: int) -> List[Dict[str, Any]]:
         try:
             res = await self.db.execute(
-                select(Query.id, Query.title, Query.default_step_id)
+                select(Query.id, Query.title, Query.default_step_id, Query.parameters)
                 .where(Query.report_id == report_id)
                 .order_by(Query.created_at.desc())
                 .limit(max_queries)
@@ -137,6 +145,7 @@ class QueryContextBuilder:
                     "id": str(row.id),
                     "title": row.title or "",
                     "default_step_id": str(row.default_step_id) if row.default_step_id else None,
+                    "parameters": _json_value(row.parameters),
                 }
                 for row in res.all()
             ]
@@ -407,6 +416,7 @@ class QueryContextBuilder:
             stats={},
             data_preview=None,
             visualizations=visualizations,
+            parameters=_param_dicts(query.get("parameters")),
         )
 
         # Populate step-derived observation fields

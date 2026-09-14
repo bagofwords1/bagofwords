@@ -1019,6 +1019,16 @@
       "retrying": "Retrying · attempt {n}",
       "visualizing": "Visualizing"
     },
+    "runQuery": {
+      "running": "Running \"{title}\"…",
+      "runningWith": "Running \"{title}\" with {params}…",
+      "ran": "Ran \"{title}\"",
+      "ranWith": "Ran \"{title}\" with {params}",
+      "failed": "Failed to run \"{title}\"",
+      "needsInput": "\"{title}\" needs parameter values",
+      "needsValues": "Waiting on values for:",
+      "cachedHint": "Served from your cached result for these values — the source was not re-queried"
+    },
     "webFetch": {
       "fetching": "Fetching",
       "fetched": "Fetched",

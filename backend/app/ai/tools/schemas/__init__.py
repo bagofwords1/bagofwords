@@ -14,6 +14,7 @@ from .edit_instruction import EditInstructionInput, EditInstructionOutput
 from .create_artifact import CreateArtifactInput, CreateArtifactOutput
 from .read_artifact import ReadArtifactInput, ReadArtifactOutput
 from .read_query import ReadQueryInput, ReadQueryOutput, ReadQueryResult
+from .run_query import RunQueryInput, RunQueryOutput, MissingParam
 from .add_parameter import AddParameterInput, AddParameterOutput
 from .search_reports import SearchReportsInput, SearchReportsOutput, SearchReportsItem
 from .read_report import (
@@ -85,6 +86,9 @@ __all__ = [
     "ReadArtifactInput",
     "ReadArtifactOutput",
     "ReadQueryInput",
+    "RunQueryInput",
+    "RunQueryOutput",
+    "MissingParam",
     "ReadQueryOutput",
     "ReadQueryResult",
     "SearchReportsInput",
