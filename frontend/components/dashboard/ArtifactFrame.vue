@@ -1,7 +1,7 @@
 <template>
   <div class="h-full w-full flex flex-col bg-white dark:bg-gray-900">
     <!-- Header / Toolbar -->
-    <div class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
+    <div v-if="!verificationPreview" class="flex-shrink-0 flex items-center justify-between px-4 py-2 bg-gradient-to-b from-cyan-50/50 dark:from-cyan-900/10 to-white dark:to-gray-900 border-b border-gray-200 dark:border-gray-700/60">
       <div class="flex items-center gap-3">
         <UTooltip :text="$t('artifactFrame.backToChat')">
           <button @click="$emit('close')" class="hover:bg-gray-100 dark:hover:bg-gray-700 p-1 rounded">
@@ -390,6 +390,7 @@
       <iframe
         v-show="hasArtifact && !isLoading && !isPendingArtifact && !hasSlidesWithPreviews && !isDocMode && !snapshotWithheld && !iframeError && iframeSrcdoc"
         ref="iframeRef"
+        data-artifact-frame
         :srcdoc="iframeSrcdoc"
         sandbox="allow-scripts allow-same-origin allow-downloads"
         class="absolute inset-0 w-full h-full border-0 bg-white dark:bg-gray-900 z-0"
@@ -400,7 +401,7 @@
            slides render as page images through SlideViewer, so there is no
            iframe for the element picker to talk to) -->
       <div
-        v-if="hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews && !slidesPreviewsMissing"
+        v-if="!verificationPreview && hasArtifact && !isLoading && !isPendingArtifact && !snapshotWithheld && !iframeError && !isDocMode && !hasSlidesWithPreviews && !slidesPreviewsMissing"
         class="absolute bottom-4 left-4 z-20"
       >
         <button
@@ -503,7 +504,7 @@
 <script setup lang="ts">
 import type { ExportFormat } from '~/composables/useArtifactExports'
 import { ref, computed, onMounted, onUnmounted, watch, toRaw, nextTick } from 'vue';
-import { useMyFetch } from '~/composables/useMyFetch';
+import { useMyFetch as useApplicationFetch } from '~/composables/useMyFetch';
 import CronModal from '../CronModal.vue';
 import DataModal from './DataModal.vue';
 import ShareModal from '../ShareModal.vue';
@@ -556,7 +557,31 @@ const props = defineProps<{
    *  summary unmounts it and every click from there arrives too early. A prop
    *  is already reactive state on the page, so it survives the remount. */
   requestedArtifactId?: string | null;
+  /** Server-brokered preview: no user credential/session enters this page. */
+  verificationPreview?: boolean;
 }>();
+
+// The preview's server-side request broker supplies normal authorized API
+// responses. Rendering and parameter execution stay on this shared host.
+const useMyFetch: typeof useApplicationFetch = (async (request: any, options: any = {}) => {
+  if (!props.verificationPreview) return useApplicationFetch(request, options);
+  const path = String(request).startsWith('/api/') ? String(request) : `/api${request}`;
+  try {
+    const value = await $fetch(path, options);
+    return { data: ref(value), error: ref(null), pending: ref(false), status: ref('success'), refresh: () => {} };
+  } catch (error) {
+    return { data: ref(null), error: ref(error), pending: ref(false), status: ref('error'), refresh: () => {} };
+  }
+}) as typeof useApplicationFetch;
+
+let verificationRevision = 0;
+const verificationRequests = new Set<string>();
+function verificationEvent(kind: string, fields: Record<string, any> = {}) {
+  if (!props.verificationPreview) return;
+  window.dispatchEvent(new CustomEvent('bow:artifact-evidence', {
+    detail: { kind, artifact_id: props.requestedArtifactId, ...fields },
+  }));
+}
 
 defineEmits<{
   (e: 'close'): void;
@@ -1128,6 +1153,7 @@ function queriesWithIdentityParams(): string[] {
 
 function postParamsStatus(loading: boolean, error: string | null = null) {
   paramRunLoading.value = loading;
+  verificationEvent(error ? 'error' : 'params_status', { loading, message: error });
   try {
     iframeRef.value?.contentWindow?.postMessage(
       { type: 'ARTIFACT_PARAMS_STATUS', payload: { loading, error } },
@@ -1144,6 +1170,7 @@ async function runParamQueries(
   opts: { force?: boolean; identityOnly?: boolean } = {},
 ) {
   const changedNames = Object.keys(changes || {});
+  verificationEvent('params_commit', { changes, targets, commit_seq: paramAckSeq });
 
   // A name no query declares would silently no-op (nothing to run) — the
   // classic generated-code bug of setParam('genre') vs a declared genre_id.
@@ -1199,6 +1226,7 @@ async function runParamQueries(
         return;
       }
       if (latestParamRunForQid[qid] !== myRun) return; // superseded mid-flight
+      if (props.verificationPreview && res.verification_request_id) verificationRequests.add(res.verification_request_id);
       for (const viz of visualizationsData.value) {
         if (viz.queryId === qid) {
           viz.rows = res.data?.rows || [];
@@ -1902,6 +1930,7 @@ onMounted(async () => {
   // claim, so this is at most one owner-credential rerun per interval no
   // matter how many people open the page. Mirrors the /r host.
   try {
+    if (props.verificationPreview) return; // Verification only runs explicit viewer queries.
     const { data } = await useMyFetch(`/api/r/${props.reportId}/rerun`, { method: 'POST' });
     const run: any = data.value;
     if (run && !run.skipped && run.steps_succeeded) await refreshAll();
@@ -1990,12 +2019,18 @@ onUnmounted(() => {
 
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
+  if (props.verificationPreview && event.source !== iframeRef.value?.contentWindow) return;
+  if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
+    verificationEvent('data_received', { data_revision: event.data.revision });
+    return;
+  }
   if (event.data?.type === 'ARTIFACT_READY') {
     console.log('[ArtifactFrame] Iframe ready');
     iframeError.value = null;
     iframeReady.value = true;
     sendDataToIframe();
   } else if (event.data?.type === 'ARTIFACT_ERROR') {
+    verificationEvent('error', { source: 'runtime', message: event.data.payload?.message });
     console.error('[ArtifactFrame] Iframe render error:', event.data.payload?.message);
     iframeError.value = event.data.payload?.message || 'Unknown render error';
   } else if (event.data?.type === 'POLISH_ELEMENT_SELECTED') {
@@ -2027,9 +2062,11 @@ function sendDataToIframe() {
     files: toRaw(filesData.value),
     current_user: toRaw(effectiveViewerContext.value),
     params: paramsPayload(),
-    runtime: artifactRuntime()
+    runtime: artifactRuntime(),
+    ...(props.verificationPreview ? { verification_revision: ++verificationRevision } : {})
   }));
 
+  verificationEvent('data_sent', { data_revision: verificationRevision, request_ids: [...verificationRequests] });
   try {
     iframeRef.value.contentWindow.postMessage({
       type: 'ARTIFACT_DATA',
@@ -2554,7 +2591,7 @@ const iframeSrcdoc = computed(() => {
     data: seed,
     code: artifactCode,
     mode: selectedArtifact.value?.mode || 'page',
-    polishMode: true,
+    polishMode: !props.verificationPreview,
     loadingLabel: t('artifactFrame.loadingArtifact'),
     reactBuild: 'development',
     colorMode: artifactColorMode,

@@ -29,7 +29,10 @@ class BrowserNavigateTool(Tool):
                 "Returns a session_id — pass it to browser_snapshot / browser_act / "
                 "browser_extract / browser_vision to keep working in the same page. "
                 "Downloaded files become report files you can then read with "
-                "inspect_data / read_excel_as_csv."
+                "inspect_data / read_excel_as_csv. To verify an internal data app, "
+                "pass artifact_id instead of url: this opens its real viewer and "
+                "parameter bridge without a browser connector. Returns initial "
+                "snapshot, declared parameters, and automatic runtime/query evidence."
             ),
             category="both",
             version="1.0.0",
@@ -56,7 +59,22 @@ class BrowserNavigateTool(Tool):
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = BrowserNavigateInput(**tool_input)
-        yield ToolStartEvent(type="tool.start", payload={"title": data.title or f"Opening {data.url}", "url": data.url})
+        yield ToolStartEvent(type="tool.start", payload={"title": data.title or ("Verifying app interactions" if data.artifact_id else f"Opening {data.url}"), "url": data.url})
+
+        if data.artifact_id:
+            from app.ai.tools.implementations._artifact_browser import navigate_artifact
+            try:
+                result = await navigate_artifact(data, runtime_ctx)
+                yield ToolEndEvent(type="tool.end", payload=result)
+            except Exception as e:
+                yield self._fail(str(e)[:1500], "preview_unavailable")
+            return
+
+        if data.session_id:
+            prior = session_manager.get(data.session_id, runtime_ctx)
+            if prior is None or prior.preview:
+                yield self._fail("This session cannot be used for URL navigation", "session_scope_mismatch")
+                return
 
         conn = get_browser_connection(runtime_ctx)
         if conn is None:
@@ -77,7 +95,7 @@ class BrowserNavigateTool(Tool):
 
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "launching"})
         try:
-            s = await session_manager.open(str(runtime_ctx["report"].id), patterns, allow_downloads)
+            s = await session_manager.open(str(runtime_ctx["report"].id), patterns, allow_downloads, runtime_ctx=runtime_ctx)
             await session_manager.track_downloads(s, runtime_ctx)
         except Exception as e:
             yield self._fail(f"Could not start the browser: {e}", "launch_failed")

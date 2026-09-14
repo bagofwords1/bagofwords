@@ -1,6 +1,8 @@
 import { usePermissions, usePermissionsLoaded, useResourcePermissions } from '~/composables/usePermissions'
 
 export default defineNuxtPlugin(async (nuxtApp) => {
+  // Internal previews render through a scoped server broker, without an app session.
+  if (window.location.pathname.startsWith('/artifact-preview/')) return
   const { getSession, data: sessionData } = useAuth()
   const { organization, ensureOrganization } = useOrganization()
   const permissions = usePermissions()

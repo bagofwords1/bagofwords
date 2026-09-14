@@ -55,6 +55,11 @@
     window.ARTIFACT_DATA = data;
     if (window.__paramStore) window.__paramStore._ingest(data);
     notifyArtifactData();
+    if (data && typeof data.verification_revision === 'number') {
+      window.requestAnimationFrame(function() {
+        window.parent.postMessage({ type: 'ARTIFACT_DATA_RECEIVED', revision: data.verification_revision }, '*');
+      });
+    }
   };
 
   window.useArtifactData = function() {

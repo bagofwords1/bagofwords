@@ -343,11 +343,20 @@ class EditArtifactTool(Tool):
             review_images["images"] = [{"data": screenshot_b64, "media_type": "image/png", "source_type": "base64"}]
             review_images["preview_note"] = ANON_PREVIEW_NOTE + " " + STATIC_PREVIEW_NOTE
 
+        from app.ai.tools.artifact_verification import build_artifact_verification_hint
+        verification_hint = build_artifact_verification_hint(
+            artifact_id=str(new_artifact.id), version=new_artifact.version,
+            mode=new_artifact.mode, code=new_code, previous_code=code,
+            parameters=[p for v in artifact_data.get("visualizations", []) for p in v.get("parameters", []) or []],
+            available=allow_screenshot,
+        )
+
         yield ToolEndEvent(
             type="tool.end",
             payload={
                 "output": {
                     "success": True,
+                    "verification_hint": verification_hint,
                     "artifact_id": str(new_artifact.id),
                     "title": new_artifact.title,
                     "mode": new_artifact.mode,
@@ -360,6 +369,7 @@ class EditArtifactTool(Tool):
                 },
                 "observation": {
                     **review_images,
+                    "verification_hint": verification_hint,
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{new_version}. "
                         "Contracts verified. "

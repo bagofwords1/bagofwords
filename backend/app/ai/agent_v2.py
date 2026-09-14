@@ -803,6 +803,10 @@ class AgentV2:
         except Exception:
             pass
 
+        from app.ai.tools.artifact_verification import artifact_verification_enabled
+        if artifact_verification_enabled() and getattr(self.report, 'report_type', 'regular') != 'artifact_chat':
+            available_capabilities.add("artifact_preview")
+
         # Start with all available tools for the planner to see, filtered by mode and platform
         all_catalog_dicts = self.registry.get_catalog_for_plan_type(
             "action", self.organization, mode=self.mode, platform=self.platform,
@@ -819,7 +823,7 @@ class AgentV2:
         allow_llm_see_data_cfg = self.organization_settings.get_config("allow_llm_see_data") if self.organization_settings else None
         allow_llm_see_data = getattr(allow_llm_see_data_cfg, "value", True) if allow_llm_see_data_cfg is not None else True
         if not allow_llm_see_data:
-            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'inspect_data']
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'inspect_data' and not t['name'].startswith('browser_')]
 
         # Agent notes (per-report scratchpad) are gated by the org setting.
         # When off, hide create_note/edit_note so the planner never attempts them.
@@ -4318,6 +4322,8 @@ class AgentV2:
             # keeps the turn both honest and bounded.
             from app.ai.agents.planner.artifact_refinement import ArtifactRefinementBudget
             artifact_refinement_budget = ArtifactRefinementBudget()
+            verification_state = {"active": False, "artifact_id": None, "calls": 0, "repairs": 0,
+                                  "group_id": f"verification:{self.current_execution.id}"}
             total_artifact_calls = 0
             max_total_artifact_calls = 4
             artifact_refusals = {"n": 0}
@@ -5510,6 +5516,25 @@ class AgentV2:
                                 # the gateway path, so native registration changes how
                                 # the model SEES the tool, not how we execute it.
                                 tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
+                                # Server-owned grouping metadata never comes from model arguments.
+                                tool_input = dict(tool_input or {})
+                                tool_input.pop("_verification_group_id", None)
+                                from app.ai.tools.implementations._browser_common import session_manager
+                                _browser_session = session_manager.get(tool_input.get("session_id"), {
+                                    "organization": self.organization, "user": getattr(self.head_completion, "user", None),
+                                    "report": self.report, "agent_execution_id": str(self.current_execution.id),
+                                }) if tool_input.get("session_id") else None
+                                _verifying = (tool_name == "browser_navigate" and bool(tool_input.get("artifact_id"))) or (
+                                    tool_name.startswith("browser_") and _browser_session is not None and _browser_session.preview is not None)
+                                _repairing = (verification_state["active"] and tool_name in {"edit_artifact", "read_artifact"}
+                                              and tool_input.get("artifact_id") == verification_state["artifact_id"])
+                                if _verifying:
+                                    verification_state["active"] = True
+                                    verification_state["artifact_id"] = tool_input.get("artifact_id") or _browser_session.preview.artifact["id"]
+                                elif not _repairing:
+                                    verification_state["active"] = False
+                                if _verifying or _repairing:
+                                    tool_input["_verification_group_id"] = verification_state["group_id"]
                                 if tool_execution is not None:
                                     # Keep the durable row aligned with the actual
                                     # gateway call while retaining the provider's
@@ -5637,6 +5662,15 @@ class AgentV2:
                                         )
                                     return await _refuse_before_dispatch(_refusal_obs)
 
+                                if _verifying:
+                                    verification_state["calls"] += 1
+                                    if verification_state["calls"] > 12:
+                                        return await _refuse_before_dispatch({"summary": "Interactive verification call budget reached. Report the checks completed and unresolved scope.", "success": False})
+                                if _repairing and tool_name == "edit_artifact":
+                                    verification_state["repairs"] += 1
+                                    if verification_state["repairs"] > 2:
+                                        return await _refuse_before_dispatch({"summary": "Verification repair budget reached. Report the unresolved behavior.", "success": False})
+
                                 async with self._tool_db_lock:
                                     # Start tool execution tracking
                                     if tool_execution is None:
@@ -5755,6 +5789,7 @@ class AgentV2:
                                         "platform_context": self.platform_context,
                                         "tool_call_id": str(tool_execution.id) if tool_execution else None,
                                         "usage_limit_context": self.usage_limit_context,
+                                        "verification_group_id": tool_input.get("_verification_group_id"),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
                                         "pending_officejs_registry": pending_officejs_registry,
@@ -5820,6 +5855,11 @@ class AgentV2:
                                         observation = tool_result
                                         tool_output = None
                                         tool_sub_timings = None
+
+                                    if tool_input.get("_verification_group_id"):
+                                        for payload in (tool_output, observation):
+                                            if isinstance(payload, dict):
+                                                payload["verification_group_id"] = tool_input["_verification_group_id"]
 
                                     # Handle tool outputs and manage widget/step state
                                     await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
@@ -6809,6 +6849,12 @@ class AgentV2:
                 pass
             raise
         finally:
+            try:
+                from app.ai.tools.implementations._browser_common import session_manager
+                if self.current_execution:
+                    await session_manager.close_execution(self.current_execution.id)
+            except Exception:
+                logger.debug("Browser execution cleanup failed", exc_info=True)
             # Drop the ambient LLM usage attribution set at run start.
             reset_usage_attribution(_attribution_token)
             if _identity_token is not None:

@@ -24,6 +24,7 @@ import os
 import re
 import socket
 import time
+from uuid import uuid4
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -266,6 +267,10 @@ class BrowserSession:
         self.last_used = time.monotonic()
         self._host_cache: Dict[str, bool] = {}
         self.pending_downloads: List[dict] = []
+        self.scope = None
+        self.preview = None
+        self.frame = None
+        self.action_lock = asyncio.Lock()
 
     def touch(self):
         self.last_used = time.monotonic()
@@ -289,6 +294,11 @@ class BrowserSessionManager:
         s = self._sessions.pop(session_id, None)
         if not s:
             return
+        if s.preview:
+            try:
+                await s.preview.close()
+            except Exception:
+                pass
         for closer in (getattr(s, "context", None), getattr(s, "browser", None)):
             try:
                 if closer:
@@ -302,53 +312,83 @@ class BrowserSessionManager:
             pass
 
     async def close_report(self, report_id: str):
-        await self._close(str(report_id))
+        for sid, s in list(self._sessions.items()):
+            if sid == str(report_id) or (s.scope and s.scope[2] == str(report_id)):
+                await self._close(sid)
 
-    def get(self, session_id: str) -> Optional[BrowserSession]:
+    async def close_preview(self, runtime_ctx):
+        for sid, s in list(self._sessions.items()):
+            if s.preview and s.scope == self.scope_for(runtime_ctx):
+                await self._close(sid)
+
+    def get(self, session_id: str, runtime_ctx=None) -> Optional[BrowserSession]:
         s = self._sessions.get(session_id)
+        if s and s.scope is not None and (runtime_ctx is None or s.scope != self.scope_for(runtime_ctx)):
+            return None
         if s:
             s.touch()
         return s
 
-    async def open(self, report_id: str, patterns: List[str], allow_downloads: bool) -> BrowserSession:
+    @staticmethod
+    def scope_for(ctx):
+        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (str(ctx.get("agent_execution_id") or ""),)
+
+    async def close_execution(self, execution_id):
+        for sid, s in list(self._sessions.items()):
+            if s.scope and s.scope[-1] == str(execution_id):
+                await self._close(sid)
+
+    async def open(self, report_id: str, patterns: List[str], allow_downloads: bool, *, runtime_ctx=None, preview=None, viewport=None) -> BrowserSession:
         from playwright.async_api import async_playwright
 
-        session_id = str(report_id)
+        scope = self.scope_for(runtime_ctx) if runtime_ctx else None
+        session_id = str(uuid4()) if scope else str(report_id)
         async with self._lock:
             await self._evict_idle()
-            existing = self._sessions.get(session_id)
+            existing = next((s for s in self._sessions.values() if scope and s.scope == scope and not s.preview), None) if not preview else None
+            if not scope:
+                existing = self._sessions.get(session_id)
             if existing:
                 existing.touch()
                 existing.patterns = patterns  # pick up config edits
                 existing.allow_downloads = allow_downloads
                 return existing
             if len(self._sessions) >= MAX_CONCURRENT_SESSIONS:
-                # Evict the least-recently-used to honor the cap.
-                lru = min(self._sessions.values(), key=lambda s: s.last_used)
-                await self._close(lru.session_id)
+                raise RuntimeError("Browser capacity is busy; finish without claiming interactive verification")
 
             s = BrowserSession(session_id, patterns, allow_downloads)
-            s.playwright = await async_playwright().start()
-            launch_kwargs: Dict[str, Any] = {"headless": True}
-            exe = chromium_executable()
-            if exe:
-                launch_kwargs["executable_path"] = exe
-            proxy = _proxy_from_env()
-            if proxy:
-                launch_kwargs["proxy"] = proxy
-            s.browser = await s.playwright.chromium.launch(**launch_kwargs)
-            ctx_kwargs: Dict[str, Any] = {
-                "viewport": DEFAULT_VIEWPORT,
-                "accept_downloads": allow_downloads,
-            }
-            # Sandbox/dev only: trust a MITM proxy's cert. Never set in prod.
-            if os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes"):
-                ctx_kwargs["ignore_https_errors"] = True
-            s.context = await s.browser.new_context(**ctx_kwargs)
-            await self._install_guard(s)
-            s.page = await s.context.new_page()
+            s.scope = scope
+            s.preview = preview
             self._sessions[session_id] = s
-            return s
+            try:
+                s.playwright = await async_playwright().start()
+                launch_kwargs: Dict[str, Any] = {"headless": True}
+                exe = chromium_executable()
+                if exe:
+                    launch_kwargs["executable_path"] = exe
+                proxy = _proxy_from_env()
+                if proxy:
+                    launch_kwargs["proxy"] = proxy
+                s.browser = await s.playwright.chromium.launch(**launch_kwargs)
+                ctx_kwargs: Dict[str, Any] = {
+                    "viewport": viewport or DEFAULT_VIEWPORT,
+                    "accept_downloads": allow_downloads,
+                    "service_workers": "block" if preview else "allow",
+                }
+                # Sandbox/dev only: trust a MITM proxy's cert. Never set in prod.
+                if os.environ.get("BOW_BROWSER_IGNORE_HTTPS_ERRORS", "").lower() in ("1", "true", "yes"):
+                    ctx_kwargs["ignore_https_errors"] = True
+                s.context = await s.browser.new_context(**ctx_kwargs)
+                await self._install_guard(s)
+                if preview:
+                    await s.context.route("**/*", preview.route)
+                    await s.context.route_web_socket("**/*", lambda ws: ws.close())
+                s.page = await s.context.new_page()
+                return s
+            except BaseException:
+                await self._close(session_id)
+                raise
+
 
     async def _install_guard(self, s: BrowserSession):
         """Confine every request to the allowlist; refuse link-local always and
@@ -474,7 +514,7 @@ async def _restore_secret_inputs(page, saved_values):
         pass
 
 
-async def build_snapshot(page, *, full: bool = False, max_chars: int = 8000) -> Tuple[str, bool]:
+async def build_snapshot(page, *, full: bool = False, max_chars: int = 8000, root=None) -> Tuple[str, bool]:
     """Return (snapshot_text, truncated). Secret-shaped input values are blanked
     for the duration of the snapshot so they never appear in the tree."""
     saved = None
@@ -486,10 +526,10 @@ async def build_snapshot(page, *, full: bool = False, max_chars: int = 8000) -> 
     except Exception:
         saved = None
     try:
-        snap = await page.locator("body").aria_snapshot(mode="ai")
+        snap = await (root if root is not None else page.locator("body")).aria_snapshot(mode="ai")
     except Exception:
         try:
-            snap = await page.locator("body").aria_snapshot()
+            snap = await (root if root is not None else page.locator("body")).aria_snapshot()
         except Exception:
             snap = ""
     finally:
@@ -507,7 +547,7 @@ async def build_snapshot(page, *, full: bool = False, max_chars: int = 8000) -> 
         lines = []
         for ln in snap.splitlines():
             stripped = ln.strip()
-            if re.match(r'^-\s+(generic|group|paragraph|list|listitem)\s+\[ref=', stripped) and '"' not in stripped:
+            if re.fullmatch(r'-\s+(generic|group|paragraph|list|listitem)\s+\[ref=[^\]]+\]:?', stripped):
                 continue
             lines.append(ln)
         snap = "\n".join(lines)

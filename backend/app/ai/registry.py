@@ -203,7 +203,9 @@ class ToolRegistry:
         # actual report's capability set.
         required_cap = getattr(metadata, "requires_capability", None)
         if required_cap and filter_obj.available_capabilities is not None:
-            if required_cap not in filter_obj.available_capabilities:
+            internal_browser = required_cap == "browser" and "artifact_preview" in filter_obj.available_capabilities and metadata.name in {
+                "browser_navigate", "browser_act", "browser_snapshot", "browser_extract", "browser_vision"}
+            if required_cap not in filter_obj.available_capabilities and not internal_browser:
                 return False
 
         # Permission filtering

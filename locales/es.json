@@ -1532,7 +1532,25 @@
       "snapshot": "Estructura de la página",
       "snapshotted": "Página leída",
       "snapshotting": "Leyendo la página",
-      "working": "Navegando"
+      "working": "Navegando",
+      "previewUnavailable": "La vista previa no está disponible",
+      "verifying": "Verificando las interacciones",
+      "interactionChecks": "Pruebas de interacción",
+      "checkSummary": "{count} pruebas · {title}",
+      "checkIssues": "{count} hallazgos",
+      "checkedVersion": "Versión {version} revisada",
+      "updateState": "Actualización de datos",
+      "queryEvidence": "{count} filas · {duration} ms",
+      "updateStates": {
+        "data_received": "Actualización de datos observada",
+        "pending": "Esperando datos",
+        "failed": "Error de actualización",
+        "parameter_mismatch": "Los filtros aplicados no coinciden",
+        "data_not_acknowledged": "Los datos no han llegado a la aplicación",
+        "no_expected_request": "La consulta esperada no se ejecutó",
+        "no_query_observed": "No se observó ninguna consulta"
+      },
+      "partialRows": "Se muestran {returned} de {total} filas; los totales pueden estar incompletos."
     },
     "readFile": {
       "reading": "Leyendo {name}…",

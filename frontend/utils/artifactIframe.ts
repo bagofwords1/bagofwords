@@ -370,7 +370,7 @@ export function buildArtifactIframeHtml(opts: ArtifactIframeOptions): string {
     });
   ${SC}
   <script>window.ARTIFACT_DATA = ${embeddedData};${SC}
-  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}">${SC}
+  <script src="/libs/artifact-globals.js?v=${ARTIFACT_GLOBALS_VERSION}&revision=verification-1">${SC}
 
   <script>${polish}${errorBoundaryScript()}${SC}
 

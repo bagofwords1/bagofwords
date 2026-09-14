@@ -287,3 +287,49 @@ assert.equal(isGroupableBlock(chip('read_file', { block: { content: '  \n' } }))
 assert.equal(MIN_GROUP_RUN, 2)
 
 console.log('useBlockGrouping: all assertions passed')
+
+// Internal verification has a stable header from its first call, including
+// screenshots and repairs. A terminal finding remains visible on that header.
+{
+  const verification = (tool, extra = {}) => chip(tool, { te: {
+    arguments_json: { _verification_group_id: 'verify-1', title: 'Checking album filters' },
+    ...extra,
+  } })
+  const opening = verification('browser_navigate', { status: 'running' })
+  const first = computeBlockGroups([opening]).headerAt[opening.id]
+  assert.equal(first.verification, true)
+  assert.equal(first.active, true)
+  const chain = [opening, verification('browser_act'), verification('edit_artifact'), verification('browser_vision'),
+    verification('browser_act', { result_json: { evidence: { update_status: 'no_expected_request' } } })]
+  opening.tool_execution.status = 'success'
+  const g = computeBlockGroups(chain).headerAt[opening.id]
+  assert.equal(g.id, first.id)
+  assert.equal(g.count, 5)
+  assert.equal(g.issueCount, 1)
+  assert.equal(g.active, false)
+  const normalEdit = chip('edit_artifact')
+  assert.equal(computeBlockGroups([...chain, normalEdit]).groupOf[normalEdit.id], undefined)
+}
+
+// Planning gaps preserve the active verification ticker, and prose remains
+// outside the group. Completion and interruption always stop the spinner.
+{
+  const check = (tool = 'browser_act') => chip(tool, { te: {
+    arguments_json: { _verification_group_id: 'verify-gap', title: 'Checking country filters' },
+  } })
+  const first = check('browser_navigate')
+  const second = check()
+  const prose = { id: 'verification-prose', content: 'The filter worked; checking reset next.', status: 'completed' }
+  const grouped = computeBlockGroups([first, prose, second], { executionStatus: 'in_progress' })
+  assert.equal(grouped.headerAt[first.id].count, 2)
+  assert.equal(grouped.groupOf[prose.id], undefined)
+  assert.equal(grouped.headerAt[first.id].active, true)
+  assert.equal(grouped.headerAt[first.id].runningLabel, 'Checking country filters')
+  for (const executionStatus of ['success', 'completed', 'stopped', 'error']) {
+    assert.equal(computeBlockGroups([first, second], { executionStatus }).headerAt[first.id].active, false)
+  }
+  const unrelated = chip('create_data')
+  assert.equal(computeBlockGroups([first, unrelated], { executionStatus: 'in_progress' }).headerAt[first.id].active, false)
+  assert.equal(Object.keys(computeBlockGroups([first, second], { breakBefore: b => b === second }).headerAt).length, 2)
+}
+console.log('useBlockGrouping: verification lifecycle assertions passed')

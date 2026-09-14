@@ -1709,6 +1709,14 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             version=artifact.version,
         ).model_dump()
 
+        from app.ai.tools.artifact_verification import build_artifact_verification_hint
+        verification_hint = build_artifact_verification_hint(
+            artifact_id=str(artifact.id), version=artifact.version, mode=data.mode, code=code,
+            parameters=[p for v in visualizations for p in v.get("parameters", []) or []],
+            available=allow_llm_see_data,
+        )
+        output["verification_hint"] = verification_hint
+
         # Add UI preview fields (similar to read_artifact)
         code_lines = code.count('\n') + 1 if code else 0
         output["artifact_preview"] = {
@@ -1743,7 +1751,9 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "server — the PPTX file is still downloadable."
                 )
         elif data.mode == "page":
-            if repair_attempts:
+            if not screenshot_base64:
+                summary_msg += ". Static render preview unavailable; interactions have not been checked."
+            elif repair_attempts:
                 summary_msg += f". Render validation passed after {repair_attempts} in-tool repair attempt(s)."
             else:
                 summary_msg += ". Render validation passed."
@@ -1764,6 +1774,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
 
         observation: Dict[str, Any] = {
             "summary": summary_msg,
+            "verification_hint": verification_hint,
             "artifact_id": str(artifact.id),
             "mode": data.mode,
             "visualization_count": len(visualizations),

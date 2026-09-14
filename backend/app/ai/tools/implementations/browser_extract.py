@@ -43,12 +43,22 @@ class BrowserExtractTool(Tool):
         data = BrowserExtractInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Reading page text"})
 
-        s = session_manager.get(data.session_id)
+        s = session_manager.get(data.session_id, runtime_ctx)
         if s is None or s.page is None:
             yield ToolEndEvent(type="tool.end", payload={
                 "output": BrowserOutput(success=False, error_message="No active browser session; call browser_navigate first.", error_code="no_session").model_dump(),
                 "observation": {"summary": "No active browser session.", "success": False},
             })
+            return
+
+        if s.preview:
+            from app.ai.tools.implementations._artifact_browser import run_artifact_operation
+            try:
+                result = await run_artifact_operation(s, "extract", data, runtime_ctx)
+                yield ToolEndEvent(type="tool.end", payload=result)
+            except Exception as e:
+                from app.ai.tools.implementations._artifact_browser import artifact_operation_failure
+                yield ToolEndEvent(type="tool.end", payload=await artifact_operation_failure(s, e, runtime_ctx))
             return
 
         try:
