@@ -314,7 +314,7 @@ class OrganizationSettingsConfig(BaseModel):
 
     # Update defaults to use 'value' instead of 'enabled'
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
-    enable_artifact_verification: FeatureConfig = FeatureConfig(value=False, name="Verify data apps", description="Let the agent check interactive page artifacts with browser tools. Requires Allow LLM to see data.", is_lab=True, editable=True)
+    enable_artifact_verification: FeatureConfig = FeatureConfig(value=True, name="Verify data apps", description="Let the agent check interactive page artifacts with browser tools. Requires Allow LLM to see data.", is_lab=True, editable=True)
     enable_training_mode: FeatureConfig = FeatureConfig(value=True, name="Training Mode", description="Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines ", is_lab=False, editable=True)
     enable_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and documents (xls/pdf) and push their content to the LLM", is_lab=False, editable=True)
     enable_llm_judgement: FeatureConfig = FeatureConfig(value=True, name="Enable LLM Judge", description="Enable LLM to judge the quality of the analysis and user queries", is_lab=False, editable=True)

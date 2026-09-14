@@ -73,7 +73,7 @@ async def _runtime_context(report_id, user_id, org_id):
 
 
 @pytest.mark.e2e
-def test_artifact_preview_requires_opt_in_privacy_and_an_exact_saved_page(
+def test_artifact_preview_defaults_on_but_respects_opt_out_and_privacy(
     test_client, create_user, login_user, whoami, create_report, update_organization_settings,
 ):
     report, token, org_id, user_id = _new_owner(create_user, login_user, whoami, create_report)
@@ -81,10 +81,12 @@ def test_artifact_preview_requires_opt_in_privacy_and_an_exact_saved_page(
     ctx = _run(_runtime_context(report["id"], user_id, org_id))
     from app.services.artifact_verification_policy import browser_policy, require_browser_access
 
-    # The opt-in defaults off even when LLM data visibility retains its default.
+    # New organizations enable verification while explicit opt-outs still win.
     initial = _run(browser_policy(ctx, artifact_id))
     assert initial.allow_data is True
-    assert initial.artifact_preview is False
+    assert initial.artifact_preview is True
+    _set_browser_settings(update_organization_settings, token, org_id, enabled=False)
+    assert _run(browser_policy(ctx, artifact_id)).artifact_preview is False
     with pytest.raises(PermissionError):
         _run(require_browser_access(ctx, artifact_id))
     _set_browser_settings(update_organization_settings, token, org_id, enabled=True)
@@ -101,8 +103,10 @@ def test_artifact_preview_requires_opt_in_privacy_and_an_exact_saved_page(
 @pytest.mark.e2e
 def test_all_browser_tools_fail_closed_before_browser_or_preview_io(
     monkeypatch, test_client, create_user, login_user, whoami, create_report,
+    update_organization_settings,
 ):
     report, token, org_id, user_id = _new_owner(create_user, login_user, whoami, create_report)
+    _set_browser_settings(update_organization_settings, token, org_id, enabled=False)
     artifact_id = _save_artifact(test_client, report["id"], token, org_id)
     ctx = _run(_runtime_context(report["id"], user_id, org_id))
     calls = {"browser": 0, "http": 0}
