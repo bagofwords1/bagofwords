@@ -368,3 +368,117 @@ class TestModelNotFound:
             exc = Exception(f"Error code: {status} - server error")
             exc.status_code = status
             assert classify(exc, provider="azure", model="m").code == expected
+
+
+# ── our own infrastructure must never be blamed on the provider ────────────
+#
+# The agent loop's catch-all (agent_v2 ``_loop_classify``) hands EVERY exception
+# raised during a run to ``classify``, including ones the provider never saw.
+# Postgres refusing a connect raises asyncpg's ``TooManyConnectionsError``,
+# whose class name contains "connect" — so it matched the network branch and
+# users were shown "Could not reach anthropic: sorry, too many clients already".
+#
+# That headline is wrong three times over: it names a provider that was never
+# contacted, and 'network' is both retryable (_RETRYABLE_CODES) and
+# fallback-eligible at *provider* scope — so a database outage burned the LLM
+# retry budget, tripped the circuit breaker on a perfectly healthy endpoint, and
+# failed over to a second provider that was equally unable to reach the DB.
+
+
+def _driver_exc(name: str, module: str, message: str, base=Exception) -> Exception:
+    """An exception shaped like the real driver's (module + class name)."""
+    return type(name, (base,), {"__module__": module})(message)
+
+
+class TestInternalInfraErrors:
+    def test_postgres_connection_limit_does_not_blame_the_provider(self):
+        exc = _driver_exc(
+            "TooManyConnectionsError",
+            "asyncpg.exceptions",
+            "sorry, too many clients already",
+        )
+        err = classify(exc, provider="anthropic", model="claude-haiku-4-5")
+
+        assert err.code == "unknown"
+        assert "could not reach" not in err.summary.lower()
+        assert "connection pool exhausted" in err.summary.lower()
+        # The raw driver text is still surfaced verbatim — the module's contract.
+        assert err.provider_message == "sorry, too many clients already"
+
+    def test_not_retried_and_not_failed_over(self):
+        exc = _driver_exc(
+            "TooManyConnectionsError",
+            "asyncpg.exceptions",
+            "sorry, too many clients already",
+        )
+        code = classify(exc, provider="anthropic", model="m").code
+
+        # Retrying holds the exhausted DB sessions open even longer, and no
+        # other provider can fix our database.
+        assert code not in _RETRYABLE_CODES
+        assert code not in FALLBACK_ELIGIBLE_CODES
+
+    def test_sqlalchemy_pool_timeout(self):
+        exc = _driver_exc(
+            "TimeoutError",
+            "sqlalchemy.exc",
+            "QueuePool limit of size 20 overflow 20 reached, connection timed out, timeout 30.00",
+            base=TimeoutError,
+        )
+        err = classify(exc, provider="openai", model="m")
+        assert err.code == "unknown"
+        assert "connection pool exhausted" in err.summary.lower()
+
+    def test_other_orm_failures_are_internal_but_not_pool_specific(self):
+        exc = _driver_exc(
+            "MissingGreenlet", "sqlalchemy.exc", "greenlet_spawn has not been called"
+        )
+        err = classify(exc, provider="anthropic", model="m")
+        assert err.code == "unknown"
+        assert "internal error" in err.summary.lower()
+        assert "never reached anthropic" in err.summary.lower()
+
+    def test_flattened_sqlalchemy_text_is_still_recognised(self):
+        # Re-raised as a bare Exception (planner_v3 / agent_v2 do exactly this),
+        # so the module check misses and the text markers have to carry it.
+        exc = Exception(
+            "(sqlalchemy.dialects.postgresql.asyncpg.OperationalError) "
+            "<class 'asyncpg.exceptions.TooManyConnectionsError'>: "
+            "sorry, too many clients already"
+        )
+        assert classify(exc, provider="anthropic", model="m").code == "unknown"
+        assert "connection pool exhausted" in classify(
+            exc, provider="anthropic", model="m"
+        ).summary.lower()
+
+    def test_chained_cause_is_followed(self):
+        try:
+            try:
+                raise _driver_exc(
+                    "TooManyConnectionsError",
+                    "asyncpg.exceptions",
+                    "sorry, too many clients already",
+                )
+            except Exception as inner:
+                raise RuntimeError("agent loop iteration failed") from inner
+        except Exception as exc:
+            err = classify(exc, provider="anthropic", model="m")
+
+        assert err.code == "unknown"
+        assert "never reached anthropic" in err.summary.lower()
+
+    def test_real_provider_network_errors_still_classify_as_network(self):
+        # The guard must not swallow genuine connectivity failures to the
+        # provider — those stay retryable and fallback-eligible.
+        exc = ConnectionError("Connection refused")
+        err = classify(exc, provider="anthropic", model="m")
+        assert err.code == "network"
+        assert err.summary == "Could not reach anthropic"
+        assert err.code in _RETRYABLE_CODES
+
+    def test_provider_errors_mentioning_connections_are_unaffected(self):
+        # A provider 429 whose body happens to say "too many connections" still
+        # belongs to the provider: it carries a status and no driver in sight.
+        exc = Exception("Error code: 429 - {'message': 'Rate limit reached'}")
+        exc.status_code = 429
+        assert classify(exc, provider="openai", model="m").code == "rate_limit"

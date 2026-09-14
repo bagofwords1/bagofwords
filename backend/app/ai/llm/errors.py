@@ -113,6 +113,71 @@ _INTERNAL_QUOTA_MARKERS = (
     "monthly usage quota",
 )
 
+# ---- our own infrastructure, not the provider's --------------------------
+#
+# The agent loop's catch-all hands EVERY exception raised during a run to this
+# classifier, including ones the provider never saw: a database pool starved of
+# connections, a poisoned session, a dead cache. Those must not be dressed up
+# as provider failures.
+#
+# The case that motivated this: Postgres refusing a connect raises asyncpg's
+# ``TooManyConnectionsError("sorry, too many clients already")``. Its class name
+# contains "connect", so the network branch below claimed it and told users
+# "Could not reach anthropic: sorry, too many clients already" — blaming a
+# provider that was never contacted, and pointing whoever reads it at the wrong
+# system entirely. The fix is to recognise our own infrastructure first.
+#
+# These stay 'unknown': outside _RETRYABLE_CODES, so the facade does not spend a
+# retry budget (holding the very DB sessions that are exhausted for even longer)
+# on a call that was never the problem, and outside the fallback chain, so we do
+# not burn a second provider's quota on our own outage.
+
+# Module prefixes of libraries that are infrastructure to us, never an LLM
+# provider SDK. Matched against the exception class and its cause chain.
+_INTERNAL_INFRA_MODULES = (
+    "sqlalchemy",
+    "asyncpg",
+    "psycopg",
+    "psycopg2",
+    "aiomysql",
+    "pymysql",
+    "aiosqlite",
+    "redis",
+)
+
+# SQLAlchemy stringifies the inner driver error into its own message
+# ("(sqlalchemy.dialects.postgresql.asyncpg.OperationalError) <class
+# 'asyncpg.exceptions.TooManyConnectionsError'>: sorry, too many clients
+# already"), so a re-raised or bare-Exception-wrapped failure is still
+# recognisable by text once the module check above misses it.
+_INTERNAL_INFRA_MARKERS = (
+    "sorry, too many clients already",
+    "remaining connection slots are reserved",
+    "queuepool limit of size",
+    "asyncpg.exceptions",
+    "sqlalchemy.exc",
+    "sqlalchemy.dialects",
+    "sqlalchemy.orm.exc",
+    "missinggreenlet",
+    "is not bound to a session",
+    "the garbage collector is trying to clean up non-checked-in connection",
+)
+
+# The subset that means specifically "no connection slots left". Worth its own
+# headline: "sorry, too many clients already" is opaque unless you happen to
+# know it is Postgres, and connection exhaustion is the failure an operator can
+# actually act on (raise max_connections, or lower BOW_DB_POOL_SIZE /
+# BOW_DB_MAX_OVERFLOW — the effective ceiling is
+# ``(pool_size + max_overflow) * workers * replicas``).
+_DB_CONNECTION_EXHAUSTED_MARKERS = (
+    "sorry, too many clients already",
+    "remaining connection slots are reserved",
+    "queuepool limit of size",
+    "too many connections",
+    "toomanyconnectionserror",
+)
+
+
 # AWS surfaces everything as botocore ClientError: no HTTP status on the
 # exception (it lives in a dict) and none in ``str(exc)`` either, which reads
 # "An error occurred (ThrottlingException) when calling the Converse
@@ -182,6 +247,29 @@ def classify(
 
     low = raw.lower()
     pmsg_low = provider_message.lower()
+    haystack = f"{pmsg_low}\n{low}"
+
+    # Our own infrastructure — checked FIRST so no provider-shaped branch below
+    # can claim it. A database or cache failure during a run means the request
+    # never reached the provider, so naming the provider in the headline sends
+    # the reader after the wrong system. See _INTERNAL_INFRA_MODULES.
+    if _is_internal_infra_error(exc, haystack):
+        db_exhausted = any(t in haystack for t in _DB_CONNECTION_EXHAUSTED_MARKERS)
+        return LLMError(
+            code="unknown",
+            provider=provider,
+            model=model,
+            status=None,
+            summary=(
+                "Database connection pool exhausted - the request never reached "
+                f"{provider}"
+                if db_exhausted
+                else f"Internal error - the request never reached {provider}"
+            ),
+            provider_message=provider_message,
+            request_id=request_id,
+            raw_tail=raw_tail,
+        )
 
     # Auth failures
     if status == 401 or "authenticationerror" in cls_name or "invalid x-api-key" in pmsg_low or "invalid api key" in pmsg_low or "incorrect api key" in pmsg_low:
@@ -225,7 +313,6 @@ def classify(
     # most providers report it as a 429 (OpenAI ``insufficient_quota``, Google
     # RESOURCE_EXHAUSTED); 402 is Payment Required by definition. Our own usage
     # caps are excluded — see _INTERNAL_QUOTA_MARKERS.
-    haystack = f"{pmsg_low}\n{low}"
     if not any(t in haystack for t in _INTERNAL_QUOTA_MARKERS):
         quota_hit = status == 402 or any(t in haystack for t in _QUOTA_MARKERS)
         if quota_hit and not any(t in haystack for t in _TRANSIENT_LIMIT_MARKERS):
@@ -330,6 +417,30 @@ def classify(
 
 
 # ---- internals -----------------------------------------------------
+
+def _is_internal_infra_error(exc: BaseException, haystack: str) -> bool:
+    """True when the exception came from our own stack, not the provider.
+
+    Walks the ``__cause__`` / ``__context__`` chain because SQLAlchemy re-raises
+    driver errors, and checks every class in each MRO so subclasses of a driver
+    base are caught too. Falls back to text markers for errors that have been
+    flattened into a plain ``Exception`` along the way.
+    """
+    seen: set[int] = set()
+    cur = exc
+    depth = 0
+    while cur is not None and depth < 10 and id(cur) not in seen:
+        seen.add(id(cur))
+        depth += 1
+        for klass in type(cur).__mro__:
+            module = (getattr(klass, "__module__", "") or "").lower()
+            root = module.split(".", 1)[0]
+            if root in _INTERNAL_INFRA_MODULES:
+                return True
+        cur = cur.__cause__ or cur.__context__
+
+    return any(t in haystack for t in _INTERNAL_INFRA_MARKERS)
+
 
 def _extract_status(exc: BaseException, raw: str) -> Optional[int]:
     """Pull HTTP status off common exception shapes."""
