@@ -143,3 +143,121 @@ def test_password_enc_not_plaintext_in_config(create_user, login_user, whoami):
     assert "password" not in smtp  # no plaintext key
     assert smtp.get("password_enc")
     assert "PLAINTEXT_SECRET" not in str(smtp)  # not anywhere in the stored blob
+
+
+@pytest.mark.e2e
+def test_enabled_smtp_requires_a_from_address(create_user, login_user, whoami):
+    """An enabled relay with no sender is a guaranteed send-time failure.
+
+    ``build_email`` refuses to construct a message with no From address and every
+    relay rejects one, so this must be caught when the admin saves rather than at
+    3am in a scheduled report.
+    """
+    email = _unique_email()
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    from main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    H = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+    r = client.put("/api/organization/smtp", json={
+        "enabled": True, "host": "relay.acme.com", "port": 587,
+        "security": "starttls",  # no username, no from_address
+    }, headers=H)
+    assert r.status_code == 400, r.text
+    assert "From address" in r.json()["detail"]
+
+    # A From address alone is enough (open relay, no auth).
+    r = client.put("/api/organization/smtp", json={
+        "enabled": True, "host": "relay.acme.com", "port": 25,
+        "security": "none", "from_address": "noreply@acme.com",
+    }, headers=H)
+    assert r.status_code == 200, r.text
+
+    # Disabling never requires it — the config is kept as-is.
+    r = client.put("/api/organization/smtp", json={
+        "enabled": False, "host": "relay.acme.com",
+    }, headers=H)
+    assert r.status_code == 200, r.text
+
+
+@pytest.mark.e2e
+def test_smtp_get_reports_the_active_transport(create_user, login_user, whoami):
+    """The page must be able to show which transport system mail really uses."""
+    email = _unique_email()
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    from main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    H = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+    before = client.get("/api/organization/smtp", headers=H).json()
+    assert before["active_source"] in ("global", "none")
+    assert before["enabled"] is False
+
+    client.put("/api/organization/smtp", json={
+        "enabled": True, "host": "relay.acme.com", "port": 587, "security": "starttls",
+        "username": "noreply@acme.com", "password": "s3cret",
+        "from_address": "noreply@acme.com",
+    }, headers=H)
+    after = client.get("/api/organization/smtp", headers=H).json()
+    assert after["active_source"] == "org_smtp"
+
+    # Toggling off flips the readout back without discarding the settings.
+    client.put("/api/organization/smtp", json={
+        "enabled": False, "host": "relay.acme.com", "port": 587, "security": "starttls",
+        "username": "noreply@acme.com", "from_address": "noreply@acme.com",
+    }, headers=H)
+    off = client.get("/api/organization/smtp", headers=H).json()
+    assert off["active_source"] in ("global", "none")
+    assert off["host"] == "relay.acme.com"   # configuration survived
+    assert off["password_set"] is True       # password survived
+
+
+@pytest.mark.e2e
+def test_smtp_test_only_sends_to_the_caller(create_user, login_user, whoami):
+    """The test endpoint sends real mail through the org's relay.
+
+    An arbitrary recipient would make it a spam relay for anyone holding
+    ``manage_settings``, so it only ever sends to the caller's own address.
+    """
+    email = _unique_email()
+    create_user(email=email)
+    token = login_user(email, "test123")
+    org_id = whoami(token)["organizations"][0]["id"]
+
+    from main import app
+    from fastapi.testclient import TestClient
+
+    client = TestClient(app)
+    H = {"Authorization": f"Bearer {token}", "X-Organization-Id": org_id}
+
+    client.put("/api/organization/smtp", json={
+        "enabled": True, "host": "127.0.0.1", "port": 1,  # nothing listening
+        "security": "none", "from_address": "noreply@acme.com",
+    }, headers=H)
+
+    r = client.post("/api/organization/smtp/test",
+                    json={"to": "someone-else@elsewhere.test"}, headers=H)
+    assert r.status_code == 400, r.text
+    assert "your own address" in r.json()["detail"]
+
+    # Defaulting to the caller is allowed and reaches the transport (and fails
+    # there, because nothing is listening on port 1 — which is the point: the
+    # test reports a real transport failure instead of "Connection OK").
+    r = client.post("/api/organization/smtp/test", json={}, headers=H)
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["success"] is False
+    assert body["source"] == "org_smtp"
+    assert body["recipient"] == email
+    assert body["stage"] in ("connect", "send")
+    assert body["error"]

@@ -16,8 +16,8 @@
         <span v-if="groupedTables.length" class="inline-flex items-center flex-wrap">
           <template v-for="(group, gidx) in groupedTables" :key="gidx">
             <span v-if="gidx > 0" class="ms-1 text-gray-300 dark:text-gray-600">|</span>
-            <DataSourceIcon :type="group.type" class="h-2.5 ms-1" :title="group.title" />
-            <span v-if="group.type === 'bow'" class="ms-1 text-gray-500 dark:text-gray-400">{{ $t('tools.createData.bowSource') }} ·</span>
+            <DataSourceIcon :icon-token="group.iconToken" class="h-2.5 ms-1" :title="group.title" />
+            <span v-if="group.isBow" class="ms-1 text-gray-500 dark:text-gray-400">{{ $t('tools.createData.bowSource') }} ·</span>
             <span class="ms-1 text-gray-500 dark:text-gray-400 inline-flex items-center flex-wrap" :title="group.title">
               <span v-for="(nm, nidx) in group.visible" :key="nidx" class="inline-flex items-center">
                 <UIcon
@@ -49,7 +49,10 @@
     <Transition name="fade">
       <div v-if="!createDataCollapsed" class="mt-2 ms-4 space-y-2">
 
-        <!-- Failed attempts (persisted in result_json.errors, survive refresh) -->
+        <!-- Failed attempts (persisted in result_json.errors, survive refresh).
+             `failedAttempts` resolves empty without `view_code` because the
+             server nulls `errors` — a failed attempt's message routinely quotes
+             the statement that failed, so it is withheld with the code. -->
         <div v-for="(attempt, idx) in failedAttempts" :key="'attempt-' + idx">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleAttemptCode(idx)">
             <Icon name="heroicons-x-mark" class="w-3 h-3 me-1.5 text-amber-500" />
@@ -68,8 +71,10 @@
           </div>
         </div>
 
-        <!-- Current/final code generation section -->
-        <div>
+        <!-- Current/final code generation section. Hidden wholesale without
+             `view_code`: the server sends no code, so leaving the header would
+             render a row that expands to nothing. -->
+        <div v-if="canViewCode">
           <div class="flex items-center text-xs text-gray-500 dark:text-gray-400 cursor-pointer hover:text-gray-700 dark:hover:text-gray-300" @click.stop="toggleCode">
             <Spinner v-if="isCodeGenerating && status !== 'stopped'" class="w-3 h-3 me-1.5 text-gray-400" />
             <Icon v-else-if="status === 'stopped'" name="heroicons-stop-circle" class="w-3 h-3 me-1.5 text-gray-400" />
@@ -170,11 +175,13 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 
+// The agent shape the ticker needs: an id to match tables_by_source against and
+// the backend's pre-resolved icon. Deliberately not `type`/`connections` — an
+// icon derived from those here disagreed with every other view (see
+// composables/useToolTables.ts).
 interface DataSource {
   id: string
-  type?: string
-  data_source_type?: string
-  connections?: Array<{ id: string; type: string }>
+  icon_token?: string | null
 }
 
 interface Props {
@@ -207,6 +214,13 @@ interface Props {
 const props = defineProps<Props & { readonly?: boolean; dataSources?: DataSource[]; canExpand?: boolean }>()
 const emit = defineEmits(['addWidget', 'toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
+// Code visibility is a role permission. The server already redacts `code`,
+// `errors` and the live stream's progress payloads for a user without
+// `view_code`, so these gates keep the *chrome* honest too — without them a
+// viewer would see an empty "Generated code" row that never opens.
+const canViewCode = useCanViewCode()
+const canRunCustomCode = useCanRunCustomCode()
+
 const codeCollapsed = ref(true)
 const createDataCollapsed = ref(true) // Collapsed by default
 const attemptCodeExpanded = reactive<Record<number, boolean>>({})
@@ -216,6 +230,7 @@ const progressStage = computed(() => (props.toolExecution as any).progress_stage
 
 // Code content: prefer final result, fall back to streamed progress code
 const codeContent = computed(() =>
+  !canViewCode.value ? '' :
   props.toolExecution?.created_step?.code
   || props.toolExecution.result_json?.code
   || (props.toolExecution as any).progress_code
@@ -391,8 +406,16 @@ const executedOnCache = computed(() => {
 })
 const isCached = (n: string) => isCachedTable(n) || executedOnCache.value
 
+// Prefer the agents the backend attached to THIS tool execution: that list rides
+// along in every view (report page, shared /c/{token}, trace modal), whereas the
+// `dataSources` prop is only passed on the report page — which is why the shared
+// views used to fall back to a generic icon. The prop stays as a fallback.
+const iconAgents = computed<DataSource[]>(
+  () => (props.toolExecution as any)?.data_sources || props.dataSources || [],
+)
+
 const groupedTables = computed<ToolTableGroup[]>(() =>
-  groupToolTables((props.toolExecution as any)?.arguments_json, props.dataSources)
+  groupToolTables((props.toolExecution as any)?.arguments_json, iconAgents.value)
 )
 
 // Hide the data preview by default for small table results (< 10 rows).
@@ -420,7 +443,9 @@ const createdQueryId = computed(() => {
   const resultQ = (props.toolExecution as any)?.result_json?.query_id
   return resultQ || null
 })
-const canOpenEditor = computed(() => !!(initialStepId.value || createdQueryId.value || codeContent.value))
+const canOpenEditor = computed(() =>
+  canRunCustomCode.value
+  && !!(initialStepId.value || createdQueryId.value || codeContent.value))
 async function openEditor() { if (!canOpenEditor.value) return; showEditor.value = true }
 const showEditor = ref(false)
 function onModalSaved(step: any) {

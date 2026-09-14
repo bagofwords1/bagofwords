@@ -316,7 +316,6 @@ class OrganizationSettingsConfig(BaseModel):
     allow_llm_see_data: FeatureConfig = FeatureConfig(value=True, name="Allow LLM to see data", description="Enable LLM to see data as part of the analysis and user queries", is_lab=False, editable=True)
     enable_training_mode: FeatureConfig = FeatureConfig(value=True, name="Training Mode", description="Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines ", is_lab=False, editable=True)
     enable_file_upload: FeatureConfig = FeatureConfig(value=True, name="Allow file upload", description="Allow users to upload spreadsheets and documents (xls/pdf) and push their content to the LLM", is_lab=False, editable=True)
-    enable_code_editing: FeatureConfig = FeatureConfig(value=True, name="Allow users to edit and execute the LLM generated code", description="Allow users to edit and execute the LLM generated code", is_lab=False, editable=True)
     enable_llm_judgement: FeatureConfig = FeatureConfig(value=True, name="Enable LLM Judge", description="Enable LLM to judge the quality of the analysis and user queries", is_lab=False, editable=True)
     suggest_instructions: FeatureConfig = FeatureConfig(value=True, name="Autogenerate instructions", description="Automatically generate instructions following clarifications provided by the user", is_lab=False, editable=True)
     enable_follow_ups: FeatureConfig = FeatureConfig(value=True, name="Follow-up suggestions", description="After each answer in the web app, suggest a few follow-up questions the user can ask next. Generated on the small/default model.", is_lab=False, editable=True)
@@ -416,6 +415,39 @@ class OrgSmtpSchema(BaseModel):
     # Advanced TLS: when False, skip certificate verification (self-signed /
     # internal CA relays). Mirrors bow-config's global SMTP ``validate_certs``.
     validate_certs: bool = True
+    # Which transport system mail is *actually* leaving through right now:
+    # "org_smtp" (this server), "global" (bow-config), or "none". Surfaced so an
+    # admin can see at a glance that their relay is or isn't in use, rather than
+    # discovering months later that invites went out via bow-config.
+    active_source: str = "none"
+    # Whether a global bow-config SMTP exists to fall back to when this server
+    # is disabled — i.e. whether turning it off means "use the global relay" or
+    # "stop sending system mail".
+    global_configured: bool = False
+
+
+class OrgSmtpTestRequest(BaseModel):
+    """Optional body for the SMTP test. ``to`` defaults to the caller's address.
+
+    Only the caller's own address is accepted — this endpoint sends real mail
+    through the organization's relay, so an arbitrary recipient would turn it
+    into a spam relay for anyone holding ``manage_settings``.
+    """
+    to: Optional[str] = None
+
+
+class OrgSmtpTestResult(BaseModel):
+    """Outcome of a real test send, including which transport carried it."""
+    success: bool
+    # "org_smtp" | "global" | "none" — the transport the message actually used.
+    source: Optional[str] = None
+    # Which step of the SMTP conversation failed, so the page can name the fix.
+    stage: Optional[str] = None
+    recipient: Optional[str] = None
+    from_address: Optional[str] = None
+    error: Optional[str] = None
+    # Flat string kept for older clients.
+    smtp: Optional[str] = None
 
 
 class OrgSmtpUpdate(BaseModel):

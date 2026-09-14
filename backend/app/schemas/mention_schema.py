@@ -14,6 +14,9 @@ class DataSourceMention(BaseModel):
     data_source_type: str  # From DataSource.type (postgres, snowflake, etc.)
     # Optional per-agent custom icon override ("emoji:<grapheme>" | "preset:<key>").
     icon: Optional[str] = None
+    # Resolved display icon ("emoji:<grapheme>" | "type:<key>" | None), see
+    # app.schemas.agent_icon — render this rather than data_source_type/icon.
+    icon_token: Optional[str] = None
 
     # Real fields from DataSource model
     description: Optional[str] = None  # DataSource.description

@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
@@ -56,12 +57,16 @@ class AzureDataExplorerClient(DataSourceClient):
         try:
             client = KustoClient(self.kcsb)
             yield client
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"Failed to connect to Azure Data Explorer: {e}")
         finally:
             if client is not None:
                 try:
                     client.close()
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -116,7 +121,7 @@ class AzureDataExplorerClient(DataSourceClient):
                 # Parse the schema JSON result - convert manually
                 primary_table = response.primary_results[0]
                 data = []
-                for row in primary_table:
+                for row in discovery_items(primary_table, 'schema', label=lambda _: self.database):
                     data.append(row.to_dict())
                 schema_df = pd.DataFrame(data)
                 
@@ -131,7 +136,7 @@ class AzureDataExplorerClient(DataSourceClient):
                     
                     tables_dict = db_schema.get(self.database, {}).get('Tables', {})
                     
-                    for table_info in tables_dict.values():
+                    for table_info in discovery_items(tables_dict.values(), 'tables', label=lambda table: table.get('Name')):
                         table_name = table_info.get('Name')
                         
                         if table_name not in tables:
@@ -156,6 +161,8 @@ class AzureDataExplorerClient(DataSourceClient):
                 
                 return list(tables.values())
                 
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             # Fallback: try to get basic table list
@@ -173,7 +180,7 @@ class AzureDataExplorerClient(DataSourceClient):
                         tables_df = pd.DataFrame(data)
                         tables = {}
                         
-                        for _, row in tables_df.iterrows():
+                        for _, row in discovery_items(tables_df.iterrows(), 'tables', total=len(tables_df), label=lambda pair: pair[1].get('TableName', pair[1].get('Name'))):
                             table_name = row.get('TableName', row.get('Name'))
                             if table_name:
                                 tables[table_name] = Table(
@@ -185,6 +192,8 @@ class AzureDataExplorerClient(DataSourceClient):
                                 )
                         
                         return list(tables.values())
+            except IndexingCancelled:
+                raise
             except Exception:
                 pass
             
@@ -195,7 +204,8 @@ class AzureDataExplorerClient(DataSourceClient):
         raise NotImplementedError(
             "get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         """Get schemas for all tables in the specified database."""
         return self.get_tables()
 

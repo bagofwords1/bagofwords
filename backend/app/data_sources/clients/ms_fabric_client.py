@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, discovery_phase, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import logging
@@ -203,6 +204,8 @@ class MsFabricClient(DataSourceClient):
         try:
             conn = self._open_connection()
             yield conn
+        except IndexingCancelled:
+            raise
         except Exception as e:
             raise RuntimeError(f"Error connecting to Microsoft Fabric: {e}")
         finally:
@@ -229,11 +232,14 @@ class MsFabricClient(DataSourceClient):
         """Get tables with graceful fallback if enriched query fails."""
         try:
             return self._get_tables_enriched()
+        except IndexingCancelled:
+            raise
         except Exception:
             return self._get_tables_basic()
 
     def _get_tables_enriched(self) -> List[Table]:
         """Get tables with column/table descriptions. May fail on some configurations."""
+        discovery_phase('reading_columns')
         tables = {}
         with self.connect() as conn:
             cursor = conn.cursor()
@@ -282,7 +288,7 @@ class MsFabricClient(DataSourceClient):
             results = cursor.fetchall()
             cursor.close()
 
-            for row in results:
+            for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type, col_comment, tbl_comment = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
@@ -306,6 +312,7 @@ class MsFabricClient(DataSourceClient):
 
     def _get_tables_basic(self) -> List[Table]:
         """Get tables without comments (always works)."""
+        discovery_phase('metadata_fallback')
         tables = {}
         with self.connect() as conn:
             cursor = conn.cursor()
@@ -334,7 +341,7 @@ class MsFabricClient(DataSourceClient):
             results = cursor.fetchall()
             cursor.close()
 
-            for row in results:
+            for row in discovery_items(results, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
                 table_schema, table_name, column_name, data_type = row
                 key = (table_schema, table_name)
                 fqn = f"{table_schema}.{table_name}"
@@ -382,10 +389,13 @@ class MsFabricClient(DataSourceClient):
                     None,
                     lambda schema, table: f"{schema}.{table}",
                 )
+        except IndexingCancelled:
+            raise
         except Exception:
             logger.debug("Fabric FK reflection failed; continuing", exc_info=True)
 
-    def get_schemas(self) -> List[Table]:
+    @discovery_progress
+    def get_schemas(self, progress_callback=None) -> List[Table]:
         """Get all table schemas. Wrapper for get_tables()."""
         return self.get_tables()
 

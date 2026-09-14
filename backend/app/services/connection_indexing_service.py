@@ -386,32 +386,28 @@ class ConnectionIndexingService:
                 last_flush_at = 0.0
                 pending_state: dict = {"phase": None, "item": None, "done": 0, "total": 0}
                 state_lock = threading.Lock()
-                last_phase: dict = {"name": None}
+                activity_events: list[tuple] = []
+                last_activity = {"phase": None, "bucket": -1, "time": 0.0}
                 flush_lock = asyncio.Lock()
+                flush_scheduled = False
+                last_scheduled_at = float("-inf")
 
                 def _state_snapshot() -> dict:
                     with state_lock:
                         return dict(pending_state)
 
-                async def _maybe_log_phase_event(phase: str | None, total: int) -> None:
-                    if phase != last_phase["name"]:
-                        last_phase["name"] = phase
-                        if phase:
-                            label = (
-                                f"Phase: {phase} ({total} items)"
-                                if total > 0
-                                else f"Phase: {phase}"
-                            )
-                            await _append_event("info", phase, label, done=0, total=total)
-
                 async def _flush(force: bool = False) -> None:
                     nonlocal last_flush_at
-                    now = time.perf_counter()
-                    if not force and (now - last_flush_at) < _PROGRESS_FLUSH_SECONDS:
-                        return
-                    # Take a single consistent snapshot of progress state.
-                    snap = _state_snapshot()
                     async with flush_lock:
+                        now = time.perf_counter()
+                        if not force and (now - last_flush_at) < _PROGRESS_FLUSH_SECONDS:
+                            return
+                        # Snapshot after acquiring the write lock: queued flushes
+                        # must never write an older snapshot over newer progress.
+                        with state_lock:
+                            snap = dict(pending_state)
+                            events = list(activity_events)
+                            activity_events.clear()
                         try:
                             async with _new_session() as flush_db:
                                 fresh = await flush_db.get(ConnectionIndexing, indexing_id)
@@ -421,16 +417,32 @@ class ConnectionIndexingService:
                                 fresh.current_item = snap["item"]
                                 fresh.progress_done = snap["done"]
                                 fresh.progress_total = snap["total"]
+                                history = list(fresh.events_json or [])
+                                for ts, phase, item, done, total, transition in events:
+                                    message = f"Phase: {phase}" if transition else str(item or phase)
+                                    if total > 0:
+                                        message += f" ({done}/{total})"
+                                    history.append({"ts": ts, "level": "info", "phase": phase,
+                                                    "message": message, "done": done, "total": total})
+                                fresh.events_json = history[-_EVENT_LOG_MAX:]
                                 await flush_db.commit()
                         except Exception:
-                            # Never let a failed flush kill the indexing run.
+                            with state_lock:
+                                activity_events[:0] = events
+                                del activity_events[:-_EVENT_LOG_MAX]
                             logger.debug("indexing.flush_failed", exc_info=True)
                         last_flush_at = now
-                    # Phase-transition events live on the same flush schedule —
-                    # one row write only, no extra DB traffic per item.
-                    await _maybe_log_phase_event(snap["phase"], snap["total"])
+
+                async def _scheduled_flush():
+                    nonlocal flush_scheduled
+                    try:
+                        await _flush()
+                    finally:
+                        with state_lock:
+                            flush_scheduled = False
 
                 def progress_cb(phase, current_item, done, total):
+                    nonlocal flush_scheduled, last_scheduled_at
                     # Called from inside `asyncio.to_thread(...)` — a worker
                     # thread (schema discovery or warm/convert). Raising here
                     # aborts that loop promptly on cancel.
@@ -443,12 +455,34 @@ class ConnectionIndexingService:
                         pending_state["item"] = current_item
                         pending_state["done"] = done
                         pending_state["total"] = total
+                        now = time.perf_counter()
+                        transition = phase != last_activity["phase"]
+                        bucket = int(10 * done / total) if total > 0 else -1
+                        if phase and (transition or bucket > last_activity["bucket"] or
+                                      (current_item and now - last_activity["time"] >= 5)):
+                            activity_events.append((datetime.utcnow().isoformat() + "Z", phase,
+                                                    current_item, done, total, transition))
+                            del activity_events[:-_EVENT_LOG_MAX]
+                            last_activity.update(phase=phase, bucket=bucket, time=now)
+
+                        # Bound scheduled work as well as DB writes. A 35k-table
+                        # crawl must not enqueue a coroutine for every column.
+                        if flush_scheduled or now - last_scheduled_at < _PROGRESS_FLUSH_SECONDS:
+                            return
+                        flush_scheduled = True
+                        last_scheduled_at = now
+
                     if runner_loop.is_closed():
+                        with state_lock:
+                            flush_scheduled = False
                         return
+                    task = _scheduled_flush()
                     try:
-                        asyncio.run_coroutine_threadsafe(_flush(), runner_loop)
+                        asyncio.run_coroutine_threadsafe(task, runner_loop)
                     except RuntimeError:
-                        pass
+                        task.close()
+                        with state_lock:
+                            flush_scheduled = False
 
                 svc = ConnectionService()
                 from app.schemas.data_source_registry import (
@@ -574,9 +608,11 @@ class ConnectionIndexingService:
                             progress_callback=progress_cb,
                         )
                 except IndexingCancelled:
+                    await _flush(force=True)
                     await self._finalize_cancelled(_new_session, indexing_id, _append_event, _state_snapshot)
                     return
                 except Exception as exc:  # pragma: no cover — surface via row
+                    await _flush(force=True)
                     logger.exception("indexing.run.failed", extra={"indexing_id": indexing_id})
                     # Use a fresh session — the service may have rolled back.
                     async with _new_session() as err_db:

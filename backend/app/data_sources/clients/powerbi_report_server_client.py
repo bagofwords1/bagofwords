@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 from app.data_sources.clients.base import DataSourceClient
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
@@ -870,6 +871,7 @@ class PowerBIReportServerClient(DataSourceClient):
     # get_schemas — build BOW Table objects
     # ------------------------------------------------------------------
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         """Build Table objects for:
           - Each Power BI report (.pbix) — one Table per report (columns empty; metadata carries data sources)

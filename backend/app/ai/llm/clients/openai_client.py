@@ -39,6 +39,8 @@ class OpenAi(LLMClient):
         verify_ssl: bool = True,
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, str]] = None,
+        auth: Optional[httpx.Auth] = None,
+        timeout: Optional[httpx.Timeout] = None,
     ):
         super().__init__()
         # No temperature is sent unless one was explicitly configured. This
@@ -48,18 +50,35 @@ class OpenAi(LLMClient):
         # rejects any temperature but their default with a 400, and no
         # name-based detection can recognize an alias.
         self.temperature = temperature
+        # ``auth`` carries an httpx auth flow instead of a static key — used by
+        # the Vertex provider, whose OpenAI-compatible surface authenticates
+        # with a Google OAuth token that expires within the hour. Injecting it
+        # per request (rather than freezing one into api_key) keeps a client
+        # valid for the whole of a long agent run. The SDK still requires a
+        # non-empty api_key even when the flow overwrites the header.
+        # Only build an explicit http_client when something actually needs
+        # one — httpx's own defaults (notably its 5s timeout, which the SDK
+        # otherwise replaces with its own) must not change for existing callers.
+        http_kwargs: dict[str, Any] = {}
+        if not verify_ssl:
+            http_kwargs["verify"] = False
+        if auth is not None:
+            http_kwargs["auth"] = auth
+        if timeout is not None:
+            http_kwargs["timeout"] = timeout
+
         kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             kwargs["default_headers"] = default_headers
-        if not verify_ssl:
-            kwargs["http_client"] = httpx.Client(verify=verify_ssl)
+        if http_kwargs:
+            kwargs["http_client"] = httpx.Client(**http_kwargs)
         self.client = OpenAI(**kwargs)
 
         async_kwargs: dict[str, Any] = {"api_key": api_key, "base_url": base_url}
         if default_headers:
             async_kwargs["default_headers"] = default_headers
-        if not verify_ssl:
-            async_kwargs["http_client"] = httpx.AsyncClient(verify=verify_ssl)
+        if http_kwargs:
+            async_kwargs["http_client"] = httpx.AsyncClient(**http_kwargs)
         self.async_client = AsyncOpenAI(**async_kwargs)
 
     @staticmethod

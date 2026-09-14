@@ -108,9 +108,9 @@
 
 				<!-- Fork summary separator -->
 				<div v-if="report?.forked_from_id && nonSeedMessages.length > 0" class="flex items-center gap-3 my-4">
-					<div class="flex-1 border-t border-dashed border-gray-200"></div>
+					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 					<span class="text-[10px] text-gray-300 uppercase tracking-wider">{{ $t('reportView.yourConversation') }}</span>
-					<div class="flex-1 border-t border-dashed border-gray-200"></div>
+					<div class="flex-1 border-t border-dashed border-gray-200 dark:border-gray-700"></div>
 				</div>
 
 				<ul v-if="messages.length > 0" class="mx-auto w-full">
@@ -124,19 +124,19 @@
 						<template v-if="(m as any).message_type === 'context_compaction'"></template>
 
 						<!-- Fork summary card (special rendering) -->
-						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 bg-amber-50/50 p-3 mb-4">
+						<div v-else-if="(m as any).is_fork_summary" class="rounded-lg border border-amber-100 dark:border-amber-500/30 bg-amber-50/50 dark:bg-amber-500/10 p-3 mb-4">
 							<div class="flex items-center gap-1.5 text-xs text-amber-600 mb-2">
 								<Icon name="heroicons:arrow-path-rounded-square" class="w-3.5 h-3.5" />
 								<span class="font-medium">{{ $t('reportView.summaryOfOriginal') }}</span>
 							</div>
-							<div class="text-xs text-gray-600 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
+							<div class="text-xs text-gray-600 dark:text-gray-300 leading-relaxed whitespace-pre-line">{{ (m as any).completion?.content || '' }}</div>
 						</div>
 
 						<!-- Scheduled prompt: collapsible header + user bubble when expanded -->
 						<div v-else-if="m.scheduled_prompt_id && m.role === 'user'">
 							<button
 								@click="toggleScheduledExpand(m.id)"
-								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
+								class="w-full flex items-center gap-1.5 px-3 py-2 text-xs text-gray-400 rounded-lg border border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/40 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors mb-2"
 							>
 								<Icon name="heroicons-clock" class="w-3.5 h-3.5" />
 								<span class="font-medium text-gray-500">{{ $t('reportView.scheduledRun') }}</span>
@@ -153,7 +153,7 @@
 											<div v-if="m.prompt?.content" class="pt-1">
 												<InstructionText
 													:text="m.prompt.content"
-													:references="promptMentionsToRefs(m.prompt.mentions)"
+													:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 													:prose="true"
 												/>
 											</div>
@@ -251,7 +251,7 @@
 												<div v-if="m.prompt?.content" class="pt-1">
 													<InstructionText
 														:text="m.prompt.content"
-														:references="promptMentionsToRefs(m.prompt.mentions)"
+														:references="promptMentionsToRefs(m.prompt.mentions, agentIconTokens)"
 														:prose="true"
 													/>
 												</div>
@@ -261,7 +261,7 @@
 														<AuthenticatedImage
 															:file-id="file.id"
 															:alt="file.filename"
-															img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 cursor-pointer hover:opacity-90 transition-opacity"
+															img-class="h-16 w-16 object-cover rounded-lg border border-gray-200 dark:border-gray-700 cursor-pointer hover:opacity-90 transition-opacity"
 															@click="openImagePreview(file)" />
 													</div>
 												</div>
@@ -321,7 +321,7 @@
 														<div v-if="s.prompt?.content" class="pt-1">
 															<InstructionText
 																:text="s.prompt.content"
-																:references="promptMentionsToRefs(s.prompt.mentions)"
+																:references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
 																:prose="true"
 															/>
 														</div>
@@ -449,7 +449,7 @@
 													<div v-if="s.prompt?.content" class="pt-1">
 														<InstructionText
 															:text="s.prompt.content"
-															:references="promptMentionsToRefs(s.prompt.mentions)"
+															:references="promptMentionsToRefs(s.prompt.mentions, agentIconTokens)"
 															:prose="true"
 														/>
 													</div>
@@ -506,7 +506,7 @@
 											<UPopover v-if="visibleInstructions(m).length" :popper="{ placement: 'top-start' }" ref="instructionsPopoverRef">
 												<UButton variant="ghost" color="gray" size="xs" class="!px-1.5">
 													<Icon name="heroicons-cube" class="w-3.5 h-3.5" />
-													<span class="text-xs text-gray-700 font-normal">{{ $t('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
+													<span class="text-xs text-gray-700 dark:text-gray-300 font-normal">{{ $t('reportView.instructionsCount', { count: visibleInstructions(m).length }) }}</span>
 												</UButton>
 												<template #panel="{ close }">
 													<div class="p-3 w-[380px] max-h-[300px] overflow-y-auto">
@@ -518,12 +518,14 @@
 																class="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-gray-50 dark:hover:bg-gray-800 cursor-pointer text-xs text-gray-700 dark:text-gray-300"
 																@click="close(); openInstructionById(ins.id)"
 															>
-																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
+																<DataSourceIcon v-if="ins.data_source_type || ins.data_source_icon" :type="ins.data_source_type" :icon-token="ins.data_source_icon_token" :icon="ins.data_source_icon" class="h-3.5 w-3.5 flex-shrink-0" />
 																<Icon v-else name="heroicons-cube" class="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
 																<span class="flex-1 truncate">{{ ins.title || $t('reportView.untitled') }}</span>
 																<span class="text-[10px] text-gray-400 flex-shrink-0">{{ ins.category || 'general' }}</span>
 																<span class="text-[9px] px-1.5 py-0.5 rounded flex-shrink-0"
-																	:class="(ins.load_mode || 'always') === 'always' ? 'bg-green-50 text-green-600' : 'bg-blue-50 text-blue-600'">
+																	:class="(ins.load_mode || 'always') === 'always'
+																		? 'bg-green-50 text-green-600 dark:bg-green-500/15 dark:text-green-400'
+																		: 'bg-blue-50 text-blue-600 dark:bg-blue-500/15 dark:text-blue-400'">
 																	{{ getLoadModeLabel(ins.load_mode) }}
 																</span>
 															</div>
@@ -534,16 +536,19 @@
 
 											<!-- Debug button -->
 											<button
-												v-if="canViewConsole"
+												v-if="canViewTrace"
 												@click="openTraceModal(m.system_completion_id || m.id)"
 												class="flex items-center justify-center w-6 h-6 hover:bg-gray-50 dark:hover:bg-gray-800 rounded-md transition-colors group"
 												:title="$t('reportView.viewAgentTrace')"
 											>
-												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900" />
+												<Icon name="heroicons-bug-ant" class="w-4 h-4 text-gray-500 group-hover:text-gray-900 dark:group-hover:text-gray-100" />
 											</button>
 
-											<!-- AI message timestamp -->
-											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">{{ formatMessageDate(m.created_at) }}</span>
+											<!-- Total run duration + AI message timestamp -->
+											<span v-if="runDurationLabel(m)" class="text-[10px] text-gray-400 ms-1 tabular-nums" data-testid="run-duration">{{ runDurationLabel(m) }}</span>
+											<span v-if="m.created_at" class="text-[10px] text-gray-400 ms-1">
+												<span v-if="runDurationLabel(m)" class="me-1">·</span>{{ formatMessageDate(m.created_at) }}
+											</span>
 										</div>
 									</div>
 
@@ -598,150 +603,15 @@
 				<Spinner class="w-4 h-4 me-2" />
 				<span class="text-sm">{{ $t('reportView.loadingReport') }}</span>
 			</div>
-			<div v-else class="mt-32 fade-in">
-				<!-- Training mode empty state -->
-				<template v-if="currentPromptMode === 'training'">
-					<h1 class="text-4xl mb-4">🎓</h1>
-					<h1 class="text-lg font-semibold">{{ $t('reports.trainingEmptyTitle') }}</h1>
-					<hr class="my-4">
-					<p class="text-gray-500 dark:text-gray-400 text-sm"><span class="font-semibold">{{ $t('reports.trainingEmptyTipLabel') }}</span> <br />
-						{{ $t('reports.trainingEmptyBody') }}
-					</p>
-					<div class="mt-4 flex flex-wrap gap-2">
-						<button
-							v-for="s in ($tm('reports.trainingStarters') as any[])"
-							:key="s.title"
-							class="px-3 py-1.5 text-xs rounded-full border border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100 transition-colors"
-							@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
-						>
-							{{ s.title }}
-						</button>
-					</div>
-				</template>
-				<!-- Chat / deep mode empty state -->
-				<template v-else>
-					<div class="flex flex-col items-center text-center">
-						<img
-							src="/assets/empty-states/empty-integrations.png"
-							alt=""
-							class="w-56 max-w-full mb-2 select-none pointer-events-none dark:hidden"
-						/>
-						<div class="hidden dark:flex items-center justify-center w-24 h-24 rounded-2xl bg-gray-800 mb-2">
-							<UIcon name="i-heroicons-chat-bubble-left-right" class="w-10 h-10 text-gray-500" />
-						</div>
-						<h1 class="text-lg font-semibold">{{ $t('reports.emptyTitle') }}</h1>
-						<!-- Agent picker + starter questions: one start-aligned column the
-						     width of the composer below, so the search rule and the question
-						     dividers land on its edges. Both live in a max-w-2xl column, but
-						     the message column pads ps-4/pe-2 while the composer card sits a
-						     further 16px in on both sides — hence the extra start/end inset
-						     here. Below sm the two already line up (px-3 vs p-3). -->
-						<div class="w-full text-start sm:ps-4 sm:pe-6">
-							<!-- Agents: only worth showing when there's a choice to make.
-							     Multi-select — it drives the prompt box's selector, which
-							     owns auto-mode and persistence. Most-recently-used first, so
-							     the agents you actually work with lead the row. -->
-							<div v-if="availableAgents.length > 1" class="mt-7">
-								<!-- The search field is the section header: no separate title,
-								     it names the row and filters it as you type. -->
-								<div class="flex items-center gap-2 px-1 pb-1.5 border-b border-gray-100 dark:border-gray-800">
-									<Icon name="heroicons:magnifying-glass" class="w-3.5 h-3.5 flex-shrink-0 text-gray-300 dark:text-gray-600" />
-									<input
-										v-model="agentChipQuery"
-										type="text"
-										data-testid="empty-agent-search"
-										:placeholder="$t('projects.overview.searchAgents')"
-										class="w-full bg-transparent text-[13px] text-gray-700 dark:text-gray-200 placeholder-gray-400 dark:placeholder-gray-500 focus:outline-none"
-									/>
-								</div>
-								<div
-									:class="[
-										'mt-2 flex flex-wrap gap-1',
-										showAllAgentChips ? 'max-h-36 overflow-y-auto' : ''
-									]"
-								>
-									<button
-										v-for="a in visibleAgentChips"
-										:key="a.id"
-										type="button"
-										data-testid="empty-agent-chip"
-										:aria-pressed="isAgentSelected(a)"
-										:class="[
-											'inline-flex items-center gap-1.5 px-1.5 py-1 rounded-md text-[13px] transition-colors',
-											isAgentSelected(a)
-												? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-gray-100'
-												: 'text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60'
-										]"
-										@click="toggleAgentSelection(a)"
-									>
-										<DataSourceIcon
-											:type="a.type || a.connections?.[0]?.type"
-											:connector-key="a.connector_key || a.connections?.[0]?.connector_key"
-											:icon="a.icon"
-											class="h-3.5 flex-shrink-0"
-										/>
-										<span class="max-w-[11rem] truncate">{{ a.name }}</span>
-										<Icon
-											v-if="isAgentSelected(a)"
-											name="heroicons:check"
-											class="w-3 h-3 flex-shrink-0 text-gray-400"
-										/>
-									</button>
-									<!-- Long agent lists would otherwise bury the questions
-									     under a wall of chips — reveal the tail on demand. -->
-									<button
-										v-if="hiddenAgentChipCount > 0"
-										type="button"
-										data-testid="empty-agent-chip-more"
-										class="inline-flex items-center px-1.5 py-1 rounded-md text-[13px] text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/60 transition-colors"
-										@click="showAllAgentChips = true"
-									>
-										+{{ hiddenAgentChipCount }}
-									</button>
-									<span v-if="visibleAgentChips.length === 0" class="px-1.5 py-1 text-[13px] text-gray-400">
-										{{ $t('mentionInput.noResults') }}
-									</span>
-								</div>
-								<!-- Outside the scroll area — inside it, collapsing would mean
-								     scrolling past every chip to find the way back. -->
-								<button
-									v-if="showAllAgentChips"
-									type="button"
-									data-testid="empty-agent-chip-less"
-									class="mt-1 px-1.5 text-[12px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 transition-colors"
-									@click="showAllAgentChips = false"
-								>
-									{{ $t('tools.common.showLess') }}
-								</button>
-							</div>
-							<!-- Starter questions for the selected agents, one per line.
-							     Nothing selected ⇒ nothing to suggest. -->
-							<div
-								v-if="currentAgents.length > 0 && agentConversationStarters.length > 0"
-								:class="availableAgents.length > 1 ? 'mt-5' : 'mt-7'"
-							>
-								<ul class="divide-y divide-gray-100 dark:divide-gray-800/70">
-									<li v-for="s in agentConversationStarters" :key="s.title" class="group">
-										<button
-											type="button"
-											dir="auto"
-											data-testid="empty-starter"
-											class="w-full flex items-center justify-between gap-3 py-2.5 px-1 text-start text-[13px] leading-snug text-gray-500 dark:text-gray-400 transition-colors duration-150 hover:text-gray-900 dark:hover:text-gray-100"
-											@click="handleExampleClick(`${s.title}\n\n${s.prompt}`)"
-										>
-											<span class="truncate">{{ s.title }}</span>
-											<Icon
-												name="heroicons-arrow-up-right"
-												class="w-3.5 h-3.5 flex-shrink-0 text-gray-300 dark:text-gray-600 opacity-0 -translate-x-1 group-hover:opacity-100 group-hover:translate-x-0 transition-all duration-150"
-											/>
-										</button>
-									</li>
-								</ul>
-							</div>
-						</div>
-					</div>
-				</template>
-			</div>
+			<ReportEmptyState
+				v-else
+				:mode="currentPromptMode"
+				:available-agents="availableAgents"
+				:current-agents="currentAgents"
+				:agents-are-auto="agentsAreAuto"
+				@toggle-agent="toggleAgentSelection"
+				@starter="handleExampleClick"
+			/>
 			</div>
 		</div>
 
@@ -770,7 +640,7 @@
 		<div v-if="report.report_type === 'test'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs text-gray-500 flex items-center">
 				<span class="text-xs">
-					<span class="font-medium bg-yellow-100 text-yellow-800 px-2 py-1 rounded-md">Note
+					<span class="font-medium bg-yellow-100 dark:bg-yellow-500/15 text-yellow-800 dark:text-yellow-300 px-2 py-1 rounded-md">Note
 						This report is a report generated from a test run
 					</span>
 					</span>
@@ -778,7 +648,7 @@
 			</div>
 		<div v-if="report.external_platform?.platform_type === 'mcp'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/mcp.png" class="h-4 w-4" />
 					<span>This session was created via MCP. The conversation reflects tool calls made by an external AI assistant. You can view the generated data and visualizations above.</span>
 				</span>
@@ -786,7 +656,7 @@
 		</div>
 		<div v-if="report.external_platform?.platform_type === 'slack'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/slack.png" class="h-4 w-4" />
 					<span>This session was created via Slack.</span>
 				</span>
@@ -794,7 +664,7 @@
 		</div>
 		<div v-if="report.external_platform?.platform_type === 'teams'" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-blue-50 text-blue-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-blue-50 dark:bg-blue-500/15 text-blue-700 dark:text-blue-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/icons/teams.png" class="h-4 w-4" />
 					<span>This session was created via Microsoft Teams.</span>
 				</span>
@@ -802,7 +672,7 @@
 		</div>
 		<div v-if="report.external_platform?.platform_type === 'excel' && !isExcel" class="mx-auto px-4 mt-2 mb-2 max-w-2xl w-full">
 			<div class="text-xs flex items-center">
-				<span class="font-medium bg-green-50 text-green-700 px-3 py-2 rounded-md flex items-center gap-2">
+				<span class="font-medium bg-green-50 dark:bg-green-500/15 text-green-700 dark:text-green-300 px-3 py-2 rounded-md flex items-center gap-2">
 					<img src="/data_sources_icons/excel.png" class="h-4 w-4" />
 					<span>This session was created via Excel.</span>
 				</span>
@@ -928,7 +798,7 @@
 					<DataSourceIcon
 						v-if="currentAgents.length === 1"
 						:type="currentAgents[0].type || currentAgents[0].connections?.[0]?.type"
-						:icon="currentAgents[0].icon"
+						:icon-token="currentAgents[0].icon_token" :icon="currentAgents[0].icon"
 						class="h-3.5 flex-shrink-0"
 					/>
 					<Icon v-else name="heroicons:cog-6-tooth" class="w-3.5 h-3.5" />
@@ -1200,6 +1070,7 @@ import ToolWidgetPreview from '~/components/tools/ToolWidgetPreview.vue'
 import SplitScreenLayout from '~/components/report/SplitScreenLayout.vue'
 import ReportHeader from '~/components/report/ReportHeader.vue'
 import ReportAgentPanel from '~/components/report/ReportAgentPanel.vue'
+import ReportEmptyState from '~/components/report/ReportEmptyState.vue'
 import ChatSummary from '~/components/report/ChatSummary.vue'
 import ForkBanner from '~/components/ForkBanner.vue'
 import ForkedQueriesPanel from '~/components/ForkedQueriesPanel.vue'
@@ -1213,8 +1084,17 @@ import QueryCodeEditorModal from '~/components/tools/QueryCodeEditorModal.vue'
 import ImagePreviewModal from '~/components/ImagePreviewModal.vue'
 import Spinner from '~/components/Spinner.vue'
 import InstructionText from '~/components/instructions/InstructionText.vue'
-import { useCan } from '~/composables/usePermissions'
+import { useCanViewReportTrace } from '~/composables/usePermissions'
 import { promptMentionsToRefs } from '~/utils/mentions'
+
+// An @agent chip in an already-sent prompt names a LIVE agent, so it should draw
+// the icon that agent has now — not the one snapshotted into the prompt's
+// mentions when the message was sent. Same agent, same icon, on one screen.
+const agentIconTokens = computed<Record<string, string | null | undefined>>(() => {
+	const out: Record<string, string | null | undefined> = {}
+	for (const a of (currentAgents.value || []) as any[]) out[a.id] = a.icon_token
+	return out
+})
 import { MarkdownRender } from 'markstream-vue'
 import 'markstream-vue/index.css'
 // Render load_mode via the shared label map — the UI calls 'intelligent' mode "Smart".
@@ -1274,6 +1154,10 @@ interface ChatMessage {
 	created_at?: string
 	// Backend system completion id used for sigkill
 	system_completion_id?: string
+	// Wall-clock time of the run behind this completion, stamped server-side when
+	// the agent execution finishes. Absent on the live SSE path (completion.finished
+	// is emitted before the execution is finalized) — see clientRunMs.
+	total_duration_ms?: number | null
 	sigkill?: string | null
 	feedback_score?: number
 	// Transient streaming error message (set from SSE completion.error)
@@ -1352,7 +1236,12 @@ function modelBrandFor(model?: string | null) {
 }
 
 // Permissions
-const canViewConsole = computed(() => useCan('view_console'))
+// Agent trace ("debugger") on an assistant message. `view_console` never
+// existed in the permission registry, so this was silently false for everyone
+// but a full org admin — including the agent's own owner, whom the backend
+// (ConsoleScope) does authorize. Gate on the real rule instead: org-wide
+// console, or `manage` on every agent this report draws on.
+const canViewTrace = computed(() => useCanViewReportTrace(report.value?.data_sources))
 
 // Org settings (follow-up suggestions toggle)
 const { isFollowUpsEnabled } = useOrgSettings()
@@ -1909,14 +1798,6 @@ async function handleAgentConnected() {
 // Drives the blank-report agent picker (shown only when there's more than one).
 const availableAgents = ref<any[]>([])
 
-// Orgs can have dozens of agents; show a handful and keep the rest one click
-// away so the starter questions stay above the fold. Beyond this the row wraps
-// past two lines and stops reading as a shortcut — the search field is the way
-// through a long roster.
-const AGENT_CHIP_LIMIT = 6
-const showAllAgentChips = ref(false)
-const agentChipQuery = ref('')
-
 // The prompt box is in "Auto" — the report is scoped to every agent because
 // the user hasn't chosen. That's the absence of a choice, so the picker shows
 // nothing selected; the first click is what turns it into a real selection.
@@ -1925,78 +1806,12 @@ const agentChipQuery = ref('')
 // picker highlights them.
 const agentsAreAuto = ref(false)
 
-// Most-recently-used first (`last_used_at` from /data_sources/active — the last
-// conversation this user actually had with the agent), never-used ones after,
-// alphabetical within each group so the order is stable and predictable.
-const sortedAgents = computed(() => {
-    return [...(availableAgents.value || [])].sort((a: any, b: any) => {
-        const ta = a?.last_used_at ? Date.parse(a.last_used_at) : 0
-        const tb = b?.last_used_at ? Date.parse(b.last_used_at) : 0
-        if (ta !== tb) return tb - ta
-        return String(a?.name || '').localeCompare(String(b?.name || ''))
-    })
-})
-
-const matchingAgents = computed(() => {
-    const q = agentChipQuery.value.trim().toLowerCase()
-    if (!q) return sortedAgents.value
-    return sortedAgents.value.filter((a: any) => String(a?.name || '').toLowerCase().includes(q))
-})
-
-const visibleAgentChips = computed(() => {
-    const all = matchingAgents.value
-    if (showAllAgentChips.value || all.length <= AGENT_CHIP_LIMIT) return all
-    // Selected agents win the slots, but the row keeps its recency order so
-    // chips don't reshuffle under the cursor as the selection changes.
-    const kept = new Set<string>()
-    let budget = AGENT_CHIP_LIMIT
-    for (const a of all) if (budget > 0 && isAgentSelected(a)) { kept.add(String(a.id)); budget-- }
-    for (const a of all) if (budget > 0 && !kept.has(String(a.id))) { kept.add(String(a.id)); budget-- }
-    return all.filter((a: any) => kept.has(String(a.id)))
-})
-const hiddenAgentChipCount = computed(() => matchingAgents.value.length - visibleAgentChips.value.length)
-
-function isAgentSelected(agent: any) {
-    if (agentsAreAuto.value) return false
-    return (currentAgents.value || []).some((a: any) => String(a?.id) === String(agent?.id))
-}
-
 // Route the click back through the prompt box's selector so the blank-report
 // picker and the dropdown stay one selection: same auto-mode behaviour, same
 // persistence to the report.
 function toggleAgentSelection(agent: any) {
     promptBoxRef.value?.toggleDataSource?.(agent)
 }
-
-// Conversation starters from the selected agents, sourced from agent-scoped
-// starter Prompts (not the legacy data_source.conversation_starters JSON).
-// Each prompt's `text` is "Title\nDetailed prompt" — split into { title, prompt }.
-const agentConversationStarters = ref<{ title: string; prompt: string }[]>([])
-async function loadAgentStarters() {
-    const ids = [...new Set((currentAgents.value || []).map((a: any) => a?.id).filter(Boolean))]
-    if (!ids.length) { agentConversationStarters.value = []; return }
-    const texts: string[] = []
-    try {
-        // Fetch starters for all selected agents in ONE batched request (union)
-        // instead of one /prompts call per agent — a report with many attached
-        // agents otherwise fired a request per agent just to fill 3 suggestions.
-        const { data } = await useMyFetch(`/prompts?data_source_ids=${ids.join(',')}`)
-        for (const p of ((data.value as any)?.prompts || [])) if (p?.text) texts.push(p.text)
-    } catch { /* ignore */ }
-    agentConversationStarters.value = [...new Set<string>(texts)].slice(0, 3).map((s: string) => {
-        const nl = s.indexOf('\n')
-        return nl === -1
-            ? { title: s, prompt: s }
-            : { title: s.slice(0, nl).trim(), prompt: s.slice(nl + 1).trim() }
-    })
-}
-// Key the watch on the actual set of agent ids (not a deep watch) so starters
-// are refetched only when agents are added/removed, not on every nested change.
-watch(
-    () => [...new Set((currentAgents.value || []).map((a: any) => a?.id).filter(Boolean))].sort().join(','),
-    loadAgentStarters,
-    { immediate: true },
-)
 
 async function openInstructionById(instructionId: string, opts?: { initialVersionNumber?: number | null }) {
 	// Immediately switch to agent panel with loading state
@@ -2075,6 +1890,51 @@ function formatMessageDate(date?: string) {
 		month: 'short', day: 'numeric',
 		hour: 'numeric', minute: '2-digit'
 	})
+}
+
+// ---- Run duration (completion footer) ----
+// Server timestamps are naive-UTC (no Z suffix) — parse them as UTC or the
+// elapsed time is off by the local timezone offset.
+function parseServerTimestamp(v: any): number | null {
+	if (!v) return null
+	const s = String(v)
+	const t = Date.parse(/Z|[+-]\d{2}:?\d{2}$/.test(s) ? s : s + 'Z')
+	return Number.isNaN(t) ? null : t
+}
+
+// Client-measured run time. The server stamps AgentExecution.total_duration_ms
+// only after the run's tail work lands, which is deliberately *after*
+// completion.finished is emitted (agent_v2 emits early so the UI flips out of
+// "thinking" immediately). So on the live path we measure it here; the server
+// value takes over once it arrives.
+//
+// Keyed by the *server* completion id, never the `system-<ts>` placeholder id:
+// the refetch that follows a run swaps the placeholder for the server row, and
+// a placeholder-keyed entry would be orphaned the moment it lands.
+const clientRunMs = ref<Map<string, number>>(new Map())
+
+function runKey(m: ChatMessage): string {
+	return String(m.system_completion_id || m.id)
+}
+
+// Same format as the prompt box's live thinking timer (PromptBoxV2), so the
+// final number reads as the natural end of the counter the user just watched.
+function formatRunDuration(ms: number): string {
+	const s = Math.max(0, Math.round(ms / 1000))
+	if (s < 60) return `${s}s`
+	return `${Math.floor(s / 60)}m ${String(s % 60).padStart(2, '0')}s`
+}
+
+// Hide sub-2s runs — same threshold GenericTool uses for tool durations, so
+// trivial turns don't carry a noisy "1s".
+const MIN_RUN_DURATION_MS = 2000
+
+function runDurationLabel(m: ChatMessage): string {
+	const ms = (typeof m.total_duration_ms === 'number' && m.total_duration_ms > 0)
+		? m.total_duration_ms
+		: clientRunMs.value.get(runKey(m))
+	if (typeof ms !== 'number' || ms < MIN_RUN_DURATION_MS) return ''
+	return formatRunDuration(ms)
 }
 
 // ---- Inbound webhook event-entry helpers ----
@@ -3861,6 +3721,16 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 
 		case 'completion.finished':
 			const completionStatus = (payload && typeof payload.status === 'string') ? payload.status : null
+			// Measure the run here: the server's total_duration_ms isn't stamped
+			// yet at this point (see clientRunMs), so without this the footer
+			// would show nothing until the next load.
+			{
+				const key = runKey(sysMessage)
+				const startedAt = parseServerTimestamp(sysMessage.created_at)
+				if (startedAt !== null && !clientRunMs.value.has(key)) {
+					clientRunMs.value.set(key, Date.now() - startedAt)
+				}
+			}
 			if (completionStatus) {
 				if (sysMessage.status !== 'error' && sysMessage.status !== 'stopped') {
 					sysMessage.status = completionStatus as any
@@ -4064,7 +3934,10 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
-					created_step: b.tool_execution.created_step
+					created_step: b.tool_execution.created_step,
+					// Agents this call referenced, with their resolved icon_token —
+					// the data tools' source icon comes from here.
+					data_sources: b.tool_execution.data_sources
 				} : undefined
 			})) || []
 
@@ -4084,6 +3957,7 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 				completion: c.completion,
 				completion_blocks: blocks,
 				created_at: c.created_at,
+				total_duration_ms: c.total_duration_ms ?? null,
 				sigkill: c.sigkill,
 				feedback_score: c.feedback_score,
 				instruction_suggestions: c.instruction_suggestions,
@@ -4290,7 +4164,10 @@ async function loadPreviousCompletions() {
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,
-                    created_step: b.tool_execution.created_step
+                    created_step: b.tool_execution.created_step,
+                    // Agents this call referenced, with their resolved icon_token —
+                    // the data tools' source icon comes from here.
+                    data_sources: b.tool_execution.data_sources
                 } : undefined
             })) || []
 
@@ -4309,6 +4186,7 @@ async function loadPreviousCompletions() {
                 prompt: c.prompt,
                 completion_blocks: blocks,
                 created_at: c.created_at,
+                total_duration_ms: c.total_duration_ms ?? null,
                 sigkill: c.sigkill,
                 feedback_score: c.feedback_score,
                 instruction_suggestions: c.instruction_suggestions,
@@ -4993,6 +4871,10 @@ function onSubmitCompletion(data: { text: string, mentions: any[]; mode?: string
 		role: 'system',
 		status: 'in_progress',
 		model: data.model_id || undefined,
+		// Naive-UTC, matching the server's shape. Anchors the footer's run
+		// duration (and its timestamp) on the live path, where no server row
+		// has been merged into this placeholder yet.
+		created_at: new Date().toISOString().replace('Z', ''),
 		completion_blocks: []
 	}
 	messages.value.push(sysMsg)
@@ -5750,6 +5632,50 @@ onMounted(async () => {
 	}
 }
 
+/* ─── Dark mode: markdown answer body ──────────────────────────────────────
+   Every surface above is a hardcoded light literal (bg-white tables, bg-gray-50
+   code slabs, text-gray-900 links), so on a dark page the answer renders white
+   slabs with near-invisible text. Mirrors the palette in InstructionText.vue.
+
+   The `.dark` class lives on <html> (Tailwind darkMode: 'class'), outside this
+   component's scope, so — as in ChangelogModal/InstructionEditor — these are
+   authored as :global and matched by the component's own wrapper classes.
+   A `:global(.dark) .markdown-wrapper :deep(...)` prefix compiles to an
+   invalid selector and silently drops. `.markdown-wrapper` stays in the chain
+   because the light rules above compile to
+   `.markdown-wrapper[data-v-…] .markdown-content <el>` — three class-level
+   units — so a `.dark .markdown-content <el>` override would lose on
+   specificity instead of winning by source order. */
+:global(.dark .markdown-wrapper .markdown-content pre) {
+	background-color: #1f2937;
+}
+:global(.dark .markdown-wrapper .markdown-content code) {
+	background-color: #374151;
+	color: #e5e7eb;
+}
+:global(.dark .markdown-wrapper .markdown-content pre code) {
+	background: none;
+	color: #e5e7eb;
+}
+:global(.dark .markdown-wrapper .markdown-content a) {
+	color: #93c5fd;
+}
+:global(.dark .markdown-wrapper .markdown-content a:hover) {
+	color: #bfdbfe;
+}
+:global(.dark .markdown-wrapper .markdown-content blockquote) {
+	border-color: #4b5563;
+}
+:global(.dark .markdown-wrapper .markdown-content table th),
+:global(.dark .markdown-wrapper .markdown-content table td) {
+	background-color: #111827;
+	border-color: #374151;
+	color: #e5e7eb;
+}
+:global(.dark .markdown-wrapper .markdown-content table th) {
+	background-color: #1f2937;
+}
+
 
 
 /* Compact mode (Excel add-in) — smaller text throughout */
@@ -5855,20 +5781,6 @@ onMounted(async () => {
 	opacity: 0;
 }
 
-.fade-in {
-    animation: fadeIn 0.6s ease-in;
-}
-
-@keyframes fadeIn {
-    0% {
-        opacity: 0;
-        transform: translateY(10px);
-    }
-    100% {
-        opacity: 1;
-        transform: translateY(0);
-    }
-}
 
 /* Minimal shimmer for reconnect banner */
 .poll-shimmer {

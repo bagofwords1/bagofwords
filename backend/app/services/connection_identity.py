@@ -31,6 +31,28 @@ SERVICE_ACCOUNT_MARKER_MODE = "service_account"
 VALID_IDENTITIES = {QUERY_IDENTITY_SELF, QUERY_IDENTITY_SERVICE}
 
 
+def management_requires_user_auth(connection: Connection, config_overrides: dict | None = None) -> bool:
+    """Whether the configured connector can only be tested as a signed-in user.
+
+    OAuth client registration is not a service credential. Use registry auth
+    scopes/catalog ownership, not presence of an encrypted credentials blob.
+    """
+    import json
+    from app.schemas.data_source_registry import REGISTRY
+
+    config = connection.config
+    config = json.loads(config) if isinstance(config, str) else dict(config or {})
+    config.update({k: v for k, v in (config_overrides or {}).items() if v not in (None, "")})
+    entry = REGISTRY.get(connection.type)
+    auth_type = config.get('auth_type') or (entry.credentials_auth.default if entry else None)
+    if auth_type in PER_USER_OAUTH_AUTH_TYPES:
+        return True
+    if entry:
+        variant = entry.credentials_auth.by_auth.get(auth_type)
+        return entry.catalog_ownership == 'per_user' or bool(variant and 'system' not in variant.scopes)
+    return False
+
+
 def supports_user_token(connection: Connection) -> bool:
     """True if this connection authenticates users with a per-user OAuth/OBO token."""
     modes = connection.allowed_user_auth_modes or []

@@ -1,9 +1,16 @@
 <template>
-    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-2xl' }">
-        <UCard>
-            <template #header>
+    <UModal v-model="isOpen" :ui="{ width: 'sm:max-w-xl' }">
+        <div class="p-6 max-h-[calc(100dvh-4rem)] overflow-y-auto">
+            <div class="mb-6">
                 <div class="flex items-center justify-between">
-                    <h3 class="text-sm font-semibold text-gray-900 dark:text-white">{{ $t('data.connectionsTitle') }}</h3>
+                    <div class="flex items-center gap-3 min-w-0">
+                        <DataSourceIcon v-if="agentInfo" :type="agentInfo.type || connections[0]?.type" :icon="agentInfo.icon" class="w-7 h-7 shrink-0" />
+                        <div class="min-w-0">
+                            <h3 class="text-lg font-semibold text-gray-900 dark:text-white break-words">{{ agentInfo?.name || $t('data.connectionsTitle') }}</h3>
+                            <p v-if="agentInfo?.description" class="mt-1 text-sm leading-5 text-gray-500 whitespace-pre-wrap break-words">{{ agentInfo.description }}</p>
+                            <p v-if="agentInfo" class="mt-2 text-xs text-gray-400">{{ $t('data.connectionsTitle') }}</p>
+                        </div>
+                    </div>
                     <div class="flex items-center gap-2">
                         <UButton
                             v-if="canLinkConnections"
@@ -18,7 +25,7 @@
                         <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="isOpen = false" />
                     </div>
                 </div>
-            </template>
+            </div>
 
             <div v-if="!ready" class="py-6 text-center text-sm text-gray-400">{{ $t('common.loading') }}</div>
 
@@ -30,24 +37,37 @@
                 </UButton>
             </div>
 
-            <div v-else class="space-y-3">
+            <div v-else class="divide-y divide-gray-100 dark:divide-gray-800">
                 <div
                     v-for="conn in connections"
                     :key="conn.id"
-                    class="border border-gray-200 dark:border-gray-700 rounded-lg p-3"
+                    class="py-4 first:pt-0 last:pb-0"
                 >
-                    <div class="flex items-center justify-between gap-3">
+                    <div class="flex items-start justify-between gap-3">
                         <div class="flex items-center gap-3 min-w-0">
-                            <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-7 flex-shrink-0" />
+                            <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="w-5 h-5 mt-0.5 flex-shrink-0" />
                             <div class="min-w-0">
                                 <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
-                                <div class="text-xs text-gray-400">{{ conn.type }}</div>
+                                <div class="mt-1 flex items-center gap-1.5 text-xs text-gray-500" role="status">
+                                    <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDotClass(getConnectionEffective(conn))" />
+                                    {{ getStatusLabel(conn) }}
+                                </div>
+                                <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                                    <span v-for="count in connectionCounts(conn)" :key="count.key">{{ $t(count.key, { n: count.value }, count.value) }}</span>
+                                </div>
                             </div>
                         </div>
-                        <div class="flex items-center gap-1.5 flex-shrink-0">
-                            <span :class="['px-2 py-0.5 rounded text-xs border', getStatusClass(conn)]">
-                                {{ getStatusLabel(conn) }}
-                            </span>
+                        <div class="flex flex-wrap items-center justify-end gap-1.5 shrink-0 max-w-[45%]">
+                            <button
+                                v-if="needsConnectionSignIn(conn)"
+                                @click="signInConnection(conn)"
+                                :disabled="!!signingInId"
+                                :aria-busy="signingInId === conn.id"
+                                class="inline-flex items-center gap-1.5 px-2 py-1 rounded text-xs text-blue-600 bg-blue-50 hover:bg-blue-100 disabled:opacity-50"
+                            >
+                                <Spinner v-if="signingInId === conn.id" class="w-3 h-3" />
+                                {{ $t('data.signIn') }}
+                            </button>
                             <button
                                 v-if="canManageConnection(conn)"
                                 @click="testConnection(conn.id)"
@@ -94,8 +114,10 @@
                     </div>
                 </div>
             </div>
-        </UCard>
+        </div>
     </UModal>
+
+    <UserDataSourceCredentialsModal v-model="showCredentials" :data-source="credentialSource" @saved="onCredentialsSaved" />
 
     <!-- Link connection modal -->
     <UModal v-model="showLinkModal" :ui="{ width: 'sm:max-w-md' }">
@@ -125,7 +147,13 @@
                     <DataSourceIcon :type="conn.type" :connector-key="conn.connector_key" class="h-5 flex-shrink-0" />
                     <div class="min-w-0 flex-1">
                         <div class="text-sm font-medium text-gray-900 dark:text-white truncate">{{ conn.name }}</div>
-                        <div class="text-xs text-gray-400">{{ conn.type }}</div>
+                        <div class="mt-1 flex items-center gap-1.5 text-xs text-gray-500" role="status">
+                                    <span class="w-1.5 h-1.5 rounded-full shrink-0" :class="statusDotClass(getConnectionEffective(conn))" />
+                                    {{ getStatusLabel(conn) }}
+                                </div>
+                                <div v-if="connectionCounts(conn).length" class="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-gray-500">
+                                    <span v-for="count in connectionCounts(conn)" :key="count.key">{{ $t(count.key, { n: count.value }, count.value) }}</span>
+                                </div>
                     </div>
                     <UIcon v-if="selectedConnectionId === conn.id" name="heroicons-check-circle-solid" class="w-4 h-4 text-blue-500" />
                 </label>
@@ -163,41 +191,15 @@
     </UModal>
 
     <!-- Edit connection modal -->
-    <UModal v-model="showEditModal" :ui="{ width: 'sm:max-w-xl' }">
-        <UCard>
-            <template #header>
-                <div class="flex items-center justify-between">
-                    <div class="flex items-center gap-2">
-                        <DataSourceIcon v-if="editingConnection" :type="editingConnection.type" :connector-key="editingConnection.connector_key" class="h-5" />
-                        <h3 class="text-sm font-semibold">{{ $t('data.editConnection') }}</h3>
-                    </div>
-                    <UButton color="gray" variant="ghost" size="xs" icon="i-heroicons-x-mark" @click="showEditModal = false" />
-                </div>
-            </template>
-            <div v-if="loadingEditDetails" class="flex items-center justify-center py-8">
-                <Spinner class="w-5 h-5" />
-            </div>
-            <ConnectForm
-                v-else-if="showEditModal && editingConnection"
-                mode="edit"
-                :connection-id="editingConnection.id"
-                :initial-type="editingConnection.type"
-                :initial-values="getEditFormValues(editingConnection)"
-                :show-test-button="true"
-                :show-llm-toggle="false"
-                :allow-name-edit="true"
-                :force-show-system-credentials="true"
-                :show-require-user-auth-toggle="true"
-                :hide-header="true"
-                @success="handleEditSuccess"
-            />
-        </UCard>
-    </UModal>
+    <EditConnectionModal v-model="showEditModal" :connection="editingConnection" :initial-values="editingConnection ? getEditFormValues(editingConnection) : null" :loading="loadingEditDetails" :last-test="editingConnection ? testResults[editingConnection.id] : null" @success="refresh" @tested="refresh" @deleted="handleEditSuccess" />
+
 </template>
 
 <script setup lang="ts">
+import UserDataSourceCredentialsModal from '~/components/UserDataSourceCredentialsModal.vue'
+import { useConnectionSignIn } from '~/composables/useConnectionSignIn'
 import Spinner from '~/components/Spinner.vue'
-import ConnectForm from '~/components/datasources/ConnectForm.vue'
+import EditConnectionModal from '~/components/EditConnectionModal.vue'
 import ConnectionIndexingProgress from '~/components/ConnectionIndexingProgress.vue'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
@@ -205,8 +207,9 @@ import IntegrationConnectionForm from '~/components/IntegrationConnectionForm.vu
 import { useCan } from '~/composables/usePermissions'
 import {
     getEffectiveStatus as deriveStatus,
-    statusBadgeClass,
+    statusDotClass,
     statusLabelKey,
+    needsConnectionSignIn,
 } from '~/composables/useConnectionStatus'
 import type { Ref } from 'vue'
 
@@ -215,6 +218,7 @@ const props = defineProps<{
     // When used standalone (e.g. KnowledgeExplorer) the parent passes the
     // agent id + its connections directly. When omitted, we fall back to the
     // injected `integration` provided by the legacy agents layout.
+    agent?: any
     dsId?: string
     connections?: any[]
 }>()
@@ -238,6 +242,7 @@ const fetchIntegration = inject<() => Promise<void>>('fetchIntegration', async (
 // Prefer explicit props (standalone use); fall back to the injected integration.
 const dsId = computed(() => props.dsId ?? String(route.params.id || ''))
 const connections = computed(() => props.connections ?? (integration.value?.connections || []))
+const agentInfo = computed(() => props.agent ?? integration.value)
 const ready = computed(() => props.dsId != null || !!integration.value)
 
 // Linking/unlinking a connection to THIS agent is an agent-management action:
@@ -261,6 +266,32 @@ function canManageConnection(conn: any) {
 async function refresh() {
     await fetchIntegration()
     emit('changed')
+}
+
+const signIn = useConnectionSignIn()
+const signingInId = ref<string | null>(null)
+const showCredentials = ref(false)
+const credentialSource = ref<any>(null)
+async function signInConnection(conn: any) {
+    if (signingInId.value) return
+    signingInId.value = conn.id
+    let redirecting = false
+    try {
+        const result = await signIn.triggerUserSignIn(conn, { returnTo: route.fullPath })
+        redirecting = result.redirecting
+        if (redirecting) return
+        if (result.error) toast.add({ title: t('agentsPage.toastSignInFailed'), description: result.error, color: 'red' })
+        credentialSource.value = { id: dsId.value, type: conn.type, connection: conn, connections: [conn] }
+        showCredentials.value = true
+    } catch (error: any) {
+        toast.add({ title: t('agentsPage.toastSignInFailed'), description: error?.message || String(error), color: 'red' })
+    } finally {
+        if (!redirecting) signingInId.value = null
+    }
+}
+async function onCredentialsSaved() {
+    showCredentials.value = false
+    await refresh()
 }
 
 const testingConnectionId = ref<string | null>(null)
@@ -290,7 +321,17 @@ function getConnectionEffective(conn: any) {
     return deriveStatus(conn)
 }
 
-function getStatusClass(conn: any) { return statusBadgeClass(getConnectionEffective(conn) as any) }
+function connectionCounts(conn: any) {
+    // Embedded counts are viewer-scoped; do not substitute a shared discovery
+    // total for personal access, or call a files catalog "tables".
+    if (needsConnectionSignIn(conn)) return []
+    const values = [
+        { key: 'agentsPage.countTools', value: conn.tool_count },
+        { key: 'agentsPage.countFiles', value: conn.file_count ?? (conn.data_shape === 'files' ? conn.table_count : undefined) },
+        { key: 'agentsPage.countTables', value: conn.data_shape === 'files' ? undefined : conn.table_count },
+    ]
+    return values.filter(c => typeof c.value === 'number' && c.value > 0)
+}
 function getStatusLabel(conn: any) { return t(statusLabelKey(getConnectionEffective(conn) as any)) }
 
 function getEditFormValues(conn: any) {
@@ -299,11 +340,14 @@ function getEditFormValues(conn: any) {
     // decides whether the credentials section opens locked).
     const d = editingDetails.value
     return {
+        management_auth: d?.management_auth,
+        last_connection_status: d?.last_connection_status,
+        last_connection_checked_at: d?.last_connection_checked_at,
         name: d?.name ?? conn.name,
         config: d?.config ?? conn.config ?? {},
         auth_policy: d?.auth_policy ?? conn.auth_policy ?? 'system_only',
         has_credentials: d?.has_credentials ?? true,
-        credentials: {},
+        credentials: d?.credentials_meta ?? {},
     }
 }
 

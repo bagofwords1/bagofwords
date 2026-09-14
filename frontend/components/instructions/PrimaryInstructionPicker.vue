@@ -3,7 +3,7 @@
         <button
             type="button"
             @click.stop="toggle"
-            class="text-[10px] text-blue-600 hover:underline"
+            :class="quiet ? 'text-xs text-gray-500 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-100' : 'text-[10px] text-blue-600 hover:underline'"
         >
             {{ label }}
         </button>
@@ -11,7 +11,8 @@
         <!-- Dropdown panel -->
         <div
             v-if="open"
-            class="absolute z-30 mt-1 start-0 w-80 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden"
+            class="absolute z-30 mt-1 w-80 max-w-[calc(100vw-3rem)] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg shadow-lg overflow-hidden"
+            :class="align === 'end' ? 'end-0' : 'start-0'"
         >
             <!-- Search -->
             <div class="p-2 border-b border-gray-100 dark:border-gray-800">
@@ -75,6 +76,8 @@ const props = withDefaults(defineProps<{
     agentId: string
     currentInstructionId?: string | null
     label?: string
+    align?: 'start' | 'end'
+    quiet?: boolean
 }>(), {
     label: 'Replace',
     currentInstructionId: null,

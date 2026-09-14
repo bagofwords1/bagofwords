@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import asyncio
 import contextlib
@@ -405,6 +406,7 @@ class PBIXClient(DataSourceClient):
         logger.debug("pbix.schema.done", extra={"pbix_tables": len(tables)})
         return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback: ProgressCallback | None = None) -> list[Table]:
         return self.get_tables(progress_callback=progress_callback)
 

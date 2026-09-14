@@ -238,12 +238,33 @@ class PromptBuilderV3:
             )
 
         row_limit = planner_input.limit_row_count
-        row_limit_text = ""
+        org_constraints: List[str] = []
         if row_limit and row_limit > 0:
-            row_limit_text = (
-                f"ORG CONSTRAINTS\n"
-                f"- Query results are capped at {row_limit} rows by org policy. Org-set limits like this (row caps, data visibility, disabled tools) are intentional — work within them, not around them; mention a constraint only when it materially shapes the answer.\n\n"
+            org_constraints.append(
+                f"- Query results are capped at {row_limit} rows by org policy. Org-set limits like this (row caps, data visibility, disabled tools) are intentional — work within them, not around them; mention a constraint only when it materially shapes the answer."
             )
+        # Code visibility sits here, beside the other org-set limits, because
+        # this is the strongest placement available — but be clear about what it
+        # buys. Measured against a live run on Claude 4.5 Haiku (ground truth
+        # via BOW_PLANNER_DUMP_FILE: the constraint IS in the system prompt the
+        # model received), the model still answered "the query I used was:
+        # SELECT COUNT(*)…" when the user asked for it outright. Three wordings
+        # and two placements behaved the same way.
+        #
+        # So this reduces the model VOLUNTEERING code; it does not stop a user
+        # who asks for it directly on a small model. It is a quality measure,
+        # not a control — the payload-level redaction in
+        # app/core/code_visibility.py is the control, and it is unaffected.
+        # See docs/feedback-loops/role-scoped-code-visibility.md.
+        if not getattr(planner_input, "can_view_code", True):
+            org_constraints.append(
+                "- This user does not see code. Answer in plain business"
+                " language, with no code, SQL or technical jargon."
+            )
+        row_limit_text = (
+            "ORG CONSTRAINTS\n" + "\n".join(org_constraints) + "\n\n"
+            if org_constraints else ""
+        )
 
         # Only inject URL-fetch routing rules when the org has web fetch on —
         # otherwise the planner sees instructions for a capability it can't use.

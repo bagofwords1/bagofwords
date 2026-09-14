@@ -48,11 +48,11 @@
             :ui="{ option: { base: 'text-xs py-1.5' } }"
           >
             <template #label>
-              <DataSourceIcon v-if="selectedAgentOption?.type || selectedAgentOption?.icon" :type="selectedAgentOption.type" :icon="selectedAgentOption.icon" class="h-3.5 w-auto flex-shrink-0" />
+              <DataSourceIcon v-if="selectedAgentOption?.type || selectedAgentOption?.icon || selectedAgentOption?.icon_token" :type="selectedAgentOption.type" :icon-token="selectedAgentOption.icon_token" :icon="selectedAgentOption.icon" class="h-3.5 w-auto flex-shrink-0" />
               <span class="text-xs truncate">{{ selectedAgentOption?.label || $t('prompts.allAgents') }}</span>
             </template>
             <template #option="{ option }">
-              <DataSourceIcon v-if="option.type || option.icon" :type="option.type" :icon="option.icon" class="h-3.5 w-auto flex-shrink-0" />
+              <DataSourceIcon v-if="option.type || option.icon || option.icon_token" :type="option.type" :icon-token="option.icon_token" :icon="option.icon" class="h-3.5 w-auto flex-shrink-0" />
               <span class="text-xs truncate">{{ option.label }}</span>
             </template>
           </USelectMenu>
@@ -181,13 +181,13 @@ const agentNames = computed<Record<string, string>>(() =>
   Object.fromEntries(agents.value.map(a => [a.id, a.name])),
 )
 // id → { name, type } for the card chips' DataSourceIcon.
-const agentMap = computed<Record<string, { name: string; type?: string; icon?: string | null }>>(() =>
-  Object.fromEntries(agents.value.map(a => [a.id, { name: a.name, type: a.type, icon: a.icon }])),
+const agentMap = computed<Record<string, { name: string; type?: string; icon?: string | null; icon_token?: string | null }>>(() =>
+  Object.fromEntries(agents.value.map(a => [a.id, { name: a.name, type: a.type, icon: a.icon, icon_token: a.icon_token }])),
 )
 
 const agentFilterOptions = computed(() => [
   { value: '', label: t('prompts.allAgents'), type: undefined as string | undefined, icon: null as string | null },
-  ...agents.value.map(a => ({ value: a.id, label: a.name, type: a.type, icon: a.icon })),
+  ...agents.value.map(a => ({ value: a.id, label: a.name, type: a.type, icon: a.icon, icon_token: a.icon_token })),
 ])
 const selectedAgentOption = computed(() => agentFilterOptions.value.find(o => o.value === agentFilter.value))
 
@@ -213,8 +213,9 @@ async function loadAgents() {
     agents.value = (data.value || []).map((d: any) => ({
       id: d.id,
       name: d.name,
-      type: d.type || d.connections?.[0]?.type,
+      type: d.type,
       icon: d.icon,
+      icon_token: d.icon_token,
     }))
   } catch {}
 }

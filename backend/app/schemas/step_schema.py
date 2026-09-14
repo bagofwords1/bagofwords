@@ -9,7 +9,10 @@ class StepBase(BaseModel):
     status: str
     status_reason: Optional[str] = None
     prompt: str
-    code: str
+    # Optional so code visibility can redact it to None. Redaction never uses
+    # "" — an empty string is indistinguishable from a step that genuinely has
+    # no code, which would make "withheld" untestable.
+    code: Optional[str] = None
     description: Optional[str] = ""
     
 
@@ -53,6 +56,18 @@ class StepSchema(StepBase):
         from app.ai.llm.pii.display import redact_grid_display
         return redact_grid_display(data)
 
+    @field_serializer("code")
+    def _redact_code_for_display(self, code, _info):
+        """Withhold generated code from callers without ``view_code``.
+
+        Serializer-level (not call-site-level) on purpose: steps are serialized
+        from completions, queries, widgets and reports, and a check at each of
+        those is a check that can be forgotten. Internal ``.code`` access —
+        execution, exports, the agent itself — is untouched.
+        """
+        from app.core.code_visibility import code_visible_now
+        return code if code_visible_now() else None
+
 class StepCreate(StepBase):
     widget_id: str
     data: dict = Field(default_factory=dict)
@@ -79,7 +94,7 @@ class PublicStepSchema(BaseModel):
     id: str
     title: str
     type: str
-    code: str
+    code: Optional[str] = None
     data_model: dict = Field(default_factory=dict)
     data: dict = Field(default_factory=dict)
     view: Optional[dict] = Field(default_factory=dict)
@@ -100,4 +115,12 @@ class PublicStepSchema(BaseModel):
     @classmethod
     def _none_to_dict(cls, v):
         return v if v is not None else {}
+
+    @field_serializer("code")
+    def _redact_code_for_display(self, code, _info):
+        """Same gate as StepSchema. Anonymous viewers of a published report hold
+        no role, so the public report path sets the decision explicitly rather
+        than inheriting the deny default (see report_service)."""
+        from app.core.code_visibility import code_visible_now
+        return code if code_visible_now() else None
 

@@ -1,4 +1,5 @@
 from __future__ import annotations
+from app.data_sources.clients.progress import discovery_progress
 
 import glob
 import os
@@ -211,6 +212,7 @@ class CSVClient(DataSourceClient):
         logger.debug("csv.schema.done", extra={"csv_tables": len(tables)})
         return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback: Optional[ProgressCallback] = None) -> List[Table]:
         return self.get_tables(progress_callback=progress_callback)
 

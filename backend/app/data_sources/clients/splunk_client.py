@@ -37,6 +37,7 @@ Auth is Splunk-native:
                  (Settings → Tokens; works on Splunk Cloud and 8.x+).
   - `userpass` → HTTP basic against the management port (older on-prem installs).
 """
+from app.data_sources.clients.progress import discovery_progress
 import json
 import logging
 import re
@@ -656,6 +657,7 @@ class SplunkClient(DataSourceClient):
             logger.warning(f"Splunk saved-search catalog failed: {e}")
         return tables
 
+    @discovery_progress
     def get_schemas(self, progress_callback=None) -> List[Table]:
         """Discover `index::sourcetype` tables (cheap) and sample fields for
         the top-K sourcetypes by volume (capped)."""

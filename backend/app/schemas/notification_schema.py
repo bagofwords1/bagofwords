@@ -42,6 +42,15 @@ class ChannelResult(BaseModel):
     status: str  # "sent" or "failed"
     recipients: List[str] = []
     error: Optional[str] = None
+    # Which transport actually carried the mail: "org_smtp" | "global" |
+    # "ai_mailbox" | "none". Recorded so a send that silently went out via the
+    # global bow-config SMTP instead of the org's configured relay is visible
+    # in logs and API responses rather than indistinguishable from success.
+    source: Optional[str] = None
+    # Which step of the SMTP conversation failed: "config" | "connect" | "tls" |
+    # "auth" | "sender" | "recipient" | "send". Lets the UI say what to fix
+    # instead of calling every failure a rejection.
+    stage: Optional[str] = None
 
 
 class NotifyResponse(BaseModel):

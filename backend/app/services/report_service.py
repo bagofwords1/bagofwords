@@ -2231,6 +2231,28 @@ class ReportService:
             raise HTTPException(status_code=404, detail="Not found")
 
         from app.schemas.step_schema import PublicStepSchema
+        # Code visibility on the published-report path.
+        #
+        # This route is undecorated and takes an OPTIONAL user, so it never goes
+        # through requires_permission and would otherwise inherit the deny
+        # default — silently stopping published reports from showing code.
+        #
+        # But defaulting it to permissive outright is a bypass: a signed-in
+        # member whose role withholds `view_code` could just open the shared
+        # link and read the SQL there. So the decision splits on identity —
+        # anonymous readers hold no role and keep the pre-existing behavior;
+        # a signed-in reader is held to the role they actually have.
+        from app.core.code_visibility import can_view_code, set_code_visibility
+        from app.core.permission_resolver import resolve_permissions
+
+        if user is not None and getattr(report, "organization_id", None):
+            resolved = await resolve_permissions(
+                db, str(user.id), str(report.organization_id)
+            )
+            set_code_visibility(can_view_code(resolved))
+        else:
+            set_code_visibility(True)
+
         # Convert view to dict if it's not already
         view_dict = step.view if isinstance(step.view, dict) else (step.view.dict() if step.view else {})
 
@@ -3532,6 +3554,13 @@ class ReportService:
         
         
         # Build per-completion block lists (sanitized)
+        # Agents referenced by these tool executions, resolved once. The data
+        # tools render their source icon from this; a shared conversation used to
+        # ship no agents at all, so the same tool card that showed a snowflake
+        # icon to the report's owner showed a generic one to everyone else.
+        from app.serializers.completion_v2 import resolve_data_sources_for_tool_executions
+        ds_by_te = await resolve_data_sources_for_tool_executions(db, list(te_map.values()))
+
         completion_id_to_blocks: dict = {cid: [] for cid in completion_ids}
         for b in blocks:
             pd = pd_map.get(b.plan_decision_id) if b.plan_decision_id else None
@@ -3584,6 +3613,12 @@ class ReportService:
                     "arguments_json": te.arguments_json,
                     "result_json": result_json,
                     "duration_ms": te.duration_ms,
+                    # Id + resolved icon only: enough for the tool card's source
+                    # icon, without naming the org's agents to a public viewer.
+                    "data_sources": [
+                        {"id": ds.id, "icon_token": ds.icon_token}
+                        for ds in ds_by_te.get(str(te.id), [])
+                    ] or None,
                 })
             
             completion_id_to_blocks[b.completion_id].append(block_data)
@@ -3692,16 +3727,33 @@ class ReportService:
             from app.models.domain_connection import domain_connection
             from app.schemas.completion_v2_schema import ToolExecutionDataSourceSchema
 
+            from app.schemas.agent_icon import resolve_agent_icon_token
+
+            # Every connection, in the relationship's order — a multi-connection
+            # agent's icon depends on all of them, not on whichever join row
+            # came back first (see app.schemas.agent_icon).
             ds_rows = await db.execute(
-                select(DS.id, DS.name, Connection.type)
+                select(DS.id, DS.name, DS.icon, Connection.type, Connection.config)
                 .join(domain_connection, domain_connection.c.data_source_id == DS.id)
                 .join(Connection, Connection.id == domain_connection.c.connection_id)
                 .where(DS.id.in_(list(set(all_ds_ids))))
+                .order_by(Connection.created_at, Connection.id)
             )
+            ds_conns: dict[str, list[dict]] = {}
+            ds_names: dict[str, object] = {}
+            ds_icons: dict[str, object] = {}
             for r in ds_rows:
                 ds_id = str(r[0])
-                if ds_id not in ds_schema_map:
-                    ds_schema_map[ds_id] = ToolExecutionDataSourceSchema(id=ds_id, name=r[1], type=r[2])
+                ds_names.setdefault(ds_id, r[1])
+                ds_icons.setdefault(ds_id, r[2])
+                ds_conns.setdefault(ds_id, []).append({"type": r[3], "config": r[4]})
+            for ds_id, conns in ds_conns.items():
+                ds_schema_map[ds_id] = ToolExecutionDataSourceSchema(
+                    id=ds_id,
+                    name=ds_names[ds_id],
+                    type=conns[0]["type"] if conns else None,
+                    icon_token=resolve_agent_icon_token(ds_icons[ds_id], conns),
+                )
 
         # 4) Build query schemas
         queries: list[SummaryToolExecutionSchema] = []

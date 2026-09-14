@@ -47,6 +47,7 @@ class LLMProviderCreate(LLMProviderBase):
             'azure': AzureCredentials,
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
+            'vertex': VertexCredentials,
         }
         
         schema = credential_schemas.get(values['provider_type'])
@@ -74,6 +75,7 @@ class LLMProviderTestConnection(LLMProviderBase):
             'azure': AzureCredentials,
             'custom': CustomCredentials,
             'bedrock': BedrockCredentials,
+            'vertex': VertexCredentials,
         }
 
         schema = credential_schemas.get(values['provider_type'])
@@ -220,6 +222,46 @@ class BedrockCredentials(ProviderHeadersMixin):
     aws_secret_access_key: Optional[str] = Field(None, description="AWS secret access key (only for access_keys auth mode)")
 
 class BedrockConfig(BaseModel):
+    max_tokens: Optional[int] = 4096
+    temperature: Optional[float] = 0.7
+
+class VertexCredentials(ProviderHeadersMixin):
+    """Credentials for Google Cloud Vertex AI.
+
+    One provider serves all three Vertex model families — Claude (Anthropic
+    Messages API), Gemini (google-genai) and the third-party MaaS catalog
+    (Grok, GLM, Llama… over the OpenAI-compatible surface). Which transport a
+    model uses is derived from its model_id, not configured here (see
+    app.ai.llm.llm).
+    """
+    project_id: str = Field(..., title="Project ID", description="Google Cloud project ID (e.g. my-project-123456)")
+    # Vertex calls this a 'location'. 'global' is the default because the newer
+    # publisher models (Gemini 3.x, and every third-party MaaS model) are
+    # served there and nowhere else.
+    location: str = Field("global", description="Vertex location, e.g. global, us-east5, europe-west1")
+    # Authentication mode. 'adc' (default) uses Application Default Credentials
+    # from the environment — GKE Workload Identity, GCE metadata, a mounted
+    # GOOGLE_APPLICATION_CREDENTIALS key. 'service_account' authenticates with
+    # an explicit service-account key JSON, which is stored encrypted.
+    auth_mode: str = Field("adc", description="Authentication mode: 'adc' or 'service_account'")
+    service_account_json: Optional[str] = Field(
+        None, description="Service account key JSON (only for service_account auth mode)"
+    )
+
+    @validator('auth_mode')
+    def validate_auth_mode(cls, v):
+        allowed = {'adc', 'service_account'}
+        if v not in allowed:
+            raise ValueError(f"auth_mode must be one of: {', '.join(sorted(allowed))}")
+        return v
+
+    @validator('service_account_json', always=True)
+    def validate_mode_fields(cls, v, values):
+        if values.get('auth_mode') == 'service_account' and not v:
+            raise ValueError("service_account_json is required for service_account auth mode")
+        return v
+
+class VertexConfig(BaseModel):
     max_tokens: Optional[int] = 4096
     temperature: Optional[float] = 0.7
 

@@ -69,6 +69,7 @@ export default defineNuxtConfig({
   ],
 
   css: [
+    '~/assets/css/instruction-prose.css',
     '~/assets/css/rtl.css',
     '~/assets/css/transitions.css',
     '~/assets/css/mobile.css',
@@ -138,7 +139,12 @@ export default defineNuxtConfig({
             secure: false,
             rewrite: (path) => path,
             headers: {
-                'Connection': 'keep-alive'
+                'Connection': 'keep-alive',
+                // changeOrigin rewrites Host to the upstream, so the backend
+                // would otherwise derive OAuth redirect_uri from 127.0.0.1:8000.
+                // NGINX sets these in production; mirror that in dev.
+                'X-Forwarded-Host': 'localhost:3000',
+                'X-Forwarded-Proto': 'http'
             }
         }
     }
@@ -223,6 +229,8 @@ export default defineNuxtConfig({
       exclude: [
         '@tiptap/extension-mention',
         '@tiptap/suggestion',
+        '@tiptap/extension-link',
+        '@tiptap/extension-image',
         '@tiptap/extension-table',
         '@tiptap/extension-table-row',
         '@tiptap/extension-table-cell',

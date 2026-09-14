@@ -1,3 +1,4 @@
+from app.data_sources.clients.progress import discovery_progress, discovery_items, IndexingCancelled
 from app.data_sources.clients.base import DataSourceClient
 
 import pandas as pd
@@ -178,6 +179,8 @@ class DruidClient(DataSourceClient):
             if conn is not None:
                 try:
                     conn.close()
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
 
@@ -235,14 +238,18 @@ class DruidClient(DataSourceClient):
                 result = cursor.fetchall()
                 try:
                     cursor.close()
+                except IndexingCancelled:
+                    raise
                 except Exception:
                     pass
+        except IndexingCancelled:
+            raise
         except Exception as e:
             print(f"Error retrieving tables: {e}")
             return []
 
         tables: Dict[tuple, Table] = {}
-        for row in result:
+        for row in discovery_items(result, 'columns', label=lambda row: '.'.join(str(v) for v in row[:3])):
             table_schema, table_name, column_name, data_type = row[0], row[1], row[2], row[3]
             key = (table_schema, table_name)
             fqn = f"{table_schema}.{table_name}"
@@ -260,7 +267,8 @@ class DruidClient(DataSourceClient):
     def get_schema(self, table: str) -> Table:
         raise NotImplementedError("get_schema() is obsolete. Use get_tables() instead.")
 
-    def get_schemas(self):
+    @discovery_progress
+    def get_schemas(self, progress_callback=None):
         return self.get_tables()
 
     def prompt_schema(self):

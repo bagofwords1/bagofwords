@@ -465,12 +465,16 @@ async def get_connection(
         allowed_user_auth_modes = connection.allowed_user_auth_modes
         has_credentials = bool(connection.credentials)
         # Expose only the NON-secret credential fields so the edit form can
-        # pre-fill them (OAuth endpoints/client_id/scopes). Secrets are excluded
+        # pre-fill identity fields and OAuth settings. Secrets are excluded
         # by allowlist — client_secret / token / api_key never leave the server.
         if connection.credentials:
             try:
                 _creds = connection.decrypt_credentials()
-                _NON_SECRET = ("authorize_url", "token_url", "client_id", "scopes", "audience", "api_key_header", "token_endpoint_auth_method")
+                _NON_SECRET = (
+                    "authorize_url", "token_url", "client_id", "scopes", "audience",
+                    "api_key_header", "token_endpoint_auth_method", "tenant_id",
+                    "user", "username", "oauth_tenant_id", "oauth_client_id",
+                )
                 _meta = {k: _creds[k] for k in _NON_SECRET if _creds.get(k) not in (None, "")}
                 credentials_meta = _meta or None
             except Exception:
@@ -484,6 +488,8 @@ async def get_connection(
     _catalog_tables, _catalog_custom_queries = await connection_service.count_catalog_rows(
         db, str(connection.id)
     )
+    from app.services.connection_identity import management_requires_user_auth
+    personal_management = management_requires_user_auth(connection)
     return ConnectionDetailSchema(
         id=str(connection.id),
         name=connection.name,
@@ -504,6 +510,9 @@ async def get_connection(
         agent_count=len(connection.data_sources) if connection.data_sources else 0,
         agent_names=[ds.name for ds in connection.data_sources] if connection.data_sources else [],
         has_credentials=has_credentials,
+        management_auth="user" if personal_management else "system",
+        last_connection_status=None if personal_management else connection.last_connection_status,
+        last_connection_checked_at=(connection.last_connection_checked_at.isoformat() if not personal_management and connection.last_connection_checked_at else None),
         credentials_meta=credentials_meta,
         auto_reindex_enabled=bool(connection.auto_reindex_enabled),
         reindex_interval_hours=connection.reindex_interval_hours,
@@ -643,12 +652,14 @@ async def test_connection(
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization)
 ):
-    """Test a connection, optionally with override credentials/config."""
+    """Test management credentials independently of the caller's query identity."""
+    from app.services.connection_identity import management_requires_user_auth
+    connection = await connection_service.get_connection(db, connection_id, organization)
     result = await connection_service.test_connection(
         db=db,
         connection_id=connection_id,
         organization=organization,
-        current_user=current_user,
+        current_user=current_user if management_requires_user_auth(connection, overrides.config if overrides else None) else None,
         config_overrides=overrides.config if overrides else None,
         credential_overrides=overrides.credentials if overrides else None,
     )
@@ -922,6 +933,7 @@ async def reindex_connection(
 @router.post("/{connection_id}/my-schema/refresh")
 async def refresh_my_connection_schema(
     connection_id: str,
+    background: bool = False,
     current_user: User = Depends(current_user),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
@@ -938,6 +950,11 @@ async def refresh_my_connection_schema(
     logger = logging.getLogger(__name__)
     connection = await connection_service.get_connection(db, connection_id, organization)
     await _ensure_can_read_connection(db, organization, current_user, connection)
+
+    if background:
+        row = await indexing_service.start(db=db, connection=connection, user_id=str(current_user.id))
+        progress = _indexing_to_progress(row)
+        return {"indexing": progress.model_dump() if progress else None}
 
     from app.services.data_source_service import DataSourceService
     from app.models.user_data_source_overlay import UserDataSourceTable
@@ -1044,6 +1061,30 @@ async def _ensure_can_read_connection(db, organization, current_user, connection
     if connection.data_sources and any(str(ds.id) in accessible_ds_ids for ds in connection.data_sources):
         return
     raise HTTPException(status_code=403, detail="Access denied to this connection")
+
+
+@router.get("/{connection_id}/accessible-agents")
+async def get_connection_accessible_agents(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Linked agents visible to this viewer, without exposing hidden agent names."""
+    from app.core.permission_resolver import get_accessible_data_source_ids
+
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    await _ensure_can_read_connection(db, organization, current_user, connection)
+    all_access, accessible_ids = await get_accessible_data_source_ids(
+        db, str(current_user.id), str(organization.id)
+    )
+    allowed = set(map(str, accessible_ids))
+    agents = [
+        {"id": str(agent.id), "name": agent.name, "icon": agent.icon}
+        for agent in (connection.data_sources or [])
+        if all_access or agent.is_public or str(agent.id) in allowed
+    ]
+    return sorted(agents, key=lambda agent: (agent["name"].casefold(), agent["id"]))
 
 
 @router.get("/{connection_id}/tables", response_model=List[ConnectionTableSchema])

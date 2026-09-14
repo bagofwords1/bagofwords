@@ -12,7 +12,7 @@
           :key="a.id"
           class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded border text-violet-700 border-violet-200 bg-violet-50 dark:text-violet-300 dark:border-violet-900 dark:bg-violet-900/20"
         >
-          <DataSourceIcon :type="a.type" :icon="a.icon" class="h-3 w-auto" />
+          <DataSourceIcon :type="a.type" :icon-token="a.icon_token" :icon="a.icon" class="h-3 w-auto" />
           {{ a.name }}
         </span>
       </div>

@@ -84,12 +84,28 @@ async def _user_with_overlay(db, ds, email, table_names):
     return user
 
 
+def _force_delegated(monkeypatch):
+    """Treat every connection on the agent as one this user runs delegated on.
+
+    The fixture seeds a `user_required` connection but no credentials, so the
+    real classifier resolves 'none'. Patch the SHARED classifier rather than a
+    builder-private method: it is the seam the builder actually consults (and
+    the one the tables selector consults too), so this test keeps testing the
+    production path instead of a stub that has drifted away from it.
+    """
+    from app.services.data_source_service import DataSourceService
+
+    async def _classify(self, db, data_source, current_user):
+        conns = getattr(data_source, "connections", None) or []
+        return [], [str(c.id) for c in conns], []
+
+    monkeypatch.setattr(DataSourceService, "classify_connection_access", _classify)
+
+
 async def _agent_tables(db, org, ds, user, monkeypatch, **build_kwargs):
     builder = SchemaContextBuilder(db, [ds], org, None, user=user)
 
-    async def _user_access(_ds):
-        return "user"
-    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    _force_delegated(monkeypatch)
     ctx = await builder.build(with_stats=False, **build_kwargs)
     return {getattr(t, "name", None)
             for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])}
@@ -113,9 +129,7 @@ async def test_activating_canonical_row_surfaces_overlay_table_with_user_columns
 
     builder = SchemaContextBuilder(db, [ds], org, None, user=user)
 
-    async def _user_access(_ds):
-        return "user"
-    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    _force_delegated(monkeypatch)
     ctx = await builder.build(with_stats=False)
     tables = {getattr(t, "name", None)
               for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])}
@@ -194,9 +208,7 @@ async def test_relationship_targets_restricted_to_activated_tables(db, monkeypat
 
     builder = SchemaContextBuilder(db, [ds], org, None, user=user)
 
-    async def _user_access(_ds):
-        return "user"
-    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    _force_delegated(monkeypatch)
     ctx = await builder.build(with_stats=False)
     a_tables = [t for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])
                 if getattr(t, "name", None) == "m/A"]
@@ -214,9 +226,7 @@ async def test_active_only_false_still_emits_inactive_overlay_table_flagged(db, 
 
     builder = SchemaContextBuilder(db, [ds], org, None, user=user)
 
-    async def _user_access(_ds):
-        return "user"
-    monkeypatch.setattr(builder, "_resolve_user_access", _user_access)
+    _force_delegated(monkeypatch)
     ctx = await builder.build(with_stats=False, active_only=False)
     rows = [t for dss in ctx.data_sources for t in (getattr(dss, "tables", []) or [])]
     assert [getattr(t, "name", None) for t in rows] == ["m/A"]

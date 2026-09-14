@@ -32,7 +32,7 @@
             class="inline-flex items-center gap-1 bg-blue-50 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 text-[11px] font-medium px-1.5 py-0.5 rounded"
             data-testid="entity-edit-agent-chip"
           >
-            <DataSourceIcon :type="ds.type" :icon="ds.icon" class="h-3" />
+            <DataSourceIcon :type="ds.type" :icon-token="ds.icon_token" :icon="ds.icon" class="h-3" />
             {{ ds.name }}
           </span>
         </template>

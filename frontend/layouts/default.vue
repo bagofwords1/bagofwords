@@ -46,9 +46,8 @@
     <button @click="router.push('/')" class="flex items-center gap-2 min-w-0">
       <img :src="workspaceIconUrl || '/assets/logo-128.png'" alt="Bag of words" class="max-h-6 max-w-[84px] object-contain" />
     </button>
-    <button @click="createNewReport" :disabled="creatingReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50" aria-label="New report">
-      <Spinner v-if="creatingReport" class="animate-spin w-5 h-5" />
-      <UIcon v-else name="heroicons-plus-circle" class="w-6 h-6" />
+    <button @click="createNewReport" class="flex items-center justify-center w-9 h-9 -me-1 rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70" aria-label="New report">
+      <UIcon name="heroicons-plus-circle" class="w-6 h-6" />
     </button>
   </div>
 
@@ -129,23 +128,20 @@
              <button
                name="create-report"
                @click="createNewReport"
-               :disabled="creatingReport"
                :class="[
-                 'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 disabled:opacity-50 disabled:cursor-not-allowed',
+                 'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70',
                  isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
-              <UTooltip v-if="isCollapsed" :text="creatingReport ? $t('common.loading') : $t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
+              <UTooltip v-if="isCollapsed" :text="$t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
                 <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
-                  <Spinner v-if="creatingReport" class="animate-spin" />
-                  <UIcon v-else name="heroicons-plus-circle" />
+                  <UIcon name="heroicons-plus-circle" />
                 </span>
               </UTooltip>
               <template v-else>
                 <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
-                  <Spinner v-if="creatingReport" class="animate-spin" />
-                  <UIcon v-else name="heroicons-plus-circle" />
+                  <UIcon name="heroicons-plus-circle" />
                 </span>
-                <span v-if="showText" class="font-medium">{{ creatingReport ? $t('common.loading') : $t('nav.newReport') }}</span>
+                <span v-if="showText" class="font-medium">{{ $t('nav.newReport') }}</span>
               </template>
             </button>
         </li>
@@ -302,6 +298,18 @@
         </div>
         <div v-show="reportsOpen" class="-me-1 pe-1" :class="isShortSidebar ? '' : 'flex-1 min-h-0 overflow-y-auto'">
           <ul class="font-normal text-[13px] !ps-0 space-y-0.5">
+            <!-- The draft being composed at /reports/new. There is no report
+                 yet, so this row is a placeholder that keeps the rail from
+                 looking like the user is nowhere; it disappears the moment the
+                 first prompt creates the real report and we navigate to it. -->
+            <li v-if="isDraftReportRoute" data-testid="draft-report-row" class="relative rounded-md">
+              <div class="flex items-center gap-2 px-2.5 py-1.5 pe-8 w-full rounded-md text-gray-900 dark:text-white bg-gray-200/70 dark:bg-gray-800 font-medium">
+                <span class="inline-flex items-center shrink-0">
+                  <span class="w-1.5 h-1.5 rounded-full border border-gray-400 dark:border-gray-500"></span>
+                </span>
+                <span class="flex-1 truncate italic text-gray-500 dark:text-gray-400">{{ $t('reports.newReport') }}</span>
+              </div>
+            </li>
             <!-- Draggable onto a project row above. The row keeps its place in
                  this list after the move — a project is a label on the report,
                  not a folder it disappears into — and gains the accent strip. -->
@@ -771,12 +779,12 @@
     return items
   })
   
-  // Agent management - use selectedAgentObjects for new report creation
-  const { initAgent, initAgentPreference, selectedAgentObjects, agents, hasAgents } = useAgent()
+  // Agent management
+  const { initAgent, initAgentPreference, agents, hasAgents } = useAgent()
 
   // Projects (shared folders) shown above the recent reports list.
   const { projects, fetchProjects, createProject, updateProject, deleteProject, moveReport } = useProjects()
-  const { activeProjectId, newReportPayload } = useNewReportProjectContext()
+  const { activeProjectId } = useNewReportProjectContext()
   const { fetchActivity, sortByActivity, openStream } = useReportActivity()
 
 
@@ -879,12 +887,13 @@
   const { isCollapsed: rawCollapsed, showText: rawShowText, toggle: toggleSidebar, mobileOpen, openMobile, closeMobile } = useSidebar()
   const isCollapsed = computed(() => mobileOpen.value ? false : rawCollapsed.value)
   const showText = computed(() => mobileOpen.value ? true : rawShowText.value)
-  const creatingReport = ref(false)
 
   // Mobile chrome. The report-detail page is full-height (h-dvh) and ships its
   // own ReportHeader, so we suppress the global mobile bar there to avoid a
   // double header and the extra top padding that would make it overflow.
   const isReportDetail = computed(() => /^\/reports\/[^/]+$/.test(route.path))
+  // The draft page shares the report layout but has no report behind it.
+  const isDraftReportRoute = computed(() => route.path === '/reports/new')
   const showMobileBar = computed(() => !isReportDetail.value)
   // Top padding for the content wrapper. Desktop only needs to clear the
   // banner; mobile also needs to clear the 48px mobile bar when it is shown.
@@ -1457,41 +1466,16 @@
     })
   }
 
-const createNewReport = async () => {
-  if (creatingReport.value) return
-  creatingReport.value = true
-  
-  try {
-    // Inside a project, hand the choice of agents to the project's defaults
-    // (see useNewReportProjectContext). Outside one, use the agents pinned in
-    // AgentSelector — empty when the selection is Auto, which is exactly how
-    // the backend encodes Auto (it resolves the scope per run instead of
-    // freezing today's roster onto the report).
-    const dataSourceIds = activeProjectId.value
-      ? []
-      : selectedAgentObjects.value.map((a: any) => a.id)
-
-    const response = await useMyFetch('/reports', {
-        method: 'POST',
-        body: JSON.stringify({
-          title: 'untitled report',
-          files: [],
-          ...newReportPayload(dataSourceIds),
-        })
-    });
-
-    if ((response as any).error?.value) {
-        throw new Error('Report creation failed');
-    }
-
-    const data = ((response as any).data?.value) as any;
-    fetchRecentReports()
-    await router.push({
-        path: `/reports/${data.id}`
-    })
-  } finally {
-    creatingReport.value = false
-  }
+// "New report" opens a draft page — no row is written until the user actually
+// sends a prompt, at which point PromptBoxV2 creates the report and navigates
+// to it. Inside a project the folder rides along in the query string, since a
+// draft has no report to carry a project_id on (see useNewReportProjectContext,
+// which reads both). Agents are resolved by the draft page the same way this
+// used to build its payload: the project's defaults inside one, the pinned
+// AgentSelector scope outside.
+const createNewReport = () => {
+  const query = activeProjectId.value ? { project: activeProjectId.value } : undefined
+  return router.push({ path: '/reports/new', query })
 }
 
   async function signOff() {
