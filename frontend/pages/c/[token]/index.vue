@@ -135,6 +135,10 @@
                                                     @toggle="toggleGroup(groupHeaderFor(m, block).id)"
                                                 />
                                             </Transition>
+                                            <!-- Keep prose visible when only this verification step is collapsed. -->
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto">
+                                                <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="true" :typewriter="false" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                            </div>
                                             <div v-show="!isBlockFolded(m, block)">
                                             <!-- 1. Thinking box (reasoning) -->
                                             <div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
@@ -269,6 +273,7 @@ import CreateDataTool from '~/components/tools/CreateDataTool.vue'
 import DescribeTablesTool from '~/components/tools/DescribeTablesTool.vue'
 import DescribeEntityTool from '~/components/tools/DescribeEntityTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
+import RunQueryTool from '~/components/tools/RunQueryTool.vue'
 import ReadResourcesTool from '~/components/tools/ReadResourcesTool.vue'
 import InspectDataTool from '~/components/tools/InspectDataTool.vue'
 import ExecuteCodeTool from '~/components/tools/ExecuteCodeTool.vue'
@@ -440,10 +445,10 @@ function _groupingFor(m: any) {
     // sitting between two chip-class steps would otherwise break a run that
     // reads as continuous on screen.
     const blocks = timelineBlocks(m)
-    const key = `${blocks.length}`
+    const key = `${m.status}:${blocks.map(b => `${b.id}:${b.status}:${b.tool_execution?.status}`).join(",")}`
     const hit = _groupingCache.get(String(m.id))
     if (hit && hit.key === key) return hit.grouping
-    const grouping = computeBlockGroups(blocks)
+    const grouping = computeBlockGroups(blocks, { executionStatus: m.status })
     _groupingCache.set(String(m.id), { key, grouping })
     return grouping
 }
@@ -564,6 +569,8 @@ function getToolComponent(toolName: string) {
             return DescribeEntityTool
         case 'read_query':
             return ReadQueryTool
+        case 'run_query':
+            return RunQueryTool
         case 'read_resources':
             return ReadResourcesTool
         case 'inspect_data':

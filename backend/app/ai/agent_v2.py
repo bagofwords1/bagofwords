@@ -421,6 +421,7 @@ ARTIFACT_CHAT_TOOL_ALLOWLIST = {
     "create_data",       # run a fresh query inside the viewer's own thread
     "inspect_data",
     "read_query",
+    "run_query",         # re-run a shared query with the viewer's own values
     "read_artifact",
     "list_files",
     "read_file",
@@ -803,6 +804,11 @@ class AgentV2:
         except Exception:
             pass
 
+        # Build browser candidates respecting registry mode/platform constraints.
+        # Live eligibility is resolved before each planner step below.
+        if getattr(self.report, 'report_type', 'regular') != 'artifact_chat':
+            available_capabilities.add("artifact_preview")
+
         # Start with all available tools for the planner to see, filtered by mode and platform
         all_catalog_dicts = self.registry.get_catalog_for_plan_type(
             "action", self.organization, mode=self.mode, platform=self.platform,
@@ -846,7 +852,10 @@ class AgentV2:
                 unique_catalog.append(tool)
                 seen_tools.add(tool['name'])
 
-        tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
+        self._browser_catalog_candidates = [ToolDescriptor(**tool) for tool in unique_catalog
+                                            if tool["name"].startswith("browser_")]
+        tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog
+                        if not tool["name"].startswith("browser_")]
         # BOW_PLANNER selects the planner implementation. Default v3 (native
         # tool_use). Set BOW_PLANNER=v2 to fall back to the legacy JSON
         # envelope planner. Other values fall back to v3 with a warning.
@@ -2076,6 +2085,7 @@ class AgentV2:
 
                     runtime_ctx = {
                         "db": self.db,
+                        "session_maker": self._session_maker,
                         "organization": self.organization,
                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                         "settings": self.organization_settings,
@@ -4318,6 +4328,8 @@ class AgentV2:
             # keeps the turn both honest and bounded.
             from app.ai.agents.planner.artifact_refinement import ArtifactRefinementBudget
             artifact_refinement_budget = ArtifactRefinementBudget()
+            verification_state = {"active": False, "artifact_id": None, "calls": 0, "repairs": 0,
+                                  "group_id": f"verification:{self.current_execution.id}"}
             total_artifact_calls = 0
             max_total_artifact_calls = 4
             artifact_refusals = {"n": 0}
@@ -4499,6 +4511,7 @@ class AgentV2:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
+                        await self._refresh_browser_tool_catalog()
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -5510,6 +5523,25 @@ class AgentV2:
                                 # the gateway path, so native registration changes how
                                 # the model SEES the tool, not how we execute it.
                                 tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
+                                # Server-owned grouping metadata never comes from model arguments.
+                                tool_input = dict(tool_input or {})
+                                tool_input.pop("_verification_group_id", None)
+                                from app.ai.tools.implementations._browser_common import session_manager
+                                _browser_session = session_manager.get(tool_input.get("session_id"), {
+                                    "organization": self.organization, "user": getattr(self.head_completion, "user", None),
+                                    "report": self.report, "agent_execution_id": str(self.current_execution.id),
+                                }) if tool_input.get("session_id") else None
+                                _verifying = (tool_name == "browser_navigate" and bool(tool_input.get("artifact_id"))) or (
+                                    tool_name.startswith("browser_") and _browser_session is not None and _browser_session.preview is not None)
+                                _repairing = (verification_state["active"] and tool_name in {"edit_artifact", "read_artifact"}
+                                              and tool_input.get("artifact_id") == verification_state["artifact_id"])
+                                if _verifying:
+                                    verification_state["active"] = True
+                                    verification_state["artifact_id"] = tool_input.get("artifact_id") or _browser_session.preview.artifact["id"]
+                                elif not _repairing:
+                                    verification_state["active"] = False
+                                if _verifying or _repairing:
+                                    tool_input["_verification_group_id"] = verification_state["group_id"]
                                 if tool_execution is not None:
                                     # Keep the durable row aligned with the actual
                                     # gateway call while retaining the provider's
@@ -5637,6 +5669,15 @@ class AgentV2:
                                         )
                                     return await _refuse_before_dispatch(_refusal_obs)
 
+                                if _verifying:
+                                    verification_state["calls"] += 1
+                                    if verification_state["calls"] > 12:
+                                        return await _refuse_before_dispatch({"summary": "Interactive verification call budget reached. Report the checks completed and unresolved scope.", "success": False})
+                                if _repairing and tool_name == "edit_artifact":
+                                    verification_state["repairs"] += 1
+                                    if verification_state["repairs"] > 2:
+                                        return await _refuse_before_dispatch({"summary": "Verification repair budget reached. Report the unresolved behavior.", "success": False})
+
                                 async with self._tool_db_lock:
                                     # Start tool execution tracking
                                     if tool_execution is None:
@@ -5716,6 +5757,7 @@ class AgentV2:
                                     # RUN TOOL with enhanced context tracking
                                     runtime_ctx = {
                                         "db": self.db,
+                                        "session_maker": self._session_maker,
                                         "organization": self.organization,
                                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                                         "settings": self.organization_settings,
@@ -5755,6 +5797,7 @@ class AgentV2:
                                         "platform_context": self.platform_context,
                                         "tool_call_id": str(tool_execution.id) if tool_execution else None,
                                         "usage_limit_context": self.usage_limit_context,
+                                        "verification_group_id": tool_input.get("_verification_group_id"),
                                         "planner_phase": "main",
                                         "planner_round_index": loop_index,
                                         "pending_officejs_registry": pending_officejs_registry,
@@ -5820,6 +5863,11 @@ class AgentV2:
                                         observation = tool_result
                                         tool_output = None
                                         tool_sub_timings = None
+
+                                    if tool_input.get("_verification_group_id"):
+                                        for payload in (tool_output, observation):
+                                            if isinstance(payload, dict):
+                                                payload["verification_group_id"] = tool_input["_verification_group_id"]
 
                                     # Handle tool outputs and manage widget/step state
                                     await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
@@ -6809,6 +6857,12 @@ class AgentV2:
                 pass
             raise
         finally:
+            try:
+                from app.ai.tools.implementations._browser_common import session_manager
+                if self.current_execution:
+                    await session_manager.close_execution(self.current_execution.id)
+            except Exception:
+                logger.debug("Browser execution cleanup failed", exc_info=True)
             # Drop the ambient LLM usage attribution set at run start.
             reset_usage_attribution(_attribution_token)
             if _identity_token is not None:
@@ -7357,6 +7411,16 @@ class AgentV2:
         except Exception as e:
             logger.warning("[agent] native MCP tool registration skipped: %s", e)
             self._native_mcp_routing = {}
+
+    async def _refresh_browser_tool_catalog(self):
+        from app.ai.tools.artifact_verification import refresh_browser_tool_catalog
+
+        ctx = {"session_maker": self._session_maker, "organization": self.organization,
+               "report": self.report,
+               "user": getattr(self.head_completion, "user", None) if self.head_completion else None,
+               "agent_execution_id": str(self.current_execution.id) if self.current_execution else None}
+        self.planner.tool_catalog = await refresh_browser_tool_catalog(
+            self.planner.tool_catalog, self._browser_catalog_candidates, ctx)
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

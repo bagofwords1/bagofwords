@@ -1611,6 +1611,19 @@ class MessageContextBuilder:
                                         digest_parts.append(digest)
                                     if digest_parts:
                                         tool_info += " - " + "; ".join(digest_parts)
+                                # run_query: the query plus the shape/values digest,
+                                # so a later turn knows a slice for these values
+                                # already exists instead of re-running it.
+                                elif tool_execution.tool_name == 'run_query' and tool_execution.result_json:
+                                    rj = tool_execution.result_json or {}
+                                    digest_parts = []
+                                    if rj.get('title'):
+                                        digest_parts.append(f"ran query: {rj.get('title')}")
+                                    digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                    if digest:
+                                        digest_parts.append(digest)
+                                    if digest_parts:
+                                        tool_info += " - " + "; ".join(digest_parts)
                                 elif tool_execution.tool_name == 'read_query' and tool_execution.result_json:
                                     digest = _digest_read_query(tool_execution)
                                     if digest:
@@ -2343,6 +2356,17 @@ class MessageContextBuilder:
                                 digest_parts = []
                                 if rj.get('title'):
                                     digest_parts.append(f"entity: {rj.get('title')}")
+                                digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
+                                if digest:
+                                    digest_parts.append(digest)
+                                if digest_parts:
+                                    tool_info += " - " + "; ".join(digest_parts)
+                            elif tool_execution.status == 'success' and tool_execution.tool_name == 'run_query' and tool_execution.result_json:
+                                # run_query: the query plus the shape/values digest.
+                                rj = tool_execution.result_json or {}
+                                digest_parts = []
+                                if rj.get('title'):
+                                    digest_parts.append(f"ran query: {rj.get('title')}")
                                 digest = _digest_data_result(rj, allow_llm_see_data, applied_params=rj.get('applied_params') or None)
                                 if digest:
                                     digest_parts.append(digest)

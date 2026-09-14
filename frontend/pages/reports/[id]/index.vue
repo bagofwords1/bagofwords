@@ -341,7 +341,11 @@
 													@toggle="toggleGroup(groupHeaderFor(m, block).id)"
 												/>
 											</Transition>
-											<div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
+											<!-- Keep prose visible when only this verification step is collapsed. -->
+                                            <div v-if="isBlockFolded(m, block) && (block.tool_execution?.arguments_json?._verification_group_id || block.tool_execution?.result_json?.verification_group_id || block.tool_execution?.arguments_json?.artifact_id) && (block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant)" class="block-content markdown-wrapper" dir="auto">
+                                                <MarkdownRender :content="block.content || block.plan_decision?.final_answer || block.plan_decision?.assistant || ''" :final="isBlockFinalized(block)" :typewriter="!isBlockFinalized(block)" :render-code-blocks-as-pre="true" class="markdown-content" />
+                                            </div>
+                                            <div v-show="!isBlockFolded(m, block) && !isEditRunFolded(m, block)">
 											<!-- 1. Thinking box (reasoning only) -->
 											<div v-if="block.plan_decision?.reasoning || block.reasoning || block.status === 'stopped'" class="thinking-box">
 												<div class="thinking-header" @click="toggleReasoning(block.id)">
@@ -1006,6 +1010,7 @@ import CreateDashboardTool from '~/components/tools/CreateDashboardTool.vue'
 import CreateArtifactTool from '~/components/tools/CreateArtifactTool.vue'
 import ReadArtifactTool from '~/components/tools/ReadArtifactTool.vue'
 import ReadQueryTool from '~/components/tools/ReadQueryTool.vue'
+import RunQueryTool from '~/components/tools/RunQueryTool.vue'
 import SearchReportsTool from '~/components/tools/SearchReportsTool.vue'
 import ReadReportTool from '~/components/tools/ReadReportTool.vue'
 import EditArtifactTool from '~/components/tools/EditArtifactTool.vue'
@@ -1399,6 +1404,7 @@ const blockGroupings = computed(() => {
 		if (m.role !== 'system' || !(m.completion_blocks || []).length) continue
 		const blocks = visibleBlocks(m)
 		out.set(String(m.id), computeBlockGroups(blocks, {
+			executionStatus: m.status,
 			breakBefore: (b: any) => steersBeforeBlock(m, blocks.indexOf(b)).length > 0,
 		}))
 	}
@@ -2551,6 +2557,8 @@ function getToolComponent(toolName: string) {
 			return ReadArtifactTool
 		case 'read_query':
 			return ReadQueryTool
+		case 'run_query':
+			return RunQueryTool
 		case 'search_reports':
 			return SearchReportsTool
 		case 'read_report':

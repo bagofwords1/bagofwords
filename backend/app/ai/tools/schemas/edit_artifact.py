@@ -51,6 +51,7 @@ class EditArtifactOutput(BaseModel):
     """Output from edit_artifact."""
 
     success: bool = Field(...)
+    verification_hint: Optional[dict[str, Any]] = Field(default=None, description="Advisory interaction check: recommendation, focus, exact artifact version, and availability.")
     artifact_id: str = Field(...)
     version: Optional[int] = Field(default=None)
     applied_ops: Optional[int] = Field(default=None)

@@ -979,6 +979,16 @@
       "retrying": "Nouvelle tentative · tentative {n}",
       "visualizing": "Visualisation"
     },
+    "runQuery": {
+      "running": "Exécution de « {title} »…",
+      "runningWith": "Exécution de « {title} » avec {params}…",
+      "ran": "« {title} » exécutée",
+      "ranWith": "« {title} » exécutée avec {params}",
+      "failed": "Échec de l’exécution de « {title} »",
+      "needsInput": "« {title} » nécessite des valeurs de paramètres",
+      "needsValues": "En attente de valeurs pour :",
+      "cachedHint": "Servi depuis votre résultat en cache pour ces valeurs ; la source n’a pas été réinterrogée"
+    },
     "createArtifact": {
       "creating": "Création de l'artefact",
       "created": "Artefact créé",
@@ -1515,7 +1525,26 @@
       "snapshot": "Structure de la page",
       "snapshotted": "Page lue",
       "snapshotting": "Lecture de la page",
-      "working": "Navigation"
+      "working": "Navigation",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "Le filtre de dates n’a renvoyé aucune ligne. Son bon fonctionnement reste à vérifier.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "Lecture de {name}…",
@@ -2348,6 +2377,10 @@
         "allow_llm_see_data": {
           "name": "Autoriser le LLM à voir les données",
           "description": "Permet au LLM de voir les données dans le cadre de l'analyse et des requêtes des utilisateurs"
+        },
+        "enable_artifact_verification": {
+          "name": "Vérifier les applications de données",
+          "description": "Autoriser l’agent à vérifier les pages interactives avec les outils de navigation. Nécessite l’accès du LLM aux données."
         },
         "enable_training_mode": {
           "name": "Mode entraînement",

@@ -979,6 +979,16 @@
       "retrying": "Erneuter Versuch · Versuch {n}",
       "visualizing": "Wird visualisiert"
     },
+    "runQuery": {
+      "running": "„{title}“ wird ausgeführt…",
+      "runningWith": "„{title}“ wird mit {params} ausgeführt…",
+      "ran": "„{title}“ ausgeführt",
+      "ranWith": "„{title}“ mit {params} ausgeführt",
+      "failed": "„{title}“ konnte nicht ausgeführt werden",
+      "needsInput": "„{title}“ benötigt Parameterwerte",
+      "needsValues": "Warten auf Werte für:",
+      "cachedHint": "Aus Ihrem zwischengespeicherten Ergebnis für diese Werte geliefert – die Quelle wurde nicht erneut abgefragt"
+    },
     "createArtifact": {
       "creating": "Artefakt wird erstellt",
       "created": "Artefakt erstellt",
@@ -1515,7 +1525,26 @@
       "snapshot": "Seitenstruktur",
       "snapshotted": "Seite gelesen",
       "snapshotting": "Seite wird gelesen",
-      "working": "Browsen"
+      "working": "Browsen",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "Der Datumsfilter hat keine Zeilen zurückgegeben. Seine korrekte Funktion ist noch nicht bestätigt.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "{name} wird gelesen…",
@@ -2348,6 +2377,10 @@
         "allow_llm_see_data": {
           "name": "LLM darf Daten sehen",
           "description": "Erlaubt dem LLM, Daten im Rahmen der Analyse und der Nutzeranfragen zu sehen"
+        },
+        "enable_artifact_verification": {
+          "name": "Daten-Apps überprüfen",
+          "description": "Der Agent kann interaktive Seiten mit Browserwerkzeugen prüfen. Erfordert, dass das LLM Daten sehen darf."
         },
         "enable_training_mode": {
           "name": "Trainingsmodus",

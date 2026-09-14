@@ -1,0 +1,104 @@
+.......................................................................F [ 37%]
+F....................................................s.................. [ 74%]
+.................................................                        [100%]
+=================================== FAILURES ===================================
+___________ test_read_query_loads_only_requested_query_graph[query] ____________
+
+artifact_context = (<sqlalchemy.ext.asyncio.session.AsyncSession object at 0x16b8ce210>, {'dashboard': '2802a824-6058-49d6-b92f-b89578500...bc5e77', 'organization': '2ff2566f-261c-497b-ae6e-bb811592d769', 'query': 'b35fbea0-1967-4da4-a706-c04336604094', ...})
+lookup_kind = 'query'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("lookup_kind", ["query", "visualization"])
+    async def test_read_query_loads_only_requested_query_graph(artifact_context, lookup_kind):
+        db, ids = artifact_context
+
+        async def _read():
+            events = []
+            tool_input = (
+                {"query_ids": [ids["query"]]} if lookup_kind == "query" else {"visualization_ids": [ids["visualization"]]}
+            )
+            runtime_ctx = {
+                "db": db,
+                "report": SimpleNamespace(id=ids["report"]),
+                "organization": SimpleNamespace(id=ids["organization"]),
+            }
+            async for tool_event in ReadQueryTool().run_stream(tool_input, runtime_ctx):
+                events.append(tool_event)
+            return events
+
+        events, statements, loaded = await _record_sql_and_graph_loads(db, _read)
+
+        output = events[-1].payload["output"]
+        assert output["success"] is True
+        assert len(output["results"]) == 1
+        result = output["results"][0]
+        assert result["query_id"] == ids["query"]
+        assert result["visualization_id"] == ids["visualization"]
+        assert result["step_id"] == ids["query_step"]
+        assert result["data"]["rows"] == [["requested"]]
+
+        assert loaded.get("Query", set()) == {ids["query"]}
+        assert loaded.get("Step", set()) == {ids["query_old_step"], ids["query_step"]}
+        assert loaded.get("Visualization", set()) == {ids["visualization"]}
+        assert loaded.get("Report", set()) == set()
+        assert loaded.get("Artifact", set()) == set()
+        assert loaded.get("Completion", set()) == set()
+        assert loaded.get("Widget", set()) == set()
+        for unrelated_table in ("reports", "artifacts", "completions"):
+>           assert not any(f"from {unrelated_table}" in statement for statement in statements)
+E           assert not True
+E            +  where True = any(<generator object test_read_query_loads_only_requested_query_graph.<locals>.<genexpr> at 0x16b995d80>)
+
+tests/unit/test_artifact_relationship_loading.py:377: AssertionError
+_______ test_read_query_loads_only_requested_query_graph[visualization] ________
+
+artifact_context = (<sqlalchemy.ext.asyncio.session.AsyncSession object at 0x169c1f920>, {'dashboard': '65aa41e3-59c4-460d-94a6-e211776a2...ad0c7c', 'organization': '0d10654b-bade-4f6e-9b6c-1c29db7320b7', 'query': 'a17acf80-1306-4c90-adae-9984460318a5', ...})
+lookup_kind = 'visualization'
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("lookup_kind", ["query", "visualization"])
+    async def test_read_query_loads_only_requested_query_graph(artifact_context, lookup_kind):
+        db, ids = artifact_context
+
+        async def _read():
+            events = []
+            tool_input = (
+                {"query_ids": [ids["query"]]} if lookup_kind == "query" else {"visualization_ids": [ids["visualization"]]}
+            )
+            runtime_ctx = {
+                "db": db,
+                "report": SimpleNamespace(id=ids["report"]),
+                "organization": SimpleNamespace(id=ids["organization"]),
+            }
+            async for tool_event in ReadQueryTool().run_stream(tool_input, runtime_ctx):
+                events.append(tool_event)
+            return events
+
+        events, statements, loaded = await _record_sql_and_graph_loads(db, _read)
+
+        output = events[-1].payload["output"]
+        assert output["success"] is True
+        assert len(output["results"]) == 1
+        result = output["results"][0]
+        assert result["query_id"] == ids["query"]
+        assert result["visualization_id"] == ids["visualization"]
+        assert result["step_id"] == ids["query_step"]
+        assert result["data"]["rows"] == [["requested"]]
+
+        assert loaded.get("Query", set()) == {ids["query"]}
+        assert loaded.get("Step", set()) == {ids["query_old_step"], ids["query_step"]}
+        assert loaded.get("Visualization", set()) == {ids["visualization"]}
+        assert loaded.get("Report", set()) == set()
+        assert loaded.get("Artifact", set()) == set()
+        assert loaded.get("Completion", set()) == set()
+        assert loaded.get("Widget", set()) == set()
+        for unrelated_table in ("reports", "artifacts", "completions"):
+>           assert not any(f"from {unrelated_table}" in statement for statement in statements)
+E           assert not True
+E            +  where True = any(<generator object test_read_query_loads_only_requested_query_graph.<locals>.<genexpr> at 0x16a731700>)
+
+tests/unit/test_artifact_relationship_loading.py:377: AssertionError
+=========================== short test summary info ============================
+FAILED tests/unit/test_artifact_relationship_loading.py::test_read_query_loads_only_requested_query_graph[query]
+FAILED tests/unit/test_artifact_relationship_loading.py::test_read_query_loads_only_requested_query_graph[visualization]
+2 failed, 190 passed, 1 skipped, 1836 warnings in 194.01s (0:03:14)

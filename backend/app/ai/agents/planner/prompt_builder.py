@@ -22,6 +22,7 @@ _OBS_KEEP_KEYS = {
     "summary", "step_id", "artifact_id", "visualization_id",
     "visualization_ids", "query_id", "mode", "title",
     "analysis_complete", "success",
+    "verification_hint", "verification_group_id", "artifact", "evidence_id", "session_id", "action_id", "evidence", "parameters", "datasets", "next_cursor",
     # The instruction text an edit/create produced, and the live text a read
     # returned. An anchored edit_instruction can only match text the agent
     # currently holds, and these are the only places it comes from — minifying

@@ -993,6 +993,16 @@
       "retrying": "מנסה שוב · ניסיון {n}",
       "visualizing": "ממחיש"
     },
+    "runQuery": {
+      "running": "מריץ את \"{title}\"…",
+      "runningWith": "מריץ את \"{title}\" עם {params}…",
+      "ran": "הורץ \"{title}\"",
+      "ranWith": "הורץ \"{title}\" עם {params}",
+      "failed": "הרצת \"{title}\" נכשלה",
+      "needsInput": "\"{title}\" דורש ערכי פרמטרים",
+      "needsValues": "ממתין לערכים עבור:",
+      "cachedHint": "הוגש מהתוצאה השמורה שלך עבור ערכים אלה — המקור לא תושאל מחדש"
+    },
     "createArtifact": {
       "creating": "יוצר פריט",
       "created": "הפריט נוצר",
@@ -1533,7 +1543,26 @@
       "snapshot": "מבנה הדף",
       "snapshotted": "הדף נקרא",
       "snapshotting": "קורא את הדף",
-      "working": "גולש"
+      "working": "גולש",
+      "previewUnavailable": "התצוגה המקדימה אינה זמינה",
+      "verifying": "בודק את פעולות האפליקציה",
+      "interactionChecks": "בדיקות אינטראקציה",
+      "checkSummary": "{count} בדיקות · {title}",
+      "checkIssues": "{count} ממצאים",
+      "checkedVersion": "נבדקה גרסה {version}",
+      "updateState": "עדכון נתונים",
+      "queryEvidence": "{count} שורות · {duration} אלפיות שנייה",
+      "updateStates": {
+        "data_received": "נצפה עדכון נתונים",
+        "pending": "ממתין לנתונים",
+        "failed": "העדכון נכשל",
+        "parameter_mismatch": "המסננים שהוחלו אינם תואמים",
+        "data_not_acknowledged": "הנתונים עדיין לא הגיעו לאפליקציה",
+        "no_expected_request": "השאילתה הצפויה לא הופעלה",
+        "no_query_observed": "לא נצפתה שאילתה לשרת"
+      },
+      "emptyDateUnverified": "מסנן התאריכים לא החזיר שורות. עדיין לא אומת שהוא פועל כראוי.",
+      "partialRows": "מוצגות {returned} מתוך {total} שורות; הסכומים עשויים להיות חלקיים."
     },
     "readFile": {
       "reading": "קורא את {name}…",
@@ -2440,6 +2469,10 @@
         "allow_llm_see_data": {
           "name": "אפשר ל-LLM לראות נתונים",
           "description": "מאפשר ל-LLM לראות נתונים כחלק מהניתוח ומשאילתות המשתמשים"
+        },
+        "enable_artifact_verification": {
+          "name": "אימות אפליקציות נתונים",
+          "description": "מאפשר לסוכן לבדוק דפים אינטראקטיביים באמצעות כלי דפדפן. נדרש להפעיל גישה של מודל השפה לנתונים."
         },
         "enable_training_mode": {
           "name": "מצב אימון",

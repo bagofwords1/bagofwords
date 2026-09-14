@@ -12,6 +12,7 @@ from typing import Any, AsyncIterator, Dict, Type
 
 from pydantic import BaseModel
 
+from app.ai.tools.implementations._browser_policy import guard_browser_tool
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolProgressEvent, ToolEndEvent
@@ -62,6 +63,7 @@ class BrowserActTool(Tool):
             "observation": {"summary": msg, "success": False, "error_code": code},
         })
 
+    @guard_browser_tool
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = BrowserActInput(**tool_input)
         action = (data.action or "").strip().lower()
@@ -73,9 +75,19 @@ class BrowserActTool(Tool):
             yield self._fail(f"Unknown action '{data.action}'. Use one of: {', '.join(sorted(_ACTIONS))}.", "bad_action")
             return
 
-        s = session_manager.get(data.session_id)
+        s = session_manager.get(data.session_id, runtime_ctx)
         if s is None or s.page is None:
             yield self._fail("No active browser session; call browser_navigate first.", "no_session")
+            return
+
+        if s.preview:
+            from app.ai.tools.implementations._artifact_browser import run_artifact_operation
+            try:
+                result = await run_artifact_operation(s, "act", data, runtime_ctx)
+                yield ToolEndEvent(type="tool.end", payload=result)
+            except Exception as e:
+                from app.ai.tools.implementations._artifact_browser import artifact_operation_failure
+                yield ToolEndEvent(type="tool.end", payload=await artifact_operation_failure(s, e, runtime_ctx))
             return
 
         page = s.page

@@ -9,6 +9,7 @@ stable across calls so provider-side prompt caching absorbs its size.
 """
 
 from functools import lru_cache
+from app.ai.tools.artifact_verification import ARTIFACT_VERIFICATION_POLICY
 
 
 _SLIDES_CONTRACT = """
@@ -99,7 +100,7 @@ def build_artifact_authoring_reference() -> str:
         "fix the code/ops and call again. The reference below (written for a code\n"
         "author) is YOUR reference — 'the user message' there corresponds to the data\n"
         "and design intent you have in context.\n\n"
-        + VISUAL_REVIEW_POLICY + "\n\n"
+        + VISUAL_REVIEW_POLICY + "\n\n" + ARTIFACT_VERIFICATION_POLICY + "\n\n"
         + page_reference
         + _SLIDES_CONTRACT
     )
@@ -110,6 +111,6 @@ VISUAL_REVIEW_POLICY = """
 After a successful page create/edit, review the attached screenshot if present
 and permitted. Check the task's working surface, hierarchy, density, alignment,
 legibility and visible states. If a material issue is visible, make at most one
-focused aesthetic edit with purpose="visual_refinement" per user request, then finish. Do not redesign an existing
-dashboard on an ordinary edit. Without a screenshot, complete normally.
+focused aesthetic edit with purpose="visual_refinement" per user request. Do not redesign an existing
+dashboard on an ordinary edit. Without a screenshot, skip aesthetic review; use verification_hint for interaction checks.
 """.strip()
