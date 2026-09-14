@@ -1,6 +1,8 @@
 <template>
-	<div
-		class="flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
+	<button
+		type="button"
+		:aria-expanded="expanded"
+		class="w-full text-start focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500 flex items-center gap-1 py-1 text-xs text-gray-500 cursor-pointer select-none hover:text-gray-700 dark:hover:text-gray-300"
 		data-testid="block-group-header"
 		@click="$emit('toggle')"
 	>
@@ -14,8 +16,9 @@
 				<span :key="shownLabel" :class="group.active ? 'ticker-shimmer' : ''">{{ shownLabel }}</span>
 			</Transition>
 		</span>
-		<span v-if="group.issueCount" class="text-amber-500">· {{ group.issueCount }} {{ group.issueCount === 1 ? 'issue' : 'issues' }}</span>
-	</div>
+		<span v-if="group.issueCount" class="text-amber-500">· {{ $t('tools.browser.checkIssues', { count: group.issueCount }) }}</span>
+		<span v-if="group.pendingCount" class="text-gray-400">· {{ $t('tools.browser.updateStates.pending') }}</span>
+	</button>
 </template>
 
 <script setup lang="ts">
@@ -34,6 +37,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import type { BlockGroup } from '~/composables/useBlockGrouping'
 
+const { t } = useI18n()
 const props = defineProps<{ group: BlockGroup; expanded: boolean }>()
 defineEmits<{ (e: 'toggle'): void }>()
 
@@ -41,6 +45,9 @@ defineEmits<{ (e: 'toggle'): void }>()
 const MIN_HOLD_MS = 500
 
 function labelFor(g: BlockGroup): string {
+	if (g.verification) return g.active
+		? (g.runningLabel || t('tools.browser.verifying'))
+		: t('tools.browser.checkSummary', { count: g.count, title: g.lastTitle || t('tools.browser.interactionChecks') })
 	if (g.active) {
 		return g.runningLabel ? `Step ${g.count} · ${g.runningLabel}…` : `${g.count} steps…`
 	}
@@ -95,7 +102,7 @@ onBeforeUnmount(() => {
 }
 .ticker-stack > * {
 	grid-area: 1 / 1;
-	white-space: nowrap;
+	overflow-wrap: anywhere;
 }
 .ticker-enter-active,
 .ticker-leave-active {
@@ -114,9 +121,11 @@ onBeforeUnmount(() => {
 /* Shimmering label while the run is active (matches the running state of
    the per-tool components, e.g. InspectDataTool). */
 .ticker-shimmer {
-	animation: ticker-shimmer-sweep 1.6s linear infinite;
-	background: linear-gradient(90deg, rgba(0,0,0,0) 0%, rgba(160,160,160,0.15) 50%, rgba(0,0,0,0) 100%);
-	background-size: 300% 100%;
+	animation: ticker-shimmer-sweep 2s linear infinite;
+	background: linear-gradient(90deg, #888 0%, #999 25%, #ccc 50%, #999 75%, #888 100%);
+	background-size: 200% 100%;
+	-webkit-background-clip: text;
 	background-clip: text;
+	color: transparent;
 }
 </style>

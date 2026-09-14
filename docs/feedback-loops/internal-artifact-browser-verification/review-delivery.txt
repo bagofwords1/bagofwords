@@ -1,0 +1,1 @@
+artifactVerificationDelivery: all assertions passed

@@ -42,7 +42,7 @@ const rj = computed<any>(() => props.toolExecution?.result_json || {})
 const args = computed<any>(() => props.toolExecution?.arguments_json || {})
 const fileId = computed(() => rj.value.screenshot_file_id || '')
 const title = computed(() => args.value.title || '')
-const displayUrl = computed(() => rj.value.url || '')
+const displayUrl = computed(() => rj.value.artifact ? '' : (rj.value.url || ''))
 const error = computed(() => rj.value.error_message || '')
 </script>
 

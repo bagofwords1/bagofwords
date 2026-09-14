@@ -58,6 +58,17 @@ _GENERIC_PRIORITY_KEYS = (
     "step_id",
     "query_id",
     "artifact_id",
+    "artifact",
+    "verification_hint",
+    "verification_group_id",
+    "session_id",
+    "action_id",
+    "evidence_id",
+    "parameters",
+    "datasets",
+    "evidence",
+    "snapshot",
+    "next_cursor",
     "visualization_id",
     "created_visualization_ids",
     "visualization_ids",
@@ -122,7 +133,8 @@ def _generic_tool_projection(
             _consume(len(str(item)))
             return item
         if isinstance(item, str):
-            allowed = min(GENERIC_TOOL_CONTEXT_MAX_STRING_CHARS, max(remaining[0], 0))
+            string_limit = 8000 if key == "snapshot" and value.get("artifact") else GENERIC_TOOL_CONTEXT_MAX_STRING_CHARS
+            allowed = min(string_limit, max(remaining[0], 0))
             if len(item) > allowed:
                 truncated[0] = True
                 text = item[:allowed] + "…"

@@ -1,0 +1,694 @@
+[
+  {
+    "title": null,
+    "artifact": {
+      "id": "1910ef54-2d91-4b18-9c9e-e8c054cfce50",
+      "version": 2,
+      "code_hash": "7b8c0daa87db8ee47b7d0d4388898bf5b8e7f161aa5d539c6b4ac1edc7837b32"
+    },
+    "evidence": {
+      "warnings": [
+        {
+          "cursor": 1,
+          "kind": "warning",
+          "action_id": null,
+          "source": "console",
+          "message": "[vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:3000/_nuxt/ <--[HTTP]--> localhost:5173/_nuxt/ (server)\n  (browser) localhost:3000/_nuxt/ <--[WebSocket (failing)]--> localhost:5173/_nuxt/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr ."
+        },
+        {
+          "cursor": 2,
+          "kind": "warning",
+          "action_id": null,
+          "source": "console",
+          "message": "Warning: Each child in a list should have a unique \"key\" prop.%s%s See https://reactjs.org/link/warning-keys for more information.%s \n\nCheck the top-level render call using <div>.  \n    at div\n    at window.EChart (http://localhost:3000/libs/artifact-globals.js?v=11&revision=verification-1:1811:21)\n    at div\n    at section\n    at main\n    at div\n    at App (<anonymous>:39:14)"
+        }
+      ],
+      "queries": [],
+      "errors": [],
+      "runtime": [
+        {
+          "cursor": 3,
+          "kind": "data_sent",
+          "action_id": null,
+          "data_revision": 1,
+          "request_ids": []
+        },
+        {
+          "cursor": 4,
+          "kind": "data_sent",
+          "action_id": null,
+          "data_revision": 2,
+          "request_ids": []
+        },
+        {
+          "cursor": 5,
+          "kind": "data_received",
+          "action_id": null,
+          "data_revision": 1
+        },
+        {
+          "cursor": 6,
+          "kind": "data_received",
+          "action_id": null,
+          "data_revision": 2
+        }
+      ],
+      "pending": [],
+      "update_status": "no_query_observed",
+      "truncated": false
+    }
+  },
+  {
+    "title": "Checking Billing country",
+    "artifact": {
+      "id": "1910ef54-2d91-4b18-9c9e-e8c054cfce50",
+      "version": 2,
+      "code_hash": "7b8c0daa87db8ee47b7d0d4388898bf5b8e7f161aa5d539c6b4ac1edc7837b32"
+    },
+    "evidence": {
+      "warnings": [],
+      "queries": [
+        {
+          "cursor": 11,
+          "kind": "query",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "query_id": "bd022b8f-9a70-4011-b1ea-c2a704949f5e",
+          "request_id": "ed84c792-aefe-4421-b5d4-cfb4a7fb593b",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA"
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": true,
+          "step_id": "1739410f-6cd1-4b2f-838b-0eb40baf49d7",
+          "returned_rows": 80,
+          "total_rows": 80,
+          "result_truncated": false,
+          "duration_ms": 187,
+          "error": null
+        },
+        {
+          "cursor": 12,
+          "kind": "query",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "query_id": "2fbaa565-0ddb-4674-896e-9e10cd360c0e",
+          "request_id": "44aeba31-7d62-4b86-b0a1-fcfa3c7c58e4",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA"
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": true,
+          "step_id": "dc31915b-772d-4ab7-9c05-76fe14723f06",
+          "returned_rows": 494,
+          "total_rows": 494,
+          "result_truncated": false,
+          "duration_ms": 193,
+          "error": null
+        }
+      ],
+      "errors": [],
+      "runtime": [
+        {
+          "cursor": 7,
+          "kind": "params_commit",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "changes": {
+            "billing_country": "USA"
+          },
+          "targets": null,
+          "commit_seq": 1
+        },
+        {
+          "cursor": 8,
+          "kind": "params_status",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "loading": true,
+          "message": null
+        },
+        {
+          "cursor": 13,
+          "kind": "params_status",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "loading": false,
+          "message": null
+        },
+        {
+          "cursor": 14,
+          "kind": "data_sent",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "data_revision": 3,
+          "request_ids": [
+            "ed84c792-aefe-4421-b5d4-cfb4a7fb593b",
+            "44aeba31-7d62-4b86-b0a1-fcfa3c7c58e4"
+          ]
+        },
+        {
+          "cursor": 15,
+          "kind": "data_received",
+          "action_id": "c71cdbf3-f765-4293-8a1c-5feb7d857949",
+          "data_revision": 3
+        }
+      ],
+      "pending": [],
+      "update_status": "data_received",
+      "truncated": false
+    }
+  },
+  {
+    "title": "Checking Genre",
+    "artifact": {
+      "id": "1910ef54-2d91-4b18-9c9e-e8c054cfce50",
+      "version": 2,
+      "code_hash": "7b8c0daa87db8ee47b7d0d4388898bf5b8e7f161aa5d539c6b4ac1edc7837b32"
+    },
+    "evidence": {
+      "warnings": [],
+      "queries": [
+        {
+          "cursor": 20,
+          "kind": "query",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "query_id": "2fbaa565-0ddb-4674-896e-9e10cd360c0e",
+          "request_id": "e3927781-ce9f-441f-a003-b0c197332c8b",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA",
+            "genre_id": 1
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": true,
+          "step_id": "dc31915b-772d-4ab7-9c05-76fe14723f06",
+          "returned_rows": 157,
+          "total_rows": 157,
+          "result_truncated": false,
+          "duration_ms": 98,
+          "error": null
+        },
+        {
+          "cursor": 21,
+          "kind": "query",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "query_id": "bd022b8f-9a70-4011-b1ea-c2a704949f5e",
+          "request_id": "1345786c-a697-4e19-9785-669c9dba8487",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA",
+            "genre_id": 1
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": true,
+          "step_id": "1739410f-6cd1-4b2f-838b-0eb40baf49d7",
+          "returned_rows": 36,
+          "total_rows": 36,
+          "result_truncated": false,
+          "duration_ms": 103,
+          "error": null
+        }
+      ],
+      "errors": [],
+      "runtime": [
+        {
+          "cursor": 16,
+          "kind": "params_commit",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "changes": {
+            "genre_id": 1
+          },
+          "targets": null,
+          "commit_seq": 2
+        },
+        {
+          "cursor": 17,
+          "kind": "params_status",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "loading": true,
+          "message": null
+        },
+        {
+          "cursor": 22,
+          "kind": "params_status",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "loading": false,
+          "message": null
+        },
+        {
+          "cursor": 23,
+          "kind": "data_sent",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "data_revision": 4,
+          "request_ids": [
+            "ed84c792-aefe-4421-b5d4-cfb4a7fb593b",
+            "44aeba31-7d62-4b86-b0a1-fcfa3c7c58e4",
+            "e3927781-ce9f-441f-a003-b0c197332c8b",
+            "1345786c-a697-4e19-9785-669c9dba8487"
+          ]
+        },
+        {
+          "cursor": 24,
+          "kind": "data_received",
+          "action_id": "323cb1b5-e470-41fe-8d70-10436acd409a",
+          "data_revision": 4
+        }
+      ],
+      "pending": [],
+      "update_status": "data_received",
+      "truncated": false
+    }
+  },
+  {
+    "title": "Checking Invoice dates",
+    "artifact": {
+      "id": "1910ef54-2d91-4b18-9c9e-e8c054cfce50",
+      "version": 2,
+      "code_hash": "7b8c0daa87db8ee47b7d0d4388898bf5b8e7f161aa5d539c6b4ac1edc7837b32"
+    },
+    "evidence": {
+      "warnings": [],
+      "queries": [
+        {
+          "cursor": 29,
+          "kind": "query",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "query_id": "bd022b8f-9a70-4011-b1ea-c2a704949f5e",
+          "request_id": "dbd5a651-b887-4b63-99b0-7c86dba86493",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            }
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            },
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": false,
+          "step_id": "1739410f-6cd1-4b2f-838b-0eb40baf49d7",
+          "returned_rows": 6,
+          "total_rows": 6,
+          "result_truncated": false,
+          "duration_ms": 255,
+          "error": null
+        },
+        {
+          "cursor": 30,
+          "kind": "query",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "query_id": "2fbaa565-0ddb-4674-896e-9e10cd360c0e",
+          "request_id": "91d77a87-7e12-4fe3-acda-abf9f5d37542",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            }
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            },
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": false,
+          "step_id": "dc31915b-772d-4ab7-9c05-76fe14723f06",
+          "returned_rows": 32,
+          "total_rows": 32,
+          "result_truncated": false,
+          "duration_ms": 257,
+          "error": null
+        }
+      ],
+      "errors": [],
+      "runtime": [
+        {
+          "cursor": 25,
+          "kind": "params_commit",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "changes": {
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            }
+          },
+          "targets": null,
+          "commit_seq": 3
+        },
+        {
+          "cursor": 26,
+          "kind": "params_status",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "loading": true,
+          "message": null
+        },
+        {
+          "cursor": 31,
+          "kind": "params_status",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "loading": false,
+          "message": null
+        },
+        {
+          "cursor": 32,
+          "kind": "data_sent",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "data_revision": 5,
+          "request_ids": [
+            "ed84c792-aefe-4421-b5d4-cfb4a7fb593b",
+            "44aeba31-7d62-4b86-b0a1-fcfa3c7c58e4",
+            "e3927781-ce9f-441f-a003-b0c197332c8b",
+            "1345786c-a697-4e19-9785-669c9dba8487",
+            "dbd5a651-b887-4b63-99b0-7c86dba86493",
+            "91d77a87-7e12-4fe3-acda-abf9f5d37542"
+          ]
+        },
+        {
+          "cursor": 33,
+          "kind": "data_received",
+          "action_id": "28240dd8-0a15-416e-9274-5684559fb110",
+          "data_revision": 5
+        }
+      ],
+      "pending": [],
+      "update_status": "data_received",
+      "truncated": false
+    }
+  },
+  {
+    "title": "Checking Minimum line revenue",
+    "artifact": {
+      "id": "1910ef54-2d91-4b18-9c9e-e8c054cfce50",
+      "version": 2,
+      "code_hash": "7b8c0daa87db8ee47b7d0d4388898bf5b8e7f161aa5d539c6b4ac1edc7837b32"
+    },
+    "evidence": {
+      "warnings": [],
+      "queries": [
+        {
+          "cursor": 38,
+          "kind": "query",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "query_id": "bd022b8f-9a70-4011-b1ea-c2a704949f5e",
+          "request_id": "1d6f71a6-5d75-4af7-968f-631564de5fa8",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            },
+            "min_line_revenue": 0.99
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            },
+            "min_line_revenue": 0.99
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": false,
+          "step_id": "1739410f-6cd1-4b2f-838b-0eb40baf49d7",
+          "returned_rows": 6,
+          "total_rows": 6,
+          "result_truncated": false,
+          "duration_ms": 160,
+          "error": null
+        },
+        {
+          "cursor": 39,
+          "kind": "query",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "query_id": "2fbaa565-0ddb-4674-896e-9e10cd360c0e",
+          "request_id": "be28f566-e781-4990-a25f-b9edf8365124",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            },
+            "min_line_revenue": 0.99
+          },
+          "applied_params": {
+            "billing_country": "USA",
+            "genre_id": 1,
+            "invoice_dates": {
+              "from": "2021-01-01",
+              "to": "2021-12-31"
+            },
+            "min_line_revenue": 0.99
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": false,
+          "step_id": "dc31915b-772d-4ab7-9c05-76fe14723f06",
+          "returned_rows": 32,
+          "total_rows": 32,
+          "result_truncated": false,
+          "duration_ms": 167,
+          "error": null
+        }
+      ],
+      "errors": [],
+      "runtime": [
+        {
+          "cursor": 34,
+          "kind": "params_commit",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "changes": {
+            "min_line_revenue": 0.99
+          },
+          "targets": null,
+          "commit_seq": 4
+        },
+        {
+          "cursor": 35,
+          "kind": "params_status",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "loading": true,
+          "message": null
+        },
+        {
+          "cursor": 40,
+          "kind": "params_status",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "loading": false,
+          "message": null
+        },
+        {
+          "cursor": 41,
+          "kind": "data_sent",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "data_revision": 6,
+          "request_ids": [
+            "ed84c792-aefe-4421-b5d4-cfb4a7fb593b",
+            "44aeba31-7d62-4b86-b0a1-fcfa3c7c58e4",
+            "e3927781-ce9f-441f-a003-b0c197332c8b",
+            "1345786c-a697-4e19-9785-669c9dba8487",
+            "dbd5a651-b887-4b63-99b0-7c86dba86493",
+            "91d77a87-7e12-4fe3-acda-abf9f5d37542",
+            "1d6f71a6-5d75-4af7-968f-631564de5fa8",
+            "be28f566-e781-4990-a25f-b9edf8365124"
+          ]
+        },
+        {
+          "cursor": 42,
+          "kind": "data_received",
+          "action_id": "861ae896-dfe9-40ab-95b2-86b65d4e8738",
+          "data_revision": 6
+        }
+      ],
+      "pending": [],
+      "update_status": "data_received",
+      "truncated": false
+    }
+  },
+  {
+    "title": "Checking Reset filters",
+    "artifact": {
+      "id": "1910ef54-2d91-4b18-9c9e-e8c054cfce50",
+      "version": 2,
+      "code_hash": "7b8c0daa87db8ee47b7d0d4388898bf5b8e7f161aa5d539c6b4ac1edc7837b32"
+    },
+    "evidence": {
+      "warnings": [],
+      "queries": [
+        {
+          "cursor": 47,
+          "kind": "query",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "query_id": "bd022b8f-9a70-4011-b1ea-c2a704949f5e",
+          "request_id": "52b3efcd-2182-4874-8ac0-8dc62ee526f4",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": null,
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "applied_params": {
+            "billing_country": null,
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": true,
+          "step_id": "1739410f-6cd1-4b2f-838b-0eb40baf49d7",
+          "returned_rows": 354,
+          "total_rows": 354,
+          "result_truncated": false,
+          "duration_ms": 107,
+          "error": null
+        },
+        {
+          "cursor": 48,
+          "kind": "query",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "query_id": "2fbaa565-0ddb-4674-896e-9e10cd360c0e",
+          "request_id": "e4b6a6fc-b258-4050-8f5d-010c0afc981a",
+          "operation_kind": "query",
+          "execution_mode": "viewer_query",
+          "submitted_params": {
+            "billing_country": null,
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "applied_params": {
+            "billing_country": null,
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "status": "success",
+          "http_status": 200,
+          "cached": true,
+          "step_id": "dc31915b-772d-4ab7-9c05-76fe14723f06",
+          "returned_rows": 1000,
+          "total_rows": 2240,
+          "result_truncated": true,
+          "duration_ms": 128,
+          "error": null
+        }
+      ],
+      "errors": [],
+      "runtime": [
+        {
+          "cursor": 43,
+          "kind": "params_commit",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "changes": {
+            "billing_country": null,
+            "genre_id": null,
+            "invoice_dates": null,
+            "min_line_revenue": null
+          },
+          "targets": null,
+          "commit_seq": 5
+        },
+        {
+          "cursor": 44,
+          "kind": "params_status",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "loading": true,
+          "message": null
+        },
+        {
+          "cursor": 49,
+          "kind": "params_status",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "loading": false,
+          "message": null
+        },
+        {
+          "cursor": 50,
+          "kind": "data_sent",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "data_revision": 7,
+          "request_ids": [
+            "ed84c792-aefe-4421-b5d4-cfb4a7fb593b",
+            "44aeba31-7d62-4b86-b0a1-fcfa3c7c58e4",
+            "e3927781-ce9f-441f-a003-b0c197332c8b",
+            "1345786c-a697-4e19-9785-669c9dba8487",
+            "dbd5a651-b887-4b63-99b0-7c86dba86493",
+            "91d77a87-7e12-4fe3-acda-abf9f5d37542",
+            "1d6f71a6-5d75-4af7-968f-631564de5fa8",
+            "be28f566-e781-4990-a25f-b9edf8365124",
+            "52b3efcd-2182-4874-8ac0-8dc62ee526f4",
+            "e4b6a6fc-b258-4050-8f5d-010c0afc981a"
+          ]
+        },
+        {
+          "cursor": 51,
+          "kind": "data_received",
+          "action_id": "ef003446-dc29-45cf-bd63-85bea0f5b1fa",
+          "data_revision": 7
+        }
+      ],
+      "pending": [],
+      "update_status": "data_received",
+      "truncated": false
+    }
+  }
+]

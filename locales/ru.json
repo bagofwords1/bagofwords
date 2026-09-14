@@ -1515,7 +1515,26 @@
       "snapshot": "Структура страницы",
       "snapshotted": "Страница прочитана",
       "snapshotting": "Читает страницу",
-      "working": "Работает в браузере"
+      "working": "Работает в браузере",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "Фильтр дат не вернул строк. Корректность его работы пока не подтверждена.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "Чтение {name}…",
@@ -2348,6 +2367,10 @@
         "allow_llm_see_data": {
           "name": "Разрешить LLM видеть данные",
           "description": "Позволяет LLM видеть данные в рамках анализа и пользовательских запросов"
+        },
+        "enable_artifact_verification": {
+          "name": "Проверять приложения с данными",
+          "description": "Разрешить агенту проверять интерактивные страницы с помощью браузера. Требуется разрешение на доступ LLM к данным."
         },
         "enable_training_mode": {
           "name": "Режим обучения",

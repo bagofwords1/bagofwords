@@ -1515,7 +1515,26 @@
       "snapshot": "بنية الصفحة",
       "snapshotted": "تمت قراءة الصفحة",
       "snapshotting": "جارٍ قراءة الصفحة",
-      "working": "جارٍ التصفح"
+      "working": "جارٍ التصفح",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "لم يُرجع عامل تصفية التاريخ أي صفوف. لم يتم التحقق من صحة عمله بعد.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "جارٍ قراءة {name}…",
@@ -2348,6 +2367,10 @@
         "allow_llm_see_data": {
           "name": "السماح لنموذج اللغة برؤية البيانات",
           "description": "يتيح لنموذج اللغة رؤية البيانات كجزء من التحليل واستعلامات المستخدمين"
+        },
+        "enable_artifact_verification": {
+          "name": "التحقق من تطبيقات البيانات",
+          "description": "السماح للوكيل بفحص الصفحات التفاعلية باستخدام أدوات المتصفح. يتطلب السماح للنموذج اللغوي برؤية البيانات."
         },
         "enable_training_mode": {
           "name": "وضع التدريب",

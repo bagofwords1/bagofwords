@@ -1533,7 +1533,26 @@
       "snapshot": "Estructura de la página",
       "snapshotted": "Página leída",
       "snapshotting": "Leyendo la página",
-      "working": "Navegando"
+      "working": "Navegando",
+      "previewUnavailable": "La vista previa no está disponible",
+      "verifying": "Verificando las interacciones",
+      "interactionChecks": "Pruebas de interacción",
+      "checkSummary": "{count} pruebas · {title}",
+      "checkIssues": "{count} hallazgos",
+      "checkedVersion": "Versión {version} revisada",
+      "updateState": "Actualización de datos",
+      "queryEvidence": "{count} filas · {duration} ms",
+      "updateStates": {
+        "data_received": "Actualización de datos observada",
+        "pending": "Esperando datos",
+        "failed": "Error de actualización",
+        "parameter_mismatch": "Los filtros aplicados no coinciden",
+        "data_not_acknowledged": "Los datos no han llegado a la aplicación",
+        "no_expected_request": "La consulta esperada no se ejecutó",
+        "no_query_observed": "No se observó ninguna consulta"
+      },
+      "emptyDateUnverified": "El filtro de fechas no devolvió filas. Aún no se ha verificado que funcione correctamente.",
+      "partialRows": "Se muestran {returned} de {total} filas; los totales pueden estar incompletos."
     },
     "readFile": {
       "reading": "Leyendo {name}…",
@@ -2440,6 +2459,10 @@
         "allow_llm_see_data": {
           "name": "Permitir que el LLM vea los datos",
           "description": "Permite que el LLM vea los datos como parte del análisis y de las consultas de los usuarios"
+        },
+        "enable_artifact_verification": {
+          "name": "Verificar aplicaciones de datos",
+          "description": "Permite que el agente compruebe páginas interactivas con herramientas de navegador. Requiere Permitir que el LLM vea los datos."
         },
         "enable_training_mode": {
           "name": "Modo de entrenamiento",

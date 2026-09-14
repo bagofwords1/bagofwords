@@ -1515,7 +1515,26 @@
       "snapshot": "Struttura della pagina",
       "snapshotted": "Pagina letta",
       "snapshotting": "Lettura della pagina",
-      "working": "Navigazione"
+      "working": "Navigazione",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "Il filtro delle date non ha restituito righe. Il suo corretto funzionamento non è ancora verificato.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "Lettura di {name}…",
@@ -2348,6 +2367,10 @@
         "allow_llm_see_data": {
           "name": "Consenti all'LLM di vedere i dati",
           "description": "Consente all'LLM di vedere i dati nell'ambito dell'analisi e delle richieste degli utenti"
+        },
+        "enable_artifact_verification": {
+          "name": "Verifica le app di dati",
+          "description": "Consenti all’agente di controllare le pagine interattive con gli strumenti del browser. Richiede l’accesso del modello linguistico ai dati."
         },
         "enable_training_mode": {
           "name": "Modalità addestramento",

@@ -1,0 +1,2 @@
+useBlockGrouping: all assertions passed
+useBlockGrouping: verification lifecycle assertions passed

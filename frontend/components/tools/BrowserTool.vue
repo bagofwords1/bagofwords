@@ -1,5 +1,5 @@
 <template>
-  <div class="mt-1">
+  <div class="mt-1 min-w-0 max-w-full">
     <!-- Status header (click to expand) -->
     <Transition name="fade" appear>
       <div
@@ -13,6 +13,7 @@
         <span v-else class="flex items-center min-w-0" :class="isError ? 'text-gray-600 dark:text-gray-400' : 'text-gray-600 dark:text-gray-400'">
           <Icon :name="headerIcon" class="w-3 h-3 me-1.5 shrink-0" :class="iconColor" />
           <span class="truncate">{{ doneLabel }}</span>
+          <span v-if="rj.evidence?.update_status === 'pending'" class="ms-1.5 text-gray-400">{{ $t('tools.browser.updateStates.pending') }}</span>
           <span v-if="displayUrl" dir="ltr" class="ms-1 truncate max-w-[280px] text-gray-400 dark:text-gray-500">{{ displayUrl }}</span>
           <span v-if="blockedReason" class="ms-1.5 text-[10px] text-amber-500 shrink-0">{{ blockedReason }}</span>
           <Icon
@@ -28,6 +29,18 @@
       <div v-if="isExpanded && status !== 'running'" class="mt-2 ms-5 space-y-1.5">
         <div v-if="errorMessage" class="text-[10px] text-red-500 bg-red-50/50 dark:bg-red-950 rounded px-2 py-1">
           {{ errorMessage }}
+        </div>
+
+        <div v-if="rj.artifact" class="space-y-1 text-xs text-gray-500 dark:text-gray-400">
+          <div>{{ $t('tools.browser.checkedVersion', { version: rj.artifact.version }) }}</div>
+          <div v-if="rj.evidence?.update_status">{{ $t('tools.browser.updateState') }}: {{ $t('tools.browser.updateStates.' + rj.evidence.update_status) }}</div>
+          <div v-for="q in rj.evidence?.queries || []" :key="q.request_id" class="rounded border border-gray-100 dark:border-gray-800 p-2">
+            <div>{{ $t('tools.browser.queryEvidence', { count: q.returned_rows, duration: q.duration_ms }) }}</div>
+            <div v-if="q.result_truncated" class="text-amber-600 dark:text-amber-400">{{ $t('tools.browser.partialRows', { returned: q.returned_rows, total: q.total_rows }) }}</div>
+            <pre class="whitespace-pre-wrap break-all mt-1">{{ JSON.stringify(q.applied_params) }}</pre>
+          </div>
+          <div v-if="rj.evidence?.result_checks?.some((c: any) => c.code === 'empty_date_result')" class="text-amber-600 dark:text-amber-400">{{ $t('tools.browser.emptyDateUnverified') }}</div>
+          <div v-for="(e, i) in rj.evidence?.errors || []" :key="i" class="text-amber-600 dark:text-amber-400">{{ e.message || e.error }}</div>
         </div>
 
         <!-- Downloads -->
@@ -89,7 +102,7 @@ const toolName = computed(() => props.toolExecution?.tool_name || '')
 const isSuccess = computed(() => status.value === 'success' && rj.value?.success === true)
 const isError = computed(() => !isSuccess.value && status.value !== 'running')
 
-const displayUrl = computed(() => rj.value?.url || args.value?.url || '')
+const displayUrl = computed(() => rj.value?.artifact || args.value?.artifact_id ? '' : (rj.value?.url || args.value?.url || ''))
 const snapshot = computed(() => rj.value?.snapshot || '')
 const text = computed(() => rj.value?.text || '')
 const blockedReason = computed(() => rj.value?.blocked_reason || '')
@@ -111,10 +124,12 @@ const doneLabel = computed(() => {
   if (isError.value) return t('tools.browser.failed')
   return args.value?.title || verb.value.done
 })
-const headerIcon = computed(() => isError.value ? 'heroicons-globe-alt' : 'heroicons-globe-alt')
+const headerIcon = computed(() => rj.value?.evidence?.update_status === 'pending' ? 'heroicons-clock' : 'heroicons-globe-alt')
 const iconColor = computed(() => {
+  if (rj.value?.evidence?.errors?.length || rj.value?.evidence?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request'].includes(rj.value?.evidence?.update_status)) return 'text-amber-500'
   if (isError.value) return 'text-orange-500'
   if (blockedReason.value) return 'text-amber-500'
+  if (rj.value?.evidence?.update_status === 'pending') return 'text-gray-400'
   return 'text-green-500'
 })
 

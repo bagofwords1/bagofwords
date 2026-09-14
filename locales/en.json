@@ -1039,7 +1039,26 @@
       "failed": "Browser action failed",
       "capturing": "Taking a screenshot",
       "screenshot": "Screenshot",
-      "snapshot": "Page structure"
+      "snapshot": "Page structure",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "The date filter returned no rows. Correctness is not yet verified.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "clarify": {
       "clarifying": "Clarifying questions for user",
@@ -2520,6 +2539,10 @@
         "allow_llm_see_data": {
           "name": "Allow LLM to see data",
           "description": "Enable LLM to see data as part of the analysis and user queries"
+        },
+        "enable_artifact_verification": {
+          "name": "Verify data apps",
+          "description": "Let the agent check interactive page artifacts with browser tools. Requires Allow LLM to see data."
         },
         "enable_training_mode": {
           "name": "Training Mode",

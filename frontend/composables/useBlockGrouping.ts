@@ -179,6 +179,7 @@ function verbFamily(toolName: string): string {
 }
 
 export interface BlockGroup {
+  verification?: boolean
   id: string
   blockIds: string[]
   count: number
@@ -192,6 +193,8 @@ export interface BlockGroup {
   durationComplete: boolean
   /** Handled-error members absorbed into this group (amber count on header). */
   issueCount: number
+  /** Actions still awaiting query completion, separate from findings. */
+  pendingCount: number
   /** "4 reads · 2 searches" */
   verbSummary: string
   /** LLM-generated `title` of the LAST block in the group, if any. */
@@ -266,12 +269,20 @@ function buildGroup(run: any[]): BlockGroup {
   let active = false
   let runningLabel = ''
   let issueCount = 0
+  const pendingActions = new Set<string>()
   // Wall-clock span material: earliest member start -> latest member end.
   let minStart = Infinity
   let maxEnd = -Infinity
   let startsKnown = 0
   let endsKnown = 0
   for (const b of run) {
+    if (verificationKey(b)) {
+      const result = b?.tool_execution?.result_json
+      const action = result?.action_id || b?.tool_execution?.arguments_json?.evidence_for_action_id || String(b.id)
+      const state = result?.evidence?.update_status
+      if (state === 'pending') pendingActions.add(action)
+      else if (state) pendingActions.delete(action)
+    }
     const name = b?.tool_execution?.tool_name || ''
     if (name && !toolNames.includes(name)) toolNames.push(name)
     const fam = verbFamily(name)
@@ -282,7 +293,7 @@ function buildGroup(run: any[]): BlockGroup {
     const e = memberEndMs(b)
     if (s !== null) { startsKnown += 1; if (s < minStart) minStart = s }
     if (e !== null) { endsKnown += 1; if (e > maxEnd) maxEnd = e }
-    if (isBlockFailed(b)) {
+    if (isBlockFailed(b) || verificationHasIssue(b)) {
       issueCount += 1
     } else {
       okMembers += 1
@@ -320,18 +331,32 @@ function buildGroup(run: any[]): BlockGroup {
     .map(([fam, n]) => `${n} ${n === 1 ? (SINGULAR[fam] || fam) : fam}`)
     .join(' · ')
   return {
+    verification: !!verificationKey(run[0]),
     id: String(run[0]?.id ?? ''),
     blockIds: run.map((b) => String(b?.id ?? '')),
     count: run.length,
     durationMs,
     durationComplete,
     issueCount,
+    pendingCount: pendingActions.size,
     verbSummary,
     lastTitle,
     toolNames,
     active,
     runningLabel,
   }
+}
+
+/** Internal verification is an explicit server-owned run, not generic browsing. */
+function verificationKey(block: any): string {
+  const te = block?.tool_execution
+  return te?.arguments_json?._verification_group_id || te?.result_json?.verification_group_id ||
+    (te?.tool_name === 'browser_navigate' && te?.arguments_json?.artifact_id ? 'opening-preview' : '')
+}
+function verificationHasIssue(block: any): boolean {
+  if (!verificationKey(block)) return false
+  const e = block?.tool_execution?.result_json?.evidence
+  return !!e?.errors?.length || !!e?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request'].includes(e?.update_status)
 }
 
 /**
@@ -343,7 +368,7 @@ function buildGroup(run: any[]): BlockGroup {
  */
 export function computeBlockGroups(
   blocks: any[],
-  opts?: { minRun?: number; breakBefore?: (block: any) => boolean },
+  opts?: { minRun?: number; breakBefore?: (block: any) => boolean; executionStatus?: string },
 ): BlockGrouping {
   const minRun = opts?.minRun ?? MIN_GROUP_RUN
   const groupOf: Record<string, BlockGroup> = {}
@@ -351,7 +376,7 @@ export function computeBlockGroups(
   let run: any[] = []
 
   const flush = () => {
-    if (run.length >= minRun) {
+    if (run.length >= minRun || (run.length && verificationKey(run[0]))) {
       const g = buildGroup(run)
       headerAt[String(run[0]?.id ?? '')] = g
       for (const b of run) groupOf[String(b?.id ?? '')] = g
@@ -363,6 +388,16 @@ export function computeBlockGroups(
   for (let i = 0; i < list.length; i++) {
     const b = list[i]
     if (opts?.breakBefore?.(b)) flush()
+    const verification = verificationKey(b)
+    const previousVerification = run.length ? verificationKey(run[0]) : ''
+    if (verification) {
+      if (run.length && verification !== previousVerification) flush()
+      run.push(b)
+      continue
+    }
+    // Prose remains visible in the timeline while explicit verification tools stay grouped.
+    if (previousVerification && !b.tool_execution) continue
+    if (previousVerification) flush()
     const te = b?.tool_execution
     const groupableTool = !!te && GROUPABLE_TOOLS.has(te.tool_name) && !blockHasMessage(b)
     const errCls = classifyBlockError(b, i === list.length - 1)
@@ -378,5 +413,18 @@ export function computeBlockGroups(
     }
   }
   flush()
+  for (const group of Object.values(headerAt)) {
+    if (!group.verification || !opts?.executionStatus) continue
+    if (opts.executionStatus !== 'in_progress') {
+      group.active = false
+    } else {
+      const end = list.findIndex(b => String(b.id) === group.blockIds[group.blockIds.length - 1])
+      const waitingForNextCheck = list.slice(end + 1).every(b => !b.tool_execution && !blockHasMessage(b))
+      if (waitingForNextCheck) {
+        group.active = true
+        group.runningLabel ||= group.lastTitle
+      }
+    }
+  }
   return { groupOf, headerAt }
 }

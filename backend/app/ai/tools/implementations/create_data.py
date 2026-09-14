@@ -1751,7 +1751,19 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 "3. A list-typed parameter renders as an IN list: use `col IN :name`.\n"
                 "4. identity-source parameters carry the viewing user's identity — always "
                 "apply them as filters so each viewer sees only their rows.\n"
-                "5. Every declared parameter above MUST be read from `params` in the code."
+                "5. Every declared parameter above MUST be read from `params` in the code.\n"
+                "6. date_range is None or {'from': ISO_value, 'to': ISO_value}; either bound may be absent. "
+                "NEVER read start/end or index it as a list. Calendar dates are YYYY-MM-DD. "
+                "For calendar-day filters add the injectable `calendar_date_bounds` argument to generate_df, "
+                "then start, stop = calendar_date_bounds(params['declared_name']). It returns an inclusive "
+                "start and EXCLUSIVE next-day stop, independently None for open bounds. "
+                "Bind (:start IS NULL OR column >= :start) AND (:stop IS NULL OR column < :stop). "
+                "Use the actual column type and dialect's casts if needed; do not truncate timestamp precision. "
+                "This helper does NOT convert timezones: for timezone-aware columns convert each local midnight "
+                "using the known reporting/source timezone (next calendar day, not +24 hours); never guess UTC. "
+                "Exact timestamp ranges must bypass the calendar helper, read from/to independently, "
+                "preserve offsets and document boundary semantics. Do not mix calendar dates and timestamps. "
+                "If a source stores text dates, use its known storage format, not locale guessing."
             )
 
         # Build typed context via helper (use resolved active tables, not original patterns)
@@ -1814,6 +1826,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 sigkill_event=runtime_ctx.get("sigkill_event"),
                 loadable_resolver_fn=_loadables_resolver.resolve,
                 params=resolved_default_params,
+                param_specs=declared_param_specs,
             ):
                 if e["type"] == "progress":
                     # Map internal stage names to UI-friendly names

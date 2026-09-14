@@ -69,6 +69,7 @@ class CreateArtifactOutput(BaseModel):
     - title: the artifact title
     """
 
+    verification_hint: Optional[dict[str, Any]] = Field(default=None, description="Advisory interaction check: recommendation, focus, exact artifact version, and availability.")
     artifact_id: str = Field(..., description="ID of the created artifact in the database")
     code: str = Field(..., description="The generated React/JSX code")
     mode: str = Field(..., description="Artifact mode, eiither 'page' for dashboards/reports or 'slides' for presentation, deck or powerpoint export")

@@ -1515,7 +1515,26 @@
       "snapshot": "Sidans struktur",
       "snapshotted": "Läste sidan",
       "snapshotting": "Läser sidan",
-      "working": "Surfar"
+      "working": "Surfar",
+      "previewUnavailable": "Artifact preview is unavailable",
+      "verifying": "Verifying app interactions",
+      "interactionChecks": "Interaction checks",
+      "checkSummary": "{count} check · {title} | {count} checks · {title}",
+      "checkIssues": "{count} finding | {count} findings",
+      "checkedVersion": "Checked version {version}",
+      "updateState": "Backend update",
+      "queryEvidence": "{count} rows · {duration} ms",
+      "updateStates": {
+        "data_received": "Data update observed",
+        "pending": "Waiting for data",
+        "failed": "Update failed",
+        "parameter_mismatch": "Applied filters do not match",
+        "data_not_acknowledged": "Data has not reached the app",
+        "no_expected_request": "Expected query did not run",
+        "no_query_observed": "No backend query observed"
+      },
+      "emptyDateUnverified": "Datumfiltret gav inga rader. Det är ännu inte verifierat att det fungerar korrekt.",
+      "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "readFile": {
       "reading": "Läser {name}…",
@@ -2348,6 +2367,10 @@
         "allow_llm_see_data": {
           "name": "Låt LLM:en se data",
           "description": "Låter LLM:en se data som en del av analysen och användarnas frågor"
+        },
+        "enable_artifact_verification": {
+          "name": "Verifiera dataappar",
+          "description": "Låt agenten kontrollera interaktiva sidor med webbläsarverktyg. Kräver att språkmodellen får se data."
         },
         "enable_training_mode": {
           "name": "Träningsläge",
