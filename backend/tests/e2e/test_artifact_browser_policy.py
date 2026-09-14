@@ -501,3 +501,36 @@ def test_revoked_privacy_policy_withholds_navigation_evidence_at_tool_end(
 
 async def _run_snapshot(tool, session_id, ctx):
     return [event async for event in tool.run_stream({"session_id": session_id}, ctx)]
+
+
+@pytest.mark.e2e
+def test_preview_reads_authenticated_api_without_a_backend_listener(
+    monkeypatch, test_client, create_user, login_user, whoami, create_report,
+    update_organization_settings,
+):
+    """Internal reads must work without a network server or backend URL setting."""
+    import httpx
+    from app.services.artifact_preview_service import ArtifactPreviewService
+
+    report, token, org_id, user_id = _new_owner(create_user, login_user, whoami, create_report)
+    artifact_id = _save_artifact(test_client, report["id"], token, org_id)
+    _set_browser_settings(update_organization_settings, token, org_id, enabled=True)
+    ctx = _run(_runtime_context(report["id"], user_id, org_id))
+    monkeypatch.delenv("BOW_ARTIFACT_BACKEND_URL", raising=False)
+
+    async def no_network(*args, **kwargs):
+        raise httpx.ConnectError("Network connections are unavailable")
+
+    monkeypatch.setattr(httpx.AsyncHTTPTransport, "handle_async_request", no_network)
+
+    async def read_preview():
+        preview = ArtifactPreviewService(ctx)
+        try:
+            await preview.open(artifact_id)
+            assert preview.artifact["id"] == artifact_id
+            assert preview.artifact["report_id"] == report["id"]
+            assert isinstance(preview.queries, list)
+        finally:
+            await preview.close()
+
+    _run(read_preview())
