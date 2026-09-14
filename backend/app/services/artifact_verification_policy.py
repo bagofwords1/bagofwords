@@ -84,7 +84,7 @@ async def browser_policy(ctx, artifact_id=None):
         if current is None or current.report_type == "artifact_chat":
             return policy
         access = dict(current_user=user, organization=org, db=db)
-        if _enabled(config, "enable_artifact_verification"):
+        if _enabled(config, "enable_artifact_verification", True):
             stmt = select(Artifact.id).where(
                 Artifact.report_id == str(report.id), Artifact.organization_id == str(org.id),
                 Artifact.mode == "page", Artifact.deleted_at.is_(None),

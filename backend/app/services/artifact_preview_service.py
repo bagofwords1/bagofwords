@@ -60,8 +60,13 @@ class ArtifactPreviewService:
         strategy = get_jwt_strategy()
         strategy.lifetime_seconds = 600
         self.token = await strategy.write_token(self.ctx["user"])
+        # Dispatch through the running application: internal API reads must not
+        # depend on the development/container listening port. Import lazily so
+        # application startup can finish before any preview is opened.
+        from main import app
         self.client = httpx.AsyncClient(
-            base_url=os.getenv("BOW_ARTIFACT_BACKEND_URL", "http://127.0.0.1:8000"),
+            transport=httpx.ASGITransport(app=app, raise_app_exceptions=False),
+            base_url="http://artifact-internal",
             headers={"Authorization": f"Bearer {self.token}", "X-Organization-Id": self.org_id},
             timeout=60, follow_redirects=False, trust_env=False,
         )

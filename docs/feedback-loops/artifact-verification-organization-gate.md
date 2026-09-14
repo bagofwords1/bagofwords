@@ -7,6 +7,11 @@ target must itself meet those conditions. Existing connector browsing requires
 data visibility and an authorized, active, attached browser connector, independently
 of the artifact-verification setting. No deployment switch is involved.
 
+Verification now defaults ON for new organizations and configurations without
+the setting. Explicit stored OFF values remain OFF. Data visibility, page
+existence, and runtime authorization checks remain mandatory. The policy/API
+regression covers the default, explicit opt-out, re-enable, and privacy denial.
+
 ## Root cause
 
 At the preceding revision (`aca7cee23`), `agent_v2.py:806` advertised the internal
