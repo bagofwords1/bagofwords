@@ -41,12 +41,16 @@ from app.schemas.query_schema import QueryRunRequest
 def _missing_params(specs, supplied: Dict[str, Any]) -> List[MissingParam]:
     """Declared params with no value from either the caller or a default.
 
-    Identity-sourced params are excluded: they are resolved server-side from
-    the viewer and are never the caller's to supply.
+    Both identity-backed sources are excluded: 'identity' is never the
+    caller's to supply, and 'input_identity_default' falls back to the
+    viewer's own value, so neither is missing just because the caller sent
+    nothing and no static default exists. If such a binding does resolve to
+    None on a required param, resolve_param_values raises and the ParamError
+    branch reports it — this pre-check must not refuse a query that runs.
     """
     out: List[MissingParam] = []
     for spec in specs:
-        if spec.source == "identity":
+        if spec.source in ("identity", "input_identity_default"):
             continue
         if supplied.get(spec.name) is not None:
             continue

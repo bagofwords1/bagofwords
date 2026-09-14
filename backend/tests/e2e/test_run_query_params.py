@@ -353,3 +353,27 @@ def test_no_id_at_all_is_a_validation_error(report):
                          {"params": {"region": "DE"}}))
     assert payload["output"]["success"] is False
     assert payload["observation"]["error"]["type"] == "validation_error"
+
+
+@pytest.mark.e2e
+def test_identity_defaulted_param_is_not_reported_missing(report):
+    """An input_identity_default param takes its value from the viewer when the
+    caller sends none, so a missing static default must not block the run."""
+    IDENTITY_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    return pd.DataFrame([{"who": params["owner"], "revenue": 5}])
+"""
+    seeded = _run(_seed_query(
+        report["report_id"],
+        [_spec(name="owner", required=True, source="input_identity_default",
+               identity_binding="viewer.email")],
+        code=IDENTITY_CODE,
+    ))
+    payload = _run(_call(report["org_id"], report["user_id"], report["report_id"],
+                         {"query_id": seeded["query_id"]}))
+    out = payload["output"]
+
+    assert out["missing_params"] is None, "identity-defaulted params are not the caller's to supply"
+    assert out["success"], out.get("error")
+    assert "@" in out["data"]["rows"][0]["who"], "the viewer's own identity filled it"
