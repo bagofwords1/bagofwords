@@ -29,8 +29,10 @@
       </div>
     </Transition>
 
-    <!-- Result preview. Rendered from THIS run's rows — never re-hydrated from
-         the stored step, whose snapshot answers the query's default values. -->
+    <!-- Result preview. Rendered from THIS run's rows, and kept that way:
+         the preview recognises a run_query execution and re-requests the same
+         slice whenever it refreshes, rather than falling back to the query's
+         saved snapshot. -->
     <Transition name="fade">
       <div v-if="!detailsCollapsed && isSuccess && hasData">
         <ToolWidgetPreview
@@ -143,12 +145,12 @@ const hasData = computed<boolean>(() => {
 
 /**
  * ToolWidgetPreview renders from a step, but this run deliberately created
- * none. Hand it a synthetic one carrying THIS run's rows.
+ * none. Hand it a synthetic one carrying THIS run's rows, and the values they
+ * answer — `applied_params` seeds the card's parameter controls.
  *
- * The id is intentionally NOT the executed step's id: ReadQueryTool hydrates a
- * real step_id from /api/steps/{id}, which would replace these rows with the
- * stored snapshot — i.e. the default values — while the header still claimed
- * the requested ones.
+ * The preview derives the slice to re-request from the execution itself
+ * (deriveViewerRun), not from a prop here, so it survives being mounted again
+ * by the side panel from stored state.
  */
 const enhancedExecution = computed<any>(() => {
   const te: any = props.toolExecution
@@ -165,6 +167,7 @@ const enhancedExecution = computed<any>(() => {
     id: `run-query-${te?.id || 'result'}`,
     title: title.value || 'Untitled',
     data: rj.value.data || previewData,
+    applied_params: rj.value.applied_params || null,
     data_model: rj.value.data_model || { type: 'table' },
     view: rj.value.view || { type: rj.value.data_model?.type || 'table' },
     status: 'success',

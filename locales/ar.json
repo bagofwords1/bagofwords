@@ -979,6 +979,16 @@
       "retrying": "إعادة المحاولة · المحاولة {n}",
       "visualizing": "جارٍ التصور المرئي"
     },
+    "runQuery": {
+      "running": "جارٍ تشغيل \"{title}\"…",
+      "runningWith": "جارٍ تشغيل \"{title}\" بـ {params}…",
+      "ran": "تم تشغيل \"{title}\"",
+      "ranWith": "تم تشغيل \"{title}\" بـ {params}",
+      "failed": "تعذّر تشغيل \"{title}\"",
+      "needsInput": "\"{title}\" يحتاج إلى قيم للمعاملات",
+      "needsValues": "في انتظار قيم لـ:",
+      "cachedHint": "تم التقديم من نتيجتك المخزّنة مؤقتًا لهذه القيم — لم يُستعلم المصدر مجددًا"
+    },
     "createArtifact": {
       "creating": "جارٍ إنشاء العنصر",
       "created": "تم إنشاء العنصر",

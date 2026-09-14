@@ -979,6 +979,16 @@
       "retrying": "Nuovo tentativo · tentativo {n}",
       "visualizing": "Visualizzazione"
     },
+    "runQuery": {
+      "running": "Esecuzione di \"{title}\"…",
+      "runningWith": "Esecuzione di \"{title}\" con {params}…",
+      "ran": "\"{title}\" eseguita",
+      "ranWith": "\"{title}\" eseguita con {params}",
+      "failed": "Esecuzione di \"{title}\" non riuscita",
+      "needsInput": "\"{title}\" richiede valori dei parametri",
+      "needsValues": "In attesa di valori per:",
+      "cachedHint": "Servito dal tuo risultato in cache per questi valori; la fonte non è stata interrogata di nuovo"
+    },
     "createArtifact": {
       "creating": "Creazione dell'artefatto",
       "created": "Artefatto creato",

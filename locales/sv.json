@@ -979,6 +979,16 @@
       "retrying": "Försöker igen · försök {n}",
       "visualizing": "Visualiserar"
     },
+    "runQuery": {
+      "running": "Kör \"{title}\"…",
+      "runningWith": "Kör \"{title}\" med {params}…",
+      "ran": "Körde \"{title}\"",
+      "ranWith": "Körde \"{title}\" med {params}",
+      "failed": "Kunde inte köra \"{title}\"",
+      "needsInput": "\"{title}\" behöver parametervärden",
+      "needsValues": "Väntar på värden för:",
+      "cachedHint": "Levererat från ditt cachade resultat för dessa värden – källan frågades inte igen"
+    },
     "createArtifact": {
       "creating": "Skapar artefakt",
       "created": "Artefakt skapad",

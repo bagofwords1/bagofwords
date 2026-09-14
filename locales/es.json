@@ -993,6 +993,16 @@
       "retrying": "Reintentando · intento {n}",
       "visualizing": "Visualizando"
     },
+    "runQuery": {
+      "running": "Ejecutando \"{title}\"…",
+      "runningWith": "Ejecutando \"{title}\" con {params}…",
+      "ran": "Se ejecutó \"{title}\"",
+      "ranWith": "Se ejecutó \"{title}\" con {params}",
+      "failed": "No se pudo ejecutar \"{title}\"",
+      "needsInput": "\"{title}\" necesita valores de parámetros",
+      "needsValues": "Esperando valores para:",
+      "cachedHint": "Servido desde tu resultado en caché para estos valores; no se volvió a consultar la fuente"
+    },
     "createArtifact": {
       "creating": "Creando artefacto",
       "created": "Artefacto creado",

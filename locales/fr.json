@@ -979,6 +979,16 @@
       "retrying": "Nouvelle tentative · tentative {n}",
       "visualizing": "Visualisation"
     },
+    "runQuery": {
+      "running": "Exécution de « {title} »…",
+      "runningWith": "Exécution de « {title} » avec {params}…",
+      "ran": "« {title} » exécutée",
+      "ranWith": "« {title} » exécutée avec {params}",
+      "failed": "Échec de l’exécution de « {title} »",
+      "needsInput": "« {title} » nécessite des valeurs de paramètres",
+      "needsValues": "En attente de valeurs pour :",
+      "cachedHint": "Servi depuis votre résultat en cache pour ces valeurs ; la source n’a pas été réinterrogée"
+    },
     "createArtifact": {
       "creating": "Création de l'artefact",
       "created": "Artefact créé",
