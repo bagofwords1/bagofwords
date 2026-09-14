@@ -1,0 +1,15 @@
+Date compatibility regression reproduction (before root production edits)
+
+Command:
+TESTING=true .venv/bin/python -m pytest tests/unit/test_query_params.py tests/unit/test_artifact_browser_verification.py --confcutdir=tests/unit -q --tb=short -k 'date_range or date_ranges_reject or timestamp_comparison or date_ranges'
+
+Observed: 9 failed, 9 passed, 112 deselected (2.51s).
+
+Failures:
+- test_date_range_resolution_preserves_bounds_and_discards_ui_metadata: default date_range metadata rejected by coerce_param_value.
+- test_timestamp_comparison_preserves_fractional_precision_across_offsets (2 cases): date_range_issue did not exist, so the reversed range could not be diagnosed.
+- test_date_range_issue_marks_mixed_conventions_without_rejecting_resolution (2 cases): date_range_issue did not exist.
+- test_date_range_issue_accepts_open_bounds_and_compares_timezone_equivalent_instants: date_range_issue did not exist.
+- test_date_range_evidence_flags_ambiguous_successful_results_as_inconclusive (3 cases): successful query evidence had no mixed/reversed date-range result check.
+
+All listed failures reproduce the requested behavior gaps before the production change. Existing calendar-only helper and unrelated tests in this selection passed.

@@ -78,6 +78,10 @@ proof of a correct date filter. On zero rows inspect the existing query (read_qu
 and its from/to keys, boundary comparisons, source date format and timezone;
 repair a broken query via create_data and reconnect with edit_artifact. Calendar
 ranges use YYYY-MM-DD from/to; exact timestamps retain their precision/offset.
+Legacy queries may accept mixed or reversed bounds for compatibility. Treat
+mixed_date_range/reversed_date_range result checks as inconclusive: confirm the
+source semantics and final picker state rather than assuming acceptance proves
+correctness or silently converting/swapping bounds.
 Do not guess a timezone for naive timestamps or text columns. Inspect datasets
 and query evidence: result_truncated means displayed rows are only part of the
 result. Do not certify full totals from partial rows; use a backend aggregate

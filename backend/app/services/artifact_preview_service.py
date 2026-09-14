@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import httpx
 
-from app.ai.code_execution.query_params import param_values_equal
+from app.ai.code_execution.query_params import date_range_issue, param_values_equal
 from app.schemas.param_schema import parse_param_specs
 
 
@@ -310,8 +310,27 @@ class ArtifactPreviewService:
         result_checks = []
         date_names = {q["id"]: {p["name"] for p in q.get("parameters", []) or []
                                if p.get("type") in {"date", "date_range"}} for q in self.queries}
+        range_names = {q["id"]: {p["name"] for p in q.get("parameters", []) or []
+                                if p.get("type") == "date_range"} for q in self.queries}
+        range_messages = {
+            "mixed_date_range": "Range bounds mix calendar dates, naive timestamps or timezone-aware timestamps. Confirm the source timezone and endpoint semantics before verifying; do not infer conversions.",
+            "reversed_date_range": "Range starts after it ends. Check for an intermediate picker state and verify the final range against known data; do not silently swap bounds.",
+            "invalid_date_range": "Range does not contain valid ISO bounds. Inspect the declared parameter and submitted values before verifying.",
+        }
         for event in delta:
-            if event["kind"] != "query" or event.get("status") != "success":
+            if event["kind"] != "query":
+                continue
+            # Execution remains backward compatible; verification independently
+            # diagnoses questionable ranges, even when they return nonempty data.
+            values = event.get("applied_params")
+            if values is None:
+                values = event.get("submitted_params") or {}
+            for name in sorted(range_names.get(event["query_id"], set())):
+                issue = date_range_issue(values.get(name))
+                if issue:
+                    result_checks.append({"code": issue, "status": "inconclusive", "query_id": event["query_id"],
+                                          "parameters": [name], "message": range_messages[issue]})
+            if event.get("status") != "success":
                 continue
             if event.get("result_truncated"):
                 result_checks.append({"code": "partial_result", "status": "inconclusive", "query_id": event["query_id"],

@@ -163,9 +163,13 @@ def _preview_runtime_context():
     }
 
 
-async def _complete_query(service, action_id, *, applied_params, status="success", acknowledge=True):
+async def _complete_query(service, action_id, *, applied_params, status="success", acknowledge=True, data=None):
     service.action_id = action_id
-    service.client = _PreviewClient({"status": status, "applied_params": applied_params, "data": {"rows": []}})
+    service.client = _PreviewClient({
+        "status": status,
+        "applied_params": applied_params,
+        "data": data or {"rows": []},
+    })
     route = _PreviewRoute(params={"country": "CA"})
     await service.route(route)
     request_id = route.response["json"]["verification_request_id"]
@@ -560,6 +564,49 @@ async def test_empty_date_filtered_result_is_inconclusive_even_when_update_was_a
     evidence = service.evidence(since=0, update_status=status)
     assert status == "data_received"  # Transport succeeded; business correctness is a separate check.
     assert any(c["code"] == "empty_date_result" and c["status"] == "inconclusive" for c in evidence["result_checks"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("bounds", "issue"),
+    [
+        ({"from": "2024-06-02", "to": "2024-06-01"}, "reversed_date_range"),
+        ({"from": "2024-06-01", "to": "2024-06-02T12:00:00Z"}, "mixed_date_range"),
+        ({"from": "2024-06-01T12:00:00", "to": "2024-06-01T13:00:00Z"}, "mixed_date_range"),
+    ],
+)
+async def test_date_range_evidence_flags_ambiguous_successful_results_as_inconclusive(bounds, issue):
+    service = _preview_service()
+    service.queries = [{"id": "query-a", "parameters": [{"name": "period", "type": "date_range"}]}]
+    action_id = service.begin_action()
+    await _complete_query(service, action_id, applied_params={"period": bounds}, data={"rows": [{"id": 1}]})
+
+    status = await service.wait(action_id, {"query_ids": ["query-a"]}, timeout=0.01)
+    evidence = service.evidence(since=0, update_status=status)
+
+    assert status == "data_received"
+    assert evidence["queries"][0]["returned_rows"] == 1
+    assert {check["code"] for check in evidence["result_checks"]} == {issue}
+    assert all(check["status"] == "inconclusive" for check in evidence["result_checks"])
+
+
+@pytest.mark.asyncio
+async def test_open_date_range_bound_does_not_create_a_range_warning():
+    service = _preview_service()
+    service.queries = [{"id": "query-a", "parameters": [{"name": "period", "type": "date_range"}]}]
+    action_id = service.begin_action()
+    await _complete_query(
+        service,
+        action_id,
+        applied_params={"period": {"from": "2024-06-01"}},
+        data={"rows": [{"id": 1}]},
+    )
+
+    status = await service.wait(action_id, {"query_ids": ["query-a"]}, timeout=0.01)
+    evidence = service.evidence(since=0, update_status=status)
+
+    assert status == "data_received"
+    assert evidence["result_checks"] == []
 
 
 class _GetResponse:

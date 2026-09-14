@@ -75,6 +75,7 @@ FILTERING & PARAMETERS:
     Choices come from useParamOptions(name) (stable, host-resolved) — never from the rows the control filters. Bind option.value, not the label.
     Scalar params: <FilterSelect single selected={[values.name]} onChange={a => setParam('name', a[0] ?? null)} />; list params: multi-select submitting an array; null = All.
     date_range values are null or {from:'YYYY-MM-DD', to:'YYYY-MM-DD'}; either bound may be omitted. Never send start/end, locale-formatted dates or convert date-only selections through toISOString (which can shift the day). Exact timestamp values must match the query's documented timezone/offset and endpoint semantics; do not silently assume UTC. Reset clears both controls and backend bounds.
+    Keep date-picker draft bounds in local state while editing. Commit the complete range together only when both entered bounds are valid and ordered, or on Apply; preserve deliberate open bounds. Never send an intermediate reversed range after changing just one endpoint.
     source:'identity' params are locked to the viewer — render a "scoped to you" badge, never an input. Show useParams().loading and ALWAYS render useParams().error.
   Only declared params get controls; `declarations` may be empty.
 

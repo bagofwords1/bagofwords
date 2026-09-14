@@ -306,15 +306,39 @@ def test_date_parameters_reject_impossible_calendar_values(value):
         resolve_param_values([ParamSpec(name="period", type="date")], {"period": value})
 
 
-@pytest.mark.parametrize("value", [
+def test_date_range_resolution_preserves_bounds_and_discards_ui_metadata():
+    default = {
+        "from": "2024-06-01",
+        "to": "2024-06-01T12:00:00Z",
+        "preset": "custom",
+        "timezone": "UTC",
+    }
+    requested = {
+        "from": "2024-06-02T12:00:00+02:00",
+        "to": "2024-06-02T10:00:00.000000001Z",
+        "label": "Last day",
+        "timezone": "Europe/Paris",
+    }
+    specs = [ParamSpec(name="period", type="date_range", default=default)]
+
+    from_default = resolve_param_values(specs, None)["period"]
+    from_request = resolve_param_values(specs, {"period": requested})["period"]
+
+    assert from_default == {key: default[key] for key in ("from", "to")}
+    assert from_request == {key: requested[key] for key in ("from", "to")}
+
+
+@pytest.mark.parametrize("bounds", [
     {"from": "2024-06-02", "to": "2024-06-01"},
     {"from": "2024-06-01", "to": "2024-06-01T12:00:00Z"},
     {"from": "2024-06-01T12:00:00", "to": "2024-06-01T13:00:00Z"},
-    {"from": "2024-06-01", "end": "2024-06-02"},
 ])
-def test_date_ranges_reject_reversed_or_ambiguous_bounds(value):
-    with pytest.raises(ParamError):
-        resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": value})
+def test_legacy_date_ranges_resolve_unchanged_from_defaults_and_requests(bounds):
+    spec = ParamSpec(name="period", type="date_range", default=bounds)
+    expected = {key: bounds[key] for key in ("from", "to") if bounds.get(key) is not None}
+
+    assert resolve_param_values([spec], None)["period"] == expected
+    assert resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": bounds})["period"] == expected
 
 
 @pytest.mark.parametrize("access", ["params['window']", "params.get('window')", "params.get('window') or {}"])
@@ -341,6 +365,11 @@ def test_calendar_date_bounds_return_inclusive_start_and_exclusive_next_day(valu
 def test_calendar_date_bounds_reject_timestamp_bounds(value):
     with pytest.raises(ParamError):
         calendar_date_bounds(value)
+
+
+def test_calendar_date_bounds_reject_reversed_calendar_dates():
+    with pytest.raises(ParamError):
+        calendar_date_bounds({"from": "2024-06-02", "to": "2024-06-01"})
 
 
 @pytest.mark.parametrize("value", [
@@ -428,11 +457,48 @@ def test_timestamp_parameters_reject_invalid_offset_components(offset):
 
 @pytest.mark.parametrize("fraction", ["123456789", "12345678901234567890123456789"])
 def test_timestamp_comparison_preserves_fractional_precision_across_offsets(fraction):
-    from app.ai.code_execution.query_params import param_values_equal
+    from app.ai.code_execution.query_params import date_range_issue, param_values_equal
     spec = ParamSpec(name="instant", type="date")
     expected = "2024-02-29T12:00:00." + fraction + "Z"
     assert param_values_equal(spec, expected, "2024-02-29T14:00:00." + fraction + "+02:00")
     different = "2024-02-29T12:00:00." + fraction[:-1] + "8Z"
     assert not param_values_equal(spec, expected, different)
-    with pytest.raises(ParamError):
-        resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": {"from": expected, "to": different}})
+    bounds = {
+        "from": "2024-02-29T14:00:00." + fraction + "+02:00",
+        "to": different,
+    }
+    resolved = resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": bounds})["period"]
+    assert resolved == bounds
+    assert date_range_issue(resolved) == "reversed_date_range"
+
+
+@pytest.mark.parametrize("bounds", [
+    {"from": "2024-06-01", "to": "2024-06-01T12:00:00Z"},
+    {"from": "2024-06-01T12:00:00", "to": "2024-06-01T13:00:00Z"},
+])
+def test_date_range_issue_marks_mixed_conventions_without_rejecting_resolution(bounds):
+    from app.ai.code_execution.query_params import date_range_issue
+
+    resolved = resolve_param_values([ParamSpec(name="period", type="date_range")], {"period": bounds})["period"]
+    assert resolved == bounds
+    assert date_range_issue(resolved) == "mixed_date_range"
+
+
+def test_date_range_issue_accepts_open_bounds_and_compares_timezone_equivalent_instants():
+    from app.ai.code_execution.query_params import date_range_issue
+
+    assert date_range_issue({"from": "2024-06-01T10:00:00.123456789Z"}) is None
+    assert date_range_issue({
+        "from": "2024-06-01T12:00:00.123456789+02:00",
+        "to": "2024-06-01T10:00:00.123456789Z",
+    }) is None
+
+
+@pytest.mark.parametrize("bounds", [
+    {"from": "2024-02-30"},
+    {"from": "2024-01-01", "to": "not-a-date"},
+])
+def test_date_range_issue_identifies_invalid_bounds(bounds):
+    from app.ai.code_execution.query_params import date_range_issue
+
+    assert date_range_issue(bounds) == "invalid_date_range"

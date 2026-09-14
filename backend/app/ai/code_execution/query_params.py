@@ -87,11 +87,33 @@ def calendar_date_bounds(value: Any) -> tuple[str | None, str | None]:
     if any(len(v) != 10 for v in bounds.values()):
         raise ParamError("calendar_date_bounds accepts calendar dates only, not timestamps")
     start, end = bounds.get("from"), bounds.get("to")
+    if start and end and start > end:
+        raise ParamError("calendar_date_bounds: range 'from' must not be after 'to'")
     try:
         exclusive_end = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else None
     except OverflowError as exc:
         raise ParamError("date range upper bound has no representable following day") from exc
     return start, exclusive_end
+
+
+def date_range_issue(value: Any) -> str | None:
+    """Diagnose range semantics without changing legacy query execution.
+
+    Each endpoint retains its own date/timezone convention. Mixed conventions
+    need source-specific interpretation, so never invent a conversion or order.
+    """
+    try:
+        bounds = coerce_param_value(ParamSpec(name="date_range", type="date_range"), value) or {}
+    except ParamError:
+        return "invalid_date_range"
+    if "from" not in bounds or "to" not in bounds:
+        return None
+    start, end = (_temporal_key(bounds[k]) for k in ("from", "to"))
+    if start[0] != end[0]:
+        return "mixed_date_range"
+    if start[1:] > end[1:]:
+        return "reversed_date_range"
+    return None
 
 
 def param_values_equal(spec: ParamSpec, expected: Any, applied: Any) -> bool:
@@ -155,18 +177,14 @@ def coerce_param_value(spec: ParamSpec, value: Any) -> Any:
             raise ParamError(
                 f"param '{spec.name}': date_range must be an object with 'from'/'to'"
             )
-        if set(value) - {"from", "to"}:
-            raise ParamError(f"param '{spec.name}': date_range only accepts 'from'/'to' bounds")
+        # This also executes existing saved queries: retain their wire contract.
+        # UI metadata is discarded and valid bounds keep their original order
+        # and conventions. Semantic checks belong to the opt-in calendar helper
+        # and verification, not a new global rejection of legacy inputs.
         out = {}
         for k in ("from", "to"):
             if value.get(k) is not None:
                 out[k] = _coerce_scalar(ParamSpec(name=spec.name, type="date"), value[k])
-        if "from" in out and "to" in out:
-            start, end = (_temporal_key(out[k]) for k in ("from", "to"))
-            if start[0] != end[0]:
-                raise ParamError(f"param '{spec.name}': range bounds must use the same date/timestamp and timezone convention")
-            if start[1:] > end[1:]:
-                raise ParamError(f"param '{spec.name}': range 'from' must not be after 'to'")
         return out or None
     coerced = _coerce_scalar(spec, value)
     if spec.strict_options and spec.options:
