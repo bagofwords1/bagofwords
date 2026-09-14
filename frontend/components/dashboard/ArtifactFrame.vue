@@ -217,7 +217,7 @@
     </div>
 
     <!-- Iframe Container -->
-    <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+    <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
       <!-- View-as switch in flight: cover the pane with a spinner until the
            new identity (and any identity-scoped re-runs) fully settle, so the
            transient anonymous fallback never flashes as the final render. -->
@@ -445,6 +445,7 @@
       <!-- Polish Prompt Box -->
       <div
         v-if="polishPromptVisible"
+        ref="polishBoxRef"
         class="absolute z-30 w-80 bg-white dark:bg-gray-900 rounded-lg shadow-xl border border-gray-200 dark:border-gray-700 p-3"
         :style="polishPromptPosition"
       >
@@ -458,19 +459,23 @@
         <div class="text-[10px] text-gray-400 mb-2 font-mono bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 truncate">
           &lt;{{ polishSelectedElement?.tag?.toLowerCase() }}&gt; {{ polishSelectedElement?.text?.slice(0, 60) }}
         </div>
-        <form @submit.prevent="submitPolishPrompt" class="flex gap-2">
-          <input
+        <!-- Grows with the instruction up to ~6 lines, then scrolls, so a long
+             prompt stays readable. Enter applies; Shift+Enter breaks the line. -->
+        <form @submit.prevent="submitPolishPrompt" class="flex flex-col gap-2">
+          <textarea
             ref="polishInputRef"
             v-model="polishInstruction"
-            type="text"
+            rows="2"
+            dir="auto"
             placeholder="e.g. make this bigger, change colors..."
-            class="flex-1 text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            class="block w-full resize-none max-h-36 overflow-y-auto text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
+            @keydown.enter.exact="onPolishEnter"
             @keydown.escape="cancelPolishPrompt"
           />
           <button
             type="submit"
             :disabled="!polishInstruction.trim()"
-            class="px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            class="self-end px-3 py-1.5 bg-indigo-500 text-white text-sm rounded-md hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
           >
             {{ $t('artifactFrame.apply') }}
           </button>
@@ -538,6 +543,7 @@ import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { polishPromptPosition as computePolishPromptPosition } from '~/utils/polishPrompt';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -628,16 +634,39 @@ const iframeError = ref<string | null>(null);
 const isPolishMode = ref(false);
 const polishPromptVisible = ref(false);
 const polishInstruction = ref('');
-const polishInputRef = ref<HTMLInputElement | null>(null);
+const polishInputRef = ref<HTMLTextAreaElement | null>(null);
+const polishContainerRef = ref<HTMLElement | null>(null);
+const polishBoxRef = ref<HTMLElement | null>(null);
+const polishBoxHeight = ref(0);
 const polishSelectedElement = ref<{ tag: string; classes: string; text: string; htmlSnippet: string; rect: { top: number; left: number; width: number; height: number } } | null>(null);
 
 const polishPromptPosition = computed(() => {
   if (!polishSelectedElement.value?.rect) return { top: '50%', left: '50%' };
-  const r = polishSelectedElement.value.rect;
-  // Position below the element, clamped within the container
-  const top = Math.min(Math.max(r.top + r.height + 8, 8), 500);
-  const left = Math.min(Math.max(r.left, 8), 400);
+  // polishContainerRef is the inline pane the iframe fills, so the rect the
+  // iframe reports maps 1:1 onto it.
+  const { top, left } = computePolishPromptPosition(
+    polishSelectedElement.value.rect,
+    { width: polishBoxRef.value?.offsetWidth ?? 320, height: polishBoxHeight.value },
+    { width: polishContainerRef.value?.clientWidth ?? Infinity, height: polishContainerRef.value?.clientHeight ?? Infinity },
+  );
   return { top: top + 'px', left: left + 'px' };
+});
+
+watch(polishBoxRef, (el, _prev, onCleanup) => {
+  if (!el) return;
+  polishBoxHeight.value = el.offsetHeight;
+  const observer = new ResizeObserver(() => { polishBoxHeight.value = el.offsetHeight; });
+  observer.observe(el);
+  onCleanup(() => observer.disconnect());
+});
+
+// Fit the instruction box to its text; max-h caps it and scrolling takes over.
+watch(polishInstruction, async () => {
+  await nextTick();
+  const el = polishInputRef.value;
+  if (!el) return;
+  el.style.height = 'auto';
+  el.style.height = `${el.scrollHeight + el.offsetHeight - el.clientHeight}px`;
 });
 
 function togglePolishMode() {
@@ -670,6 +699,16 @@ function cancelPolishPrompt() {
   polishSelectedElement.value = null;
   polishInstruction.value = '';
   iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+}
+
+// Enter applies — except the Enter that commits an IME candidate (CJK input),
+// which would submit a half-written instruction. Chrome/Firefox flag it with
+// isComposing; Safari fires it after compositionend, where only keyCode 229
+// gives it away.
+function onPolishEnter(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  submitPolishPrompt();
 }
 
 function submitPolishPrompt() {

@@ -149,7 +149,8 @@
         <a v-if="report.general?.bow_credit !== false"
            href="https://bagofwords.com"
            target="_blank"
-           class="fixed z-[1000] bottom-5 end-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs hover:bg-gray-800 transition-colors">
+           :style="{ bottom: `${20 + cornerLift}px` }"
+           class="fixed z-[1000] end-5 block bg-black text-gray-200 font-light px-2 py-1 rounded-md text-xs hover:bg-gray-800 transition-colors">
             Made with <span class="font-bold text-white">Bag of words</span>
         </a>
 
@@ -271,6 +272,7 @@
             v-if="reportLoaded && report?.artifact_chat_enabled"
             :report-id="String($route.params.id)"
             :raised="report.general?.bow_credit !== false"
+            :lift="cornerLift"
         />
     </div>
 </template>
@@ -320,6 +322,13 @@ const isOwner = computed(() => {
     const userId = (currentUser.value as any)?.user?.id || (currentUser.value as any)?.id;
     return userId && report.value?.user?.id === userId;
 });
+
+// The badge and chat bubble share the bottom-end corner with Intercom's
+// launcher when a client-side navigation carried it over from the app (e.g.
+// the post-sign-in redirect). Stack them above it, not under it: the chat
+// panel opens upward from the bubble, so a launcher on top would cover it.
+const intercomClearance = useIntercomLauncherClearance();
+const cornerLift = computed(() => (intercomClearance.value ? intercomClearance.value - 8 : 0));
 
 // Top bar state
 const showTopBar = ref(true);
