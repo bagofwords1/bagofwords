@@ -29,14 +29,14 @@
       </div>
     </Transition>
 
-    <!-- Result preview. Rendered from THIS run's rows; `viewer-run` keeps it
-         that way, re-requesting the same slice whenever the card refreshes
-         rather than falling back to the query's saved snapshot. -->
+    <!-- Result preview. Rendered from THIS run's rows, and kept that way:
+         the preview recognises a run_query execution and re-requests the same
+         slice whenever it refreshes, rather than falling back to the query's
+         saved snapshot. -->
     <Transition name="fade">
       <div v-if="!detailsCollapsed && isSuccess && hasData">
         <ToolWidgetPreview
           :tool-execution="enhancedExecution"
-          :viewer-run="viewerRun"
           :readonly="readonly"
           :can-expand="canExpand"
           @editQuery="$emit('editQuery', $event)"
@@ -144,26 +144,13 @@ const hasData = computed<boolean>(() => {
 })
 
 /**
- * Which slice this card shows, so every hydration path in ToolWidgetPreview
- * re-requests THESE values instead of fetching the query's default step.
- *
- * A synthetic step id is not enough on its own: the preview derives its query
- * id from `result_json.query_id`, and the report serializer caps a card's rows
- * at 20 and marks it `truncated`, so a larger run would refetch the default
- * step on reload, expand or export and silently show the saved snapshot under
- * a header still naming the requested params.
- */
-const viewerRun = computed(() => {
-  const qid = rj.value.query_id
-  if (!qid || !isSuccess.value) return null
-  return { queryId: String(qid), params: appliedParams.value || {} }
-})
-
-/**
  * ToolWidgetPreview renders from a step, but this run deliberately created
  * none. Hand it a synthetic one carrying THIS run's rows, and the values they
- * answer — `applied_params` is what seeds the card's parameter controls and
- * what the hydration above re-requests.
+ * answer — `applied_params` seeds the card's parameter controls.
+ *
+ * The preview derives the slice to re-request from the execution itself
+ * (deriveViewerRun), not from a prop here, so it survives being mounted again
+ * by the side panel from stored state.
  */
 const enhancedExecution = computed<any>(() => {
   const te: any = props.toolExecution

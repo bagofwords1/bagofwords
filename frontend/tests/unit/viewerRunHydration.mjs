@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 
 import {
   cardHydrationRequest,
+  deriveViewerRun,
   stripIdentityParams,
 } from '../../utils/viewerRunHydration.ts'
 
@@ -120,6 +121,87 @@ assert.deepEqual(
 assert.deepEqual(
   stripIdentityParams({ region: 'DE' }, [null, {}, { source: 'identity' }]),
   { region: 'DE' },
+)
+
+// --- deriveViewerRun: the slice is read off the execution --------------------
+
+// The second regression (PR #1135 review, follow-up): the fix above only
+// worked where a prop was threaded in. "Open in panel" mounts a SECOND,
+// fresh ToolWidgetPreview from stored panel state — openInPanel emitted only
+// {toolExecution, title, visual}, panelData had no field for the run context,
+// and the panel component was mounted without it. So the panel fell back to
+// the default step: the same bug through a different door, and export from
+// the panel with it.
+//
+// Deriving from the execution closes every mount point at once, including any
+// added later, which is why it is not a prop.
+
+const runExec = {
+  id: 'te1',
+  tool_name: 'run_query',
+  result_json: {
+    success: true,
+    query_id: 'q1',
+    applied_params: { region: 'DE' },
+    data: { rows: [], columns: [] },
+  },
+}
+
+assert.deepEqual(
+  deriveViewerRun(runExec),
+  { queryId: 'q1', params: { region: 'DE' } },
+  'an inline run_query card describes its slice',
+)
+
+// The panel mounts the very same execution object out of panelData, with no
+// prop: it must reach the identical conclusion.
+const fromPanelState = { toolExecution: runExec, title: 'Sales by Region', visual: false, key: 'te1' }
+assert.deepEqual(
+  deriveViewerRun(fromPanelState.toolExecution),
+  { queryId: 'q1', params: { region: 'DE' } },
+  'the side panel resolves the same slice from stored state',
+)
+const panelReq = cardHydrationRequest({
+  viewerRun: deriveViewerRun(fromPanelState.toolExecution),
+  queryId: 'q1',
+  currentApplied: null,
+  paramSpecs: SPECS,
+})
+assert.equal(panelReq.url, '/api/queries/q1/run')
+assert.ok(!panelReq.url.includes('default_step'),
+  'the panel must not fetch the saved snapshot — it would replace the slice')
+
+// --- tools whose default step IS their result stay on the old path ----------
+
+for (const tool of ['create_data', 'describe_entity', 'read_query']) {
+  assert.equal(
+    deriveViewerRun({ tool_name: tool, result_json: { success: true, query_id: 'q1' } }),
+    null,
+    `${tool}: the default step is its result — fetching it is correct`,
+  )
+}
+
+// --- nothing to derive ------------------------------------------------------
+
+assert.equal(deriveViewerRun(null), null)
+assert.equal(deriveViewerRun({}), null)
+assert.equal(deriveViewerRun({ tool_name: 'run_query' }), null, 'no result_json yet (still running)')
+assert.equal(
+  deriveViewerRun({ tool_name: 'run_query', result_json: { success: false, error: 'boom', query_id: 'q1' } }),
+  null,
+  'a failed run has no slice to re-request',
+)
+assert.equal(
+  deriveViewerRun({ tool_name: 'run_query', result_json: { success: true } }),
+  null,
+  'no query id, nothing to run',
+)
+
+// A defaults-only run still describes a slice: {} means "the saved defaults",
+// which is exactly what the viewer-run endpoint should be asked for.
+assert.deepEqual(
+  deriveViewerRun({ tool_name: 'run_query', result_json: { success: true, query_id: 'q1' } }),
+  { queryId: 'q1', params: {} },
 )
 
 console.log('viewerRunHydration: all assertions passed')

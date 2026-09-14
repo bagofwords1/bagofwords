@@ -424,7 +424,7 @@
 import { computed, ref, watch, defineAsyncComponent, inject, onMounted, onUnmounted, unref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useMyFetch } from '~/composables/useMyFetch'
-import { cardHydrationRequest } from '~/utils/viewerRunHydration'
+import { cardHydrationRequest, deriveViewerRun } from '~/utils/viewerRunHydration'
 import RenderVisual from '../RenderVisual.vue'
 import RenderTable from '../RenderTable.vue'
 import Spinner from '../Spinner.vue'
@@ -461,14 +461,6 @@ const props = defineProps<{
   // Show the Edit button even in readonly mode (readonly hides the whole
   // bottom action bar; hosts like the Data modal want edit without the bar)
   canEdit?: boolean
-  /**
-   * This card shows ONE viewer-run parameter slice (run_query), not the
-   * query's saved snapshot. Set it and every hydration path re-requests that
-   * slice instead of fetching the default step, which answers different
-   * values. Without it a >20-row run reverts to the saved snapshot on reload,
-   * expand or export while the header still names the requested params.
-   */
-  viewerRun?: { queryId: string; params: Record<string, any> } | null
 }>()
 const emit = defineEmits(['toggleSplitScreen', 'editQuery', 'openDataPanel'])
 
@@ -549,6 +541,14 @@ const step = computed(() => {
   }
   return null
 })
+/**
+ * Non-null when this card shows one run_query parameter slice rather than the
+ * query's saved snapshot. Read off the execution so it survives every way the
+ * card gets mounted — inline in the transcript, and the separate component the
+ * side panel mounts from stored state.
+ */
+const viewerRun = computed(() => deriveViewerRun(props.toolExecution))
+
 const stepOverride = ref<any | null>(null)
 const effectiveStep = computed(() => stepOverride.value || step.value)
 
@@ -913,7 +913,7 @@ async function loadReportSnapshotIfNeeded() {
  */
 async function fetchCardStep(): Promise<any | null> {
   const req = cardHydrationRequest({
-    viewerRun: props.viewerRun,
+    viewerRun: viewerRun.value,
     queryId: queryId.value,
     currentApplied: cardAppliedParams.value,
     paramSpecs: cardParamSpecs.value,
@@ -943,7 +943,7 @@ async function fetchCardStep(): Promise<any | null> {
 async function hydrateLatestStep() {
   isHydratingStep.value = true
   try {
-    if (props.viewerRun?.queryId || queryId.value) {
+    if (viewerRun.value?.queryId || queryId.value) {
       const fetched = await fetchCardStep()
       if (fetched) stepOverride.value = JSON.parse(JSON.stringify(fetched))
       return
@@ -1468,11 +1468,11 @@ onMounted(() => {
           const fetched = await fetchCardStep()
           if (fetched) {
             stepOverride.value = JSON.parse(JSON.stringify(fetched))
-          } else if (detail.step && !props.viewerRun?.queryId) {
+          } else if (detail.step && !viewerRun.value?.queryId) {
             stepOverride.value = JSON.parse(JSON.stringify(detail.step))
           }
         } catch {
-          if (detail.step && !props.viewerRun?.queryId) {
+          if (detail.step && !viewerRun.value?.queryId) {
             stepOverride.value = JSON.parse(JSON.stringify(detail.step))
           }
         }
@@ -1560,7 +1560,7 @@ async function handleEntitySaved() {
 
   // Refresh the step to get the updated created_entity_id
   try {
-    if (queryId.value || props.viewerRun?.queryId) {
+    if (queryId.value || viewerRun.value?.queryId) {
       const fetched = await fetchCardStep()
       if (fetched) {
         stepOverride.value = JSON.parse(JSON.stringify(fetched))

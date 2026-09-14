@@ -59,6 +59,31 @@ export function stripIdentityParams(
 }
 
 /**
+ * The slice a tool execution represents, read off the execution itself.
+ *
+ * Derived rather than passed down, because the card is mounted from more than
+ * one place: the transcript renders it inline, and "Open in panel" mounts a
+ * SECOND, fresh component from stored panel state. A prop threaded through the
+ * first path silently fails to reach the second — the panel then falls back to
+ * the default step and shows the saved snapshot, which is the same defect by a
+ * different door. Reading the run context from the execution closes every
+ * mount point at once, including ones added later.
+ *
+ * Only run_query executions describe a slice: for create_data and
+ * describe_entity the query's default step IS their result, so fetching it is
+ * correct there and must stay untouched.
+ */
+export function deriveViewerRun(toolExecution: any): ViewerRun | null {
+  const te = toolExecution
+  if (!te || te.tool_name !== 'run_query') return null
+  const rj = te.result_json
+  if (!rj || rj.success !== true) return null
+  const qid = rj.query_id
+  if (!qid) return null
+  return { queryId: String(qid), params: rj.applied_params || {} }
+}
+
+/**
  * The request that refreshes this card.
  *
  * `currentApplied` is the slice the card is showing right now — after someone
