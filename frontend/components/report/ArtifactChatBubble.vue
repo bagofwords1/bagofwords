@@ -2,11 +2,13 @@
     <!-- Floating chat for the shared artifact page /r/{id}. Small on purpose:
          a bubble that opens a single-thread panel. The thread is private to
          this viewer (backend keeps it on a hidden per-viewer chat report). -->
-    <!-- `raised` clears the "Made with Bag of words" badge pinned bottom-end. -->
-    <div :class="['fixed end-4 z-[1001] flex flex-col items-end', raised ? 'bottom-16' : 'bottom-4']" data-testid="artifact-chat">
+    <!-- `raised` clears the "Made with Bag of words" badge pinned bottom-end;
+         `lift` (px) clears anything stacked under both, e.g. Intercom's launcher. -->
+    <div class="fixed end-4 z-[1001] flex flex-col items-end" :style="{ bottom: `${bottomPx}px` }" data-testid="artifact-chat">
         <!-- Panel -->
         <div v-if="open"
-            class="mb-3 w-[360px] max-w-[calc(100vw-2rem)] h-[480px] max-h-[calc(100dvh-7rem)] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl flex flex-col overflow-hidden"
+            class="mb-3 w-[360px] max-w-[calc(100vw-2rem)] h-[480px] bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-xl shadow-xl flex flex-col overflow-hidden"
+            :style="{ maxHeight: `calc(100dvh - ${bottomPx + 96}px)` }"
             data-testid="artifact-chat-panel">
             <!-- Header -->
             <div class="flex items-center justify-between px-3 py-2 border-b border-gray-100 dark:border-gray-800 flex-shrink-0">
@@ -129,10 +131,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, computed, nextTick } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 
-const props = defineProps<{ reportId: string; raised?: boolean }>()
+const props = defineProps<{ reportId: string; raised?: boolean; lift?: number }>()
+
+const bottomPx = computed(() => (props.raised ? 64 : 16) + (props.lift || 0))
 
 const open = ref(false)
 const status = ref<any>(null)
