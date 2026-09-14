@@ -16,7 +16,11 @@ to each other. This migration splits identity from history:
   mode, title);
 - backfill is deliberately cheap: every existing version row gets a parent of
   its own (no lineage reconstruction — re-pointing ``artifact_id`` later can
-  merge chains); version numbers are not touched;
+  merge chains); version numbers are not touched. The parent REUSES its
+  version's id, which is what marks it as backfilled: new parents always get
+  a fresh uuid, so "artifact_id equals the id of one of its versions" holds
+  for pre-migration history only (ChatSummary relies on it to regroup old
+  chains without merging new, distinct artifacts);
 - ``artifact_id`` then becomes NOT NULL with a UNIQUE(artifact_id, version),
   and ``title`` / ``mode`` leave the version rows.
 
@@ -32,7 +36,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-import uuid
 
 
 # revision identifiers, used by Alembic.
@@ -55,63 +58,25 @@ _OLD_INDEXES = (
     'ix_artifacts_report_created',
 )
 
-_CHUNK = 500
-
-
-def _parents_table_lite() -> sa.Table:
-    # Timestamp columns deliberately untyped: the backfill re-inserts whatever
-    # the raw SELECT returned — datetime objects on Postgres, strings on
-    # SQLite — and a sa.DateTime() bind would reject the SQLite strings.
-    return sa.table(
-        'artifacts',
-        sa.column('id'),
-        sa.column('report_id'),
-        sa.column('organization_id'),
-        sa.column('created_by'),
-        sa.column('mode'),
-        sa.column('title'),
-        sa.column('created_at'),
-        sa.column('updated_at'),
-        sa.column('deleted_at'),
-    )
-
-
 def _backfill_parents(conn) -> int:
     """One parent per existing version row (decision D4: no lineage guessing).
 
     Copies report/org/user->created_by/mode/title and the row's timestamps —
     deleted_at included, so a soft-deleted version does not resurface as a
-    live artifact in parent-table scans. Returns the number of parents made.
+    live artifact in parent-table scans. The parent takes its version's id
+    (the backfill marker — see the module docstring). Two set-based
+    statements: no row ever leaves the database, so timestamps keep their
+    native type on both dialects. Returns the number of parents made.
     """
-    rows = conn.execute(sa.text(
+    conn.execute(sa.text(
+        "INSERT INTO artifacts "
+        "(id, report_id, organization_id, created_by, mode, title, "
+        "created_at, updated_at, deleted_at) "
         "SELECT id, report_id, organization_id, user_id, mode, title, "
         "created_at, updated_at, deleted_at FROM artifact_versions"
-    )).fetchall()
-
-    parents = []
-    links = []
-    for r in rows:
-        parent_id = str(uuid.uuid4())
-        parents.append({
-            'id': parent_id,
-            'report_id': r.report_id,
-            'organization_id': r.organization_id,
-            'created_by': r.user_id,
-            'mode': r.mode,
-            'title': r.title,
-            'created_at': r.created_at,
-            'updated_at': r.updated_at,
-            'deleted_at': r.deleted_at,
-        })
-        links.append({'aid': parent_id, 'vid': r.id})
-
-    parents_t = _parents_table_lite()
-    for i in range(0, len(parents), _CHUNK):
-        conn.execute(sa.insert(parents_t), parents[i:i + _CHUNK])
-    update_sql = sa.text("UPDATE artifact_versions SET artifact_id = :aid WHERE id = :vid")
-    for i in range(0, len(links), _CHUNK):
-        conn.execute(update_sql, links[i:i + _CHUNK])
-    return len(parents)
+    ))
+    conn.execute(sa.text("UPDATE artifact_versions SET artifact_id = id"))
+    return conn.execute(sa.text("SELECT count(*) FROM artifacts")).scalar()
 
 
 def upgrade() -> None:

@@ -3,7 +3,8 @@
 Two layers of protection for existing customer data:
 
 - `_backfill_parents` in isolation: every pre-migration version row gets a
-  parent of its own (decision D4 — no lineage guessing), every identity field
+  parent of its own (decision D4 — no lineage guessing) under the version's
+  own id (the backfill marker), every identity field
   is copied (deleted_at included, so soft-deleted versions don't resurface as
   live artifacts), and version numbers are never touched.
 - The full upgrade → downgrade round trip through the real alembic chain:
@@ -120,6 +121,9 @@ def test_backfill_gives_every_version_row_its_own_parent(tmp_path):
     assert len({v["artifact_id"] for v in version_rows}) == 3
 
     for v, seed in zip(version_rows, rows):
+        # The parent reuses its version's id — the backfill marker the
+        # frontend uses to regroup pre-migration chains.
+        assert v["artifact_id"] == v["id"]
         parent = parent_rows[v["artifact_id"]]
         assert parent["title"] == seed["title"]
         assert parent["mode"] == seed["mode"]
@@ -178,11 +182,15 @@ def test_artver01_upgrade_downgrade_round_trip(tmp_path):
             n_null = conn.execute(sa.text(
                 "SELECT count(*) FROM artifact_versions WHERE artifact_id IS NULL"
             )).scalar()
+            n_unmarked = conn.execute(sa.text(
+                "SELECT count(*) FROM artifact_versions WHERE artifact_id != id"
+            )).scalar()
             version_cols = {
                 r[1] for r in conn.execute(sa.text("PRAGMA table_info(artifact_versions)"))
             }
         assert n_parents == 3
         assert n_null == 0
+        assert n_unmarked == 0
         assert "title" not in version_cols and "mode" not in version_cols
 
         command.downgrade(cfg, "codeperm01")

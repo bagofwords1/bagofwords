@@ -15,11 +15,21 @@ class Artifact(BaseSchema):
     Rows are tiny (five scalar columns), so report-level scans — "does this
     report have artifacts", "which modes" — read this table instead of
     walking version rows.
+
+    Parents backfilled by migration artver01 (one per pre-migration version
+    row) reuse that version's id; parents made since always get a fresh one.
+    The frontend reads that as "pre-migration history" — never pass a
+    version id where an artifact id is expected: it only happens to resolve
+    on old data.
     """
     __tablename__ = 'artifacts'
 
     report_id = Column(String(36), ForeignKey('reports.id'), nullable=False, index=True)
-    report = relationship("Report", back_populates="artifacts", lazy="selectin")
+    # lazy="select", not selectin: the factory and the service load parents
+    # with a bare db.get() to rename / soft-delete them, and a selectin here
+    # would pull the Report and its whole selectin graph (completions,
+    # queries -> steps, widgets, ...) into every such call.
+    report = relationship("Report", back_populates="artifacts", lazy="select")
 
     # Organization for multi-tenancy
     organization_id = Column(String(36), ForeignKey('organizations.id'), nullable=False, index=True)

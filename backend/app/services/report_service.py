@@ -2526,14 +2526,20 @@ class ReportService:
                 from app.models.artifact import Artifact
                 base_conditions.append(
                     Report.id.in_(
-                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                        select(Artifact.report_id).where(
+                            Artifact.report_id.isnot(None),
+                            Artifact.deleted_at.is_(None),
+                        )
                     )
                 )
             elif has_artifacts == 'no':
                 from app.models.artifact import Artifact
                 base_conditions.append(
                     ~Report.id.in_(
-                        select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                        select(Artifact.report_id).where(
+                            Artifact.report_id.isnot(None),
+                            Artifact.deleted_at.is_(None),
+                        )
                     )
                 )
 
@@ -2622,6 +2628,7 @@ class ReportService:
                     for rid, am_mode in (await db.execute(
                         select(Artifact.report_id, Artifact.mode).where(
                             Artifact.report_id.in_(report_ids),
+                            Artifact.deleted_at.is_(None),
                         )
                     )).all():
                         modes_by_report.setdefault(str(rid), set()).add(am_mode)
@@ -2843,7 +2850,9 @@ class ReportService:
 
                 # Summary counts (from batched GROUP BY queries above)
                 report_schema.query_count = query_counts.get(str(report.id), 0)
-                report_schema.artifact_count = len(report.artifacts or [])
+                # Live parents only — same rule as the detail path's COUNT.
+                live_artifacts = [a for a in (report.artifacts or []) if a.deleted_at is None]
+                report_schema.artifact_count = len(live_artifacts)
 
                 # Active scheduled prompts (from batch query)
                 active_sp_count = active_sp_counts.get(str(report.id), 0)
@@ -2861,7 +2870,7 @@ class ReportService:
 
                 # Compute unique artifact modes for this report (parents)
                 report_schema.artifact_modes = list(set(
-                    a.mode for a in (report.artifacts or []) if a.mode
+                    a.mode for a in live_artifacts if a.mode
                 ))
 
                 # Thumbnail URL from the batched version-row pick above.

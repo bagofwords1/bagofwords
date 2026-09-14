@@ -1,6 +1,7 @@
 from typing import Any, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import defer, lazyload, load_only
 
 from app.models.artifact import Artifact, ArtifactVersion
@@ -93,6 +94,23 @@ async def next_version_number(db: AsyncSession, source: ArtifactVersion) -> int:
     return max_version + 1
 
 
+# A lost numbering race is retried this many times before it surfaces.
+_MINT_ATTEMPTS = 3
+
+
+def _is_version_number_collision(exc: IntegrityError) -> bool:
+    """True when ``exc`` is uq_artifact_versions_artifact_version firing.
+
+    Postgres names the constraint; SQLite only lists its columns. Any other
+    integrity failure (a broken FK, ...) is not a race and must propagate.
+    """
+    message = str(exc.orig)
+    return (
+        "uq_artifact_versions_artifact_version" in message
+        or "artifact_versions.artifact_id, artifact_versions.version" in message
+    )
+
+
 async def new_version(
     db: AsyncSession,
     source: ArtifactVersion,
@@ -111,8 +129,13 @@ async def new_version(
     move between artifacts, and mode is fixed there. ``user_id`` (the author
     of this version) defaults to the source's. Passing ``title`` RENAMES the
     parent, i.e. every version of this artifact at once.
+
+    Two writers can read the same max(version) at once; the loser's INSERT
+    then hits uq_artifact_versions_artifact_version. Each attempt runs in a
+    SAVEPOINT, so a lost race undoes only that INSERT — never the caller's
+    transaction — and is retried with a freshly read number.
     """
-    version = ArtifactVersion(
+    fields = dict(
         artifact_id=str(source.artifact_id),
         report_id=_id(source.report_id),
         user_id=_id(user_id) or _id(source.user_id),
@@ -121,10 +144,22 @@ async def new_version(
         generation_prompt=generation_prompt,
         completion_id=completion_id,
         status=status,
-        version=await next_version_number(db, source),
         **version_fields,
     )
-    db.add(version)
+    for attempt in range(_MINT_ATTEMPTS):
+        version = ArtifactVersion(**fields, version=await next_version_number(db, source))
+        try:
+            async with db.begin_nested():
+                db.add(version)
+                await db.flush([version])
+            break
+        except IntegrityError as exc:
+            # The savepoint rollback expunges the pending row; make sure a
+            # later flush can't retry the colliding INSERT regardless.
+            if version in db:
+                db.expunge(version)
+            if not _is_version_number_collision(exc) or attempt == _MINT_ATTEMPTS - 1:
+                raise
     if title is not None and title != source.title:
         parent = await db.get(Artifact, str(source.artifact_id))
         if parent is not None:

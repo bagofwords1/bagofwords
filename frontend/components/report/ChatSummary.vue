@@ -290,28 +290,38 @@ const defaultArtifactId = computed(() => {
 const artifactGroups = computed(() => {
   // Pass 1: bucket by parent artifact id — versions of the same
   // dashboard/deck/doc stay together whatever their titles say.
+  const rows = props.artifactList || []
   const byArtifact = new Map<string, any[]>()
-  for (const art of props.artifactList || []) {
-    const key = String(art?.artifact_id || `${art?.mode || 'unknown'}::${art?.title || ''}`)
+  for (const art of rows) {
+    const key = String(art?.artifact_id || art?.id)
     if (!byArtifact.has(key)) byArtifact.set(key, [])
     byArtifact.get(key)!.push(art)
   }
   // Pass 2: pre-migration history has one parent PER VERSION (the backfill
   // deliberately refused to guess lineage), so artifact_id alone would
-  // explode an old 7-edit dashboard into 7 rows. Single-version groups merge
-  // by kind+title — how those rows relate historically — while real chains
-  // keep their own identity.
+  // explode an old 7-edit dashboard into 7 rows. Backfilled parents reuse
+  // their original version's id (migration artver01) — new parents never do —
+  // so a group holding a version whose id IS the artifact_id is old history:
+  // those merge by kind+title, even after a post-migration edit has grown
+  // one of them into a chain. Everything else keeps its own identity, so two
+  // new dashboards that happen to share a title stay two rows.
   const merged = new Map<string, any[]>()
-  for (const versions of byArtifact.values()) {
-    const key = versions.length === 1
-      ? `single:${versions[0]?.mode || 'unknown'}::${versions[0]?.title || ''}`
-      : `chain:${versions[0]?.artifact_id || versions[0]?.id}`
+  for (const [artifactId, versions] of byArtifact) {
+    const backfilled = versions.some((v: any) => String(v?.id) === artifactId)
+    const key = backfilled
+      ? `legacy:${versions[0]?.mode || 'unknown'}::${versions[0]?.title || ''}`
+      : `artifact:${artifactId}`
     if (!merged.has(key)) merged.set(key, [])
     merged.get(key)!.push(...versions)
   }
-  // props.artifactList is already created_at DESC and both passes preserve
-  // that order, so each bucket's first entry is its newest version and the
-  // most-recently-touched artifact sorts first.
+  // props.artifactList is created_at DESC. Merging legacy groups can
+  // interleave their versions, so restore that order inside each bucket;
+  // its first entry is then its newest version, and Map insertion order
+  // leaves the most-recently-touched artifact first.
+  const position = new Map(rows.map((a: any, i: number) => [a, i]))
+  for (const versions of merged.values()) {
+    versions.sort((a, b) => position.get(a)! - position.get(b)!)
+  }
   return Array.from(merged.values()).map((versions) => ({
     latest: versions[0],
     older: versions.slice(1),

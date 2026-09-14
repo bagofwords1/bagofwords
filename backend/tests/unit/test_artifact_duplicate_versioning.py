@@ -193,6 +193,76 @@ def test_constructor_refuses_title_and_mode():
         ArtifactVersion(mode="page")
 
 
+def _stale_numbering(monkeypatch, stale_reads: int) -> list[int]:
+    """Make the first ``stale_reads`` max(version) reads lag one behind — what a
+    writer sees when a concurrent request mints the same number first."""
+    from app.services import artifact_service
+
+    real = artifact_service.next_version_number
+    handed_out: list[int] = []
+
+    async def lagging(db, source):
+        number = await real(db, source)
+        if len(handed_out) < stale_reads:
+            number -= 1
+        handed_out.append(number)
+        return number
+
+    monkeypatch.setattr(artifact_service, "next_version_number", lagging)
+    return handed_out
+
+
+@pytest.mark.asyncio
+async def test_lost_numbering_race_retries_with_the_next_free_number(report_context, monkeypatch):
+    """The loser of a numbering race lands on the next free number, and only
+    its own INSERT is undone — the caller's earlier work in the same
+    transaction survives (the retry runs in a SAVEPOINT)."""
+    db, doc_v1_id, report_id, user_id = report_context
+    from app.services.artifact_service import new_version
+
+    doc_v1 = await ArtifactService().get(db, doc_v1_id)
+    # Caller's pending work from before the race.
+    report = await db.get(Report, report_id)
+    report.title = "Retitled before the race"
+
+    handed_out = _stale_numbering(monkeypatch, stale_reads=1)
+    minted = await new_version(db, doc_v1, user_id=user_id, content={"markdown": "v3"})
+    await db.commit()
+
+    assert handed_out == [2, 3], "first attempt collides on v2, the retry takes v3"
+    assert minted.version == 3
+    db.expire_all()
+    doc_numbers = sorted(
+        a.version for a in await ArtifactService().list_by_report(db, report_id) if a.mode == "doc"
+    )
+    assert doc_numbers == [1, 2, 3], "no duplicate and no gap left behind by the lost attempt"
+    assert (await db.get(Report, report_id)).title == "Retitled before the race"
+
+
+@pytest.mark.asyncio
+async def test_numbering_race_gives_up_after_bounded_attempts(report_context, monkeypatch):
+    """A number that keeps colliding surfaces as the IntegrityError after a
+    bounded number of tries — and still leaves the caller's transaction
+    usable."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.services.artifact_service import _MINT_ATTEMPTS, new_version
+
+    db, doc_v1_id, report_id, user_id = report_context
+    doc_v1 = await ArtifactService().get(db, doc_v1_id)
+
+    handed_out = _stale_numbering(monkeypatch, stale_reads=10**6)
+    with pytest.raises(IntegrityError):
+        await new_version(db, doc_v1, user_id=user_id, content={"markdown": "never"})
+
+    assert len(handed_out) == _MINT_ATTEMPTS
+    await db.commit()  # the outer transaction was never poisoned
+    doc_numbers = sorted(
+        a.version for a in await ArtifactService().list_by_report(db, report_id) if a.mode == "doc"
+    )
+    assert doc_numbers == [1, 2]
+
+
 @pytest.mark.asyncio
 async def test_revert_never_collides_with_an_existing_version(report_context):
     """Whatever the scope, the new number must be free within its own kind."""
