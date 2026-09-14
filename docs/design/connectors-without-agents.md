@@ -110,10 +110,10 @@ guard). The set of seeded/enabled connectors *is* the allowlist.
 - `useConnectionSignIn.ts` + `needsSignIn()` + "Connect" badge — per-user OAuth redirect (now triggers DCR).
 
 **Built this pass:**
-1. ✅ **MCP presets + `GET /connectors/catalog`** — the named connectors (Notion, Linear, Monday, Sentry, Jira/Atlassian + GitHub/Gmail) live as a flat `MCP_PRESETS: list[McpPreset]` in the registry module, each `key`/`title`/`server_url`/`transport`/`auth`. They are **named instances of `type="mcp"`**, not types of their own — the MCP runtime, DCR, and OAuth all gate on `connection.type == "mcp"`, so a brand can't be a registry type. Helpers: `mcp_presets()`, `mcp_preset(key)`, `allowed_dcr_hosts()` (DCR SSRF guard).
+1. ✅ **MCP presets + `GET /connectors/catalog`** — the named connectors (Notion, Linear, Monday, Sentry, Jira/Atlassian + GitHub/Gmail) live as a flat `MCP_PRESETS: list[McpPreset]` in the registry module, each `key`/`title`/`server_url`/`transport`/`auth`. They are **named instances of `type="mcp"`**, not types of their own — the MCP runtime, DCR, and OAuth all gate on `connection.type == "mcp"`, so a brand can't be a registry type. Helpers: `mcp_presets()`, `mcp_preset(key)`. Presets are a convenience layer only — they prefill the form; they do not gate which servers may be connected. Discovery and DCR run against whatever `server_url` the connection carries, since choosing which third-party services to integrate is the org admin's call.
 2. ✅ **Catalog tiles in `AddConnectionModal`** — a "Connectors" section renders the presets as named one-click tiles with provider icons; picking one opens `MCPConnectionForm` **prefilled** (server URL + DCR/oauth_app/bearer). DCR tiles show a "registers itself (DCR)" note in the form. Provider icons flow end-to-end via `connector_key` (connection `config.catalog_key` → list serializer → `DataSourceIcon :connector-key`). The catalog + data-source grid share one scroll container.
 3. ✅ **`data_shape`-scoped license gate** (`_user_auth_needs_enterprise`) — per-user auth free for `tools`/`files`/`objects`, Enterprise only for `tables`. *Verified (unit).*
-4. ✅ **DCR SSRF guard** — `ensure_mcp_oauth_config` restricts discovery/registration to catalog hosts. *Verified (non-catalog host blocked).*
+4. ✅ **DCR against any admin-configured server** — `ensure_mcp_oauth_config` discovers and registers against whatever `server_url` the connection carries. It was originally restricted to catalog hosts; that gate made every non-preset server fail `oauth/authorize` with a bare 400 *after* Verify had already reported the server healthy, so it was removed. *Verified (unit + a mock MCP server on a non-catalog host, end to end).*
 5. ✅ **Post-connect tool discovery** — OAuth callback refreshes a tool-provider's tools with the user's token so integration agents get callable tools after Connect.
 6. ✅ **DCR auth option in `MCPConnectionForm`** — "Sign in (auto-register / DCR)" choice needing only `server_url` (adds a custom DCR MCP; per-user OAuth).
 
@@ -344,6 +344,11 @@ when an `mcp` OAuth connection has no `client_id`.
 
 **Guardrail:** DCR only against **catalog entries or an admin host-allowlist** (SSRF / rogue
 server); HTTPS + expected issuer; encrypt creds; honour RFC 7592 on connector delete.
+
+> **Superseded.** The host-allowlist half of this guardrail shipped and was then removed: it
+> blocked every legitimate non-preset server (see "Built this pass" item 4). Admins choose which
+> third-party services their org integrates, so the connection's `server_url` is authoritative.
+> The remaining items (resource binding, encrypted creds, RFC 7592) still stand.
 
 ---
 

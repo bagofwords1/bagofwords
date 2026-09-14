@@ -1,8 +1,8 @@
-"""Unit tests for the MCP connector presets, data_shape license gate, and DCR SSRF guard."""
+"""Unit tests for the MCP connector presets and the data_shape license gate."""
 import pytest
 
 from app.schemas.data_source_registry import (
-    mcp_presets, mcp_preset, allowed_dcr_hosts,
+    mcp_presets, mcp_preset,
 )
 from app.services.connection_service import (
     ConnectionService, _user_auth_needs_enterprise, _looks_like_auth_challenge,
@@ -39,13 +39,6 @@ def test_license_gate_is_data_shape_scoped():
     assert _user_auth_needs_enterprise("postgresql") is True
     # Unknown type → conservative (gated).
     assert _user_auth_needs_enterprise("totally_unknown_type") is True
-
-
-def test_dcr_allowlist_includes_preset_hosts_only():
-    hosts = allowed_dcr_hosts()
-    assert "mcp.notion.com" in hosts and "mcp.monday.com" in hosts
-    assert "auth.atlassian.com" in hosts  # AS host differs from resource host
-    assert "evil.example.com" not in hosts
 
 
 # ── Preset-scoped form defaults ────────────────────────────────────────────
@@ -173,12 +166,6 @@ def test_hubspot_is_a_services_tile_and_serializes():
     assert hs["transport"] == "streamable_http"
     assert hs["title"] == "HubSpot"
     assert hs["oauth_defaults"]["authorize_url"].startswith("https://mcp.hubspot.com/")
-
-
-def test_hubspot_host_enters_the_discovery_allowlist():
-    # allowed_dcr_hosts() derives from preset hosts, so adding the tile widens
-    # the SSRF allowlist by exactly this host and nothing else.
-    assert "mcp.hubspot.com" in allowed_dcr_hosts()
 
 
 def test_scope_normalization_comma_or_space():

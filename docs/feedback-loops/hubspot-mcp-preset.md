@@ -39,9 +39,9 @@ $ curl -s https://mcp.hubspot.com/.well-known/oauth-authorization-server
  "code_challenge_methods_supported":["S256"], ...}   # no registration_endpoint
 ```
 
-`mcp.hubspot.com` still enters `allowed_dcr_hosts()` (it is derived from preset
-`server_url` hosts). That is harmless: `ensure_mcp_oauth_config` fails closed on
-the missing `registration_endpoint` with an explicit message.
+That is harmless: `ensure_mcp_oauth_config` fails closed on the missing
+`registration_endpoint` with an explicit message. (Discovery is no longer gated
+on a host allowlist — see `docs/design/connectors-without-agents.md`.)
 
 **2. `server_url` is the bare origin — HubSpot serves MCP at the root path.**
 `https://mcp.hubspot.com/mcp` is a 404. This is the only preset in the list

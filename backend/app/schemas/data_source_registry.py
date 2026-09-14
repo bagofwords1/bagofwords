@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional, Type
-from urllib.parse import urlsplit
 
 from pydantic import BaseModel
 
@@ -2324,11 +2323,6 @@ def list_available_data_sources(include_tool_providers: bool = True) -> list[dic
     ]
 
 
-# Authorization-server hosts that differ from the resource host (for the DCR
-# SSRF allowlist below).
-_EXTRA_DCR_HOSTS = {"auth.atlassian.com", "cf.mcp.atlassian.com", "github.com"}
-
-
 def mcp_presets() -> list[dict]:
     """The named MCP catalog presets (Notion, Linear…) as plain dicts. Powers
     `GET /connectors/catalog` and the connector tiles."""
@@ -2420,20 +2414,6 @@ def custom_api_presets() -> list[dict]:
 
 def custom_api_preset(key: str) -> Optional[CustomApiPreset]:
     return next((p for p in CUSTOM_API_PRESETS if p.key == key), None)
-
-
-def allowed_dcr_hosts() -> set:
-    """Hostnames DCR discovery/registration may target (SSRF guard): every
-    preset server_url host plus the known authorization-server hosts. Non-preset
-    custom URLs require an explicit admin allowlist (not implemented here)."""
-    hosts = set()
-    for p in MCP_PRESETS:
-        if p.server_url:
-            h = urlsplit(p.server_url).netloc
-            if h:
-                hosts.add(h)
-    hosts.update(_EXTRA_DCR_HOSTS)
-    return hosts
 
 
 def config_schema_for(ds_type: str) -> Type[BaseModel]:
