@@ -390,6 +390,14 @@ FORBIDDEN_ATTRIBUTES = frozenset({
     '__cached__', '__annotations__',
 })
 
+# Private and dunder attributes are blocked wholesale below (an escape hides in
+# the ones nobody thought to enumerate), but a few are pure, safe reads that
+# generated code legitimately needs. `__name__` is one: FORBIDDEN_ATTRIBUTES
+# lists `__class__` and deliberately omits it, and the coder prompt mandates
+# `type(model).__name__` (never `model.__class__.__name__`) for branching on
+# estimator kind. It evaluates to a plain string and exposes no object graph.
+ALLOWED_PRIVATE_ATTRIBUTES = frozenset({'__name__'})
+
 
 # Modules that exist only to train models. They are not a security risk, so
 # they are NOT in FORBIDDEN_MODULES; they are gated by the organization's
@@ -500,7 +508,9 @@ class CodeSecurityVisitor(ast.NodeVisitor):
 
     def visit_Attribute(self, node: ast.Attribute):
         # Check for direct access to forbidden attributes like obj.__class__
-        if node.attr in FORBIDDEN_ATTRIBUTES or node.attr.startswith("_"):
+        if node.attr in FORBIDDEN_ATTRIBUTES or (
+            node.attr.startswith("_") and node.attr not in ALLOWED_PRIVATE_ATTRIBUTES
+        ):
             self.errors.append(f"Forbidden attribute access: '{node.attr}'")
         self.generic_visit(node)
 

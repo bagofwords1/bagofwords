@@ -26,7 +26,7 @@ Run:
 """
 import uuid
 import asyncio
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from sqlalchemy import select
@@ -69,7 +69,9 @@ async def _agent(org_id, name, policies, base):
 
 
 async def _seed():
-    base = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    # `created_at` is TIMESTAMP WITHOUT TIME ZONE: asyncpg rejects a tz-aware
+    # value for it, while SQLite accepts one, so keep these seeds naive UTC.
+    base = datetime(2026, 1, 1)
     async with async_session_maker() as db:
         org = Organization(name=f"Channel Org {uuid.uuid4().hex[:8]}")
         db.add(org)

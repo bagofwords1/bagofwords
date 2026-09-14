@@ -741,9 +741,14 @@ class TestFailureClassification:
         _install_post(client, [
             _make_response(DATASOURCES_ONE),
             _make_response(CATALOGS_TWO),
+            # With a catalog configured, test_connection() also lists its cubes
+            # (a third POST). The rowset carries no catalog name, so the shared
+            # cubes fixture serves Planning as well as Finance.
+            _make_response(CUBES_FINANCE),
         ])
         result = client.test_connection()
         assert result["success"] is True
+        assert result["cubes"] == 1
         assert result["worker_url"] == "http://203.0.113.5:8210/BI/APP/SOAP/OLAPDB/Planning"
         assert "Worker URL" in result["message"]
 
