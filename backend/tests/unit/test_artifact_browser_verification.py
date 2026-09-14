@@ -464,7 +464,7 @@ async def test_data_visibility_policy_denies_preview_before_authorized_transport
 
 
 @pytest.mark.asyncio
-async def test_browser_session_cannot_be_reused_across_user_org_report_or_execution():
+async def test_internal_preview_cannot_be_reused_across_user_org_report_or_execution():
     from pathlib import Path
     from playwright.async_api import async_playwright
     from app.ai.tools.implementations._browser_common import BrowserSessionManager
@@ -475,7 +475,7 @@ async def test_browser_session_cannot_be_reused_across_user_org_report_or_execut
     ctx = {'organization': SimpleNamespace(id='tenant-a'), 'user': SimpleNamespace(id='member-a'),
            'report': SimpleNamespace(id='report-a'), 'agent_execution_id': 'run-a'}
     try:
-        session = await manager.open('report-a', ['https://example.test/*'], False, runtime_ctx=ctx)
+        session = await manager.open('report-a', ['https://example.test/*'], False, runtime_ctx=ctx, preview=ArtifactPreviewService(ctx))
         assert manager.get(session.session_id, ctx) is session
         assert manager.get(session.session_id) is None
         for key in ('organization', 'user', 'report', 'agent_execution_id'):
@@ -507,3 +507,25 @@ async def test_expected_filter_values_derive_all_affected_authorized_queries():
     action_id = service.begin_action()
     await _complete_query(service, action_id, applied_params={'country': 'CA', 'genre': 2})
     assert await service.wait(action_id, {'params': {'genre': 2}}, timeout=0) == 'data_received'
+
+
+@pytest.mark.asyncio
+async def test_connector_browser_session_survives_a_turn_for_the_same_authorized_user():
+    from pathlib import Path
+    from playwright.async_api import async_playwright
+    from app.ai.tools.implementations._browser_common import BrowserSessionManager
+    async with async_playwright() as p:
+        if not Path(p.chromium.executable_path).exists():
+            pytest.skip('Preprovisioned Chromium is required for the session contract')
+    manager = BrowserSessionManager()
+    ctx = {'organization': SimpleNamespace(id='tenant-connector'), 'user': SimpleNamespace(id='member-a'),
+           'report': SimpleNamespace(id='report-connector'), 'agent_execution_id': 'first-turn'}
+    try:
+        session = await manager.open('report-connector', ['https://example.test/*'], False, runtime_ctx=ctx)
+        await manager.close_execution('first-turn')
+        following = {**ctx, 'agent_execution_id': 'following-turn'}
+        assert manager.get(session.session_id, following) is session
+        assert await manager.open('report-connector', ['https://example.test/*'], False, runtime_ctx=following) is session
+        assert manager.get(session.session_id, {**following, 'user': SimpleNamespace(id='another-member')}) is None
+    finally:
+        await manager.close_report('report-connector')

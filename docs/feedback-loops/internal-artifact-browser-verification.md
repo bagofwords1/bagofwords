@@ -81,7 +81,7 @@ The before/after grouping comparison uses the same saved conversation at the sam
 - `BOW_ARTIFACT_PREVIEW_URL` selects the reachable frontend origin; `BOW_ARTIFACT_BACKEND_URL` selects the broker's backend origin. Defaults use the configured frontend and `http://127.0.0.1:8000` backend.
 - Chromium and vendor assets must already be installed in the deployment image. Verification performs no browser/runtime downloads. A fresh air-gapped container and PostgreSQL were **not** exercised in this local pass.
 - The broker permits only the artifact's declared viewer-query path plus scoped reads/assets. Normal viewer identity and query guards still apply. Arbitrary writes and MCP calls are blocked; this is not a new write-capable bridge or a database transaction-level read-only guarantee.
-- Sessions are isolated by organization, user, report, and execution, with bounded calls, query runs, and lifetime. Access is rechecked on subsequent operations. Data-visibility denial returns no prior evidence.
+- Internal preview sessions are isolated by organization, user, report, and execution, with bounded calls, query runs, and lifetime. Access is rechecked on subsequent operations. Data-visibility denial returns no prior evidence.
 - A runtime acknowledgement proves delivery to the runtime, not semantic correctness. The model must compare visible results and appropriate expectations. Heuristic verification hints and bounded checks cannot guarantee every generated app is correct.
 - Legacy/shared-viewer behavior is covered by surrounding tests; the live demonstrations used the authorized report owner. Other roles and withheld-snapshot deployments require their normal viewer access and may return a scoped unavailable result.
 
@@ -89,7 +89,7 @@ The before/after grouping comparison uses the same saved conversation at the sam
 
 | Check | Observed result |
 | --- | --- |
-| Focused verifier + runtime compatibility suite | 51 passed, 0 skipped; [output](internal-artifact-browser-verification/final-focused-tests.txt) |
+| Focused verifier + browser + runtime compatibility suite | 79 passed, 0 skipped; [output](internal-artifact-browser-verification/final-focused-tests.txt) |
 | Surrounding artifact/browser/context regressions | 190 passed, 2 failed on both base and this change, 1 skipped |
 | Production frontend build | Passed in 255.17 seconds; no replacement server started |
 | Four-parameter combination | Country + genre + 2021 date range + minimum line revenue applied to both queries; reset restored $2,328.60; [evidence](internal-artifact-browser-verification/date-combination-results.json) |
@@ -109,3 +109,5 @@ The skipped surrounding test is the existing live-Babel gate, which defers when 
 The cache-version mismatch and native-select regression introduced during development were fixed and covered by the final green focused suite. The library's verification revision changes its cache URL while keeping runtime generation 11, preserving legacy-edit semantics.
 
 The title-change recording is accelerated **4×**; the filter/detail recording is real time. Localhost links require the user's existing database and are supplementary examples, not dependencies of the isolated tests.
+
+The connector lifecycle regression also failed before the fix ([red output](internal-artifact-browser-verification/connector-lifecycle-red.txt)) and passed afterward. Internal previews close at execution end; ordinary connector browsers retain their authorized user/report session across turns. Another user still cannot reuse it. The final 79-test pass includes both contracts and the existing browser tests.

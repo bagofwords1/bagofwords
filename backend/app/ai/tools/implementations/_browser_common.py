@@ -323,25 +323,28 @@ class BrowserSessionManager:
 
     def get(self, session_id: str, runtime_ctx=None) -> Optional[BrowserSession]:
         s = self._sessions.get(session_id)
-        if s and s.scope is not None and (runtime_ctx is None or s.scope != self.scope_for(runtime_ctx)):
+        if s and s.scope is not None and (runtime_ctx is None or s.scope != self.scope_for(runtime_ctx, internal=s.preview is not None)):
             return None
         if s:
             s.touch()
         return s
 
     @staticmethod
-    def scope_for(ctx):
-        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (str(ctx.get("agent_execution_id") or ""),)
+    def scope_for(ctx, *, internal=True):
+        # Connector browsers keep their authorized report session across turns;
+        # an internal preview belongs only to the execution that opened it.
+        execution = str(ctx.get("agent_execution_id") or "") if internal else ""
+        return tuple(str(getattr(ctx.get(k), "id", "")) for k in ("organization", "user", "report")) + (execution,)
 
     async def close_execution(self, execution_id):
         for sid, s in list(self._sessions.items()):
-            if s.scope and s.scope[-1] == str(execution_id):
+            if s.preview and s.scope and s.scope[-1] == str(execution_id):
                 await self._close(sid)
 
     async def open(self, report_id: str, patterns: List[str], allow_downloads: bool, *, runtime_ctx=None, preview=None, viewport=None) -> BrowserSession:
         from playwright.async_api import async_playwright
 
-        scope = self.scope_for(runtime_ctx) if runtime_ctx else None
+        scope = self.scope_for(runtime_ctx, internal=preview is not None) if runtime_ctx else None
         session_id = str(uuid4()) if scope else str(report_id)
         async with self._lock:
             await self._evict_idle()
