@@ -1,4 +1,11 @@
-from pydantic import BaseModel, Field, model_validator, field_validator, field_serializer
+from pydantic import (
+    BaseModel,
+    Field,
+    computed_field,
+    field_serializer,
+    field_validator,
+    model_validator,
+)
 from typing import List, Optional
 from datetime import datetime
 from app.schemas.view_schema import ViewSchema
@@ -36,6 +43,24 @@ class StepSchema(StepBase):
 
     class Config:
         from_attributes = True
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def error_code(self) -> Optional[str]:
+        """``no_access`` when this step failed because the identity was refused.
+
+        Derived from ``status_reason`` against the server's own constant rather
+        than stored, so it needs no column and cannot drift from the sentence
+        the reader is actually shown. It is what lets the dashboard tell "you
+        may not read this" apart from "this query broke" for the step's OWNER —
+        ``viewer_result.error_code`` only ever exists for a VIEWER, so a forker
+        looking at their own partly-hydrated fork had no signal at all.
+        """
+        from app.services.access_errors import NO_ACCESS_CODE, NO_ACCESS_REASON
+
+        if self.status == "error" and self.status_reason == NO_ACCESS_REASON:
+            return NO_ACCESS_CODE
+        return None
 
     @field_validator("data", "data_model", mode="before")
     @classmethod

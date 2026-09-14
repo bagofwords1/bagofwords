@@ -355,6 +355,38 @@ async def fork_report(
     new_report = await fork_service.fork_report(
         db, report_id, current_user, title=body.title,
     )
+    # A fork of a delegated source lands with its queries empty — no rows and
+    # no SQL — and is filled in by running them under the forker's own
+    # credentials. That is N round trips to the provider, so it runs detached
+    # and the fork id is returned now. Nothing pushes the result to the open
+    # page: charts stay empty until hydration commits and the page reloads.
+    # `spawn` (not bare create_task) keeps the task from being collected
+    # mid-run. Empty mapping for system-only forks, which are already complete.
+    pending_code = getattr(new_report, "pending_code", None)
+    if pending_code:
+        from app.core.fire_and_forget import spawn
+
+        spawn(fork_service.hydrate_fork(
+            fork_id=str(new_report.id),
+            user_id=str(current_user.id),
+            # The FORK's org, not the request's active one. Eligibility gates on
+            # membership in the SOURCE report's org, and the fork is created
+            # there too, so a user who belongs to two orgs can fork a report in
+            # one while browsing as the other. Hydration resolves org settings
+            # (and, for a report with no attached agents, the agent roster
+            # itself) from this id, so the request's org would run the fork's
+            # queries under the wrong org's limits and feature gates.
+            organization_id=str(new_report.organization_id),
+            pending_code=pending_code,
+        ))
+    elif getattr(new_report, "needs_thumbnail", False):
+        # An RLS-only fork copies its rows but not the creator's picture of
+        # them, and has no hydration pass to draw a replacement — so it is
+        # asked for here, after the fork's own transaction has committed.
+        from app.core.fire_and_forget import spawn
+        from app.services.thumbnail_service import ThumbnailService
+
+        spawn(ThumbnailService().regenerate_for_report(str(new_report.id)))
     await audit_service.log(
         db=db,
         organization_id=organization.id,
@@ -371,6 +403,23 @@ async def fork_report(
         forked_from_id=report_id,
         slug=new_report.slug,
     )
+
+
+@router.get("/reports/{report_id}/fork_status")
+@requires_permission('view_reports', model=Report)
+async def get_fork_status(
+    report_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Whether a freshly created fork is still being filled in.
+
+    A fork of a delegated source is returned before its queries have run under
+    the forker's credentials; the report page polls this and waits instead of
+    rendering an empty dashboard, then loads once hydration has settled.
+    """
+    return {"hydrating": await fork_service.is_hydrating(db, report_id)}
 
 
 @router.post("/reports/{report_id}/notify", response_model=NotifyResponse)
