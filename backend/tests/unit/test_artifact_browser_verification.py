@@ -529,3 +529,30 @@ async def test_connector_browser_session_survives_a_turn_for_the_same_authorized
         assert manager.get(session.session_id, {**following, 'user': SimpleNamespace(id='another-member')}) is None
     finally:
         await manager.close_report('report-connector')
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("kind", "expected", "applied"), [
+    ("id", 7, "7"),
+    ("date_range", {"from": "2024-03-01", "to": None}, {"from": "2024-03-01"}),
+    ("date_range", {"from": "2024-03-01T08:00:00Z"}, {"from": "2024-03-01T10:00:00+02:00"}),
+])
+async def test_preview_compares_parameter_values_using_the_declared_type(kind, expected, applied):
+    service = _preview_service()
+    service.queries = [{"id": "query-a", "parameters": [{"name": "period", "type": kind}]}]
+    action = service.begin_action()
+    await _complete_query(service, action, applied_params={"period": applied})
+    assert await service.wait(action, {"params": {"period": expected}}, timeout=0.01) == "data_received"
+
+
+@pytest.mark.asyncio
+async def test_empty_date_filtered_result_is_inconclusive_even_when_update_was_acknowledged():
+    service = _preview_service()
+    service.queries = [{"id": "query-a", "parameters": [{"name": "period", "type": "date_range"}]}]
+    action = service.begin_action()
+    bounds = {"from": "2024-03-01", "to": "2024-03-31"}
+    await _complete_query(service, action, applied_params={"period": bounds})
+    status = await service.wait(action, {"params": {"period": bounds}}, timeout=0.01)
+    evidence = service.evidence(since=0, update_status=status)
+    assert status == "data_received"  # Transport succeeded; business correctness is a separate check.
+    assert any(c["code"] == "empty_date_result" and c["status"] == "inconclusive" for c in evidence["result_checks"])

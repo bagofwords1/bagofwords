@@ -1550,6 +1550,7 @@
         "no_expected_request": "La consulta esperada no se ejecutó",
         "no_query_observed": "No se observó ninguna consulta"
       },
+      "emptyDateUnverified": "El filtro de fechas no devolvió filas. Aún no se ha verificado que funcione correctamente.",
       "partialRows": "Se muestran {returned} de {total} filas; los totales pueden estar incompletos."
     },
     "readFile": {

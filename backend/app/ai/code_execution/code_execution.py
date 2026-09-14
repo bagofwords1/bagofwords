@@ -1371,7 +1371,9 @@ class StreamingCodeExecutor:
         working unchanged. `params` is always a dict (possibly empty) when the
         function asks for it, so `params.get(...)` never explodes.
         """
+        from app.ai.code_execution.query_params import calendar_date_bounds
         injectables = {
+            "calendar_date_bounds": calendar_date_bounds,
             "http": http_client,
             "load_step": load_step,
             "load_entity": load_entity,
@@ -1756,6 +1758,7 @@ class StreamingCodeExecutor:
         sigkill_event=None,
         loadable_resolver_fn: Optional[Callable] = None,
         params: Optional[Dict] = None,
+        param_specs: Optional[List] = None,
     ):
         """
         V2: Typed context-based generator. Yields the same event shapes as v1.
@@ -1864,6 +1867,10 @@ class StreamingCodeExecutor:
             try:
                 if sigkill_event and hasattr(sigkill_event, 'is_set') and sigkill_event.is_set():
                     break
+                from app.ai.code_execution.query_params import check_date_range_code, ParamError
+                date_errors = check_date_range_code(final_code, param_specs or [])
+                if date_errors:
+                    raise ParamError("; ".join(date_errors))
                 _t_exec = _time.monotonic()
                 # Fresh per-attempt capture — on success we keep these; on
                 # exception the wrapper's partial writes still reach the outer

@@ -62,7 +62,7 @@ TOKEN UTILITIES (Tailwind classes that follow the theme; prefer these over raw c
 DATA ACCESS:
   const data = useArtifactData();           // null while loading → render <LoadingSpinner/>; then { report, visualizations, files, current_user }
   const sales = vizById("<uuid>");          // ID-KEYED, MANDATORY: copy the uuid from the `id` of each viz in YOUR VISUALIZATIONS. Never viz[N].
-  sales.rows                                 // Sample vs full data: the prompt shows a ≤100-row SAMPLE; at runtime `rows` is the FULL dataset (row_count is the true size)
+  sales.rows                                 // Sample vs full data: the prompt shows a ≤100-row SAMPLE; runtime `rows` may still be capped by the organization limit; compare rows.length to row_count/info.total_rows before aggregating. Full-population KPIs require backend aggregates when rows are partial
   sales.columns                              // [{ field, headerName, dtype, unique_count }] — read cells as row[column.field]
   Aggregate with reduce/Map; never hardcode values; guard nullish values before string methods: String(v ?? '').
 
@@ -74,6 +74,7 @@ FILTERING & PARAMETERS:
     setParam('<declared name>', value) re-runs the declaring queries at the source; fresh rows arrive through useArtifactData().
     Choices come from useParamOptions(name) (stable, host-resolved) — never from the rows the control filters. Bind option.value, not the label.
     Scalar params: <FilterSelect single selected={[values.name]} onChange={a => setParam('name', a[0] ?? null)} />; list params: multi-select submitting an array; null = All.
+    date_range values are null or {from:'YYYY-MM-DD', to:'YYYY-MM-DD'}; either bound may be omitted. Never send start/end, locale-formatted dates or convert date-only selections through toISOString (which can shift the day). Exact timestamp values must match the query's documented timezone/offset and endpoint semantics; do not silently assume UTC. Reset clears both controls and backend bounds.
     source:'identity' params are locked to the viewer — render a "scoped to you" badge, never an input. Show useParams().loading and ALWAYS render useParams().error.
   Only declared params get controls; `declarations` may be empty.
 

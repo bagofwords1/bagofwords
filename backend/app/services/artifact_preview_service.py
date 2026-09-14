@@ -16,6 +16,9 @@ from uuid import uuid4
 
 import httpx
 
+from app.ai.code_execution.query_params import param_values_equal
+from app.schemas.param_schema import parse_param_specs
+
 
 class ArtifactPreviewService:
     def __init__(self, runtime_ctx: dict):
@@ -254,10 +257,18 @@ class ArtifactPreviewService:
             completed = {e["query_id"] for e in events if e["kind"] == "query"}
             committed = any(e["kind"] in {"params_commit", "query_started"} for e in events)
             queries = [e for e in events if e["kind"] == "query" and (not ids or e["query_id"] in ids)]
-            declared = {q["id"]: {p["name"] for p in q.get("parameters", []) or []} for q in self.queries}
-            mismatched = any(any((e.get("applied_params") or {}).get(k) != v
-                                 for k, v in expected_params.items()
-                                 if k in declared.get(e["query_id"], expected_params)) for e in queries)
+            declared = {q["id"]: {p.name: p for p in parse_param_specs(q.get("parameters"))} for q in self.queries}
+            mismatched = False
+            for event in queries:
+                specs = declared.get(event["query_id"])
+                applied = event.get("applied_params") or {}
+                for name, expected in expected_params.items():
+                    if specs is not None and name not in specs:
+                        continue
+                    spec = (specs or {}).get(name)
+                    matches = param_values_equal(spec, expected, applied.get(name)) if spec else applied.get(name) == expected
+                    if name not in applied or not matches:
+                        mismatched = True
             acknowledged = set().union(*(self.revisions.get(e.get("data_revision"), set())
                                          for e in events if e["kind"] == "data_received"))
             received = bool(queries) and all(e.get("request_id") in acknowledged for e in queries)
@@ -285,7 +296,23 @@ class ArtifactPreviewService:
         start = self.delivered if since is None else since
         delta = [e for e in self.events if e["cursor"] > start]
         self.delivered = self.cursor
+        result_checks = []
+        date_names = {q["id"]: {p["name"] for p in q.get("parameters", []) or []
+                               if p.get("type") in {"date", "date_range"}} for q in self.queries}
+        for event in delta:
+            if event["kind"] != "query" or event.get("status") != "success":
+                continue
+            if event.get("result_truncated"):
+                result_checks.append({"code": "partial_result", "status": "inconclusive", "query_id": event["query_id"],
+                                      "message": "Returned rows are partial. Do not verify full totals from these rows; use backend aggregates or label the app's scope."})
+            active_dates = [name for name in date_names.get(event["query_id"], set())
+                            if (event.get("applied_params") or {}).get(name) is not None]
+            if active_dates and event.get("returned_rows") == 0:
+                result_checks.append({"code": "empty_date_result", "status": "inconclusive", "query_id": event["query_id"],
+                                      "parameters": sorted(active_dates),
+                                      "message": "A date-filtered query returned zero rows. This does not prove the filter works. Test a range containing a known record and inspect the query's date-bound handling before claiming success."})
         return {
+            "result_checks": result_checks,
             "warnings": [e for e in delta if e["kind"] == "warning"][-10:],
             "queries": [e for e in delta if e["kind"] == "query"][-20:],
             "errors": [e for e in delta if e["kind"] in {"error", "blocked"}][-10:],

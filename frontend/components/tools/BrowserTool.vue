@@ -38,6 +38,7 @@
             <div v-if="q.result_truncated" class="text-amber-600 dark:text-amber-400">{{ $t('tools.browser.partialRows', { returned: q.returned_rows, total: q.total_rows }) }}</div>
             <pre class="whitespace-pre-wrap break-all mt-1">{{ JSON.stringify(q.applied_params) }}</pre>
           </div>
+          <div v-if="rj.evidence?.result_checks?.some((c: any) => c.code === 'empty_date_result')" class="text-amber-600 dark:text-amber-400">{{ $t('tools.browser.emptyDateUnverified') }}</div>
           <div v-for="(e, i) in rj.evidence?.errors || []" :key="i" class="text-amber-600 dark:text-amber-400">{{ e.message || e.error }}</div>
         </div>
 
@@ -124,7 +125,7 @@ const doneLabel = computed(() => {
 })
 const headerIcon = computed(() => isError.value ? 'heroicons-globe-alt' : 'heroicons-globe-alt')
 const iconColor = computed(() => {
-  if (rj.value?.evidence?.errors?.length || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request', 'pending'].includes(rj.value?.evidence?.update_status)) return 'text-amber-500'
+  if (rj.value?.evidence?.errors?.length || rj.value?.evidence?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request', 'pending'].includes(rj.value?.evidence?.update_status)) return 'text-amber-500'
   if (isError.value) return 'text-orange-500'
   if (blockedReason.value) return 'text-amber-500'
   return 'text-green-500'

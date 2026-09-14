@@ -19,7 +19,8 @@ import ast
 import hashlib
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any, Dict, List, Optional, Tuple
 
 from app.schemas.param_schema import (
@@ -53,6 +54,59 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?(Z|[+
 _NUM_RE = re.compile(r"^-?\d+(\.\d+)?$")
 
 
+def _parse_iso_temporal(value: str) -> date | datetime:
+    # fromisoformat normalizes offset minutes such as +01:60; reject them.
+    offset = re.search(r"[+-](\d{2}):?(\d{2})$", value) if len(value) > 10 else None
+    if offset and (int(offset[1]) > 23 or int(offset[2]) > 59):
+        raise ValueError("invalid UTC offset")
+    return date.fromisoformat(value) if len(value) == 10 else datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def _temporal_key(value: str) -> tuple[str, int, Decimal]:
+    """Compare ISO bounds without discarding sub-microsecond precision."""
+    parsed = _parse_iso_temporal(value)
+    seconds = parsed.toordinal() * 86400
+    if not isinstance(parsed, datetime):
+        return "date", seconds, Decimal(0)
+    seconds += parsed.hour * 3600 + parsed.minute * 60 + parsed.second
+    offset = parsed.utcoffset()
+    if offset is not None:
+        seconds -= int(offset.total_seconds())
+    fraction = re.search(r"\.(\d+)", value)
+    return ("aware" if offset is not None else "naive"), seconds, (Decimal("0." + fraction[1]) if fraction else Decimal(0))
+
+
+def calendar_date_bounds(value: Any) -> tuple[str | None, str | None]:
+    """Calendar-only [from, day-after-to) bounds for DATE/local timestamp queries.
+
+    No timezone conversion or SQL generation. Zoned timestamp columns require
+    explicit source/report timezone conversion in the connector's SQL. Exact
+    timestamp ranges must not use this calendar helper.
+    """
+    bounds = coerce_param_value(ParamSpec(name="date_range", type="date_range"), value) or {}
+    if any(len(v) != 10 for v in bounds.values()):
+        raise ParamError("calendar_date_bounds accepts calendar dates only, not timestamps")
+    start, end = bounds.get("from"), bounds.get("to")
+    try:
+        exclusive_end = (date.fromisoformat(end) + timedelta(days=1)).isoformat() if end else None
+    except OverflowError as exc:
+        raise ParamError("date range upper bound has no representable following day") from exc
+    return start, exclusive_end
+
+
+def param_values_equal(spec: ParamSpec, expected: Any, applied: Any) -> bool:
+    """Compare semantic values without changing stored/executed representations."""
+    try:
+        left, right = (coerce_param_value(spec, v) for v in (expected, applied))
+        if spec.type == "date":
+            return (_temporal_key(left) if left else None) == (_temporal_key(right) if right else None)
+        if spec.type == "date_range":
+            return {k: _temporal_key(v) for k, v in (left or {}).items()} == {k: _temporal_key(v) for k, v in (right or {}).items()}
+        return left == right
+    except (ParamError, ValueError, TypeError):
+        return False
+
+
 def _coerce_scalar(spec: ParamSpec, value: Any) -> Any:
     t = spec.type
     if value is None:
@@ -72,6 +126,10 @@ def _coerce_scalar(spec: ParamSpec, value: Any) -> Any:
         s = str(value).strip()
         if not _DATE_RE.match(s):
             raise ParamError(f"param '{spec.name}': '{value}' is not an ISO date")
+        try:
+            _parse_iso_temporal(s)
+        except ValueError as exc:
+            raise ParamError(f"param '{spec.name}': '{value}' is not a valid ISO date/timestamp") from exc
         return s
     if t in ("string", "id"):
         if isinstance(value, (dict, list)):
@@ -97,10 +155,18 @@ def coerce_param_value(spec: ParamSpec, value: Any) -> Any:
             raise ParamError(
                 f"param '{spec.name}': date_range must be an object with 'from'/'to'"
             )
+        if set(value) - {"from", "to"}:
+            raise ParamError(f"param '{spec.name}': date_range only accepts 'from'/'to' bounds")
         out = {}
         for k in ("from", "to"):
             if value.get(k) is not None:
                 out[k] = _coerce_scalar(ParamSpec(name=spec.name, type="date"), value[k])
+        if "from" in out and "to" in out:
+            start, end = (_temporal_key(out[k]) for k in ("from", "to"))
+            if start[0] != end[0]:
+                raise ParamError(f"param '{spec.name}': range bounds must use the same date/timestamp and timezone convention")
+            if start[1:] > end[1:]:
+                raise ParamError(f"param '{spec.name}': range 'from' must not be after 'to'")
         return out or None
     coerced = _coerce_scalar(spec, value)
     if spec.strict_options and spec.options:
@@ -351,13 +417,74 @@ def check_params_not_formatted(code: str) -> Optional[str]:
     return None
 
 
+def check_date_range_code(code: str, specs: List[ParamSpec]) -> List[str]:
+    """Catch literal wrong-bound reads before a null-default preview hides them.
+
+    Conservative static check, not a proof that arbitrary Python applies a filter.
+    Track straight-line aliases within each function; reassignment clears them.
+    """
+    names = {s.name for s in specs if s.type == "date_range"}
+    if not names:
+        return []
+    try:
+        tree = ast.parse(code or "")
+    except SyntaxError:
+        return []
+    errors = set()
+
+    class Reads(ast.NodeVisitor):
+        def __init__(self):
+            self.aliases = set()
+
+        def is_range(self, node):
+            if isinstance(node, ast.Name):
+                return node.id in self.aliases
+            if isinstance(node, ast.BoolOp) and isinstance(node.op, ast.Or):
+                return self.is_range(node.values[0]) and all(isinstance(v, ast.Dict) and not v.keys for v in node.values[1:])
+            base, key = self.lookup(node)
+            return isinstance(base, ast.Name) and base.id == "params" and key in names
+
+        @staticmethod
+        def lookup(node):
+            if isinstance(node, ast.Subscript):
+                return node.value, node.slice.value if isinstance(node.slice, ast.Constant) else None
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get" and node.args:
+                return node.func.value, node.args[0].value if isinstance(node.args[0], ast.Constant) else None
+            return None, None
+
+        def visit_FunctionDef(self, node):
+            previous = self.aliases
+            self.aliases = set()
+            for stmt in node.body:
+                self.visit(stmt)
+            self.aliases = previous
+
+        def visit_Assign(self, node):
+            self.visit(node.value)
+            is_range = self.is_range(node.value)
+            for target in node.targets:
+                if isinstance(target, ast.Name):
+                    self.aliases.discard(target.id)
+                    if is_range:
+                        self.aliases.add(target.id)
+
+        def visit(self, node):
+            base, key = self.lookup(node)
+            if base is not None and key is not None and self.is_range(base) and key not in ("from", "to"):
+                errors.add("date_range uses 'from'/'to', not " + repr(key) + "; use calendar_date_bounds for inclusive calendar dates and open bounds")
+            return super().visit(node)
+
+    Reads().visit(tree)
+    return sorted(errors)
+
+
 def check_declarations_vs_code(code: str, specs: List[ParamSpec]) -> List[str]:
     """Consistency errors between declarations and the code's params usage.
 
     Declared-but-unreferenced params would render dead controls in the UI;
     referenced-but-undeclared names would never receive a value. Only applies
     when the code opts into params (declares the argument)."""
-    errors: List[str] = []
+    errors: List[str] = check_date_range_code(code, specs)
     declared = {s.name for s in specs}
     referenced = extract_code_param_names(code)
     if not code_accepts_params(code):

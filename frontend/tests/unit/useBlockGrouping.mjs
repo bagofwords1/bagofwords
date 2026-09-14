@@ -333,3 +333,12 @@ console.log('useBlockGrouping: all assertions passed')
   assert.equal(Object.keys(computeBlockGroups([first, second], { breakBefore: b => b === second }).headerAt).length, 2)
 }
 console.log('useBlockGrouping: verification lifecycle assertions passed')
+
+// A successful request with inconclusive business evidence remains a finding.
+for (const code of ['empty_date_result', 'partial_result']) {
+  const block = chip('browser_act', { te: {
+    arguments_json: { _verification_group_id: 'date-check' },
+    result_json: { evidence: { update_status: 'data_received', result_checks: [{ code, status: 'inconclusive' }] } },
+  } })
+  assert.equal(computeBlockGroups([block]).headerAt[block.id].issueCount, 1)
+}

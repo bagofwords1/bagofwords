@@ -1550,6 +1550,7 @@
         "no_expected_request": "השאילתה הצפויה לא הופעלה",
         "no_query_observed": "לא נצפתה שאילתה לשרת"
       },
+      "emptyDateUnverified": "מסנן התאריכים לא החזיר שורות. עדיין לא אומת שהוא פועל כראוי.",
       "partialRows": "מוצגות {returned} מתוך {total} שורות; הסכומים עשויים להיות חלקיים."
     },
     "readFile": {

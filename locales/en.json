@@ -1056,6 +1056,7 @@
         "no_expected_request": "Expected query did not run",
         "no_query_observed": "No backend query observed"
       },
+      "emptyDateUnverified": "The date filter returned no rows. Correctness is not yet verified.",
       "partialRows": "Showing {returned} of {total} rows; totals from these rows may be incomplete."
     },
     "clarify": {

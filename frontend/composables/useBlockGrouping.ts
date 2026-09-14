@@ -345,7 +345,7 @@ function verificationKey(block: any): string {
 function verificationHasIssue(block: any): boolean {
   if (!verificationKey(block)) return false
   const e = block?.tool_execution?.result_json?.evidence
-  return !!e?.errors?.length || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request', 'pending'].includes(e?.update_status)
+  return !!e?.errors?.length || !!e?.result_checks?.some((c: any) => c.status === 'inconclusive') || ['failed', 'parameter_mismatch', 'data_not_acknowledged', 'no_expected_request', 'pending'].includes(e?.update_status)
 }
 
 /**

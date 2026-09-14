@@ -1,0 +1,619 @@
+{
+  "report_id": "ddb591dd-71b2-48c7-aa68-c9740bd77620",
+  "execution_id": "c6fcfb77-d3ad-4822-8fb0-4d59d8efec58",
+  "prompt": "I run the music store and want a sales workspace for my weekly review. Show me how sales are doing over time and which countries and genres are driving them. I should be able to narrow it down by country, genre, and date range, browse the matching sales, and open a sale to see what the customer bought. Make it easy to get back to the full picture. I'd like something polished that I can actually use in our team meeting.",
+  "model": "gpt-5.6-luna",
+  "follow_up_prompts": 0,
+  "status": "success",
+  "browser_call_count": 10,
+  "checks": [
+    {
+      "tool": "browser_navigate",
+      "title": "Opening sales workspace",
+      "expect_query_update": null,
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [
+          {
+            "cursor": 1,
+            "kind": "warning",
+            "action_id": null,
+            "source": "console",
+            "message": "[vite] failed to connect to websocket.\nyour current setup:\n  (browser) localhost:3000/_nuxt/ <--[HTTP]--> localhost:5173/_nuxt/ (server)\n  (browser) localhost:3000/_nuxt/ <--[WebSocket (failing)]--> localhost:5173/_nuxt/ (server)\nCheck out your Vite / network configuration and https://vite.dev/config/server-options.html#server-hmr ."
+          },
+          {
+            "cursor": 2,
+            "kind": "warning",
+            "action_id": null,
+            "source": "console",
+            "message": "Warning: Each child in a list should have a unique \"key\" prop.%s%s See https://reactjs.org/link/warning-keys for more information.%s \n\nCheck the top-level render call using <div>.  \n    at div\n    at window.EChart (http://localhost:3000/libs/artifact-globals.js?v=11&revision=verification-1:1811:21)\n    at div\n    at section\n    at div\n    at div\n    at div\n    at App (<anonymous>:19:14)"
+          }
+        ],
+        "queries": [],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 3,
+            "kind": "data_sent",
+            "action_id": null,
+            "data_revision": 1,
+            "request_ids": []
+          },
+          {
+            "cursor": 4,
+            "kind": "data_sent",
+            "action_id": null,
+            "data_revision": 2,
+            "request_ids": []
+          },
+          {
+            "cursor": 5,
+            "kind": "data_received",
+            "action_id": null,
+            "data_revision": 1
+          },
+          {
+            "cursor": 6,
+            "kind": "data_received",
+            "action_id": null,
+            "data_revision": 2
+          }
+        ],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "datasets": [
+        {
+          "query_id": "49927bef-69fd-48bb-8380-59d1f4439495",
+          "title": "Genre options",
+          "returned_rows": 25,
+          "total_rows": 25,
+          "result_truncated": false
+        },
+        {
+          "query_id": "9c2dc632-6579-45d0-be03-c9768c05f752",
+          "title": "Country options",
+          "returned_rows": 24,
+          "total_rows": 24,
+          "result_truncated": false
+        },
+        {
+          "query_id": "e15e5dc1-8a84-4d79-833d-c67d949abb25",
+          "title": "Filtered sales workspace data",
+          "returned_rows": 1000,
+          "total_rows": 2240,
+          "result_truncated": true
+        }
+      ]
+    },
+    {
+      "tool": "browser_act",
+      "title": "Opening country filter",
+      "expect_query_update": null,
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_snapshot",
+      "title": "Reading country options",
+      "expect_query_update": null,
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_act",
+      "title": "Filtering sales by USA",
+      "expect_query_update": {
+        "params": {
+          "country": "USA"
+        }
+      },
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 10,
+            "kind": "query",
+            "action_id": "cd9531d7-31a2-4baf-bf7b-6c745c000c3e",
+            "query_id": "e15e5dc1-8a84-4d79-833d-c67d949abb25",
+            "request_id": "20e91574-fd8e-4d74-aaf9-a73c40d82bf2",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": "USA"
+            },
+            "applied_params": {
+              "country": "USA",
+              "genre_id": null,
+              "date_range": null
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "06515676-ff15-4c43-b37f-ed176ef496d7",
+            "returned_rows": 494,
+            "total_rows": 494,
+            "result_truncated": false,
+            "duration_ms": 123,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 7,
+            "kind": "params_commit",
+            "action_id": "cd9531d7-31a2-4baf-bf7b-6c745c000c3e",
+            "changes": {
+              "country": "USA"
+            },
+            "targets": null,
+            "commit_seq": 1
+          },
+          {
+            "cursor": 8,
+            "kind": "params_status",
+            "action_id": "cd9531d7-31a2-4baf-bf7b-6c745c000c3e",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 11,
+            "kind": "params_status",
+            "action_id": "cd9531d7-31a2-4baf-bf7b-6c745c000c3e",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 12,
+            "kind": "data_sent",
+            "action_id": "cd9531d7-31a2-4baf-bf7b-6c745c000c3e",
+            "data_revision": 3,
+            "request_ids": [
+              "20e91574-fd8e-4d74-aaf9-a73c40d82bf2"
+            ]
+          },
+          {
+            "cursor": 13,
+            "kind": "data_received",
+            "action_id": "cd9531d7-31a2-4baf-bf7b-6c745c000c3e",
+            "data_revision": 3
+          }
+        ],
+        "pending": [],
+        "update_status": "data_received",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_act",
+      "title": "Opening genre filter",
+      "expect_query_update": null,
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_snapshot",
+      "title": "Reading genre options",
+      "expect_query_update": null,
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_act",
+      "title": "Filtering sales by Rock",
+      "expect_query_update": {
+        "params": {
+          "country": "USA",
+          "genre_id": 1
+        }
+      },
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 17,
+            "kind": "query",
+            "action_id": "a29dd88a-b4f4-410a-b5f5-270b9250c461",
+            "query_id": "e15e5dc1-8a84-4d79-833d-c67d949abb25",
+            "request_id": "d8873ea0-aebe-4ef9-b19f-b78f0573948f",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": "USA",
+              "genre_id": 1
+            },
+            "applied_params": {
+              "country": "USA",
+              "genre_id": 1,
+              "date_range": null
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "06515676-ff15-4c43-b37f-ed176ef496d7",
+            "returned_rows": 157,
+            "total_rows": 157,
+            "result_truncated": false,
+            "duration_ms": 82,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 14,
+            "kind": "params_commit",
+            "action_id": "a29dd88a-b4f4-410a-b5f5-270b9250c461",
+            "changes": {
+              "genre_id": 1
+            },
+            "targets": null,
+            "commit_seq": 2
+          },
+          {
+            "cursor": 15,
+            "kind": "params_status",
+            "action_id": "a29dd88a-b4f4-410a-b5f5-270b9250c461",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 18,
+            "kind": "params_status",
+            "action_id": "a29dd88a-b4f4-410a-b5f5-270b9250c461",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 19,
+            "kind": "data_sent",
+            "action_id": "a29dd88a-b4f4-410a-b5f5-270b9250c461",
+            "data_revision": 4,
+            "request_ids": [
+              "20e91574-fd8e-4d74-aaf9-a73c40d82bf2",
+              "d8873ea0-aebe-4ef9-b19f-b78f0573948f"
+            ]
+          },
+          {
+            "cursor": 20,
+            "kind": "data_received",
+            "action_id": "a29dd88a-b4f4-410a-b5f5-270b9250c461",
+            "data_revision": 4
+          }
+        ],
+        "pending": [],
+        "update_status": "data_received",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_act",
+      "title": "Setting date filter",
+      "expect_query_update": {
+        "params": {
+          "country": "USA",
+          "genre_id": 1,
+          "date_range": {
+            "from": "2025-12-01"
+          }
+        }
+      },
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 24,
+            "kind": "query",
+            "action_id": "e214a8dd-25d7-4d12-9abe-d048d7c3c907",
+            "query_id": "e15e5dc1-8a84-4d79-833d-c67d949abb25",
+            "request_id": "ae945bba-fd51-479c-8de2-db11d568d88c",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": "USA",
+              "genre_id": 1,
+              "date_range": {
+                "from": "2025-12-01",
+                "to": null
+              }
+            },
+            "applied_params": {
+              "country": "USA",
+              "genre_id": 1,
+              "date_range": {
+                "from": "2025-12-01"
+              }
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "06515676-ff15-4c43-b37f-ed176ef496d7",
+            "returned_rows": 8,
+            "total_rows": 8,
+            "result_truncated": false,
+            "duration_ms": 85,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 21,
+            "kind": "params_commit",
+            "action_id": "e214a8dd-25d7-4d12-9abe-d048d7c3c907",
+            "changes": {
+              "date_range": {
+                "from": "2025-12-01",
+                "to": null
+              }
+            },
+            "targets": null,
+            "commit_seq": 3
+          },
+          {
+            "cursor": 22,
+            "kind": "params_status",
+            "action_id": "e214a8dd-25d7-4d12-9abe-d048d7c3c907",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 25,
+            "kind": "params_status",
+            "action_id": "e214a8dd-25d7-4d12-9abe-d048d7c3c907",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 26,
+            "kind": "data_sent",
+            "action_id": "e214a8dd-25d7-4d12-9abe-d048d7c3c907",
+            "data_revision": 5,
+            "request_ids": [
+              "20e91574-fd8e-4d74-aaf9-a73c40d82bf2",
+              "d8873ea0-aebe-4ef9-b19f-b78f0573948f",
+              "ae945bba-fd51-479c-8de2-db11d568d88c"
+            ]
+          },
+          {
+            "cursor": 27,
+            "kind": "data_received",
+            "action_id": "e214a8dd-25d7-4d12-9abe-d048d7c3c907",
+            "data_revision": 5
+          }
+        ],
+        "pending": [],
+        "update_status": "data_received",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_act",
+      "title": "Opening sale detail",
+      "expect_query_update": null,
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [],
+        "warnings": [],
+        "queries": [],
+        "errors": [],
+        "runtime": [],
+        "pending": [],
+        "update_status": "no_query_observed",
+        "truncated": false
+      },
+      "datasets": null
+    },
+    {
+      "tool": "browser_act",
+      "title": "Resetting sales view",
+      "expect_query_update": {
+        "params": {
+          "country": null,
+          "genre_id": null,
+          "date_range": null
+        }
+      },
+      "artifact": {
+        "id": "3b8891d0-ed0f-4d49-9993-5aba4cce5b34",
+        "version": 1,
+        "code_hash": "8cedebf1b4878477021714f25bbcc664c5e09f1a07edddaa6adbcc1a2ece4220"
+      },
+      "success": true,
+      "evidence": {
+        "result_checks": [
+          {
+            "code": "partial_result",
+            "status": "inconclusive",
+            "query_id": "e15e5dc1-8a84-4d79-833d-c67d949abb25",
+            "message": "Returned rows are partial. Do not verify full totals from these rows; use backend aggregates or label the app's scope."
+          }
+        ],
+        "warnings": [],
+        "queries": [
+          {
+            "cursor": 31,
+            "kind": "query",
+            "action_id": "d9688ca4-15cc-4020-a7d4-37f5a93e541b",
+            "query_id": "e15e5dc1-8a84-4d79-833d-c67d949abb25",
+            "request_id": "ae364ed4-9200-478a-8f76-115bd547ced3",
+            "operation_kind": "query",
+            "execution_mode": "viewer_query",
+            "submitted_params": {
+              "country": null,
+              "genre_id": null,
+              "date_range": null
+            },
+            "applied_params": {
+              "country": null,
+              "genre_id": null,
+              "date_range": null
+            },
+            "status": "success",
+            "http_status": 200,
+            "cached": false,
+            "step_id": "06515676-ff15-4c43-b37f-ed176ef496d7",
+            "returned_rows": 1000,
+            "total_rows": 2240,
+            "result_truncated": true,
+            "duration_ms": 107,
+            "error": null
+          }
+        ],
+        "errors": [],
+        "runtime": [
+          {
+            "cursor": 28,
+            "kind": "params_commit",
+            "action_id": "d9688ca4-15cc-4020-a7d4-37f5a93e541b",
+            "changes": {
+              "country": null,
+              "genre_id": null,
+              "date_range": null
+            },
+            "targets": null,
+            "commit_seq": 4
+          },
+          {
+            "cursor": 29,
+            "kind": "params_status",
+            "action_id": "d9688ca4-15cc-4020-a7d4-37f5a93e541b",
+            "loading": true,
+            "message": null
+          },
+          {
+            "cursor": 32,
+            "kind": "params_status",
+            "action_id": "d9688ca4-15cc-4020-a7d4-37f5a93e541b",
+            "loading": false,
+            "message": null
+          },
+          {
+            "cursor": 33,
+            "kind": "data_sent",
+            "action_id": "d9688ca4-15cc-4020-a7d4-37f5a93e541b",
+            "data_revision": 6,
+            "request_ids": [
+              "20e91574-fd8e-4d74-aaf9-a73c40d82bf2",
+              "d8873ea0-aebe-4ef9-b19f-b78f0573948f",
+              "ae945bba-fd51-479c-8de2-db11d568d88c",
+              "ae364ed4-9200-478a-8f76-115bd547ced3"
+            ]
+          },
+          {
+            "cursor": 34,
+            "kind": "data_received",
+            "action_id": "d9688ca4-15cc-4020-a7d4-37f5a93e541b",
+            "data_revision": 6
+          }
+        ],
+        "pending": [],
+        "update_status": "data_received",
+        "truncated": false
+      },
+      "datasets": null
+    }
+  ],
+  "limitations": [
+    "Autonomous run checked lower date bound, not both bounds; independent browser check subsequently validated both bounds, both open directions, and reset.",
+    "Unfiltered totals still summarize capped rows; agent discloses in chat but does not label the app KPI. Group now exposes partial-result finding.",
+    "Calendar source is SQLite local timestamps. No universal connector/timezone claim."
+  ]
+}

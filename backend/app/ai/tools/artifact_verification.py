@@ -65,10 +65,24 @@ using declared names. The tool derives all affected query IDs from the authorize
 manifest, so a control that sends nothing is detected without retyping UUIDs.
 Only provide explicit query_ids when checking a deliberate subset. Use the exact snapshot refs,
 including frame prefixes. Read applied parameters and fresh visible results;
-HTTP success alone does not prove the displayed metric correct. Inspect datasets
+HTTP success and data_received prove transport, not business correctness. Read
+result_checks: inconclusive checks require investigation or an explicitly unverified
+final outcome. Never call a parameter_mismatch, pending result, or unexplained
+empty result a passed check.
+For date controls, first identify a known record/date from the unfiltered data;
+choose a range containing it and confirm it remains present with returned dates
+inside the intended range; where available, confirm a known outside record is
+excluded. Clear other filters or account for their intersection.
+Test both endpoints, reset, and an open bound if supported. Empty output is not
+proof of a correct date filter. On zero rows inspect the existing query (read_query)
+and its from/to keys, boundary comparisons, source date format and timezone;
+repair a broken query via create_data and reconnect with edit_artifact. Calendar
+ranges use YYYY-MM-DD from/to; exact timestamps retain their precision/offset.
+Do not guess a timezone for naive timestamps or text columns. Inspect datasets
 and query evidence: result_truncated means displayed rows are only part of the
 result. Do not certify full totals from partial rows; use a backend aggregate
-query with the same parameters or clearly limit the app's claims. Never disable
+query with the same parameters or clearly label the limitation INSIDE the app;
+a chat caveat alone does not fix a misleading KPI. Never disable
 an organization's row limit to make a check pass. For reset, compare the initial
 and restored visible totals; also open and close the primary detail/modal. Use browser_vision
 only when appearance needs inspection. A pending result is not a failure or pass.
