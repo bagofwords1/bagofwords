@@ -217,7 +217,7 @@
     </div>
 
     <!-- Iframe Container -->
-    <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+    <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
       <!-- View-as switch in flight: cover the pane with a spinner until the
            new identity (and any identity-scoped re-runs) fully settle, so the
            transient anonymous fallback never flashes as the final render. -->
@@ -468,7 +468,7 @@
             dir="auto"
             placeholder="e.g. make this bigger, change colors..."
             class="block w-full resize-none max-h-36 overflow-y-auto text-sm border border-gray-200 dark:border-gray-700 rounded-md px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-indigo-400 focus:border-indigo-400"
-            @keydown.enter.exact.prevent="submitPolishPrompt"
+            @keydown.enter.exact="onPolishEnter"
             @keydown.escape="cancelPolishPrompt"
           />
           <button
@@ -496,7 +496,7 @@
           </div>
 
           <!-- Modal Content - Full artifact iframe or SlideViewer -->
-          <div ref="polishContainerRef" class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
+          <div class="flex-1 min-h-0 relative bg-white dark:bg-gray-900">
             <!-- Slides with previews use SlideViewer -->
             <SlideViewer
               v-if="isFullscreenOpen && hasSlidesWithPreviews && selectedArtifact"
@@ -542,6 +542,7 @@ import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { polishPromptPosition as computePolishPromptPosition } from '~/utils/polishPrompt';
 
 const { t } = useI18n();
 const toast = useToast();
@@ -615,21 +616,13 @@ const polishSelectedElement = ref<{ tag: string; classes: string; text: string; 
 
 const polishPromptPosition = computed(() => {
   if (!polishSelectedElement.value?.rect) return { top: '50%', left: '50%' };
-  const r = polishSelectedElement.value.rect;
-  const gap = 8;
-  const containerWidth = polishContainerRef.value?.clientWidth ?? Infinity;
-  const containerHeight = polishContainerRef.value?.clientHeight ?? Infinity;
-  const boxWidth = polishBoxRef.value?.offsetWidth ?? 320;
-  const boxHeight = polishBoxHeight.value;
-  // Below the element when the box fits there, else above it; either way
-  // clamped inside the container. The box grows with the instruction, so this
-  // re-runs on every height change rather than assuming a fixed size.
-  let top = r.top + r.height + gap;
-  if (top + boxHeight > containerHeight - gap && r.top - gap - boxHeight >= gap) {
-    top = r.top - gap - boxHeight;
-  }
-  top = Math.max(gap, Math.min(top, containerHeight - boxHeight - gap));
-  const left = Math.max(gap, Math.min(r.left, containerWidth - boxWidth - gap));
+  // polishContainerRef is the inline pane the iframe fills, so the rect the
+  // iframe reports maps 1:1 onto it.
+  const { top, left } = computePolishPromptPosition(
+    polishSelectedElement.value.rect,
+    { width: polishBoxRef.value?.offsetWidth ?? 320, height: polishBoxHeight.value },
+    { width: polishContainerRef.value?.clientWidth ?? Infinity, height: polishContainerRef.value?.clientHeight ?? Infinity },
+  );
   return { top: top + 'px', left: left + 'px' };
 });
 
@@ -680,6 +673,16 @@ function cancelPolishPrompt() {
   polishSelectedElement.value = null;
   polishInstruction.value = '';
   iframeRef.value?.contentWindow?.postMessage({ type: 'POLISH_ENTER' }, window.location.origin);
+}
+
+// Enter applies — except the Enter that commits an IME candidate (CJK input),
+// which would submit a half-written instruction. Chrome/Firefox flag it with
+// isComposing; Safari fires it after compositionend, where only keyCode 229
+// gives it away.
+function onPolishEnter(e: KeyboardEvent) {
+  if (e.isComposing || e.keyCode === 229) return;
+  e.preventDefault();
+  submitPolishPrompt();
 }
 
 function submitPolishPrompt() {
