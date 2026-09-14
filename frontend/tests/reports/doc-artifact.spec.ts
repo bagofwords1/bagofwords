@@ -58,7 +58,7 @@ test('shared doc renders markdown, table, viz, columns and mermaid via DocViewer
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify([
-        { id: DOC_ID, report_id: REPORT_ID, title: 'Quarterly Revenue Review', mode: 'doc', version: 1, status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
+        { id: DOC_ID, artifact_id: 'parent-doc-1', report_id: REPORT_ID, title: 'Quarterly Revenue Review', mode: 'doc', version: 1, status: 'completed', created_at: new Date().toISOString(), updated_at: new Date().toISOString() },
       ]),
     })
   );
@@ -68,6 +68,7 @@ test('shared doc renders markdown, table, viz, columns and mermaid via DocViewer
       contentType: 'application/json',
       body: JSON.stringify({
         id: DOC_ID,
+        artifact_id: 'parent-doc-1',
         report_id: REPORT_ID,
         user_id: 'user-1',
         organization_id: 'org-1',

@@ -20,8 +20,10 @@ Hypothesis being validated (all backend-side):
      ``lazy="selectin"`` (app/models/report.py:58-75, query.py, step.py), so a
      plain ``select(Report)`` eagerly loads the ENTIRE report graph: all
      queries -> ALL step versions each carrying the full result rows in the
-     ``steps.data`` JSON column, all artifact versions with full content, all
-     completions, widgets, visualizations, ...
+     ``steps.data`` JSON column, all completions, widgets, visualizations, ...
+     (Artifact versions with their full content used to ride along too; since
+     the artifacts / artifact_versions split only the small identity rows do,
+     and test_plain_select_* guards that.)
 
   2. EVERY PUBLIC ENDPOINT PAYS IT — get_public_report / get_public_artifacts /
      get_public_queries / get_public_step all start with ``select(Report)``
@@ -63,7 +65,7 @@ from app.models.widget import Widget
 from app.models.query import Query
 from app.models.step import Step
 from app.models.visualization import Visualization
-from app.models.artifact import Artifact
+from tests.fixtures.artifact import seed_artifact
 
 
 ROWS_PER_STEP = int(os.environ.get("BOW_REPRO_ROWS", "15000"))
@@ -209,17 +211,15 @@ async def _seed(rows_per_step: int):
 
         # a realistic generated dashboard: ~100 kB of JSX per artifact version
         fake_code = "function Dashboard() {\n" + ("  // chart section filler line of jsx code\n" * 2500) + "}\n"
-        for vi in range(N_ARTIFACT_VERSIONS):
-            db.add(Artifact(
-                report_id=report.id,
-                user_id=user.id,
-                organization_id=org.id,
-                title="Dashboard",
-                mode="page",
-                version=vi + 1,
-                content={"code": fake_code, "visualization_ids": viz_ids},
-                status="completed",
-            ))
+        await seed_artifact(
+            db,
+            report_id=report.id,
+            user_id=user.id,
+            organization_id=org.id,
+            mode="page",
+            title="Dashboard",
+            contents=[{"code": fake_code, "visualization_ids": viz_ids}] * N_ARTIFACT_VERSIONS,
+        )
 
         await db.commit()
 
@@ -254,14 +254,13 @@ def test_plain_select_report_cascades_all_step_data():
         # Everything below was already loaded by the cascade — no further IO.
         loaded_steps = [s for q in report.queries for s in q.steps]
         hydrated_bytes = sum(len(json.dumps(s.data)) for s in loaded_steps if "data" in s.__dict__)
-        artifact_bytes = sum(len(json.dumps(a.content)) for a in report.artifacts)
 
         print(f"\n[cascade] select(Report) issued {len(statements)} SQL statements in {elapsed:.2f}s")
         print(f"[cascade] tables hit: {dict(sorted(tables.items(), key=lambda kv: -kv[1]))}")
         print(f"[cascade] steps hydrated: {len(loaded_steps)} "
               f"(= {N_QUERIES} queries x {N_STEP_VERSIONS} versions; only {N_QUERIES} default steps are ever served)")
         print(f"[cascade] step data hydrated: {hydrated_bytes / 1e6:.1f} MB; "
-              f"artifact content: {artifact_bytes / 1e6:.1f} MB")
+              f"artifact identity rows: {len(report.artifacts)}, artifact versions: never loaded")
 
         # Claim 1: the steps table (with its data column) is pulled by a bare Report select
         assert tables.get("steps", 0) >= 1
@@ -269,6 +268,19 @@ def test_plain_select_report_cascades_all_step_data():
         # Claim 3: ALL versions load, not just the default step
         assert len(loaded_steps) == N_QUERIES * N_STEP_VERSIONS
         assert hydrated_bytes >= seeded["total_step_bytes"] * 0.9
+
+        # Artifacts no longer ride the cascade: Report.artifacts holds the
+        # small identity rows, and version rows (~100 kB of code each) load
+        # only on request (Report.artifact_versions is lazy="select").
+        # Searched in the whole statement, not via _tables_hit: a version
+        # SELECT opens with its title/mode read-through subqueries, so its
+        # first FROM names the parent table, not artifact_versions.
+        version_selects = [s for s in statements if re.search(r"FROM\s+artifact_versions\b", s)]
+        assert len(report.artifacts) == 1, "one dashboard -> one identity row, not one per version"
+        assert not version_selects, (
+            "a bare select(Report) loaded artifact version rows — the cascade "
+            "is pulling full artifact content again"
+        )
 
     _run(scenario())
 

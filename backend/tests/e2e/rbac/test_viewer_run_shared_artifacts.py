@@ -24,7 +24,8 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
@@ -117,16 +118,15 @@ async def _seed_artifact_graph(report_id: str, n_queries: int = 1):
             viz_ids.append(str(viz.id))
             step_ids.append(str(step.id))
 
-        db.add(Artifact(
+        await seed_artifact(
+            db,
             report_id=report_id,
             user_id=user_id,
             organization_id=org_id,
-            title="Dashboard",
             mode="page",
-            version=1,
+            title="Dashboard",
             content={"code": "function App() {}", "visualization_ids": viz_ids},
-            status="completed",
-        ))
+        )
         await db.commit()
 
     return {"query_ids": query_ids, "viz_ids": viz_ids, "step_ids": step_ids}
@@ -796,7 +796,7 @@ async def _set_artifact_thumbnail(report_id: str) -> str:
     from sqlalchemy import select
     async with async_session_maker() as db:
         art = (await db.execute(
-            select(Artifact).where(Artifact.report_id == str(report_id))
+            select(ArtifactVersion).where(ArtifactVersion.report_id == str(report_id))
         )).scalars().first()
         art.thumbnail_path = f"thumbnails/{art.id}.png"
         await db.commit()
@@ -823,7 +823,7 @@ def test_strict_mode_drops_artifact_thumbnail(
         from sqlalchemy import select
         async with async_session_maker() as db:
             art = (await db.execute(
-                select(Artifact).where(Artifact.report_id == str(report["id"]))
+                select(ArtifactVersion).where(ArtifactVersion.report_id == str(report["id"]))
             )).scalars().first()
             return art.thumbnail_path
     assert _run(_thumb()) is None
@@ -841,7 +841,7 @@ def test_strict_mode_drops_artifact_thumbnail(
         from sqlalchemy import select
         async with async_session_maker() as db:
             art = (await db.execute(
-                select(Artifact).where(Artifact.report_id == str(plain["id"]))
+                select(ArtifactVersion).where(ArtifactVersion.report_id == str(plain["id"]))
             )).scalars().first()
             return art.thumbnail_path
     assert _run(_thumb2()) is not None
@@ -1268,7 +1268,7 @@ async def _make_artifact_id_keyed(report_id: str):
     test ever noticed the ids in the code going stale."""
     async with async_session_maker() as db:
         art = (await db.execute(
-            __import__("sqlalchemy").select(Artifact).where(Artifact.report_id == report_id)
+            __import__("sqlalchemy").select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
         )).scalars().first()
         ids = list((art.content or {}).get("visualization_ids") or [])
         code = "function App() {\n" + "".join(
@@ -1307,7 +1307,7 @@ def test_fork_remaps_visualization_ids_baked_into_the_dashboard(
     async def _fork_state():
         from sqlalchemy import select
         async with async_session_maker() as db:
-            art = (await db.execute(select(Artifact).where(Artifact.report_id == fork_id))).scalars().first()
+            art = (await db.execute(select(ArtifactVersion).where(ArtifactVersion.report_id == fork_id))).scalars().first()
             own = {v.id for v in (await db.execute(
                 select(Visualization).where(Visualization.report_id == fork_id))).scalars().all()}
             return art.content, own
