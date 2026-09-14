@@ -344,11 +344,12 @@ class EditArtifactTool(Tool):
             review_images["preview_note"] = ANON_PREVIEW_NOTE + " " + STATIC_PREVIEW_NOTE
 
         from app.ai.tools.artifact_verification import build_artifact_verification_hint
+        from app.services.artifact_verification_policy import artifact_verification_available
         verification_hint = build_artifact_verification_hint(
             artifact_id=str(new_artifact.id), version=new_artifact.version,
             mode=new_artifact.mode, code=new_code, previous_code=code,
             parameters=[p for v in artifact_data.get("visualizations", []) for p in v.get("parameters", []) or []],
-            available=allow_screenshot,
+            available=await artifact_verification_available(runtime_ctx, str(new_artifact.id)),
         )
 
         yield ToolEndEvent(

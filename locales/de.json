@@ -2367,6 +2367,10 @@
           "name": "LLM darf Daten sehen",
           "description": "Erlaubt dem LLM, Daten im Rahmen der Analyse und der Nutzeranfragen zu sehen"
         },
+        "enable_artifact_verification": {
+          "name": "Daten-Apps überprüfen",
+          "description": "Der Agent kann interaktive Seiten mit Browserwerkzeugen prüfen. Erfordert, dass das LLM Daten sehen darf."
+        },
         "enable_training_mode": {
           "name": "Trainingsmodus",
           "description": "Aktiviert den Trainingsmodus, in dem Administratoren gemeinsam mit dem Agenten Dokumentation, Anweisungen, Semantik und Richtlinien aufbauen"

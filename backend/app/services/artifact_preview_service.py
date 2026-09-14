@@ -53,9 +53,8 @@ class ArtifactPreviewService:
     async def open(self, artifact_id: str):
         from app.core.auth import get_jwt_strategy
         from app.settings.config import settings
-        cfg = self.ctx.get("settings")
-        if cfg is not None and not bool(getattr(cfg.get_config("allow_llm_see_data"), "value", True)):
-            raise PermissionError("Browser verification is restricted by the organization's data-visibility policy")
+        from app.services.artifact_verification_policy import require_browser_access
+        await require_browser_access(self.ctx, artifact_id)
         # Short-lived token is only kept in this server-side HTTP client. It is
         # never placed in page headers, cookies, URLs, JS, or tool observations.
         strategy = get_jwt_strategy()

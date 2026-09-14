@@ -3,6 +3,7 @@ from typing import Any, AsyncIterator, Dict, Optional, Type
 
 from pydantic import BaseModel
 
+from app.ai.tools.implementations._browser_policy import guard_browser_tool
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolProgressEvent, ToolEndEvent
@@ -57,6 +58,7 @@ class BrowserNavigateTool(Tool):
             "observation": {"summary": msg, "success": False},
         })
 
+    @guard_browser_tool
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = BrowserNavigateInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or ("Verifying app interactions" if data.artifact_id else f"Opening {data.url}"), "url": data.url})

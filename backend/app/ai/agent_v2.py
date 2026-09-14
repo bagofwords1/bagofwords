@@ -803,8 +803,9 @@ class AgentV2:
         except Exception:
             pass
 
-        from app.ai.tools.artifact_verification import artifact_verification_enabled
-        if artifact_verification_enabled() and getattr(self.report, 'report_type', 'regular') != 'artifact_chat':
+        # Build browser candidates respecting registry mode/platform constraints.
+        # Live eligibility is resolved before each planner step below.
+        if getattr(self.report, 'report_type', 'regular') != 'artifact_chat':
             available_capabilities.add("artifact_preview")
 
         # Start with all available tools for the planner to see, filtered by mode and platform
@@ -823,7 +824,7 @@ class AgentV2:
         allow_llm_see_data_cfg = self.organization_settings.get_config("allow_llm_see_data") if self.organization_settings else None
         allow_llm_see_data = getattr(allow_llm_see_data_cfg, "value", True) if allow_llm_see_data_cfg is not None else True
         if not allow_llm_see_data:
-            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'inspect_data' and not t['name'].startswith('browser_')]
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'inspect_data']
 
         # Agent notes (per-report scratchpad) are gated by the org setting.
         # When off, hide create_note/edit_note so the planner never attempts them.
@@ -850,7 +851,10 @@ class AgentV2:
                 unique_catalog.append(tool)
                 seen_tools.add(tool['name'])
 
-        tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog]
+        self._browser_catalog_candidates = [ToolDescriptor(**tool) for tool in unique_catalog
+                                            if tool["name"].startswith("browser_")]
+        tool_catalog = [ToolDescriptor(**tool) for tool in unique_catalog
+                        if not tool["name"].startswith("browser_")]
         # BOW_PLANNER selects the planner implementation. Default v3 (native
         # tool_use). Set BOW_PLANNER=v2 to fall back to the legacy JSON
         # envelope planner. Other values fall back to v3 with a warning.
@@ -2080,6 +2084,7 @@ class AgentV2:
 
                     runtime_ctx = {
                         "db": self.db,
+                        "session_maker": self._session_maker,
                         "organization": self.organization,
                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                         "settings": self.organization_settings,
@@ -4505,6 +4510,7 @@ class AgentV2:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
+                        await self._refresh_browser_tool_catalog()
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -5750,6 +5756,7 @@ class AgentV2:
                                     # RUN TOOL with enhanced context tracking
                                     runtime_ctx = {
                                         "db": self.db,
+                                        "session_maker": self._session_maker,
                                         "organization": self.organization,
                                         "user": getattr(self.head_completion, 'user', None) if self.head_completion else None,
                                         "settings": self.organization_settings,
@@ -7403,6 +7410,16 @@ class AgentV2:
         except Exception as e:
             logger.warning("[agent] native MCP tool registration skipped: %s", e)
             self._native_mcp_routing = {}
+
+    async def _refresh_browser_tool_catalog(self):
+        from app.ai.tools.artifact_verification import refresh_browser_tool_catalog
+
+        ctx = {"session_maker": self._session_maker, "organization": self.organization,
+               "report": self.report,
+               "user": getattr(self.head_completion, "user", None) if self.head_completion else None,
+               "agent_execution_id": str(self.current_execution.id) if self.current_execution else None}
+        self.planner.tool_catalog = await refresh_browser_tool_catalog(
+            self.planner.tool_catalog, self._browser_catalog_candidates, ctx)
 
     def _validate_tool_for_plan_type(self, tool_name: str, plan_type: str) -> bool:
         """Validate that tool is available for the chosen plan type.

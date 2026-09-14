@@ -2367,6 +2367,10 @@
           "name": "Låt LLM:en se data",
           "description": "Låter LLM:en se data som en del av analysen och användarnas frågor"
         },
+        "enable_artifact_verification": {
+          "name": "Verifiera dataappar",
+          "description": "Låt agenten kontrollera interaktiva sidor med webbläsarverktyg. Kräver att språkmodellen får se data."
+        },
         "enable_training_mode": {
           "name": "Träningsläge",
           "description": "Aktiverar träningsläget där administratörer arbetar med agenten för att bygga dokumentation, instruktioner, semantik och riktlinjer"

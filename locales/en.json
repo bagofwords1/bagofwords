@@ -2539,6 +2539,10 @@
           "name": "Allow LLM to see data",
           "description": "Enable LLM to see data as part of the analysis and user queries"
         },
+        "enable_artifact_verification": {
+          "name": "Verify data apps",
+          "description": "Let the agent check interactive page artifacts with browser tools. Requires Allow LLM to see data."
+        },
         "enable_training_mode": {
           "name": "Training Mode",
           "description": "Enable training mode for admins to work with the agent to build documentation, instructions, semantics and guidlines"

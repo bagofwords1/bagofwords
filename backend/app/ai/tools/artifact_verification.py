@@ -1,12 +1,29 @@
-"""Shared, advisory verification policy. No browser or secondary LLM loop."""
+"""Artifact verification guidance and live main-loop tool availability."""
 from __future__ import annotations
 
-import os
 import re
 
 
-def artifact_verification_enabled() -> bool:
-    return os.getenv("BOW_ARTIFACT_VERIFICATION_ENABLED", "true").lower() not in {"0", "false", "off"}
+async def refresh_browser_tool_catalog(catalog, candidates, runtime_ctx):
+    """Refresh only browser tools, preserving other run-specific catalog filters."""
+    import logging
+    from app.services.artifact_verification_policy import browser_policy
+    from app.ai.tools.implementations._browser_common import session_manager
+
+    available = False
+    preview_allowed = False
+    try:
+        policy = await browser_policy(runtime_ctx)
+        available, preview_allowed = policy.available, policy.artifact_preview
+    except Exception:
+        logging.getLogger(__name__).warning(
+            "Browser eligibility could not be checked; hiding browser tools", exc_info=True)
+    if not preview_allowed:
+        await session_manager.close_preview(runtime_ctx)
+    result = [t for t in (catalog or []) if not t.name.startswith("browser_")]
+    if available:
+        result.extend(candidates)
+    return result
 
 
 def _interaction_signature(code: str) -> list[str]:
@@ -31,7 +48,7 @@ def build_artifact_verification_hint(*, artifact_id: str, version: int,
                                      mode: str = "page", code: str = "",
                                      parameters: list[dict] | None = None,
                                      previous_code: str | None = None,
-                                     available: bool = True) -> dict:
+                                     available: bool = False) -> dict:
     adjustable = sorted({p.get("name") for p in parameters or []
                          if p.get("name") and p.get("source") != "identity"})
     signature = _interaction_signature(code)
@@ -43,12 +60,12 @@ def build_artifact_verification_hint(*, artifact_id: str, version: int,
         if signature:
             reasons.append("interaction_changed" if previous_code is not None else "interactive_app")
     return {
-        "recommended": bool(reasons), "reason_codes": reasons,
+        "recommended": available and bool(reasons), "reason_codes": reasons,
         "focus": adjustable or (["primary interaction", "close or reset"] if reasons else []),
         "artifact_id": artifact_id, "version": version,
-        "next_tool": "browser_navigate" if reasons else None,
-        "next_tool_input": {"artifact_id": artifact_id} if reasons else None,
-        "availability": "available" if available and artifact_verification_enabled() else "unavailable",
+        "next_tool": "browser_navigate" if available and reasons else None,
+        "next_tool_input": {"artifact_id": artifact_id} if available and reasons else None,
+        "availability": "available" if available else "unavailable",
     }
 
 
@@ -56,8 +73,9 @@ ARTIFACT_VERIFICATION_POLICY = """
 After successful page create/edit, use verification_hint to decide whether an
 interactive check is useful. A simple static dashboard must finish normally:
 do not call browser tools merely to verify a static dashboard or a copy/CSS edit.
-For a recommended complex/parameterized app, call browser_navigate with the exact
-returned artifact_id (no browser connector required), then exercise a few relevant
+When verification_hint.availability is available and verification is recommended,
+call browser_navigate with the exact returned artifact_id (no browser connector
+required), then exercise a few relevant
 controls using browser_act. Browser results already include fresh snapshots and
 automatic query/runtime evidence: do not mechanically call snapshot after each act.
 For backend filters use expect_query_update={"params": {"parameter_name": value}}

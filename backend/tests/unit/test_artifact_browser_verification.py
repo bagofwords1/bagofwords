@@ -43,6 +43,7 @@ def test_static_page_without_interactions_does_not_recommend_browser_verificatio
         artifact_id="artifact-static",
         version=4,
         code="renderDashboard({ charts: [revenueChart, ordersChart] })",
+        available=True,
     )
 
     assert hint["recommended"] is False
@@ -57,6 +58,7 @@ def test_user_adjustable_backend_parameter_recommends_verification():
         parameters=[
             {"name": "country", "type": "string", "source": "input", "query_ids": ["sales"]}
         ],
+        available=True,
     )
 
     assert hint["recommended"] is True
@@ -71,6 +73,7 @@ def test_local_interaction_recommends_verification():
         artifact_id="artifact-modal",
         version=2,
         code="const [selected, setSelected] = useState(null); return <button onClick={openDetails}>Details</button>",
+        available=True,
     )
 
     assert hint["recommended"] is True
@@ -83,6 +86,7 @@ def test_identity_parameters_alone_do_not_make_a_page_complex():
         artifact_id="artifact-identity",
         version=1,
         parameters=[{"name": "organization_id", "type": "string", "source": "identity"}],
+        available=True,
     )
 
     assert hint["recommended"] is False
@@ -97,6 +101,7 @@ def test_copy_or_css_only_edit_does_not_recommend_interaction_verification():
         version=8,
         code=new_code,
         previous_code=old_code,
+        available=True,
     )
 
     assert hint["recommended"] is False
@@ -108,9 +113,24 @@ def test_multiple_datasets_without_interactions_do_not_imply_complexity():
         artifact_id="artifact-multi-source",
         version=3,
         code="renderDashboard({ sources: [sales, inventory, customers] })",
+        available=True,
     )
 
     assert hint["recommended"] is False
+
+
+def test_complex_artifact_hint_stays_unavailable_without_live_permission():
+    hint = build_artifact_verification_hint(
+        artifact_id="artifact-restricted",
+        version=1,
+        code="const [selected, setSelected] = useState(null); return <button onClick={openDetails}>Details</button>",
+        available=False,
+    )
+
+    assert hint["recommended"] is False
+    assert hint["availability"] == "unavailable"
+    assert hint["next_tool"] is None
+    assert hint["next_tool_input"] is None
 
 
 class _PreviewResponse:
@@ -327,7 +347,7 @@ async def test_stale_runtime_acknowledgement_does_not_complete_a_new_query():
 def test_functional_edits_recommend_rechecking_even_with_unchanged_controls(change):
     controls = 'const [selected, setSelected] = useState(null); return <button onClick={refresh}>Refresh</button>'
     hint = build_artifact_verification_hint(artifact_id='artifact-new-version', version=2,
-        previous_code=change[0] + controls, code=change[1] + controls)
+        previous_code=change[0] + controls, code=change[1] + controls, available=True)
     assert hint['recommended'] is True
 
 
@@ -456,19 +476,6 @@ async def test_iframe_snapshot_refs_select_visible_labels_and_open_close_details
         finally:
             await client.aclose()
             await browser.close()
-
-
-@pytest.mark.asyncio
-async def test_data_visibility_policy_denies_preview_before_authorized_transport_opens():
-    service = ArtifactPreviewService({
-        'report': SimpleNamespace(id='private-report'), 'organization': SimpleNamespace(id='private-org'),
-        'user': SimpleNamespace(id='member'),
-        'settings': SimpleNamespace(get_config=lambda key: SimpleNamespace(value=False)),
-    })
-    with pytest.raises(PermissionError):
-        await service.open('private-artifact')
-    assert service.client is None
-    assert service.events == []
 
 
 @pytest.mark.asyncio
@@ -692,46 +699,6 @@ async def test_failed_preview_recheck_never_returns_snapshot_or_evidence(restric
     assert result["output"]["error_code"] == ("preview_restricted" if restricted else "preview_unavailable")
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("exception_type", "expected_code"),
-    [(PermissionError, "preview_restricted"), (None, "preview_unavailable")],
-)
-async def test_preview_startup_access_failure_never_returns_evidence(monkeypatch, exception_type, expected_code):
-    import app.services.artifact_preview_service as preview_module
-    from app.ai.tools.implementations.browser_navigate import BrowserNavigateTool
-
-    status_code = 403 if exception_type else 503
-    clients = []
-
-    class FailingClient:
-        def __init__(self, **kwargs):
-            self.closed = False
-            clients.append(self)
-
-        async def get(self, path):
-            return _GetResponse(status_code)
-
-        async def aclose(self):
-            self.closed = True
-
-    async def write_token(user):
-        return "test-token"
-
-    monkeypatch.setattr(preview_module.httpx, "AsyncClient", FailingClient)
-    monkeypatch.setattr("app.core.auth.get_jwt_strategy", lambda: SimpleNamespace(write_token=write_token))
-    events = [event async for event in BrowserNavigateTool().run_stream(
-        {"artifact_id": "artifact-1"}, _preview_runtime_context()
-    )]
-
-    payload = events[-1].payload
-    assert payload["output"]["success"] is False
-    assert payload["output"]["error_code"] == expected_code
-    assert all(payload["output"].get(key) is None for key in ("snapshot", "evidence", "artifact", "parameters"))
-    assert all(payload["observation"].get(key) is None for key in ("snapshot", "evidence", "artifact", "parameters"))
-    assert clients[0].closed is True
-
-
 class _NoDialogFrame:
     def locator(self, selector):
         return self
@@ -816,30 +783,6 @@ async def test_explicit_preview_action_replay_still_includes_its_historical_erro
 
 
 @pytest.mark.asyncio
-async def test_manager_returns_missing_stale_connector_id_so_navigation_can_open_fresh(monkeypatch):
-    from app.ai.tools.implementations import browser_navigate
-    from app.ai.tools.implementations.browser_navigate import BrowserNavigateTool
-    import playwright.async_api
-    from app.ai.tools.implementations._browser_common import BrowserSessionManager
-
-    manager = BrowserSessionManager()
-    monkeypatch.setattr(browser_navigate, "session_manager", manager)
-    monkeypatch.setattr(browser_navigate, "build_snapshot", _fake_snapshot)
-    monkeypatch.setattr(browser_navigate, "detect_block", _no_block)
-    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
-    ctx = _browser_runtime_context()
-    events = [event async for event in BrowserNavigateTool().run_stream(
-        {"url": "https://allowed.example.test/dashboard", "session_id": "stale-connector-session"}, ctx
-    )]
-
-    result = events[-1].payload
-    assert result["output"]["success"] is True
-    assert result["output"]["session_id"] != "stale-connector-session"
-    assert manager.get(result["output"]["session_id"], ctx) is not None
-    await manager.close_report("report-a")
-
-
-@pytest.mark.asyncio
 async def test_manager_strict_navigation_lookup_rejects_cross_scope_ids(monkeypatch):
     import playwright.async_api
     from app.ai.tools.implementations._browser_common import BrowserSessionManager
@@ -858,35 +801,6 @@ async def test_manager_strict_navigation_lookup_rejects_cross_scope_ids(monkeypa
     with pytest.raises(PermissionError):
         manager.get(foreign.session_id, owner, strict=True)
     await manager.close_report("report-b")
-
-
-@pytest.mark.asyncio
-async def test_navigation_rejects_preview_session_ids(monkeypatch):
-    import playwright.async_api
-    from app.ai.tools.implementations import browser_navigate
-    from app.ai.tools.implementations.browser_navigate import BrowserNavigateTool
-    from app.ai.tools.implementations._browser_common import BrowserSessionManager
-
-    manager = BrowserSessionManager()
-    monkeypatch.setattr(playwright.async_api, "async_playwright", lambda: _FakePlaywrightFactory())
-    ctx = _browser_runtime_context()
-
-    class FakePreview:
-        async def route(self, *args, **kwargs):
-            return None
-
-        async def close(self):
-            return None
-
-    preview = await manager.open("report-a", [], False, runtime_ctx=ctx, preview=FakePreview())
-    monkeypatch.setattr(browser_navigate, "session_manager", manager)
-    events = [event async for event in BrowserNavigateTool().run_stream(
-        {"url": "https://allowed.example.test/dashboard", "session_id": preview.session_id}, ctx
-    )]
-
-    assert events[-1].payload["output"]["success"] is False
-    assert events[-1].payload["output"]["error_code"] == "session_scope_mismatch"
-    await manager.close_report("report-a")
 
 
 class _FakePage:

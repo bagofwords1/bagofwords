@@ -77,7 +77,7 @@ The before/after grouping comparison uses the same saved conversation at the sam
 
 ## Deployment and limits
 
-- `BOW_ARTIFACT_VERIFICATION_ENABLED=false` disables the new capability and reports verification unavailable. It does not disable normal artifact viewing.
+- Organization AI Settings → **Verify data apps** is off by default. Enabling it requires **Allow LLM to see data** and an accessible saved page artifact in the current report before browser verification is available. It does not disable normal artifact viewing.
 - `BOW_ARTIFACT_PREVIEW_URL` selects the reachable frontend origin; `BOW_ARTIFACT_BACKEND_URL` selects the broker's backend origin. Defaults use the configured frontend and `http://127.0.0.1:8000` backend.
 - Chromium and vendor assets must already be installed in the deployment image. Verification performs no browser/runtime downloads. A fresh air-gapped container and PostgreSQL were **not** exercised in this local pass.
 - The broker permits only the artifact's declared viewer-query path plus scoped reads/assets. Normal viewer identity and query guards still apply. Arbitrary writes and MCP calls are blocked; this is not a new write-capable bridge or a database transaction-level read-only guarantee.

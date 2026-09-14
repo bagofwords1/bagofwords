@@ -2367,6 +2367,10 @@
           "name": "Permitir que o LLM veja os dados",
           "description": "Permite que o LLM veja os dados como parte da análise e das consultas dos usuários"
         },
+        "enable_artifact_verification": {
+          "name": "Verificar aplicações de dados",
+          "description": "Permite que o agente verifique páginas interativas com ferramentas do navegador. Requer permissão para o LLM ver os dados."
+        },
         "enable_training_mode": {
           "name": "Modo de treinamento",
           "description": "Ativa o modo de treinamento para que os administradores trabalhem com o agente na construção de documentação, instruções, semântica e diretrizes"

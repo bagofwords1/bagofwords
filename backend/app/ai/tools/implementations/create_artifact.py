@@ -1710,10 +1710,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         ).model_dump()
 
         from app.ai.tools.artifact_verification import build_artifact_verification_hint
+        from app.services.artifact_verification_policy import artifact_verification_available
         verification_hint = build_artifact_verification_hint(
             artifact_id=str(artifact.id), version=artifact.version, mode=data.mode, code=code,
             parameters=[p for v in visualizations for p in v.get("parameters", []) or []],
-            available=allow_llm_see_data,
+            available=await artifact_verification_available(runtime_ctx, str(artifact.id)),
         )
         output["verification_hint"] = verification_hint
 

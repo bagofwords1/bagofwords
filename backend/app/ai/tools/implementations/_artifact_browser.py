@@ -8,9 +8,6 @@ from app.services.artifact_preview_service import ArtifactPreviewService, Previe
 
 
 async def navigate_artifact(data, ctx):
-    from app.ai.tools.artifact_verification import artifact_verification_enabled
-    if not artifact_verification_enabled():
-        raise PermissionError("Interactive verification is disabled on this deployment")
     if data.session_id:
         raise ValueError("Open an artifact without reusing a URL session")
     preview = ArtifactPreviewService(ctx)
@@ -71,9 +68,8 @@ async def navigate_artifact(data, ctx):
 async def run_artifact_operation(s, operation, data, ctx):
     from app.ai.tools.schemas.browser import BrowserOutput
     preview = s.preview
-    cfg = ctx.get("settings")
-    if cfg is not None and not bool(getattr(cfg.get_config("allow_llm_see_data"), "value", True)):
-        raise PermissionError("Browser evidence is restricted by the data-visibility policy")
+    # The public browser tools enforce live org policy before operations and
+    # before yielding evidence. The broker also rechecks the exact API target.
     await preview._get(f"/api/artifacts/{preview.artifact['id']}")
     async with s.action_lock:
         action_id = getattr(data, "evidence_for_action_id", None)

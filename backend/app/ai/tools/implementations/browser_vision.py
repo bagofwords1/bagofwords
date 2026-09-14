@@ -4,6 +4,7 @@ from typing import Any, AsyncIterator, Dict, Type
 
 from pydantic import BaseModel
 
+from app.ai.tools.implementations._browser_policy import guard_browser_tool
 from app.ai.tools.base import Tool
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas import ToolEvent, ToolStartEvent, ToolProgressEvent, ToolEndEvent
@@ -42,6 +43,7 @@ class BrowserVisionTool(Tool):
     def output_model(self) -> Type[BaseModel]:
         return BrowserOutput
 
+    @guard_browser_tool
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = BrowserVisionInput(**tool_input)
         yield ToolStartEvent(type="tool.start", payload={"title": data.title or "Taking a screenshot"})
