@@ -92,8 +92,9 @@ class RunQueryTool(Tool):
                 "Use create_data instead when the SHAPE of the result must change (different "
                 "columns, grouping or aggregation), and add_parameter when the query needs a new "
                 "filter it does not yet declare. "
-                "IMPORTANT: take query_id from the conversation or report context — do NOT ask the "
-                "user for ids. If a required parameter has no value, the result lists it under "
+                "IMPORTANT: take the id from the conversation or report context — do NOT ask the "
+                "user for ids. Either handle works: a query_id or the viz_id of a visualization "
+                "bound to it. If a required parameter has no value, the result lists it under "
                 "missing_params: ask the user for that value rather than guessing."
             ),
             category="research",
@@ -124,6 +125,61 @@ class RunQueryTool(Tool):
 
     def _end(self, output: Dict[str, Any], observation: Dict[str, Any]) -> ToolEndEvent:
         return ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})
+
+    async def _resolve_target(self, db, organization, report, requested_id: str,
+                              *, prefer_viz: bool):
+        """Resolve the caller's id to (query, visualization).
+
+        The id may be a query id OR a visualization id: create_data reports
+        both (`query_id`, `viz_id`), read_query accepts either, and the planner
+        picks whichever is nearest in context — observed live, it passed the
+        viz_id. Rejecting one of the two handles the rest of the system hands
+        out would be a trap, so both resolve here.
+        """
+        report_scope = [Query.report_id == str(report.id)] if report is not None else []
+
+        async def by_query_id():
+            return (await db.execute(
+                select(Query)
+                .options(lazyload("*"), selectinload(Query.default_step).options(lazyload("*")))
+                .where(
+                    Query.id == requested_id,
+                    Query.organization_id == str(organization.id),
+                    *report_scope,
+                )
+            )).scalar_one_or_none()
+
+        async def by_viz_id():
+            viz = (await db.execute(
+                select(Visualization)
+                .options(
+                    lazyload("*"),
+                    selectinload(Visualization.query).options(
+                        lazyload("*"),
+                        selectinload(Query.default_step).options(lazyload("*")),
+                    ),
+                )
+                .where(
+                    Visualization.id == requested_id,
+                    *([Visualization.report_id == str(report.id)] if report is not None else []),
+                )
+            )).scalar_one_or_none()
+            if viz is None or viz.query is None:
+                return None, None
+            if str(viz.query.organization_id) != str(organization.id):
+                return None, None
+            return viz.query, viz
+
+        if prefer_viz:
+            q, viz = await by_viz_id()
+            if q is not None:
+                return q, viz
+            return await by_query_id(), None
+
+        q = await by_query_id()
+        if q is not None:
+            return q, None
+        return await by_viz_id()
 
     async def run_stream(
         self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]
@@ -168,31 +224,42 @@ class RunQueryTool(Tool):
             )
             return
 
+        requested_id = data.query_id or data.visualization_id
+        if not requested_id:
+            yield self._end(
+                RunQueryOutput(
+                    success=False, error="query_id or visualization_id is required",
+                ).model_dump(),
+                {
+                    "summary": "run_query failed: no query_id given.",
+                    "error": {"type": "validation_error",
+                              "message": "Pass query_id (or visualization_id) from a previous "
+                                         "create_data result or the report context."},
+                },
+            )
+            return
+
         # Scope the lookup to this report, exactly as read_query does — an id
         # from elsewhere in the org is not addressable from this conversation.
-        res = await db.execute(
-            select(Query)
-            .options(lazyload("*"), selectinload(Query.default_step).options(lazyload("*")))
-            .where(
-                Query.id == str(data.query_id),
-                Query.organization_id == str(organization.id),
-                *([Query.report_id == str(report.id)] if report is not None else []),
-            )
+        query, visualization = await self._resolve_target(
+            db, organization, report, requested_id,
+            prefer_viz=bool(data.visualization_id and not data.query_id),
         )
-        query = res.scalar_one_or_none()
         if query is None:
             yield self._end(
                 RunQueryOutput(
                     success=False, query_id=data.query_id,
-                    error=f"Query not found in this report: {data.query_id}",
+                    visualization_id=data.visualization_id,
+                    error=f"Query not found in this report: {requested_id}",
                 ).model_dump(),
                 {
-                    "summary": f"run_query failed: query {data.query_id} not found in this report.",
+                    "summary": f"run_query failed: {requested_id} is not a query or "
+                               f"visualization in this report.",
                     "error": {
                         "type": "not_found",
                         "message": (
-                            "Query not found — pass a query_id from this conversation's "
-                            "create_data results or the report context."
+                            "Not found — pass the query_id (or viz_id) from this "
+                            "conversation's create_data results or the report context."
                         ),
                     },
                 },
@@ -374,8 +441,8 @@ class RunQueryTool(Tool):
         step: Optional[Step] = query.default_step
         data_model = step.data_model if step else None
         view = step.view if step else None
-        if not view:
-            viz = (
+        if visualization is None:
+            visualization = (
                 await db.execute(
                     select(Visualization)
                     .options(lazyload("*"))
@@ -383,12 +450,13 @@ class RunQueryTool(Tool):
                     .limit(1)
                 )
             ).scalar_one_or_none()
-            if viz is not None:
-                view = viz.view
+        if not view and visualization is not None:
+            view = visualization.view
 
         output = RunQueryOutput(
             success=True,
             query_id=str(query.id),
+            visualization_id=str(visualization.id) if visualization is not None else None,
             step_id=result.get("step_id"),
             title=query.title,
             data=run_data,

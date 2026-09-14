@@ -10,11 +10,21 @@ class RunQueryInput(BaseModel):
     VALUES. Single target: "give me this query's result for these inputs".
     """
 
-    query_id: str = Field(
-        ...,
+    query_id: Optional[str] = Field(
+        default=None,
         description=(
             "Id of the existing query to run. Found as 'query_id' in previous "
-            "create_data results, or on a <query> in the report context."
+            "create_data results, or on a <query> in the report context. "
+            "A visualization id ('viz_id') is also accepted here and resolves "
+            "to the query behind it."
+        ),
+    )
+    visualization_id: Optional[str] = Field(
+        default=None,
+        description=(
+            "Alternative handle for the same thing: the 'viz_id' from a previous "
+            "create_data result. Resolves to that visualization's query. Pass "
+            "either this or query_id, not both."
         ),
     )
     params: Optional[Dict[str, Any]] = Field(
@@ -57,6 +67,7 @@ class RunQueryOutput(BaseModel):
 
     success: bool = Field(..., description="Whether the run produced data")
     query_id: Optional[str] = Field(None, description="Query that was run")
+    visualization_id: Optional[str] = Field(None, description="Visualization bound to that query, if any")
     step_id: Optional[str] = Field(None, description="Step whose saved code was executed")
     title: Optional[str] = Field(None, description="Query title")
     data: Optional[Dict[str, Any]] = Field(None, description="Tabular result of THIS run (columns + rows)")

@@ -111,11 +111,13 @@ async def _seed_query(report_id, specs, code=CODE, snapshot_region="US"):
         await db.flush()
         query.default_step_id = step.id
 
-        db.add(Visualization(title="Viz", status="success", report_id=report_id,
-                             query_id=query.id, view={"type": "table"}))
+        viz = Visualization(title="Viz", status="success", report_id=report_id,
+                            query_id=query.id, view={"type": "table"})
+        db.add(viz)
+        await db.flush()
         await db.commit()
         return {"query_id": str(query.id), "step_id": str(step.id),
-                "widget_id": str(widget.id)}
+                "widget_id": str(widget.id), "viz_id": str(viz.id)}
 
 
 async def _call(org_id, user_id, report_id, tool_input):
@@ -321,3 +323,33 @@ def test_query_from_another_report_is_not_addressable(report, create_report):
     assert out["success"] is False
     assert "not found" in (out["error"] or "").lower()
     assert not (out.get("data") or {}).get("rows")
+
+
+@pytest.mark.e2e
+def test_a_visualization_id_resolves_to_its_query(report):
+    """create_data reports both query_id and viz_id, read_query accepts either,
+    and the planner passes whichever is nearest in context — live, it passed
+    the viz_id. Both handles must resolve, in query_id or visualization_id."""
+    seeded = _run(_seed_query(report["report_id"], [_spec()]))
+
+    via_field = _run(_call(report["org_id"], report["user_id"], report["report_id"],
+                           {"visualization_id": seeded["viz_id"], "params": {"region": "DE"}}))
+    assert via_field["output"]["success"], via_field["output"].get("error")
+    assert via_field["output"]["data"]["rows"] == [{"region": "DE", "revenue": 40}]
+    assert via_field["output"]["query_id"] == seeded["query_id"]
+    assert via_field["output"]["visualization_id"] == seeded["viz_id"]
+
+    # The real-world shape: a viz id handed to query_id.
+    via_query_id = _run(_call(report["org_id"], report["user_id"], report["report_id"],
+                              {"query_id": seeded["viz_id"], "params": {"region": "FR"}}))
+    assert via_query_id["output"]["success"], via_query_id["output"].get("error")
+    assert via_query_id["output"]["data"]["rows"] == [{"region": "FR", "revenue": 25}]
+    assert via_query_id["output"]["query_id"] == seeded["query_id"]
+
+
+@pytest.mark.e2e
+def test_no_id_at_all_is_a_validation_error(report):
+    payload = _run(_call(report["org_id"], report["user_id"], report["report_id"],
+                         {"params": {"region": "DE"}}))
+    assert payload["output"]["success"] is False
+    assert payload["observation"]["error"]["type"] == "validation_error"
