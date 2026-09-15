@@ -196,8 +196,8 @@ async def test_refusal_and_broken_query_get_different_reasons():
     refused = next(w for w in errors if "'refused'" in w)
     broke = next(w for w in errors if "'broken'" in w)
     assert NO_ACCESS_REASON in refused and "'broken'" not in refused
-    assert "could not be run with your credentials" in broke
-    assert "do not have access" not in broke
+    assert "failed when it was run for you" in broke
+    assert "credentials" not in broke and "do not have access" not in broke
     for w in errors:
         assert "shared_orders" not in w and "HTTP 401" not in w
 

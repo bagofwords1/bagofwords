@@ -504,9 +504,15 @@ class ForkService:
                     .where(Step.id.in_(broke))
                     .values(
                         status="error",
+                        # Not a credentials verdict: the forker's client was
+                        # built and the provider answered with something other
+                        # than a refusal. Say that, or a forker with full access
+                        # reads "credentials" and goes looking for a sign-in
+                        # problem that does not exist.
                         status_reason=(
-                            "This query could not be run with your credentials, "
-                            "so it was not copied into your fork."
+                            "This query failed when it was run for you, so it was "
+                            "not copied into your fork. If it runs on the source "
+                            "report, fork it again."
                         ),
                     )
                 )
@@ -738,22 +744,32 @@ class ForkService:
                     # forker runs it under their own credentials. System-only
                     # data is shared by definition, so copy it as-is.
                     data={} if strict_source else old_step.data,
-                    # applied_params travels WITH `data`, never apart from it:
-                    # it records the values that snapshot was materialized
-                    # with. Dropped alongside a dropped snapshot; carried
-                    # alongside a copied one, because the dashboard reads it to
-                    # tell a pre-filtered snapshot from an unfiltered one —
-                    # without it, ArtifactFrame derives filter options from
-                    # rows the creator had already narrowed and offers a
-                    # one-value list. Identity-sourced values are stripped on
-                    # the way (the same boundary redact_applied_params draws
-                    # for a reader): those name the creator, not the data.
-                    applied_params=(
-                        None if strict_source
-                        else redact_applied_params(
-                            old_step.applied_params, old_query.parameters,
-                            withheld=False,
-                        )
+                    # applied_params is the filter state the dashboard was
+                    # built with — the year, the branch, the agent the creator
+                    # had selected. It is carried for EVERY source, snapshot or
+                    # not, because the forker's first run replays it:
+                    # hydrate_fork → rerun_step resolves the step's params from
+                    # `stored=step.applied_params`, and with nothing stored the
+                    # copied code ran under the declared defaults instead.
+                    # For a dashboard whose filters carry no default that is a
+                    # run the creator never made — an empty year, an empty
+                    # period — and code that had only ever executed with a
+                    # value set takes a path that was never exercised. In the
+                    # field that path built DAX against a table the semantic
+                    # model does not have, so every query of a delegated fork
+                    # failed and the forker landed on an empty dashboard,
+                    # labelled as a credentials problem, although the same user
+                    # ran the same queries on the source report fine.
+                    #
+                    # Identity-sourced values are stripped on the way (the same
+                    # boundary redact_applied_params draws for a reader): those
+                    # name the creator, not the data, and rerun_step re-derives
+                    # them for the forker anyway. What remains is the filter
+                    # selection — the dashboard's own state, which the shared
+                    # page already shows a reader — never rows.
+                    applied_params=redact_applied_params(
+                        old_step.applied_params, old_query.parameters,
+                        withheld=False,
                     ),
                     description=old_step.description,
                     type=old_step.type,
