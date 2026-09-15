@@ -1589,6 +1589,157 @@ def test_fork_never_carries_an_identity_derived_applied_param(
     assert applied.get("month") == "2024-01", "the ordinary value was dropped too"
 
 
+# ── A strict fork's first run starts from the creator's filter values ───────
+#
+# A strict fork (delegated or RLS) drops the creator's rows, and used to drop
+# the values they were materialized with alongside them — so the forker's first
+# run resolved from the declared defaults, not the year / month / agent the
+# dashboard was showing. The values now travel on their own, through the same
+# gate the read path applies to this forker.
+
+MONTH_PARAM_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    return pd.DataFrame({"month": [params["month"]], "revenue": [10]})
+"""
+
+MONTH_PARAM = {
+    "name": "month", "type": "string", "label": "Month",
+    "default": "2024-01", "required": False, "source": "input",
+    "identity_binding": None, "options": None, "options_source": None,
+}
+
+
+async def _set_query_params(query_id: str, specs: list):
+    async with async_session_maker() as db:
+        q = await db.get(Query, query_id)
+        q.parameters = specs
+        await db.commit()
+
+
+async def _seed_viewer_success(step_id: str, user_id: str, report_id: str):
+    """A successful per-viewer run — what makes the read path serve this
+    viewer instead of withholding from them."""
+    from app.services.viewer_result_store import store_viewer_result
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        await store_viewer_result(
+            db, step_id=step_id, user_id=user_id, params_fingerprint="seed",
+            organization_id=str(report.organization_id), report_id=str(report_id),
+            status="success", status_reason=None,
+            data={"rows": [{"month": "2024-02", "revenue": 1}],
+                  "columns": [{"field": "month"}, {"field": "revenue"}]},
+            executed_as="viewer", applied_params={"month": "2024-02"},
+            last_run_at=datetime.utcnow(),
+        )
+
+
+async def _fork_default_step(fork_id: str) -> Step:
+    from sqlalchemy import select
+    async with async_session_maker() as db:
+        q = (await db.execute(select(Query).where(Query.report_id == fork_id))).scalars().first()
+        return await db.get(Step, q.default_step_id)
+
+
+def _strict_month_report(test_client, create_report, bootstrap_admin, invite_user_to_org):
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_set_query_params(seeded["query_ids"][0], [MONTH_PARAM]))
+    _run(_set_step_code(seeded["step_ids"][0], MONTH_PARAM_CODE))
+    _run(_set_step_applied_params(seeded["step_ids"][0], {"month": "2024-02"}))
+    return admin, owner, viewer, report, seeded
+
+
+@pytest.mark.e2e
+def test_strict_fork_first_run_uses_the_creators_filter_values(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The creator's dashboard shows month=2024-02 (default 2024-01). A forker
+    the read path already serves gets a fork whose first run is 2024-02 too."""
+    admin, owner, viewer, report, seeded = _strict_month_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+    _run(_seed_viewer_success(seeded["step_ids"][0], viewer["user_id"], report["id"]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    outcome = _run(spawned[0])
+    assert outcome == {"succeeded": 1, "failed": 0, "deleted": False}, outcome
+
+    fstep = _run(_fork_default_step(fork_id))
+    assert {r["month"] for r in fstep.data["rows"]} == {"2024-02"}, (
+        "the fork's first run ignored the creator's filter and used the default"
+    )
+    assert (fstep.applied_params or {}).get("month") == "2024-02"
+
+
+@pytest.mark.e2e
+def test_strict_fork_carries_no_values_to_a_forker_the_read_path_withholds(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The fork gives no more than the share: a forker with no run of their own
+    is withheld the snapshot on the read path — applied_params included — so
+    their fork starts from the declared defaults."""
+    admin, owner, viewer, report, seeded = _strict_month_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+    assert _run(_fork_default_step(fork_id)).applied_params is None
+
+    outcome = _run(spawned[0])
+    assert outcome["succeeded"] == 1, outcome
+    fstep = _run(_fork_default_step(fork_id))
+    assert {r["month"] for r in fstep.data["rows"]} == {"2024-01"}
+
+
+@pytest.mark.e2e
+def test_strict_fork_never_carries_an_identity_derived_applied_param(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The identity boundary holds on the strict path as on the system-only
+    one. Hydration is not run: it re-derives identity from the forker anyway;
+    what is pinned here is what the fork itself was created holding."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_set_query_identity_param(seeded["query_ids"][0]))
+    _run(_set_step_applied_params(
+        seeded["step_ids"][0], {"month": "2024-02", "owner_email": "creator@example.com"},
+    ))
+    _run(_seed_viewer_success(seeded["step_ids"][0], viewer["user_id"], report["id"]))
+
+    monkeypatch.setattr(
+        "app.core.fire_and_forget.spawn", lambda coro: coro.close(),
+    )
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+
+    fstep = _run(_fork_default_step(resp.json()["id"]))
+    assert fstep.applied_params == {"month": "2024-02"}, fstep.applied_params
+    assert not (fstep.data or {}).get("rows"), "a strict fork carried the creator's rows"
+
+
 @pytest.mark.e2e
 def test_fork_queries_run_once_not_again_on_the_page_refresh(
     test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,

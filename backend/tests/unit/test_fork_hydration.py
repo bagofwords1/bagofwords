@@ -4,9 +4,11 @@
 creator's slice) and no SQL (the share withholds it from a reader who may have
 no access). `hydrate_fork` is what fills them back in, so it is the single
 place where the creator's queries can become the forker's. Everything here
-pins that boundary: code reaches a step only via a successful run under the
-forker's own credentials, a failed run leaves the step with neither code nor
-rows, and a forker who could run nothing is left with no fork at all.
+pins that boundary: rows reach a step only via a successful run under the
+forker's own credentials; code reaches it via such a run, or via one that broke
+while reaching only clients the forker holds (so a rerun can repair it); any
+other failure leaves the step with neither code nor rows; and a forker who
+could run nothing is left with no fork at all.
 """
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -329,6 +331,78 @@ async def test_no_usable_client_still_retires_the_fork():
 
     assert out["deleted"] is True, out
     archive.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_a_query_that_broke_under_the_forkers_own_client_keeps_its_code():
+    """A broken query must stay repairable. Dropping its code left a chart
+    with nothing for a rerun to run — dead on arrival — for a forker who
+    demonstrably holds the source. It keeps its code and the real cause.
+
+    Neither of its neighbours gains code: a refusal keeps the "no access"
+    wording, and a client the forker does NOT hold fails with a KeyError
+    exactly like a missing parameter — so the client keys decide, not the
+    exception."""
+    from app.services.access_errors import NO_ACCESS_REASON
+
+    report, user, org = _report(), SimpleNamespace(id="u-1"), MagicMock()
+    org.get_settings = AsyncMock(return_value=None)
+    session = _Session(report, user, org)
+
+    held = 'df = ds_clients["agent:conn"].execute_query(params["depot"])'
+    not_held = 'df = ds_clients["other:conn"].execute_query("EVALUATE secret_orders")'
+    refused_code = 'df = ds_clients["agent:conn"].execute_query("EVALUATE refused_model")'
+
+    async def _rerun(db, step_id, **kwargs):
+        if step_id == "broken":
+            raise KeyError("depot")
+        if step_id == "missing":
+            raise KeyError("other:conn")
+        raise RuntimeError('DAX query failed: HTTP 403 {"model":"refused_model"}')
+
+    with patch("app.services.report_service.ReportService.archive_report",
+               AsyncMock()) as archive:
+        out, _, _ = await _run_hydration(
+            session, _rerun,
+            {"broken": held, "missing": not_held, "refused": refused_code},
+            with_client=True,
+        )
+
+    assert out == {"succeeded": 0, "failed": 3, "deleted": False}
+    archive.assert_not_awaited()
+    errors = session.settled("steps", "error")
+    broken = next(w for w in errors if "'broken'" in w)
+    missing = next(w for w in errors if "'missing'" in w)
+    refused = next(w for w in errors if "'refused'" in w)
+
+    assert 'ds_clients["agent:conn"]' in broken, "the repairable step lost its code"
+    assert "depot" in broken and "not copied into your fork" not in broken
+
+    assert "code=" not in missing and "secret_orders" not in missing
+    assert "could not be run with your credentials" in missing
+
+    assert "code=" not in refused and "refused_model" not in refused
+    assert NO_ACCESS_REASON in refused
+
+
+@pytest.mark.parametrize("code, clients, expected", [
+    ('ds_clients["a:c"].execute_query("x")', {"a:c": 1}, True),
+    ("ds_clients.get('a:c').execute_query('x')", {"a:c": 1}, True),
+    ('ds_clients["a:c"]; ds_clients["b:c"]', {"a:c": 1}, False),
+    ('ds_clients["b:c"]', {"a:c": 1}, False),
+    # No client named at all proves nothing about access.
+    ("import pandas as pd", {"a:c": 1}, False),
+    ("", {"a:c": 1}, False),
+    # Any reach past a literal key fails closed.
+    ('key = "a:c"\nds_clients[key]', {"a:c": 1}, False),
+    ('c = ds_clients\nc["a:c"]', {"a:c": 1}, False),
+    ('ds_clients["a:c"]; list(ds_clients.values())', {"a:c": 1}, False),
+    ('ds_clients[f"{n}:c"]', {"a:c": 1}, False),
+])
+def test_reaches_only_usable_clients(code, clients, expected):
+    from app.services.fork_service import _reaches_only_usable_clients
+
+    assert _reaches_only_usable_clients(code, clients) is expected
 
 
 @pytest.mark.asyncio
