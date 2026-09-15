@@ -36,15 +36,17 @@
       </template>
       <template v-else-if="kind === 'text' && text !== null">
         <pre dir="auto" class="max-h-[65vh] overflow-auto whitespace-pre-wrap break-words text-[11px] font-mono text-gray-800 dark:text-gray-200 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-md p-3">{{ text }}</pre>
-        <div v-if="textTruncated" class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
-          {{ $t('agentsPage.fileBrowserPreviewTextTruncated', { n: MAX_TEXT_CHARS.toLocaleString() }) }}
-        </div>
       </template>
       <!-- Source HTML is untrusted: an empty sandbox (no scripts, forms,
            popups or same-origin access) plus a CSP that blocks every remote
            load, so a page can neither run code nor phone home. -->
       <iframe v-else-if="kind === 'html' && html !== null" :srcdoc="html" sandbox="" referrerpolicy="no-referrer" :title="name"
               class="w-full h-[65vh] rounded-md border border-gray-200 dark:border-gray-700 bg-white" />
+      <!-- Under both views: a cut HTML page doesn't LOOK cut — the parser
+           closes the open tags — so it needs saying even more than text. -->
+      <div v-if="truncatedAt" class="mt-1 text-[10px] text-gray-400 dark:text-gray-500">
+        {{ $t('agentsPage.fileBrowserPreviewTextTruncated', { n: truncatedAt.toLocaleString() }) }}
+      </div>
     </template>
   </div>
 </template>
@@ -87,7 +89,8 @@ const unavailableReason = computed(() => {
 const url = ref<string | null>(null)
 const text = ref<string | null>(null)
 const html = ref<string | null>(null)
-const textTruncated = ref(false)
+// The cap the shown text/HTML was cut at, or null when it is complete.
+const truncatedAt = ref<number | null>(null)
 const table = ref<{ csv: string; row_count: number; col_count: number; sheets: string[]; sheet: string | null } | null>(null)
 
 const endpoint = (params: Record<string, string>) =>
@@ -112,7 +115,7 @@ function clear() {
   url.value = null
   text.value = null
   html.value = null
-  textTruncated.value = false
+  truncatedAt.value = null
   error.value = null
   serverUnavailable.value = null
 }
@@ -163,10 +166,11 @@ async function load(sheet?: string | null) {
       if (mine !== seq) return
       if (k === 'html') {
         html.value = HTML_CSP + s.slice(0, MAX_HTML_CHARS)
+        truncatedAt.value = s.length > MAX_HTML_CHARS ? MAX_HTML_CHARS : null
         return
       }
       text.value = s.slice(0, MAX_TEXT_CHARS)
-      textTruncated.value = s.length > MAX_TEXT_CHARS
+      truncatedAt.value = s.length > MAX_TEXT_CHARS ? MAX_TEXT_CHARS : null
       return
     }
     // Type the blob ourselves from the extension: an iframe only ever gets a

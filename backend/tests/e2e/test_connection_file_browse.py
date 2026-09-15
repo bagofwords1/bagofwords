@@ -411,3 +411,36 @@ def test_connections_without_original_bytes_offer_no_preview(browse_agent, test_
     assert body["files"][0]["path"] == "Re: Q3 / Q4 forecast"
     r = test_client.get(content, params={"file_id": "m1"}, headers=headers)
     assert r.status_code == 400
+
+
+@pytest.mark.e2e
+def test_a_connection_that_cannot_be_opened_is_a_400_on_both_endpoints(browse_agent, test_client, monkeypatch):
+    """Client construction fails on a malformed saved config, an unknown type,
+    or a constructor rejecting its settings. Listing and preview must surface
+    it the same way — a 400 with the reason — not a 500 from one of them."""
+    from app.services.connection_service import ConnectionService
+
+    async def broken(self, *args, **kwargs):
+        raise ValueError("saved config no longer matches the client")
+    monkeypatch.setattr(ConnectionService, "construct_client", broken)
+    listing, content, headers = browse_agent
+    for url, params in ((listing, {}), (content, {"file_id": "x.txt"})):
+        r = test_client.get(url, params=params, headers=headers)
+        assert r.status_code == 400, (url, r.text)
+        assert "saved config no longer matches the client" in r.json()["detail"]
+
+
+@pytest.mark.e2e
+def test_connect_required_still_passes_through_the_preview(browse_agent, test_client, monkeypatch):
+    """A per-user connection the caller hasn't linked raises an HTTPException
+    403 from construct_client — it must reach the browser unchanged."""
+    from fastapi import HTTPException
+    from app.services.connection_service import ConnectionService
+
+    async def not_connected(self, *args, **kwargs):
+        raise HTTPException(status_code=403, detail="Connect your account to use this connection")
+    monkeypatch.setattr(ConnectionService, "construct_client", not_connected)
+    _, content, headers = browse_agent
+    r = test_client.get(content, params={"file_id": "x.txt"}, headers=headers)
+    assert r.status_code == 403
+    assert "Connect your account" in r.json()["detail"]

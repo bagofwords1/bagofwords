@@ -721,7 +721,15 @@ async def get_connection_file_content(
     )
 
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
-    client = await ConnectionService().construct_client(db, conn, current_user)
+    try:
+        client = await ConnectionService().construct_client(db, conn, current_user)
+    except HTTPException:
+        # e.g. the 403 "connect your account" of a per-user connection.
+        raise
+    except Exception as e:
+        # Malformed saved config, unknown type, a constructor rejecting its
+        # settings — a 400 with the reason, as the listing endpoint returns.
+        raise HTTPException(status_code=400, detail=f"Failed to open the connection: {e}")
     if not hasattr(client, "read_raw_bytes"):
         # Mail connectors: no original bytes, only a serialized message.
         raise HTTPException(status_code=400, detail="Preview isn't available for this connection.")
