@@ -34,6 +34,7 @@ from app.data_sources.clients._document_text import (
     extract_pdf_pages_text,
 )
 from app.data_sources.clients._file_source_common import (
+    FileTooLargeError,
     GlobScopeError,
     DocumentText,
     NamedBytes,
@@ -344,7 +345,12 @@ class GraphDriveClient(DataSourceClient):
         return full
 
     def _library_name(self, drive_id: str) -> str:
-        for did, lib in (self._drives or []):
+        # Resolve, don't just read, the library map: a qualified `drive|item`
+        # id is routed without it (see _locate), and every request builds a
+        # fresh client — so on a read that never listed, `_drives` was still
+        # None, the path lost its library prefix, and an in-scope file failed a
+        # glob like 'Policies/**' ("Access denied").
+        for did, lib in self._resolve_drives():
             if did == drive_id:
                 return lib
         return ""
@@ -918,7 +924,7 @@ class GraphDriveClient(DataSourceClient):
             return content.decode("utf-8", errors="replace")
         return NamedBytes(content, name=name, mime=mime)
 
-    def read_raw_bytes(self, file_id: str):
+    def read_raw_bytes(self, file_id: str, *, max_bytes: Optional[int] = None):
         """Raw item bytes + name + mime, unparsed — for attach_file (persist
         the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
         Same access boundary as read_file: off-glob items are denied.
@@ -937,6 +943,13 @@ class GraphDriveClient(DataSourceClient):
         # it: across libraries the listed paths carry a library prefix, so the
         # glob check must be given the prefixed form it was written against.
         self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
+        # Graph reports the size with the metadata we already hold — reject an
+        # oversize item here, before its content is streamed into memory.
+        size = meta.get("size")
+        if max_bytes and size is not None and int(size) > max_bytes:
+            raise FileTooLargeError(
+                f"'{name}' is {int(size) / 1024 / 1024:.1f} MB, over the {max_bytes / 1024 / 1024:.0f} MB limit."
+            )
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         return content, name, (meta.get("file") or {}).get("mimeType")
 

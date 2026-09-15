@@ -40,6 +40,11 @@
           {{ $t('agentsPage.fileBrowserPreviewTextTruncated', { n: MAX_TEXT_CHARS.toLocaleString() }) }}
         </div>
       </template>
+      <!-- Source HTML is untrusted: an empty sandbox (no scripts, forms,
+           popups or same-origin access) plus a CSP that blocks every remote
+           load, so a page can neither run code nor phone home. -->
+      <iframe v-else-if="kind === 'html' && html !== null" :srcdoc="html" sandbox="" referrerpolicy="no-referrer" :title="name"
+              class="w-full h-[65vh] rounded-md border border-gray-200 dark:border-gray-700 bg-white" />
     </template>
   </div>
 </template>
@@ -59,9 +64,12 @@ const emit = defineEmits<{ (e: 'ready'): void }>()
 // after the server had already downloaded the whole file from the source.
 const MAX_PREVIEW_BYTES = 25 * 1024 * 1024
 const MAX_TEXT_CHARS = 200_000
+const MAX_HTML_CHARS = 2_000_000
+// First thing in the srcdoc, so the parser puts it in the implied <head>.
+const HTML_CSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:">`
 
 const name = computed(() => fileName(props.file))
-const kind = computed(() => previewKind(name.value))
+const kind = computed(() => previewKind(name.value, props.file.mime_type))
 const tooLarge = computed(() => (props.file.size ?? 0) > MAX_PREVIEW_BYTES)
 const webUrl = computed(() => (props.file.web_url && /^https?:\/\//i.test(props.file.web_url) ? props.file.web_url : null))
 
@@ -78,6 +86,7 @@ const unavailableReason = computed(() => {
 })
 const url = ref<string | null>(null)
 const text = ref<string | null>(null)
+const html = ref<string | null>(null)
 const textTruncated = ref(false)
 const table = ref<{ csv: string; row_count: number; col_count: number; sheets: string[]; sheet: string | null } | null>(null)
 
@@ -91,7 +100,10 @@ async function showError(err: any) {
   if (d instanceof Blob) { try { d = JSON.parse(await d.text()) } catch { d = null } }
   const detail = typeof d?.detail === 'string' ? d.detail : ''
   const status = err?.statusCode ?? err?.status
-  if (status === 422 || status === 413) serverUnavailable.value = detail || t('agentsPage.fileBrowserPreviewUnsupported')
+  // None of these can succeed on retry — a "Try again" on a 403 would only
+  // add file.access_denied rows (reachable once the include-globs narrow
+  // while the browser is open).
+  if (status === 422 || status === 413 || status === 403) serverUnavailable.value = detail || t('agentsPage.fileBrowserPreviewUnsupported')
   else error.value = detail
 }
 
@@ -99,6 +111,7 @@ function clear() {
   if (url.value) URL.revokeObjectURL(url.value)
   url.value = null
   text.value = null
+  html.value = null
   textTruncated.value = false
   error.value = null
   serverUnavailable.value = null
@@ -145,8 +158,13 @@ async function load(sheet?: string | null) {
     if (mine !== seq) return
     if (res.error.value) { await showError(res.error.value); return }
     const blob = res.data.value as Blob
-    if (k === 'text') {
+    if (k === 'text' || k === 'html') {
       const s = await blob.text()
+      if (mine !== seq) return
+      if (k === 'html') {
+        html.value = HTML_CSP + s.slice(0, MAX_HTML_CHARS)
+        return
+      }
       text.value = s.slice(0, MAX_TEXT_CHARS)
       textTruncated.value = s.length > MAX_TEXT_CHARS
       return
@@ -155,9 +173,15 @@ async function load(sheet?: string | null) {
     // PDF and an <img> only an image, whatever the source claimed.
     const type = k === 'image' ? (IMAGE_MIME_BY_EXT[fileExt(name.value)] || 'application/octet-stream') : 'application/pdf'
     let typed = new Blob([blob], { type })
-    if (k === 'image' && isAnimatedImage(new Uint8Array(await blob.arrayBuffer()))) {
-      typed = await firstFrame(typed)
+    if (k === 'image') {
+      // isAnimatedImage reads container headers only; 64 KB leaves room for an
+      // iCCP profile or eXIf block ahead of a PNG's acTL.
+      const head = new Uint8Array(await blob.slice(0, 65536).arrayBuffer())
       if (mine !== seq) return
+      if (isAnimatedImage(head)) {
+        typed = await firstFrame(typed)
+        if (mine !== seq) return
+      }
     }
     url.value = URL.createObjectURL(typed)
   } catch (e: any) {

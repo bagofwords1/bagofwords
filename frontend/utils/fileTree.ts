@@ -34,8 +34,15 @@ const newFolder = (name: string, segments: string[]): FolderNode => ({
 // Documentum paths start with '/', Windows shares may use '\' — neither
 // should produce an empty or backslash-named folder. The id is a last resort
 // only: Graph (SharePoint/OneDrive) ids are opaque ("01TP3T7WAPS6…"), not names.
-export const pathSegments = (f: BrowseFile): string[] =>
-  String(f.path || f.name || f.id || '').replace(/\\/g, '/').split('/').filter(Boolean)
+//
+// A path identical to the name is a root-level leaf, never split: that is what
+// every file store sends for a top-level file, and what mail connectors send
+// for every message — their "path" is the subject, and "Re: Q3 / Q4 forecast"
+// must stay one item rather than become a folder "Re: Q3" holding "Q4 forecast".
+export const pathSegments = (f: BrowseFile): string[] => {
+  if (f.path && f.name && f.path === f.name) return [f.name]
+  return String(f.path || f.name || f.id || '').replace(/\\/g, '/').split('/').filter(Boolean)
+}
 
 export const fileName = (f: BrowseFile): string => {
   const segs = pathSegments(f)
@@ -104,11 +111,12 @@ export function fileIcon(ct?: string | null, name?: string | null): string {
   return 'i-heroicons-paper-clip'
 }
 
-export type PreviewKind = 'pdf' | 'office' | 'image' | 'table' | 'text' | 'none'
+export type PreviewKind = 'pdf' | 'office' | 'image' | 'table' | 'text' | 'html' | 'none'
 
 // Decided by extension, not the source's mime: providers are inconsistent (or
 // silent) about mime, and the browser renders each kind from a blob it types
 // itself, so a mislabelled file can never be rendered as something else.
+// The mime is consulted only when there is NO extension (see previewKind).
 const PREVIEW_BY_EXT: Record<string, PreviewKind> = {
   pdf: 'pdf',
   // Converted to PDF server-side (LibreOffice), then shown like a PDF.
@@ -117,8 +125,18 @@ const PREVIEW_BY_EXT: Record<string, PreviewKind> = {
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', svg: 'image',
   csv: 'table', tsv: 'table', xlsx: 'table', xls: 'table', xlsm: 'table',
   txt: 'text', md: 'text', markdown: 'text', json: 'text', jsonl: 'text', ndjson: 'text', log: 'text',
-  xml: 'text', html: 'text', htm: 'text', yaml: 'text', yml: 'text', sql: 'text', ini: 'text', toml: 'text',
+  xml: 'text', yaml: 'text', yml: 'text', sql: 'text', ini: 'text', toml: 'text',
   sh: 'text', py: 'text', js: 'text', ts: 'text', css: 'text',
+  // Rendered in a sandboxed, script-less frame (see ConnectionFilePreview).
+  html: 'html', htm: 'html',
+}
+
+// Extensionless entries only. OneNote pages are the case: titles carry no
+// extension, but the connector declares text/html and serves the page HTML.
+const PREVIEW_BY_MIME: Record<string, PreviewKind> = {
+  'text/html': 'html',
+  'text/plain': 'text',
+  'application/pdf': 'pdf',
 }
 
 export const fileExt = (name?: string | null): string => {
@@ -127,7 +145,11 @@ export const fileExt = (name?: string | null): string => {
   return dot > 0 ? n.slice(dot + 1).toLowerCase() : ''
 }
 
-export const previewKind = (name?: string | null): PreviewKind => PREVIEW_BY_EXT[fileExt(name)] || 'none'
+export const previewKind = (name?: string | null, mime?: string | null): PreviewKind => {
+  const ext = fileExt(name)
+  if (ext) return PREVIEW_BY_EXT[ext] || 'none'
+  return PREVIEW_BY_MIME[String(mime || '').split(';')[0].trim().toLowerCase()] || 'none'
+}
 
 export const IMAGE_MIME_BY_EXT: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', bmp: 'image/bmp', svg: 'image/svg+xml',

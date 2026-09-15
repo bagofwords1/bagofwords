@@ -24,6 +24,7 @@ from app.data_sources.clients._document_text import (
 )
 from app.data_sources.clients._file_source_common import (
     DocumentText,
+    FileTooLargeError,
     NamedBytes,
 )
 from app.data_sources.clients.base import Capability, DataSourceClient
@@ -309,18 +310,25 @@ class GoogleDriveClient(DataSourceClient):
             return content.decode("utf-8", errors="replace")
         return NamedBytes(content, name=name)
 
-    def read_raw_bytes(self, file_id: str):
+    def read_raw_bytes(self, file_id: str, *, max_bytes: Optional[int] = None):
         """Raw file bytes + name + mime, unparsed — for attach_file (persist
         the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
         Google-native files (Docs/Sheets/Slides) are exported to PDF since they
-        have no binary original to download."""
+        have no binary original to download. `max_bytes` rejects an oversize
+        binary from its reported size before downloading it (native files
+        report none; their exports are small)."""
         file_id = self._resolve_file_id(file_id)
         meta = self._get(
             f"{DRIVE_BASE}/files/{file_id}",
-            params={"fields": "id,name,mimeType", "supportsAllDrives": "true"},
+            params={"fields": "id,name,mimeType,size", "supportsAllDrives": "true"},
         )
         mime = meta.get("mimeType", "")
         name = meta.get("name", "")
+        size = meta.get("size")
+        if max_bytes and size is not None and int(size) > max_bytes:
+            raise FileTooLargeError(
+                f"'{name}' is {int(size) / 1024 / 1024:.1f} MB, over the {max_bytes / 1024 / 1024:.0f} MB limit."
+            )
         if mime.startswith("application/vnd.google-apps"):
             content = self._get_bytes(
                 f"{DRIVE_BASE}/files/{file_id}/export",

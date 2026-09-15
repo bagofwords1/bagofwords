@@ -43,8 +43,11 @@ from app.data_sources.clients._file_source_common import (
     INDEX_CONTENT,
     INDEX_METADATA,
     INDEX_NONE,
+    FileTooLargeError,
     GlobScopeError,
     NamedBytes,
+    ScopeEscapeError,
+    byte_limit,
     globs_from_str,
     legacy_fs_candidates,
     normalize_index_mode,
@@ -221,7 +224,7 @@ class NetworkDirClient(DataSourceClient):
         try:
             rel = resolved.relative_to(root)
         except ValueError:
-            raise ValueError(f"Path escapes the connection root: {rel_or_id}")
+            raise ScopeEscapeError(f"Path escapes the connection root: {rel_or_id}")
         # Access boundary: if include-globs are configured, the resolved path
         # (relative to root) must match one — otherwise a read/attach of a
         # real-but-out-of-scope file (e.g. a `.env` next to the decks) is
@@ -535,17 +538,21 @@ class NetworkDirClient(DataSourceClient):
         except Exception:
             return ""
 
-    def read_raw_bytes(self, file_id: str) -> Tuple[bytes, str, Optional[str]]:
+    def read_raw_bytes(
+        self, file_id: str, *, max_bytes: Optional[int] = None
+    ) -> Tuple[bytes, str, Optional[str]]:
         """Return the file's raw bytes + name + mime, unparsed. Used by the
         attach_file tool to persist the ORIGINAL file (a real .pdf/.xlsx) rather
-        than a serialized/reparsed copy."""
+        than a serialized/reparsed copy. `max_bytes` tightens the connection's
+        own cap for this read (the file browser's preview budget)."""
         path = self._resolve(file_id, must_exist=True)
         if not path.is_file():
             raise ValueError(f"Not a file: {file_id}")
-        if self.max_file_bytes and path.stat().st_size > self.max_file_bytes:
-            raise ValueError(
+        limit = byte_limit(self.max_file_bytes, max_bytes)
+        if limit and path.stat().st_size > limit:
+            raise FileTooLargeError(
                 f"File {file_id} exceeds the "
-                f"{self.max_file_bytes / 1024 / 1024:.0f} MB limit."
+                f"{limit / 1024 / 1024:.0f} MB limit."
             )
         display = recover_filename(path.name)
         mime, _ = mimetypes.guess_type(display)

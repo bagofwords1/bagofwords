@@ -65,6 +65,17 @@ const flat = buildFileTree([{ id: 'opaque-1', name: 'Book 1.xlsx' }])
 assert.equal(flat.files.length, 1)
 assert.equal(fileName(flat.files[0]), 'Book 1.xlsx')
 
+// Mail connectors send the subject as both name and path: a slash in a subject
+// is not a folder. Any path equal to its name is one root-level leaf.
+const mail = buildFileTree([
+  { id: 'm1', name: 'Re: Q3 / Q4 forecast', path: 'Re: Q3 / Q4 forecast' },
+  { id: 'm2', name: 'FW: Contracts/2025', path: 'FW: Contracts/2025' },
+])
+assert.equal(mail.folders.size, 0, 'no phantom folders from subjects')
+assert.deepEqual(mail.files.map((f) => fileName(f)).sort(), ['FW: Contracts/2025', 'Re: Q3 / Q4 forecast'])
+// …while a real nested path, whose name is only its last segment, still splits.
+assert.equal(buildFileTree([{ id: 'x', name: 'a.csv', path: 'Reports/a.csv' }]).folders.has('Reports'), true)
+
 // The displayed name is the last path segment.
 assert.equal(fileName({ id: 'z', path: 'Documents/Finance/Budget.xlsx' }), 'Budget.xlsx')
 
@@ -102,6 +113,16 @@ assert.equal(previewKind('Makefile'), 'none')
 assert.equal(previewKind('.env'), 'none', 'a dotfile has no extension, just a name')
 assert.equal(previewKind(null), 'none')
 assert.equal(fileExt('a.tar.gz'), 'gz')
+assert.equal(previewKind('page.html'), 'html')
+// No extension → the declared mime decides. OneNote page titles are the case.
+assert.equal(previewKind('Meeting notes', 'text/html'), 'html')
+assert.equal(previewKind('Meeting notes', 'text/html; charset=utf-8'), 'html')
+assert.equal(previewKind('README', 'text/plain'), 'text')
+assert.equal(previewKind('Meeting notes', 'message/rfc822'), 'none')
+// An extension always wins over the mime: a mislabelled file is never
+// rendered as something else.
+assert.equal(previewKind('report.pdf', 'text/html'), 'pdf')
+assert.equal(previewKind('archive.zip', 'text/html'), 'none')
 
 // --- animated images ----------------------------------------------------------------
 //

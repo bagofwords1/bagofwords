@@ -702,12 +702,19 @@ _ATTACH_MAX_BYTES = 50 * 1024 * 1024  # 50 MB
 _PREVIEW_MAX_BYTES = 25 * 1024 * 1024  # 25 MB
 
 
-async def read_source_bytes(client, file_id: str) -> Tuple[bytes, str, Optional[str]]:
+async def read_source_bytes(
+    client, file_id: str, *, max_bytes: Optional[int] = None,
+) -> Tuple[bytes, str, Optional[str]]:
     """The file's ORIGINAL bytes + name + mime, unparsed.
 
     Prefers the client's raw-bytes reader so callers persist a real .pdf/.xlsx
     instead of a reparsed copy, and falls back to serializing whatever
     ``read_file`` returns for clients that expose no such reader.
+
+    ``max_bytes`` is forwarded to raw readers that accept it, which reject an
+    oversize file from its reported size (FileTooLargeError) BEFORE
+    downloading it. Readers without the parameter, and the fallback path,
+    don't enforce it — callers that must bound memory check the result too.
 
     Clients disagree on the return shape — network_dir/s3/graph_drive/
     google_drive hand back ``(bytes, name, mime)`` while OneNote returns bare
@@ -717,8 +724,16 @@ async def read_source_bytes(client, file_id: str) -> Tuple[bytes, str, Optional[
     leaf = str(file_id or "").rsplit("/", 1)[-1] or "file"
     if hasattr(client, "read_raw_bytes"):
         import asyncio
+        import inspect
 
-        raw = await asyncio.to_thread(client.read_raw_bytes, file_id)
+        kwargs = {}
+        if max_bytes:
+            try:
+                if "max_bytes" in inspect.signature(client.read_raw_bytes).parameters:
+                    kwargs["max_bytes"] = max_bytes
+            except (TypeError, ValueError):
+                pass
+        raw = await asyncio.to_thread(client.read_raw_bytes, file_id, **kwargs)
         if isinstance(raw, tuple):
             content = raw[0]
             name = raw[1] if len(raw) > 1 else ""

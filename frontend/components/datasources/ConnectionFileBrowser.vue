@@ -67,9 +67,12 @@
               <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 shrink-0 text-gray-300 dark:text-gray-600 rtl:rotate-180" />
             </button>
           </template>
-          <div v-for="f in shownFiles" :key="f.id" role="button" tabindex="0"
-               class="group flex items-center gap-2 px-2.5 py-1.5 text-xs cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 focus:outline-none focus-visible:bg-gray-50 dark:focus-visible:bg-gray-800/60"
-               @click="openPreview(f)" @keydown.enter="openPreview(f)">
+          <!-- Rows open a preview only where the connector hands out original
+               bytes; mail messages stay a plain list with "open in source". -->
+          <div v-for="f in shownFiles" :key="f.id" :role="previewSupported ? 'button' : undefined" :tabindex="previewSupported ? 0 : undefined"
+               class="group flex items-center gap-2 px-2.5 py-1.5 text-xs"
+               :class="previewSupported && 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/60 focus:outline-none focus-visible:bg-gray-50 dark:focus-visible:bg-gray-800/60'"
+               @click="previewSupported && openPreview(f)" @keydown.enter="previewSupported && openPreview(f)">
             <UIcon :name="fileIcon(f.mime_type, fileName(f))" class="w-3.5 h-3.5 shrink-0 text-gray-400 dark:text-gray-500" />
             <div class="flex-1 min-w-0">
               <!-- <bdi>: a file name or "4.1 KB" keeps its own direction on an RTL page. -->
@@ -126,6 +129,7 @@ const loading = ref(false)
 const loaded = ref(false)
 const error = ref<string | null>(null)
 const connectRequired = ref(false)
+const previewSupported = ref(true)
 const segments = ref<string[]>([])
 const query = ref('')
 const opened = ref<BrowseFile | null>(null)
@@ -195,6 +199,7 @@ async function load() {
     }
     const d: any = res.data.value || {}
     connectRequired.value = !!d.connect_required
+    previewSupported.value = d.preview_supported !== false
     files.value = d.files || []
     total.value = d.total ?? files.value.length
     loaded.value = true

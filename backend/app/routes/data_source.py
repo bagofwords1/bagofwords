@@ -1,3 +1,5 @@
+import asyncio
+
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, release_request_db
@@ -631,7 +633,8 @@ async def list_connection_files(
     # Every call walks the whole scope, so paging only multiplies that walk.
     # The file browser asks for everything at once (it builds the folder tree
     # from `path`); the cap matches the connectors' default max_catalog_objects.
-    page = files[max(0, offset): max(0, offset) + max(1, min(limit, 5000))]
+    effective_limit = max(1, min(limit, 5000))
+    page = files[max(0, offset): max(0, offset) + effective_limit]
     return {
         "connection_id": str(connection_id),
         "files": [{"id": f.get("id"), "name": f.get("name"), "path": f.get("path"),
@@ -639,12 +642,18 @@ async def list_connection_files(
                    "mime_type": f.get("mime_type"), "web_url": f.get("web_url")} for f in page],
         "total": total,
         "offset": offset,
-        "limit": limit,
+        "limit": effective_limit,
         "has_more": offset + len(page) < total,
+        # Only clients that hand out the ORIGINAL bytes can be previewed. Mail
+        # connectors don't — a message would reach the viewer as serialized
+        # text typed by its subject line.
+        "preview_supported": hasattr(client, "read_raw_bytes"),
     }
 
 
 _PREVIEW_TABLE_ROWS = 200
+# Concurrent LibreOffice conversions for previews (per worker process).
+_OFFICE_PREVIEW_SLOTS = asyncio.Semaphore(2)
 _PREVIEW_TABLE_EXTS = (".csv", ".tsv", ".xlsx", ".xls", ".xlsm")
 
 
@@ -705,27 +714,37 @@ async def get_connection_file_content(
     text; `format=pdf` converts a Word / PowerPoint document to PDF with
     LibreOffice — the converter read_file's vision fallback uses.
     """
-    import asyncio
     from app.services.connection_service import ConnectionService
-    from app.data_sources.clients._file_source_common import GlobScopeError
+    from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
     from app.ai.tools.implementations._file_tool_common import (
         _PREVIEW_MAX_BYTES, audit_file_access_denied, read_source_bytes,
     )
 
     conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    client = await ConnectionService().construct_client(db, conn, current_user)
+    if not hasattr(client, "read_raw_bytes"):
+        # Mail connectors: no original bytes, only a serialized message.
+        raise HTTPException(status_code=400, detail="Preview isn't available for this connection.")
     try:
-        client = await ConnectionService().construct_client(db, conn, current_user)
-        content, name, mime = await read_source_bytes(client, file_id)
+        # max_bytes lets the client reject an oversize file from its reported
+        # size, before downloading it.
+        content, name, mime = await read_source_bytes(client, file_id, max_bytes=_PREVIEW_MAX_BYTES)
     except GlobScopeError as e:
+        # Off-glob AND root/prefix escapes (ScopeEscapeError) — both audited,
+        # and neither echoes the requested path back.
         await audit_file_access_denied(
             {"db": db, "organization": organization, "user": current_user}, connection_id, file_id, str(e),
         )
-        raise HTTPException(status_code=403, detail=str(e))
+        raise HTTPException(status_code=403, detail="This file is outside the connection's scope.")
+    except FileTooLargeError:
+        raise HTTPException(status_code=413, detail="File is too large to preview.")
     except HTTPException:
         raise
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
 
+    # Backstop for readers that report no size up front (OneNote pages,
+    # Google-native exports).
     if len(content) > _PREVIEW_MAX_BYTES:
         raise HTTPException(status_code=413, detail="File is too large to preview.")
 
@@ -752,7 +771,10 @@ async def get_connection_file_content(
         from app.data_sources.clients._office_convert import CONVERTIBLE_EXTS, office_to_pdf_bytes
         if name.rsplit(".", 1)[-1].lower() not in CONVERTIBLE_EXTS:
             raise HTTPException(status_code=400, detail="PDF preview is only available for Office documents.")
-        converted = await asyncio.to_thread(office_to_pdf_bytes, content, name)
+        # Each conversion is a LibreOffice process for up to 90 s; clicking
+        # through a folder of .docx must not fan out into dozens of them.
+        async with _OFFICE_PREVIEW_SLOTS:
+            converted = await asyncio.to_thread(office_to_pdf_bytes, content, name)
         if not converted:
             # LibreOffice missing (a dev machine) or the document would not convert.
             raise HTTPException(status_code=422, detail="This document can't be previewed on this server.")
