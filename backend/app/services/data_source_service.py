@@ -2563,7 +2563,10 @@ class DataSourceService:
                 skipped.append(getattr(ds, "name", str(getattr(ds, "id", "?"))))
         return usable, skipped
 
-    async def construct_clients(self, db: AsyncSession, data_source: DataSource, current_user: User | None) -> Dict[str, Any]:
+    async def construct_clients(
+        self, db: AsyncSession, data_source: DataSource, current_user: User | None,
+        *, connection_errors: Optional[list] = None,
+    ) -> Dict[str, Any]:
         """
         Construct clients for ALL connections in the domain.
 
@@ -2572,6 +2575,15 @@ class DataSourceService:
 
         For backward compatibility with legacy code, also adds aliases:
         - "{domain_name}" (only if single connection, for legacy ds_clients.get("name") pattern)
+
+        By default the first connection that fails aborts the whole data
+        source. Passing a `connection_errors` list opts into building each
+        connection independently: a connection that fails is appended to it
+        (data_source_id/_name, connection_id/_name, error) and its key holds an
+        UnavailableConnectionClient that raises that error only when queried,
+        so sibling connections still serve. If EVERY connection fails, the
+        first error is raised as before and nothing is appended — callers keep
+        reporting that as a data-source-level failure.
         """
         import inspect
         from typing import Dict, Any
@@ -2613,64 +2625,88 @@ class DataSourceService:
 
         clients: Dict[str, Any] = {}
         meta_keys = {"auth_type", "auth_policy", "allowed_user_auth_modes"}
+        failed: list = []
 
         for conn in active_connections:
             key = f"{data_source.name}:{conn.name}"
-
-            # Resolve client class from registry
-            ClientClass = resolve_client_class(conn.type)
-
-            # Merge config and creds
-            config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
-
-            # Resolve credentials for this specific connection
-            creds = await self.resolve_credentials_for_connection(
-                db=db,
-                connection=conn,
-                data_source=data_source,
-                current_user=current_user
-            )
-
-            params = {**(config or {}), **(creds or {})}
-            params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
-
-            # Narrow to constructor signature (VAR_KEYWORD-aware; see
-            # ConnectionService.construct_client for the reasoning).
+            # A connection's clients are committed to `clients` only once they
+            # all built, so a failure part-way never leaves half of them behind.
+            built: Dict[str, Any] = {}
             try:
-                sig = inspect.signature(ClientClass.__init__)
-                accepts_var_kwargs = any(
-                    p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                # Resolve client class from registry
+                ClientClass = resolve_client_class(conn.type)
+
+                # Merge config and creds
+                config = json.loads(conn.config) if isinstance(conn.config, str) else (conn.config or {})
+
+                # Resolve credentials for this specific connection
+                creds = await self.resolve_credentials_for_connection(
+                    db=db,
+                    connection=conn,
+                    data_source=data_source,
+                    current_user=current_user
                 )
-                if accepts_var_kwargs:
+
+                params = {**(config or {}), **(creds or {})}
+                params = {k: v for k, v in params.items() if v is not None and k not in meta_keys}
+
+                # Narrow to constructor signature (VAR_KEYWORD-aware; see
+                # ConnectionService.construct_client for the reasoning).
+                try:
+                    sig = inspect.signature(ClientClass.__init__)
+                    accepts_var_kwargs = any(
+                        p.kind is inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()
+                    )
+                    if accepts_var_kwargs:
+                        allowed = params
+                    else:
+                        allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
+                except Exception:
                     allowed = params
-                else:
-                    allowed = {k: v for k, v in params.items() if k in sig.parameters and k != "self"}
-            except Exception:
-                allowed = params
 
-            client = ClientClass(**allowed)
-            self._attach_client_quota_metadata(client, data_source, conn, key)
-            await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
-            clients[key] = client
+                client = ClientClass(**allowed)
+                self._attach_client_quota_metadata(client, data_source, conn, key)
+                await self._attach_stored_table_metadata(db, client, data_source, conn, current_user=current_user)
+                built[key] = client
 
-            # Accelerated (FAST) relations for this connection, exposed as a
-            # sibling client speaking DuckDB SQL. Only relations this agent has
-            # ACTIVATED are attached — that filtering is the authorization
-            # boundary and it is structural, since a relation absent from the
-            # DuckDB catalog cannot be named at all.
-            fast_client = await self._construct_fast_client(
-                db, data_source, conn, current_user=current_user
-            )
-            if fast_client is not None:
-                fast_key = f"{key}::fast"
-                self._attach_client_quota_metadata(fast_client, data_source, conn, fast_key)
-                clients[fast_key] = fast_client
+                # Accelerated (FAST) relations for this connection, exposed as a
+                # sibling client speaking DuckDB SQL. Only relations this agent has
+                # ACTIVATED are attached — that filtering is the authorization
+                # boundary and it is structural, since a relation absent from the
+                # DuckDB catalog cannot be named at all.
+                fast_client = await self._construct_fast_client(
+                    db, data_source, conn, current_user=current_user
+                )
+                if fast_client is not None:
+                    fast_key = f"{key}::fast"
+                    self._attach_client_quota_metadata(fast_client, data_source, conn, fast_key)
+                    built[fast_key] = fast_client
+            except Exception as e:
+                if connection_errors is None:
+                    raise
+                failed.append({
+                    "data_source_id": str(data_source.id),
+                    "data_source_name": data_source.name,
+                    "connection_id": str(conn.id),
+                    "connection_name": conn.name,
+                    "error": e,
+                })
+                from app.data_sources.clients._unavailable_client import UnavailableConnectionClient
+                clients[key] = UnavailableConnectionClient(e)
+                continue
+            clients.update(built)
+
+        if failed:
+            if len(failed) == len(active_connections):
+                # Nothing usable: the same data-source-level failure as before.
+                raise failed[0]["error"]
+            connection_errors.extend(failed)
 
         # Backward compatibility: add legacy key aliases for single-connection domains
         if len(active_connections) == 1:
-            first_key = next(iter(clients.keys()))
-            first_client = clients[first_key]
-            clients[data_source.name] = first_client
+            only_key = f"{data_source.name}:{active_connections[0].name}"
+            if only_key in clients:
+                clients[data_source.name] = clients[only_key]
 
         return clients
 

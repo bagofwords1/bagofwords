@@ -1550,31 +1550,46 @@ class ReportService:
         ds_service = DataSourceService()
         db_clients: dict = {}
         data_source_errors: list[dict] = []
+
+        def _source_error(name: str, ds_id: str, e: Exception) -> dict:
+            detail = str(getattr(e, 'detail', None) or str(e))
+            # Machine-readable cause so the viewer gate can offer the right
+            # action: connect their credential vs. request access vs. retry.
+            lowered = detail.lower()
+            if "credentials required" in lowered:
+                code = "credentials_required"
+            elif "do not have access" in lowered:
+                code = "no_access"
+            else:
+                code = "connection_failed"
+            return {"data_source": name, "data_source_id": ds_id, "code": code, "error": detail}
+
+        # Each connection builds on its own: a viewer missing one connection's
+        # credential still gets the data source's other connections. Those
+        # per-connection failures are reported below, naming the connection.
+        connection_errors: list = []
         # Auto (an unattached report) resolves like the interactive path — the
         # credential user's accessible agents — instead of to an empty set.
         run_agents = await resolve_run_agents(db, organization, credential_user, report)
         for data_source in run_agents:
             try:
-                ds_clients = await ds_service.construct_clients(db, data_source, current_user=credential_user)
+                ds_clients = await ds_service.construct_clients(
+                    db, data_source, current_user=credential_user,
+                    connection_errors=connection_errors,
+                )
                 db_clients.update(ds_clients)
             except Exception as e:
-                detail = str(getattr(e, 'detail', None) or str(e))
                 logger.warning(f"Viewer rerun: failed to construct clients for data source {data_source.id}: {e}; continuing")
-                # Machine-readable cause so the viewer gate can offer the right
-                # action: connect their credential vs. request access vs. retry.
-                lowered = detail.lower()
-                if "credentials required" in lowered:
-                    code = "credentials_required"
-                elif "do not have access" in lowered:
-                    code = "no_access"
-                else:
-                    code = "connection_failed"
-                data_source_errors.append({
-                    "data_source": data_source.name,
-                    "data_source_id": str(data_source.id),
-                    "code": code,
-                    "error": detail,
-                })
+                data_source_errors.append(_source_error(data_source.name, str(data_source.id), e))
+        for ce in connection_errors:
+            logger.warning(
+                f"Viewer rerun: connection {ce['connection_id']} of data source "
+                f"{ce['data_source_id']} unavailable: {ce['error']}; continuing"
+            )
+            data_source_errors.append({
+                **_source_error(ce["data_source_name"], ce["data_source_id"], ce["error"]),
+                "connection_name": ce["connection_name"],
+            })
 
         steps_total = 0
         steps_succeeded = 0
