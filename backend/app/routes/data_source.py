@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, Request
+import asyncio
+
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Body, Query, Request, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db, release_request_db
 from typing import Optional, List, Union
@@ -578,6 +580,14 @@ async def get_domain_connections(
     ]
 
 
+async def _attached_connection(db: AsyncSession, data_source_id: str, connection_id: str, organization: Organization):
+    conns = await data_source_service.get_domain_connections(db, data_source_id, organization)
+    conn = next((c for c in conns if str(c.id) == str(connection_id)), None)
+    if conn is None:
+        raise HTTPException(status_code=404, detail="Connection not attached to this agent")
+    return conn
+
+
 @router.get("/data_sources/{data_source_id}/connections/{connection_id}/files")
 @requires_resource_permission('data_source', 'view')
 async def list_connection_files(
@@ -597,12 +607,8 @@ async def list_connection_files(
     live for cheap-to-list sources (network_dir/S3) and reflects the real
     source — so `none`-mode connections show their files (not an empty cache).
     """
-    from app.models.connection import Connection
     from app.services.connection_service import ConnectionService
-    conns = await data_source_service.get_domain_connections(db, data_source_id, organization)
-    conn = next((c for c in conns if str(c.id) == str(connection_id)), None)
-    if conn is None:
-        raise HTTPException(status_code=404, detail="Connection not attached to this agent")
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
     try:
         client = await ConnectionService().construct_client(db, conn, current_user)
         entries = await client.alist_files(recursive=True)
@@ -624,16 +630,178 @@ async def list_connection_files(
         raise HTTPException(status_code=400, detail=f"Failed to list files: {e}")
     files = [e for e in (entries or []) if not e.get("is_folder")]
     total = len(files)
-    page = files[max(0, offset): max(0, offset) + max(1, min(limit, 500))]
+    # Every call walks the whole scope, so paging only multiplies that walk.
+    # The file browser asks for everything at once (it builds the folder tree
+    # from `path`); the cap matches the connectors' default max_catalog_objects.
+    effective_limit = max(1, min(limit, 5000))
+    page = files[max(0, offset): max(0, offset) + effective_limit]
     return {
         "connection_id": str(connection_id),
-        "files": [{"id": f.get("id"), "name": f.get("name"), "size": f.get("size"),
-                   "modified_at": f.get("modified_at"), "mime_type": f.get("mime_type")} for f in page],
+        "files": [{"id": f.get("id"), "name": f.get("name"), "path": f.get("path"),
+                   "size": f.get("size"), "modified_at": f.get("modified_at"),
+                   "mime_type": f.get("mime_type"), "web_url": f.get("web_url")} for f in page],
         "total": total,
         "offset": offset,
-        "limit": limit,
+        "limit": effective_limit,
         "has_more": offset + len(page) < total,
+        # Only clients that hand out the ORIGINAL bytes can be previewed. Mail
+        # connectors don't — a message would reach the viewer as serialized
+        # text typed by its subject line.
+        "preview_supported": hasattr(client, "read_raw_bytes"),
     }
+
+
+_PREVIEW_TABLE_ROWS = 200
+# Concurrent LibreOffice conversions for previews (per worker process).
+_OFFICE_PREVIEW_SLOTS = asyncio.Semaphore(2)
+_PREVIEW_TABLE_EXTS = (".csv", ".tsv", ".xlsx", ".xls", ".xlsm")
+
+
+def _table_preview(content: bytes, name: str, sheet: Optional[str]) -> dict:
+    """First rows of a CSV / Excel file as CSV text, plus its real size.
+
+    Parsed the way the file clients parse it for the agent (header=None, then
+    trim leading blank rows/columns and promote the first row), so the preview
+    shows the same table the agent reads.
+    """
+    import io
+    import pandas as pd
+    from app.data_sources.clients.graph_drive_client import _trim_to_data
+
+    lower = name.lower()
+    sheets: List[str] = []
+    chosen: Optional[str] = None
+    if lower.endswith((".xlsx", ".xls", ".xlsm")):
+        book = pd.ExcelFile(io.BytesIO(content))
+        sheets = [str(s) for s in book.sheet_names]
+        chosen = sheet if sheet in sheets else (sheets[0] if sheets else None)
+        raw = book.parse(chosen, header=None) if chosen is not None else pd.DataFrame()
+    else:
+        raw = pd.read_csv(
+            io.BytesIO(content), sep="\t" if lower.endswith(".tsv") else ",",
+            header=None, dtype=str, encoding_errors="replace",
+        )
+    df = _trim_to_data(raw)
+    return {
+        "csv": df.head(_PREVIEW_TABLE_ROWS).to_csv(index=False),
+        "row_count": len(df),
+        "col_count": len(df.columns),
+        "sheets": sheets,
+        "sheet": chosen,
+    }
+
+
+@router.get("/data_sources/{data_source_id}/connections/{connection_id}/files/content")
+@requires_resource_permission('data_source', 'view')
+async def get_connection_file_content(
+    data_source_id: str,
+    connection_id: str,
+    request: Request,
+    file_id: str = Query(..., min_length=1),
+    format: str = Query("raw", pattern="^(raw|table|pdf)$"),
+    sheet: Optional[str] = None,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """One file's content, for the agent file browser's preview.
+
+    Reads through the same client and scope check the agent's read_file uses:
+    a file outside the include-globs is denied (403) and audited, and
+    per-user connections read with the caller's own credentials. Nothing is
+    copied into BOW (unlike read_file's viewer, which keeps the original as a
+    File). `format=table` returns the first rows of a CSV / Excel file as CSV
+    text; `format=pdf` converts a Word / PowerPoint document to PDF with
+    LibreOffice — the converter read_file's vision fallback uses.
+    """
+    from app.services.connection_service import ConnectionService
+    from app.data_sources.clients._file_source_common import FileTooLargeError, GlobScopeError
+    from app.ai.tools.implementations._file_tool_common import (
+        _PREVIEW_MAX_BYTES, audit_file_access_denied, read_source_bytes,
+    )
+
+    conn = await _attached_connection(db, data_source_id, connection_id, organization)
+    try:
+        client = await ConnectionService().construct_client(db, conn, current_user)
+    except HTTPException:
+        # e.g. the 403 "connect your account" of a per-user connection.
+        raise
+    except Exception as e:
+        # Malformed saved config, unknown type, a constructor rejecting its
+        # settings — a 400 with the reason, as the listing endpoint returns.
+        raise HTTPException(status_code=400, detail=f"Failed to open the connection: {e}")
+    if not hasattr(client, "read_raw_bytes"):
+        # Mail connectors: no original bytes, only a serialized message.
+        raise HTTPException(status_code=400, detail="Preview isn't available for this connection.")
+    try:
+        # max_bytes lets the client reject an oversize file from its reported
+        # size, before downloading it.
+        content, name, mime = await read_source_bytes(client, file_id, max_bytes=_PREVIEW_MAX_BYTES)
+    except GlobScopeError as e:
+        # Off-glob AND root/prefix escapes (ScopeEscapeError) — both audited,
+        # and neither echoes the requested path back.
+        await audit_file_access_denied(
+            {"db": db, "organization": organization, "user": current_user}, connection_id, file_id, str(e),
+        )
+        raise HTTPException(status_code=403, detail="This file is outside the connection's scope.")
+    except FileTooLargeError:
+        raise HTTPException(status_code=413, detail="File is too large to preview.")
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+
+    # Backstop for readers that report no size up front (OneNote pages,
+    # Google-native exports).
+    if len(content) > _PREVIEW_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="File is too large to preview.")
+
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="file.viewed",
+            user_id=current_user.id, resource_type="connection", resource_id=str(connection_id),
+            details={"file_id": file_id, "filename": name, "data_source_id": str(data_source_id)},
+            request=request,
+        )
+    except Exception:
+        pass
+
+    if format == "table":
+        if not name.lower().endswith(_PREVIEW_TABLE_EXTS):
+            raise HTTPException(status_code=400, detail="Table preview is only available for CSV and Excel files.")
+        try:
+            # pandas parsing is CPU-bound — a 20 MB workbook would stall this worker's event loop.
+            return await asyncio.to_thread(_table_preview, content, name, sheet)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Could not read the table: {e}")
+
+    if format == "pdf":
+        from app.data_sources.clients._office_convert import CONVERTIBLE_EXTS, office_to_pdf_bytes
+        if name.rsplit(".", 1)[-1].lower() not in CONVERTIBLE_EXTS:
+            raise HTTPException(status_code=400, detail="PDF preview is only available for Office documents.")
+        # Each conversion is a LibreOffice process for up to 90 s; clicking
+        # through a folder of .docx must not fan out into dozens of them.
+        async with _OFFICE_PREVIEW_SLOTS:
+            converted = await asyncio.to_thread(office_to_pdf_bytes, content, name)
+        if not converted:
+            # LibreOffice missing (a dev machine) or the document would not convert.
+            raise HTTPException(status_code=422, detail="This document can't be previewed on this server.")
+        content, name, mime = converted, f"{name.rsplit('.', 1)[0]}.pdf", "application/pdf"
+
+    from app.routes.file import _content_disposition
+    import mimetypes
+    return Response(
+        content=content,
+        media_type=mime or mimetypes.guess_type(name)[0] or "application/octet-stream",
+        headers={
+            # Source files are untrusted: never let a browser render one on our
+            # origin if the URL is opened directly. The preview builds its own
+            # typed blob from these bytes instead.
+            "Content-Disposition": _content_disposition("attachment", name),
+            "X-Content-Type-Options": "nosniff",
+            "Content-Security-Policy": "sandbox",
+        },
+    )
 
 
 @router.post("/data_sources/{data_source_id}/connections/{connection_id}")

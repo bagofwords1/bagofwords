@@ -34,6 +34,7 @@ from app.data_sources.clients._document_text import (
     extract_pdf_pages_text,
 )
 from app.data_sources.clients._file_source_common import (
+    FileTooLargeError,
     GlobScopeError,
     DocumentText,
     NamedBytes,
@@ -344,7 +345,12 @@ class GraphDriveClient(DataSourceClient):
         return full
 
     def _library_name(self, drive_id: str) -> str:
-        for did, lib in (self._drives or []):
+        # Resolve, don't just read, the library map: a qualified `drive|item`
+        # id is routed without it (see _locate), and every request builds a
+        # fresh client — so on a read that never listed, `_drives` was still
+        # None, the path lost its library prefix, and an in-scope file failed a
+        # glob like 'Policies/**' ("Access denied").
+        for did, lib in self._resolve_drives():
             if did == drive_id:
                 return lib
         return ""
@@ -358,6 +364,21 @@ class GraphDriveClient(DataSourceClient):
             return rel
         lib = self._library_name(drive_id)
         return f"{lib}/{rel}" if lib and rel else (lib or rel)
+
+    def _enforce_item_scope(self, drive_id: str, meta: dict) -> None:
+        """Glob check for one item about to be read, from its metadata.
+
+        Across libraries the listed paths carry a library prefix, so the path
+        checked must carry it too or the globs would be matched against a
+        different string than the one the user wrote them for. Building that
+        prefix may cost a /drives lookup on a fresh client — so skip it
+        entirely when there are no globs, which is the common case and has
+        nothing to check.
+        """
+        if not self.include_globs:
+            return
+        parent = (meta.get("parentReference") or {}).get("path")
+        self._enforce_scope(self._scoped_path(drive_id, parent, meta.get("name", "")))
 
     def _enforce_scope(self, rel_path: str) -> None:
         """Single access chokepoint: an in-drive but off-glob path is DENIED
@@ -851,12 +872,8 @@ class GraphDriveClient(DataSourceClient):
         meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
         # Access boundary: enforce the connection's glob scope BEFORE fetching
-        # bytes. We already hold the item metadata (parentReference + name), so
-        # this costs no extra round-trip. An in-drive but off-glob item is denied.
-        # Across libraries the listed paths carry a library prefix, so the path
-        # checked here must carry it too or the globs would be matched against a
-        # different string than the one the user wrote them for.
-        self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
+        # bytes. An in-drive but off-glob item is denied.
+        self._enforce_item_scope(drive_id, meta)
         ext = _ext(name)
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
 
@@ -918,7 +935,7 @@ class GraphDriveClient(DataSourceClient):
             return content.decode("utf-8", errors="replace")
         return NamedBytes(content, name=name, mime=mime)
 
-    def read_raw_bytes(self, file_id: str):
+    def read_raw_bytes(self, file_id: str, *, max_bytes: Optional[int] = None):
         """Raw item bytes + name + mime, unparsed — for attach_file (persist
         the ORIGINAL file) and the read_file tool's PDF→images vision fallback.
         Same access boundary as read_file: off-glob items are denied.
@@ -933,10 +950,14 @@ class GraphDriveClient(DataSourceClient):
         drive_id, resolved_id = self._locate(file_id)
         meta = self._get(f"/drives/{drive_id}/items/{resolved_id}")
         name = meta.get("name", "")
-        # _scoped_path (not _rel_from_parent) for the same reason read_file uses
-        # it: across libraries the listed paths carry a library prefix, so the
-        # glob check must be given the prefixed form it was written against.
-        self._enforce_scope(self._scoped_path(drive_id, (meta.get("parentReference") or {}).get("path"), name))
+        self._enforce_item_scope(drive_id, meta)
+        # Graph reports the size with the metadata we already hold — reject an
+        # oversize item here, before its content is streamed into memory.
+        size = meta.get("size")
+        if max_bytes and size is not None and int(size) > max_bytes:
+            raise FileTooLargeError(
+                f"'{name}' is {int(size) / 1024 / 1024:.1f} MB, over the {max_bytes / 1024 / 1024:.0f} MB limit."
+            )
         content = self._get_bytes(f"/drives/{drive_id}/items/{resolved_id}/content")
         return content, name, (meta.get("file") or {}).get("mimeType")
 

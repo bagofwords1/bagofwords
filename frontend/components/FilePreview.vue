@@ -47,21 +47,19 @@
     <!-- Pictures, and page renders of a document we could not show natively. -->
     <template v-else-if="kind === 'image'">
       <div class="flex flex-col gap-1.5" :class="{ 'h-full min-h-0': expanded }">
+        <img v-if="src" :src="src" :alt="name || ''" :class="imageClass" />
         <AuthenticatedImage
-          v-if="visible && activeImageId"
+          v-else-if="visible && activeImageId"
           :key="activeImageId"
           :file-id="activeImageId"
           :alt="name || ''"
-          :img-class="[
-            'rounded-lg border border-gray-200 dark:border-gray-700 object-contain cursor-zoom-in bg-white',
-            expanded ? 'flex-1 min-h-0 max-w-full w-auto self-start object-left-top' : 'max-h-60 w-auto',
-          ].join(' ')"
+          :img-class="`${imageClass} cursor-zoom-in`"
           @click="$emit('open', activeImageId)"
         />
 
         <!-- Page strip: only when there is more than one page to move between. -->
         <div
-          v-if="!visible"
+          v-if="!visible && !src"
           class="flex items-center justify-center rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/50 h-40"
         >
           <Spinner class="w-4 h-4 text-gray-400" />
@@ -99,6 +97,10 @@ const props = withDefaults(defineProps<{
   kind: 'pdf' | 'image'
   /** File to show. For 'image' this is the first of `imageFileIds`. */
   fileId?: string | null
+  /** Content already in hand (a typed blob: URL), shown instead of loading
+   *  `fileId`. For files BOW doesn't store — the agent file browser previews
+   *  connection files live, so there is no file id to mint a token for. */
+  src?: string | null
   imageFileIds?: string[] | null
   /** 1-based page the document viewer should open at. */
   targetPage?: number | null
@@ -112,6 +114,7 @@ const props = withDefaults(defineProps<{
   canExpand?: boolean
 }>(), {
   fileId: null,
+  src: null,
   imageFileIds: null,
   targetPage: 1,
   pagesTotal: null,
@@ -134,6 +137,10 @@ const pending = ref(false)
 const images = computed<string[]>(() => props.imageFileIds || (props.fileId ? [props.fileId] : []))
 const activeIndex = ref(0)
 const activeImageId = computed(() => images.value[activeIndex.value] || images.value[0] || '')
+const imageClass = computed(() => [
+  'rounded-lg border border-gray-200 dark:border-gray-700 object-contain bg-white',
+  props.expanded ? 'flex-1 min-h-0 max-w-full w-auto self-start object-left-top' : 'max-h-60 w-auto',
+].join(' '))
 
 // Inline (card) frames are a compact glance at the document; the side panel
 // (`expanded`) fills its height via flex, so this only sizes the inline card.
@@ -204,7 +211,10 @@ onUnmounted(() => {
 
 async function load() {
   clearRefreshTimer()
-  if (!visible.value || props.kind !== 'pdf' || !props.fileId) return
+  if (props.kind !== 'pdf') return
+  // Already loaded by the host: nothing to mint, nothing to defer or refresh.
+  if (props.src) { embedUrl.value = props.src; return }
+  if (!visible.value || !props.fileId) return
   pending.value = true
   try {
     embedUrl.value = await getEmbedUrl(props.fileId)
@@ -218,6 +228,6 @@ async function load() {
   }
 }
 
-watch([visible, () => props.fileId, () => props.kind], load, { immediate: true })
+watch([visible, () => props.fileId, () => props.kind, () => props.src], load, { immediate: true })
 watch(() => props.imageFileIds, () => { activeIndex.value = 0 })
 </script>

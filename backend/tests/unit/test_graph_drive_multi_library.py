@@ -183,6 +183,59 @@ def test_scoped_path_used_for_enforcement_carries_the_prefix():
     )
 
 
+_POLICY_HANDBOOK_META = {
+    "id": "p2", "name": "handbook.pdf", "size": 3, "file": {"mimeType": "application/pdf"},
+    "parentReference": {"path": "/drives/drv-pol/root:/2026"},
+}
+
+
+def test_fresh_client_reads_in_scope_file_by_qualified_id():
+    """Every request builds a fresh client, so a read by the qualified id the
+    listing handed out runs with no listing before it on this instance. The
+    library map must be resolved on demand — otherwise the path loses its
+    'Policies/' prefix and an in-scope file fails the glob."""
+    c = _client("*", include_globs="Policies/**")
+    GRAPH["/drives/drv-pol/items/p2"] = _POLICY_HANDBOOK_META
+    c._get_bytes = lambda url, **_: b"%PDF-1.4"
+    try:
+        assert c.read_raw_bytes("drv-pol|p2") == (b"%PDF-1.4", "handbook.pdf", "application/pdf")
+    finally:
+        GRAPH.pop("/drives/drv-pol/items/p2", None)
+
+
+def test_read_without_globs_skips_the_library_lookup():
+    """With no include-globs there is nothing to check, so a read by qualified
+    id must not pay a /drives lookup just to build a prefixed path — that was
+    an extra Graph call on every read_file and every preview."""
+    c = _client("*")
+    GRAPH["/drives/drv-pol/items/p2"] = _POLICY_HANDBOOK_META
+    c._get_bytes = lambda url, **_: b"%PDF-1.4"
+    try:
+        c.read_raw_bytes("drv-pol|p2")
+        c.read_file("drv-pol|p2")
+    finally:
+        GRAPH.pop("/drives/drv-pol/items/p2", None)
+    assert f"/sites/{SITE}/drives" not in c._calls
+    assert c._calls.count("/drives/drv-pol/items/p2") == 2, "only the item metadata, once per read"
+
+
+def test_oversize_item_is_rejected_before_download():
+    from app.data_sources.clients._file_source_common import FileTooLargeError
+
+    c = _client("*")
+    GRAPH["/drives/drv-pol/items/p2"] = {**_POLICY_HANDBOOK_META, "size": 30 * 1024 * 1024}
+
+    def _no_download(url, **_):
+        raise AssertionError("content must not be fetched for an oversize item")
+
+    c._get_bytes = _no_download
+    try:
+        with pytest.raises(FileTooLargeError):
+            c.read_raw_bytes("drv-pol|p2", max_bytes=25 * 1024 * 1024)
+    finally:
+        GRAPH.pop("/drives/drv-pol/items/p2", None)
+
+
 def test_scoped_path_unprefixed_for_single_library():
     c = _client(None)
     c._resolve_drives()
