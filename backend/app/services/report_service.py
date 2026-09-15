@@ -301,6 +301,16 @@ class ReportService:
                         status_code=400,
                         detail="This dashboard uses row-level security — viewers must run under their own identity, so 'run on my behalf' is not available.",
                     )
+            if report.shared_run_identity != run_identity:
+                # Cached per-viewer results were executed under the previous
+                # identity's credentials, and a success row outranks the shared
+                # snapshot on read — so switching must drop them both ways:
+                # into creator mode a viewer stays pinned to their own slice;
+                # out of it they keep the owner's rows after the revoke.
+                from app.models.step_user_result import StepUserResult
+                await db.execute(
+                    delete(StepUserResult).where(StepUserResult.report_id == str(report.id))
+                )
             report.shared_run_identity = run_identity
 
         # Artifact-only, same as run_identity: the conversation share has no
