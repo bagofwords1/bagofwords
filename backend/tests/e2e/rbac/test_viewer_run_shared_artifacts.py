@@ -436,6 +436,108 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
 
 
 @pytest.mark.e2e
+def test_enabling_creator_mode_drops_viewers_own_cached_results(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer who ran as themselves before the owner turned on 'run on my
+    behalf' must see the owner's snapshot afterwards — not stay pinned to the
+    result their own credentials produced (a success row beats the snapshot,
+    and outside the withheld gate there is no Run button to replace it)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["executed_as"] == "viewer"
+    assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
+
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="creator")
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"] is None
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_revoking_creator_mode_drops_results_run_with_owner_credentials(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Turning 'run on my behalf' off must take effect immediately: rows a
+    viewer cached while running on the owner's credentials are the owner's
+    view, and serving them after the revoke would keep sharing it."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", run_identity="creator",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "creator"
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["executed_as"] == "creator"
+
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="viewer")
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"] is None
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+
+
+@pytest.mark.e2e
+def test_unchanged_run_identity_keeps_cached_viewer_results(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Only an actual change invalidates: re-saving the share dialog with the
+    same run identity must not wipe every viewer's cached results."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", run_identity="viewer",
+    )
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="viewer")
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["status"] == "success"
+    assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
+
+
+@pytest.mark.e2e
+def test_param_run_stamps_the_identity_whose_credentials_executed(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer's param run in creator mode executes on the owner's
+    credentials and must be stamped 'creator', like the dashboard run."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", run_identity="creator",
+    )
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(
+        f"/api/queries/{qid}/run", json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["status"] == "success", resp.json()
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["executed_as"] == "creator"
+
+
+@pytest.mark.e2e
 def test_viewer_run_reports_no_access_code(
     test_client, create_report, bootstrap_admin, invite_user_to_org,
 ):
@@ -1442,6 +1544,103 @@ def test_fork_hydration_runs_parameterized_queries_against_a_real_db(
     assert "params[\"depot\"]" in (_run(_param_step_code()) or "")
 
 
+# ── The fork replays the creator's filter values, not the declared defaults ─
+#
+# The live case behind this: a delegated Power BI dashboard whose year filter
+# had no default. The creator only ever ran it with a year selected. The fork
+# dropped applied_params for a delegated source, so hydration ran the copied
+# code with year empty — a branch nobody had exercised, whose DAX named a table
+# the model does not have. Every query failed, the forker got an empty
+# dashboard labelled as a credentials problem, and the same user ran the same
+# queries on the source report fine seconds later.
+
+UNTESTED_BRANCH_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    year = params.get("year")
+    if not year:
+        # The branch the creator never ran: it names a table the model lacks.
+        raise RuntimeError("DAX query failed: HTTP 400 Cannot find table 'calendardates'.")
+    return pd.DataFrame({"month": ["2024-01", "2024-02"], "revenue": [10, 20]})
+"""
+
+
+async def _make_query_year_filtered(query_id: str, step_id: str):
+    async with async_session_maker() as db:
+        q = await db.get(Query, query_id)
+        q.parameters = [{
+            "name": "year", "type": "number", "label": "Year",
+            "default": None, "required": False, "source": "input",
+            "identity_binding": None, "options": None, "options_source": None,
+        }]
+        await db.commit()
+    async with async_session_maker() as db:
+        step = await db.get(Step, step_id)
+        step.code = UNTESTED_BRANCH_CODE
+        step.applied_params = {"year": 2026}
+        await db.commit()
+
+
+@pytest.mark.e2e
+def test_fork_hydration_replays_the_creators_filter_values(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """A delegated fork's first run executes with the filter state the
+    dashboard was built with. With that state dropped, the copied code ran
+    under the declared defaults — a run the creator never made — and failed."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_make_query_year_filtered(seeded["query_ids"][0], seeded["step_ids"][0]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    async def _fork_step():
+        from sqlalchemy import select
+        async with async_session_maker() as db:
+            q = (await db.execute(select(Query).where(Query.report_id == fork_id))).scalars().first()
+            st = await db.get(Step, q.default_step_id)
+            return {"code": st.code, "applied_params": st.applied_params,
+                    "status": st.status, "status_reason": st.status_reason}
+
+    # The copy itself carries the filter state — before any run.
+    before = _run(_fork_step())
+    assert before["code"] == "" and before["applied_params"] == {"year": 2026}, before
+
+    from unittest.mock import MagicMock
+    hydration_log = MagicMock()
+    monkeypatch.setattr("app.services.fork_service.logger", hydration_log)
+    outcome = _run(spawned[0])
+    after = _run(_fork_step())
+    assert outcome == {"succeeded": 1, "failed": 0, "deleted": False}, (
+        outcome, after, [c.args for c in hydration_log.info.call_args_list],
+    )
+
+    fork_q = test_client.get(
+        f"/api/queries?report_id={fork_id}",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()[0]
+    fstep = test_client.get(
+        f"/api/queries/{fork_q['id']}/default_step",
+        headers=_headers(viewer["token"], admin["org_id"]),
+    ).json()["step"]
+
+    assert fstep["status"] == "success", fstep.get("status_reason")
+    assert (fstep.get("applied_params") or {}).get("year") == 2026, (
+        "the fork's first run did not carry the creator's filter value"
+    )
+    assert {r["month"] for r in fstep["data"]["rows"]} == FRESH_MONTHS
+
+
 # ── The fork page waits for hydration, and nothing runs twice ───────────────
 
 
@@ -1587,6 +1786,161 @@ def test_fork_never_carries_an_identity_derived_applied_param(
         "the fork carried the creator's identity into the forker's copy"
     )
     assert applied.get("month") == "2024-01", "the ordinary value was dropped too"
+
+
+# ── A strict fork's first run starts from the creator's filter values ───────
+#
+# A strict fork (delegated or RLS) drops the creator's rows, and used to drop
+# the values they were materialized with alongside them — so the forker's first
+# run resolved from the declared defaults, not the year / month / agent the
+# dashboard was showing. The values now travel on their own, through the same
+# gate the read path applies to this forker.
+
+MONTH_PARAM_CODE = """
+def generate_df(ds_clients, excel_files, params):
+    import pandas as pd
+    return pd.DataFrame({"month": [params["month"]], "revenue": [10]})
+"""
+
+MONTH_PARAM = {
+    "name": "month", "type": "string", "label": "Month",
+    "default": "2024-01", "required": False, "source": "input",
+    "identity_binding": None, "options": None, "options_source": None,
+}
+
+
+async def _set_query_params(query_id: str, specs: list):
+    async with async_session_maker() as db:
+        q = await db.get(Query, query_id)
+        q.parameters = specs
+        await db.commit()
+
+
+async def _seed_viewer_success(step_id: str, user_id: str, report_id: str):
+    """A successful per-viewer run — what makes the read path serve this
+    viewer instead of withholding from them."""
+    from app.services.viewer_result_store import store_viewer_result
+    async with async_session_maker() as db:
+        report = await db.get(Report, report_id)
+        await store_viewer_result(
+            db, step_id=step_id, user_id=user_id, params_fingerprint="seed",
+            organization_id=str(report.organization_id), report_id=str(report_id),
+            status="success", status_reason=None,
+            data={"rows": [{"month": "2024-02", "revenue": 1}],
+                  "columns": [{"field": "month"}, {"field": "revenue"}]},
+            executed_as="viewer", applied_params={"month": "2024-02"},
+            last_run_at=datetime.utcnow(),
+        )
+
+
+async def _fork_default_step(fork_id: str) -> Step:
+    from sqlalchemy import select
+    async with async_session_maker() as db:
+        q = (await db.execute(select(Query).where(Query.report_id == fork_id))).scalars().first()
+        return await db.get(Step, q.default_step_id)
+
+
+def _strict_month_report(test_client, create_report, bootstrap_admin, invite_user_to_org):
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_set_query_params(seeded["query_ids"][0], [MONTH_PARAM]))
+    _run(_set_step_code(seeded["step_ids"][0], MONTH_PARAM_CODE))
+    _run(_set_step_applied_params(seeded["step_ids"][0], {"month": "2024-02"}))
+    return admin, owner, viewer, report, seeded
+
+
+@pytest.mark.e2e
+def test_strict_fork_first_run_uses_the_creators_filter_values(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The creator's dashboard shows month=2024-02 (default 2024-01). A forker
+    the read path already serves gets a fork whose first run is 2024-02 too."""
+    admin, owner, viewer, report, seeded = _strict_month_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+    _run(_seed_viewer_success(seeded["step_ids"][0], viewer["user_id"], report["id"]))
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+
+    outcome = _run(spawned[0])
+    assert outcome == {"succeeded": 1, "failed": 0, "deleted": False}, outcome
+
+    fstep = _run(_fork_default_step(fork_id))
+    assert {r["month"] for r in fstep.data["rows"]} == {"2024-02"}, (
+        "the fork's first run ignored the creator's filter and used the default"
+    )
+    assert (fstep.applied_params or {}).get("month") == "2024-02"
+
+
+@pytest.mark.e2e
+def test_strict_fork_carries_the_creators_filter_values_without_a_prior_run(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """Forking is usually the FIRST thing a reader does on a shared page, before
+    any viewer run of their own exists. The filter values must travel anyway:
+    gating them on a successful run (as the read path gates the snapshot) left
+    exactly those forks on the declared defaults — the live failure, where a
+    dashboard's untested empty-filter branch broke every query of the fork.
+    The values are the dashboard's own filter state, not rows; identity-derived
+    values are still stripped (see the test below)."""
+    admin, owner, viewer, report, seeded = _strict_month_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org)
+
+    spawned = []
+    monkeypatch.setattr("app.core.fire_and_forget.spawn", spawned.append)
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    fork_id = resp.json()["id"]
+    assert _run(_fork_default_step(fork_id)).applied_params == {"month": "2024-02"}
+
+    outcome = _run(spawned[0])
+    assert outcome["succeeded"] == 1, outcome
+    fstep = _run(_fork_default_step(fork_id))
+    assert {r["month"] for r in fstep.data["rows"]} == {"2024-02"}
+
+
+@pytest.mark.e2e
+def test_strict_fork_never_carries_an_identity_derived_applied_param(
+    test_client, create_report, bootstrap_admin, invite_user_to_org, monkeypatch,
+):
+    """The identity boundary holds on the strict path as on the system-only
+    one. Hydration is not run: it re-derives identity from the forker anyway;
+    what is pinned here is what the fork itself was created holding."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_user_scoped_source(report["id"]))
+    _run(_set_query_identity_param(seeded["query_ids"][0]))
+    _run(_set_step_applied_params(
+        seeded["step_ids"][0], {"month": "2024-02", "owner_email": "creator@example.com"},
+    ))
+    _run(_seed_viewer_success(seeded["step_ids"][0], viewer["user_id"], report["id"]))
+
+    monkeypatch.setattr(
+        "app.core.fire_and_forget.spawn", lambda coro: coro.close(),
+    )
+    resp = test_client.post(
+        f"/api/reports/{report['id']}/fork", json={},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+
+    fstep = _run(_fork_default_step(resp.json()["id"]))
+    assert fstep.applied_params == {"month": "2024-02"}, fstep.applied_params
+    assert not (fstep.data or {}).get("rows"), "a strict fork carried the creator's rows"
 
 
 @pytest.mark.e2e

@@ -1074,9 +1074,15 @@ def wrap_clients_for_capture(
     invocation hitting multiple connections gets the right value for each
     underlying database.
     """
+    from app.data_sources.clients._unavailable_client import UnavailableConnectionClient
+
     wrapped = {}
     for key, client in (ds_clients or {}).items():
-        if client is not None and hasattr(client, 'execute_query'):
+        # A connection that could not be built never reaches its source, so it
+        # must not be metered (quota, rate limit) as if it had been queried.
+        if isinstance(client, UnavailableConnectionClient):
+            wrapped[key] = client
+        elif client is not None and hasattr(client, 'execute_query'):
             wrapped[key] = QueryCapturingClientWrapper(
                 client,
                 captured_queries,

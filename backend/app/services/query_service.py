@@ -847,7 +847,11 @@ class QueryService:
         ds_errors = []
         for ds in await self._report_data_sources(db, report, organization_id):
             try:
-                ds_conns = await ds_service.construct_clients(db, ds, current_user=credential_user)
+                # Each connection builds on its own: a viewer missing one
+                # connection's credential still gets its sibling connections.
+                ds_conns = await ds_service.construct_clients(
+                    db, ds, current_user=credential_user, connection_errors=[],
+                )
                 ds_clients.update(ds_conns)
             except Exception as e:
                 ds_errors.append(str(getattr(e, "detail", None) or e))
@@ -915,7 +919,8 @@ class QueryService:
                 report_id=str(report.id), params_fingerprint=fingerprint,
                 status="success", status_reason=None, data=df,
                 applied_params=dict(resolved) if resolved else None,
-                executed_as="viewer", last_run_at=_dt.utcnow(),
+                executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
+                last_run_at=_dt.utcnow(),
             )
             return {
                 "data": df or {},
