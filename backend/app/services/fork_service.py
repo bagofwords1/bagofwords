@@ -6,6 +6,7 @@ queries, visualizations, widgets, and artifacts with proper ID remapping.
 Generates an AI summary of the original conversation as the first message.
 """
 
+import re
 import uuid
 from datetime import datetime, timedelta
 from typing import Optional, Dict, List, Any, NamedTuple, Tuple
@@ -45,6 +46,31 @@ FORK_PENDING_STATUS = "pending"
 # FORK_HYDRATION_MAX_POLLS in pages/reports/[id]/index.vue) so the client never
 # gives up while the server still calls the fork hydrating.
 FORK_HYDRATION_STALE_SECONDS = 300
+
+# Step code reaches a source through `ds_clients["<agent>:<connection>"]` (or
+# `.get(...)` with the same literal key).
+_CLIENT_KEY_ACCESS = re.compile(
+    r"""\bds_clients\s*(?:\[\s*(['"])(?P<sub>[^'"\n]+)\1\s*\]|\.get\(\s*(['"])(?P<get>[^'"\n]+)\3)"""
+)
+_CLIENT_NAME = re.compile(r"\bds_clients\b")
+
+
+def _reaches_only_usable_clients(code: str, clients: dict) -> bool:
+    """True when every client the code reaches is one the forker holds.
+
+    Decides whether a failed hydration run may keep its code. A forker with no
+    usable identity for a source has no client under its key, so the run fails
+    with a KeyError — the same exception a missing parameter raises, so the
+    exception cannot tell "no access" from "the query broke". The keys the code
+    names can. Fails closed: code naming no client, or reaching `ds_clients` in
+    any form other than a literal key (a computed key, an alias, `.items()`),
+    counts as NOT reaching only usable clients.
+    """
+    code = code or ""
+    keys = [m.group("sub") or m.group("get") for m in _CLIENT_KEY_ACCESS.finditer(code)]
+    if not keys or len(keys) != len(_CLIENT_NAME.findall(code)):
+        return False
+    return all(k in clients for k in keys)
 
 
 class ForkEligibility:
@@ -291,13 +317,17 @@ class ForkService:
         A fork of a `user_required` source is created empty: no rows (they are
         the creator's slice) and no SQL (the share withholds it from a reader
         with no access). This restores both — but only per step, and only from
-        the forker's OWN successful run, so nothing the source owner could see
-        crosses over on the strength of the fork alone.
+        the forker's OWN run, so nothing the source owner could see crosses
+        over on the strength of the fork alone. Rows come only from a run that
+        succeeded. Code comes from a run that succeeded, or from one that broke
+        while every client it reaches was the forker's own and the provider
+        refused nothing: that forker holds the source, so the step keeps its
+        code and real cause and a rerun can repair it.
 
         Runs detached from the request, on its own session: the caller has
         already returned the fork id and the user is on the page. Failures are
         per step and never raise — the fork keeps the charts that ran and marks
-        the rest as inaccessible.
+        the rest with why they did not.
 
         When NOTHING ran, the forker has no access to the source at all: the
         fork would be a shell of empty charts with no way to fill it, so it is
@@ -330,6 +360,9 @@ class ForkService:
         # from a query that broke (see access_errors) so each gets the right
         # message on the step.
         refused: set[str] = set()
+        # The subset of `failed` that broke under the forker's own clients:
+        # {step_id: real cause}. These keep their code (see the docstring).
+        repairable: Dict[str, str] = {}
 
         async def _load(db):
             """The fork, its forker and org — loaded fresh in whichever session
@@ -453,12 +486,17 @@ class ForkService:
                     succeeded.append(step_id)
                 except Exception as e:
                     # Discard the in-memory code assignment — the step keeps
-                    # neither code nor rows (see above).
+                    # neither code nor rows (see above). Only the settle below
+                    # may write the code back, for a `repairable` step.
                     await sdb.rollback()
                     failed.append(step_id)
                     from app.services.access_errors import is_access_denied
                     if is_access_denied(e):
                         refused.add(step_id)
+                    elif _reaches_only_usable_clients(code, db_clients):
+                        # Same wording a viewer's own failed run gets
+                        # (StepService.run_step_to_user_result).
+                        repairable[step_id] = str(e)[:2000] or e.__class__.__name__
                     # Logged with the real cause — the one place it is kept, for
                     # telling an access failure from a broken query afterwards.
                     logger.info(
@@ -468,27 +506,35 @@ class ForkService:
 
         async with async_session_maker() as db:
             report, user, organization = await _load(db)
-            # Settle every step this pass owned, in one statement per outcome.
+            # Settle every step this pass owned, in one statement per outcome
+            # (per step for the repairable ones, whose code and cause differ).
             #
-            # A step that could not run keeps empty code AND empty data; its
-            # reason says why, so the dashboard explains the empty chart. "No
-            # access" is claimed only for a recognised provider refusal: a
-            # forker WITH access once got it on a parameterized query that
-            # failed only because the fork had dropped its parameters. The
-            # provider's own error text is never surfaced; it can quote table
-            # and model names, the very detail the withheld code was kept back
-            # to protect.
+            # A step that could not run keeps empty data; its reason says why,
+            # so the dashboard explains the empty chart. "No access" is claimed
+            # only for a recognised provider refusal: a forker WITH access once
+            # got it on a parameterized query that failed only because the
+            # fork had dropped its parameters.
             if succeeded:
                 await db.execute(
                     update(Step)
                     .where(Step.id.in_([str(i) for i in succeeded]))
                     .values(status="success", status_reason=None)
                 )
-            # Two outcomes, two sentences. A provider refusal (HTTP 401/403,
-            # PowerBIEntityNotFound) is recognisable, and the forker is owed a
-            # plain "no access" for it. Anything else — a query that broke,
-            # like the KeyError a dropped parameter used to cause — gets the
-            # neutral wording rather than a false claim about permissions.
+            # Three outcomes:
+            #   - A provider refusal (HTTP 401/403, PowerBIEntityNotFound) is
+            #     recognisable, and the forker is owed a plain "no access" for
+            #     it. No code: the share withheld it from this reader.
+            #   - A query that broke under the forker's own clients (see
+            #     `repairable`) keeps its code and its real cause, so a rerun
+            #     can repair it — without the code a rerun had nothing to run.
+            #     The cause may quote tables; the code it came from is the
+            #     forker's now anyway.
+            #   - Any other breakage — above all a client the forker does not
+            #     hold, which surfaces as a KeyError, not a refusal — keeps no
+            #     code, and gets the neutral wording rather than a false claim
+            #     about permissions. Its text is never surfaced: it can quote
+            #     table and model names, the detail the code was kept back to
+            #     protect.
             from app.services.access_errors import NO_ACCESS_REASON
 
             broke = [str(i) for i in failed if i not in refused]
@@ -498,10 +544,17 @@ class ForkService:
                     .where(Step.id.in_([str(i) for i in refused]))
                     .values(status="error", status_reason=NO_ACCESS_REASON)
                 )
-            if broke:
+            for step_id, reason in repairable.items():
                 await db.execute(
                     update(Step)
-                    .where(Step.id.in_(broke))
+                    .where(Step.id == str(step_id))
+                    .values(status="error", status_reason=reason, code=pending_code[step_id])
+                )
+            withheld = [i for i in broke if i not in repairable]
+            if withheld:
+                await db.execute(
+                    update(Step)
+                    .where(Step.id.in_(withheld))
                     .values(
                         status="error",
                         # Not a credentials verdict: the forker's client was
@@ -761,6 +814,12 @@ class ForkService:
                     # labelled as a credentials problem, although the same user
                     # ran the same queries on the source report fine.
                     #
+                    # Deliberately NOT gated on whether the read path would
+                    # serve this forker a snapshot (a successful viewer run of
+                    # their own). Forking is usually the first thing a reader
+                    # does on a shared page, before any run of theirs exists;
+                    # gating on it left exactly those forks on the defaults.
+                    #
                     # Identity-sourced values are stripped on the way (the same
                     # boundary redact_applied_params draws for a reader): those
                     # name the creator, not the data, and rerun_step re-derives
@@ -806,13 +865,13 @@ class ForkService:
         # under hydration, the query failed outright even for a forker with
         # full access to the data.
         #
-        # What is copied is the DEFINITION only — names, types, labels,
+        # What is copied here is the DEFINITION — names, types, labels,
         # defaults, identity bindings — which is the dashboard's own design,
-        # not anyone's data. The values the creator last ran with
-        # (Step.applied_params) stay behind: they can carry identity-derived
-        # values (an email, a department), the same boundary
-        # redact_applied_params guards on the read path. The forker's first
-        # run resolves from the declared defaults instead.
+        # not anyone's data. The values the creator last ran with travel on
+        # the copied step (Step.applied_params, above), through
+        # redact_applied_params: identity-derived values (an email, a
+        # department) stay behind, and the forker's first run fills those
+        # from their own identity and anything missing from the defaults.
         #
         # `options_source.query_id` points a dropdown at the query that lists
         # its options — a query in the SOURCE report. Left as-is, the fork's
