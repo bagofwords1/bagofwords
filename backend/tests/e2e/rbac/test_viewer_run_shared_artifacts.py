@@ -436,6 +436,85 @@ def test_viewer_identity_mode_withholds_creator_snapshot_on_user_scoped_sources(
 
 
 @pytest.mark.e2e
+def test_enabling_creator_mode_drops_viewers_own_cached_results(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer who ran as themselves before the owner turned on 'run on my
+    behalf' must see the owner's snapshot afterwards — not stay pinned to the
+    result their own credentials produced (a success row beats the snapshot,
+    and outside the withheld gate there is no Run button to replace it)."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["executed_as"] == "viewer"
+    assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
+
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="creator")
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"] is None
+    assert step["snapshot_withheld"] is False
+    assert {r["month"] for r in step["data"]["rows"]} == {"stale"}
+
+
+@pytest.mark.e2e
+def test_revoking_creator_mode_drops_results_run_with_owner_credentials(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Turning 'run on my behalf' off must take effect immediately: rows a
+    viewer cached while running on the owner's credentials are the owner's
+    view, and serving them after the revoke would keep sharing it."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", run_identity="creator",
+    )
+    _run(_attach_source_with_connection(report["id"], "user_required"))
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["executed_as"] == "creator"
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["executed_as"] == "creator"
+
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="viewer")
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"] is None
+    assert step["snapshot_withheld"] is True
+    assert not (step["data"] or {}).get("rows")
+
+
+@pytest.mark.e2e
+def test_unchanged_run_identity_keeps_cached_viewer_results(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """Only an actual change invalidates: re-saving the share dialog with the
+    same run identity must not wipe every viewer's cached results."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", run_identity="viewer",
+    )
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(f"/api/r/{report['id']}/run", headers=_headers(viewer["token"]))
+    assert resp.status_code == 200, resp.json()
+
+    _set_artifact_visibility(test_client, report["id"], owner, "internal", run_identity="viewer")
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["status"] == "success"
+    assert {r["month"] for r in step["data"]["rows"]} == FRESH_MONTHS
+
+
+@pytest.mark.e2e
 def test_viewer_run_reports_no_access_code(
     test_client, create_report, bootstrap_admin, invite_user_to_org,
 ):
