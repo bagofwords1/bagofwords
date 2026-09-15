@@ -53,6 +53,7 @@
 <script setup lang="ts">
 import ConnectForm from '~/components/datasources/ConnectForm.vue'
 import type { ConnectionIndexing } from '~/composables/useConnectionStatus'
+import { connectionSignInError } from '~/composables/useConnectionSignIn'
 const props = defineProps<{ modelValue: boolean; connection: any; initialValues: any; loading?: boolean; lastTest?: { success: boolean; message: string } | null }>()
 const emit = defineEmits(['update:modelValue', 'success', 'deleted', 'tested'])
 const open = computed({ get: () => props.modelValue, set: value => emit('update:modelValue', value) })
@@ -70,12 +71,14 @@ async function signIn() {
   try {
     const { data, error } = await useMyFetch(`/connections/${props.connection.id}/oauth/authorize?return_to=${encodeURIComponent(route.fullPath)}`, { method: 'GET' })
     if (error.value || !(data.value as any)?.authorization_url) {
-      operationError.value = t('data.requestFailed')
+      operationError.value = error.value
+        ? connectionSignInError(error.value, t('data.requestFailed'))
+        : t('data.requestFailed')
       signingIn.value = false
       return
     }
     window.location.href = (data.value as any).authorization_url
-  } catch { operationError.value = t('data.requestFailed'); signingIn.value = false }
+  } catch (e: any) { operationError.value = connectionSignInError(e, t('data.requestFailed')); signingIn.value = false }
 }
 function cancelEdit() { editing.value = false; formRevision.value++; state.value = { busy: false, error: '', warning: '', message: '', settingsChanged: false } }
 async function saved(result: any) {
