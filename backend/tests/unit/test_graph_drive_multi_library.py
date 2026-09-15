@@ -203,6 +203,22 @@ def test_fresh_client_reads_in_scope_file_by_qualified_id():
         GRAPH.pop("/drives/drv-pol/items/p2", None)
 
 
+def test_read_without_globs_skips_the_library_lookup():
+    """With no include-globs there is nothing to check, so a read by qualified
+    id must not pay a /drives lookup just to build a prefixed path — that was
+    an extra Graph call on every read_file and every preview."""
+    c = _client("*")
+    GRAPH["/drives/drv-pol/items/p2"] = _POLICY_HANDBOOK_META
+    c._get_bytes = lambda url, **_: b"%PDF-1.4"
+    try:
+        c.read_raw_bytes("drv-pol|p2")
+        c.read_file("drv-pol|p2")
+    finally:
+        GRAPH.pop("/drives/drv-pol/items/p2", None)
+    assert f"/sites/{SITE}/drives" not in c._calls
+    assert c._calls.count("/drives/drv-pol/items/p2") == 2, "only the item metadata, once per read"
+
+
 def test_oversize_item_is_rejected_before_download():
     from app.data_sources.clients._file_source_common import FileTooLargeError
 
