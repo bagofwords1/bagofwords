@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.561 (September 15, 2026)
-- Fixed sharing and forking on per-user (delegated) sources: a fork now starts from the creator's filter values instead of the declared defaults, so its queries run the same path the creator ran, and a query that breaks under the forker's own credentials keeps its code and the real cause so a rerun can repair it; a viewer missing one connection's credential still gets every other connection's charts, with the missing connection named; and toggling "run on my behalf" drops per-viewer cached results so nobody keeps the previous identity's rows (#1141, #1142, #1143)
+- Power BI forking and sharing fixes (#1141, #1142, #1143)
 
 ## Version 0.0.560 (September 14, 2026)
 - The agent can now check that an interactive data app actually works before handing it over: with the new organization setting "Verify data apps" switched on, it opens the saved page, exercises representative filters and controls, compares what the page shows against what the backend returned, and repairs and rechecks the app when something is off. The checks and their screenshots collapse into one expandable group in the transcript with the supporting query and runtime evidence. The setting is off by default and also requires data visibility (`allow_llm_see_data`) to be on; access is re-checked before every browser step, so revoking either one stops an in-flight session from reading further. Static dashboards with nothing to interact with finish without an interactive check instead of being told to browse (#1133)
