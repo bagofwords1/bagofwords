@@ -515,6 +515,29 @@ def test_unchanged_run_identity_keeps_cached_viewer_results(
 
 
 @pytest.mark.e2e
+def test_param_run_stamps_the_identity_whose_credentials_executed(
+    test_client, create_report, bootstrap_admin, invite_user_to_org,
+):
+    """A viewer's param run in creator mode executes on the owner's
+    credentials and must be stamped 'creator', like the dashboard run."""
+    admin, owner, viewer, report, seeded = _shared_report(
+        test_client, create_report, bootstrap_admin, invite_user_to_org,
+        visibility="internal", run_identity="creator",
+    )
+    qid = seeded["query_ids"][0]
+
+    resp = test_client.post(
+        f"/api/queries/{qid}/run", json={"mode": "viewer", "params": {}},
+        headers=_headers(viewer["token"], admin["org_id"]),
+    )
+    assert resp.status_code == 200, resp.json()
+    assert resp.json()["status"] == "success", resp.json()
+
+    step = _public_step(test_client, report["id"], qid, token=viewer["token"])
+    assert step["viewer_result"]["executed_as"] == "creator"
+
+
+@pytest.mark.e2e
 def test_viewer_run_reports_no_access_code(
     test_client, create_report, bootstrap_admin, invite_user_to_org,
 ):

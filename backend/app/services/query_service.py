@@ -915,7 +915,8 @@ class QueryService:
                 report_id=str(report.id), params_fingerprint=fingerprint,
                 status="success", status_reason=None, data=df,
                 applied_params=dict(resolved) if resolved else None,
-                executed_as="viewer", last_run_at=_dt.utcnow(),
+                executed_as="creator" if str(credential_user.id) != str(caller.id) else "viewer",
+                last_run_at=_dt.utcnow(),
             )
             return {
                 "data": df or {},
