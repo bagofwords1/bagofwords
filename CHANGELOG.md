@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.562 (September 16, 2026)
+- Shorter generated code with stdout carried into retries, and a bounded Power BI DAX guide (#1145)
+
 ## Version 0.0.561 (September 15, 2026)
 - Power BI forking and sharing fixes (#1141, #1142, #1143)
 
