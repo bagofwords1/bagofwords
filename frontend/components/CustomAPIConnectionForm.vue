@@ -201,7 +201,7 @@
               <div v-for="(ep, epIdx) in endpoints" :key="epIdx" class="border border-gray-200 dark:border-gray-800 rounded-md overflow-hidden">
                 <!-- Collapsed row -->
                 <div class="w-full flex items-center gap-2 px-2.5 py-2 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 select-none" :data-testid="`tool-row-${epIdx}`" @click="toggleExpand(epIdx)">
-                  <UIcon name="heroicons-chevron-right" :class="['w-3.5 h-3.5 text-gray-400 transition-transform flex-shrink-0', expanded === epIdx ? 'rotate-90' : '']" />
+                  <UIcon name="heroicons-chevron-right" :class="['w-3.5 h-3.5 text-gray-400 transition-transform flex-shrink-0', expanded === epIdx ? 'rtl-own-transform rotate-90' : '']" />
                   <span :class="['text-[10px] font-semibold px-1.5 py-0.5 rounded flex-shrink-0', methodChipClass(ep.method)]">{{ ep.method }}</span>
                   <span class="text-xs font-mono text-gray-800 dark:text-gray-200 truncate">{{ ep.name || $t('data.untitledTool') }}</span>
                   <span class="text-[11px] text-gray-400 dark:text-gray-500 font-mono truncate hidden sm:inline">{{ ep.path }}</span>

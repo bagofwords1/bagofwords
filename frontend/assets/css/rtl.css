@@ -78,36 +78,79 @@
  *    and letting non-directional uses opt OUT via `.rtl-no-flip` is far
  *    cheaper than adding `rtl-flip` to 100+ call sites.
  *
- *    The @nuxt/icon module renders each icon as `<span class="iconify
- *    heroicons--chevron-left">` (or with the `name` passed through), and
- *    we also see usages of `i-heroicons-chevron-left` / `i-heroicons:…`
- *    Tailwind-style aliases. Cover all three forms. */
-[dir="rtl"] .iconify.heroicons--chevron-left,
-[dir="rtl"] .iconify.heroicons--chevron-right,
-[dir="rtl"] .iconify.heroicons--chevron-double-left,
-[dir="rtl"] .iconify.heroicons--chevron-double-right,
-[dir="rtl"] .iconify.heroicons--arrow-left,
-[dir="rtl"] .iconify.heroicons--arrow-right,
-[dir="rtl"] .iconify.heroicons--arrow-long-left,
-[dir="rtl"] .iconify.heroicons--arrow-long-right,
-[dir="rtl"] .iconify.heroicons--arrow-small-left,
-[dir="rtl"] .iconify.heroicons--arrow-small-right,
-[dir="rtl"] .iconify.heroicons--arrow-up-left,
-[dir="rtl"] .iconify.heroicons--arrow-up-right,
-[dir="rtl"] .iconify.heroicons--arrow-uturn-left,
-[dir="rtl"] .iconify.heroicons--arrow-uturn-right,
-[dir="rtl"] .i-heroicons-chevron-left,
-[dir="rtl"] .i-heroicons-chevron-right,
-[dir="rtl"] .i-heroicons-arrow-left,
-[dir="rtl"] .i-heroicons-arrow-right,
-[dir="rtl"] .i-heroicons-arrow-long-right,
-[dir="rtl"] .i-heroicons-arrow-small-right,
-[dir="rtl"] .i-heroicons-arrow-up-right {
+ *    The emitted class carries a COLON, not a dash. @nuxt/icon pipes every
+ *    `name` through `useResolvedName` (runtime/components/shared.js): it
+ *    strips the `i-` prefix, matches the leading segment against the known
+ *    collections (`heroicons`, per .nuxt/app.config.mjs) and rejoins with
+ *    `:`. In `css` mode — the module default, and ours — the component then
+ *    renders `<span class="iconify i-heroicons:chevron-right">`
+ *    (runtime/components/css.js). Both spellings in our source,
+ *    `<Icon name="heroicons-chevron-right">` and
+ *    `<UIcon name="i-heroicons-chevron-right">`, collapse to that one class.
+ *
+ *    So the escaped-colon selectors are the ones that actually fire. Escape
+ *    the colon as `\:` — unescaped it parses as a pseudo-class and silently
+ *    kills the whole selector list. The dash forms below are kept only for a
+ *    bare Tailwind-style `class="i-heroicons-arrow-right"`, and the
+ *    `.iconify.heroicons--…` forms only for `svg` mode; neither matches what
+ *    we render today. */
+[dir="rtl"] :where(
+  /* css mode (what we actually render) */
+  .i-heroicons\:chevron-left,
+  .i-heroicons\:chevron-right,
+  .i-heroicons\:chevron-double-left,
+  .i-heroicons\:chevron-double-right,
+  .i-heroicons\:arrow-left,
+  .i-heroicons\:arrow-right,
+  .i-heroicons\:arrow-long-left,
+  .i-heroicons\:arrow-long-right,
+  .i-heroicons\:arrow-small-left,
+  .i-heroicons\:arrow-small-right,
+  .i-heroicons\:arrow-up-left,
+  .i-heroicons\:arrow-up-right,
+  .i-heroicons\:arrow-uturn-left,
+  .i-heroicons\:arrow-uturn-right,
+
+  /* svg mode */
+  .iconify.heroicons--chevron-left,
+  .iconify.heroicons--chevron-right,
+  .iconify.heroicons--chevron-double-left,
+  .iconify.heroicons--chevron-double-right,
+  .iconify.heroicons--arrow-left,
+  .iconify.heroicons--arrow-right,
+  .iconify.heroicons--arrow-long-left,
+  .iconify.heroicons--arrow-long-right,
+  .iconify.heroicons--arrow-small-left,
+  .iconify.heroicons--arrow-small-right,
+  .iconify.heroicons--arrow-up-left,
+  .iconify.heroicons--arrow-up-right,
+  .iconify.heroicons--arrow-uturn-left,
+  .iconify.heroicons--arrow-uturn-right,
+
+  /* bare Tailwind-style class, no `name` prop */
+  .i-heroicons-chevron-left,
+  .i-heroicons-chevron-right,
+  .i-heroicons-arrow-left,
+  .i-heroicons-arrow-right,
+  .i-heroicons-arrow-long-right,
+  .i-heroicons-arrow-small-right,
+  .i-heroicons-arrow-up-right
+):not(.rtl-own-transform) {
   transform: scaleX(-1);
 }
-/* Escape hatch: add `rtl-no-flip` to an icon that happens to use one of
- * the classes above but is NOT directional (e.g. a decorative arrow in a
- * logo). */
+/* Escape hatches, two of them:
+ *
+ *  - `rtl-no-flip` — the element uses one of the classes above but is NOT
+ *    directional (e.g. a decorative arrow in a logo). Kills the transform
+ *    outright.
+ *  - `rtl-own-transform` — the element IS directional but drives its own
+ *    `transform`, so the auto-flip must step aside rather than override it.
+ *    The disclosure-chevron idiom is the case: `chevron-right` rotated 90°
+ *    when open, mirrored when closed. Rule 6 outranks a bare `.rotate-90`
+ *    utility (0,2,0 vs 0,1,0) and would pin the open chevron sideways, so
+ *    those call sites opt out for the open state only. Tailwind's `!`
+ *    important modifier is NOT an alternative here — it produces no output
+ *    in this build. */
 [dir="rtl"] .rtl-no-flip {
   transform: none !important;
 }
