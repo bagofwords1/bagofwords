@@ -23,7 +23,7 @@ from app.data_sources.clients._document_text import (
     DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
-    DocumentText, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
+    DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
@@ -343,7 +343,7 @@ class SharepointOnpremClient(DataSourceClient):
         self._scope(meta["ServerRelativeUrl"], libraries)
         limit = min(self._max_bytes, max_bytes) if max_bytes is not None else self._max_bytes
         if limit < 1 or int(meta.get("Length") or 0) > limit:
-            raise ValueError("File exceeds the configured byte limit; increase it explicitly to read this file.")
+            raise FileTooLargeError("File exceeds the configured byte limit; increase it explicitly to read this file.")
         content = self._request(endpoint + "/$value", binary=True, byte_limit=limit)
         return content, meta["Name"], mimetypes.guess_type(meta["Name"])[0]
 
