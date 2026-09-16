@@ -2844,7 +2844,11 @@
       "materialized_views": "قراءة العروض المادية",
       "relationships": "قراءة العلاقات",
       "metadata_fallback": "قراءة البيانات الوصفية الأساسية",
-      "discovering": "اكتشاف البيانات"
+      "discovering": "اكتشاف البيانات",
+      "connecting": "جارٍ الاتصال بالمصدر",
+      "saving": "جارٍ حفظ الكتالوج",
+      "warming": "جارٍ تجهيز ذاكرة البيانات المؤقتة",
+      "syncing_agents": "جارٍ المزامنة مع الوكلاء"
     },
     "setupStatus": "حالة الاتصال",
     "setupReadyHint": "أدخل تفاصيل الاتصال. سنتحقق من الوصول ونكتشف البيانات المتاحة.",
@@ -2852,6 +2856,9 @@
     "setupConnecting": "جارٍ الاتصال…",
     "setupCurrentStage": "المرحلة الحالية",
     "setupElapsed": "الوقت المنقضي: {time}",
+    "setupLastActivity": "آخر نشاط: منذ {time}",
+    "setupNoActivity": "لا يوجد نشاط منذ {time} — قد تكون الفهرسة متوقفة",
+    "setupQueued": "في قائمة الانتظار — بانتظار انتهاء عمليات فهرسة أخرى",
     "setupPreviousStages": "المراحل السابقة",
     "title": "الاتصالات",
     "subtitle": "إدارة اتصالات قواعد البيانات.",

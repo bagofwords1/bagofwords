@@ -2844,7 +2844,11 @@
       "materialized_views": "Materialisierte Sichten lesen",
       "relationships": "Beziehungen lesen",
       "metadata_fallback": "Grundlegende Metadaten lesen",
-      "discovering": "Daten ermitteln"
+      "discovering": "Daten ermitteln",
+      "connecting": "Verbindung zur Quelle",
+      "saving": "Katalog wird gespeichert",
+      "warming": "Datencache wird vorbereitet",
+      "syncing_agents": "Synchronisierung mit Agenten"
     },
     "setupStatus": "Verbindungsstatus",
     "setupReadyHint": "Geben Sie die Verbindungsdaten ein. Wir prüfen den Zugriff und ermitteln die verfügbaren Daten.",
@@ -2852,6 +2856,9 @@
     "setupConnecting": "Verbindung wird hergestellt…",
     "setupCurrentStage": "Aktueller Schritt",
     "setupElapsed": "Dauer: {time}",
+    "setupLastActivity": "Letzte Aktivität: vor {time}",
+    "setupNoActivity": "Seit {time} keine Aktivität – die Indizierung hängt möglicherweise",
+    "setupQueued": "In der Warteschlange – wartet auf andere Indizierungen",
     "setupPreviousStages": "Vorherige Schritte",
     "title": "Verbindungen",
     "subtitle": "Verwalten Sie Ihre Datenbankverbindungen.",

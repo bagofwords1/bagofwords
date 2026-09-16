@@ -2936,7 +2936,11 @@
       "materialized_views": "Leyendo vistas materializadas",
       "relationships": "Leyendo relaciones",
       "metadata_fallback": "Leyendo metadatos básicos",
-      "discovering": "Descubriendo datos"
+      "discovering": "Descubriendo datos",
+      "connecting": "Conectando con la fuente",
+      "saving": "Guardando catálogo",
+      "warming": "Preparando caché de datos",
+      "syncing_agents": "Sincronizando con agentes"
     },
     "setupStatus": "Estado de la conexión",
     "setupReadyHint": "Introduce los datos de conexión. Comprobaremos el acceso y descubriremos los datos disponibles.",
@@ -2944,6 +2948,9 @@
     "setupConnecting": "Conectando…",
     "setupCurrentStage": "Etapa actual",
     "setupElapsed": "Tiempo: {time}",
+    "setupLastActivity": "Última actividad: hace {time}",
+    "setupNoActivity": "Sin actividad desde hace {time}: la indexación puede estar bloqueada",
+    "setupQueued": "En cola: esperando a que terminen otras indexaciones",
     "setupPreviousStages": "Etapas anteriores",
     "title": "Conexiones",
     "subtitle": "Gestione sus conexiones de base de datos.",

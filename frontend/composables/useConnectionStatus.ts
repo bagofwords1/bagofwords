@@ -28,6 +28,9 @@ export interface ConnectionIndexing {
   progress_total: number
   started_at?: string | null
   finished_at?: string | null
+  // When the source last reported progress. Unlike elapsed time, this tells a
+  // slow-but-progressing run from a stuck one.
+  last_activity_at?: string | null
   error?: string | null
   events?: Array<{ ts: string; level: string; phase?: string | null; message: string; done?: number; total?: number }>
   stats?: Record<string, any> | null

@@ -2998,7 +2998,11 @@
       "materialized_views": "Reading materialized views",
       "relationships": "Reading relationships",
       "metadata_fallback": "Reading basic metadata",
-      "discovering": "Discovering data"
+      "discovering": "Discovering data",
+      "connecting": "Connecting to source",
+      "saving": "Saving catalog",
+      "warming": "Preparing data cache",
+      "syncing_agents": "Syncing to agents"
     },
     "setupStatus": "Connection status",
     "setupReadyHint": "Enter your connection details. We’ll check access and discover the available data.",
@@ -3006,6 +3010,9 @@
     "setupConnecting": "Connecting…",
     "setupCurrentStage": "Current stage",
     "setupElapsed": "Elapsed: {time}",
+    "setupLastActivity": "Last activity: {time} ago",
+    "setupNoActivity": "No activity for {time} — indexing may be stuck",
+    "setupQueued": "Queued — waiting for other indexing runs to finish",
     "setupPreviousStages": "Previous stages",
     "title": "Connections",
     "subtitle": "Manage your database connections.",

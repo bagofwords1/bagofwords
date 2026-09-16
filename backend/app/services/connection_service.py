@@ -1559,6 +1559,12 @@ class ConnectionService:
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
 
+            if progress_callback is not None:
+                # Discovery is done; upsert + commit report nothing of their
+                # own, so mark the stage for the indexing log and UI.
+                # None counts: keep discovery's done/total on the run.
+                progress_callback("saving", None, None, None)
+
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).
             logger.info(f"refresh_schema: Found {len(existing_tables)} existing ConnectionTable records")

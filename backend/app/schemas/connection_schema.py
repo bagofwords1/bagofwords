@@ -225,6 +225,9 @@ class ConnectionIndexingProgress(BaseModel):
     progress_total: int = 0
     started_at: Optional[str] = None
     finished_at: Optional[str] = None
+    # When the source last reported progress — lets the UI tell a slow run
+    # from a stuck one, which elapsed time alone cannot.
+    last_activity_at: Optional[str] = None
     error: Optional[str] = None
     stats: Optional[Dict[str, Any]] = None
     events: Optional[List[Dict[str, Any]]] = None

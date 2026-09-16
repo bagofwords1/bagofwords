@@ -98,6 +98,7 @@ def _indexing_to_progress(row, include_events: bool = True) -> "ConnectionIndexi
         progress_total=row.progress_total or 0,
         started_at=_iso_utc(row.started_at),
         finished_at=_iso_utc(row.finished_at),
+        last_activity_at=_iso_utc(getattr(row, "last_activity_at", None)),
         error=row.error,
         stats=row.stats_json,
         events=(row.events_json or []) if include_events else [],
