@@ -547,6 +547,7 @@ class TestInternalColumnFiltering:
             ln for ln in guide.splitlines()
             if ln.strip().startswith("EVALUATE ")
             and "(" not in ln
+            and "<" not in ln  # the `EVALUATE <table_expression>` pattern placeholder
         ]
         assert bare == [], bare
         # Measures-first guidance sits with the performance rules, and the

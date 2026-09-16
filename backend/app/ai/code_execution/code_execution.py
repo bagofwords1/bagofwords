@@ -14,6 +14,7 @@ import datetime
 import json
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+import contextlib
 from contextlib import redirect_stdout
 from typing import Dict, Any, Tuple, List, Optional, Callable, Coroutine, FrozenSet
 
@@ -78,6 +79,37 @@ class _ThreadLocalStdoutRouter:
 
 
 _STDOUT_ROUTER_INSTALL_LOCK = threading.Lock()
+
+
+# Tail of the sandbox's stdout kept on a failed run and shown to the retry.
+# Enough for a couple of frame previews; bounded so a print-in-a-loop cannot
+# flood the codegen prompt.
+FAILURE_STDOUT_TAIL_CHARS = 2000
+
+
+def _attach_partial_stdout(exc: BaseException, buffer: "io.StringIO") -> None:
+    """Best-effort: stash the tail of what the failed code printed on the
+    exception as `captured_stdout`. Never raises — the original error is the
+    thing the caller cares about."""
+    try:
+        text = buffer.getvalue()
+    except ValueError:  # already closed
+        return
+    if not text:
+        return
+    with contextlib.suppress(Exception):
+        exc.captured_stdout = text[-FAILURE_STDOUT_TAIL_CHARS:]
+
+
+def format_execution_failure(exc: BaseException, message: str) -> str:
+    """The error text a retry sees for a failed execution: the message, then
+    the tail of what the code printed before it raised (when there is any).
+    Kept separate from the UI-facing message so the chat shows the error and
+    the codegen prompt gets the evidence."""
+    partial = getattr(exc, "captured_stdout", "") or ""
+    if not partial:
+        return message
+    return f"{message}\n<stdout_before_failure>\n{partial.rstrip()}\n</stdout_before_failure>"
 
 
 def _stdout_router() -> _ThreadLocalStdoutRouter:
@@ -1257,6 +1289,13 @@ class StreamingCodeExecutor:
                     )
                     output_log = stdout_capture.getvalue()
                     lock_span.set_attribute("code_execution.lock_held_ms", round((_time.monotonic() - capture_started_at) * 1000.0, 3))
+            except BaseException as exc:
+                # Whatever the code printed before it died is the only trace of
+                # its intermediate state (frame shape, columns, the row that
+                # broke a cast). The buffer is closed in `finally`, so read it
+                # here and hang the tail on the exception for the retry loop.
+                _attach_partial_stdout(exc, stdout_capture)
+                raise
             finally:
                 router.unbind()
                 stdout_capture.close()
@@ -1705,7 +1744,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, msg))
+                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
@@ -1964,7 +2003,7 @@ class StreamingCodeExecutor:
                 break
             except Exception as e:
                 msg = augment_db_error_hint(f"Execution error: {str(e)}")
-                code_and_error_messages.append((final_code, msg))
+                code_and_error_messages.append((final_code, format_execution_failure(e, msg)))
                 yield {"type": "stdout", "payload": msg}
                 retries += 1
                 if getattr(e, "terminal_execution_error", False):
