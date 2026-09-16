@@ -1722,11 +1722,40 @@
       "query": "Can query",
       "queryHint": "Ask this agent questions",
       "manage": "Can manage",
-      "manageHint": "Edit instructions, entities, evals, settings and members"
+      "manageHint": "Edit instructions, entities, evals, settings and members",
+      "custom": "Custom",
+      "customHint": "Pick individual permissions"
     },
     "modelAccess": "Model access",
     "modelAccessHint": "Restricted models",
-    "noRestrictedModels": "No restricted models"
+    "noRestrictedModels": "No restricted models",
+    "bulk": {
+      "button": "Add agents",
+      "search": "Search agents...",
+      "allStages": "All",
+      "selectAllVisible": "Select all shown ({n})",
+      "noMatches": "No agents match",
+      "alreadyInRole": "Already in role",
+      "accessLevel": "Access level",
+      "add": "Add agents | Add 1 agent | Add {n} agents",
+      "buttonConnections": "Add connections",
+      "searchConnections": "Search connections...",
+      "noConnectionMatches": "No connections match",
+      "addConnections": "Add connections | Add 1 connection | Add {n} connections"
+    },
+    "agentAccess": "Agent access",
+    "connectionAccess": "Connection access",
+    "noAgentAccess": "No agents yet. Use Add agents to give this role access.",
+    "remove": "Remove",
+    "noConnectionAccess": "No connections yet. Use Add connections to delegate connection access.",
+    "connTiers": {
+      "createAgents": "Can create agents",
+      "createAgentsHint": "Create new agents on this connection",
+      "manageAgents": "Can manage agents",
+      "manageAgentsHint": "Create agents and manage every agent on this connection",
+      "full": "Full control",
+      "fullHint": "Manage its agents and also edit, test, reindex and delete the connection"
+    }
   },
   "serviceAccounts": {
     "title": "Service Accounts",

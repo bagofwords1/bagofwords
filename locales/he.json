@@ -1695,12 +1695,41 @@
       "query": "יכול לשאול",
       "queryHint": "לשאול את הסוכן הזה שאלות",
       "manage": "יכול לנהל",
-      "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים"
+      "manageHint": "עריכת הוראות, ישויות, הערכות, הגדרות וחברים",
+      "custom": "מותאם אישית",
+      "customHint": "בחירת הרשאות בודדות"
     },
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",
     "noRestrictedModels": "אין מודלים מוגבלים",
-    "connection": "חיבור"
+    "connection": "חיבור",
+    "bulk": {
+      "button": "הוספת סוכנים",
+      "search": "חיפוש סוכנים...",
+      "allStages": "הכול",
+      "selectAllVisible": "בחר את כל המוצגים ({n})",
+      "noMatches": "אין סוכנים תואמים",
+      "alreadyInRole": "כבר בתפקיד",
+      "accessLevel": "רמת גישה",
+      "add": "הוסף סוכנים | הוסף סוכן אחד | הוסף {n} סוכנים",
+      "buttonConnections": "הוספת חיבורים",
+      "searchConnections": "חיפוש חיבורים...",
+      "noConnectionMatches": "אין חיבורים תואמים",
+      "addConnections": "הוסף חיבורים | הוסף חיבור אחד | הוסף {n} חיבורים"
+    },
+    "agentAccess": "גישה לסוכנים",
+    "connectionAccess": "גישה לחיבורים",
+    "noAgentAccess": "עדיין אין סוכנים. לחצו על הוספת סוכנים כדי לתת לתפקיד גישה.",
+    "remove": "הסרה",
+    "noConnectionAccess": "עדיין אין חיבורים. לחצו על הוספת חיבורים כדי לתת גישה לחיבור.",
+    "connTiers": {
+      "createAgents": "יכול ליצור סוכנים",
+      "createAgentsHint": "יצירת סוכנים חדשים על החיבור הזה",
+      "manageAgents": "יכול לנהל סוכנים",
+      "manageAgentsHint": "יצירת סוכנים וניהול כל הסוכנים על החיבור הזה",
+      "full": "שליטה מלאה",
+      "fullHint": "ניהול הסוכנים, וגם עריכה, בדיקה, אינדוקס מחדש ומחיקה של החיבור"
+    }
   },
   "groupsManager": {
     "searchPlaceholder": "חיפוש קבוצות...",

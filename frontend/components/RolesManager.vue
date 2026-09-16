@@ -177,98 +177,191 @@
                         </div>
                     </div>
 
-                    <!-- Per-resource cards -->
+                    <!-- Agent access + Connection access. Both sections render from
+                         the same markup (accessSections) so they look and behave
+                         identically: compact rows with an access-level select, and an
+                         inline add panel that never leaves the role form. Everything
+                         here only stages form state — nothing is saved until Save. -->
                     <div
-                        v-for="(grant, idx) in form.resourceGrants"
-                        :key="`grant-${idx}`"
+                        v-for="sec in accessSections"
+                        :key="sec.type"
                         class="border rounded-lg overflow-hidden"
                     >
-                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
-                            <div class="flex items-center gap-2">
-                                <UBadge size="xs" :color="grant.resource_type === 'connection' ? 'gray' : 'blue'">{{ grant.resource_type === 'connection' ? $t('rolesManager.connection') : $t('rolesManager.ds') }}</UBadge>
-                                <span class="text-sm font-medium">{{ grant.resource_name }}</span>
+                        <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between gap-2">
+                            <div class="flex items-center gap-2 min-w-0">
+                                <UIcon :name="sec.icon" class="w-4 h-4 text-gray-500 dark:text-gray-400" />
+                                <span class="text-sm font-medium">{{ sec.title }}</span>
+                                <span v-if="sec.count" class="text-xs tabular-nums text-gray-400">{{ sec.count }}</span>
                             </div>
                             <UButton
+                                v-if="!(picker.open && picker.type === sec.type)"
+                                size="2xs"
                                 variant="ghost"
-                                size="xs"
-                                color="red"
-                                icon="i-heroicons-x-mark"
-                                @click="form.resourceGrants.splice(idx, 1)"
-                            />
-                        </div>
-                        <div class="p-3">
-                            <!-- Agent grants use the same two access tiers as the agent
-                                 panel's "Add people" modal: an EMPTY grant is the query
-                                 tier (any grant row on a data source implies `view` in
-                                 the backend resolver), `manage` is the owner/manager
-                                 superset. Raw checkboxes live in Advanced. -->
-                            <template v-if="grant.resource_type === 'data_source'">
-                                <div class="space-y-0.5">
-                                    <button
-                                        v-for="tier in DS_ACCESS_TIERS"
-                                        :key="tier.key"
-                                        type="button"
-                                        class="w-full flex items-start gap-2 px-2 py-1.5 rounded-md text-start hover:bg-gray-50 dark:hover:bg-gray-800/50"
-                                        @click="selectGrantTier(grant, tier.key)"
-                                    >
-                                        <span
-                                            class="mt-0.5 w-3.5 h-3.5 rounded-full border flex items-center justify-center shrink-0"
-                                            :class="grantTier(grant) === tier.key ? 'border-gray-900 dark:border-white' : 'border-gray-300 dark:border-gray-700'"
-                                        >
-                                            <span v-if="grantTier(grant) === tier.key" class="w-1.5 h-1.5 rounded-full bg-gray-900 dark:bg-white" />
-                                        </span>
-                                        <span class="min-w-0">
-                                            <span class="block text-sm text-gray-900 dark:text-white">{{ $t(`rolesManager.tiers.${tier.key}`) }}</span>
-                                            <span class="block text-xs text-gray-500 dark:text-gray-400">{{ $t(`rolesManager.tiers.${tier.key}Hint`) }}</span>
-                                        </span>
-                                    </button>
-                                </div>
-                                <button
-                                    type="button"
-                                    class="mt-1 inline-flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
-                                    @click="grant.showAdvanced = !grant.showAdvanced"
-                                >
-                                    {{ $t('rolesManager.advancedPermissions') }}
-                                    <UIcon
-                                        name="i-heroicons-chevron-down"
-                                        class="w-3 h-3 transition-transform"
-                                        :class="(grant.showAdvanced || grantTier(grant) === null) ? 'rotate-180' : ''"
-                                    />
-                                </button>
-                            </template>
-                            <div
-                                v-if="grant.resource_type !== 'data_source' || grant.showAdvanced || grantTier(grant) === null"
-                                class="grid grid-cols-2 gap-x-3 gap-y-1"
-                                :class="{ 'mt-2': grant.resource_type === 'data_source' }"
+                                color="gray"
+                                icon="i-heroicons-plus"
+                                :disabled="!sec.resources.length"
+                                @click="openPicker(sec.type)"
                             >
+                                {{ sec.addLabel }}
+                            </UButton>
+                        </div>
+
+                        <!-- Inline add panel -->
+                        <div v-if="picker.open && picker.type === sec.type" class="p-3 border-b bg-blue-50/40 dark:bg-blue-500/5 space-y-3">
+                            <div class="flex items-center gap-2">
+                                <UInput
+                                    v-model="picker.search"
+                                    :placeholder="sec.searchPlaceholder"
+                                    icon="i-heroicons-magnifying-glass"
+                                    size="xs"
+                                    class="flex-1 min-w-0"
+                                    autofocus
+                                />
+                                <USelect
+                                    v-if="sec.type === 'data_source'"
+                                    v-model="picker.stage"
+                                    :options="pickerStageFilters"
+                                    option-attribute="label"
+                                    value-attribute="value"
+                                    size="xs"
+                                    class="w-44 shrink-0"
+                                />
+                            </div>
+
+                            <div class="border rounded-md bg-white dark:bg-gray-900 overflow-hidden">
                                 <label
-                                    v-for="perm in getResourcePermissions(grant.resource_type)"
-                                    :key="perm"
-                                    class="flex items-center gap-1.5 text-sm cursor-pointer py-0.5"
+                                    class="flex items-center gap-2 px-2.5 h-8 border-b text-xs text-gray-600 dark:text-gray-300"
+                                    :class="pickerSelectableVisible.length ? 'cursor-pointer' : 'opacity-50'"
                                 >
                                     <UCheckbox
-                                        :model-value="grant.permissions.includes(perm)"
-                                        @update:model-value="toggleResourcePerm(grant, perm, $event)"
+                                        :model-value="pickerAllVisibleSelected"
+                                        :disabled="!pickerSelectableVisible.length"
                                         size="xs"
+                                        @update:model-value="toggleAllVisible($event)"
                                     />
-                                    <span class="text-gray-700 dark:text-gray-300">{{ formatPermission(perm) }}</span>
+                                    <span class="font-medium">{{ $t('rolesManager.bulk.selectAllVisible', { n: pickerSelectableVisible.length }) }}</span>
                                 </label>
+                                <div class="max-h-52 overflow-y-auto">
+                                    <div v-if="!pickerVisible.length" class="px-3 py-4 text-xs text-center text-gray-400">
+                                        {{ sec.noMatches }}
+                                    </div>
+                                    <label
+                                        v-for="r in pickerVisible"
+                                        :key="r.id"
+                                        class="flex items-center gap-2 px-2.5 h-8 text-sm"
+                                        :class="isInRole(r) ? 'text-gray-400 dark:text-gray-500' : 'cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800/50 text-gray-800 dark:text-gray-200'"
+                                    >
+                                        <UCheckbox
+                                            :model-value="isInRole(r) || picker.selected.has(r.id)"
+                                            :disabled="isInRole(r)"
+                                            size="xs"
+                                            @update:model-value="togglePickerSelected(r.id, $event)"
+                                        />
+                                        <span class="min-w-0 truncate">{{ r.name }}</span>
+                                        <span v-if="r.subtitle" class="text-[11px] text-gray-400 dark:text-gray-500 truncate">{{ r.subtitle }}</span>
+                                        <span class="flex-1" />
+                                        <span v-if="isInRole(r)" class="text-[11px] shrink-0">{{ $t('rolesManager.bulk.alreadyInRole') }}</span>
+                                        <span
+                                            v-else-if="picker.stage === 'all' && r.stage"
+                                            :class="['inline-flex items-center h-4 px-1.5 rounded-full border text-[9px] font-semibold uppercase tracking-wider shrink-0', stageMeta(r.stage).badge]"
+                                        >{{ $t(`agentsPage.stage.${r.stage}`) }}</span>
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div>
+                                <div class="text-xs font-medium text-gray-500 dark:text-gray-400 mb-1.5">{{ $t('rolesManager.bulk.accessLevel') }}</div>
+                                <div class="inline-flex flex-wrap rounded-md border bg-white dark:bg-gray-900 p-0.5">
+                                    <button
+                                        v-for="opt in accessOptions(sec.type)"
+                                        :key="opt.value"
+                                        type="button"
+                                        class="h-6 px-3 rounded text-xs"
+                                        :class="picker.tier === opt.value ? 'bg-gray-900 text-white dark:bg-white dark:text-gray-900' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800'"
+                                        @click="picker.tier = opt.value"
+                                    >
+                                        {{ opt.label }}
+                                    </button>
+                                </div>
+                                <p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">{{ accessHint(sec.type, picker.tier) }}</p>
+                                <div v-if="picker.tier === 'custom'" class="grid grid-cols-2 gap-x-3 gap-y-1 mt-2">
+                                    <label
+                                        v-for="perm in getResourcePermissions(sec.type)"
+                                        :key="perm"
+                                        class="flex items-center gap-1.5 text-xs cursor-pointer text-gray-700 dark:text-gray-300"
+                                    >
+                                        <UCheckbox
+                                            :model-value="picker.customPerms.includes(perm)"
+                                            size="xs"
+                                            @update:model-value="togglePickerCustomPerm(perm, $event)"
+                                        />
+                                        {{ formatPermission(perm) }}
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="flex justify-end gap-2">
+                                <UButton size="xs" variant="ghost" color="gray" @click="closePicker">{{ $t('rolesManager.cancel') }}</UButton>
+                                <UButton size="xs" color="blue" :disabled="!picker.selected.size" @click="addPickerSelected">
+                                    {{ $t(sec.addCountKey, { n: picker.selected.size }, picker.selected.size) }}
+                                </UButton>
                             </div>
                         </div>
+
+                        <div v-if="!sec.count && !(picker.open && picker.type === sec.type)" class="px-3 py-4 text-xs text-center text-gray-400">
+                            {{ sec.emptyText }}
+                        </div>
+
+                        <template v-for="group in sec.groups" :key="group.key">
+                            <div v-if="group.stage && sec.groups.length > 1" class="px-3 pt-3 pb-1 flex items-center gap-2">
+                                <span :class="['inline-flex items-center h-5 px-2 rounded-full border text-[10px] font-semibold uppercase tracking-wider', stageMeta(group.stage).badge]">{{ $t(`agentsPage.stage.${group.stage}`) }}</span>
+                                <span class="text-[11px] tabular-nums text-gray-400">{{ group.items.length }}</span>
+                            </div>
+                            <div
+                                v-for="{ grant, idx } in group.items"
+                                :key="`${grant.resource_type}-${grant.resource_id}`"
+                                class="px-3 py-1.5"
+                            >
+                                <div class="flex items-center gap-2">
+                                    <span class="min-w-0 truncate text-sm text-gray-800 dark:text-gray-200">{{ grant.resource_name }}</span>
+                                    <span v-if="resourceSubtitle(grant)" class="text-[11px] text-gray-400 dark:text-gray-500 truncate">{{ resourceSubtitle(grant) }}</span>
+                                    <span class="flex-1" />
+                                    <USelect
+                                        :model-value="grantAccess(grant)"
+                                        :options="accessOptions(sec.type)"
+                                        option-attribute="label"
+                                        value-attribute="value"
+                                        size="2xs"
+                                        class="w-40 shrink-0"
+                                        @update:model-value="setGrantAccess(grant, $event)"
+                                    />
+                                    <UButton
+                                        variant="ghost"
+                                        size="2xs"
+                                        color="gray"
+                                        icon="i-heroicons-x-mark"
+                                        :aria-label="$t('rolesManager.remove')"
+                                        @click="form.resourceGrants.splice(idx, 1)"
+                                    />
+                                </div>
+                                <div v-if="grantAccess(grant) === 'custom'" class="grid grid-cols-2 gap-x-3 gap-y-1 mt-1.5 mb-1 ms-1 ps-3 border-s border-gray-200 dark:border-gray-700">
+                                    <label
+                                        v-for="perm in getResourcePermissions(sec.type)"
+                                        :key="perm"
+                                        class="flex items-center gap-1.5 text-xs cursor-pointer text-gray-700 dark:text-gray-300"
+                                    >
+                                        <UCheckbox
+                                            :model-value="grant.permissions.includes(perm)"
+                                            size="xs"
+                                            @update:model-value="toggleResourcePerm(grant, perm, $event)"
+                                        />
+                                        {{ formatPermission(perm) }}
+                                    </label>
+                                </div>
+                            </div>
+                        </template>
+                        <div v-if="sec.count" class="h-1.5" />
                     </div>
-
-                    <!-- Add resource -->
-                    <USelectMenu
-                        v-model="selectedResource"
-                        :options="availableResources"
-                        option-attribute="label"
-                        value-attribute="value"
-                        searchable
-                        :placeholder="$t('rolesManager.addAgent')"
-                        @update:model-value="addResource"
-                        size="sm"
-                    />
-
                     <!-- Model access (enterprise: per-model LLM access control) -->
                     <div v-if="showModelAccess" class="border rounded-lg overflow-hidden">
                         <div class="px-3 py-2 bg-gray-50 dark:bg-gray-900 border-b flex items-center justify-between">
@@ -316,6 +409,7 @@
 <script setup lang="ts">
 import Spinner from '@/components/Spinner.vue'
 import { useCan } from '~/composables/usePermissions'
+import { deriveStage, stageMeta, STAGE_OPTIONS, type AgentStage } from '~/composables/useDataSourcePublishStatus'
 import { useI18n } from 'vue-i18n'
 import { useEnterprise } from '~/ee/composables/useEnterprise'
 
@@ -365,7 +459,6 @@ const searchQuery = ref('')
 const showModal = ref(false)
 const editingRole = ref<RoleData | null>(null)
 const saving = ref(false)
-const selectedResource = ref(null)
 const showOrgDetails = ref(false)
 const { hasFeature } = useEnterprise()
 const showQuotaColumn = computed(() => hasFeature('usage_limits') && useCan('manage_settings'))
@@ -553,36 +646,97 @@ function toggleResourcePerm(grant: ResourceGrantForm, perm: string, checked: boo
     }
 }
 
-// ── Agent-grant access tiers ─────────────────────────────────────────────
-// Mirrors AgentSettingsPanel's "Add people" modal: query (empty grant) or
-// manage (`manage` implies the other manage_* perms server-side). Any other
-// combination comes from Advanced and matches no tier.
+// ── Access levels (agents + connections) ─────────────────────────────────
+// Each resource type has named tiers plus Custom, which exposes the raw
+// permission checkboxes (what the old "Advanced permissions" toggle showed).
+// A grant whose permissions match no tier always renders as Custom.
+//
+// Agents mirror AgentSettingsPanel's "Add people" modal: query (empty grant)
+// or manage (`manage` implies the other manage_* perms server-side).
+// Connections: manage_data_sources implies create_data_sources server-side
+// (RESOURCE_PERM_IMPLIES), so each tier stores only its highest permission.
 
-const DS_ACCESS_TIERS: { key: string; perms: string[] }[] = [
-    { key: 'query', perms: [] },
-    { key: 'manage', perms: ['manage'] },
-]
+type ResourceType = 'data_source' | 'connection'
+type AccessLevel = string
+
+const ACCESS_TIERS: Record<ResourceType, { key: string; perms: string[] }[]> = {
+    data_source: [
+        { key: 'query', perms: [] },
+        { key: 'manage', perms: ['manage'] },
+    ],
+    connection: [
+        { key: 'createAgents', perms: ['create_data_sources'] },
+        { key: 'manageAgents', perms: ['manage_data_sources'] },
+        { key: 'full', perms: ['manage_connection', 'manage_data_sources'] },
+    ],
+}
 
 const sameSet = (a: string[], b: string[]) =>
     a.length === b.length && a.every((x) => b.includes(x))
 
 function grantTier(grant: ResourceGrantForm): string | null {
-    return DS_ACCESS_TIERS.find((tier) => sameSet(tier.perms, grant.permissions))?.key ?? null
+    const tiers = ACCESS_TIERS[grant.resource_type as ResourceType] || []
+    return tiers.find((tier) => sameSet(tier.perms, grant.permissions))?.key ?? null
 }
 
-function selectGrantTier(grant: ResourceGrantForm, key: string) {
-    const tier = DS_ACCESS_TIERS.find((t) => t.key === key)
-    if (tier) grant.permissions = [...tier.perms]
+const tierKeyPrefix = (type: ResourceType) =>
+    type === 'connection' ? 'rolesManager.connTiers' : 'rolesManager.tiers'
+
+function accessOptions(type: ResourceType) {
+    return [
+        ...ACCESS_TIERS[type].map((tier) => ({ value: tier.key, label: t(`${tierKeyPrefix(type)}.${tier.key}`) })),
+        { value: 'custom', label: t('rolesManager.tiers.custom') },
+    ]
+}
+
+function accessHint(type: ResourceType, level: AccessLevel) {
+    return level === 'custom'
+        ? t('rolesManager.tiers.customHint')
+        : t(`${tierKeyPrefix(type)}.${level}Hint`)
+}
+
+function grantAccess(grant: ResourceGrantForm): AccessLevel {
+    if (grant.showAdvanced) return 'custom'
+    return grantTier(grant) ?? 'custom'
+}
+
+function setGrantAccess(grant: ResourceGrantForm, level: AccessLevel) {
+    if (level === 'custom') {
+        grant.showAdvanced = true
+        return
+    }
+    grant.showAdvanced = false
+    const tiers = ACCESS_TIERS[grant.resource_type as ResourceType] || []
+    grant.permissions = [...(tiers.find((tier) => tier.key === level)?.perms || [])]
 }
 
 // ── Available resources for the picker ───────────────────────────────────
 
-const availableResources = ref<{ label: string; value: string; type: string; id: string }[]>([])
+interface AvailableResource {
+    label: string
+    value: string
+    type: string
+    id: string
+    name: string
+    subtitle?: string
+    stage?: AgentStage
+    is_public?: boolean
+}
+
+const availableResources = ref<AvailableResource[]>([])
 
 async function loadResources() {
     try {
-        const dsResult = await useMyFetch(`/data_sources/active`)
-        const resources: any[] = []
+        // show_all: a role editor must be able to grant on private agents it is
+        // not itself a member of. The backend honors it only for org-wide
+        // data-source governance (full_admin_access / manage_connections) and
+        // ignores it for everyone else, so it never widens what a caller sees.
+        // include_unconnected keeps user-auth agents the caller hasn't signed
+        // in to in the list.
+        const dsResult = await useMyFetch(`/data_sources/active`, {
+            query: { show_all: true, include_unconnected: true },
+        })
+        const resources: AvailableResource[] = []
         if (dsResult.data.value) {
             for (const ds of dsResult.data.value as any[]) {
                 resources.push({
@@ -590,6 +744,9 @@ async function loadResources() {
                     value: `data_source:${ds.id}`,
                     type: 'data_source',
                     id: ds.id,
+                    name: ds.name,
+                    stage: deriveStage(ds.publish_status, ds.reliability_status),
+                    is_public: ds.is_public,
                 })
             }
         }
@@ -603,6 +760,8 @@ async function loadResources() {
                     value: `connection:${c.id}`,
                     type: 'connection',
                     id: c.id,
+                    name: c.name,
+                    subtitle: c.type,
                 })
             }
         }
@@ -658,22 +817,171 @@ async function toggleModelAccess(model: RestrictedModel, checked: boolean) {
     }
 }
 
-function addResource(selected: any) {
-    if (!selected) return
-    const resource = availableResources.value.find((r) => r.value === selected)
-    if (!resource) return
-    if (form.resourceGrants.some((g) => g.resource_type === resource.type && g.resource_id === resource.id)) {
-        selectedResource.value = null
-        return
-    }
-    form.resourceGrants.push({
-        resource_type: resource.type,
-        resource_id: resource.id,
-        resource_name: resource.label.replace(/^(Agent|Data Source|Connection): /, ''),
-        permissions: [],
-    })
-    selectedResource.value = null
+// ── Inline add panel ─────────────────────────────────────────────────────
+// Stages one row per selected resource, all at the same access level. It is
+// purely a shortcut for repeated single adds: the grants saved are the same
+// per-resource rows, so an agent that later changes stage keeps its grant.
+
+const picker = reactive({
+    open: false,
+    type: 'data_source' as ResourceType,
+    search: '',
+    stage: 'all' as AgentStage | 'all',
+    selected: new Set<string>(),
+    tier: 'query' as AccessLevel,
+    customPerms: [] as string[],
+})
+
+function isInRole(r: AvailableResource) {
+    return form.resourceGrants.some((g) => g.resource_type === r.type && g.resource_id === r.id)
 }
+
+const resourcesOf = (type: ResourceType) => availableResources.value.filter((r) => r.type === type)
+
+const pickerSearchMatches = computed(() => {
+    const q = picker.search.trim().toLowerCase()
+    const all = resourcesOf(picker.type)
+    return q
+        ? all.filter((r) => r.name.toLowerCase().includes(q) || (r.subtitle || '').toLowerCase().includes(q))
+        : all
+})
+
+const pickerStageFilters = computed(() => {
+    const matches = pickerSearchMatches.value
+    return [
+        { value: 'all' as const, label: `${t('rolesManager.bulk.allStages')} (${matches.length})` },
+        ...STAGE_OPTIONS.map((o) => ({
+            value: o.value,
+            label: `${t(`agentsPage.stage.${o.value}`)} (${matches.filter((r) => r.stage === o.value).length})`,
+        })),
+    ]
+})
+
+const pickerVisible = computed(() =>
+    picker.stage === 'all'
+        ? pickerSearchMatches.value
+        : pickerSearchMatches.value.filter((r) => r.stage === picker.stage)
+)
+const pickerSelectableVisible = computed(() => pickerVisible.value.filter((r) => !isInRole(r)))
+const pickerAllVisibleSelected = computed(() =>
+    pickerSelectableVisible.value.length > 0
+    && pickerSelectableVisible.value.every((r) => picker.selected.has(r.id))
+)
+
+function openPicker(type: ResourceType) {
+    picker.type = type
+    picker.search = ''
+    picker.stage = 'all'
+    picker.selected = new Set()
+    picker.tier = ACCESS_TIERS[type][0].key
+    picker.customPerms = []
+    picker.open = true
+}
+
+function closePicker() {
+    picker.open = false
+}
+
+function togglePickerSelected(id: string, checked: boolean) {
+    const next = new Set(picker.selected)
+    if (checked) next.add(id)
+    else next.delete(id)
+    picker.selected = next
+}
+
+// Acts on the visible rows only; selections hidden by the current filter stay.
+function toggleAllVisible(checked: boolean) {
+    const next = new Set(picker.selected)
+    for (const r of pickerSelectableVisible.value) {
+        if (checked) next.add(r.id)
+        else next.delete(r.id)
+    }
+    picker.selected = next
+}
+
+function togglePickerCustomPerm(perm: string, checked: boolean) {
+    picker.customPerms = checked
+        ? [...new Set([...picker.customPerms, perm])]
+        : picker.customPerms.filter((p) => p !== perm)
+}
+
+function addPickerSelected() {
+    const custom = picker.tier === 'custom'
+    const perms = custom
+        ? picker.customPerms
+        : ACCESS_TIERS[picker.type].find((tier) => tier.key === picker.tier)?.perms || []
+    for (const r of resourcesOf(picker.type)) {
+        if (!picker.selected.has(r.id) || isInRole(r)) continue
+        form.resourceGrants.push({
+            resource_type: r.type,
+            resource_id: r.id,
+            resource_name: r.name,
+            permissions: [...perms],
+            showAdvanced: custom,
+        })
+    }
+    picker.open = false
+}
+
+// ── Section model ────────────────────────────────────────────────────────
+// `idx` is the row's index in form.resourceGrants so removal keeps working.
+// Agents group by lifecycle stage; connections are a single ungrouped list.
+
+type IndexedGrant = { grant: ResourceGrantForm; idx: number }
+
+function resourceSubtitle(grant: ResourceGrantForm) {
+    return availableResources.value.find(
+        (r) => r.type === grant.resource_type && r.id === grant.resource_id
+    )?.subtitle
+}
+
+const accessSections = computed(() => {
+    const stageById = new Map(resourcesOf('data_source').map((r) => [r.id, r.stage]))
+    const agentsByStage = new Map<AgentStage, IndexedGrant[]>()
+    const connections: IndexedGrant[] = []
+    form.resourceGrants.forEach((grant, idx) => {
+        if (grant.resource_type === 'connection') {
+            connections.push({ grant, idx })
+        } else if (grant.resource_type === 'data_source') {
+            // An agent the list couldn't load (e.g. deleted) has no known stage;
+            // it lands under Production, the default stage.
+            const stage = stageById.get(grant.resource_id) || 'production'
+            if (!agentsByStage.has(stage)) agentsByStage.set(stage, [])
+            agentsByStage.get(stage)!.push({ grant, idx })
+        }
+    })
+    const agentGroups = STAGE_OPTIONS
+        .filter((o) => agentsByStage.has(o.value))
+        .map((o) => ({ key: o.value as string, stage: o.value as AgentStage | null, items: agentsByStage.get(o.value)! }))
+    return [
+        {
+            type: 'data_source' as ResourceType,
+            icon: 'i-heroicons-cube',
+            title: t('rolesManager.agentAccess'),
+            addLabel: t('rolesManager.bulk.button'),
+            searchPlaceholder: t('rolesManager.bulk.search'),
+            noMatches: t('rolesManager.bulk.noMatches'),
+            emptyText: t('rolesManager.noAgentAccess'),
+            addCountKey: 'rolesManager.bulk.add',
+            resources: resourcesOf('data_source'),
+            count: agentGroups.reduce((n, g) => n + g.items.length, 0),
+            groups: agentGroups,
+        },
+        {
+            type: 'connection' as ResourceType,
+            icon: 'i-heroicons-circle-stack',
+            title: t('rolesManager.connectionAccess'),
+            addLabel: t('rolesManager.bulk.buttonConnections'),
+            searchPlaceholder: t('rolesManager.bulk.searchConnections'),
+            noMatches: t('rolesManager.bulk.noConnectionMatches'),
+            emptyText: t('rolesManager.noConnectionAccess'),
+            addCountKey: 'rolesManager.bulk.addConnections',
+            resources: resourcesOf('connection'),
+            count: connections.length,
+            groups: connections.length ? [{ key: 'connections', stage: null as AgentStage | null, items: connections }] : [],
+        },
+    ]
+})
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -828,6 +1136,7 @@ function openCreateModal() {
     form.resourceGrants = []
     restrictedModels.value = []
     showOrgDetails.value = false
+    picker.open = false
     showModal.value = true
     loadResources()
 }
@@ -839,6 +1148,7 @@ async function openEditModal(role: RoleData) {
     form.permissions = [...(role.permissions || [])]
     form.resourceGrants = []
     showOrgDetails.value = false
+    picker.open = false
     showModal.value = true
     await loadResources()
     form.resourceGrants = (role.resource_grants || []).map((g) => {
@@ -848,7 +1158,7 @@ async function openEditModal(role: RoleData) {
         return {
             resource_type: g.resource_type,
             resource_id: g.resource_id,
-            resource_name: found ? found.label.replace(/^(Agent|Data Source|Connection): /, '') : g.resource_id,
+            resource_name: found ? found.name : g.resource_id,
             permissions: [...(g.permissions || [])],
         }
     })

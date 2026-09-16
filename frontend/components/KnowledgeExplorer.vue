@@ -205,7 +205,18 @@
 
           <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
 
-          <template v-for="agent in agents" :key="agent.id">
+          <template v-for="(group, gi) in agentStageGroups" :key="group.stage">
+          <!-- Lifecycle stage divider. Only rendered when the visible agents span
+               more than one stage — a single "Production" header over every row
+               would be noise. Styled as a pill + rule (no status dot) so it can't
+               be mistaken for an agent row, whose dot means connection health. -->
+          <button v-if="showStageHeaders" type="button" :class="['group/stage w-full flex items-center gap-2 h-6 px-2 mb-1', gi === 0 ? 'mt-1' : 'mt-4']" :aria-expanded="!collapsedStages.has(group.stage)" @click="toggleStage(group.stage)">
+            <span :class="['inline-flex items-center h-5 px-2 rounded-full border text-[10px] font-semibold uppercase tracking-wider shrink-0', stageMeta(group.stage).badge]">{{ $t(`agentsPage.stage.${group.stage}`) }}</span>
+            <span class="text-[11px] tabular-nums text-gray-400 dark:text-gray-500 shrink-0">{{ group.agents.length }}</span>
+            <span class="flex-1 h-px bg-gray-200 dark:bg-gray-800" />
+            <UIcon name="i-heroicons-chevron-down" class="w-3 h-3 shrink-0 text-gray-400 dark:text-gray-500 transition-transform opacity-0 group-hover/stage:opacity-100" :class="collapsedStages.has(group.stage) ? '-rotate-90 rtl:rotate-90 opacity-100' : ''" />
+          </button>
+          <template v-for="agent in (showStageHeaders && collapsedStages.has(group.stage) ? [] : group.agents)" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
@@ -335,6 +346,7 @@
                 <UIcon name="i-heroicons-chevron-right" class="w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0 opacity-0 group-hover:opacity-100 rtl:rotate-180" />
               </button>
             </TreeGroup>
+          </template>
           </template>
         </div>
 
@@ -1178,6 +1190,7 @@ import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import AgentInstructionPreview from '~/components/instructions/AgentInstructionPreview.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny, useCanAll, useCanAccessMonitoring } from '~/composables/usePermissions'
+import { deriveStage, stageMeta, STAGE_OPTIONS, type AgentStage } from '~/composables/useDataSourcePublishStatus'
 // No useConnectionSignIn here: the landing's sign-in button opens AgentCardModal,
 // which owns the OAuth-only direct-redirect path (see its triggerUserSignIn call).
 import { getEffectiveStatus, statusDotClass, statusLabelKey, needsConnectionSignIn } from '~/composables/useConnectionStatus'
@@ -3377,6 +3390,27 @@ const fetchAgents = async () => {
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
     agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
+}
+// Agents bucketed by lifecycle stage, in lifecycle order; empty stages dropped.
+// Order within a stage is the API order, same as the flat list was.
+const agentStageGroups = computed(() => {
+  const byStage = new Map<AgentStage, any[]>()
+  for (const a of agents.value) {
+    const stage = deriveStage(a.publish_status, a.reliability_status)
+    if (!byStage.has(stage)) byStage.set(stage, [])
+    byStage.get(stage)!.push(a)
+  }
+  return STAGE_OPTIONS
+    .filter(o => byStage.has(o.value))
+    .map(o => ({ stage: o.value, agents: byStage.get(o.value)! }))
+})
+const showStageHeaders = computed(() => agentStageGroups.value.length > 1)
+const collapsedStages = ref<Set<AgentStage>>(new Set())
+const toggleStage = (stage: AgentStage) => {
+  const next = new Set(collapsedStages.value)
+  if (next.has(stage)) next.delete(stage)
+  else next.add(stage)
+  collapsedStages.value = next
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
 // Group an agent's tools by their connection (MCP server / custom API), resolving
