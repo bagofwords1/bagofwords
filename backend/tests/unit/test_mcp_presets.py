@@ -259,3 +259,100 @@ async def test_bearer_mcp_401_still_fails(monkeypatch):
         "mcp", {"server_url": "https://api.x.com/mcp", "auth_type": "bearer"}, {"token": "bad"}
     )
     assert res["success"] is False
+
+
+# ── DCR Verify runs discovery ──────────────────────────────────────────────
+# Reachability alone is a false green for DCR: the 401 is the healthy state,
+# and the step that can actually fail — discovery — used to run only at Sign in.
+
+_DISCOVERED = {
+    "issuer": "https://auth.vendor.example.com",
+    "authorize_url": "https://auth.vendor.example.com/authorize",
+    "token_url": "https://auth.vendor.example.com/oauth/token",
+    "registration_endpoint": "https://auth.vendor.example.com/oidc/register",
+    "resource": "https://mcp.vendor.example.com/mcp",
+    "scopes": "mcp:read offline_access",
+    "scopes_source": "challenge",
+}
+
+
+def _dcr_setup(monkeypatch, discover):
+    import app.services.mcp_dcr_service as dcr
+    svc = ConnectionService()
+    fake = _FakeClient(fail_message="Failed to connect to MCP server: Client error '401 Unauthorized'")
+    monkeypatch.setattr(svc, "_resolve_client_by_type", lambda **kw: fake)
+    monkeypatch.setattr(dcr, "discover_mcp_oauth", discover)
+    return svc
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_reports_what_sign_in_will_request(monkeypatch):
+    async def discover(url):
+        return dict(_DISCOVERED)
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"}, {}
+    )
+    assert res["success"] is True
+    assert res["requires_user_auth"] is True
+    assert res["detected"]["scopes"] == "mcp:read offline_access"
+    assert res["detected"]["scopes_source"] == "challenge"
+    assert res["detected"]["effective_scopes"] == "mcp:read offline_access"
+    assert "mcp:read offline_access" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_shows_admin_override_as_effective(monkeypatch):
+    async def discover(url):
+        return dict(_DISCOVERED)
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"},
+        {"scopes": "custom:one"},
+    )
+    assert res["success"] is True
+    assert res["detected"]["scopes"] == "mcp:read offline_access"   # what the server says
+    assert res["detected"]["effective_scopes"] == "custom:one"      # what will be sent
+    assert "custom:one" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_fails_when_discovery_fails(monkeypatch):
+    async def discover(url):
+        raise ValueError(f"Could not discover OAuth metadata for MCP server {url}")
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"}, {}
+    )
+    assert res["success"] is False
+    assert "discovery failed" in res["message"]
+    assert "Could not discover OAuth metadata" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_dcr_verify_fails_when_server_cannot_register_clients(monkeypatch):
+    async def discover(url):
+        return {**_DISCOVERED, "registration_endpoint": None}
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "dcr"}, {}
+    )
+    assert res["success"] is False
+    assert "registration_endpoint" in res["message"]
+    assert "admin-registered OAuth app" in res["message"]
+
+
+@pytest.mark.asyncio
+async def test_oauth_app_verify_does_not_run_discovery(monkeypatch):
+    # An admin-registered app has its endpoints already; nothing to discover.
+    called = []
+    async def discover(url):
+        called.append(url)
+        return dict(_DISCOVERED)
+    svc = _dcr_setup(monkeypatch, discover)
+    res = await svc.test_connection_params(
+        "mcp", {"server_url": "https://mcp.vendor.example.com/mcp", "auth_type": "oauth_app"}, {}
+    )
+    assert res["success"] is True
+    assert called == []
+    assert "detected" not in res
