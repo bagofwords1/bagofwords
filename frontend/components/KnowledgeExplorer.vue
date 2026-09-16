@@ -3888,7 +3888,7 @@ const TreeGroup = defineComponent({
         onDragleave: props.onDropzone ? (e: DragEvent) => (props.onDragleave as any)?.(e) : undefined,
         onDrop: props.onDropzone ? (e: DragEvent) => { e.preventDefault(); (props.onDropzone as any)?.(e) } : undefined,
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rtl-own-transform rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: t('agentsPage.tipStatus') }) : null,
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }) : null),
         createElement('span', { class: ['flex-1 text-start truncate', props.mono ? 'font-mono text-xs' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
@@ -4018,7 +4018,7 @@ const DirNode = defineComponent({
         onDragstart: props.canManage ? (e: DragEvent) => { e.stopPropagation(); startDragDir(scope, dir.id, e) } : undefined,
         onDragend: props.canManage ? endDrag : undefined,
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rotate-90' : 'rtl:rotate-180'] }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rtl-own-transform rotate-90' : 'rtl:rotate-180'] }),
         createElement(resolveComponent('UIcon'), { name: open ? 'i-heroicons-folder-open' : 'i-heroicons-folder', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
         createElement('span', { class: 'flex-1 text-start truncate' }, dir.name),
         (props.canManage && dir.parent_id) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.moveToTopLevel'), onClick: (e: Event) => { e.stopPropagation(); moveDirectory(scope, dir, null) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3' })]) : null,
