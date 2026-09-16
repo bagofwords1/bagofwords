@@ -474,6 +474,9 @@ async def get_connection(
                     "authorize_url", "token_url", "client_id", "scopes", "audience",
                     "api_key_header", "token_endpoint_auth_method", "tenant_id",
                     "user", "username", "oauth_tenant_id", "oauth_client_id",
+                    # What DCR discovery derived from the server, so the edit
+                    # form can show "Detected: …" next to the override field.
+                    "discovered_scopes", "scopes_source",
                 )
                 _meta = {k: _creds[k] for k in _NON_SECRET if _creds.get(k) not in (None, "")}
                 credentials_meta = _meta or None
