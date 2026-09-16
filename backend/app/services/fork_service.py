@@ -21,10 +21,11 @@ from app.models.completion import Completion
 from app.models.query import Query
 from app.models.visualization import Visualization
 from app.models.widget import Widget
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
 from app.models.user import User
-from app.services.artifact_service import ArtifactService
+# aliased: the local variable `new_artifact` below is the row, not the factory
+from app.services.artifact_service import ArtifactService, new_artifact as new_artifact_row
 from app.settings.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -86,7 +87,7 @@ class DuplicatedAssets(NamedTuple):
     widget_id_map: Dict[str, str]
     query_id_map: Dict[str, str]
     viz_id_map: Dict[str, str]
-    artifact: Optional[Artifact]
+    artifact: Optional[ArtifactVersion]
     # {new_step_id: source code} for steps whose code was deliberately NOT
     # written into the fork (delegated sources). The hydration pass runs each
     # under the forker's own credentials and writes the code back only where
@@ -916,7 +917,7 @@ class ForkService:
         viz_id_map: Dict[str, str],
         strict_source: bool = False,
         user_scoped: bool = False,
-    ) -> Tuple[Optional[Artifact], bool]:
+    ) -> Tuple[Optional[ArtifactVersion], bool]:
         """Duplicate the latest artifact with remapped visualization_ids.
 
         Returns the new artifact and whether the fork must draw its own
@@ -960,12 +961,13 @@ class ForkService:
         else:
             new_content = dict(old_content)
 
-        new_artifact = Artifact(
+        new_artifact = await new_artifact_row(
+            db,
             report_id=str(new_report.id),
             user_id=str(user.id),
             organization_id=str(new_report.organization_id),
-            title=latest.title,
             mode=latest.mode,
+            title=latest.title,
             content=new_content,
             # Authored against the CREATOR's result set, and it states facts
             # about it in prose — real examples carry "the data source has only
@@ -976,11 +978,7 @@ class ForkService:
             # bakes in creator-derived values at generation time"); dropped
             # here rather than carried into the fork.
             generation_prompt=None if strict_source else latest.generation_prompt,
-            version=1,
-            status="completed",
         )
-        db.add(new_artifact)
-        await db.flush()
 
         # The thumbnail is a rendered screenshot of the dashboard — the
         # creator's actual numbers, baked into a PNG. copy_thumbnail is a raw
@@ -1022,7 +1020,7 @@ class ForkService:
         user: User,
         query_id_map: Dict[str, str],
         viz_id_map: Dict[str, str],
-        new_artifact: Optional[Artifact],
+        new_artifact: Optional[ArtifactVersion],
     ):
         """Create a summary completion with asset references for the forked report."""
         # Build asset refs list using NEW IDs
