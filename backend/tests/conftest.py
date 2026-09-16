@@ -476,3 +476,20 @@ def run_migrations(alembic_config, db_backend, sqlite_template):
     yield
 
     # PostgreSQL cleanup happens at START of next test (or container shutdown)
+
+@pytest.fixture(scope="function", autouse=True)
+def _reset_graph_throttle_state():
+    """Graph clients share process-wide throttle pauses and a short-TTL
+    listing cache (see app/data_sources/clients/_graph_throttle.py). Both are
+    deliberate in production and poison across tests otherwise: a cached
+    listing from one test would be served to the next with the same config."""
+    try:
+        from app.data_sources.clients import _graph_throttle as gt
+    except Exception:  # pragma: no cover - import errors surface elsewhere
+        yield
+        return
+    gt.reset_throttle_states()
+    gt.listing_cache.clear()
+    yield
+    gt.reset_throttle_states()
+    gt.listing_cache.clear()

@@ -16,6 +16,7 @@ from app.data_sources.clients.progress import discovery_progress
 import io
 import json
 import logging
+import os
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -43,22 +44,52 @@ from app.data_sources.clients._file_source_common import (
     path_matches_globs,
 )
 from app.data_sources.clients.progress import ProgressCallback, make_reporter
+from app.data_sources.clients._graph_throttle import (
+    GRAPH_FAIL_FAST_AFTER_S,
+    GRAPH_MAX_ATTEMPTS,
+    GRAPH_MAX_SINGLE_WAIT_S,
+    GRAPH_RETRY_BUDGET_S,
+    GRAPH_USER_AGENT,
+    RETRY_STATUSES,
+    GraphThrottledError,
+    backoff_delay,
+    listing_cache,
+    parse_retry_after,
+    throttle_state_for,
+    token_fingerprint,
+)
 
 
 logger = logging.getLogger(__name__)
 
-GRAPH_BASE = "https://graph.microsoft.com/v1.0"
-TOKEN_BASE = "https://login.microsoftonline.com"
+# Overridable for sovereign clouds (graph.microsoft.us, ...) and for pointing a
+# sandbox at a local Graph stand-in.
+GRAPH_BASE = (os.getenv("BOW_GRAPH_BASE_URL") or "https://graph.microsoft.com/v1.0").rstrip("/")
+TOKEN_BASE = (os.getenv("BOW_GRAPH_TOKEN_BASE_URL") or "https://login.microsoftonline.com").rstrip("/")
 
 # Children are fetched a page at a time; 200 is Graph's practical max for
 # /children and keeps a big flat folder to a couple of round-trips.
 GRAPH_PAGE_SIZE = 200
 
-# Folders enumerated in parallel during a walk. Graph is round-trip bound (a
-# `children` call is ~200-600 ms), so a serial walk of a folder-heavy drive —
-# the shape of every personal OneDrive — spends its whole wall-clock waiting.
-# Kept modest: Graph throttles aggressive per-app concurrency.
-WALK_CONCURRENCY_DEFAULT = 8
+# Folders enumerated in parallel during a folder-by-folder walk. Graph is
+# round-trip bound (a `children` call is ~200-600 ms), so a serial walk of a
+# folder-heavy drive spends its whole wall-clock waiting. Kept modest: Graph
+# throttles per-app concurrency, and the recursive case now goes through the
+# delta endpoint (one request per ~200 items, not one per folder), so this
+# only governs sub-folder browsing and the delta fallback.
+WALK_CONCURRENCY_DEFAULT = 4
+
+# Only the fields the listing consumes. Full driveItem payloads are several
+# times larger (hashes, thumbnails, shared facets, ...); trimming them is the
+# cheapest per-request saving there is and is Microsoft's first recommendation
+# for throttled apps.
+CHILDREN_SELECT = "id,name,size,file,folder,package,lastModifiedDateTime,webUrl,parentReference"
+DELTA_SELECT = CHILDREN_SELECT + ",deleted"
+
+# Recursive enumeration through `/delta`: the whole subtree in pages of ~200
+# items instead of one `children` request per folder. Disable to force the
+# folder walk (e.g. a tenant where delta on a sub-folder misbehaves).
+GRAPH_USE_DELTA = (os.getenv("BOW_GRAPH_USE_DELTA") or "1").strip().lower() not in ("0", "false", "no")
 
 # Page size for the connection-test probe: we only need to know that the
 # scoped root is readable, not what is in it.
@@ -311,7 +342,22 @@ class GraphDriveClient(DataSourceClient):
         )
 
     def _headers(self) -> Dict[str, str]:
-        return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}
+        return {
+            "Authorization": f"Bearer {self._token()}",
+            "Accept": "application/json",
+            "User-Agent": GRAPH_USER_AGENT,
+        }
+
+    def _throttle_key(self) -> str:
+        """The app registration this client's traffic is accounted against.
+
+        Graph throttles SharePoint / OneDrive per app per tenant, so every
+        client instance and thread using the same registration must share one
+        pause / in-flight budget — otherwise one throttled walk is followed by
+        every other user's walk re-tripping the same limit.
+        """
+        app = (self.oauth_client_id if self._user_token_provided else None) or self.client_id
+        return f"{self.tenant_id or 'common'}:{app or 'default'}"
 
     # ----------------------------------------------------------------- utils
 
@@ -368,34 +414,136 @@ class GraphDriveClient(DataSourceClient):
                 f"({', '.join(self.include_globs)}). Access denied."
             )
 
-    def _get(self, path: str, **kwargs) -> dict:
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        headers: Optional[Dict[str, str]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        timeout: float = 30.0,
+        follow_redirects: bool = False,
+        max_attempts: Optional[int] = None,
+    ) -> httpx.Response:
+        """One Graph request with the throttling discipline Microsoft expects.
+
+        - 429 / 503 / 504 are retried, sleeping for the server's ``Retry-After``
+          (or a jittered backoff when absent), within ``GRAPH_RETRY_BUDGET_S``.
+        - A throttle response pauses *every* request for this app registration
+          process-wide (``AppThrottleState``), so parallel walkers and other
+          users' connections stop piling on instead of extending the block.
+        - While such a pause is longer than ``GRAPH_FAIL_FAST_AFTER_S`` the
+          request fails immediately with :class:`GraphThrottledError` rather
+          than stalling a chat turn for minutes.
+        - In-flight requests per app are capped by a shared semaphore.
+        - Transport errors (reset, timeout) get the same bounded retry.
+        - A 401 on an app-only token re-mints once, as before.
+
+        Returns the final response; the caller decides what a 4xx means.
+        """
         url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
         client = self._client()
-        resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
-        if resp.status_code == 401 and self._can_remint_token():
-            # App-only token expired mid-call; drop it and mint a fresh one.
-            #
-            # Only when we can actually MINT a replacement. A delegated user
-            # token cannot be re-minted in-process, so clearing it just made
-            # the retry's `_headers()` raise "No access_token and no
-            # service-principal credentials configured" — destroying the real
-            # Graph error. That mattered most for OneNote, where a 401 is the
-            # normal way Graph reports "this account has no personal notebook
-            # store" (error 40001) and the useful message was being replaced by
-            # a bogus credentials one.
-            self.access_token = None
-            resp = client.get(url, headers=self._headers(), timeout=30, **kwargs)
+        state = throttle_state_for(self._throttle_key())
+        attempts_allowed = max(1, int(max_attempts or GRAPH_MAX_ATTEMPTS))
+        attempt = 0
+        waited = 0.0
+        reminted = False
+        while True:
+            # Honour a pause registered by any thread / client on this app.
+            pause = state.remaining_pause()
+            if pause > 0:
+                if pause > GRAPH_FAIL_FAST_AFTER_S or waited + pause > GRAPH_RETRY_BUDGET_S:
+                    raise GraphThrottledError(
+                        url, state.last_status or 429, pause,
+                        "The app is paused after earlier throttling; sending more "
+                        "requests now would extend Microsoft's block.",
+                    )
+                logger.info(
+                    "graph throttle[%s]: waiting %.1fs before %s %s (shared pause)",
+                    state.key, pause, method, url,
+                )
+                time.sleep(pause)
+                waited += pause
+            attempt += 1
+            hdrs = self._headers()
+            if headers:
+                hdrs.update(headers)
+            try:
+                with state.inflight:
+                    resp = client.request(
+                        method, url, headers=hdrs, params=params,
+                        timeout=timeout, follow_redirects=follow_redirects,
+                    )
+            except httpx.TransportError as exc:
+                if attempt >= attempts_allowed:
+                    raise ValueError(f"Graph {url} → network error: {exc}") from exc
+                delay = backoff_delay(attempt)
+                logger.warning(
+                    "graph: %s %s network error (%s); retry %d/%d in %.1fs",
+                    method, url, exc, attempt, attempts_allowed - 1, delay,
+                )
+                time.sleep(delay)
+                waited += delay
+                continue
+
+            if resp.status_code == 401 and not reminted and self._can_remint_token():
+                # App-only token expired mid-call; drop it and mint a fresh one.
+                #
+                # Only when we can actually MINT a replacement. A delegated user
+                # token cannot be re-minted in-process, so clearing it just made
+                # the retry's `_headers()` raise "No access_token and no
+                # service-principal credentials configured" — destroying the
+                # real Graph error. That mattered most for OneNote, where a 401
+                # is the normal way Graph reports "this account has no personal
+                # notebook store" (error 40001).
+                reminted = True
+                self.access_token = None
+                attempt -= 1  # a credential refresh is not a retry
+                continue
+
+            state.observe_headers(resp.headers)
+            if resp.status_code not in RETRY_STATUSES:
+                return resp
+
+            state.throttled_responses += 1
+            retry_after = parse_retry_after(resp.headers.get("Retry-After"))
+            delay = retry_after if retry_after is not None else backoff_delay(attempt)
+            # Everyone on this registration backs off, not just this thread.
+            state.pause_for(delay, status=resp.status_code)
+            if (
+                attempt >= attempts_allowed
+                or delay > GRAPH_MAX_SINGLE_WAIT_S
+                or waited + delay > GRAPH_RETRY_BUDGET_S
+            ):
+                logger.warning(
+                    "graph throttle[%s]: %s %s → %d (Retry-After=%s) after %d attempt(s), "
+                    "%.0fs waited; giving up",
+                    state.key, method, url, resp.status_code,
+                    resp.headers.get("Retry-After"), attempt, waited,
+                )
+                raise GraphThrottledError(
+                    url, resp.status_code, delay, resp.text[:200].strip(),
+                )
+            logger.warning(
+                "graph throttle[%s]: %s %s → %d (Retry-After=%s); retry %d/%d in %.1fs",
+                state.key, method, url, resp.status_code,
+                resp.headers.get("Retry-After"), attempt, attempts_allowed - 1, delay,
+            )
+            time.sleep(delay)
+            waited += delay
+
+    def _get(self, path: str, **kwargs) -> dict:
+        resp = self._request("GET", path, **kwargs)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
+            raise ValueError(f"Graph {resp.url} → {resp.status_code} {resp.text[:300]}")
         return resp.json()
 
     def _get_bytes(self, path: str) -> bytes:
-        url = path if path.startswith("http") else f"{GRAPH_BASE}{path}"
-        resp = self._client().get(
-            url, headers=self._headers(), timeout=60, follow_redirects=True
-        )
+        # `follow_redirects` here (not on the pooled client) so httpx keeps
+        # stripping the Authorization header on the cross-origin hop to the CDN.
+        resp = self._request("GET", path, timeout=60.0, follow_redirects=True)
         if resp.status_code >= 400:
-            raise ValueError(f"Graph {url} → {resp.status_code} {resp.text[:300]}")
+            raise ValueError(f"Graph {resp.url} → {resp.status_code} {resp.text[:300]}")
         return resp.content
 
     # ------------------------------------------------ site / drive resolution
@@ -511,7 +659,8 @@ class GraphDriveClient(DataSourceClient):
         """
         out: List[dict] = []
         url: Optional[str] = (
-            f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children?$top={page_size}"
+            f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/children"
+            f"?$top={page_size}&$select={CHILDREN_SELECT}"
         )
         while url:
             data = self._get(url)
@@ -550,27 +699,37 @@ class GraphDriveClient(DataSourceClient):
                 if self.recursive:
                     folders_out.append((entry["id"], path))
                 continue
-            if not self._allowed(name):
-                continue
-            # `path` is already relative to the scoped root — filter by the
-            # connection's glob scope so listings never surface off-scope files.
-            if self.include_globs and not path_matches_globs(path, self.include_globs):
-                continue
-            files_out.append({
-                # Spanning several libraries makes a bare item id ambiguous —
-                # read_file would have to guess which drive to open it from.
-                # Qualify it so the id round-trips back to its own library.
-                # Single-library connections keep the plain id they always had.
-                "id": self._qualify_item_id(drive_id, entry["id"]),
-                "name": name,
-                "path": path,
-                "mime_type": (entry.get("file") or {}).get("mimeType"),
-                "size": entry.get("size"),
-                "modified_at": entry.get("lastModifiedDateTime"),
-                "is_folder": False,
-                "web_url": entry.get("webUrl"),
-                "drive_id": drive_id,
-            })
+            row = self._file_row(drive_id, entry, path)
+            if row is not None:
+                files_out.append(row)
+
+    def _file_row(self, drive_id: str, entry: dict, path: str) -> Optional[dict]:
+        """One listing row for a (non-folder) driveItem, or None when the
+        connection's extension / glob scope excludes it. The single place the
+        row shape and the scope filters live, shared by every enumeration
+        strategy (folder walk, delta, search)."""
+        name = entry.get("name", "")
+        if not self._allowed(name):
+            return None
+        # `path` is already relative to the scoped root — filter by the
+        # connection's glob scope so listings never surface off-scope files.
+        if self.include_globs and not path_matches_globs(path, self.include_globs):
+            return None
+        return {
+            # Spanning several libraries makes a bare item id ambiguous —
+            # read_file would have to guess which drive to open it from.
+            # Qualify it so the id round-trips back to its own library.
+            # Single-library connections keep the plain id they always had.
+            "id": self._qualify_item_id(drive_id, entry["id"]),
+            "name": name,
+            "path": path,
+            "mime_type": (entry.get("file") or {}).get("mimeType"),
+            "size": entry.get("size"),
+            "modified_at": entry.get("lastModifiedDateTime"),
+            "is_folder": False,
+            "web_url": entry.get("webUrl"),
+            "drive_id": drive_id,
+        }
 
     def _walk(
         self,
@@ -590,7 +749,15 @@ class GraphDriveClient(DataSourceClient):
         at a time. `limit` stops the walk early once enough files are in hand
         (probes, bounded validation counts).
         """
-        if self.walk_concurrency <= 1 or not self.recursive:
+        if not self.recursive:
+            return self._walk_serial(drive_id, item_id, prefix, limit=limit, reporter=reporter)
+
+        if GRAPH_USE_DELTA and self._is_scoped_root(drive_id, item_id):
+            delta = self._walk_delta(drive_id, item_id, prefix, limit=limit, reporter=reporter)
+            if delta is not None:
+                return delta
+
+        if self.walk_concurrency <= 1:
             return self._walk_serial(drive_id, item_id, prefix, limit=limit, reporter=reporter)
 
         results: List[dict] = []
@@ -621,6 +788,90 @@ class GraphDriveClient(DataSourceClient):
                     break
                 level = next_level
 
+        if limit is not None:
+            return results[:limit]
+        return results
+
+    def _is_scoped_root(self, drive_id: str, item_id: str) -> bool:
+        """True when `item_id` is the connection's scoped root for this drive.
+
+        Delta paths come back drive-relative, and `_rel_from_parent` strips
+        exactly `folder_path` from them — so delta enumeration is only
+        path-equivalent to the folder walk when it starts at that root. A
+        sub-folder browse (`list_files(folder_id=...)`) keeps the folder walk.
+        """
+        return item_id is not None and (
+            self._root_item_ids.get(drive_id) == item_id or self._root_item_id == item_id
+        )
+
+    def _walk_delta(
+        self,
+        drive_id: str,
+        item_id: str,
+        prefix: str = "",
+        *,
+        limit: Optional[int] = None,
+        reporter=None,
+    ) -> Optional[List[dict]]:
+        """Enumerate a whole subtree through `/items/{id}/delta`.
+
+        One request per page of ~200 items regardless of folder shape, versus
+        one `children` request per folder for the walk — on a library of a
+        few thousand folders that is the difference between a handful of
+        requests and a few thousand, which is what tripped Microsoft's per-app
+        throttling for real tenants. The rows are byte-identical to the walk's
+        (same `_file_row`, same scope filters), sorted by path so the catalog
+        is stable across runs.
+
+        Returns None when delta is unusable for this item (Graph rejected the
+        request before any page arrived) so the caller falls back to the walk.
+        Throttling is never swallowed: falling back to a walk while throttled
+        would only make things worse.
+        """
+        started = time.perf_counter()
+        url: Optional[str] = (
+            f"{GRAPH_BASE}/drives/{drive_id}/items/{item_id}/delta?$select={DELTA_SELECT}"
+        )
+        results: List[dict] = []
+        pages = 0
+        seen = 0
+        while url:
+            try:
+                data = self._get(url)
+            except GraphThrottledError:
+                raise
+            except ValueError as e:
+                if pages == 0:
+                    logger.info(
+                        "graph_drive: delta unavailable for drive=%s item=%s (%s); "
+                        "falling back to folder walk", drive_id, item_id, str(e)[:200],
+                    )
+                    return None
+                raise
+            pages += 1
+            page = data.get("value", []) or []
+            seen += len(page)
+            for entry in page:
+                if entry.get("id") == item_id or "folder" in entry or "deleted" in entry:
+                    continue
+                parent = (entry.get("parentReference") or {}).get("path")
+                rel = self._rel_from_parent(parent, entry.get("name", ""))
+                path = f"{prefix}/{rel}" if prefix and rel else (prefix or rel)
+                row = self._file_row(drive_id, entry, path)
+                if row is not None:
+                    results.append(row)
+            if reporter is not None:
+                reporter.set_total(pages + 1)
+                reporter.item(f"page {pages}", done=pages)
+            if limit is not None and len(results) >= limit:
+                break
+            url = data.get("@odata.nextLink")
+        results.sort(key=lambda r: (r.get("path") or "").lower())
+        logger.info(
+            "graph_drive._walk_delta: drive=%s item=%s → %d page(s), %d item(s), "
+            "%d file(s) in scope in %.1fs",
+            drive_id, item_id, pages, seen, len(results), time.perf_counter() - started,
+        )
         if limit is not None:
             return results[:limit]
         return results
@@ -695,6 +946,39 @@ class GraphDriveClient(DataSourceClient):
         # The real enumeration runs per-user once a user completes OAuth.
         if self.mode == "onedrive" and not self._user_token_provided:
             return []
+        # Repeated listings within a short window (the per-user live path
+        # re-lists on every tool call; a probe right before an index) reuse
+        # the last result instead of re-enumerating the library.
+        effective_recursive = self.recursive if recursive is None else bool(recursive)
+        cache_key = (
+            self._throttle_key(),
+            token_fingerprint(self.access_token if self._user_token_provided else None),
+            self.mode, self.site_url, self.drive_name, self.folder_path,
+            tuple(self.include_globs or ()),
+            tuple(sorted(self.allowed_extensions)) if self.allowed_extensions else None,
+            folder_id, effective_recursive, limit,
+        )
+        cached = listing_cache.get(cache_key)
+        if cached is not None:
+            logger.info(
+                "graph_drive.list_files: mode=%s served %d file(s) from the listing cache",
+                self.mode, len(cached),
+            )
+            return cached
+        results = self._list_files_uncached(
+            folder_id=folder_id, recursive=recursive, limit=limit,
+            progress_callback=progress_callback,
+        )
+        listing_cache.put(cache_key, results)
+        return results
+
+    def _list_files_uncached(
+        self,
+        folder_id: Optional[str] = None,
+        recursive: Optional[bool] = None,
+        limit: Optional[int] = None,
+        progress_callback: Optional[ProgressCallback] = None,
+    ) -> List[dict]:
         started = time.perf_counter()
         reporter = make_reporter(progress_callback) if progress_callback else None
         if reporter is not None:

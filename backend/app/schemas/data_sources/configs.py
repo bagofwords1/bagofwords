@@ -2185,6 +2185,20 @@ class SharePointConfig(BaseModel):
         ),
         json_schema_extra={"ui:type": "number"},
     )
+    walk_concurrency: int = Field(
+        4,
+        ge=1,
+        le=16,
+        title="Parallel Graph Requests",
+        description=(
+            "Folders listed in parallel while browsing sub-folders. Microsoft "
+            "throttles per app registration, so lower this (1-2) if the tenant "
+            "reports HTTP 429 / 'rate limit' errors; raise it only for small, "
+            "fast libraries. Full-library indexing uses Graph's delta feed and "
+            "is not affected."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
 
 
 # SharePoint Server uses Windows auth and its own REST API, not Graph.
@@ -2394,6 +2408,20 @@ class OneDriveConfig(BaseModel):
         description=(
             "Safety cap on how many files are enumerated into one user's "
             "catalog. Drives with more than this are truncated."
+        ),
+        json_schema_extra={"ui:type": "number"},
+    )
+    walk_concurrency: int = Field(
+        4,
+        ge=1,
+        le=16,
+        title="Parallel Graph Requests",
+        description=(
+            "Folders listed in parallel while browsing sub-folders. Microsoft "
+            "throttles per app registration, so lower this (1-2) if the tenant "
+            "reports HTTP 429 / 'rate limit' errors; raise it only for small, "
+            "fast libraries. Full-library indexing uses Graph's delta feed and "
+            "is not affected."
         ),
         json_schema_extra={"ui:type": "number"},
     )
