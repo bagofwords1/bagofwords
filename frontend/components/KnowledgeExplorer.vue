@@ -614,10 +614,11 @@
               />
               <AgentFilesPanel
                 v-else-if="panelView.kind === 'files'"
-                :key="'files-' + panelView.agentId"
+                :key="'files-' + panelView.agentId + '-' + filesRefreshKey"
                 :ds-id="panelView.agentId"
                 :can-update="panelCanUpdate"
                 @edit-connection="openConnectionDetail"
+                @changed="refreshAgentFiles(panelView.agentId)"
               />
             </div>
           </div>
@@ -2307,6 +2308,11 @@ const saveStarters = async () => {
 }
 // reload tables / tools from the tree
 const tablesRefreshKey = ref(0)
+// The Files tree group and AgentFilesPanel hold separate copies of the same
+// list, so a change in one is invisible to the other. Bumping this remounts
+// the open panel so it re-fetches; the panel's `changed` event drives the
+// opposite direction via refreshAgentFiles().
+const filesRefreshKey = ref(0)
 const reloadTables = async (id: string) => {
   try { await useMyFetch(`/data_sources/${id}/refresh_schema`, { method: 'GET' }) } catch {}
   agentLoaded.value.delete(id); await loadAgentMeta(id)
@@ -2354,6 +2360,7 @@ const onUploadInput = async (e: Event) => {
     if (ok) toast.add({ title: t('agentsPage.toastUploaded', { n: ok }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
+    filesRefreshKey.value++  // force the open AgentFilesPanel to re-fetch
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)
   } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: err?.message, color: 'red' }) }
   finally { uploadingAgent.value = null; if (input) input.value = '' }
@@ -3380,6 +3387,18 @@ const fetchAgents = async () => {
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
+// Panel -> tree half of the files sync. Deliberately narrower than
+// loadAgentMeta: an upload or delete in the panel changes only the uploaded
+// files, so re-pulling the agent's tables, tools and file connections would
+// be waste. Feeds filesGroupCount() too, which counts off agentFiles.
+const refreshAgentFiles = async (agentId: string) => {
+  if (!agentId) return
+  try {
+    const { data } = await useMyFetch<any[]>(`/data_sources/${agentId}/files`, { method: 'GET' })
+    agentFiles.value[agentId] = data.value || []
+    agentFiles.value = { ...agentFiles.value }
+  } catch { /* leave the last known list in place */ }
+}
 // Group an agent's tools by their connection (MCP server / custom API), resolving
 // the connection name + type from the agent's connections for the tree headers.
 // Count shown on the Files tree node: uploads + total glob rules.
@@ -3459,6 +3478,7 @@ const deleteFile = async (agentId: string, f: any) => {
     await useMyFetch(`/data_sources/${agentId}/files/${f.id}`, { method: 'DELETE' })
     agentFiles.value[agentId] = (agentFiles.value[agentId] || []).filter((x: any) => x.id !== f.id)
     agentFiles.value = { ...agentFiles.value }
+    filesRefreshKey.value++  // force the open AgentFilesPanel to re-fetch
     if (previewFile.value?.id === f.id) closePreview()
     toast.add({ title: t('agentsPage.toastFileDeleted'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }

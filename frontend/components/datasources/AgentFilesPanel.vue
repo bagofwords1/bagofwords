@@ -57,7 +57,9 @@
 import DataSourceIcon from '~/components/DataSourceIcon.vue'
 import ConnectionFileBrowser from '~/components/datasources/ConnectionFileBrowser.vue'
 const props = defineProps<{ dsId: string; canUpdate?: boolean }>()
-const emit = defineEmits(['edit-connection'])
+// `changed` tells the host tree to re-read the uploaded-file list: the two
+// views keep separate copies and neither can see the other's mutations.
+const emit = defineEmits(['edit-connection', 'changed'])
 const toast = useToast()
 
 const connections = ref<any[]>([])
@@ -95,18 +97,24 @@ async function onFileInput(e: Event) {
   const input = e.target as HTMLInputElement
   if (!input.files?.length) return
   uploading.value = true
+  let ok = 0
   try {
     for (const file of Array.from(input.files)) {
       const fd = new FormData(); fd.append('file', file)
       const { data, error } = await useMyFetch(`/data_sources/${props.dsId}/files`, { method: 'POST', body: fd })
       if (error.value || !data.value) { toast.add({ title: 'Upload failed', description: file.name, color: 'red' }); continue }
       files.value.push(data.value as any)
+      ok++
     }
   } finally { uploading.value = false; if (input) input.value = '' }
+  if (ok) emit('changed')
 }
 async function removeFile(f: any) {
-  try { await useMyFetch(`/data_sources/${props.dsId}/files/${f.id}`, { method: 'DELETE' }); files.value = files.value.filter((x) => x.id !== f.id) }
-  catch { toast.add({ title: 'Failed to remove file', color: 'red' }) }
+  try {
+    await useMyFetch(`/data_sources/${props.dsId}/files/${f.id}`, { method: 'DELETE' })
+    files.value = files.value.filter((x) => x.id !== f.id)
+    emit('changed')
+  } catch { toast.add({ title: 'Failed to remove file', color: 'red' }) }
 }
 // Scope lives on the connection — let the host open the ConnectionDetailModal.
 function editScope(conn: any) { emit('edit-connection', conn) }
