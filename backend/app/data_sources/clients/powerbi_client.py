@@ -2185,13 +2185,13 @@ The DAX table name is also available in `metadata.powerbi.tableName`.
 ```python
 # Schema table name as 2nd arg, DAX table name in query
 df = db_clients['powerbi'].execute_query(
-    "EVALUATE Customers",           # DAX uses the table name (after /)
-    "SalesModel/Customers"          # Schema table name (REQUIRED)
+    "EVALUATE TOPN(100, Customers)",  # DAX uses the table name (after /); always bounded
+    "SalesModel/Customers"            # Schema table name (REQUIRED)
 )
 
 # Or with explicit IDs from the table's <powerbi datasetId=... workspaceId=.../> metadata:
 df = db_clients['powerbi'].execute_query(
-    "EVALUATE Customers",
+    "EVALUATE TOPN(100, Customers)",
     dataset_id="<datasetId>",
     workspace_id="<workspaceId>",
 )
@@ -2208,21 +2208,28 @@ EVALUATE <table_expression>
 ### Examples
 
 ```dax
--- Get all rows (quote table name if it has spaces)
-EVALUATE Customers
-EVALUATE 'Order Details'
-
--- Aggregate with grouping
+-- Aggregate at the grain the question needs (preferred)
 EVALUATE
 SUMMARIZECOLUMNS(
     Orders[Category],
     "Total", SUM(Orders[Amount])
 )
 
--- Filter data
+-- Invoke a model measure by name instead of re-deriving it
 EVALUATE
-FILTER(
-    Customers,
+SUMMARIZECOLUMNS(
+    Orders[Category],
+    "Revenue", [Total Revenue]
+)
+
+-- Preview rows: ALWAYS bound with TOPN (quote table name if it has spaces)
+EVALUATE TOPN(100, Customers)
+EVALUATE TOPN(100, 'Order Details')
+
+-- Filter and project inside the DAX, not in pandas
+EVALUATE
+CALCULATETABLE(
+    SELECTCOLUMNS(Customers, "Name", Customers[Name], "Status", Customers[Status]),
     Customers[Status] = "Active"
 )
 
@@ -2233,6 +2240,28 @@ TOPN(10,
     [Total], DESC
 )
 ```
+
+### Query Cost and Performance
+
+Every query is a LIVE evaluation on the semantic model over a REST endpoint
+that serializes the whole result to JSON. Row count and column count drive
+latency directly; an unbounded scan of a large table can take minutes.
+- NEVER `EVALUATE <table>` on a fact table or any table that may be large.
+  Aggregate with SUMMARIZECOLUMNS at the grain the question needs, or wrap
+  the table in TOPN with an explicit row limit.
+- Return only the columns you need (SELECTCOLUMNS / SUMMARIZECOLUMNS), not a
+  whole table.
+- Push filters into the DAX with CALCULATETABLE / FILTER. Never fetch
+  everything and filter in pandas.
+- The row cap applied to the returned DataFrame does NOT make the query
+  cheaper - the full result is fetched first. Bound the result in the DAX.
+- Measures are the model's OWN business logic. When one exists for what is
+  being asked (e.g. a total, a rate, an average), invoke it by name -
+  `[Measure Name]` - instead of re-deriving it from raw columns with
+  SUM/DIVIDE. A hand-rolled equivalent will not reproduce the measure's
+  filter context and will disagree with the customer's own reports.
+  `[measure -> Number]` shows what it returns; the definition is not always
+  readable, and you do not need it to call it.
 
 ### Key DAX Syntax Rules
 - Table names with spaces MUST use single quotes: 'Order Details'[Column]
@@ -2249,12 +2278,6 @@ TOPN(10,
   `EVALUATE SUMMARIZECOLUMNS(Dim[Attr], "Total", SUM(Fact[Value]))` resolves the
   join itself. Try the query; a wrong-grain result is the signal there is no
   usable relationship, and a `[hidden]` column is still fully queryable.
-- Measures are the model's OWN business logic. When one exists for what is being
-  asked (e.g. a total, a rate, an average), invoke it by name - `[Measure Name]`
-  - instead of re-deriving it from raw columns with SUM/DIVIDE. A hand-rolled
-  equivalent will not reproduce the measure's filter context and will disagree
-  with the customer's own reports. `[measure -> Number]` shows what it returns;
-  the definition is not always readable, and you do not need it to call it.
 - Row-level security may be filtering your results and you CANNOT tell. A
   row-filtered query returns HTTP 200 with fewer rows - indistinguishable from a
   genuinely small result - and whether a model is row-secured is not readable
@@ -2263,10 +2286,14 @@ TOPN(10,
   nothing. So never describe a Power BI total as organization-wide, company-wide
   or complete: report it as the data visible to the current user. If the
   distinction matters for the answer, say so explicitly.
-- Bare INFO.TABLES() / INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the
-  REST API (HTTP 400). The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(),
-  INFO.VIEW.COLUMNS(), INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - so use
-  those to inspect the model when the indexed schema looks incomplete.
+- The schema context already in this prompt is the primary description of the
+  model. Do not spend queries re-discovering it. Bare INFO.TABLES() /
+  INFO.COLUMNS() / INFO.RELATIONSHIPS() do NOT work via the REST API (HTTP 400).
+  The INFO.VIEW.* family DOES work - INFO.VIEW.TABLES(), INFO.VIEW.COLUMNS(),
+  INFO.VIEW.MEASURES(), INFO.VIEW.RELATIONSHIPS() - but each is another live
+  request against the model, so use them ONLY when the indexed schema is
+  actually missing something you need (a table or column you have reason to
+  believe exists), never as a default exploration step.
 - NEVER reference columns named `RowNumber-<GUID>` even if they appear in the
   schema - they are internal engine columns and any query using them fails
 - In expression slots of SUMMARIZECOLUMNS / ADDCOLUMNS / ROW, a bare column

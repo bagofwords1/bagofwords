@@ -35,6 +35,10 @@ from app.ai.code_execution.code_execution import FORBIDDEN_BUILTINS, FORBIDDEN_M
 
 tracer = get_tracer(__name__)
 
+# Past successful code longer than this is not shown as an example: the model
+# mirrors the length of what it is shown, and the goal is short functions.
+_MAX_EXAMPLE_SNIPPET_LINES = 40
+
 _BOW_DATAFRAME_RULES = """- BOW DataFrame contract: ds_clients["bow"].execute_query accepts a typed dict and returns the requested columns (including empty results), numeric metrics, and requested ordering. Use that DataFrame directly unless the user needs an additional transformation. Do not add missing-column fallbacks, numeric coercion, repeated sorting, column reordering, or reset_index when the query already supplies them. Do not import pandas when unused. Keep genuine display transformations, such as filling a missing agent label; never replace unknown costs with zero. Follow the standard logging instructions below."""
 
 
@@ -456,7 +460,7 @@ class Coder:
              * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
            - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
            - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
-           - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE Customers", "SalesModel/Customers")`. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
+           - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE TOPN(100, Customers)", "SalesModel/Customers")`. Keep DAX bounded (TOPN / SUMMARIZECOLUMNS); never `EVALUATE <table>` on a large table. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
            - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
            {data_preview_instruction}
            - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
@@ -716,7 +720,7 @@ class Coder:
             # Override schemas/prompt with curated ones from context
             schemas = context.schemas_excerpt or schemas
             prompt = context.interpreted_prompt or context.user_prompt or prompt
-            data_preview_instruction = f"- Also, after each query or DataFrame creation, print the data using: print('df head:', df.head())" if self.enable_llm_see_data else ""
+            data_preview_instruction = "; print(df.head())" if self.enable_llm_see_data else ""
             file_access_rules = _file_access_rules(" " * 15)
             # If the user is clearly referring to a step we can load, force reuse
             # via load_step instead of writing SQL from scratch. Detected here (not
@@ -755,7 +759,15 @@ class Coder:
                     if builder is not None and hasattr(builder, "get_top_successful_snippets_for_tables"):
                         try:
                             top_success = await builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
-                            if isinstance(top_success, list) and top_success:
+                            # Past code is the style the model copies, so a
+                            # long example teaches long code. Keep only short
+                            # ones; none is better than a bad reference.
+                            top_success = [
+                                s for s in (top_success or [])
+                                if isinstance(s, dict)
+                                and (s.get("code") or "").count("\n") <= _MAX_EXAMPLE_SNIPPET_LINES
+                            ]
+                            if top_success:
                                 lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
                                 for idx, s in enumerate(top_success, start=1):
                                     lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
@@ -848,9 +860,14 @@ class Coder:
 
             0. **Data Modeling**:
                 - The data structure should answer the user prompt and be feasible given the schemas and data sources.
-                - Bias for a master table: include additional columns that are relevant for filtering and slicing in the visualization layer, even if not explicitly requested by the user. For example, if the user asks for total sales by region, also include date and product category columns if available.
+                - Slight master-table bias, bounded: besides the requested columns, include at most 2-3 slicing columns (a date, a category, a region) that are ALREADY in the tables you are querying. Never add a join, a subquery or a second query just to bring in an extra column, and never widen the grain — extra columns must not multiply rows.
                 - The interpreted_prompt may list specific tables, target columns, and additional columns for filtering. Include all of them in your SELECT.
                 - **Data granularity:** When the interpreted_prompt says "return granular rows" or "do not pre-aggregate", do not add GROUP BY or aggregate functions (SUM/COUNT/AVG) in SQL. Return one row per record — the visualization layer handles aggregation. Only pre-aggregate when the interpreted_prompt explicitly requires SQL-level computation (window functions, rolling averages, CTEs, complex calculations).
+
+            0a. **Keep the code short** — the shortest correct function wins:
+                - Do the work in the query: one query per connection when the source can aggregate, filter, join and sort itself. Post-process in pandas only for what the source cannot do.
+                - No comments, no docstrings, no helper functions, no try/except, no type coercion or column-existence guards "just in case", no intermediate copies of the frame, no renaming unless the output needs it.
+                - A failing query or cast must raise: the error comes back to you with the output printed so far, which is more useful than a guarded empty result.
 
             1. **Function Signature**: Implement either:
                `def generate_df(ds_clients, excel_files):` — when no web fetching is needed.
@@ -886,14 +903,10 @@ class Coder:
                  * Example: `ds_clients["Sales Analytics:snowflake_prod"].execute_query("SELECT * FROM orders")`
                - **Connection-Table Mapping**: Each client_key corresponds to a specific database connection. The `<connection name="...">` tags in <ground_truth_schemas> show which tables belong to which connection. Match the connection name to the client_key suffix (e.g., `<connection name="postgresql-1">` → `ds_clients["...:postgresql-1"]`). Only query tables listed under that connection.
                - **Cross-Connection Queries**: Tables from different connections cannot be joined in SQL. Query each connection separately and merge the results in Python using pandas (e.g., `pd.merge(df1, df2, on="shared_key")`).
-               - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE Customers", "SalesModel/Customers")`. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
-               - After each query or DataFrame creation, print its info using: print("df Info:", df.info())
-               {data_preview_instruction}
+               - **Power BI connections**: `execute_query` needs the target semantic model — pass the schema table name (format `Dataset/Table`, exactly as shown in the schema) as the SECOND argument: `execute_query("EVALUATE TOPN(100, Customers)", "SalesModel/Customers")`. Keep DAX bounded (TOPN / SUMMARIZECOLUMNS); never `EVALUATE <table>` on a large table. Alternatively pass `dataset_id=`/`workspace_id=` from the table's `<powerbi .../>` metadata. Never ask the user for these IDs.
                - For SQL data sources, "SOME QUERY" should be SQL code that matches the schema column names exactly.
                {file_access_rules}
                  * Decide the correct INDEX and SHEET_INDEX based on prompt and schemas.
-                 * Use prints to help validate indices and positions.
-               - After any operation that changes DataFrame columns (merge, join, add/remove columns), print: print("df Info:", df.info())
                - Output schema contract: The final DataFrame should contain only primitives (str/int/float/bool/None). Do not return dict/list objects. If a column is JSON/MAP/STRUCT or a JSON-looking string, extract/flatten to readable scalar columns (e.g., owner, repo_full_name) using pandas.json_normalize or by selecting key paths; otherwise stringify compactly. Prefer clear label/value columns for charting.
                - Use read-only operations on the data sources (no insert/delete/add/update/put/drop).
                - Prefer data sources, tables, files, and entities explicitly listed in <mentions>. If selecting an unmentioned source, justify briefly.
@@ -927,9 +940,9 @@ class Coder:
             7. **No Extra Formatting**:
                - Return ONLY the Python function code for `generate_df`.
 
-            8. **End of code**:
-               - Before returning the df — print("Final df Info:", df.info())
-               {data_preview_instruction}
+            8. **End of code** — the ONLY print in the function:
+               - Right before returning: print("Final df:", df.shape, list(df.columns)){data_preview_instruction}
+               - If the code fails later in the run, this line is what the retry gets to see, so do not print anywhere else.
                - Return the df.
 
             Now produce ONLY the Python function code as described. No markdown or extra text.

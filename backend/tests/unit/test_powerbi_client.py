@@ -532,6 +532,30 @@ class TestInternalColumnFiltering:
         assert "RowNumber-<GUID>" in guide
         assert "cannot be determined" in guide
 
+    def test_dax_guide_teaches_bounded_queries(self):
+        """Every DAX query is a live evaluation serialized over REST, so the
+        guide must lead with aggregation / TOPN and never show an unbounded
+        `EVALUATE <table>` as an example - models copy the first pattern they
+        see, and a full scan of a fact table is the slow query in the field."""
+        c = _mk_client()
+        guide = c.system_prompt()
+        assert "### Query Cost and Performance" in guide
+        assert "TOPN(100, Customers)" in guide
+        assert "SELECTCOLUMNS" in guide
+        # No example line is a bare, unbounded table scan.
+        bare = [
+            ln for ln in guide.splitlines()
+            if ln.strip().startswith("EVALUATE ")
+            and "(" not in ln
+            and "<" not in ln  # the `EVALUATE <table_expression>` pattern placeholder
+        ]
+        assert bare == [], bare
+        # Measures-first guidance sits with the performance rules, and the
+        # INFO.VIEW.* family is framed as a last resort, not an exploration step.
+        perf = guide.split("### Query Cost and Performance", 1)[1].split("### Key DAX Syntax Rules", 1)[0]
+        assert "[Measure Name]" in perf
+        assert "never as a default exploration step" in guide
+
 
 # ---------- Incremental discovery (prior_tables) ---------- #
 
