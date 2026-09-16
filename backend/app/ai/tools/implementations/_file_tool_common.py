@@ -91,6 +91,17 @@ def friendly_tool_error(operation: str, connection_name: str, exc: Exception) ->
     red in the chat; everything else keeps the raw detail for debugging."""
     from app.data_sources.clients.sharepoint_onprem_client import SharePointHTTPError
     from app.data_sources.clients.documentum_client import DocumentumHTTPError
+    from app.data_sources.clients._graph_throttle import GraphThrottledError
+    if isinstance(exc, GraphThrottledError):
+        name = connection_name or "this source"
+        wait = max(1, int(round(exc.retry_after)))
+        return (
+            f"Microsoft is rate-limiting '{name}' right now (HTTP {exc.status}); it will "
+            f"accept requests again in about {wait}s. Do NOT retry this call immediately or "
+            "in a loop — every request sent while throttled extends the block. Tell the "
+            "user the source is temporarily throttled by Microsoft and continue with the "
+            "remaining sources."
+        )
     if isinstance(exc, DocumentumHTTPError) and exc.status in (401, 403):
         name = connection_name or "Documentum"
         if exc.status == 401:

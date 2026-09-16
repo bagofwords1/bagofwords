@@ -61,6 +61,9 @@ def _client(drive_name, **kw):
     def _get(path, **_ignored):
         # _list_children passes an absolute URL; everything else passes a path.
         key = path[len(GRAPH_BASE):] if path.startswith(GRAPH_BASE) else path
+        # The listing asks for only the fields it uses; the fixture keys on
+        # the endpoint + page size, not on that projection.
+        key = key.split("&$select=", 1)[0]
         calls.append(key)
         if key in GRAPH:
             return GRAPH[key]
