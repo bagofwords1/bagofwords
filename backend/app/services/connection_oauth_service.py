@@ -216,7 +216,9 @@ def get_oauth_params(connection: Connection) -> dict:
             "token_url": token_url,
             "client_id": client_id,
             "client_secret": client_secret,  # may be None (public client)
-            "scopes": creds.get("scopes") or "",
+            # An admin's explicit scopes win; otherwise what DCR discovery
+            # derived from the server (401 challenge / resource metadata).
+            "scopes": creds.get("scopes") or creds.get("discovered_scopes") or "",
             "audience": creds.get("audience"),
             "token_endpoint_auth_method": token_endpoint_auth_method,
             "provider_name": "mcp",
