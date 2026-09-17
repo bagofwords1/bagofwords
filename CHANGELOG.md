@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.563 (September 17, 2026)
+- Artifacts get a parent identity with per-artifact version chains; every write site shares one version factory and the migration backfills existing rows without guessing lineage (#1079)
+- The agent Files tab is a file browser with folder tree, search and in-place previews for connected file sources, sharing read_file's scope checks and audit trail (#1139)
+- RTL: chevrons and arrows relying on the directional auto-flip now actually flip (#1147)
+- The agent Files tree and the Uploaded panel stay in sync on upload and delete (#1148)
+- Indexing runs no longer stay "running" forever: heartbeat, stale-run reaping, idle-based stage timeouts and a last-activity indicator (#1150)
+
 ## Version 0.0.562 (September 16, 2026)
 - Shorter generated code with stdout carried into retries, and a bounded Power BI DAX guide (#1145)
 
