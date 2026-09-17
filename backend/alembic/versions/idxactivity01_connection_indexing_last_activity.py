@@ -18,7 +18,7 @@ import sqlalchemy as sa
 
 
 revision: str = 'idxactivity01'
-down_revision: Union[str, None] = 'codeperm01'
+down_revision: Union[str, None] = 'artver01'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
