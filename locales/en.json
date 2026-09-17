@@ -325,7 +325,15 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Run this suite",
-    "runSuiteFailed": "Failed to run suite"
+    "runSuiteFailed": "Failed to run suite",
+    "filterAgentsHeading": "Agents",
+    "filterInstructionsHeading": "Instructions",
+    "filterStage": "Stage",
+    "noAgentsMatchFilter": "No agents match the filter",
+    "filterCatalog": "Catalog",
+    "noCatalog": "No catalog",
+    "catalogs": "Catalogs",
+    "manageCatalogs": "Manage catalogs…"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -1743,7 +1751,25 @@
     },
     "modelAccess": "Model access",
     "modelAccessHint": "Restricted models",
-    "noRestrictedModels": "No restricted models"
+    "noRestrictedModels": "No restricted models",
+    "bulk": {
+      "button": "Add agents",
+      "search": "Search agents...",
+      "selectAllVisible": "Select all shown ({n})",
+      "noMatches": "No agents match",
+      "alreadyInRole": "Already in role",
+      "add": "Add agents | Add 1 agent | Add {n} agents",
+      "buttonConnections": "Add connections",
+      "searchConnections": "Search connections...",
+      "noConnectionMatches": "No connections match",
+      "addConnections": "Add connections | Add 1 connection | Add {n} connections",
+      "allCatalogs": "All catalogs",
+      "noCatalog": "No catalog"
+    },
+    "noAgentAccess": "No agents yet. Use Add agents to give this role access.",
+    "noConnectionAccess": "No connections yet. Use Add connections to delegate connection access.",
+    "agentsSection": "Agents",
+    "connectionsSection": "Connections"
   },
   "serviceAccounts": {
     "title": "Service Accounts",
@@ -5226,5 +5252,29 @@
     "preparing": "Preparing your copy…",
     "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
+  },
+  "agentCatalogs": {
+    "title": "Agent catalogs",
+    "subtitle": "Group agents by team or domain. Catalogs are for organizing and filtering only — they don't change who can access an agent.",
+    "newPlaceholder": "New catalog name",
+    "empty": "No catalogs yet",
+    "pickOne": "Select a catalog to edit it",
+    "createFirst": "Create a catalog to start grouping agents",
+    "name": "Name",
+    "description": "Description",
+    "optional": "Optional",
+    "agents": "Agents",
+    "searchAgents": "Search agents...",
+    "selectAllShown": "Select all shown ({n})",
+    "noAgentsMatch": "No agents match",
+    "inCatalog": "In {name}",
+    "movesFrom": "Moves from {name}",
+    "delete": "Delete catalog",
+    "discard": "Discard",
+    "save": "Save",
+    "saved": "Catalog saved",
+    "failed": "Could not save the catalog",
+    "confirmDiscard": "Discard unsaved changes to this catalog?",
+    "confirmDelete": "Delete the catalog \"{name}\"? Its agents are kept and become uncatalogued."
   }
 }

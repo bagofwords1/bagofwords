@@ -8,6 +8,7 @@ from app.models.base import BaseSchema
 from app.models.organization import Organization
 from app.models.domain_connection import domain_connection
 from app.models.datasource_table import DataSourceTable
+from app.models.agent_catalog import AgentCatalog  # noqa: F401 — registers the catalog_id FK target
 from app.ai.prompt_formatters import Table, TableColumn
 
 
@@ -70,6 +71,12 @@ class DataSource(BaseSchema):
     #   ok           — verified healthy by a passing reliability run.
     reliability_status = Column(
         String, nullable=False, default="training", server_default="training"
+    )
+
+    # Organizational grouping (see AgentCatalog). At most one catalog per agent;
+    # NULL = uncatalogued. Carries no access semantics.
+    catalog_id = Column(
+        String(36), ForeignKey('agent_catalogs.id', ondelete='SET NULL'), nullable=True, index=True
     )
 
     # When true, the system may run LLM onboarding synchronously (onboarding flow only)
