@@ -1,4 +1,4 @@
-# Custom queries on consumption-priced warehouses — measured
+# Custom tables on consumption-priced warehouses — measured
 
 The original case for caching was on-prem: a legacy Oracle or SQL Server box
 cannot take an agent's exploratory bursts, and the fix is to stop generating

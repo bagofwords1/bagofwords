@@ -2512,7 +2512,7 @@
           "description": "Högsta antal rader som genererad kod ska träna en modell på. Större källor samplas ner till den här storleken före träning. Minst 1000."
         },
         "enable_custom_queries": {
-          "name": "Egna frågor (beta)",
+          "name": "Egna tabeller (beta)",
           "description": "Låter anslutningsadministratörer definiera SQL som BOW materialiserar till en krypterad lokal kopia enligt ett schema, så att agenter svarar utifrån det cachade resultatet i stället för att fråga källan vid varje tur. Beta: avstängt som standard."
         },
         "enable_agent_notes": {
@@ -2987,7 +2987,7 @@
     "retry": "Försök igen",
     "reindex": "Indexera om",
     "lastIndexed": "Senast indexerad",
-    "customQueries": "Anpassade frågor",
+    "customQueries": "Anpassade tabeller",
     "schemaDiscovery": "Schemaupptäckt",
     "stop": "Stoppa",
     "stopping": "Stoppar…",
@@ -5099,8 +5099,8 @@
     "loadingPrompts": "Läser in frågor…",
     "selectedCount": "{count} valda",
     "selectTables": "Välj tabeller",
-    "customQuery": "Anpassad fråga",
-    "customQueriesOff": "Anpassade frågor av",
+    "customQuery": "Anpassad tabell",
+    "customQueriesOff": "Anpassade tabeller av",
     "enableCustomQueries": "Aktivera i AI-inställningar",
     "reload": "Ladda om",
     "editQuery": "Redigera {name}",

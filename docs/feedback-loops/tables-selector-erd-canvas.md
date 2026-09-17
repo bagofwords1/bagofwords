@@ -92,7 +92,7 @@ the draft and returns failure to the parent instead of navigating onward.
 - [x] Replace the pill toggle with text tabs in the Reload row and shorten the disabled custom-query hint.
 - [x] Show the draft selected count in the picker and use gray checkbox-only ghost cards.
 - [x] Replace overlays with per-card usage and a complete metrics tooltip.
-- [x] Unify cached custom queries with table selection, preserving editor permissions.
+- [x] Unify cached custom tables with table selection, preserving editor permissions.
 - [x] Complete final cleanup acceptance, screenshots and production build.
 
 ## Fixture and isolation
@@ -224,7 +224,7 @@ Playwright acceptance test, not a passive page recording.
 | Onboarding before / after | `before-onboarding-list-en.png`, `after-onboarding-canvas-en.png` |
 | Large graph | `after-large.png` |
 | Metrics hover | `after-metrics-hover.png` |
-| Cached custom query | `after-custom-query.png`, `after-custom-query-metrics.png` |
+| Cached custom table | `after-custom-query.png`, `after-custom-query-metrics.png` |
 | Cleanup before | `before-cleanup-en.png`, `before-cleanup-he-dark.png`, `before-cleanup-onboarding.png` |
 | Hebrew / dark before / after | `before-agent-list-he-dark.png`, `after-agent-canvas-he-dark.png` |
 | Narrow viewport | `after-narrow.png` |
@@ -248,7 +248,7 @@ Playwright acceptance test, not a passive page recording.
 | Last-used API serialization | Known fixture timestamp returned as `2026-09-01T10:00:00Z` |
 | Initial production build | PASS (exit 0); existing duplicate-key/import and chunk-size warnings remain |
 | Refinement production build | PASS (exit 0), client + server + Nitro output; existing warnings unchanged |
-| Cleanup browser acceptance | 11 passed on development; all 11 passed again on the production build (41.0 seconds), using 528 tables across two connections plus a temporary custom query |
+| Cleanup browser acceptance | 11 passed on development; all 11 passed again on the production build (41.0 seconds), using 528 tables across two connections plus a temporary custom table |
 | Cleanup production build | PASS (exit 0); client, server and Nitro output built successfully; existing warnings unchanged |
 | Cleanup backend regressions | 14 passed: pagination, delta/bulk, reader schema scope and custom-query permissions |
 | Cleanup locale sweep | 30 passed (26.8 seconds); ten ERD catalogs match with no additional global key drift |
@@ -306,16 +306,16 @@ Additional evidence: `before-refinement-en.png`,
 are refreshed for this version. Original list baselines predate the second
 connection; refinement comparisons use the same viewport and synthetic source.
 
-## Cleanup — metrics, compact toolbar and custom queries
+## Cleanup — metrics, compact toolbar and custom tables
 
 Table / ERD are now understated text tabs beside Connections, aligned with
-Reload. The feature-off hint reads “Custom queries off.” The canvas picker
+Reload. The feature-off hint reads “Custom tables off.” The canvas picker
 shows the draft selected count, and unchecked neighbors have a darker gray
 background with dotted borders and one checkbox. The overlay selector is gone.
 Usage is always present when statistics are enabled; its tooltip shows success,
 failure, feedback and last use.
 
-Custom queries now use the ordinary catalog row in both views. Their checkbox
+Custom tables now use the ordinary catalog row in both views. Their checkbox
 changes the same draft and only Save activates them for the agent. Creating or
 editing the connection-level query still uses the existing editor; creating a
 query from this selector no longer silently activates it. Query cards show a

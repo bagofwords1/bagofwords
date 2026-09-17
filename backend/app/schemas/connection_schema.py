@@ -87,9 +87,9 @@ class ConnectionSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
-    # BOW-managed custom queries on this connection (materialized relations).
+    # BOW-managed custom tables on this connection (materialized relations).
     custom_queries_count: int = 0
-    # Whether this connection can host custom queries at all — accelerable
+    # Whether this connection can host custom tables at all — accelerable
     # connector type AND shared (system) credentials.
     custom_queries_supported: bool = False
     agent_count: int = 0
@@ -126,9 +126,9 @@ class ConnectionDetailSchema(BaseModel):
     organization_id: str
     table_count: int = 0
     tool_count: int = 0
-    # BOW-managed custom queries on this connection (materialized relations).
+    # BOW-managed custom tables on this connection (materialized relations).
     custom_queries_count: int = 0
-    # Whether this connection can host custom queries at all — accelerable
+    # Whether this connection can host custom tables at all — accelerable
     # connector type AND shared (system) credentials.
     custom_queries_supported: bool = False
     agent_count: int = 0

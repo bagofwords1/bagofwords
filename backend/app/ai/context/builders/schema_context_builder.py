@@ -19,7 +19,7 @@ from app.models.instruction_reference import InstructionReference
 from app.models.user_data_source_overlay import UserDataSourceTable, UserDataSourceColumn
 
 
-# A BOW custom query is materialized to a local artifact and served by the
+# A BOW custom table is materialized to a local artifact and served by the
 # connection's ``::fast`` sibling client, NOT by the source client. The coder is
 # told to map a table's <connection name> onto the client_key suffix
 # (coder.py "Connection-Table Mapping"), so attributing a cached relation to the
@@ -103,7 +103,7 @@ def _cached_meta_for(ct):
     """(is_cached, as_of, next_refresh, description) for a backing ConnectionTable.
 
     The description is admin-authored and is the only place the agent learns
-    what a custom query actually contains — the relation name alone rarely says
+    what a custom table actually contains — the relation name alone rarely says
     whether `revenue_summary` is per-order, per-region or per-month.
 
     `as_of` and `next_refresh` are the two halves of the same fact, and one
@@ -150,7 +150,7 @@ def _cached_first(tables):
 
     The composite score cannot do this on its own, and gets it backwards. It is
     built from usage history, feedback and FK-derived centrality/richness — a
-    freshly authored custom query has none of those (no usage, no feedback, no
+    freshly authored custom table has none of those (no usage, no feedback, no
     foreign keys), so it scores near zero and sorts BELOW the very tables it
     exists to replace. `prompt_builder_v3` tells the planner to prefer
     `cached="true"` tables; an instruction cannot help if the relation is
@@ -234,7 +234,7 @@ class SchemaContextBuilder:
                 continue
             # Stats keyed by the row they belong to, falling back to the
             # lowercased name only for rows written before `datasource_table_id`
-            # existed. Name alone is not an identity: a custom query `album`
+            # existed. Name alone is not an identity: a custom table `album`
             # and a source table `Album` are different relations that folded
             # into one bucket, so the planner was shown one relation's usage on
             # the other — and usage is an input it ranks tables by.

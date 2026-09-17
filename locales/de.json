@@ -2512,7 +2512,7 @@
           "description": "Maximale Anzahl Zeilen, auf denen generierter Code ein Modell trainieren soll. Größere Quellen werden vor dem Training auf diese Größe gesampelt. Mindestens 1000."
         },
         "enable_custom_queries": {
-          "name": "Benutzerdefinierte Abfragen (Beta)",
+          "name": "Benutzerdefinierte Tabellen (Beta)",
           "description": "Erlaubt Verbindungsadministratoren, SQL zu definieren, das BOW nach Zeitplan in eine verschlüsselte lokale Kopie materialisiert, sodass Agenten aus dem zwischengespeicherten Ergebnis antworten, statt die Quelle in jeder Runde abzufragen. Beta: standardmäßig aus."
         },
         "enable_agent_notes": {
@@ -2987,7 +2987,7 @@
     "retry": "Erneut versuchen",
     "reindex": "Neu indizieren",
     "lastIndexed": "Zuletzt indiziert",
-    "customQueries": "Benutzerdefinierte Abfragen",
+    "customQueries": "Benutzerdefinierte Tabellen",
     "schemaDiscovery": "Schema-Erkennung",
     "stop": "Stoppen",
     "stopping": "Wird gestoppt…",
@@ -5099,8 +5099,8 @@
     "loadingPrompts": "Anfragen werden geladen…",
     "selectedCount": "{count} ausgewählt",
     "selectTables": "Tabellen auswählen",
-    "customQuery": "Eigene Abfrage",
-    "customQueriesOff": "Eigene Abfragen aus",
+    "customQuery": "Eigene Tabelle",
+    "customQueriesOff": "Eigene Tabellen aus",
     "enableCustomQueries": "In KI-Einstellungen aktivieren",
     "reload": "Neu laden",
     "editQuery": "{name} bearbeiten",

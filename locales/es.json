@@ -2604,7 +2604,7 @@
           "description": "Número máximo de filas con las que el código generado debe entrenar un modelo. Las fuentes más grandes se muestrean hasta este tamaño antes de ajustar. Mínimo 1000."
         },
         "enable_custom_queries": {
-          "name": "Consultas personalizadas (beta)",
+          "name": "Tablas personalizadas (beta)",
           "description": "Permite a los administradores de conexiones definir SQL que BOW materializa en una copia local cifrada según una programación, de modo que los agentes respondan desde el resultado almacenado en lugar de consultar la fuente en cada turno. Beta: desactivado por defecto."
         },
         "enable_agent_notes": {
@@ -3136,7 +3136,7 @@
     "retry": "Reintentar",
     "reindex": "Reindexar",
     "lastIndexed": "Última indexación",
-    "customQueries": "Consultas personalizadas",
+    "customQueries": "Tablas personalizadas",
     "schemaDiscovery": "Descubrimiento del esquema",
     "stop": "Detener",
     "stopping": "Deteniendo…",
@@ -5125,8 +5125,8 @@
     "loadingPrompts": "Cargando consultas…",
     "selectedCount": "{count} seleccionadas",
     "selectTables": "Seleccionar tablas",
-    "customQuery": "Consulta personalizada",
-    "customQueriesOff": "Consultas personalizadas desactivadas",
+    "customQuery": "Tabla personalizada",
+    "customQueriesOff": "Tablas personalizadas desactivadas",
     "enableCustomQueries": "Activar en ajustes de IA",
     "reload": "Recargar",
     "editQuery": "Editar {name}",

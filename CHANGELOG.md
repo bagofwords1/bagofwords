@@ -1,6 +1,7 @@
 # Release Notes
 
 ## Version 0.0.563 (September 17, 2026)
+- Custom queries are now called custom tables everywhere (settings, the agent tables page, the authoring modal, agent context, every locale), and Power BI joins the sources they can be built on. A Power BI custom table is a DAX query (one EVALUATE) that BOW materializes on a schedule; the semantic model is detected from the tables the DAX references or pinned from a new "Semantic model" picker. Designed against a live tenant: executeQueries truncates at 100,000 rows or 1,000,000 values with no error, so results are counted with COUNTROWS, fetched in value windows over a numeric or date column when they exceed one response, and refused if any row is missing. Agents then query the cached copy with plain SQL instead of writing DAX against the rate-limited API
 - Artifacts get a parent identity with per-artifact version chains; every write site shares one version factory and the migration backfills existing rows without guessing lineage (#1079)
 - The agent Files tab is a file browser with folder tree, search and in-place previews for connected file sources, sharing read_file's scope checks and audit trail (#1139)
 - RTL: chevrons and arrows relying on the directional auto-flip now actually flip (#1147)

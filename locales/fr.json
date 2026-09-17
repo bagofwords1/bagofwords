@@ -2512,7 +2512,7 @@
           "description": "Nombre maximal de lignes sur lesquelles le code généré doit entraîner un modèle. Les sources plus volumineuses sont échantillonnées à cette taille avant l'entraînement. Minimum 1000."
         },
         "enable_custom_queries": {
-          "name": "Requêtes personnalisées (bêta)",
+          "name": "Tables personnalisées (bêta)",
           "description": "Permet aux administrateurs de connexion de définir du SQL que BOW matérialise dans une copie locale chiffrée selon une planification, afin que les agents répondent à partir du résultat mis en cache plutôt que d'interroger la source à chaque tour. Bêta : désactivé par défaut."
         },
         "enable_agent_notes": {
@@ -2987,7 +2987,7 @@
     "retry": "Réessayer",
     "reindex": "Réindexer",
     "lastIndexed": "Dernière indexation",
-    "customQueries": "Requêtes personnalisées",
+    "customQueries": "Tables personnalisées",
     "schemaDiscovery": "Découverte du schéma",
     "stop": "Arrêter",
     "stopping": "Arrêt…",
@@ -5099,8 +5099,8 @@
     "loadingPrompts": "Chargement des demandes…",
     "selectedCount": "{count} sélectionnées",
     "selectTables": "Sélectionner des tables",
-    "customQuery": "Requête personnalisée",
-    "customQueriesOff": "Requêtes personnalisées désactivées",
+    "customQuery": "Table personnalisée",
+    "customQueriesOff": "Tables personnalisées désactivées",
     "enableCustomQueries": "Activer dans les paramètres IA",
     "reload": "Actualiser",
     "editQuery": "Modifier {name}",

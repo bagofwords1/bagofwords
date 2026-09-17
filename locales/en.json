@@ -2684,8 +2684,8 @@
           "description": "Maximum number of rows generated code should train a model on. Larger sources are sampled down to this size before fitting. Minimum 1000."
         },
         "enable_custom_queries": {
-          "name": "Custom queries (beta)",
-          "description": "Let connection admins define SQL that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
+          "name": "Custom tables (beta)",
+          "description": "Let connection admins define a query (SQL, or DAX on Power BI) that BOW materializes to an encrypted local copy on a schedule, so agents answer from the cached result instead of querying the source on every turn. Beta: off by default."
         },
         "enable_agent_notes": {
           "name": "Agent Notes",
@@ -3208,7 +3208,7 @@
     "retry": "Retry",
     "reindex": "Reindex",
     "lastIndexed": "Last indexed",
-    "customQueries": "Custom queries",
+    "customQueries": "Custom tables",
     "schemaDiscovery": "Schema discovery",
     "stop": "Stop",
     "stopping": "Stopping…",
@@ -5162,8 +5162,8 @@
     "loadingPrompts": "Loading prompts…",
     "selectedCount": "{count} selected",
     "selectTables": "Select tables",
-    "customQuery": "Custom query",
-    "customQueriesOff": "Custom queries off",
+    "customQuery": "Custom table",
+    "customQueriesOff": "Custom tables off",
     "enableCustomQueries": "Enable in AI settings",
     "reload": "Reload",
     "editQuery": "Edit {name}",

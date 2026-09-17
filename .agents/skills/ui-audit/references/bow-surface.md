@@ -136,7 +136,7 @@ helpers in `tests/utils/helpers.ts` reference `/users/login`, which is not a rou
 `pages/` (the page is `users/sign-in.vue`); anything calling `login()` from there is broken
 or unused. Worth confirming during an auth-group audit.
 
-Only 22 components carry `data-testid`, concentrated in custom queries, projects, triggers,
+Only 22 components carry `data-testid`, concentrated in custom tables, projects, triggers,
 and webhooks. Everywhere else you are selecting by role and text, which is why `sweep.mjs`
 records a selector per control up front — deriving them twice invites drift between the
 expectation table and the click run.

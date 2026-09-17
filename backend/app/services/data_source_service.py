@@ -1514,7 +1514,7 @@ class DataSourceService:
 
 
     async def _cached_table_names_by_ds(self, db: AsyncSession, data_sources) -> dict:
-        """{data_source_id: [names]} of ACTIVATED BOW custom queries.
+        """{data_source_id: [names]} of ACTIVATED BOW custom tables.
 
         One grouped query for the whole list — a per-agent lookup here would add
         a round trip per row to every agent-list render.
@@ -2712,7 +2712,7 @@ class DataSourceService:
 
     async def _construct_fast_client(self, db: AsyncSession, data_source: DataSource,
                                      connection, current_user: User | None = None):
-        """Build the FastQueryClient for the custom queries this agent activated.
+        """Build the FastQueryClient for the custom tables this agent activated.
 
         Returns None when the agent has activated none — most agents, most of the
         time — so no extra client appears in the common case.
@@ -3998,7 +3998,7 @@ class DataSourceService:
         # Fetch stats if requested
         # Stats are matched by row id where the stats row records one, and only
         # fall back to the lowercased name where it doesn't. Name alone is not
-        # an identity: a custom query named `album` and a source table named
+        # an identity: a custom table named `album` and a source table named
         # `Album` are different relations that collided into one bucket, so the
         # new relation displayed the other one's usage count. The same applies
         # to two connections on one agent that both have an `orders`.
@@ -6275,7 +6275,7 @@ class DataSourceService:
                         name=conn_table.name,
                         datasource_id=data_source.id,
                         connection_table_id=conn_table.id,
-                        # A BOW custom query always starts inactive on a new
+                        # A BOW custom table always starts inactive on a new
                         # agent: it is an admin's curated relation for a specific
                         # purpose, not part of the source catalog the auto-select
                         # rule is reasoning about, and enabling it silently would

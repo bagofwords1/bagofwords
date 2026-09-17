@@ -2604,7 +2604,7 @@
           "description": "המספר המרבי של שורות שעליהן הקוד שנוצר יאמן מודל. מקורות גדולים יותר נדגמים לגודל זה לפני האימון. מינימום 1000."
         },
         "enable_custom_queries": {
-          "name": "שאילתות מותאמות (בטא)",
+          "name": "טבלאות מותאמות (בטא)",
           "description": "מאפשר למנהלי חיבורים להגדיר SQL ש-BOW ממַמֵש לעותק מקומי מוצפן לפי לוח זמנים, כך שהסוכנים עונים מהתוצאה השמורה במקום לשאול את המקור בכל תור. בטא: כבוי כברירת מחדל."
         },
         "enable_agent_notes": {
@@ -3136,7 +3136,7 @@
     "retry": "ניסיון חוזר",
     "reindex": "אינדוקס מחדש",
     "lastIndexed": "אינדוקס אחרון",
-    "customQueries": "שאילתות מותאמות",
+    "customQueries": "טבלאות מותאמות",
     "schemaDiscovery": "גילוי סכימה",
     "stop": "עצירה",
     "stopping": "עוצר…",
@@ -5145,8 +5145,8 @@
     "loadingPrompts": "טוען בקשות…",
     "selectedCount": "{count} נבחרו",
     "selectTables": "בחירת טבלאות",
-    "customQuery": "שאילתה מותאמת",
-    "customQueriesOff": "שאילתות מותאמות כבויות",
+    "customQuery": "טבלה מותאמת",
+    "customQueriesOff": "טבלאות מותאמות כבויות",
     "enableCustomQueries": "הפעלה בהגדרות AI",
     "reload": "רענון",
     "editQuery": "עריכת {name}",
