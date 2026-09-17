@@ -267,22 +267,10 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :active="panelView?.kind === 'instructions' && panelView?.agentId === agent.id" :open="isOpen('instr:' + agent.id)" @toggle="onPanelRowClick('instructions', agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
-                  <div v-if="agentSearch[agent.id] || listForAgent(agent.id).length" class="relative my-1" style="margin-inline-start:44px;margin-inline-end:8px">
-                    <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-gray-500" />
-                    <input :value="agentSearch[agent.id] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" class="w-full h-7 ps-6 text-[12px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="agentSearch[agent.id] ? 'pe-7' : 'pe-2'" @input="onAgentSearch(agent.id, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(agent.id, '')" />
-                    <button v-if="agentSearch[agent.id]" type="button" class="absolute end-1 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(agent.id, '')">
-                      <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
-                    </button>
-                  </div>
-                  <div v-if="agentSearchResults[agent.id]">
-                    <div v-if="agentSearching.has(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
-                    <InstrLeaf v-for="ins in applyFilters(agentSearchResults[agent.id]!)" :key="ins.id" :ins="ins" :indent="2" />
-                    <EmptyHint v-if="!agentSearching.has(agent.id) && !applyFilters(agentSearchResults[agent.id]!).length" :text="$t('agentsPage.noResults')" :pad="48" />
-                  </div>
-                  <div v-else>
+                  <div>
                     <DirNode v-for="d in childDirs(agent.id, null)" :key="d.id" :dir="d" :scope="agent.id" :list="listForAgent(agent.id)" :indent="2" :can-manage="canAddInstrFor(agent.id)" />
                     <InstrLeaf v-for="ins in rootInstrs(agent.id, listForAgent(agent.id))" :key="ins.id" :ins="ins" :indent="2" :drag-scope="agent.id" :draggable="canAddInstrFor(agent.id)" />
                     <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0 && !hasDirs(agent.id)" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
@@ -589,8 +577,32 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
+            <!-- Instructions: the agent's full list, with a server-side search
+                 over titles AND bodies (the tree only has titles). Rows are the
+                 same InstrLeaf as the tree, so status/pending/load-mode read
+                 the same, and a click opens the instruction in this pane. -->
+            <div v-if="panelView.kind === 'instructions'" :key="'instructions-' + panelView.agentId" class="flex flex-col h-full min-h-0" data-testid="agent-instructions-panel">
+              <div class="shrink-0 px-3 pt-3 pb-2 flex items-center gap-2">
+                <div class="relative flex-1">
+                  <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                  <input ref="panelSearchInput" :value="agentSearch[panelView.agentId] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" data-testid="agent-instructions-search" class="w-full h-8 ps-8 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="agentSearch[panelView.agentId] ? 'pe-8' : 'pe-2'" @input="onAgentSearch(panelView.agentId, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(panelView.agentId, '')" />
+                  <button v-if="agentSearch[panelView.agentId]" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(panelView.agentId, '')">
+                    <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <span v-if="!panelInstructionsLoading" class="text-xs tabular-nums text-gray-400 dark:text-gray-500 shrink-0" data-testid="agent-instructions-count">{{ panelInstructions.length }}</span>
+                <button v-if="canAddInstrFor(panelView.agentId)" type="button" class="h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1 shrink-0" @click="openCreate({ agentId: panelView.agentId })"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.addShort') }}</button>
+              </div>
+              <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-3 space-y-0.5">
+                <div v-if="panelInstructionsLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:20px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                <template v-else>
+                  <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
+                  <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
+                </template>
+              </div>
+            </div>
             <AgentQueriesPanel
-              v-if="panelView.kind === 'queries'"
+              v-else-if="panelView.kind === 'queries'"
               :key="'queries-' + panelView.agentId"
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
@@ -1265,9 +1277,10 @@ const runSearch = async (q: string) => {
   } catch (e) { console.error(e); if (req === searchRequest) searchResults.value = { agents: [], instructions: [] } }
   finally { if (req === searchRequest) searching.value = false }
 }
-// Per-agent instruction search (the search row inside an agent's Instructions
-// group). Server-side, so it matches the body too — list rows only carry a
-// preview. Keyed by agent id; a null result means no search is active there.
+// Per-agent instruction search (the search box in the Instructions pane that
+// an agent's Instructions row opens). Server-side, so it matches the body too —
+// list rows only carry a preview. Keyed by agent id so each agent keeps its
+// own query; a null result means no search is active there.
 const agentSearch = ref<Record<string, string>>({})
 const agentSearchResults = ref<Record<string, Instruction[] | null>>({})
 const agentSearching = ref<Set<string>>(new Set())
@@ -1291,7 +1304,7 @@ const onAgentSearch = (id: string, q: string) => {
   const term = q.trim()
   const req = agentSearchRequests[id] = (agentSearchRequests[id] || 0) + 1
   if (!term) { agentSearchResults.value = { ...agentSearchResults.value, [id]: null }; setAgentSearching(id, false); return }
-  // Swap the group to the results view (spinner) right away, not after the debounce.
+  // Swap the pane to the results view (spinner) right away, not after the debounce.
   if (!agentSearchResults.value[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] }
   setAgentSearching(id, true)
   agentSearchTimers[id] = setTimeout(() => runAgentSearch(id, term, req), 250)
@@ -2075,19 +2088,41 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), instructions: t('agentsPage.instructions'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
+  if (kind === 'instructions') {
+    // The pane lists the same rows as the tree group; make sure they are loaded.
+    loadGroup(agentId)
+    // A query left from an earlier visit may be stale (rows edited since) — re-run it.
+    if ((agentSearch.value[agentId] || '').trim()) onAgentSearch(agentId, agentSearch.value[agentId])
+    if (!isMobile.value) nextTick(() => panelSearchInput.value?.focus())
+  }
 }
+const panelSearchInput = ref<HTMLInputElement | null>(null)
+// Rows for the Instructions pane: the scoped search hits while a query is
+// active, otherwise the agent's full list. The tree's filter popover applies
+// to both, as it does to the tree.
+const panelInstructions = computed(() => {
+  const id = panelView.value?.kind === 'instructions' ? panelView.value.agentId : ''
+  if (!id) return []
+  const hits = agentSearchResults.value[id]
+  return hits ? applyFilters(hits) : listForAgent(id)
+})
+const panelInstructionsLoading = computed(() => {
+  const id = panelView.value?.kind === 'instructions' ? panelView.value.agentId : ''
+  if (!id) return false
+  return agentSearchResults.value[id] ? agentSearching.value.has(id) : groupLoading(id)
+})
 // Org-wide evals view — not bound to any agent.
 const openGlobalEvals = () => {
   clearRightPane()
@@ -2120,9 +2155,10 @@ const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
 // Row-click on Tables/Tools opens the editable panel immediately (like clicking
 // an agent). Re-clicking the already-open row just collapses the tree node.
-const onPanelRowClick = (kind: 'tables' | 'tools' | 'files', agentId: string) => {
-  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(kind + ':' + agentId); return }
-  if (!isOpen(kind + ':' + agentId)) expand(kind + ':' + agentId)
+const onPanelRowClick = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
+  const key = (kind === 'instructions' ? 'instr:' : kind + ':') + agentId
+  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(key); return }
+  if (!isOpen(key)) expand(key)
   openPanel(kind, agentId)
 }
 
@@ -2703,18 +2739,11 @@ const backToTree = () => {
   editing.value = false
 }
 // The counts in the agent overview act as shortcuts into the tree sections,
-// mirroring a click on the matching tree row. Tables/Tools/Files open their
-// editable panel (which also expands the tree node); Instructions has no
-// right-pane panel, so we expand its tree node instead. On mobile the tree is
-// hidden behind the detail pane, so for Instructions we fall back to it.
+// mirroring a click on the matching tree row: each opens its right-pane panel
+// (which also expands the tree node).
 const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
   expand('agent:' + agentId, true)
-  if (kind === 'instructions') {
-    expand('instr:' + agentId, true)
-    if (isMobile.value) backToTree()
-  } else {
-    onPanelRowClick(kind, agentId)
-  }
+  onPanelRowClick(kind, agentId)
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
@@ -3868,6 +3897,16 @@ const restore = async (v: any) => {
 // Tree/list rows carry `preview` instead of the body; the detail pane still has
 // the full `text` once an instruction is opened.
 const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
+// One line of body for the pane rows: the light row's `preview`, else the full
+// row's text. Markdown heading marks and the title line itself are dropped so
+// the snippet never just repeats the label above it.
+const instructionSnippet = (ins: Instruction) => {
+  const body = String((ins as any).preview ?? ins.text ?? '')
+  const title = displayTitle(ins).trim()
+  const lines = body.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).filter(Boolean)
+  const line = lines.find(l => l !== title) || ''
+  return line.length > 160 ? line.slice(0, 160) + '…' : line
+}
 
 // ── Markdown export ─────────────────────────────────────
 // The body is already markdown; the title and description live in their own
@@ -3987,11 +4026,15 @@ const InstrLeaf = defineComponent({
     // this scope ('global' | agentId). Only passed inside directory-aware groups.
     dragScope: { type: String, default: '' },
     draggable: Boolean,
+    // Render a one-line body snippet under the title. The Instructions pane
+    // sets it: a search matches the body, so the row should show why it hit.
+    snippet: Boolean,
   },
   setup(props) {
     return () => {
       const ins = props.ins
       const sel = selectedId.value === ins.id
+      const snippetText = props.snippet ? instructionSnippet(ins) : ''
       const pending = isPending(ins)
       const visibleState = visibleInstructionState(ins)
       // Inactive (draft/archived) rows stay muted even while a change is
@@ -4008,7 +4051,7 @@ const InstrLeaf = defineComponent({
         role: 'button',
         tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
         // WebkitUserDrag: Safari refuses to start a drag on a plain element
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
@@ -4020,7 +4063,12 @@ const InstrLeaf = defineComponent({
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(visibleState)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(visibleState) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
-        createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+        snippetText
+          ? createElement('span', { class: 'flex-1 min-w-0 flex flex-col text-start' }, [
+              createElement('span', { class: ['truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+              createElement('span', { class: 'truncate text-[11px] leading-4 text-gray-400 dark:text-gray-500', dir: 'auto' }, snippetText),
+            ])
+          : createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
