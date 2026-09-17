@@ -54,7 +54,10 @@ def world(create_user, login_user, whoami, create_report, seed_agent_executions,
              usage=[{"model": "gpt-4.1", "provider": "openai", "prompt_tokens": 12_000, "completion_tokens": 3_000, "cost": 0.42, "scope": "planner"},
                     {"model": "gpt-4.1-mini", "provider": "openai", "prompt_tokens": 2_000, "completion_tokens": 400, "cost": 0.02, "scope": "tool_call_judge"}]),
         # 1: success, cheap, fast, positive feedback, web, one create_data ok
-        dict(user_id=owner_id, prompt="Top 10 albums by revenue 100% of catalog", created_at=NOW - timedelta(days=2) + timedelta(hours=1),
+        # Sits 12h inside the `created:-2d` window rather than 1h: the window is
+        # measured from the request's clock while NOW is fixed at import, so the
+        # margin must cover how late in a long (xdist, postgres) job this runs.
+        dict(user_id=owner_id, prompt="Top 10 albums by revenue 100% of catalog", created_at=NOW - timedelta(days=2) + timedelta(hours=12),
              status="success", duration_ms=4_900, judge={"response": 5, "instructions": 5, "context": 5},
              feedback={"direction": 1},
              tools=[{"name": "create_data", "action": "execute_sql", "status": "success", "duration_ms": 1_100}],
