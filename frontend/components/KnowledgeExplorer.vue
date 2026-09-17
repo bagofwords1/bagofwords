@@ -54,7 +54,10 @@
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 pe-2 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="search ? 'pe-8' : 'pe-2'" @keydown.escape="search = ''" />
+            <button v-if="search" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="search = ''">
+              <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+            </button>
           </div>
           <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
             <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" :title="$t('agentsPage.filters')">
@@ -267,7 +270,19 @@
               <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
-                  <div>
+                  <div v-if="agentSearch[agent.id] || listForAgent(agent.id).length" class="relative my-1" style="margin-inline-start:44px;margin-inline-end:8px">
+                    <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2 top-1/2 -translate-y-1/2 w-3 h-3 text-gray-400 dark:text-gray-500" />
+                    <input :value="agentSearch[agent.id] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" class="w-full h-7 ps-6 text-[12px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="agentSearch[agent.id] ? 'pe-7' : 'pe-2'" @input="onAgentSearch(agent.id, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(agent.id, '')" />
+                    <button v-if="agentSearch[agent.id]" type="button" class="absolute end-1 top-1/2 -translate-y-1/2 h-5 w-5 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(agent.id, '')">
+                      <UIcon name="i-heroicons-x-mark" class="w-3 h-3" />
+                    </button>
+                  </div>
+                  <div v-if="agentSearchResults[agent.id]">
+                    <div v-if="agentSearching.has(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                    <InstrLeaf v-for="ins in applyFilters(agentSearchResults[agent.id]!)" :key="ins.id" :ins="ins" :indent="2" />
+                    <EmptyHint v-if="!agentSearching.has(agent.id) && !applyFilters(agentSearchResults[agent.id]!).length" :text="$t('agentsPage.noResults')" :pad="48" />
+                  </div>
+                  <div v-else>
                     <DirNode v-for="d in childDirs(agent.id, null)" :key="d.id" :dir="d" :scope="agent.id" :list="listForAgent(agent.id)" :indent="2" :can-manage="canAddInstrFor(agent.id)" />
                     <InstrLeaf v-for="ins in rootInstrs(agent.id, listForAgent(agent.id))" :key="ins.id" :ins="ins" :indent="2" :drag-scope="agent.id" :draggable="canAddInstrFor(agent.id)" />
                     <EmptyHint v-if="loadedGroups.has(agent.id) && listForAgent(agent.id).length === 0 && !hasDirs(agent.id)" :text="$t('agentsPage.noInstructions')" :add="canAddInstrFor(agent.id)" @add="openCreate({ agentId: agent.id })" :pad="48" />
@@ -1236,21 +1251,56 @@ const search = ref('')
 // flat grouped results view instead of the lazy tree (the tree only has loaded
 // rows, so client-side search can't see everything).
 let searchTimer: any = null
+let searchRequest = 0
 const runSearch = async (q: string) => {
   const term = (q || '').trim()
+  const req = ++searchRequest
   if (!term) { searchResults.value = null; searching.value = false; return }
   searching.value = true
   try {
     const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 30 } })
+    // A newer query superseded this response.
+    if (req !== searchRequest) return
     searchResults.value = { agents: data.value?.agents || [], instructions: data.value?.instructions || [] }
-  } catch (e) { console.error(e); searchResults.value = { agents: [], instructions: [] } }
-  finally { searching.value = false }
+  } catch (e) { console.error(e); if (req === searchRequest) searchResults.value = { agents: [], instructions: [] } }
+  finally { if (req === searchRequest) searching.value = false }
+}
+// Per-agent instruction search (the search row inside an agent's Instructions
+// group). Server-side, so it matches the body too — list rows only carry a
+// preview. Keyed by agent id; a null result means no search is active there.
+const agentSearch = ref<Record<string, string>>({})
+const agentSearchResults = ref<Record<string, Instruction[] | null>>({})
+const agentSearching = ref<Set<string>>(new Set())
+const agentSearchTimers: Record<string, any> = {}
+const agentSearchRequests: Record<string, number> = {}
+const setAgentSearching = (id: string, on: boolean) => {
+  const next = new Set(agentSearching.value); on ? next.add(id) : next.delete(id); agentSearching.value = next
+}
+const runAgentSearch = async (id: string, term: string, req: number) => {
+  setAgentSearching(id, true)
+  try {
+    const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 50, data_source_id: id } })
+    if (req !== agentSearchRequests[id]) return
+    agentSearchResults.value = { ...agentSearchResults.value, [id]: data.value?.instructions || [] }
+  } catch (e) { console.error(e); if (req === agentSearchRequests[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] } }
+  finally { if (req === agentSearchRequests[id]) setAgentSearching(id, false) }
+}
+const onAgentSearch = (id: string, q: string) => {
+  agentSearch.value = { ...agentSearch.value, [id]: q }
+  if (agentSearchTimers[id]) clearTimeout(agentSearchTimers[id])
+  const term = q.trim()
+  const req = agentSearchRequests[id] = (agentSearchRequests[id] || 0) + 1
+  if (!term) { agentSearchResults.value = { ...agentSearchResults.value, [id]: null }; setAgentSearching(id, false); return }
+  // Swap the group to the results view (spinner) right away, not after the debounce.
+  if (!agentSearchResults.value[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] }
+  setAgentSearching(id, true)
+  agentSearchTimers[id] = setTimeout(() => runAgentSearch(id, term, req), 250)
 }
 watch(search, (q) => {
   if (searchTimer) clearTimeout(searchTimer)
   // Typing a query leaves the "Pending changes" view (search takes over the pane).
   if (q.trim() && pendingView.value) pendingView.value = false
-  if (!q.trim()) { searchResults.value = null; searching.value = false; return }
+  if (!q.trim()) { searchRequest++; searchResults.value = null; searching.value = false; return }
   searchTimer = setTimeout(() => runSearch(q), 250)
 })
 
