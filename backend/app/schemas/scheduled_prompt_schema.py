@@ -13,6 +13,10 @@ class ScheduledPromptCreate(BaseModel):
     # fresh report per run.
     spawn_new_report: Optional[bool] = False
     notification_subscribers: Optional[List[NotificationSubscriber]] = None
+    # Set when the task starts from a built-in template (the customize flow
+    # creates through the regular endpoint). Must name a known template; the
+    # catalog then counts this task as that template's enabled instance.
+    template_key: Optional[str] = None
 
 
 class ScheduledPromptUpdate(BaseModel):
@@ -39,6 +43,9 @@ class ScheduledPromptSchema(BaseModel):
     # list without opening it. Derived, not stored.
     last_run_status: Optional[str] = None
     notification_subscribers: Optional[list] = None
+    # Set when the task was created from a built-in template; such rows only
+    # accept schedule/notification edits.
+    template_key: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

@@ -1,37 +1,56 @@
 <template>
   <div>
+      <!-- Templates stay off the page: behind the "From template" menu next to
+           New task, and inside the empty state. This instance renders no
+           markup of its own — it hosts the details/customize modals. -->
+      <SuggestedTemplates ref="suggestedRef" variant="menu" @changed="onTemplatesChanged" />
+
+      <!-- Header row (description + New task + From template) shows in every
+           state, so the actions sit in the same place with or without tasks. -->
+      <div class="mb-5">
+        <div class="flex items-center justify-between">
+          <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('automations.scheduledDescription') }}</div>
+          <div class="flex items-center gap-1">
+            <button
+              @click="openNewTask"
+              :disabled="creatingTask"
+              class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
+            >
+              <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
+              <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
+              {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
+            </button>
+            <!-- Templates not set up yet open in a side drawer — no permanent section -->
+            <button
+              v-if="hasTemplates"
+              type="button"
+              data-testid="from-template"
+              class="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-700 dark:text-gray-300 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 rounded-md transition-colors"
+              @click="suggestedRef?.openDrawer()"
+            >
+              <UIcon name="heroicons-sparkles" class="w-3.5 h-3.5 text-blue-500" />
+              {{ $t('scheduledTemplates.fromTemplate') }}
+            </button>
+          </div>
+        </div>
+      </div>
+
       <!-- Full-page empty state (no tasks, no active search) -->
-      <div v-if="!isLoading && tasks.length === 0 && !searchTerm && statusFilter === 'all'" class="flex flex-col items-center justify-center text-center py-20 px-4">
-        <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-sm opacity-90 select-none pointer-events-none" />
+      <div v-if="!isLoading && tasks.length === 0 && !searchTerm && statusFilter === 'all'" class="flex flex-col items-center justify-center text-center py-10 px-4">
+        <img src="/assets/empty-states/empty-pond.png" alt="" class="w-full max-w-xs opacity-90 select-none pointer-events-none" />
         <h3 class="mt-2 text-sm font-medium text-gray-900 dark:text-white">{{ $t('scheduled.empty') }}</h3>
         <p class="mt-1 max-w-xs text-xs leading-relaxed text-gray-500 dark:text-gray-400">{{ $t('scheduled.emptyDescription') }}</p>
-        <button
-          @click="openNewTask"
-          :disabled="creatingTask"
-          class="mt-5 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
-        >
-          <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
-          <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
-          {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
-        </button>
+
+        <!-- New task lives in the header row above; here, the templates not
+             set up yet as a starting point. -->
+        <div class="mt-6 w-full max-w-2xl">
+          <SuggestedTemplates ref="suggestedEmptyRef" variant="cards" @changed="onTemplatesChanged" />
+        </div>
       </div>
 
       <template v-else>
       <div class="mb-5">
-        <div class="flex items-center justify-between">
-          <div class="text-xs text-gray-500 dark:text-gray-400">{{ $t('automations.scheduledDescription') }}</div>
-          <button
-            @click="openNewTask"
-            :disabled="creatingTask"
-            class="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-white bg-blue-500 hover:bg-blue-600 rounded-md transition-colors disabled:opacity-50"
-          >
-            <Spinner v-if="creatingTask" class="w-3 h-3 animate-spin" />
-            <UIcon v-else name="heroicons-plus" class="w-3.5 h-3.5" />
-            {{ creatingTask ? $t('scheduled.creating') : $t('scheduled.newTask') }}
-          </button>
-        </div>
-
-        <div class="mt-3 flex items-center gap-2">
+        <div class="flex items-center gap-2">
           <input v-model="searchTerm" type="text" :placeholder="$t('scheduled.searchPlaceholder')" class="w-full text-sm border rounded px-3 py-2 dark:bg-gray-800 dark:border-gray-700 dark:text-gray-100 dark:placeholder-gray-500" />
         </div>
 
@@ -71,6 +90,12 @@
             <div class="min-w-0 flex-1">
               <div class="text-sm font-medium text-gray-900 dark:text-white mb-1 line-clamp-2" :class="{ 'opacity-50': !task.is_active }">
                 {{ task.title || task.prompt?.content || $t('scheduled.untitledTask') }}
+                <span
+                  v-if="task.template_key"
+                  class="ms-1.5 inline-flex items-center align-middle px-1.5 py-0.5 rounded text-[10px] font-medium bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400"
+                >
+                  {{ $t('scheduledTemplates.templateBadge') }}
+                </span>
               </div>
               <div class="flex items-center gap-2">
                 <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ getCronLabel(task.cron_schedule) }}</span>
@@ -161,6 +186,7 @@
 <script setup lang="ts">
 import Spinner from '~/components/Spinner.vue'
 import ScheduledPromptModal from '~/components/ScheduledPromptModal.vue'
+import SuggestedTemplates from '~/components/automations/SuggestedTemplates.vue'
 
 const toast = useToast()
 const { t } = useI18n()
@@ -190,6 +216,20 @@ const creatingTask = ref(false)
 const deletingId = ref<string | null>(null)
 const togglingId = ref<string | null>(null)
 
+// Templates (menu + empty state): an enable/disable there changes the task list,
+// and pausing/deleting a template-sourced task here changes its toggle there.
+const suggestedRef = ref<InstanceType<typeof SuggestedTemplates> | null>(null)
+const suggestedEmptyRef = ref<InstanceType<typeof SuggestedTemplates> | null>(null)
+// "From template" shows only while there is a template left to set up.
+const hasTemplates = computed(() => ((suggestedRef.value as any)?.available || []).length > 0)
+const onTemplatesChanged = () => {
+  currentPage.value = 1
+  fetchTasks(1, searchTerm.value)
+}
+const refreshSuggestedFor = (task: any) => {
+  if (task?.template_key) { suggestedRef.value?.refresh(); suggestedEmptyRef.value?.refresh() }
+}
+
 // Pause/resume in place. Optimistic: flip locally, revert on failure. A task
 // that no longer matches the current status tab drops out of the list.
 const toggleActive = async (task: any) => {
@@ -207,6 +247,7 @@ const toggleActive = async (task: any) => {
       tasks.value = tasks.value.filter((t: any) => t.id !== task.id)
       pagination.value.total = Math.max(0, (pagination.value.total || 1) - 1)
     }
+    refreshSuggestedFor(task)
   } catch (error) {
     console.error('Error toggling scheduled task:', error)
     task.is_active = !next
@@ -267,6 +308,7 @@ const deleteTask = async (task: any) => {
     // Drop it locally so the list updates without a full refetch.
     tasks.value = tasks.value.filter((t: any) => t.id !== task.id)
     pagination.value.total = Math.max(0, (pagination.value.total || 1) - 1)
+    refreshSuggestedFor(task)
     toast.add({ title: t('scheduled.toastDeleted'), color: 'green' })
   } catch (error) {
     console.error('Error deleting scheduled task:', error)
