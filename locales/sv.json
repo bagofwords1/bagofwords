@@ -2861,7 +2861,11 @@
       "materialized_views": "Läser materialiserade vyer",
       "relationships": "Läser relationer",
       "metadata_fallback": "Läser grundläggande metadata",
-      "discovering": "Hittar data"
+      "discovering": "Hittar data",
+      "connecting": "Ansluter till källan",
+      "saving": "Sparar katalog",
+      "warming": "Förbereder datacache",
+      "syncing_agents": "Synkroniserar till agenter"
     },
     "setupStatus": "Anslutningsstatus",
     "setupReadyHint": "Ange anslutningsuppgifterna. Vi kontrollerar åtkomsten och hittar tillgängliga data.",
@@ -2869,6 +2873,9 @@
     "setupConnecting": "Ansluter…",
     "setupCurrentStage": "Aktuellt steg",
     "setupElapsed": "Tid: {time}",
+    "setupLastActivity": "Senaste aktivitet: för {time} sedan",
+    "setupNoActivity": "Ingen aktivitet på {time} – indexeringen kan ha fastnat",
+    "setupQueued": "I kö – väntar på att andra indexeringar ska bli klara",
     "setupPreviousStages": "Tidigare steg",
     "title": "Anslutningar",
     "subtitle": "Hantera dina databasanslutningar.",

@@ -2953,7 +2953,11 @@
       "materialized_views": "קריאת תצוגות ממומשות",
       "relationships": "קריאת קשרים",
       "metadata_fallback": "קריאת מטא־נתונים בסיסיים",
-      "discovering": "גילוי נתונים"
+      "discovering": "גילוי נתונים",
+      "connecting": "מתחבר למקור",
+      "saving": "שומר קטלוג",
+      "warming": "מכין מטמון נתונים",
+      "syncing_agents": "מסנכרן לסוכנים"
     },
     "setupStatus": "מצב החיבור",
     "setupReadyHint": "מלאו את פרטי החיבור. נבדוק את הגישה ונגלה את הנתונים הזמינים.",
@@ -2961,6 +2965,9 @@
     "setupConnecting": "מתחבר…",
     "setupCurrentStage": "השלב הנוכחי",
     "setupElapsed": "זמן שחלף: {time}",
+    "setupLastActivity": "פעילות אחרונה: לפני {time}",
+    "setupNoActivity": "אין פעילות כבר {time} — ייתכן שהאינדוקס תקוע",
+    "setupQueued": "בתור — ממתין לסיום אינדוקסים אחרים",
     "setupPreviousStages": "שלבים קודמים",
     "title": "חיבורים",
     "subtitle": "ניהול החיבורים שלכם למסדי הנתונים.",
