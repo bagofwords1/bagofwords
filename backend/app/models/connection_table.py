@@ -8,10 +8,10 @@ from app.ai.prompt_formatters import Table, TableColumn, ForeignKey as PromptFor
 
 
 # `kind` values. Deliberately NOT "view": a view implies non-materialized, which
-# is the opposite of what a custom query is — it is always materialized to a
+# is the opposite of what a custom table is — it is always materialized to a
 # local artifact and served from there.
 KIND_TABLE = "table"   # introspected from the source catalog
-KIND_BOW = "bow"       # BOW-managed custom query, materialized to an artifact
+KIND_BOW = "bow"       # BOW-managed custom table, materialized to an artifact
 
 
 class ConnectionTable(BaseSchema):
@@ -20,7 +20,7 @@ class ConnectionTable(BaseSchema):
     Stores the actual schema information (columns, PKs, FKs, metrics).
     DataSourceTable (DomainTable) references this to enable per-domain table activation.
 
-    Also hosts BOW-managed **custom queries** (``kind='bow'``): admin-authored SQL
+    Also hosts BOW-managed **custom tables** (``kind='bow'``): admin-authored SQL
     that is materialized to an encrypted local DuckDB artifact on a schedule and
     served to agents from there instead of the source. Reusing this model (rather
     than a parallel one) means agent activation via ``DataSourceTable``, per-user
@@ -35,7 +35,7 @@ class ConnectionTable(BaseSchema):
     name = Column(String, nullable=False)
     connection_id = Column(String(36), ForeignKey('connections.id'), nullable=False, index=True)
 
-    # 'table' (introspected) | 'bow' (custom query). See KIND_* above.
+    # 'table' (introspected) | 'bow' (custom table). See KIND_* above.
     kind = Column(String, nullable=False, default=KIND_TABLE, server_default=KIND_TABLE)
 
     # --- kind='bow' only -----------------------------------------------------

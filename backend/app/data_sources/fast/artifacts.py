@@ -1,6 +1,6 @@
-"""Encrypted DuckDB artifacts for BOW custom queries.
+"""Encrypted DuckDB artifacts for BOW custom tables.
 
-A custom query is materialized into a **DuckDB database file encrypted at rest**
+A custom table is materialized into a **DuckDB database file encrypted at rest**
 rather than a bare Parquet file. That is a security boundary, not just at-rest
 compliance:
 

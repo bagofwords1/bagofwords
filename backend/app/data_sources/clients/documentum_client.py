@@ -38,7 +38,7 @@ from app.data_sources.clients._document_text import (
     DOC_EXTS, doc_text_is_usable, extract_document_text_from_bytes,
 )
 from app.data_sources.clients._file_source_common import (
-    DocumentText, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
+    DocumentText, FileTooLargeError, GlobScopeError, NamedBytes, globs_from_str, path_matches_globs,
 )
 from app.data_sources.clients.graph_drive_client import (
     TEXT_EXTS, _ext, _extract_pdf_pages_from_bytes, _trim_to_data,
@@ -507,7 +507,7 @@ class DocumentumClient(DataSourceClient):
         entry = self._entry(props, "", "")
         limit = min(self._max_bytes, max_bytes) if max_bytes is not None else self._max_bytes
         if limit < 1 or entry["size"] > limit:
-            raise ValueError("File exceeds the configured byte limit; increase it explicitly to read this file.")
+            raise FileTooLargeError("File exceeds the configured byte limit; increase it explicitly to read this file.")
         content_res = self._request(f"/objects/{props['r_object_id']}/contents/content", params={"media-url-policy": "local"})
         href = next((l.get("href") for l in content_res.get("links") or [] if l.get("rel") == "enclosure"), None)
         if not href:

@@ -6,6 +6,10 @@ from pydantic import BaseModel, Field
 class CustomQueryCreate(BaseModel):
     name: str
     definition_sql: str
+    # Where the query runs, for connectors addressed per target (Power BI: the
+    # semantic model, {datasetId, workspaceId, datasetName}). Omitted means the
+    # source resolves it from the query text.
+    target: Optional[dict] = None
     # The agent it was created from — activated there only. Every other agent on
     # the connection gets an inactive row, same as a regular table.
     activate_for_datasource_id: Optional[str] = None
@@ -18,6 +22,8 @@ class CustomQueryCreate(BaseModel):
 class CustomQueryUpdate(BaseModel):
     name: Optional[str] = None
     definition_sql: Optional[str] = None
+    # Sent as an empty dict to clear an explicit target; omitted keeps it.
+    target: Optional[dict] = None
     description: Optional[str] = None
     refresh_schedule_mode: Optional[str] = None
     refresh_interval_minutes: Optional[int] = None
@@ -80,6 +86,18 @@ class CustomQueryRlsOptions(BaseModel):
 
 class CustomQueryPreviewRequest(BaseModel):
     definition_sql: str
+    target: Optional[dict] = None
+
+
+class CustomQueryTarget(BaseModel):
+    """One place a custom table on this connection can run against — a Power
+    BI semantic model, with the tables the catalog knows in it."""
+
+    datasetId: str
+    workspaceId: Optional[str] = None
+    workspaceName: Optional[str] = None
+    datasetName: Optional[str] = None
+    tables: List[str] = []
 
 
 class CustomQueryPreviewResponse(BaseModel):
@@ -126,12 +144,15 @@ class CustomQuerySchema(BaseModel):
     rls_mode: Optional[str] = None
     rls_policy: Optional[dict] = None
     rls_default_deny: bool = True
+    target: Optional[dict] = None
 
     class Config:
         from_attributes = True
 
     @classmethod
     def from_model(cls, cq, active_agent_count: int = 0, next_run_at=None) -> "CustomQuerySchema":
+        meta = cq.metadata_json if isinstance(getattr(cq, "metadata_json", None), dict) else {}
+        target = meta.get("target") if isinstance(meta.get("target"), dict) else None
         return cls(
             id=str(cq.id),
             name=cq.name,
@@ -156,4 +177,5 @@ class CustomQuerySchema(BaseModel):
             rls_mode=getattr(cq, "rls_mode", None),
             rls_policy=getattr(cq, "rls_policy", None),
             rls_default_deny=bool(getattr(cq, "rls_default_deny", True)),
+            target=target or None,
         )

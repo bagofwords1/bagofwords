@@ -8,7 +8,7 @@ from sqlalchemy.orm import lazyload, selectinload
 
 from app.core.permissions_decorator import requires_permission
 from app.core.permission_resolver import user_can_access_data_source
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.data_source import DataSource
 from app.models.organization_settings import OrganizationSettings
 from app.models.report import Report
@@ -35,7 +35,7 @@ def _enabled(config, key, default=False):
     return value is True
 
 
-@requires_permission("view_reports", model=Artifact, owner_only=True, allow_public=True)
+@requires_permission("view_reports", model=ArtifactVersion, owner_only=True, allow_public=True)
 async def _can_view_artifact(*, artifact_id, current_user, organization, db):
     return True
 
@@ -85,12 +85,15 @@ async def browser_policy(ctx, artifact_id=None):
             return policy
         access = dict(current_user=user, organization=org, db=db)
         if _enabled(config, "enable_artifact_verification", True):
-            stmt = select(Artifact.id).where(
-                Artifact.report_id == str(report.id), Artifact.organization_id == str(org.id),
-                Artifact.mode == "page", Artifact.deleted_at.is_(None),
+            # Version ids are what the API hands out and what the preview
+            # service opens (/api/artifacts/{id}); `mode` reads through to
+            # the parent Artifact.
+            stmt = select(ArtifactVersion.id).where(
+                ArtifactVersion.report_id == str(report.id), ArtifactVersion.organization_id == str(org.id),
+                ArtifactVersion.mode == "page", ArtifactVersion.deleted_at.is_(None),
             )
             if artifact_id is not None:
-                stmt = stmt.where(Artifact.id == str(artifact_id))
+                stmt = stmt.where(ArtifactVersion.id == str(artifact_id))
             for candidate in (await db.execute(stmt)).scalars():
                 try:
                     await _can_view_artifact(artifact_id=candidate, **access)

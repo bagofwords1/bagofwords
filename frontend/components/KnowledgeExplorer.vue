@@ -54,7 +54,10 @@
         <div class="px-2 pt-2.5 pb-2 flex items-center gap-1.5">
           <div class="relative flex-1">
             <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
-            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 pe-2 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" />
+            <input v-model="search" type="text" :placeholder="$t('agentsPage.searchPlaceholder')" class="w-full h-9 ps-8 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="search ? 'pe-8' : 'pe-2'" @keydown.escape="search = ''" />
+            <button v-if="search" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="search = ''">
+              <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+            </button>
           </div>
           <UPopover :popper="{ placement: 'bottom-end' }" :ui="{ ring: '', shadow: 'shadow-md' }">
             <button type="button" class="relative h-8 w-8 flex items-center justify-center rounded-md border border-gray-200 dark:border-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800/50" :title="$t('agentsPage.filters')">
@@ -264,7 +267,7 @@
                 <div v-if="uploadingAgent === agent.id" class="text-[11px] text-gray-400 dark:text-gray-500 italic py-1" style="padding-inline-start:48px">{{ $t('agentsPage.uploading') }}</div>
               </TreeGroup>
 
-              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :open="isOpen('instr:' + agent.id)" @toggle="expand('instr:' + agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
+              <TreeGroup v-if="!agentAccessBlocked(agent)" :label="$t('agentsPage.instructions')" icon="i-heroicons-document-text" v-bind="rootDropzoneAttrs(agent.id)" :count="loadedGroups.has(agent.id) ? listForAgent(agent.id).length : (agentCount(agent.id) || undefined)" :addable="canAddInstrFor(agent.id)" :folderable="canAddInstrFor(agent.id)" :indent="1" :active="panelView?.kind === 'instructions' && panelView?.agentId === agent.id" :open="isOpen('instr:' + agent.id)" @toggle="onPanelRowClick('instructions', agent.id)" @add="openCreate({ agentId: agent.id })" @folder="newDirectory(agent.id)">
                 <div v-if="groupLoading(agent.id)" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:48px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
                 <template v-else>
                   <div>
@@ -574,8 +577,32 @@
             <button class="h-7 w-7 rounded-md flex items-center justify-center text-gray-400 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800/70 shrink-0" @click="closePanel"><UIcon name="i-heroicons-x-mark" class="w-4 h-4" /></button>
           </div>
           <div class="flex-1 overflow-auto">
+            <!-- Instructions: the agent's full list, with a server-side search
+                 over titles AND bodies (the tree only has titles). Rows are the
+                 same InstrLeaf as the tree, so status/pending/load-mode read
+                 the same, and a click opens the instruction in this pane. -->
+            <div v-if="panelView.kind === 'instructions'" :key="'instructions-' + panelView.agentId" class="flex flex-col h-full min-h-0" data-testid="agent-instructions-panel">
+              <div class="shrink-0 px-3 pt-3 pb-2 flex items-center gap-2">
+                <div class="relative flex-1">
+                  <UIcon name="i-heroicons-magnifying-glass" class="absolute start-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 dark:text-gray-500" />
+                  <input ref="panelSearchInput" :value="agentSearch[panelView.agentId] || ''" type="text" :placeholder="$t('agentsPage.searchAgentInstructions')" data-testid="agent-instructions-search" class="w-full h-8 ps-8 text-[13px] bg-gray-50 dark:bg-gray-800 border border-gray-200 dark:border-gray-700 dark:text-gray-100 rounded-md outline-none focus:border-gray-400 focus:bg-white dark:focus:bg-gray-800 placeholder:text-gray-400 dark:placeholder:text-gray-500" :class="agentSearch[panelView.agentId] ? 'pe-8' : 'pe-2'" @input="onAgentSearch(panelView.agentId, ($event.target as HTMLInputElement).value)" @keydown.escape="onAgentSearch(panelView.agentId, '')" />
+                  <button v-if="agentSearch[panelView.agentId]" type="button" class="absolute end-1.5 top-1/2 -translate-y-1/2 h-6 w-6 flex items-center justify-center rounded text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700" :title="$t('agentsPage.clearSearch')" :aria-label="$t('agentsPage.clearSearch')" @click="onAgentSearch(panelView.agentId, '')">
+                    <UIcon name="i-heroicons-x-mark" class="w-3.5 h-3.5" />
+                  </button>
+                </div>
+                <span v-if="!panelInstructionsLoading" class="text-xs tabular-nums text-gray-400 dark:text-gray-500 shrink-0" data-testid="agent-instructions-count">{{ panelInstructions.length }}</span>
+                <button v-if="canAddInstrFor(panelView.agentId)" type="button" class="h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-800 text-gray-600 dark:text-gray-400 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50 inline-flex items-center gap-1 shrink-0" @click="openCreate({ agentId: panelView.agentId })"><UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />{{ $t('agentsPage.addShort') }}</button>
+              </div>
+              <div class="flex-1 min-h-0 overflow-y-auto px-2 pb-3 space-y-0.5">
+                <div v-if="panelInstructionsLoading" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500" style="padding-inline-start:20px"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
+                <template v-else>
+                  <InstrLeaf v-for="ins in panelInstructions" :key="ins.id" :ins="ins" :indent="0" snippet />
+                  <EmptyHint v-if="!panelInstructions.length" :text="agentSearch[panelView.agentId] ? $t('agentsPage.noResults') : $t('agentsPage.noInstructions')" :add="!agentSearch[panelView.agentId] && canAddInstrFor(panelView.agentId)" @add="openCreate({ agentId: panelView.agentId })" :pad="20" />
+                </template>
+              </div>
+            </div>
             <AgentQueriesPanel
-              v-if="panelView.kind === 'queries'"
+              v-else-if="panelView.kind === 'queries'"
               :key="'queries-' + panelView.agentId"
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
@@ -614,10 +641,11 @@
               />
               <AgentFilesPanel
                 v-else-if="panelView.kind === 'files'"
-                :key="'files-' + panelView.agentId"
+                :key="'files-' + panelView.agentId + '-' + filesRefreshKey"
                 :ds-id="panelView.agentId"
                 :can-update="panelCanUpdate"
                 @edit-connection="openConnectionDetail"
+                @changed="refreshAgentFiles(panelView.agentId)"
               />
             </div>
           </div>
@@ -1169,6 +1197,7 @@ import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
 import ToolsSelector from '~/components/datasources/ToolsSelector.vue'
 import AgentFilesPanel from '~/components/datasources/AgentFilesPanel.vue'
+import { fileIcon } from '~/utils/fileTree'
 import AddMCPModal from '~/components/AddMCPModal.vue'
 import AddCustomAPIModal from '~/components/AddCustomAPIModal.vue'
 import TrackedChangesView from '~/components/instructions/TrackedChangesView.vue'
@@ -1234,21 +1263,57 @@ const search = ref('')
 // flat grouped results view instead of the lazy tree (the tree only has loaded
 // rows, so client-side search can't see everything).
 let searchTimer: any = null
+let searchRequest = 0
 const runSearch = async (q: string) => {
   const term = (q || '').trim()
+  const req = ++searchRequest
   if (!term) { searchResults.value = null; searching.value = false; return }
   searching.value = true
   try {
     const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 30 } })
+    // A newer query superseded this response.
+    if (req !== searchRequest) return
     searchResults.value = { agents: data.value?.agents || [], instructions: data.value?.instructions || [] }
-  } catch (e) { console.error(e); searchResults.value = { agents: [], instructions: [] } }
-  finally { searching.value = false }
+  } catch (e) { console.error(e); if (req === searchRequest) searchResults.value = { agents: [], instructions: [] } }
+  finally { if (req === searchRequest) searching.value = false }
+}
+// Per-agent instruction search (the search box in the Instructions pane that
+// an agent's Instructions row opens). Server-side, so it matches the body too —
+// list rows only carry a preview. Keyed by agent id so each agent keeps its
+// own query; a null result means no search is active there.
+const agentSearch = ref<Record<string, string>>({})
+const agentSearchResults = ref<Record<string, Instruction[] | null>>({})
+const agentSearching = ref<Set<string>>(new Set())
+const agentSearchTimers: Record<string, any> = {}
+const agentSearchRequests: Record<string, number> = {}
+const setAgentSearching = (id: string, on: boolean) => {
+  const next = new Set(agentSearching.value); on ? next.add(id) : next.delete(id); agentSearching.value = next
+}
+const runAgentSearch = async (id: string, term: string, req: number) => {
+  setAgentSearching(id, true)
+  try {
+    const { data } = await useMyFetch<any>('/api/knowledge/search', { method: 'GET', query: { q: term, limit: 50, data_source_id: id } })
+    if (req !== agentSearchRequests[id]) return
+    agentSearchResults.value = { ...agentSearchResults.value, [id]: data.value?.instructions || [] }
+  } catch (e) { console.error(e); if (req === agentSearchRequests[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] } }
+  finally { if (req === agentSearchRequests[id]) setAgentSearching(id, false) }
+}
+const onAgentSearch = (id: string, q: string) => {
+  agentSearch.value = { ...agentSearch.value, [id]: q }
+  if (agentSearchTimers[id]) clearTimeout(agentSearchTimers[id])
+  const term = q.trim()
+  const req = agentSearchRequests[id] = (agentSearchRequests[id] || 0) + 1
+  if (!term) { agentSearchResults.value = { ...agentSearchResults.value, [id]: null }; setAgentSearching(id, false); return }
+  // Swap the pane to the results view (spinner) right away, not after the debounce.
+  if (!agentSearchResults.value[id]) agentSearchResults.value = { ...agentSearchResults.value, [id]: [] }
+  setAgentSearching(id, true)
+  agentSearchTimers[id] = setTimeout(() => runAgentSearch(id, term, req), 250)
 }
 watch(search, (q) => {
   if (searchTimer) clearTimeout(searchTimer)
   // Typing a query leaves the "Pending changes" view (search takes over the pane).
   if (q.trim() && pendingView.value) pendingView.value = false
-  if (!q.trim()) { searchResults.value = null; searching.value = false; return }
+  if (!q.trim()) { searchRequest++; searchResults.value = null; searching.value = false; return }
   searchTimer = setTimeout(() => runSearch(q), 250)
 })
 
@@ -2023,19 +2088,41 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 }
 
 // right-pane panel for Tables/Tools/Evals/Settings
-const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
+const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), instructions: t('agentsPage.instructions'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'files' | 'queries' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
   panelView.value = { kind, agentId }
+  if (kind === 'instructions') {
+    // The pane lists the same rows as the tree group; make sure they are loaded.
+    loadGroup(agentId)
+    // A query left from an earlier visit may be stale (rows edited since) — re-run it.
+    if ((agentSearch.value[agentId] || '').trim()) onAgentSearch(agentId, agentSearch.value[agentId])
+    if (!isMobile.value) nextTick(() => panelSearchInput.value?.focus())
+  }
 }
+const panelSearchInput = ref<HTMLInputElement | null>(null)
+// Rows for the Instructions pane: the scoped search hits while a query is
+// active, otherwise the agent's full list. The tree's filter popover applies
+// to both, as it does to the tree.
+const panelInstructions = computed(() => {
+  const id = panelView.value?.kind === 'instructions' ? panelView.value.agentId : ''
+  if (!id) return []
+  const hits = agentSearchResults.value[id]
+  return hits ? applyFilters(hits) : listForAgent(id)
+})
+const panelInstructionsLoading = computed(() => {
+  const id = panelView.value?.kind === 'instructions' ? panelView.value.agentId : ''
+  if (!id) return false
+  return agentSearchResults.value[id] ? agentSearching.value.has(id) : groupLoading(id)
+})
 // Org-wide evals view — not bound to any agent.
 const openGlobalEvals = () => {
   clearRightPane()
@@ -2068,9 +2155,10 @@ const onAgentSettingsUpdated = async () => { await fetchAgents(); if (agentView.
 const onAgentDeleted = async () => { closePanel(); await Promise.all([fetchAgents(), fetchConnections()]) }
 // Row-click on Tables/Tools opens the editable panel immediately (like clicking
 // an agent). Re-clicking the already-open row just collapses the tree node.
-const onPanelRowClick = (kind: 'tables' | 'tools' | 'files', agentId: string) => {
-  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(kind + ':' + agentId); return }
-  if (!isOpen(kind + ':' + agentId)) expand(kind + ':' + agentId)
+const onPanelRowClick = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
+  const key = (kind === 'instructions' ? 'instr:' : kind + ':') + agentId
+  if (panelView.value?.kind === kind && panelView.value?.agentId === agentId) { expand(key); return }
+  if (!isOpen(key)) expand(key)
   openPanel(kind, agentId)
 }
 
@@ -2306,6 +2394,11 @@ const saveStarters = async () => {
 }
 // reload tables / tools from the tree
 const tablesRefreshKey = ref(0)
+// The Files tree group and AgentFilesPanel hold separate copies of the same
+// list, so a change in one is invisible to the other. Bumping this remounts
+// the open panel so it re-fetches; the panel's `changed` event drives the
+// opposite direction via refreshAgentFiles().
+const filesRefreshKey = ref(0)
 const reloadTables = async (id: string) => {
   try { await useMyFetch(`/data_sources/${id}/refresh_schema`, { method: 'GET' }) } catch {}
   agentLoaded.value.delete(id); await loadAgentMeta(id)
@@ -2353,6 +2446,7 @@ const onUploadInput = async (e: Event) => {
     if (ok) toast.add({ title: t('agentsPage.toastUploaded', { n: ok }), color: 'green' })
     agentLoaded.value.delete(agentId)
     await loadAgentMeta(agentId)
+    filesRefreshKey.value++  // force the open AgentFilesPanel to re-fetch
     if (!isOpen('files:' + agentId)) expand('files:' + agentId)
   } catch (err: any) { toast.add({ title: t('agentsPage.toastUploadFailed'), description: err?.message, color: 'red' }) }
   finally { uploadingAgent.value = null; if (input) input.value = '' }
@@ -2645,18 +2739,11 @@ const backToTree = () => {
   editing.value = false
 }
 // The counts in the agent overview act as shortcuts into the tree sections,
-// mirroring a click on the matching tree row. Tables/Tools/Files open their
-// editable panel (which also expands the tree node); Instructions has no
-// right-pane panel, so we expand its tree node instead. On mobile the tree is
-// hidden behind the detail pane, so for Instructions we fall back to it.
+// mirroring a click on the matching tree row: each opens its right-pane panel
+// (which also expands the tree node).
 const openAgentSection = (kind: 'tables' | 'tools' | 'files' | 'instructions', agentId: string) => {
   expand('agent:' + agentId, true)
-  if (kind === 'instructions') {
-    expand('instr:' + agentId, true)
-    if (isMobile.value) backToTree()
-  } else {
-    onPanelRowClick(kind, agentId)
-  }
+  onPanelRowClick(kind, agentId)
 }
 // perms
 const canApprove = computed(() => useCanAny('manage_instructions', 'data_source'))
@@ -3379,6 +3466,18 @@ const fetchAgents = async () => {
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
+// Panel -> tree half of the files sync. Deliberately narrower than
+// loadAgentMeta: an upload or delete in the panel changes only the uploaded
+// files, so re-pulling the agent's tables, tools and file connections would
+// be waste. Feeds filesGroupCount() too, which counts off agentFiles.
+const refreshAgentFiles = async (agentId: string) => {
+  if (!agentId) return
+  try {
+    const { data } = await useMyFetch<any[]>(`/data_sources/${agentId}/files`, { method: 'GET' })
+    agentFiles.value[agentId] = data.value || []
+    agentFiles.value = { ...agentFiles.value }
+  } catch { /* leave the last known list in place */ }
+}
 // Group an agent's tools by their connection (MCP server / custom API), resolving
 // the connection name + type from the agent's connections for the tree headers.
 // Count shown on the Files tree node: uploads + total glob rules.
@@ -3445,14 +3544,6 @@ const loadAgentMeta = async (id: string) => {
 
 // ── File preview ────────────────────────────────────────
 const TEXT_EXT = /\.(md|markdown|txt|csv|tsv|json|sql|ya?ml|log|xml|html?|ini|toml|env|sh)$/i
-const fileIcon = (ct?: string, name?: string) => {
-  const c = ct || ''
-  if (/^image\//.test(c) || /\.(png|jpe?g|gif|webp|svg)$/i.test(name || '')) return 'i-heroicons-photo'
-  if (c === 'application/pdf' || /\.pdf$/i.test(name || '')) return 'i-heroicons-document'
-  if (/csv|excel|spreadsheet/.test(c) || /\.(csv|tsv|xlsx?)$/i.test(name || '')) return 'i-heroicons-table-cells'
-  if (/^text\/|json/.test(c) || TEXT_EXT.test(name || '')) return 'i-heroicons-document-text'
-  return 'i-heroicons-paper-clip'
-}
 const isImage = (f: any) => /^image\//.test(f?.content_type || '') || /\.(png|jpe?g|gif|webp|svg)$/i.test(f?.filename || '')
 const isPdf = (f: any) => f?.content_type === 'application/pdf' || /\.pdf$/i.test(f?.filename || '')
 const isText = (f: any) => /^text\/|json|csv/.test(f?.content_type || '') || TEXT_EXT.test(f?.filename || '')
@@ -3466,6 +3557,7 @@ const deleteFile = async (agentId: string, f: any) => {
     await useMyFetch(`/data_sources/${agentId}/files/${f.id}`, { method: 'DELETE' })
     agentFiles.value[agentId] = (agentFiles.value[agentId] || []).filter((x: any) => x.id !== f.id)
     agentFiles.value = { ...agentFiles.value }
+    filesRefreshKey.value++  // force the open AgentFilesPanel to re-fetch
     if (previewFile.value?.id === f.id) closePreview()
     toast.add({ title: t('agentsPage.toastFileDeleted'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
@@ -3805,6 +3897,16 @@ const restore = async (v: any) => {
 // Tree/list rows carry `preview` instead of the body; the detail pane still has
 // the full `text` once an instruction is opened.
 const displayTitle = (ins: Instruction) => instructionRowLabel(ins)
+// One line of body for the pane rows: the light row's `preview`, else the full
+// row's text. Markdown heading marks and the title line itself are dropped so
+// the snippet never just repeats the label above it.
+const instructionSnippet = (ins: Instruction) => {
+  const body = String((ins as any).preview ?? ins.text ?? '')
+  const title = displayTitle(ins).trim()
+  const lines = body.split('\n').map(l => l.replace(/^#+\s*/, '').trim()).filter(Boolean)
+  const line = lines.find(l => l !== title) || ''
+  return line.length > 160 ? line.slice(0, 160) + '…' : line
+}
 
 // ── Markdown export ─────────────────────────────────────
 // The body is already markdown; the title and description live in their own
@@ -3888,7 +3990,7 @@ const TreeGroup = defineComponent({
         onDragleave: props.onDropzone ? (e: DragEvent) => (props.onDragleave as any)?.(e) : undefined,
         onDrop: props.onDropzone ? (e: DragEvent) => { e.preventDefault(); (props.onDropzone as any)?.(e) } : undefined,
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0', props.disabled ? 'text-gray-200 dark:text-gray-700' : 'text-gray-300 dark:text-gray-600', props.open ? 'rtl-own-transform rotate-90' : 'rtl:rotate-180', props.labelClickable ? 'cursor-pointer hover:text-gray-500 dark:hover:text-gray-300' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('toggle') } : undefined }),
         props.statusDot ? createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', props.statusDot], title: t('agentsPage.tipStatus') }) : null,
         slots.icon ? slots.icon() : (props.icon ? createElement(resolveComponent('UIcon'), { name: props.icon, class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }) : null),
         createElement('span', { class: ['flex-1 text-start truncate', props.mono ? 'font-mono text-xs' : ''], onClick: props.labelClickable ? (e: Event) => { e.stopPropagation(); if (!props.disabled) emit('label') } : undefined }, props.label),
@@ -3924,11 +4026,15 @@ const InstrLeaf = defineComponent({
     // this scope ('global' | agentId). Only passed inside directory-aware groups.
     dragScope: { type: String, default: '' },
     draggable: Boolean,
+    // Render a one-line body snippet under the title. The Instructions pane
+    // sets it: a search matches the body, so the row should show why it hit.
+    snippet: Boolean,
   },
   setup(props) {
     return () => {
       const ins = props.ins
       const sel = selectedId.value === ins.id
+      const snippetText = props.snippet ? instructionSnippet(ins) : ''
       const pending = isPending(ins)
       const visibleState = visibleInstructionState(ins)
       // Inactive (draft/archived) rows stay muted even while a change is
@@ -3945,7 +4051,7 @@ const InstrLeaf = defineComponent({
         role: 'button',
         tabindex: 0,
         draggable: props.draggable ? 'true' : undefined,
-        class: ['group w-full flex items-center gap-2 h-8 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
+        class: ['group w-full flex items-center gap-2 rounded-md text-[13px] transition-colors min-w-0 text-start select-none', snippetText ? 'py-1.5' : 'h-8', sel ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800/70', dragging ? 'opacity-50' : '', props.draggable ? 'cursor-grab active:cursor-grabbing' : ''],
         // WebkitUserDrag: Safari refuses to start a drag on a plain element
         // (especially one with user-select: none) unless it is asked to treat
         // the element itself as the drag source. No effect in Chrome/Firefox.
@@ -3957,7 +4063,12 @@ const InstrLeaf = defineComponent({
       }, [
         createElement('span', { class: ['shrink-0 w-1.5 h-1.5 rounded-full', pending ? 'bg-amber-400' : h.getStatusIconClass(visibleState)], title: pending ? t('agentsPage.pendingReview') : h.getStatusTooltip(visibleState) }),
         (pending && inactive) ? createElement('span', { class: 'shrink-0 w-1.5 h-1.5 rounded-full bg-gray-300 dark:bg-gray-600 -ms-1', title: h.formatStatus(ins.status) }) : null,
-        createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+        snippetText
+          ? createElement('span', { class: 'flex-1 min-w-0 flex flex-col text-start' }, [
+              createElement('span', { class: ['truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
+              createElement('span', { class: 'truncate text-[11px] leading-4 text-gray-400 dark:text-gray-500', dir: 'auto' }, snippetText),
+            ])
+          : createElement('span', { class: ['flex-1 text-start truncate', inactive ? 'text-gray-400 dark:text-gray-500' : (pending ? 'text-amber-700 dark:text-amber-300' : '')] }, displayTitle(ins)),
         pending ? createElement('span', { class: 'shrink-0 inline-flex items-center px-1.5 h-4 rounded bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[10px] font-medium', title: t('agentsPage.pendingApprovalHint') }, t('agentsPage.pendingReview')) : null,
         createElement(resolveComponent('UIcon'), { name: h.getCategoryIcon(ins.category).replace('heroicons:', 'i-heroicons-'), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.formatCategory(ins.category) }),
         createElement(resolveComponent('UIcon'), { name: h.getSourceIcon(ins), class: 'w-3 h-3 text-gray-300 dark:text-gray-600 shrink-0', title: h.getSourceTooltip(ins) }),
@@ -4018,7 +4129,7 @@ const DirNode = defineComponent({
         onDragstart: props.canManage ? (e: DragEvent) => { e.stopPropagation(); startDragDir(scope, dir.id, e) } : undefined,
         onDragend: props.canManage ? endDrag : undefined,
       }, [
-        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rotate-90' : 'rtl:rotate-180'] }),
+        createElement(resolveComponent('UIcon'), { name: 'i-heroicons-chevron-right', class: ['w-3 h-3 transition-transform shrink-0 text-gray-300 dark:text-gray-600', open ? 'rtl-own-transform rotate-90' : 'rtl:rotate-180'] }),
         createElement(resolveComponent('UIcon'), { name: open ? 'i-heroicons-folder-open' : 'i-heroicons-folder', class: 'w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0' }),
         createElement('span', { class: 'flex-1 text-start truncate' }, dir.name),
         (props.canManage && dir.parent_id) ? createElement('button', { class: 'shrink-0 w-4 h-4 rounded hover:bg-gray-200 dark:hover:bg-gray-700 text-gray-400 dark:text-gray-500 opacity-0 group-hover:opacity-100 flex items-center justify-center', title: t('agentsPage.moveToTopLevel'), onClick: (e: Event) => { e.stopPropagation(); moveDirectory(scope, dir, null) } }, [createElement(resolveComponent('UIcon'), { name: 'i-heroicons-arrow-up-tray', class: 'w-3 h-3' })]) : null,

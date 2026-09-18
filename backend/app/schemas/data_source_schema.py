@@ -307,7 +307,7 @@ class DataSourceSchema(DataSourceBase, AgentIconTokenMixin):
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 
-    # Names of BOW custom queries (materialized, locally cached relations)
+    # Names of BOW custom tables (materialized, locally cached relations)
     # this agent has activated. The UI badges these so a user can see at a
     # glance that a tool call read a cached relation rather than the source.
     cached_tables: List[str] = []
@@ -359,7 +359,7 @@ class DataSourceListItemSchema(AgentIconTokenMixin):
     # Connection info (multi-connection support)
     connections: List[ConnectionEmbedded] = []
 
-    # Names of BOW custom queries (materialized, locally cached relations)
+    # Names of BOW custom tables (materialized, locally cached relations)
     # this agent has activated. The UI badges these so a user can see at a
     # glance that a tool call read a cached relation rather than the source.
     cached_tables: List[str] = []

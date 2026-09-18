@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel as PydanticBaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func as sa_func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 from lxml import html as lxml_html
 
@@ -19,7 +19,7 @@ from app.errors import AppError, ErrorCode
 
 from app.models.user import User
 from app.models.organization import Organization
-from app.models.artifact import Artifact as ArtifactModel
+from app.models.artifact import ArtifactVersion as ArtifactModel
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.models.report import Report as ReportModel
@@ -29,7 +29,8 @@ from app.schemas.artifact_schema import (
     ArtifactCreate,
     ArtifactUpdate,
 )
-from app.services.artifact_service import ArtifactService
+# new_artifact is aliased: `new_artifact` is a local row variable in this module
+from app.services.artifact_service import ArtifactService, new_artifact as new_artifact_row, new_version
 from app.services.artifact_codegen import (
     generate_echart_option_code,
     generate_section_jsx,
@@ -784,19 +785,6 @@ async def _resolve_base_artifact(db, report_id: str, artifact_id: Optional[str])
     return await service.get_latest_by_report(db, report_id)
 
 
-async def _next_artifact_version(db, report_id: str) -> int:
-    """Report-wide next version number. Basing on max(version) — not the
-    base artifact's own version — keeps numbers unique when a new version
-    is built on an artifact that is not the newest."""
-    res = await db.execute(
-        select(sa_func.max(ArtifactModel.version)).where(
-            ArtifactModel.report_id == str(report_id),
-            ArtifactModel.deleted_at.is_(None),
-        )
-    )
-    return (res.scalar() or 0) + 1
-
-
 @router.post("/report/{report_id}/add-visualization", response_model=ArtifactSchema)
 @requires_permission('update_reports', model=ReportModel, owner_only=True)
 async def add_visualization_to_dashboard(
@@ -872,20 +860,14 @@ async def add_visualization_to_dashboard(
         new_content = {**(latest.content or {}), "code": new_code, "visualization_ids": new_viz_ids}
 
         # Create new version
-        new_artifact = ArtifactModel(
-            report_id=str(latest.report_id),
+        new_artifact = await new_version(
+            db,
+            latest,
             user_id=str(current_user.id),
-            organization_id=str(latest.organization_id),
-            title=latest.title,
-            mode=latest.mode,
             content=new_content,
             generation_prompt=latest.generation_prompt,
-            version=await _next_artifact_version(db, report_id),
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
     else:
         # No artifact yet — generate scaffold from scratch
         viz_index = 0
@@ -896,19 +878,16 @@ async def add_visualization_to_dashboard(
             section_jsx = generate_section_jsx(viz_title, option_code)
         code = generate_scaffold([section_jsx])
 
-        new_artifact = ArtifactModel(
+        new_artifact = await new_artifact_row(
+            db,
             report_id=str(report_id),
             user_id=str(current_user.id),
             organization_id=str(organization.id),
-            title="Dashboard",
             mode="page",
+            title="Dashboard",
             content={"code": code, "visualization_ids": [body.visualization_id]},
-            version=1,
-            status="completed",
         )
-        db.add(new_artifact)
         await db.commit()
-        await db.refresh(new_artifact)
 
     # 4. Trigger thumbnail regeneration in background
     try:
@@ -958,20 +937,14 @@ async def remove_visualization_from_dashboard(
     code = stub_out_viz_references(code, body.visualization_id)
 
     new_viz_ids = [v for v in existing_viz_ids if v != body.visualization_id]
-    new_artifact = ArtifactModel(
-        report_id=str(latest.report_id),
+    new_artifact = await new_version(
+        db,
+        latest,
         user_id=str(current_user.id),
-        organization_id=str(latest.organization_id),
-        title=latest.title,
-        mode=latest.mode,
         content={**(latest.content or {}), "code": code, "visualization_ids": new_viz_ids},
         generation_prompt=latest.generation_prompt,
-        version=await _next_artifact_version(db, report_id),
-        status="completed",
     )
-    db.add(new_artifact)
     await db.commit()
-    await db.refresh(new_artifact)
 
     try:
         from app.services.thumbnail_service import ThumbnailService

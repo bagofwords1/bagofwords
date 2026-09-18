@@ -252,7 +252,14 @@ def _diag_params(
     sort: str = "created",
     dir: str = "desc",
     include: Optional[str] = None,
+    organization: Organization = Depends(get_current_organization),
 ) -> RunQueryParams:
+    # No range means "all time": from the org's creation day (the same floor
+    # the other console endpoints use) to now.
+    if start is None:
+        start = ConsoleService.all_time_floor(organization)
+    if end is None:
+        end = datetime.utcnow()
     parts = {p.strip() for p in (include or "").split(",") if p.strip()}
     params = RunQueryParams(
         q=q or "", start=start, end=end, tz_offset_minutes=tz, cursor=cursor,

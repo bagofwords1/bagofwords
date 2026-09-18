@@ -43,19 +43,23 @@ const emit = defineEmits<{ (e: 'change', r: TimeRange): void }>()
 const { t } = useI18n()
 
 const options = computed(() => [
+    { value: 'all', label: t('monitoring.diagnosis.rangeAll') },
     { value: '24h', label: t('monitoring.diagnosis.range24h') },
     { value: '7d', label: t('monitoring.diagnosis.range7d') },
     { value: '30d', label: t('monitoring.diagnosis.range30d') },
     { value: '90d', label: t('monitoring.diagnosis.range90d') },
     { value: 'custom', label: t('monitoring.diagnosis.rangeCustom') },
 ])
-const selected = computed(() => options.value.find(o => o.value === props.range.preset) || options.value[2])
+const selected = computed(() => options.value.find(o => o.value === props.range.preset) || options.value.find(o => o.value === '30d')!)
 
 const isoDay = (d: Date) => d.toISOString().slice(0, 10)
 
 const onPreset = (opt: { value: RangePreset }) => {
     if (opt.value === 'custom') {
-        emit('change', { preset: 'custom', start: props.range.start, end: props.range.end })
+        // Seed the inputs from the current bounds; "all time" has none worth
+        // editing (its start is the epoch), so start from the last 30 days.
+        const seed = props.range.preset === 'all' ? rangeForPreset('30d') : props.range
+        emit('change', { preset: 'custom', start: seed.start, end: seed.end })
         return
     }
     emit('change', rangeForPreset(opt.value))

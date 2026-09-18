@@ -40,7 +40,7 @@ from app.models.widget import Widget  # noqa: E402
 from app.models.query import Query  # noqa: E402
 from app.models.step import Step  # noqa: E402
 from app.models.visualization import Visualization  # noqa: E402
-from app.models.artifact import Artifact  # noqa: E402
+from app.services.artifact_service import new_artifact  # noqa: E402
 from app.services.artifact_codegen import (  # noqa: E402
     generate_echart_option_code,
     generate_section_jsx,
@@ -134,18 +134,15 @@ async def seed_report(db, org, user, label: str, rows_per_step: int) -> dict:
         option_code = generate_echart_option_code(data_model, qi)
         sections.append(generate_section_jsx(title, option_code, viz_index=qi))
 
-    artifact = Artifact(
+    artifact = await new_artifact(
+        db,
         report_id=report.id,
         user_id=user.id,
         organization_id=org.id,
-        title=f"Perf Dashboard ({label})",
         mode="page",
-        version=1,
+        title=f"Perf Dashboard ({label})",
         content={"code": generate_scaffold(sections), "visualization_ids": viz_ids},
-        status="completed",
     )
-    db.add(artifact)
-    await db.flush()
 
     step_bytes = len(json.dumps({"rows": _make_rows(rows_per_step), "columns": columns}))
     return {

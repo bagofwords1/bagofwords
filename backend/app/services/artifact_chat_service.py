@@ -213,7 +213,7 @@ class ArtifactChatService:
         the source report's latest artifact, never copied, so it is exactly as
         fresh as the dashboard itself.
         """
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
         from app.services.artifact_payload import collect_visualizations
 
         ctx: dict = {
@@ -222,9 +222,9 @@ class ArtifactChatService:
         }
 
         artifact = (await db.execute(
-            select(Artifact)
-            .where(Artifact.report_id == str(source.id), Artifact.deleted_at.is_(None))
-            .order_by(Artifact.created_at.desc())
+            select(ArtifactVersion)
+            .where(ArtifactVersion.report_id == str(source.id), ArtifactVersion.deleted_at.is_(None))
+            .order_by(ArtifactVersion.created_at.desc())
             .limit(1)
         )).scalar_one_or_none()
         if artifact is None:

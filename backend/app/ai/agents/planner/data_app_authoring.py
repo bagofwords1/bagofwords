@@ -60,7 +60,7 @@ Static preview/export can show stored data and known options but cannot prove
 server execution. Do not fabricate data or option rows for a prettier preview.
 
 SMALL PATTERNS — adapt these contracts; they are not page templates:
-- Custom query control: const p = useParams(); const options = useParamOptions('region');
+- Custom table control: const p = useParams(); const options = useParamOptions('region');
   <select aria-label="Region" value={p.values.region ?? ''}
     onChange={e => p.setParam('region', e.target.value || null)}>
     <option value="">All regions</option>

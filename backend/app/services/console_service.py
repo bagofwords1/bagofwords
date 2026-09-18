@@ -59,6 +59,10 @@ from app.schemas.console_schema import CostMetrics, CostBreakdownItem, CostTimeS
 
 logger = get_logger(__name__)
 
+# "All time" starts on the organization's creation day; this floor only applies
+# to a legacy org row with no created_at at all.
+ALL_TIME_FALLBACK_FLOOR = datetime(2020, 1, 1)
+
 # LLM usage scopes that are NOT part of answering a user's turn. These are
 # background / observability calls recorded against the report for cost
 # accounting — LLM-judge grading, follow-up & title generation, context
@@ -201,27 +205,48 @@ class ConsoleService:
         # Treat naive datetime as UTC-naive
         return dt
 
-    def _normalize_date_range(self, start_date: Optional[datetime], end_date: Optional[datetime]) -> tuple[datetime, datetime]:
-        """Normalize date range to ensure end_date includes the full day"""
-        
+    @staticmethod
+    def all_time_floor(organization: Organization) -> datetime:
+        """The start of "all time" for an organization: the day it was created.
+        Nothing in an org predates the org, so this bounds every query without
+        a `min(created_at)` round trip, and keeps the day-by-day zero-fill in
+        the timeseries endpoints proportional to the org's age."""
+        created = getattr(organization, "created_at", None)
+        if created is None:
+            created = ALL_TIME_FALLBACK_FLOOR
+        return created.replace(hour=0, minute=0, second=0, microsecond=0)
+
+    def _normalize_date_range(
+        self,
+        start_date: Optional[datetime],
+        end_date: Optional[datetime],
+        organization: Organization,
+    ) -> tuple[datetime, datetime]:
+        """Normalize a date range to whole days (UTC-naive).
+
+        A missing end is "now". A missing start is "all time" — the org's
+        creation day — because that is what every console page sends for its
+        "All time" period. (This used to default to the last 30 days, so "All
+        time" silently showed a month.)
+        """
+
         # Normalize timezone to UTC-naive if provided
         if end_date:
             end_date = self._to_utc_naive(end_date)
         if start_date:
             start_date = self._to_utc_naive(start_date)
 
-        # Default to last 30 days if no dates provided (UTC-naive)
         if not end_date:
             end_date = datetime.utcnow()
         if not start_date:
-            start_date = end_date - timedelta(days=30)
-            
+            start_date = self.all_time_floor(organization)
+
         # Ensure end_date includes the full day (set to end of day)
         end_date = end_date.replace(hour=23, minute=59, second=59, microsecond=999999)
-        
-        # Ensure start_date starts from beginning of day  
+
+        # Ensure start_date starts from beginning of day
         start_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-        
+
         return start_date, end_date
     
     async def get_organization_metrics(
@@ -232,7 +257,7 @@ class ConsoleService:
     ) -> SimpleMetrics:
         """Get organization metrics with optional date filtering"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Base filters
@@ -377,13 +402,12 @@ class ConsoleService:
     ) -> MetricsComparison:
         """Get metrics with previous period comparison"""
         
-        # Default to last 30 days if no dates provided, normalize to UTC-naive
-        end_date = params.end_date or datetime.utcnow()
-        start_date = params.start_date or (end_date - timedelta(days=30))
+        # No start means "all time" (see _normalize_date_range). There is no
+        # period before all time to compare against, so `changes` is empty and
+        # the cards show plain totals instead of a made-up trend.
+        all_time = params.start_date is None
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
 
-        end_date = self._to_utc_naive(end_date)
-        start_date = self._to_utc_naive(start_date)
-        
         # Calculate period length and previous period dates
         period_length = end_date - start_date
         prev_end_date = start_date
@@ -401,7 +425,7 @@ class ConsoleService:
         previous_metrics = await self.get_organization_metrics(db, organization, prev_params)
         
         # Calculate changes
-        changes = self._calculate_changes(current_metrics, previous_metrics)
+        changes = {} if all_time else self._calculate_changes(current_metrics, previous_metrics)
         
         return MetricsComparison(
             current=current_metrics,
@@ -451,7 +475,7 @@ class ConsoleService:
     ) -> TimeSeriesMetrics:
         """Get time-series metrics data for charts"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Build data source filter subquery if needed
@@ -634,7 +658,7 @@ class ConsoleService:
     ) -> TableUsageMetrics:
         """Get table usage statistics using precomputed TableStats within date range"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # TableStats carries its own data_source_id, so the agent filter applies
@@ -703,7 +727,7 @@ class ConsoleService:
     ) -> TableJoinsHeatmap:
         """Get table joins heatmap showing which tables are used together"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         ds_filter_subquery = self._reports_in_scope(params)
 
         # Get all steps within date range for this organization
@@ -779,7 +803,7 @@ class ConsoleService:
         params: MetricsQueryParams
     ) -> ToolUsageMetrics:
         """Count tool executions for specific tools within date range, mapped to friendly labels."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Build data source filter subquery if needed
@@ -841,7 +865,7 @@ class ConsoleService:
         params: MetricsQueryParams
     ) -> LLMUsageMetrics:
         """Aggregate token/cost usage per LLM model for the selected date range."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         ds_report_ids = self._reports_in_scope(params)
 
         total_cost_expr = func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0)
@@ -1067,7 +1091,7 @@ class ConsoleService:
         therefore exceed the headline total by design. Records with no
         report/data-source/user/group resolve to an "Unattributed" bucket.
         """
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         group_by = (group_by or "model").lower()
         if group_by not in ("model", "provider", "user", "data_source", "group", "scope"):
@@ -1338,7 +1362,7 @@ class ConsoleService:
     ) -> TopUsersMetrics:
         """Get top users by activity"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
 
         # Get current period user metrics (simplified without trend calculation)
@@ -1429,7 +1453,7 @@ class ConsoleService:
     ) -> RecentNegativeFeedbackMetrics:
         """Get recent negative feedback with completion context"""
 
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         ds_filter_subquery = self._reports_in_scope(params)
         # The agent filter reaches feedback through the completion's report.
         feedback_report_filter = None
@@ -2334,7 +2358,7 @@ class ConsoleService:
         security_data_source_ids: Optional[list] = None,
     ) -> AgentExecutionSummariesResponse:
         """Aggregate agent executions joined with completion, feedback, tool counts, and report/user metadata."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 
@@ -2657,7 +2681,7 @@ class ConsoleService:
         params: MetricsQueryParams
     ) -> Dict[str, int]:
         """Get dashboard metrics for diagnosis page."""
-        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date)
+        start_date, end_date = self._normalize_date_range(params.start_date, params.end_date, organization)
         parsed_data_source_ids = self._parse_data_source_ids(params.data_source_ids)
         parsed_user_ids = self._parse_user_ids(params.user_ids)
 

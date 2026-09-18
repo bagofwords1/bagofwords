@@ -1,10 +1,10 @@
-"""Custom queries: the guarantees that must not regress.
+"""Custom tables: the guarantees that must not regress.
 
-A custom query is admin-authored SQL materialized to an encrypted local DuckDB
+A custom table is admin-authored SQL materialized to an encrypted local DuckDB
 artifact and served to agents from there instead of the source. Four properties
 carry the whole feature, and each has a silent failure mode:
 
-1. **A reindex must not delete custom queries.** They live in
+1. **A reindex must not delete custom tables.** They live in
    ``connection_tables`` alongside introspected rows but have no counterpart in
    the source catalog, so an unfiltered stale-row sweep would remove every one
    of them on the next scheduled reindex — silently, and with the artifacts.
@@ -41,7 +41,7 @@ def test_refresh_schema_only_considers_introspected_rows():
     """``refresh_schema`` must scope its catalog query to ``kind='table'``.
 
     Asserted against the source because the failure is invisible at runtime
-    until a scheduled reindex fires and the custom queries are already gone.
+    until a scheduled reindex fires and the custom tables are already gone.
     """
     import inspect
 
@@ -50,7 +50,7 @@ def test_refresh_schema_only_considers_introspected_rows():
     src = inspect.getsource(connection_service.ConnectionService.refresh_schema)
     assert "ConnectionTable.kind == KIND_TABLE" in src, (
         "refresh_schema must filter existing_tables to kind='table'; without it "
-        "every kind='bow' custom query lands in the `missing` set and is deleted."
+        "every kind='bow' custom table lands in the `missing` set and is deleted."
     )
 
 
@@ -252,7 +252,7 @@ def test_uploaded_file_reads_still_allowed(code):
 # --------------------------------------------------------------------------
 #
 # The coder maps a table's <connection name> onto a client_key suffix (see
-# coder.py "Connection-Table Mapping"). A custom query is served by the
+# coder.py "Connection-Table Mapping"). A custom table is served by the
 # connection's `::fast` sibling, not by the source client, so rendering it under
 # the source connection sends generated SQL to a client where the relation does
 # not exist — every query against it fails with "relation not found", and the
@@ -536,7 +536,7 @@ class _Rel:
 
 
 def _ranked_pool():
-    """25 raw tables with real usage history plus one fresh custom query."""
+    """25 raw tables with real usage history plus one fresh custom table."""
     from app.ai.context.builders.schema_context_builder import _cached_first
 
     raw = [_Rel(f"raw{i}", score=1.0 - i * 0.05) for i in range(25)]
@@ -547,7 +547,7 @@ def _ranked_pool():
 
 def test_the_composite_score_alone_buries_a_cached_relation():
     """Documents WHY the override exists. The score is built from usage,
-    feedback and FK-derived centrality; a freshly authored custom query has
+    feedback and FK-derived centrality; a freshly authored custom table has
     none of those, so it ranks below the very tables it exists to replace."""
     _, cq, by_score, _ = _ranked_pool()
     assert by_score.index(cq) >= 10

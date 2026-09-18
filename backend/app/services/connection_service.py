@@ -455,7 +455,7 @@ class ConnectionService:
         """Return (introspected table count, BOW custom-query count) for a
         connection in ONE grouped aggregate, instead of materializing the whole
         catalog to call len() on it. Soft-deleted rows are excluded from both:
-        the relationship is unfiltered, so a deleted custom query would
+        the relationship is unfiltered, so a deleted custom table would
         otherwise keep inflating the count after the admin removed it."""
         rows = (await db.execute(
             select(ConnectionTable.kind, func.count(ConnectionTable.id))
@@ -1460,11 +1460,11 @@ class ConnectionService:
             # for unchanged files instead of re-extracting every document
             # (base.aget_schemas only forwards the kwarg to clients that take it).
             connection_id_str = str(connection.id)
-            # Introspected rows ONLY. BOW-managed custom queries (kind='bow')
+            # Introspected rows ONLY. BOW-managed custom tables (kind='bow')
             # must be invisible to this whole upsert/diff/delete pass: they have
             # no counterpart in the source catalog, so they would show up in the
             # `missing` set on every run and get deleted — silently destroying
-            # every custom query on the next scheduled reindex.
+            # every custom table on the next scheduled reindex.
             existing_q = await db.execute(
                 select(ConnectionTable)
                 .filter(
@@ -1614,6 +1614,12 @@ class ConnectionService:
                         "fks": normalize_fks(getattr(t, "fks", []) or []),
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
+
+            if progress_callback is not None:
+                # Discovery is done; upsert + commit report nothing of their
+                # own, so mark the stage for the indexing log and UI.
+                # None counts: keep discovery's done/total on the run.
+                progress_callback("saving", None, None, None)
 
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).

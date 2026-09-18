@@ -48,6 +48,7 @@
       :connection-type="cqModalConnection?.type || ''"
       :connections="manageableConnections"
       :cq="cqEditing"
+      :activate-for-datasource-id="props.dsId"
       @saved="onCustomQuerySaved"
       @deleted="onCustomQuerySaved"
     />
@@ -813,7 +814,7 @@ async function loadAuthConnections() {
   await loadCustomQueries()
 }
 
-// ---- Custom queries (BOW-managed materialized relations) -------------------
+// ---- Custom tables (BOW-managed materialized relations) -------------------
 // Connection-scoped objects, so they are fetched per connection and only for
 // connections the caller can administer. A non-admin simply gets no rows back
 // and never sees the Add Custom button.
@@ -827,7 +828,7 @@ const accelerableConnections = computed(() =>
   authConnections.value.filter((c: any) => c?.custom_queries_supported)
 )
 
-// Authoring a custom query (and its RLS policy) is a CONNECTION-admin act: it
+// Authoring a custom table (and its RLS policy) is a CONNECTION-admin act: it
 // runs SQL with the connection's own credential and decides what every agent
 // on that connection can read. Managing the *agent* is a different, lesser
 // right — it lets you activate an existing relation for this agent, which is

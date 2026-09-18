@@ -378,7 +378,7 @@ class TablesSchemaContext(ContextSection):
 
             The name is part of the key because one physical connection can
             expose two client identities: the live source and its ``::fast``
-            sibling serving materialized custom queries. They share a
+            sibling serving materialized custom tables. They share a
             connection_id, so keying on the id alone would merge them into one
             <connection> block under whichever name sorted first — and the coder
             maps that name onto a client_key, so the merged block would point
@@ -509,7 +509,7 @@ class TablesSchemaContext(ContextSection):
                 table_attrs["type"] = "semantic_view"
             if getattr(t, 'description', None):
                 table_attrs["description"] = t.description
-            # A BOW custom query is already materialized locally: querying it
+            # A BOW custom table is already materialized locally: querying it
             # costs the source nothing, so the agent should reach for it before
             # re-deriving the same figures from raw tables.
             if getattr(t, 'is_cached', False):
@@ -986,7 +986,7 @@ class TablesSchemaContext(ContextSection):
               it sees as one;
             * the name, because one physical connection can expose two client
               identities, the live source and its ``::fast`` sibling serving
-              materialized custom queries. They share a connection_id on
+              materialized custom tables. They share a connection_id on
               purpose, so keying on the id alone merges them under whichever
               name comes first and points half the tables at a client that
               cannot serve them.

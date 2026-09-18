@@ -22,7 +22,8 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
+from tests.fixtures.artifact import seed_artifact
 from app.models.organization import Organization
 from app.models.query import Query
 from app.models.report import Report
@@ -104,11 +105,11 @@ def _end_payload(events):
 async def _artifacts_for_report(report_id: str, mode: str = None):
     from sqlalchemy import select
     async with async_session_maker() as db:
-        stmt = select(Artifact).where(
-            Artifact.report_id == report_id, Artifact.deleted_at.is_(None)
-        ).order_by(Artifact.created_at.asc())
+        stmt = select(ArtifactVersion).where(
+            ArtifactVersion.report_id == report_id, ArtifactVersion.deleted_at.is_(None)
+        ).order_by(ArtifactVersion.created_at.asc())
         if mode:
-            stmt = stmt.where(Artifact.mode == mode)
+            stmt = stmt.where(ArtifactVersion.mode == mode)
         res = await db.execute(stmt)
         return list(res.scalars().all())
 
@@ -340,14 +341,13 @@ def test_edit_doc_rejects_dashboard_artifacts(
     async def _seed_dashboard():
         async with async_session_maker() as db:
             r = await db.get(Report, report["id"])
-            a = Artifact(
+            a = await seed_artifact(
+                db,
                 report_id=report["id"], user_id=r.user_id, organization_id=r.organization_id,
-                title="Dash", mode="page", version=1, status="completed",
+                mode="page", title="Dash",
                 content={"code": "function App() {}", "visualization_ids": []},
             )
-            db.add(a)
             await db.commit()
-            await db.refresh(a)
             return str(a.id)
 
     dash_id = _run(_seed_dashboard())
@@ -374,13 +374,13 @@ def test_docs_do_not_hijack_latest_artifact_or_rerun(
     async def _seed_dashboard():
         async with async_session_maker() as db:
             r = await db.get(Report, report["id"])
-            a = Artifact(
+            a = await seed_artifact(
+                db,
                 report_id=report["id"], user_id=r.user_id, organization_id=r.organization_id,
-                title="Dashboard", mode="page", version=1, status="completed",
+                mode="page", title="Dashboard",
                 content={"code": "function App() {}", "visualization_ids": [dash_viz]},
                 created_at=datetime.utcnow() - timedelta(minutes=5),
             )
-            db.add(a)
             await db.commit()
             return str(a.id)
 
@@ -409,11 +409,11 @@ def test_docs_do_not_hijack_latest_artifact_or_rerun(
         from sqlalchemy import select
         async with async_session_maker() as db:
             res = await db.execute(
-                select(Artifact).where(
-                    Artifact.report_id == report["id"],
-                    Artifact.status == "completed",
-                    Artifact.mode.in_(("page", "slides")),
-                ).order_by(Artifact.created_at.desc()).limit(1)
+                select(ArtifactVersion).where(
+                    ArtifactVersion.report_id == report["id"],
+                    ArtifactVersion.status == "completed",
+                    ArtifactVersion.mode.in_(("page", "slides")),
+                ).order_by(ArtifactVersion.created_at.desc()).limit(1)
             )
             return res.scalar_one_or_none()
 
@@ -490,14 +490,13 @@ def test_doc_edit_route_rejects_non_docs_and_locks_during_runs(
     async def _seed_dashboard():
         async with async_session_maker() as db:
             r = await db.get(Report, report["id"])
-            a = Artifact(
+            a = await seed_artifact(
+                db,
                 report_id=report["id"], user_id=r.user_id, organization_id=r.organization_id,
-                title="Dash", mode="page", version=1, status="completed",
+                mode="page", title="Dash",
                 content={"code": "function App() {}", "visualization_ids": []},
             )
-            db.add(a)
             await db.commit()
-            await db.refresh(a)
             return str(a.id)
 
     dash_id = _run(_seed_dashboard())
