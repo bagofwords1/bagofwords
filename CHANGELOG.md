@@ -8,6 +8,8 @@
 - The agent Files tree and the Uploaded panel stay in sync on upload and delete (#1148)
 - Indexing runs no longer stay "running" forever: heartbeat, stale-run reaping, idle-based stage timeouts and a last-activity indicator (#1150)
 - Clicking an agent's Instructions row on the agents page opens its instruction list in the right pane, with a search that matches instruction bodies (server-side, scoped to that agent) and a clear button; the "Search everything" box gets a clear button too (#1155)
+- "All time" on the monitoring Explore, Cost and Diagnosis pages now covers the organization's whole history instead of the last 30 days; Diagnosis gains an "All time" preset with monthly buckets for old orgs, and the KPI cards drop the made-up trend for all time (#1156)
+- Security: `@nuxtjs/mdc` bumped from 0.17 to 0.22 to clear a high-severity Snyk finding (SNYK-JS-NUXTJSMDC-19883915); the markdown render API is unchanged (#1157)
 
 ## Version 0.0.562 (September 16, 2026)
 - Shorter generated code with stdout carried into retries, and a bounded Power BI DAX guide (#1145)
