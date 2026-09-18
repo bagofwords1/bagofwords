@@ -328,7 +328,15 @@
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "הרצת חבילה זו",
     "runSuiteFailed": "הרצת החבילה נכשלה",
-    "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)"
+    "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)",
+    "filterAgentsHeading": "סוכנים",
+    "filterInstructionsHeading": "הוראות",
+    "filterStage": "שלב",
+    "noAgentsMatchFilter": "אין סוכנים שתואמים לסינון",
+    "filterCatalog": "קטלוג",
+    "noCatalog": "ללא קטלוג",
+    "catalogs": "קטלוגים",
+    "manageCatalogs": "ניהול קטלוגים…"
   },
   "smoke": {
     "hello": "שלום",
@@ -1720,7 +1728,25 @@
     "modelAccess": "גישה למודלים",
     "modelAccessHint": "מודלים מוגבלים",
     "noRestrictedModels": "אין מודלים מוגבלים",
-    "connection": "חיבור"
+    "connection": "חיבור",
+    "bulk": {
+      "button": "הוספת סוכנים",
+      "search": "חיפוש סוכנים...",
+      "selectAllVisible": "בחר את כל המוצגים ({n})",
+      "noMatches": "אין סוכנים תואמים",
+      "alreadyInRole": "כבר בתפקיד",
+      "add": "הוסף סוכנים | הוסף סוכן אחד | הוסף {n} סוכנים",
+      "buttonConnections": "הוספת חיבורים",
+      "searchConnections": "חיפוש חיבורים...",
+      "noConnectionMatches": "אין חיבורים תואמים",
+      "addConnections": "הוסף חיבורים | הוסף חיבור אחד | הוסף {n} חיבורים",
+      "allCatalogs": "כל הקטלוגים",
+      "noCatalog": "ללא קטלוג"
+    },
+    "noAgentAccess": "עדיין אין סוכנים. לחצו על הוספת סוכנים כדי לתת לתפקיד גישה.",
+    "noConnectionAccess": "עדיין אין חיבורים. לחצו על הוספת חיבורים כדי לתת גישה לחיבור.",
+    "agentsSection": "סוכנים",
+    "connectionsSection": "חיבורים"
   },
   "groupsManager": {
     "searchPlaceholder": "חיפוש קבוצות...",
@@ -5213,5 +5239,29 @@
     "preparing": "מכין את העותק שלך…",
     "preparingDetail": "מריץ את השאילתות עם ההרשאות שלך. זה בדרך כלל לוקח כמה שניות.",
     "nothingRan": "לא ניתן היה ליצור את העותק: אף אחת מהשאילתות לא הצליחה לרוץ עם ההרשאות שלך."
+  },
+  "agentCatalogs": {
+    "title": "קטלוגי סוכנים",
+    "subtitle": "קיבוץ סוכנים לפי צוות או תחום. הקטלוגים משמשים לארגון ולסינון בלבד, ולא משנים מי יכול לגשת לסוכן.",
+    "newPlaceholder": "שם קטלוג חדש",
+    "empty": "עדיין אין קטלוגים",
+    "pickOne": "בחרו קטלוג כדי לערוך אותו",
+    "createFirst": "צרו קטלוג כדי להתחיל לקבץ סוכנים",
+    "name": "שם",
+    "description": "תיאור",
+    "optional": "אופציונלי",
+    "agents": "סוכנים",
+    "searchAgents": "חיפוש סוכנים...",
+    "selectAllShown": "בחר את כל המוצגים ({n})",
+    "noAgentsMatch": "אין סוכנים תואמים",
+    "inCatalog": "בקטלוג {name}",
+    "movesFrom": "יועבר מ־{name}",
+    "delete": "מחיקת קטלוג",
+    "discard": "ביטול שינויים",
+    "save": "שמירה",
+    "saved": "הקטלוג נשמר",
+    "failed": "לא ניתן היה לשמור את הקטלוג",
+    "confirmDiscard": "לבטל את השינויים שלא נשמרו בקטלוג הזה?",
+    "confirmDelete": "למחוק את הקטלוג \"{name}\"? הסוכנים שבו יישארו, בלי קטלוג."
   }
 }

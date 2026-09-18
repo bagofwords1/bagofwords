@@ -53,6 +53,7 @@ from app.routes import (
     report,
     artifact_chat,
     project,
+    agent_catalog,
     test,
     widget,
     query,
@@ -259,6 +260,7 @@ app.include_router(notification.router, prefix="/api")
 app.include_router(report.router, prefix="/api")
 app.include_router(artifact_chat.router, prefix="/api")
 app.include_router(project.router, prefix="/api")
+app.include_router(agent_catalog.router, prefix="/api")
 app.include_router(scheduled_prompt.router, prefix="/api")
 app.include_router(prompt_routes.router, prefix="/api")
 app.include_router(test.router, prefix="/api")

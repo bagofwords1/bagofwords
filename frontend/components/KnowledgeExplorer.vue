@@ -66,6 +66,13 @@
             </button>
             <template #panel="{ close }">
               <div class="p-3 w-56 space-y-3">
+                <!-- Two scopes in one popover: the agent filter hides agents in the
+                     tree; the instruction filters narrow instruction rows inside
+                     opened groups. Headings keep the two from reading as one. -->
+                <div class="text-[12px] font-medium text-gray-900 dark:text-white">{{ $t('agentsPage.filterAgentsHeading') }}</div>
+                <FilterSection :label="$t('agentsPage.filterStage')" :options="agentStageOpts" v-model="fAgentStage" />
+                <FilterSection v-if="catalogs.length" :label="$t('agentsPage.filterCatalog')" :options="agentCatalogOpts" v-model="fAgentCatalog" />
+                <div class="pt-2 border-t border-gray-100 dark:border-gray-800 text-[12px] font-medium text-gray-900 dark:text-white">{{ $t('agentsPage.filterInstructionsHeading') }}</div>
                 <FilterSection :label="$t('agentsPage.filterStatus')" :options="statusOpts" v-model="fStatus" />
                 <FilterSection :label="$t('agentsPage.filterLoading')" :options="loadOpts" v-model="fLoad" />
                 <FilterSection :label="$t('agentsPage.filterSource')" :options="sourceOpts" v-model="fSource" />
@@ -198,6 +205,11 @@
 
           <div class="px-2 pt-1 pb-1 flex items-center justify-between">
             <span class="text-[11px] font-semibold uppercase tracking-wider text-gray-400 dark:text-gray-500">{{ $t('agentsPage.agentsSection') }}</span>
+            <span class="flex-1" />
+            <button v-if="isFullAdmin" type="button" class="me-2 inline-flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300" @click="showCatalogs = true">
+              <UIcon name="i-heroicons-tag" class="w-3 h-3" />
+              <span>{{ $t('agentsPage.catalogs') }}</span>
+            </button>
             <UTooltip v-if="canViewAllAgents" :text="$t('data.showAllAgentsHint')">
               <label class="flex items-center gap-1 text-[10px] text-gray-400 dark:text-gray-500 cursor-pointer hover:text-gray-600 dark:hover:text-gray-400 select-none">
                 <UToggle v-model="showAllAgents" size="2xs" />
@@ -208,7 +220,9 @@
 
           <div v-if="!agentsLoaded" class="flex items-center gap-2 h-8 text-[13px] text-gray-400 dark:text-gray-500 px-2"><Spinner class="w-3.5 h-3.5" /><span>{{ $t('agentsPage.loading') }}</span></div>
 
-          <template v-for="agent in agents" :key="agent.id">
+          <div v-if="agentsLoaded && agents.length && !filteredAgents.length" class="h-8 flex items-center px-2 text-[13px] text-gray-400 dark:text-gray-500">{{ $t('agentsPage.noAgentsMatchFilter') }}</div>
+
+          <template v-for="agent in filteredAgents" :key="agent.id">
             <TreeGroup :label="agent.name" :count="agentCount(agent.id) || undefined" :pending="agentPending(agent.id)" :status-dot="agentStatusDot(agent)" :lock="agent.is_public === false" :badge="needsSignIn(agent) ? $t('agentsPage.signInBadge') : (agent.publish_status === 'disabled' ? $t('agentsPage.disabledBadge') : (agent.is_connector ? $t('agentsPage.connectorBadge') : ''))" :badge-interactive="needsSignIn(agent)" :active="agentView?.agentId === agent.id" :open="isOpen('agent:' + agent.id)" @toggle="onAgentClick(agent)" @badge="openAgentTab(agent.id)">
               <template #icon><DataSourceIcon :type="agent.type" :connector-key="agent.connector_key" :icon-token="agent.icon_token" :icon="agent.icon" class="w-4 h-4 shrink-0" /></template>
 
@@ -436,6 +450,18 @@
                       </div></template>
                     </UPopover>
                     <span v-else class="inline-flex items-center gap-1.5"><UIcon :name="agentDetail?.is_public ? 'i-heroicons-globe-alt' : 'i-heroicons-lock-closed'" class="h-3 w-3" />{{ agentDetail?.is_public ? $t('agentsPage.public') : $t('agentsPage.private') }}</span>
+                    <!-- Catalog: admins pick it here (saved immediately); everyone else
+                         sees the name only when the agent has one. -->
+                    <UPopover v-if="agentDetail && isFullAdmin" :popper="{ placement: 'bottom-start' }" :ui="{ ring: '', shadow: 'shadow-md' }">
+                      <button type="button" class="inline-flex items-center gap-1.5 rounded py-1 hover:text-gray-800 dark:hover:text-gray-200"><UIcon name="i-heroicons-tag" class="h-3 w-3" />{{ agentCatalogName || $t('agentsPage.noCatalog') }}<UIcon name="i-heroicons-chevron-down" class="h-2.5 w-2.5 opacity-50" /></button>
+                      <template #panel="{ close }"><div class="w-48 p-1 max-h-72 overflow-y-auto">
+                        <button v-for="c in catalogs" :key="c.id" class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="setAgentCatalog(c.id); close()"><UIcon name="i-heroicons-tag" class="h-3.5 w-3.5 shrink-0" /><span class="truncate">{{ c.name }}</span><UIcon v-if="agentDetail?.catalog_id === c.id" name="i-heroicons-check" class="ms-auto h-3 w-3 shrink-0" /></button>
+                        <button class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs hover:bg-gray-50 dark:hover:bg-gray-800" @click="setAgentCatalog(null); close()"><span class="h-3.5 w-3.5 shrink-0" />{{ $t('agentsPage.noCatalog') }}<UIcon v-if="!agentDetail?.catalog_id" name="i-heroicons-check" class="ms-auto h-3 w-3 shrink-0" /></button>
+                        <div class="my-1 h-px bg-gray-100 dark:bg-gray-800" />
+                        <button class="flex w-full items-center gap-2 rounded px-2 py-1.5 text-start text-xs text-gray-500 hover:bg-gray-50 dark:hover:bg-gray-800" @click="showCatalogs = true; close()"><UIcon name="i-heroicons-cog-6-tooth" class="h-3.5 w-3.5 shrink-0" />{{ $t('agentsPage.manageCatalogs') }}</button>
+                      </div></template>
+                    </UPopover>
+                    <span v-else-if="agentCatalogName" class="inline-flex items-center gap-1.5"><UIcon name="i-heroicons-tag" class="h-3 w-3" />{{ agentCatalogName }}</span>
                     <UTooltip v-if="agentDetail && usesServiceAccount(agentDetail)" :text="$t('agentsPage.serviceAccountTip')"><span class="inline-flex items-center gap-1"><UIcon name="i-heroicons-cpu-chip" class="h-3 w-3" />{{ $t('agentsPage.serviceAccount') }}</span></UTooltip>
                     <UTooltip v-if="agentListItem?.admin_only" :text="$t('agentsPage.adminTip')"><span class="inline-flex items-center gap-1 text-amber-600 dark:text-amber-400"><UIcon name="i-heroicons-shield-check" class="h-3 w-3" />{{ $t('agentsPage.adminBadge') }}</span></UTooltip>
                   </div>
@@ -1083,6 +1109,8 @@
     <!-- Manage (link/unlink/edit/test) the connections attached to an agent.
          Opened from the agent overview and the Tables panel. Mirrors the
          legacy agents Tables view. -->
+    <AgentCatalogsModal v-if="isFullAdmin" v-model="showCatalogs" @changed="onCatalogsChanged" />
+
     <AgentConnectionsModal
       v-if="connModalAgentId"
       v-model="showConnModal"
@@ -1192,6 +1220,7 @@ import AllInstructionsModal from '~/components/instructions/AllInstructionsModal
 import GitRepoModalComponent from '~/components/GitRepoModalComponent.vue'
 import ConnectionDetailModal from '~/components/ConnectionDetailModal.vue'
 import AgentConnectionsModal from '~/components/AgentConnectionsModal.vue'
+import AgentCatalogsModal from '~/components/AgentCatalogsModal.vue'
 import AddConnectionModal from '~/components/AddConnectionModal.vue'
 import NewAgentWizardModal from '~/components/NewAgentWizardModal.vue'
 import TablesSelector from '~/components/datasources/TablesSelector.vue'
@@ -1207,6 +1236,7 @@ import AgentAutomationSettings from '~/components/AgentAutomationSettings.vue'
 import AgentInstructionPreview from '~/components/instructions/AgentInstructionPreview.vue'
 import DiffMatchPatch from 'diff-match-patch'
 import { useCan, useCanAny, useCanAll, useCanAccessMonitoring } from '~/composables/usePermissions'
+import { deriveStage, STAGE_OPTIONS, type AgentStage } from '~/composables/useDataSourcePublishStatus'
 // No useConnectionSignIn here: the landing's sign-in button opens AgentCardModal,
 // which owns the OAuth-only direct-redirect path (see its triggerUserSignIn call).
 import { getEffectiveStatus, statusDotClass, statusLabelKey, needsConnectionSignIn } from '~/composables/useConnectionStatus'
@@ -1318,6 +1348,8 @@ watch(search, (q) => {
 })
 
 const fStatus = ref<string[]>([]); const fLoad = ref<string[]>([]); const fSource = ref<string[]>([]); const fCategory = ref<string[]>([])
+const fAgentStage = ref<AgentStage[]>([])
+const fAgentCatalog = ref<string[]>([])
 
 const expanded = ref<Set<string>>(new Set())
 const agentTables = ref<Record<string, { id: string; name: string; is_active: boolean }[]>>({})
@@ -2030,6 +2062,31 @@ const loadEditOpts = computed(() => {
   if (draft.load_mode === 'disabled') opts.push({ value: 'disabled', label: t('agentsPage.optLoadOff') })
   return opts
 })
+// Agent lifecycle stage (publish_status + reliability_status → one stage).
+// Disabled agents only reach the list with "Show all" on.
+const agentStageOpts = computed(() => STAGE_OPTIONS.map(o => ({ value: o.value, label: t(`agentsPage.stage.${o.value}`) })))
+// Agent catalogs (organizational grouping, no access semantics). NO_CATALOG
+// matches agents that belong to none.
+const NO_CATALOG = '__none__'
+const catalogs = ref<{ id: string; name: string }[]>([])
+const fetchCatalogs = async () => {
+  try {
+    const { data } = await useMyFetch<any[]>('/agent_catalogs', { method: 'GET' })
+    catalogs.value = (data.value || []).map((c: any) => ({ id: c.id, name: c.name }))
+    // Drop selections for catalogs that no longer exist.
+    fAgentCatalog.value = fAgentCatalog.value.filter(id => id === NO_CATALOG || catalogs.value.some(c => c.id === id))
+  } catch (e) { console.error(e) }
+}
+const agentCatalogOpts = computed(() => [
+  ...catalogs.value.map(c => ({ value: c.id, label: c.name })),
+  { value: NO_CATALOG, label: t('agentsPage.noCatalog') },
+])
+const showCatalogs = ref(false)
+const isFullAdmin = computed(() => useCan('full_admin_access'))
+const onCatalogsChanged = async () => { await Promise.all([fetchCatalogs(), fetchAgents()]) }
+const filteredAgents = computed(() => agents.value.filter(a =>
+  (!fAgentStage.value.length || fAgentStage.value.includes(deriveStage(a.publish_status, a.reliability_status)))
+  && (!fAgentCatalog.value.length || fAgentCatalog.value.includes(a.catalog_id || NO_CATALOG))))
 const sourceOpts = computed(() => [{ value: 'user', label: t('agentsPage.optSourceUser') }, { value: 'ai', label: t('agentsPage.optSourceAi') }, { value: 'git', label: t('agentsPage.optSourceGit') }])
 const categoryOpts = computed(() => categories.value.filter(c => c !== 'dashboard').map(c => ({ value: c, label: h.formatCategory(c) })))
 const agentOpts = computed(() => agents.value.map(a => ({ value: a.id, label: a.name, type: a.type })))
@@ -2249,6 +2306,14 @@ const setAgentPublic = async (val: boolean) => {
     const a = agents.value.find(x => x.id === id); if (a) { a.is_public = val; agents.value = [...agents.value] }
     toast.add({ title: val ? t('agentsPage.toastMadePublic') : t('agentsPage.toastMadePrivate'), color: 'green' })
   } catch (e: any) { toast.add({ title: t('agentsPage.toastError'), description: e?.message, color: 'red' }) }
+}
+const agentCatalogName = computed(() => catalogs.value.find(c => c.id === agentDetail.value?.catalog_id)?.name || '')
+const setAgentCatalog = async (catalogId: string | null) => {
+  const id = agentView.value?.agentId; if (!id) return
+  const { error } = await useMyFetch(`/data_sources/${id}/catalog`, { method: 'PUT', body: { catalog_id: catalogId } })
+  if (error.value) { toast.add({ title: t('agentsPage.toastError'), description: (error.value as any)?.data?.detail, color: 'red' }); return }
+  if (agentDetail.value) agentDetail.value.catalog_id = catalogId
+  const a = agents.value.find(x => x.id === id); if (a) { a.catalog_id = catalogId; agents.value = [...agents.value] }
 }
 // Change the agent's custom icon from the agent-view header (manage access only).
 // `token` is an icon token ("emoji:…" | "type:…") or null to reset to default.
@@ -3330,8 +3395,8 @@ const runSuggestionEval = async () => {
 onUnmounted(() => stopEvalPoll())
 
 const labelOpts = computed(() => labels.value.map(l => ({ value: l.id, label: l.name })))
-const activeFilterCount = computed(() => fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
-const clearFilters = () => { fStatus.value = []; fLoad.value = []; fSource.value = []; fCategory.value = [] }
+const activeFilterCount = computed(() => fAgentStage.value.length + fAgentCatalog.value.length + fStatus.value.length + fLoad.value.length + fSource.value.length + fCategory.value.length)
+const clearFilters = () => { fAgentStage.value = []; fAgentCatalog.value = []; fStatus.value = []; fLoad.value = []; fSource.value = []; fCategory.value = [] }
 
 // Connections shown in the footer. Agent-attached connections carry richer
 // per-agent fields, but childless connections (created but not yet linked to any
@@ -3462,7 +3527,7 @@ const fetchAgents = async () => {
     const query: Record<string, any> = { include_unconnected: true }
     if (showAllAgents.value) query.show_all = true
     const { data } = await useMyFetch<any[]>('/data_sources/active', { method: 'GET', query })
-    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
+    agents.value = (data.value || []).map((d: any) => ({ id: d.id, name: d.name, type: d.type, icon: d.icon, connections: d.connections || [], user_status: d.user_status, is_public: d.is_public, is_connector: d.is_connector, connector_key: d.connector_key, status: d.status, publish_status: d.publish_status, reliability_status: d.reliability_status, catalog_id: d.catalog_id, description: d.description, auth_policy: d.auth_policy, admin_only: d.admin_only }))
   } catch (e) { console.error(e) } finally { agentsLoaded.value = true }
 }
 const agentStatusDot = (a: any) => a?.publish_status === 'disabled' ? 'bg-gray-300' : (a?.status === 'active' ? 'bg-green-400' : 'bg-gray-300')
@@ -4411,7 +4476,7 @@ onMounted(async () => {
   // Lazy tree: load agents + aggregate counts only (no instruction rows). Each
   // group's rows load on first expand. fetchCounts also feeds the pending dots
   // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
-  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  await Promise.all([fetchAgents(), fetchCatalogs(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   instrLoading.value = false
   // fetchCounts already populated the per-row "pending" dot set from its own
   // response, so no separate org-wide /pending-changes sweep is needed here.
