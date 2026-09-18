@@ -818,7 +818,10 @@ class CreateDataTool(Tool):
             except Exception:
                 viz_instructions = ""
 
-        allowed_types = list(ALLOWED_VIZ_TYPES)
+        # sorted(), not list(): ALLOWED_VIZ_TYPES is a set literal, so list() order
+        # varies between processes (PYTHONHASHSEED). That line now lives in the cached
+        # system prefix, and an unstable order would invalidate it on every restart.
+        allowed_types = sorted(ALLOWED_VIZ_TYPES)
 
         # Build column names list for reference
         column_names = [c.get("name", "") for c in profile.get("columns", [])]
@@ -833,16 +836,15 @@ ORGANIZATION VISUALIZATION INSTRUCTIONS:
 
 """
         
-        prompt = f"""Role: visualization planner. Analyze the data profile and choose the best visualization type.
+        # Same split as the coder: the role, the org visualization instructions and
+        # the rules/examples block are identical for every create_data call, so they
+        # go in `system` where inference_stream_v2 puts a cache breakpoint. Only the
+        # columns, conversation context, user prompt and data profile vary per call.
+        # NOTE: this whole prompt is ~3k tokens, which is below Claude Haiku 4.5's
+        # 4096-token minimum cacheable prefix — on a Haiku small-model this split is
+        # correct but caches nothing. It pays off on Sonnet (1024) and Opus (512).
+        viz_system = f"""Role: visualization planner. Analyze the data profile and choose the best visualization type.
 {instructions_block}
-Use the exact column names from the data. Available columns are: {column_names}
-
-Context: {messages_context or "None"}
-User prompt: {user_prompt or "None"}
-
-Data profile:
-{json.dumps(profile, ensure_ascii=False, indent=2)}
-
 ═══════════════════════════════════════════════════════════════════════════════
 RULES FOR METRIC_CARD (KPI display)
 ═══════════════════════════════════════════════════════════════════════════════
@@ -1021,7 +1023,15 @@ Return only valid JSON:
 
 Include "group_by" when the data has multiple rows per x-axis category that should be shown as separate colored series.
 Include "aggregation" on each series entry when rows are granular.
-Include "filters" only when narrowing the data to a specific slice.
+Include "filters" only when narrowing the data to a specific slice."""
+
+        prompt = f"""Use the exact column names from the data. Available columns are: {column_names}
+
+Context: {messages_context or "None"}
+User prompt: {user_prompt or "None"}
+
+Data profile:
+{json.dumps(profile, ensure_ascii=False, indent=2)}
 
 Reminder: use exact column names from: {column_names}
 Do not use generic placeholders like "value" unless that is the actual column name."""
@@ -1032,6 +1042,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
             chunks: list[str] = []
             async for evt in llm.inference_stream_v2(
                 messages=[Message(role="user", content=prompt)],
+                system=viz_system,
                 usage_scope="create_data.viz_infer",
             ):
                 if isinstance(evt, TextDeltaEvent):

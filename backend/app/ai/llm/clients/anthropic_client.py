@@ -53,6 +53,36 @@ def _accepts_temperature(model_id: str) -> bool:
     return not any(tag in mid for tag in _NO_SAMPLING_PARAM_TAGS)
 
 
+# TTL for the run-invariant cache prefix (tool catalog + system prompt).
+#
+# Anthropic's default ephemeral TTL is 5 minutes, measured from the START of the
+# request that writes or reads the entry. Inside one agent run the planner
+# iterates fast enough to keep it warm, but BETWEEN user turns a person reads the
+# answer and types the next question — routinely more than 5 minutes — so the
+# whole tools+system prefix (~39k tokens on a default org) was re-written at
+# 1.25x on the first call of nearly every turn instead of being read back at
+# 0.1x. That is a ~12x swing on the largest single block in the request.
+#
+# The 1-hour TTL costs 2x to write instead of 1.25x and breaks even at three
+# reads of the entry; a single multi-step turn already issues more than that, and
+# a cache READ refreshes the timer for free, so an active conversation keeps one
+# entry alive instead of re-writing it per turn.
+#
+# Only the prefix gets the long TTL. The per-turn message breakpoint stays on the
+# 5-minute default: it moves every iteration, so a long TTL there would pay the
+# 2x write premium for an entry that is superseded seconds later. Anthropic also
+# requires longer-TTL entries to appear BEFORE shorter-TTL ones, and the render
+# order is tools -> system -> messages, so 1h/1h/5m is a valid ordering.
+#
+# BOW_PROMPT_CACHE_TTL=5m restores the previous behavior without a deploy.
+def _prefix_cache_control() -> dict[str, Any]:
+    import os
+    ttl = (os.environ.get("BOW_PROMPT_CACHE_TTL") or "1h").strip().lower()
+    if ttl in ("5m", "5min", "default", "ephemeral"):
+        return {"type": "ephemeral"}
+    return {"type": "ephemeral", "ttl": "1h"}
+
+
 class Anthropic(LLMClient):
     def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
                  default_headers: Optional[dict] = None, vertex: Optional[dict] = None):
@@ -395,7 +425,7 @@ class Anthropic(LLMClient):
         if system:
             if enable_cache:
                 request_kwargs["system"] = [
-                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}},
+                    {"type": "text", "text": system, "cache_control": _prefix_cache_control()},
                 ]
             else:
                 request_kwargs["system"] = system
@@ -404,7 +434,7 @@ class Anthropic(LLMClient):
             if enable_cache and translated:
                 # Put the breakpoint on the LAST tool — Anthropic caches everything
                 # up to and including the marked block.
-                translated[-1] = {**translated[-1], "cache_control": {"type": "ephemeral"}}
+                translated[-1] = {**translated[-1], "cache_control": _prefix_cache_control()}
             request_kwargs["tools"] = translated
             # Force-disable parallel tool_use at the API level. The model is
             # capable of emitting multiple tool_use blocks in one response,
@@ -439,6 +469,7 @@ class Anthropic(LLMClient):
         completion_tokens = 0
         cache_read_tokens = 0
         cache_creation_tokens = 0
+
 
         stream = await self.async_client.messages.create(**request_kwargs)
 
@@ -549,6 +580,7 @@ class Anthropic(LLMClient):
             if ctype == "message_stop":
                 # Some SDKs emit this terminator without a stop_reason; ignore.
                 continue
+
 
         # Emit final usage event after the stream ends
         yield UsageEvent(
