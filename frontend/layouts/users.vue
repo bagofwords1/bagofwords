@@ -17,7 +17,7 @@ const intercomAlignment = computed<'left' | 'right'>(() =>
   RTL_LOCALES.has(i18nLocale.value) ? 'left' : 'right'
 )
 
-if (environment === 'production' && intercom) {
+if (environment === 'production' && intercom?.enabled) {
   $intercom.boot({
     hide_default_launcher: isMobile.value,
     alignment: intercomAlignment.value

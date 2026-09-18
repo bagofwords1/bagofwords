@@ -1427,7 +1427,7 @@
 
   const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  
-  if (environment === 'production' && intercom) {
+  if (environment === 'production' && intercom?.enabled) {
     const hideLauncher = computed<boolean>(() => isExcel.value || isMobile.value)
     $intercom.boot({
       hide_default_launcher: hideLauncher.value,
