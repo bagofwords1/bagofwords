@@ -69,13 +69,10 @@ class Settings(BaseSettings):
                 env_value = os.environ.get(env_var_name)
                 if env_value is not None:
                     return env_value
-                # If env var is not set and this is encryption key, generate one
-                if env_var_name == "BOW_ENCRYPTION_KEY":
-                    from .bow_config import generate_fernet_key
-                    new_key = generate_fernet_key()
-                    os.environ["BOW_ENCRYPTION_KEY"] = new_key  # Save for future use
-                    return new_key
-                return None  # Env var not set — return None instead of raw placeholder
+                # Env var not set — return None instead of the raw placeholder.
+                # (BowConfig.validate_encryption_key handles a missing
+                # BOW_ENCRYPTION_KEY: env var, else generate with a warning.)
+                return None
             return config
 
         # Inline path-traversal guard at the sink (Snyk python/PT). Reject

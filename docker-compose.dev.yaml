@@ -67,7 +67,10 @@ services:
       - uploads_data_dev:/app/backend/uploads
       - branding_data_dev:/app/backend/branding_uploads
       - logs_data_dev:/app/backend/logs
-      # Persists the auto-generated encryption key across restarts
+      # Persists the auto-generated encryption key across restarts.
+      # Needs an image that pre-creates /app/backend/data (Dockerfile does); with an
+      # older cached image the mount point is root-owned, start.sh cannot write the
+      # key and warns about a temporary key — run `docker compose pull` to fix.
       - app_data_dev:/app/backend/data
     depends_on:
       postgres:

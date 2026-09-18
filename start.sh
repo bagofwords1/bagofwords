@@ -11,23 +11,99 @@ export ENVIRONMENT=production
 #      BOW_ENCRYPTION_KEY_FILE=/run/secrets/bow_encryption_key
 #   3. Generate a key and persist it to the keyfile so it survives restarts
 KEY_FILE="${BOW_ENCRYPTION_KEY_FILE:-/app/backend/data/encryption.key}"
-if [ -z "$BOW_ENCRYPTION_KEY" ]; then
-    # -r guards against a non-empty but unreadable keyfile: without it, cat
-    # fails and an empty key would be exported while claiming success.
-    if [ -s "$KEY_FILE" ] && [ -r "$KEY_FILE" ] && KEY_FROM_FILE="$(cat "$KEY_FILE")" && [ -n "$KEY_FROM_FILE" ]; then
-        export BOW_ENCRYPTION_KEY="$KEY_FROM_FILE"
-        echo "Loaded BOW_ENCRYPTION_KEY from $KEY_FILE"
-    else
-        export BOW_ENCRYPTION_KEY="$(python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())")"
-        if mkdir -p "$(dirname "$KEY_FILE")" 2>/dev/null \
-           && (umask 077 && printf '%s' "$BOW_ENCRYPTION_KEY" > "$KEY_FILE") 2>/dev/null; then
-            echo "Generated a new BOW_ENCRYPTION_KEY and saved it to $KEY_FILE."
-            echo "It will be reused on restarts. Back this file up — losing it makes stored credentials undecryptable."
+KEY_DIR="$(dirname "$KEY_FILE")"
+
+# Succeeds only when $1 is a well-formed Fernet key. A malformed key would
+# otherwise boot fine and fail on every encrypt/decrypt at request time.
+is_fernet_key() {
+    python3 -c 'import sys; from cryptography.fernet import Fernet; Fernet(sys.argv[1])' "$1" 2>/dev/null
+}
+
+# Keyfile contents without trailing CR/LF (editors, Windows checkouts).
+read_keyfile() {
+    { tr -d '\r\n' < "$KEY_FILE"; } 2>/dev/null
+}
+
+# Persist $1 to $KEY_FILE unless a key already landed there. Several
+# first-boot containers may share the volume, so writers serialize on a
+# mkdir lock (atomic on shared filesystems), re-read under the lock and only
+# then write via temp file + rename. Exactly one key ends up on disk and every
+# container re-reads and uses that one. Prints errors to stderr.
+persist_key() {
+    local lock="$KEY_DIR/.encryption.key.lock" tmp i rc=0
+    mkdir -p "$KEY_DIR" || return 1
+    if [ ! -w "$KEY_DIR" ]; then
+        echo "$KEY_DIR is not writable by $(id -un)" >&2
+        return 1
+    fi
+    for i in $(seq 1 50); do            # ~10s, then assume a stale lock from a crashed container
+        mkdir "$lock" 2>/dev/null && break
+        sleep 0.2
+    done
+    if [ -z "$(read_keyfile)" ]; then
+        if tmp="$(umask 077 && mktemp "$KEY_DIR/.encryption.key.XXXXXX")" \
+           && printf '%s\n' "$1" > "$tmp" && mv -f "$tmp" "$KEY_FILE"; then
+            # umask only applies to files we create; a pre-seeded empty keyfile
+            # would keep its mode across the rename, so tighten it explicitly.
+            chmod 600 "$KEY_FILE" 2>/dev/null || true
         else
-            echo "⚠️  WARNING: No BOW_ENCRYPTION_KEY provided and $KEY_FILE is not writable."
-            echo "⚠️  Generated a TEMPORARY key: stored credentials become undecryptable after a restart!"
-            echo "⚠️  Mount a volume at $(dirname "$KEY_FILE") or set: -e BOW_ENCRYPTION_KEY=<your-persistent-key>"
+            rc=1
+            [ -n "$tmp" ] && rm -f "$tmp"
         fi
+    fi
+    rmdir "$lock" 2>/dev/null
+    return $rc
+}
+
+if [ -n "$BOW_ENCRYPTION_KEY" ]; then
+    if ! is_fernet_key "$BOW_ENCRYPTION_KEY"; then
+        echo "❌ BOW_ENCRYPTION_KEY is not a valid Fernet key (44 url-safe base64 chars ending in '=')." >&2
+        echo "   Generate one with: python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())'" >&2
+        exit 1
+    fi
+    echo "Using BOW_ENCRYPTION_KEY from the environment."
+    KEY_ON_DISK="$(read_keyfile)"
+    if [ -n "$KEY_ON_DISK" ] && [ "$KEY_ON_DISK" != "$BOW_ENCRYPTION_KEY" ]; then
+        echo "⚠️  WARNING: $KEY_FILE holds a different key than BOW_ENCRYPTION_KEY. The environment variable wins."
+        echo "⚠️  Anything encrypted with the keyfile's key will NOT decrypt. Unset BOW_ENCRYPTION_KEY to go back to the keyfile."
+    fi
+elif [ -e "$KEY_FILE" ] && [ ! -r "$KEY_FILE" ]; then
+    echo "❌ $KEY_FILE exists but is not readable by $(id -un). Fix its permissions; refusing to start with a new key." >&2
+    exit 1
+elif KEY_FROM_FILE="$(read_keyfile)" && [ -n "$KEY_FROM_FILE" ]; then
+    if ! is_fernet_key "$KEY_FROM_FILE"; then
+        echo "❌ $KEY_FILE does not contain a valid Fernet key. Refusing to start." >&2
+        echo "   Restore it from backup, or delete it to generate a new key (stored credentials will be lost)." >&2
+        exit 1
+    fi
+    export BOW_ENCRYPTION_KEY="$KEY_FROM_FILE"
+    echo "Loaded BOW_ENCRYPTION_KEY from $KEY_FILE"
+else
+    NEW_KEY="$(python3 -c 'from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())')"
+    PERSIST_ERR="$(persist_key "$NEW_KEY" 2>&1)"
+    KEY_ON_DISK="$(read_keyfile)"
+    if [ -n "$KEY_ON_DISK" ] && is_fernet_key "$KEY_ON_DISK"; then
+        # Use what actually landed on disk: ours, or a sibling container's.
+        export BOW_ENCRYPTION_KEY="$KEY_ON_DISK"
+        if [ "$KEY_ON_DISK" = "$NEW_KEY" ]; then
+            echo "Generated a new BOW_ENCRYPTION_KEY and saved it to $KEY_FILE."
+        else
+            echo "Another container generated $KEY_FILE concurrently; using that key."
+        fi
+        if [ "$(stat -c %d "$KEY_DIR" 2>/dev/null)" = "$(stat -c %d / 2>/dev/null)" ]; then
+            echo "⚠️  WARNING: $KEY_DIR is on the container's writable layer, not a volume."
+            echo "⚠️  The key is lost when the container is recreated (pod restart, docker rm, image upgrade),"
+            echo "⚠️  and each replica generates its own key. Stored credentials will then be undecryptable."
+            echo "⚠️  Mount a persistent volume at $KEY_DIR or set: -e BOW_ENCRYPTION_KEY=<your-persistent-key>"
+        else
+            echo "It will be reused on restarts. Back this file up — losing it makes stored credentials undecryptable."
+        fi
+    else
+        export BOW_ENCRYPTION_KEY="$NEW_KEY"
+        echo "⚠️  WARNING: No BOW_ENCRYPTION_KEY provided and the key could not be saved to $KEY_FILE."
+        [ -n "$PERSIST_ERR" ] && echo "⚠️  $PERSIST_ERR"
+        echo "⚠️  Generated a TEMPORARY key: stored credentials become undecryptable after a restart!"
+        echo "⚠️  Mount a writable volume at $KEY_DIR or set: -e BOW_ENCRYPTION_KEY=<your-persistent-key>"
     fi
 fi
 

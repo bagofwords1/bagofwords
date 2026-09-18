@@ -1,5 +1,5 @@
 from typing import List, Optional
-from pydantic import BaseModel, Field, validator, ConfigDict, AliasGenerator
+from pydantic import BaseModel, Field, validator, field_validator, ConfigDict, AliasGenerator
 from pydantic.alias_generators import to_camel
 import os
 import secrets
@@ -251,10 +251,13 @@ class BowConfig(BaseModel):
     oidc_providers: List[OIDCProvider] = []
     default_llm: List[LLMProvider] = []
     smtp_settings: SMTPSettings = None
+    # Resolved by ``validate_encryption_key`` below (env var, then generated).
+    # ``validate_default=True`` so an omitted key goes through the same path as
+    # an empty or placeholder one instead of silently minting a per-process key.
     encryption_key: str = Field(
-        default_factory=generate_fernet_key,
+        default="",
+        validate_default=True,
         description="Encryption key for sensitive data",
-        env="BOW_ENCRYPTION_KEY"
     )
     stripe: Stripe = Stripe()
     database: Database = Database()
@@ -265,22 +268,30 @@ class BowConfig(BaseModel):
     otel: OTELConfig = OTELConfig()
     i18n: I18nConfig = I18nConfig()
 
-    @validator('encryption_key')
+    @field_validator('encryption_key', mode='before')
+    @classmethod
     def validate_encryption_key(cls, v):
-        # If the value is empty or still the placeholder, generate a valid key.
+        # Resolution order:
+        #   1. an explicit literal in bow-config.yaml
+        #   2. the BOW_ENCRYPTION_KEY env var (what start.sh / k8s Secrets set)
+        #   3. a freshly generated key, with a loud warning
+        # The env var lookup lives here (not only in the ``${VAR}`` substitution
+        # done by the config loader) so a bow-config.yaml that omits
+        # ``encryption_key`` entirely still honors the key the operator provided.
         # An ephemeral, process-local key is fine for a throwaway run but is a
-        # footgun in any persistent deployment: it changes on every restart, so
-        # everything encrypted with it (LLM provider keys, data-source
-        # credentials) becomes permanently undecryptable after a restart. Warn
-        # loudly so operators pin BOW_ENCRYPTION_KEY instead of silently
-        # bricking their stored secrets.
-        if not v or v.strip() in {"", "${BOW_ENCRYPTION_KEY}"}:
-            import logging
-            logging.getLogger(__name__).warning(
-                "BOW_ENCRYPTION_KEY is not set — generating a random, in-memory "
-                "encryption key. It will change on the next restart, making all "
-                "currently-encrypted credentials undecryptable. Set a stable "
-                "BOW_ENCRYPTION_KEY for any non-throwaway deployment."
-            )
-            return generate_fernet_key()
-        return v
+        # footgun in any persistent deployment: it changes on every restart (and
+        # differs per uvicorn worker), so everything encrypted with it (LLM
+        # provider keys, data-source credentials) becomes undecryptable.
+        if isinstance(v, str) and v.strip() not in {"", "${BOW_ENCRYPTION_KEY}"}:
+            return v
+        from_env = os.environ.get("BOW_ENCRYPTION_KEY", "").strip()
+        if from_env and from_env != "${BOW_ENCRYPTION_KEY}":
+            return from_env
+        import logging
+        logging.getLogger(__name__).warning(
+            "BOW_ENCRYPTION_KEY is not set — generating a random, in-memory "
+            "encryption key. It will change on the next restart, making all "
+            "currently-encrypted credentials undecryptable. Set a stable "
+            "BOW_ENCRYPTION_KEY for any non-throwaway deployment."
+        )
+        return generate_fernet_key()
