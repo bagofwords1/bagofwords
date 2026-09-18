@@ -4178,6 +4178,7 @@
       "chip_slow": "Slow",
       "chip_expensive": "Expensive",
       "chip_retried": "Retried",
+      "rangeAll": "All time",
       "range24h": "Last 24 hours",
       "range7d": "Last 7 days",
       "range30d": "Last 30 days",

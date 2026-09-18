@@ -3980,6 +3980,7 @@
       "chip_slow": "Lentas",
       "chip_expensive": "Caras",
       "chip_retried": "Repetidas",
+      "rangeAll": "Todo o período",
       "range24h": "Últimas 24 horas",
       "range7d": "Últimos 7 dias",
       "range30d": "Últimos 30 dias",

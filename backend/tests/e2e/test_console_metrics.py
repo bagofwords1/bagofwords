@@ -350,6 +350,7 @@ def test_diagnosis_filters_by_user_time_and_prompt(
     get_agent_execution_summaries,
     get_diagnosis_dashboard_metrics,
     seed_agent_executions,
+    backdate_organization,
     create_report,
     create_user,
     login_user,
@@ -365,6 +366,9 @@ def test_diagnosis_filters_by_user_time_and_prompt(
     owner_info = whoami(owner_token)
     org_id = owner_info["organizations"][0]["id"]
     owner_id = owner_info["id"]
+    # The unfiltered baseline is "all time", which starts on the org's
+    # creation day; the seeded run from ten days ago must fall inside it.
+    backdate_organization(org_id, days=30)
 
     # Second member in the same org (invite first — registration may be restricted)
     member_email = f"member_{_uuid.uuid4().hex[:6]}@test.com"
@@ -425,3 +429,59 @@ def test_diagnosis_filters_by_user_time_and_prompt(
     metrics = get_diagnosis_dashboard_metrics(user_token=owner_token, org_id=org_id, user_ids=member_id)
     assert metrics.status_code == 200
     assert metrics.json()["total_items"] == 2
+
+
+@pytest.mark.e2e
+def test_no_date_range_means_the_organizations_whole_history(
+    get_console_metrics,
+    get_console_metrics_comparison,
+    get_agent_execution_summaries,
+    get_llm_usage_metrics,
+    seed_agent_executions,
+    backdate_organization,
+    create_report,
+    create_user,
+    login_user,
+    whoami,
+):
+    """Every console page sends no dates for its "All time" period, so an
+    omitted range must cover the org's whole history — not a default window
+    (it used to be the last 30 days, which silently dropped older activity).
+    An explicit range still narrows."""
+    owner = create_user()
+    token = login_user(owner["email"], owner["password"])
+    info = whoami(token)
+    org_id = info["organizations"][0]["id"]
+    backdate_organization(org_id, days=400)
+    report = create_report(title="All-time report", user_token=token, org_id=org_id)
+
+    now = datetime.utcnow()
+    ages_in_days = [1, 45, 200]  # one inside any short window, two well past 30 days
+    seed_agent_executions(org_id, report["id"], [
+        {"user_id": info["id"], "prompt": f"run {age}d ago", "created_at": now - timedelta(days=age),
+         "usage": [{"model": "seed-model", "provider": "openai", "prompt_tokens": 10, "completion_tokens": 5, "cost": 0.001}]}
+        for age in ages_in_days
+    ])
+    completions_per_run = 2  # the user prompt and the system answer
+
+    # Runs table (diagnosis summaries) and KPI totals: everything, not 30 days.
+    summaries = get_agent_execution_summaries(user_token=token, org_id=org_id).json()
+    assert summaries["total_items"] == len(ages_in_days)
+    metrics = get_console_metrics(user_token=token, org_id=org_id).json()
+    assert metrics["total_messages"] == len(ages_in_days) * completions_per_run
+    usage = get_llm_usage_metrics(user_token=token, org_id=org_id).json()
+    assert usage["total_calls"] == len(ages_in_days)
+
+    # All time has no "previous period": the comparison carries the totals and no trend.
+    comparison = get_console_metrics_comparison(user_token=token, org_id=org_id).json()
+    assert comparison["current"]["total_messages"] == len(ages_in_days) * completions_per_run
+    assert comparison["changes"] == {}
+    assert comparison["period_days"] >= max(ages_in_days)
+
+    # An explicit window still narrows, and still gets a trend against the window before it.
+    window = dict(start_date=now - timedelta(days=30), end_date=now)
+    assert get_agent_execution_summaries(user_token=token, org_id=org_id, **window).json()["total_items"] == 1
+    assert get_console_metrics(user_token=token, org_id=org_id, **window).json()["total_messages"] == completions_per_run
+    windowed = get_console_metrics_comparison(user_token=token, org_id=org_id, **window).json()
+    assert windowed["current"]["total_messages"] == completions_per_run
+    assert "total_messages" in windowed["changes"]

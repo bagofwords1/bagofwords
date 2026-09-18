@@ -3980,6 +3980,7 @@
       "chip_slow": "Långsamma",
       "chip_expensive": "Dyra",
       "chip_retried": "Omförsökta",
+      "rangeAll": "All tid",
       "range24h": "Senaste 24 timmarna",
       "range7d": "Senaste 7 dagarna",
       "range30d": "Senaste 30 dagarna",
