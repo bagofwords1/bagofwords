@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.565 (September 19, 2026)
+- Fixed cache-read costs being overstated 4x for Claude Fable 5.1 and Mythos 5.1, which bill a cache hit at 0.025x input where the rest of the Claude family pays 0.1x (#1158)
+
 ## Version 0.0.564 (September 19, 2026)
 - Agent-loop prompt caching now actually holds across a run: the static context stopped changing shape mid-run, the one-shot prompts (code generation, visualization, follow-ups) send a cacheable system half, and the cache entry lives an hour instead of five minutes — measured 12–37% off a run's LLM cost with the same analyses produced — set `BOW_PROMPT_CACHE_TTL=5m` to go back to the short TTL (#1159)
 - Prompt caching on Amazon Bedrock for Claude and Nova models, off via `BOW_BEDROCK_PROMPT_CACHE=0` (#1159)
