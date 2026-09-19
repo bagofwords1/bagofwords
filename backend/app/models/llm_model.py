@@ -122,6 +122,32 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 14.00
     },
     {
+        # Anthropic's most capable widely released model. Same tier, price and
+        # 1M window as Claude Fable 5, which stays in the catalog because it is
+        # still served. Selectable but not a default: at $10/$50 per million it
+        # is 2x Opus 5 and ~3.3x the Sonnet 5 default, so moving an org onto it
+        # is a cost decision for the admin, not a catalog one.
+        #
+        # No client changes were needed for it: the ``fable-5`` substring tags
+        # in the Anthropic client (_NO_SAMPLING_PARAM_TAGS) and in agent_v2
+        # (_effort_to_thinking_config) already match ``claude-fable-5-1``, so it
+        # correctly gets adaptive thinking and no temperature. Its one breaking
+        # change vs Fable 5 — forced tool use (``tool_choice`` ``any``/``tool``)
+        # returns a 400 — does not touch us: the only tool_choice we ever send
+        # is ``auto`` (with disable_parallel_tool_use), which stays supported.
+        "name": "Claude Fable 5.1",
+        "model_id": "claude-fable-5-1",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 10.00,
+        "output_cost_per_million_tokens_usd": 50.00
+    },
+    {
         "name": "Claude Fable 5",
         "model_id": "claude-fable-5",
         "provider_type": "anthropic",
