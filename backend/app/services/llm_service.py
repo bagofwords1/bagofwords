@@ -1639,6 +1639,25 @@ class LLMService:
                     vision_override, db_model.supports_vision
                 )
 
+            # Last resort: a model the catalog has never heard of (a Bedrock
+            # inference profile, a gateway alias, a brand-new deployment) gets
+            # no rate from LLM_MODEL_DETAILS, and the branches above only read
+            # the catalog. Without this its every call records total_cost_usd=0
+            # — an entire provider's spend silently missing from the cost
+            # console rather than merely approximate. The admin typed a rate
+            # into the request; honor it.
+            for _field in ("input_cost_per_million_tokens_usd", "output_cost_per_million_tokens_usd"):
+                if getattr(db_model, _field, None) is None:
+                    _supplied = model.get(_field)
+                    if _supplied is not None:
+                        try:
+                            setattr(db_model, _field, float(_supplied))
+                        except (TypeError, ValueError):
+                            logger.warning(
+                                "ignoring non-numeric %s=%r for model %s",
+                                _field, _supplied, model.get("model_id"),
+                            )
+
             # A non-null context-window override always wins over catalog/user values.
             if cw_override is not None:
                 db_model.context_window_tokens = int(cw_override)

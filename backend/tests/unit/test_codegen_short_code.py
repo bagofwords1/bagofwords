@@ -106,8 +106,10 @@ class _StubLLM:
     def __init__(self):
         self.prompts = []
 
-    async def inference_stream_v2(self, messages, **kwargs):
-        self.prompts.append(messages[0].content)
+    async def inference_stream_v2(self, messages, system=None, **kwargs):
+        # generate_code splits its prompt into a cacheable `system` half and a
+        # per-call user half; record both so assertions stay channel-agnostic.
+        self.prompts.append(f"{system or ''}\n{messages[0].content}")
         return
         yield  # pragma: no cover
 

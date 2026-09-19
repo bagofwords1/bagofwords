@@ -53,6 +53,36 @@ def _accepts_temperature(model_id: str) -> bool:
     return not any(tag in mid for tag in _NO_SAMPLING_PARAM_TAGS)
 
 
+# TTL for the run-invariant cache prefix (tool catalog + system prompt).
+#
+# Anthropic's default ephemeral TTL is 5 minutes, measured from the START of the
+# request that writes or reads the entry. Inside one agent run the planner
+# iterates fast enough to keep it warm, but BETWEEN user turns a person reads the
+# answer and types the next question — routinely more than 5 minutes — so the
+# whole tools+system prefix (~39k tokens on a default org) was re-written at
+# 1.25x on the first call of nearly every turn instead of being read back at
+# 0.1x. That is a ~12x swing on the largest single block in the request.
+#
+# The 1-hour TTL costs 2x to write instead of 1.25x and breaks even at three
+# reads of the entry; a single multi-step turn already issues more than that, and
+# a cache READ refreshes the timer for free, so an active conversation keeps one
+# entry alive instead of re-writing it per turn.
+#
+# Only the prefix gets the long TTL. The per-turn message breakpoint stays on the
+# 5-minute default: it moves every iteration, so a long TTL there would pay the
+# 2x write premium for an entry that is superseded seconds later. Anthropic also
+# requires longer-TTL entries to appear BEFORE shorter-TTL ones, and the render
+# order is tools -> system -> messages, so 1h/1h/5m is a valid ordering.
+#
+# BOW_PROMPT_CACHE_TTL=5m restores the previous behavior without a deploy.
+def _prefix_cache_control() -> dict[str, Any]:
+    import os
+    ttl = (os.environ.get("BOW_PROMPT_CACHE_TTL") or "1h").strip().lower()
+    if ttl in ("5m", "5min", "default", "ephemeral"):
+        return {"type": "ephemeral"}
+    return {"type": "ephemeral", "ttl": "1h"}
+
+
 class Anthropic(LLMClient):
     def __init__(self, api_key: str = None, base_url: str = None, temperature: Optional[float] = None,
                  default_headers: Optional[dict] = None, vertex: Optional[dict] = None):
@@ -128,10 +158,19 @@ class Anthropic(LLMClient):
         content.append({"type": "text", "text": prompt.strip()})
         return content
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None) -> LLMResponse:
         kwargs: dict[str, Any] = {}
         if _accepts_temperature(model_id):
             kwargs["temperature"] = self.temperature
+        if system:
+            # Same breakpoint the streaming path puts on its system block. A
+            # one-shot call that keeps its whole prompt in one user message can
+            # never cache — there is no stable prefix to mark — so callers that
+            # split off their invariant half get the read rate from here on.
+            kwargs["system"] = [
+                {"type": "text", "text": system, "cache_control": _prefix_cache_control()},
+            ]
         message = self.client.messages.create(
             model=model_id,
             messages=[
@@ -193,24 +232,65 @@ class Anthropic(LLMClient):
 
     @staticmethod
     def _extract_usage(raw: Any) -> LLMUsage:
+        """Read one usage object, including the per-TTL cache-write split.
+
+        ``usage.cache_creation`` breaks cache_creation_input_tokens down into
+        ``ephemeral_5m_input_tokens`` / ``ephemeral_1h_input_tokens``. Those are
+        what the two write rates (1.25x / 2x) apply to, so the billed rate comes
+        from the provider's own answer rather than from whichever TTL we asked
+        for — the two diverge whenever a request READS an entry written under a
+        different TTL, and a config-derived guess is silently wrong there.
+
+        When the field is absent (older API surface, or a gateway that drops
+        it), the whole write is attributed to the 5-minute TTL: that matches the
+        API default and never over-bills.
+        """
         if raw is None:
             return LLMUsage()
+
+        def _split(creation_obj, total: int) -> tuple[int, int]:
+            """(5m, 1h) when the provider broke the write down, else (0, 0).
+
+            Absent breakdown must NOT be reported as "all 5-minute" here. The
+            stream repeats cache_creation_input_tokens on message_delta without
+            repeating the breakdown, so returning the total as 5m would clobber
+            the correct split already read from message_start and silently
+            re-price a 1-hour write at 1.25x. The "unattributed writes bill at
+            the 5-minute rate" fallback belongs once at the end of the stream,
+            where it can see whether any breakdown ever arrived.
+            """
+            if creation_obj is None:
+                return 0, 0
+            if isinstance(creation_obj, dict):
+                m5 = creation_obj.get("ephemeral_5m_input_tokens")
+                h1 = creation_obj.get("ephemeral_1h_input_tokens")
+            else:
+                m5 = getattr(creation_obj, "ephemeral_5m_input_tokens", None)
+                h1 = getattr(creation_obj, "ephemeral_1h_input_tokens", None)
+            if m5 is None and h1 is None:
+                return 0, 0
+            return int(m5 or 0), int(h1 or 0)
+
         if isinstance(raw, dict):
+            total_write = int(raw.get("cache_creation_input_tokens", 0) or 0)
+            w5, w1 = _split(raw.get("cache_creation"), total_write)
             return LLMUsage(
                 prompt_tokens=int(raw.get("input_tokens", 0) or 0),
                 completion_tokens=int(raw.get("output_tokens", 0) or 0),
                 cache_read_tokens=int(raw.get("cache_read_input_tokens", 0) or 0),
-                cache_creation_tokens=int(raw.get("cache_creation_input_tokens", 0) or 0),
+                cache_creation_tokens=total_write,
+                cache_write_5m_tokens=w5,
+                cache_write_1h_tokens=w1,
             )
-        prompt = getattr(raw, "input_tokens", 0)
-        completion = getattr(raw, "output_tokens", 0)
-        cache_read = getattr(raw, "cache_read_input_tokens", 0)
-        cache_create = getattr(raw, "cache_creation_input_tokens", 0)
+        total_write = int(getattr(raw, "cache_creation_input_tokens", 0) or 0)
+        w5, w1 = _split(getattr(raw, "cache_creation", None), total_write)
         return LLMUsage(
-            prompt_tokens=int(prompt or 0),
-            completion_tokens=int(completion or 0),
-            cache_read_tokens=int(cache_read or 0),
-            cache_creation_tokens=int(cache_create or 0),
+            prompt_tokens=int(getattr(raw, "input_tokens", 0) or 0),
+            completion_tokens=int(getattr(raw, "output_tokens", 0) or 0),
+            cache_read_tokens=int(getattr(raw, "cache_read_input_tokens", 0) or 0),
+            cache_creation_tokens=total_write,
+            cache_write_5m_tokens=w5,
+            cache_write_1h_tokens=w1,
         )
 
     async def test_connection(self):
@@ -395,7 +475,7 @@ class Anthropic(LLMClient):
         if system:
             if enable_cache:
                 request_kwargs["system"] = [
-                    {"type": "text", "text": system, "cache_control": {"type": "ephemeral"}},
+                    {"type": "text", "text": system, "cache_control": _prefix_cache_control()},
                 ]
             else:
                 request_kwargs["system"] = system
@@ -404,7 +484,7 @@ class Anthropic(LLMClient):
             if enable_cache and translated:
                 # Put the breakpoint on the LAST tool — Anthropic caches everything
                 # up to and including the marked block.
-                translated[-1] = {**translated[-1], "cache_control": {"type": "ephemeral"}}
+                translated[-1] = {**translated[-1], "cache_control": _prefix_cache_control()}
             request_kwargs["tools"] = translated
             # Force-disable parallel tool_use at the API level. The model is
             # capable of emitting multiple tool_use blocks in one response,
@@ -439,6 +519,9 @@ class Anthropic(LLMClient):
         completion_tokens = 0
         cache_read_tokens = 0
         cache_creation_tokens = 0
+        cache_write_5m_tokens = 0
+        cache_write_1h_tokens = 0
+
 
         stream = await self.async_client.messages.create(**request_kwargs)
 
@@ -454,6 +537,9 @@ class Anthropic(LLMClient):
                     cache_read_tokens = usage.cache_read_tokens
                 if usage.cache_creation_tokens:
                     cache_creation_tokens = usage.cache_creation_tokens
+                if usage.cache_write_5m_tokens or usage.cache_write_1h_tokens:
+                    cache_write_5m_tokens = usage.cache_write_5m_tokens
+                    cache_write_1h_tokens = usage.cache_write_1h_tokens
                 continue
 
             if ctype == "content_block_start":
@@ -539,6 +625,9 @@ class Anthropic(LLMClient):
                     cache_read_tokens = usage.cache_read_tokens
                 if usage.cache_creation_tokens:
                     cache_creation_tokens = usage.cache_creation_tokens
+                if usage.cache_write_5m_tokens or usage.cache_write_1h_tokens:
+                    cache_write_5m_tokens = usage.cache_write_5m_tokens
+                    cache_write_1h_tokens = usage.cache_write_1h_tokens
                 if stop_reason:
                     yield MessageStopEvent(
                         stop_reason=_STOP_REASON_MAP.get(stop_reason, "other"),
@@ -550,12 +639,20 @@ class Anthropic(LLMClient):
                 # Some SDKs emit this terminator without a stop_reason; ignore.
                 continue
 
+
         # Emit final usage event after the stream ends
+        # A write with no TTL breakdown (older surface, or a gateway that drops
+        # the field) is attributed to the 5-minute TTL — the API default, and
+        # the rate that never over-bills.
+        if cache_creation_tokens and not (cache_write_5m_tokens or cache_write_1h_tokens):
+            cache_write_5m_tokens = cache_creation_tokens
         yield UsageEvent(
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_5m_tokens=cache_write_5m_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
         self._set_last_usage(
             LLMUsage(
@@ -563,5 +660,7 @@ class Anthropic(LLMClient):
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                cache_write_5m_tokens=cache_write_5m_tokens,
+                cache_write_1h_tokens=cache_write_1h_tokens,
             )
         )

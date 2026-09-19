@@ -6395,7 +6395,21 @@ class AgentV2:
 
                             # Refresh for next iteration
                             view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
-                            schemas_excerpt = view.static.schemas.render() if getattr(view.static, "schemas", None) else ""
+                            # NOTE: schemas_excerpt is deliberately NOT recomputed here.
+                            # It used to be reassigned from `view.static.schemas.render()`,
+                            # which bypassed _render_schemas_with_roster() and so:
+                            #   1. dropped the roster/focus policy from loop 1 onward —
+                            #      every attached agent's full schema shipped regardless
+                            #      of report.focused_data_source_ids; and
+                            #   2. swapped render_combined()'s <data_source> vocabulary for
+                            #      render()'s <agent> vocabulary mid-run, which changed
+                            #      messages[0] between iterations and invalidated the
+                            #      message prompt cache on every turn (cache_read stayed
+                            #      pinned to the system+tools prefix).
+                            # `static` is primed once per run and does not change on a warm
+                            # refresh, so the value from the pre-loop render at the top of
+                            # main_execution is already correct; a genuine focus change is
+                            # handled by the _current_focus_key() re-render in the loop head.
                             history_summary = self.context_hub.get_history_summary(self.context_hub.observation_builder.to_dict())
 
                             # Refresh active_artifact after tools that create/edit artifacts
