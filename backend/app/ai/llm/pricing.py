@@ -29,7 +29,8 @@ explicitly here rather than left to a per-branch comment.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, replace
 from typing import Optional
 
 # Model families. The name is the billing behavior, not the vendor: a Claude
@@ -97,6 +98,24 @@ _RATES = {
 }
 
 
+# Cache READS are 0.1x the base input rate on every Claude model but two: Claude
+# Fable 5.1 and Claude Mythos 5.1 read at 0.025x ($0.25/MTok against a $10 base
+# input rate). Cache WRITES are unaffected and stay 1.25x/2x everywhere.
+#
+# The match is on the VERSION-QUALIFIED tag, deliberately not on the family.
+# ``claude-fable-5`` and ``claude-mythos-5`` still read at the standard 0.1x, so
+# a bare ``fable`` / ``mythos`` substring -- the style the Anthropic client uses
+# for its sampling-parameter tags -- would sweep them in and under-report them
+# by 4x: the same error as the one this guards against, pointing the other way.
+#
+# The trailing ``(?!\d)`` stops a future ``fable-5-10`` from inheriting the
+# cheaper rate. An id we do not recognize keeps the standard multiplier rather
+# than guessing downward, because under-reporting spend is the worse failure:
+# an over-report gets questioned, an under-report gets budgeted against.
+_REDUCED_CACHE_READ_RE = re.compile(r"(?:fable|mythos)-5-1(?!\d)")
+_REDUCED_CACHE_READ = 0.025
+
+
 def is_anthropic_model_id(model_id: Optional[str]) -> bool:
     """Whether a deployment name denotes an Anthropic model.
 
@@ -141,7 +160,17 @@ def resolve_family(provider_type: Optional[str], model_id: Optional[str] = None)
 
 
 def rates_for(provider_type: Optional[str], model_id: Optional[str] = None) -> CacheRates:
-    return _RATES[resolve_family(provider_type, model_id)]
+    """Cache rates for a (provider, model) pair.
+
+    The family fixes the shape of the arithmetic; the model id can still move a
+    single rate within it, which is why this is resolved per call rather than
+    looked up once per family.
+    """
+    family = resolve_family(provider_type, model_id)
+    base = _RATES[family]
+    if family == ANTHROPIC and _REDUCED_CACHE_READ_RE.search((model_id or "").lower()):
+        return replace(base, read=_REDUCED_CACHE_READ)
+    return base
 
 
 def cached_input_cost(
