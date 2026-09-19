@@ -1,6 +1,7 @@
 from typing import Optional, Callable
 
 import asyncio
+import functools
 
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -80,17 +81,20 @@ class Reporter:
         parsing/LLM error so a failure can't break the run.
         """
         if mode == "training":
-            text = self._training_follow_ups_prompt(
+            system, text = self._training_follow_ups_prompt(
                 messages_context, schemas_context, instructions_context, max_suggestions
             )
         else:
-            text = self._chat_follow_ups_prompt(
+            system, text = self._chat_follow_ups_prompt(
                 messages_context, schemas_context, instructions_context, max_suggestions
             )
 
         try:
             raw = await asyncio.to_thread(
-                self.llm.inference, text, usage_scope="report.follow_ups"
+                functools.partial(
+                    self.llm.inference, text, system=system,
+                    usage_scope="report.follow_ups",
+                )
             )
         except Exception:
             return []
@@ -111,14 +115,16 @@ class Reporter:
             "- When a suggestion is a data question, keep it answerable from the kind of data discussed; do not invent specifics."
         )
 
-        return f"""
+        # Split into a run-stable system half and the volatile conversation.
+        # The conversation grows every turn, so with everything in one message
+        # the whole prompt changed each time and nothing could cache. The task
+        # statement, the available data and the rules are stable for the report,
+        # which makes them a reusable prefix.
+        system = f"""
         You are suggesting what a user might click to ask next in an assistant conversation.
         The RECENT CONVERSATION is the primary driver: every suggestion must be a natural
         continuation of what the user and assistant were just doing. Propose up to
         {max_suggestions} follow-ups.
-
-        Conversation so far:
-        {messages_context}
         {data_blocks}
         First, read the conversation to decide what kind of follow-ups fit:
         - If the last turn was a data/analytics question, suggest natural next data questions,
@@ -139,6 +145,11 @@ class Reporter:
         Example (data turn): ["How did revenue trend last quarter?", "Which region grew fastest?"]
         Example (non-data turn, e.g. a scheduled email): ["Change the daily send time?", "Stop the daily email", "Also send it to my manager?"]
         """
+        user = f"""
+        Conversation so far:
+        {messages_context}
+        """
+        return system, user
 
     def _training_follow_ups_prompt(self, messages_context, schemas_context, instructions_context, max_suggestions):
         context_blocks = ""
@@ -147,7 +158,9 @@ class Reporter:
         if schemas_context:
             context_blocks += f"\n        Available data (tables, columns, data-source descriptions):\n        {schemas_context}\n"
 
-        return f"""
+        # Same split as the chat variant: stable task + context in the system
+        # half, the growing conversation in the user half.
+        system = f"""
         You are helping an admin improve this AI analytics system in TRAINING MODE.
         In training mode the admin reviews the agent's performance and curates the
         instruction set that steers it — they are NOT exploring business data.
@@ -166,9 +179,6 @@ class Reporter:
         Reference concrete instruction topics / table / metric names from the context
         when you can, so each action is specific and clickable.
 
-        Conversation so far:
-        {messages_context}
-
         Rules:
         - Each suggestion is a single, self-contained training action phrased as a prompt.
         - Keep them short (max ~12 words), specific, and actionable.
@@ -177,6 +187,11 @@ class Reporter:
         Return ONLY a JSON array of strings, nothing else.
         Example: ["Find conflicting instructions about revenue", "Which tables have no instructions?"]
         """
+        user = f"""
+        Conversation so far:
+        {messages_context}
+        """
+        return system, user
 
     @staticmethod
     def _parse_follow_ups(raw, max_suggestions: int = 5):

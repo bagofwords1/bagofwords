@@ -47,6 +47,7 @@ from app.models.completion_feedback import CompletionFeedback
 from app.models.step import Step
 from sqlalchemy.orm import aliased
 from app.schemas.console_schema import ToolUsageMetrics, ToolUsageItem
+from app.ai.llm import pricing
 from app.models.llm_usage_record import LLMUsageRecord
 from app.models.llm_model import LLMModel
 from app.models.usage_policy import UsageEvent
@@ -104,10 +105,12 @@ def _is_anthropic_family(provider_type: Optional[str], model_id: Optional[str] =
     through Vertex, Bedrock or Azure still reports cache_read/cache_creation
     separately from prompt_tokens. Keying on the provider alone under-counted
     every Claude deployment that wasn't the first-party API.
+
+    Delegates to app.ai.llm.pricing so token accounting here and cost
+    accounting in LLMUsageRecorderService can never disagree about which family
+    a row belongs to — they did, and the console was the one that had it right.
     """
-    if (provider_type or "") == "anthropic":
-        return True
-    return "claude" in (model_id or "").lower()
+    return pricing.resolve_family(provider_type, model_id) == pricing.ANTHROPIC
 
 
 def _row_total_tokens_expr():
@@ -887,6 +890,8 @@ class ConsoleService:
                 completion_tokens_expr.label('completion_tokens'),
                 cache_read_tokens_expr.label('cache_read_tokens'),
                 cache_creation_tokens_expr.label('cache_creation_tokens'),
+                func.coalesce(func.sum(LLMUsageRecord.cache_write_1h_tokens), 0).label('cache_write_1h_tokens'),
+                func.coalesce(func.sum(LLMUsageRecord.reasoning_tokens), 0).label('reasoning_tokens'),
                 input_cost_expr.label('input_cost'),
                 output_cost_expr.label('output_cost'),
                 total_cost_expr.label('total_cost'),
@@ -930,13 +935,20 @@ class ConsoleService:
             #   - OpenAI/Azure already fold cached tokens INTO prompt_tokens
             #     (and have no cache_creation concept), so adding cache_read
             #     again would over-count. Mirror the cost model's split.
-            if (row.provider_type or "") == "anthropic":
+            # Use the shared family helper rather than the provider string:
+            # Claude on Vertex/Bedrock/Azure reports Anthropic-shaped usage and
+            # was being totalled with the OpenAI rule right here.
+            if _is_anthropic_family(row.provider_type, row.model_id):
                 row_total_tokens = (
                     prompt_tokens + completion_tokens
                     + cache_read_tokens + cache_creation_tokens
                 )
             else:
                 row_total_tokens = prompt_tokens + completion_tokens
+            row_cache_hit_rate = pricing.cache_hit_rate(
+                prompt_tokens, cache_read_tokens, cache_creation_tokens,
+                row.provider_type, row.model_id,
+            )
             total_calls += int(row.total_calls or 0)
             total_prompt_tokens += prompt_tokens
             total_completion_tokens += completion_tokens
@@ -958,6 +970,9 @@ class ConsoleService:
                     completion_tokens=completion_tokens,
                     cache_read_tokens=cache_read_tokens,
                     cache_creation_tokens=cache_creation_tokens,
+                    cache_write_1h_tokens=int(getattr(row, "cache_write_1h_tokens", 0) or 0),
+                    reasoning_tokens=int(getattr(row, "reasoning_tokens", 0) or 0),
+                    cache_hit_rate=row_cache_hit_rate,
                     total_tokens=row_total_tokens,
                     input_cost_usd=input_cost,
                     output_cost_usd=output_cost,

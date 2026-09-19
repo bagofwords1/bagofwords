@@ -1,5 +1,12 @@
 # Release Notes
 
+## Version 0.0.564 (September 19, 2026)
+- Agent-loop prompt caching now actually holds across a run: the static context stopped changing shape mid-run, the one-shot prompts (code generation, visualization, follow-ups) send a cacheable system half, and the cache entry lives an hour instead of five minutes — measured 12–37% off a run's LLM cost with the same analyses produced — set `BOW_PROMPT_CACHE_TTL=5m` to go back to the short TTL (#1159)
+- Prompt caching on Amazon Bedrock for Claude and Nova models, off via `BOW_BEDROCK_PROMPT_CACHE=0` (#1159)
+- Cached tokens are priced by model family and cache TTL rather than by provider account: Claude on Vertex no longer bills cached tokens at $0, Claude on Azure no longer has an OpenAI-shaped discount subtracted from a cost that never included those tokens, and a 1-hour cache write bills at 2x instead of 1.25x. The Cost page gains a cache hit rate per provider, shown as "not reported" where the provider sends no cache telemetry rather than as 0% (#1159)
+- Models absent from the preset catalog no longer record $0 spend when an admin supplied their cost rates (#1159)
+- Claude Fable 5.1 (`claude-fable-5-1`) is a selectable Anthropic preset: 1M context, 128K max output, $10/$50 per million tokens. Not a default — at 2x Opus 5 and ~3.3x the Sonnet 5 default, moving an organization onto it is an admin's cost decision; Claude Fable 5 stays available (#1158)
+
 ## Version 0.0.563 (September 17, 2026)
 - Custom queries are now called custom tables everywhere (settings, the agent tables page, the authoring modal, agent context, every locale), and Power BI joins the sources they can be built on. A Power BI custom table is a DAX query (one EVALUATE) that BOW materializes on a schedule; the semantic model is detected from the tables the DAX references or pinned from a new "Semantic model" picker. Designed against a live tenant: executeQueries truncates at 100,000 rows or 1,000,000 values with no error, so results are counted with COUNTROWS, fetched in value windows over a numeric or date column when they exceed one response, and refused if any row is missing. Agents then query the cached copy with plain SQL instead of writing DAX against the rate-limited API
 - Artifacts get a parent identity with per-artifact version chains; every write site shares one version factory and the migration backfills existing rows without guessing lineage (#1079)
