@@ -11,6 +11,7 @@
 - "All time" on the monitoring Explore, Cost and Diagnosis pages now covers the organization's whole history instead of the last 30 days; Diagnosis gains an "All time" preset with monthly buckets for old orgs, and the KPI cards drop the made-up trend for all time (#1156)
 - Security: `@nuxtjs/mdc` bumped from 0.17 to 0.22 to clear a high-severity Snyk finding (SNYK-JS-NUXTJSMDC-19883915); the markdown render API is unchanged (#1157)
 - Docker deployments no longer need `BOW_ENCRYPTION_KEY` set by hand: `start.sh` resolves it from the env var, then a keyfile (`BOW_ENCRYPTION_KEY_FILE`, default on a new `app_data` volume, also usable with Docker secrets), otherwise generating one and persisting it before the workers fork so every worker shares it. An unwritable keyfile still falls back to a temporary key, now with a loud warning instead of silent per-restart credential loss (#1002)
+- **Claude Fable 5.1 support** — Claude Fable 5.1 (`claude-fable-5-1`) is now a selectable Anthropic preset model: 1M context, 128K max output, $10/$50 per million tokens. It is not a default — at 2x Opus 5 and ~3.3x the Sonnet 5 default, switching an organization onto it is an admin's cost decision. Existing Anthropic providers pick it up on the next catalog sync; Claude Fable 5 stays available.
 
 ## Version 0.0.562 (September 16, 2026)
 - Shorter generated code with stdout carried into retries, and a bounded Power BI DAX guide (#1145)
