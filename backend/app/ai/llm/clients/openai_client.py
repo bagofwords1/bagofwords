@@ -189,10 +189,18 @@ class OpenAi(LLMClient):
             usage=usage,
         )
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
-        chat_completion = self.client.chat.completions.create(
-            **self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
-        )
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None) -> LLMResponse:
+        """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
+
+        OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
+        system message renders at position 0, so splitting the stable half out
+        is what makes a one-shot call cacheable here too — no marker to attach.
+        """
+        params = self._build_chat_params(model_id=model_id, prompt=prompt, images=images)
+        if system:
+            params["messages"] = [{"role": "system", "content": system}] + list(params["messages"])
+        chat_completion = self.client.chat.completions.create(**params)
         usage = self._extract_usage(getattr(chat_completion, "usage", None))
         self._set_last_usage(usage)
         content = chat_completion.choices[0].message.content or ""
@@ -244,19 +252,27 @@ class OpenAi(LLMClient):
             completion = raw.get("completion_tokens") or 0
             details = raw.get("prompt_tokens_details") or {}
             cache_read = (details.get("cached_tokens") if isinstance(details, dict) else 0) or 0
+            # Reasoning tokens ride inside completion_tokens and bill at the
+            # output rate; tracked separately so thinking spend is attributable.
+            out_details = raw.get("completion_tokens_details") or {}
+            reasoning = (out_details.get("reasoning_tokens") if isinstance(out_details, dict) else 0) or 0
             return LLMUsage(
                 prompt_tokens=int(prompt or 0),
                 completion_tokens=int(completion or 0),
                 cache_read_tokens=int(cache_read or 0),
+                reasoning_tokens=int(reasoning or 0),
             )
         prompt = getattr(raw, "prompt_tokens", 0) or getattr(raw, "prompt_tokens_cost", 0) or 0
         completion = getattr(raw, "completion_tokens", 0) or getattr(raw, "completion_tokens_cost", 0) or 0
         details = getattr(raw, "prompt_tokens_details", None)
         cache_read = getattr(details, "cached_tokens", 0) if details is not None else 0
+        out_details = getattr(raw, "completion_tokens_details", None)
+        reasoning = getattr(out_details, "reasoning_tokens", 0) if out_details is not None else 0
         return LLMUsage(
             prompt_tokens=int(prompt or 0),
             completion_tokens=int(completion or 0),
             cache_read_tokens=int(cache_read or 0),
+            reasoning_tokens=int(reasoning or 0),
         )
 
     # ------------------------------------------------------------------

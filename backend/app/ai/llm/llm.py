@@ -711,6 +711,7 @@ class LLM:
         self,
         prompt: str,
         *,
+        system: Optional[str] = None,
         images: Optional[list[ImageInput]] = None,
         usage_scope: Optional[str] = None,
         usage_scope_ref_id: Optional[str] = None,
@@ -720,15 +721,22 @@ class LLM:
             span.set_attribute("llm.model_id", self.model_id)
             span.set_attribute("llm.provider", self.provider)
             self._validate_vision_support(images)
-            prompt = self._apply_pii(prompt, self._get_pii_redactor_sync(), span)
+            _redactor = self._get_pii_redactor_sync()
+            prompt = self._apply_pii(prompt, _redactor, span)
+            if system:
+                # The system half goes to the provider too, so it gets the same
+                # redaction pass as the user half.
+                system = self._apply_pii(system, _redactor, span)
             logger.debug("Model: %s, prompt: %s", self.model_id, prompt)
-            prompt_tokens_estimate = self._count_tokens(prompt)
+            prompt_tokens_estimate = self._count_tokens(prompt) + self._count_tokens(system or "")
             span.set_attribute("llm.prompt_tokens_estimate", prompt_tokens_estimate)
             self._check_usage_limit_sync(prompt_tokens_estimate, should_record=should_record)
             response = None
             for _attempt in range(_MAX_SYNC_RETRIES + 1):
                 try:
-                    response = self.client.inference(model_id=self.model_id, prompt=prompt, images=images)
+                    response = self.client.inference(
+                        model_id=self.model_id, prompt=prompt, images=images, system=system,
+                    )
                     break
                 except Exception as e:
                     if _attempt >= _MAX_SYNC_RETRIES or not _is_transient_llm_error(
@@ -762,6 +770,11 @@ class LLM:
                 scope_ref_id=usage_scope_ref_id,
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
+                cache_read_tokens=usage.cache_read_tokens,
+                cache_creation_tokens=usage.cache_creation_tokens,
+                cache_write_5m_tokens=usage.cache_write_5m_tokens,
+                cache_write_1h_tokens=usage.cache_write_1h_tokens,
+                reasoning_tokens=usage.reasoning_tokens,
                 should_record=should_record,
             )
             self._record_usage_limit_sync(
@@ -934,6 +947,9 @@ class LLM:
             completion_tokens = 0
             cache_read_tokens = 0
             cache_creation_tokens = 0
+            cache_write_5m_tokens = 0
+            cache_write_1h_tokens = 0
+            reasoning_tokens = 0
             stream_start = time.monotonic()
             ttft_recorded = False
 
@@ -1014,6 +1030,13 @@ class LLM:
                                 span.set_attribute(
                                     "llm.cache_creation_tokens", cache_creation_tokens
                                 )
+                            if getattr(evt, "cache_write_5m_tokens", 0) or getattr(evt, "cache_write_1h_tokens", 0):
+                                cache_write_5m_tokens = evt.cache_write_5m_tokens
+                                cache_write_1h_tokens = evt.cache_write_1h_tokens
+                                span.set_attribute("llm.cache_write_1h_tokens", cache_write_1h_tokens)
+                            if getattr(evt, "reasoning_tokens", 0):
+                                reasoning_tokens = evt.reasoning_tokens
+                                span.set_attribute("llm.reasoning_tokens", reasoning_tokens)
 
                         yield evt
                     break
@@ -1072,6 +1095,9 @@ class LLM:
                 completion_tokens=completion_tokens,
                 cache_read_tokens=cache_read_tokens,
                 cache_creation_tokens=cache_creation_tokens,
+                cache_write_5m_tokens=cache_write_5m_tokens,
+                cache_write_1h_tokens=cache_write_1h_tokens,
+                reasoning_tokens=reasoning_tokens,
                 should_record=should_record,
             )
             await self._record_usage_limit_async(
@@ -1387,6 +1413,9 @@ class LLM:
         completion_tokens: int,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_5m_tokens: int = 0,
+        cache_write_1h_tokens: int = 0,
+        reasoning_tokens: int = 0,
         should_record: bool,
     ):
         if not should_record or ((prompt_tokens or 0) == 0 and (completion_tokens or 0) == 0):
@@ -1433,6 +1462,9 @@ class LLM:
                             completion_tokens=completion_tokens or 0,
                             cache_read_tokens=cache_read_tokens or 0,
                             cache_creation_tokens=cache_creation_tokens or 0,
+                            cache_write_5m_tokens=cache_write_5m_tokens or 0,
+                            cache_write_1h_tokens=cache_write_1h_tokens or 0,
+                            reasoning_tokens=reasoning_tokens or 0,
                             organization_id=attribution.get("organization_id"),
                             user_id=attribution.get("user_id"),
                             report_id=attribution.get("report_id"),
