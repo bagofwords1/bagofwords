@@ -409,6 +409,12 @@ from app.core.otel import get_tracer
 INDEX_LIMIT = 1000  # Number of tables to include in the index
 tracer = get_tracer(__name__)
 
+# Titles a report can carry before anyone (or anything) has named it: the empty
+# string, and the literal the frontend creates every report with. Generation
+# only ever overwrites one of these, so a user rename — or a title an earlier
+# turn already generated — always wins.
+PLACEHOLDER_REPORT_TITLES = ("", "untitled report")
+
 # Tools available to shared-artifact viewer chat (report_type='artifact_chat').
 # Read/query only: the viewer may ask questions and run fresh queries against
 # the agents the owner shared, but never mutate the dashboard, message anyone,
@@ -887,6 +893,11 @@ class AgentV2:
             timeout=TimeoutPolicy(start_timeout_s=10, idle_timeout_s=180, hard_timeout_s=300),
         )
         
+        # Report-title generation runs concurrently with the planner (kicked off
+        # from main_execution the moment the prompt is read) and is awaited in
+        # main_execution's finally. Holding the reference here is what keeps the
+        # loop from garbage-collecting a suspended task mid-LLM-call.
+        self._title_task: Optional[asyncio.Task] = None
         # Initialize Reporter for title generation
         self.reporter = Reporter(
             model=self.small_model,
@@ -2413,55 +2424,113 @@ class AgentV2:
             # Restore the original mode
             self.mode = prior_mode
 
-    async def _generate_title_background(self, messages_context: str, plan_info: list, report_id: str):
-        """Generate and persist the report title in its own DB session.
+    def _start_title_generation(self, prompt_text: str) -> None:
+        """Kick off report-title generation the instant the prompt is read.
 
-        Awaited inline by the caller (see main_execution) rather than spawned as a
-        fire-and-forget task — a discarded asyncio.create_task is only weakly
-        referenced by the loop and was routinely garbage-collected on Postgres
-        (pooled connections recycle the instant the response finishes) before its
-        LLM call returned, silently skipping the title.
+        The title used to be generated after the planner loop finished, so a
+        report sat on "untitled report" in the sidebar for the whole run (often
+        minutes). The prompt alone is what the title is really derived from, so
+        it runs here instead, concurrently with context priming and planning,
+        and lands in the UI seconds after send (see `report.title.updated`).
 
-        `report_id` is passed in as a plain string and the report is re-fetched in
-        this method's own session, so we never touch a `self.report` that may be
-        detached from a closed session ("Instance is not bound to a Session").
+        The task reference is kept on `self` and awaited in main_execution's
+        finally: a discarded `asyncio.create_task` is only weakly referenced by
+        the loop and was routinely garbage-collected mid-LLM-call on Postgres,
+        which is what silently skipped the title before.
+
+        Gated on the title VALUE, not on "is this the first completion", so a
+        transient failure retries on the next turn instead of leaving the report
+        untitled forever.
         """
-        import logging
-        logger = logging.getLogger(__name__)
+        if self._title_task is not None:
+            return
+        if not self.report or not self.head_completion:
+            return
+        current_title = (getattr(self.report, "title", "") or "").strip().lower()
+        if current_title not in PLACEHOLDER_REPORT_TITLES:
+            return
+        if not (prompt_text or "").strip():
+            return
+        # Capture the id as a plain string now, while self.db is open: the task
+        # re-fetches in its own session, so reading self.report_id later (after
+        # the request session closes) can't raise "Instance is not bound to a
+        # Session" — the bug that used to skip title generation on Postgres.
+        report_id = str(self.report_id)
+        self._title_task = asyncio.create_task(
+            self._generate_title_background(prompt_text, report_id),
+            name="agent.report_title",
+        )
+
+    async def _await_title_generation(self) -> None:
+        """Let the title task land before the turn closes.
+
+        It is kicked off at prompt time and normally finished long before the
+        planner is, so this is usually a no-op — but awaiting keeps the task
+        strongly referenced to the end, and guarantees the SSE event is enqueued
+        before [DONE] in the rare case the run is faster than the small model.
+        Shielded + bounded so a stuck title call can never pin the turn open.
+        """
+        task = self._title_task
+        if task is None or task.done():
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=30)
+        except Exception as e:
+            logger.warning(f"Report title still pending at turn end: {e}")
+
+    async def _generate_title_background(self, prompt_text: str, report_id: str):
+        """Generate, persist and stream the report title in its own DB session.
+
+        Persisting is a single conditional UPDATE rather than read-check-write:
+        this now runs while the user is looking at the report and may rename it
+        by hand in the same second, and the WHERE clause makes that rename win
+        without a TOCTOU window. `rowcount` also tells us whether we actually
+        titled the report, which is what gates the SSE event — no event when
+        another turn (or the user) got there first.
+        """
         try:
             SessionLocal = self._session_maker
             async with SessionLocal() as session:
                 try:
-                    title = await self.reporter.generate_report_title(messages_context, plan_info)
+                    title = await self.reporter.generate_report_title(prompt_text)
                     if not title or not title.strip():
                         logger.warning("Title generation returned empty result")
                         return
                     title = title.strip()
-                    # Re-fetch report using select query (more reliable than session.get with UUID).
-                    # lazyload("*") suppresses Report's lazy="selectin" cascade (14 rels +
-                    # downstream DS/widget/query graph) — update_report_title only touches title.
-                    from sqlalchemy.orm import lazyload as _lazyload
-                    stmt = select(Report).where(Report.id == report_id).options(_lazyload("*"))
-                    result = await session.execute(stmt)
-                    report = result.scalar_one_or_none()
-                    if not report:
-                        logger.warning(f"Report not found for title update: {report_id}")
-                        return
-                    # Only write while the title is still a placeholder. The caller
-                    # now gates on the same condition, but it can run on multiple
-                    # turns (value-gated, self-healing); re-checking here under a
-                    # fresh read avoids clobbering a real title a concurrent turn
-                    # may have just set.
-                    existing = (report.title or "").strip()
-                    if existing.lower() not in ("", "untitled report"):
+                    result = await session.execute(
+                        sa_update(Report)
+                        .where(
+                            Report.id == report_id,
+                            func.lower(func.trim(func.coalesce(Report.title, ""))).in_(
+                                PLACEHOLDER_REPORT_TITLES
+                            ),
+                        )
+                        .values(title=title)
+                    )
+                    await session.commit()
+                    if not result.rowcount:
                         logger.info(f"Report {report_id} already titled; skipping")
                         return
-                    await self.project_manager.update_report_title(session, report, title)
                     logger.info(f"Report title updated to: {title}")
                 except Exception as e:
                     logger.error(f"Failed to generate/update report title: {e}")
+                    return
         except Exception as e:
             logger.error(f"Failed to create session for title generation: {e}")
+            return
+
+        # Stream it: the report page swaps its header/tab title and hands the
+        # sidebar (layouts/default.vue) the new value, both animated, without
+        # waiting for the run to finish and refetch the report.
+        try:
+            await self._emit_sse_event(SSEEvent(
+                event="report.title.updated",
+                completion_id=str(self.system_completion_id) if self.system_completion_id else None,
+                agent_execution_id=str(self.current_execution.id) if self.current_execution else None,
+                data={"report_id": report_id, "title": title},
+            ))
+        except Exception as e:
+            logger.warning(f"Failed to emit report.title.updated: {e}")
 
     async def _handle_context_overflow(self, provider_message: Optional[str]) -> None:
         """React to a context_length rejection before the retry runs.
@@ -4082,6 +4151,11 @@ class AgentV2:
 
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
+
+            # Title the report from that prompt right now, in parallel with
+            # context priming and planning, instead of after the run (see
+            # _start_title_generation). Awaited in the finally below.
+            self._start_title_generation(prompt_text)
 
             # Resolve extended-thinking effort once per completion. Order:
             #   per-completion prompt.reasoning_effort > trigger words > model.config.reasoning_effort > "off"
@@ -6622,48 +6696,10 @@ class AgentV2:
             else:
                 asyncio.create_task(_bg_final_snap())
             
-            # Generate report title while the report still has no real title.
-            #
-            # Run INLINE (awaited) — like follow-ups above, and unlike the old
-            # fire-and-forget asyncio.create_task. A discarded create_task keeps
-            # only a weak reference in the loop, so on Postgres — where the
-            # request's pooled connection is recycled the moment the response
-            # finishes — the suspended task was routinely garbage-collected before
-            # its small-model LLM call returned, leaving the report stuck on the
-            # placeholder title. Awaiting here keeps self.db alive and lands the
-            # write before main_execution returns.
-            #
-            # Gate on the title VALUE (empty or the frontend's "untitled report"
-            # placeholder), not on "is this the first completion". The old
-            # first-completion gate made generation one-shot: a single transient
-            # failure left the report untitled forever. Value-gating is
-            # self-healing — a later turn retries until a real title sticks.
-            try:
-                current_title = (getattr(self.report, "title", "") or "").strip() if self.report else ""
-                if self.head_completion and self.report and not completion_errored and current_title.lower() in ("", "untitled report"):
-                    # Generate title (small model)
-                    messages_section = await self.context_hub.message_builder.build(max_messages=5)
-                    messages_context = messages_section.render()
-
-                    # Extract plan information from current execution
-                    plan_info = []
-                    if current_plan_decision:
-                        if hasattr(current_plan_decision, 'action_name') and current_plan_decision.action_name:
-                            plan_info.append({"action": current_plan_decision.action_name})
-
-                    # Capture the report id as a plain string NOW, while self.db is
-                    # still open. _generate_title_background re-fetches by this id in
-                    # its own session, so reading self.report_id later (after the
-                    # session closes) can't raise "Instance is not bound to a Session"
-                    # (the bug that silently skipped title generation, esp. on Postgres).
-                    report_id_for_title = str(self.report_id)
-
-                    await self._generate_title_background(messages_context, plan_info, report_id_for_title)
-            except Exception as e:
-                # Don't fail the entire execution if title generation fails
-                import logging
-                _fallback_logger = logging.getLogger(__name__)
-                _fallback_logger.warning(f"Failed to start title generation: {e}")
+            # The report title is generated at prompt time now, not here — it
+            # was kicked off from _start_title_generation before the planner
+            # ran, and streamed to the UI as soon as it landed. Nothing left to
+            # do at the end of the turn; the finally awaits the task.
 
             # Follow-up suggestions (web sessions only, when org setting is on).
             # Generated INLINE here — not as a fire-and-forget task like the title
@@ -6874,6 +6910,10 @@ class AgentV2:
                 pass
             raise
         finally:
+            # Let the prompt-time title task finish (and enqueue its SSE event)
+            # before the stream closes. Runs on the error path too: a turn that
+            # failed still deserves a titled report in the sidebar.
+            await self._await_title_generation()
             try:
                 from app.ai.tools.implementations._browser_common import session_manager
                 if self.current_execution:

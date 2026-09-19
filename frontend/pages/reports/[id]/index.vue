@@ -3016,6 +3016,27 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 		}))
 		void checkHasArtifacts()
 	}
+	// The server titled the report from the prompt (it fires seconds after
+	// send, while the run is still going). Report-scoped, not tied to a chat
+	// message, so it is handled before the sysMessage guard below.
+	if (eventType === 'report.title.updated') {
+		const newTitle = typeof payload?.title === 'string' ? payload.title.trim() : ''
+		const sameReport = !payload?.report_id || String(payload.report_id) === String(report_id)
+		if (newTitle && sameReport && report.value && report.value.title !== newTitle) {
+			// Patching report.value drives the header input (ReportHeader watches
+			// it and types the title in) and the browser tab via useHead.
+			report.value = { ...report.value, title: newTitle }
+			// And the sidebar list in layouts/default.vue, which already listens
+			// for this. `generated: true` tells it to play the reveal animation
+			// rather than swapping the text silently, as a manual rename does.
+			try {
+				window.dispatchEvent(new CustomEvent('report:updated', {
+					detail: { id: report_id, title: newTitle, generated: true }
+				}))
+			} catch {}
+		}
+		return
+	}
 	if (!eventType || sysMessageIndex === -1) return
 
 	if (!messages.value[sysMessageIndex]) return
@@ -5276,7 +5297,10 @@ async function consumeWatchStream(res: Response, completionId: string, sysId: st
 					const parsed = JSON.parse(dataStr)
 					const payload = parsed.data ?? parsed
 					const idx = findWatchMessageIndex(completionId, sysId)
-					if (idx !== -1 || currentEvent === 'tool.finished') {
+					// Report-scoped events (artifacts, the generated title) are not
+					// tied to a chat message, so they must not be dropped when the
+					// watcher has no message row to attach to yet.
+					if (idx !== -1 || currentEvent === 'tool.finished' || currentEvent === 'report.title.updated') {
 						gotEvents = true
 						await handleStreamingEvent(currentEvent, payload, idx, { ownStream })
 						scheduleFollowScroll()
