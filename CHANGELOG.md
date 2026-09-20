@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.567 (September 20, 2026)
+- Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
+
 ## Version 0.0.566 (September 20, 2026)
 - Reports are named the moment you hit send, instead of after the run: the title is generated from the prompt itself and streamed to every open client, so the sidebar entry, the report header and the browser tab stop reading "untitled report" seconds into a run rather than minutes. The header types the new title in and the sidebar row reveals it (both respect reduced-motion), and a title you set by hand is never overwritten — including when you rename the report while generation is still in flight (#1160)
 - Renaming a report from its header updates the sidebar immediately and saves once; pressing Enter used to leave the sidebar stale and fire two saves with two confirmations (#1160)

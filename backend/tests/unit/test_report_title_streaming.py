@@ -92,6 +92,9 @@ def _agent(report_id: str, current_title: str, reporter: FakeReporter, queue: Fa
     agent.event_queue = queue
     agent.system_completion_id = str(uuid.uuid4())
     agent.current_execution = None
+    # No quota context by default; the cross-loop test below supplies a real
+    # one, since that is the only case where it matters.
+    agent.usage_limit_context = None
     # The agent's in-memory view of the report: only the title is read, and
     # the id is captured as a string before any await.
     agent.report = SimpleNamespace(id=report_id, title=current_title)
@@ -259,3 +262,66 @@ async def test_reporter_prompt_omits_the_plan_when_there_is_none():
     await reporter.generate_report_title("Show me revenue by country", [{"action": "create_widget"}])
     assert "this plan" in captured[1]
     assert "create_widget" in captured[1]
+
+
+@pytest.mark.asyncio
+async def test_the_quota_check_for_the_title_call_runs_on_the_agent_loop():
+    """The title call's quota pre-check must execute on the run's own loop.
+
+    `LLM.inference` is sync, so the reporter offloads it to a worker thread and
+    the pre-LLM quota check is dispatched through
+    `UsageLimitContext.run_blocking`. If the context does not know the run's
+    loop, run_blocking spins up a fresh one via `asyncio.run()` — and the
+    check's first call of a run reads the DB, so it then touches a connection
+    created on the agent's loop from a foreign one. asyncpg rejects that ("got
+    Future attached to a different loop"), which silently left every report on
+    Postgres titled "untitled report"; aiosqlite tolerated it, so the
+    SQLite-backed tests above passed either way.
+
+    This pins the invariant without needing Postgres: whatever the quota check
+    runs, it runs on the loop the agent is running on.
+    """
+    from app.services.usage_policy_service import UsageLimitContext
+
+    report_id = await _seed_report("untitled report")
+    agent_loop = asyncio.get_running_loop()
+    ctx = UsageLimitContext(
+        organization_id="org",
+        user_id="user",
+        source="agent",
+        session_maker=async_session_maker,
+    )
+    check_loops = []
+
+    async def quota_probe():
+        check_loops.append(asyncio.get_running_loop())
+
+    class ThreadedReporter:
+        """Mimics Reporter.generate_report_title: the sync LLM call, and its
+        quota check, happen in a worker thread."""
+
+        def __init__(self):
+            self.seen = []
+
+        async def generate_report_title(self, messages, plan=None):
+            self.seen.append(messages)
+
+            def _sync_inference():
+                ctx.run_blocking(quota_probe())
+                return "Greeting Message"
+
+            return await asyncio.to_thread(_sync_inference)
+
+    queue = FakeQueue()
+    agent = _agent(report_id, "untitled report", ThreadedReporter(), queue)
+    agent.usage_limit_context = ctx
+
+    await _run_title(agent, "hi")
+
+    assert check_loops, "the quota check never ran"
+    assert check_loops[0] is agent_loop, (
+        "quota check ran on a foreign event loop; a real DB connection would "
+        "have raised instead of returning"
+    )
+    assert await _read_title(report_id) == "Greeting Message"
+    assert len(_title_events(queue)) == 1
