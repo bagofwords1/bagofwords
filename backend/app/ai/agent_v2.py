@@ -2424,6 +2424,32 @@ class AgentV2:
             # Restore the original mode
             self.mode = prior_mode
 
+    def _bind_usage_context_loop(self) -> None:
+        """Tell the usage context which loop the run belongs to.
+
+        `LLM.inference` is sync, so its quota pre-check is dispatched through
+        `UsageLimitContext.run_blocking`. With no loop wired, run_blocking
+        falls back to `asyncio.run()` and the check executes on a loop of its
+        own. That survives only while the quota cache is warm: on the run's
+        FIRST call the check reads the DB, and a connection created on this
+        loop cannot be used from that one — asyncpg raises "got Future
+        attached to a different loop" (aiosqlite happens to tolerate it,
+        which is why this only ever showed up on Postgres).
+
+        Title generation made that first call move to the start of the run, so
+        it hit exactly this and every report stayed "untitled report" on
+        Postgres deployments. Binding the loop makes run_blocking marshal the
+        check back here instead — the same wiring
+        `code_execution.execute_code_async` does before its own thread hop.
+        """
+        if self.usage_limit_context is None:
+            return
+        try:
+            self.usage_limit_context.loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop (sync caller): nothing to bind.
+            pass
+
     def _start_title_generation(self, prompt_text: str) -> None:
         """Kick off report-title generation the instant the prompt is read.
 
@@ -2456,6 +2482,10 @@ class AgentV2:
         # the request session closes) can't raise "Instance is not bound to a
         # Session" — the bug that used to skip title generation on Postgres.
         report_id = str(self.report_id)
+        # The title call is the run's first LLM call and runs in a worker
+        # thread, so the quota pre-check must be able to come back to this
+        # loop — see _bind_usage_context_loop.
+        self._bind_usage_context_loop()
         self._title_task = asyncio.create_task(
             self._generate_title_background(prompt_text, report_id),
             name="agent.report_title",
@@ -4151,6 +4181,12 @@ class AgentV2:
 
             # Extract user prompt early for intelligent instruction search
             prompt_text = self.head_completion.prompt.get("content", "") if self.head_completion.prompt else ""
+
+            # Bind the usage context to this loop before anything offloads an
+            # LLM call to a worker thread. Done here as well as in
+            # _start_title_generation so it lands before any tool derives a
+            # child context (for_source copies `loop` at derivation time).
+            self._bind_usage_context_loop()
 
             # Title the report from that prompt right now, in parallel with
             # context priming and planning, instead of after the run (see
