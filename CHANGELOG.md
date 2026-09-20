@@ -1,8 +1,11 @@
 # Release Notes
 
+## Version 0.0.566 (September 20, 2026)
+- Reports are named the moment you hit send, instead of after the run: the title is generated from the prompt itself and streamed to every open client, so the sidebar entry, the report header and the browser tab stop reading "untitled report" seconds into a run rather than minutes. The header types the new title in and the sidebar row reveals it (both respect reduced-motion), and a title you set by hand is never overwritten — including when you rename the report while generation is still in flight (#1160)
+- Renaming a report from its header updates the sidebar immediately and saves once; pressing Enter used to leave the sidebar stale and fire two saves with two confirmations (#1160)
+
 ## Version 0.0.565 (September 19, 2026)
-- Reports are named the moment you hit send, instead of after the run: the title is generated from the prompt itself and streamed to every open client, so the sidebar entry, the report header and the browser tab stop reading "untitled report" seconds into a run rather than minutes. The header types the new title in and the sidebar row reveals it (both respect reduced-motion), and a title you set by hand is never overwritten — including when you rename the report while generation is still in flight
-- Renaming a report from its header updates the sidebar immediately and saves once; pressing Enter used to leave the sidebar stale and fire two saves with two confirmations
+- Fixed cache-read costs being overstated 4x for Claude Fable 5.1 and Mythos 5.1, which bill a cache hit at 0.025x input where the rest of the Claude family pays 0.1x (#1158)
 
 ## Version 0.0.564 (September 19, 2026)
 - Agent-loop prompt caching now actually holds across a run: the static context stopped changing shape mid-run, the one-shot prompts (code generation, visualization, follow-ups) send a cacheable system half, and the cache entry lives an hour instead of five minutes — measured 12–37% off a run's LLM cost with the same analyses produced — set `BOW_PROMPT_CACHE_TTL=5m` to go back to the short TTL (#1159)

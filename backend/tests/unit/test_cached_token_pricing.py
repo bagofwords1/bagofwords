@@ -157,3 +157,76 @@ def test_hit_rate_is_bounded_to_one():
         provider_type="openai", model_id="gpt-5",
     )
     assert rate == pytest.approx(1.0)
+
+
+# --- per-model read rates -------------------------------------------------
+#
+# The family rate is the rule; a few models are exceptions. Claude Fable 5.1
+# and Claude Mythos 5.1 bill a cache hit at 0.025x base input where the rest
+# of the family pays 0.1x, so charging them the family rate overstates every
+# cached read on them by 4x. These assert the exception applies where it
+# should and, just as importantly, nowhere else.
+
+REDUCED_READ_MODELS = ["claude-fable-5-1", "claude-mythos-5-1"]
+# Same families one version back, plus the rest of the lineup: all still 0.1x.
+# These are what a family-wide "fable-5"/"mythos" match would have swept in,
+# under-reporting their cost by 4x — the same bug reversed.
+STANDARD_READ_MODELS = [
+    "claude-fable-5", "claude-mythos-5", "claude-opus-5",
+    "claude-opus-4-8", "claude-sonnet-5", "claude-haiku-4-5-20251001",
+]
+
+
+@pytest.mark.parametrize("model", REDUCED_READ_MODELS)
+def test_reduced_rate_models_read_at_a_quarter_of_the_family_rate(model):
+    assert pricing.rates_for("anthropic", model).read == pytest.approx(0.025)
+    assert _cost("anthropic", model, read=100_000) == pytest.approx(
+        100_000 * RATE / M * 0.025
+    )
+
+
+@pytest.mark.parametrize("model", STANDARD_READ_MODELS)
+def test_every_other_claude_keeps_the_family_read_rate(model):
+    assert pricing.rates_for("anthropic", model).read == pytest.approx(0.10)
+
+
+@pytest.mark.parametrize("model", REDUCED_READ_MODELS)
+def test_the_reduced_rate_follows_the_model_across_every_route(model):
+    """It is a property of the model, not of the account serving it."""
+    for provider in ("anthropic", "vertex", "bedrock", "azure", "custom"):
+        assert pricing.rates_for(provider, f"{provider}.{model}").read == pytest.approx(0.025)
+
+
+@pytest.mark.parametrize("model", REDUCED_READ_MODELS)
+def test_only_reads_are_reduced_writes_keep_the_family_rates(model):
+    """Anthropic publishes the same 1.25x / 2x write rates for these models."""
+    rates = pricing.rates_for("anthropic", model)
+    assert rates.write_5m == pytest.approx(1.25)
+    assert rates.write_1h == pytest.approx(2.00)
+
+
+def test_an_unknown_claude_id_keeps_the_family_rate():
+    """Unpriced models default to the standard rate, not the cheaper one."""
+    assert pricing.rates_for("anthropic", "claude-something-unreleased").read == pytest.approx(0.10)
+
+
+def test_the_reduced_rate_never_leaks_into_an_openai_shaped_rebate():
+    """`read` means 'additive cost' for Anthropic but 'cached price' behind a
+    rebate for OpenAI. A 0.025 leaking across would compute a 97.5% refund."""
+    assert pricing.rates_for("openai", "gpt-5-fable-5-1-lookalike").read == pytest.approx(0.50)
+    full = _cost("openai", "gpt-5-fable-5-1-lookalike", prompt=100_000)
+    cached = _cost("openai", "gpt-5-fable-5-1-lookalike", prompt=100_000, read=50_000)
+    assert cached == pytest.approx((50_000 + 50_000 * 0.5) * RATE / M)
+    assert cached < full
+
+
+def test_published_per_million_cache_read_prices():
+    """Anchored to the two prices Anthropic publishes, at their real $10 base."""
+    def at_ten(model):
+        return pricing.cached_input_cost(
+            rate_per_million=10.0, prompt_tokens=0, cache_read_tokens=M,
+            cache_write_5m_tokens=0, cache_write_1h_tokens=0,
+            provider_type="anthropic", model_id=model,
+        )
+    assert at_ten("claude-fable-5-1") == pytest.approx(0.25)
+    assert at_ten("claude-fable-5") == pytest.approx(1.00)

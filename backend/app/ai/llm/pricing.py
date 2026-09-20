@@ -29,7 +29,7 @@ explicitly here rather than left to a per-branch comment.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Optional
 
 # Model families. The name is the billing behavior, not the vendor: a Claude
@@ -140,8 +140,51 @@ def resolve_family(provider_type: Optional[str], model_id: Optional[str] = None)
     return UNKNOWN
 
 
+# Per-model cache-READ rates that differ from their family's. The family rate
+# is the rule; this is the exception list, kept next to it so the two cannot
+# drift apart.
+#
+# Claude Fable 5.1 and Claude Mythos 5.1 price a cache hit at 0.025x base input
+# — $0.25/MTok against their $10 base — where the rest of the family pays 0.1x.
+# Billing them at the family rate overstates every cached read on them by 4x,
+# and cache reads dominate a long agent run, so the error lands hardest on the
+# most expensive models we serve.
+#
+# Matched on the VERSION-QUALIFIED tag, never the family: Claude Fable 5 and
+# Claude Mythos 5 really are 0.1x, so a bare "fable-5" or "mythos" would sweep
+# them in and under-report their cost by 4x — the same bug reversed. An id
+# matching nothing here keeps its family rate, which is the safe direction for
+# a model we have not priced yet.
+#
+# Cache WRITES are unaffected: both bill at the family's 1.25x / 2x.
+# https://platform.claude.com/docs/en/about-claude/pricing — "Cache hits and
+# refreshes on Claude Fable 5.1 and Claude Mythos 5.1 are priced at 0.025x the
+# base input price. All other models use the standard 0.1x multiplier."
+_ANTHROPIC_READ_RATE_OVERRIDES = (
+    (("fable-5-1", "mythos-5-1"), 0.025),
+)
+
+
+def _anthropic_read_rate_override(model_id: Optional[str]) -> Optional[float]:
+    name = (model_id or "").strip().lower()
+    for tags, rate in _ANTHROPIC_READ_RATE_OVERRIDES:
+        if any(tag in name for tag in tags):
+            return rate
+    return None
+
+
 def rates_for(provider_type: Optional[str], model_id: Optional[str] = None) -> CacheRates:
-    return _RATES[resolve_family(provider_type, model_id)]
+    family = resolve_family(provider_type, model_id)
+    rates = _RATES[family]
+    # Anthropic-family only. `read` means different things per family — an
+    # additive cost here, but the *cached price* behind a rebate for the
+    # OpenAI family — so an Anthropic rate applied to an OpenAI-shaped
+    # calculation would silently compute a 97.5% refund.
+    if family == ANTHROPIC:
+        override = _anthropic_read_rate_override(model_id)
+        if override is not None:
+            return replace(rates, read=override)
+    return rates
 
 
 def cached_input_cost(
