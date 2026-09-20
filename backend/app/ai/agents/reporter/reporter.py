@@ -24,17 +24,26 @@ class Reporter:
         self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
         self.organization_settings = organization_settings
 
-    async def generate_report_title(self, messages, plan):
+    async def generate_report_title(self, messages, plan=None):
+        """Title a report from the conversation so far.
+
+        `plan` is optional: titles are generated the moment the prompt lands,
+        before any plan exists, so the request itself is the only signal in the
+        common case. When a plan is passed (legacy callers) it is appended as
+        extra context — rendering an empty one would just feed the model a
+        dangling "And this plan: []".
+        """
+        plan_section = f"""
+        And this plan:
+        {plan}
+""" if plan else ""
 
         text = f"""
         You are a reporter tasked with generating a title for a report.
 
         Given the following messages
         {messages}
-
-        And this plan:
-        {plan}
-
+{plan_section}
         Generate a title for the report. Should be concise and descriptive of the report. Not more than 5 words.
         Title the SUBJECT of the report, never the person requesting it: no user names, emails, or possessives built from them ("Yochay's Album Catalog" -> "Album Catalog"). Reports are shared and viewed by many people; personalization happens inside dashboards at view time, not in titles.
         Write the title in the SAME language the user's messages above are written in — do not default to English. Keep code, table names, and identifiers as-is.
