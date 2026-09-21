@@ -40,8 +40,16 @@ TIER_FEATURES = {
     ],
 }
 
-# Data sources that require an enterprise license
-ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau", "zabbix", "splunk", "aria_operations", "kubernetes", "brocade"]
+# Data sources that require an enterprise license.
+#
+# This list is the *enforced* one: it drives the 402 on connection create
+# (`connection_service`, `data_source_service`, `agent_yaml_service`). A type
+# listed here must also carry `requires_license="enterprise"` on its
+# `DataSourceRegistryEntry`, which is what draws the padlock in the connector
+# picker — otherwise the UI offers a connector the API then refuses.
+# (The reverse does not hold today: several registry entries are marked
+# enterprise for the picker without being enforced here.)
+ENTERPRISE_DATASOURCES = ["powerbi", "qvd", "sybase", "tableau", "aria_operations", "brocade", "documentum", "sharepoint_onprem"]
 
 # Public key for license verification (RS256).
 #

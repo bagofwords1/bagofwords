@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.568 (September 21, 2026)
+- Removed the enterprise license requirement from the Splunk, Kubernetes and Zabbix connectors — all three are now available on the community tier
+- The OpenText Documentum and SharePoint Server (on-prem) connectors now require an enterprise license, which the connector picker already showed but the API did not enforce
+
 ## Version 0.0.567 (September 20, 2026)
 - Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
 

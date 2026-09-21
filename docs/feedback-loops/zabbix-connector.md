@@ -8,9 +8,9 @@ API) data. Design doc: `docs/design/zabbix-connector.md`.
 Zabbix is modeled on the **ServiceNow** connector, not a SQL/BI one: it's an
 HTTP JSON-RPC API (`/api_jsonrpc.php`) with no query language, so
 `execute_query` takes a JSON spec that maps 1:1 to a `*.get` method, and
-`get_schemas` exposes a fixed catalog of virtual tables. It is an **enterprise**
-data source (`requires_license="enterprise"`, gated via
-`ENTERPRISE_DATASOURCES`).
+`get_schemas` exposes a fixed catalog of virtual tables. It shipped as an
+**enterprise** data source; as of 2026-09-21 it is a community connector (no
+`requires_license`, not in `ENTERPRISE_DATASOURCES`).
 
 ## What was added
 
@@ -136,8 +136,8 @@ in `tests/unit/test_zabbix_client.py` (25 tests total).
 
 ## What this proves / regression notes
 
-- The connector resolves via the registry, is enterprise-gated, discovers its
-  fixed catalog, and executes real JSON-RPC queries against Zabbix 7.0.
+- The connector resolves via the registry, discovers its fixed catalog, and
+  executes real JSON-RPC queries against Zabbix 7.0.
 - The unit suite survives as a regression test (mocked boundary, no network).
 - Pre-existing unrelated issue observed while driving the app: the LLM model
   PATCH route (`PUT/PATCH /api/llm/models/{id}`) raises

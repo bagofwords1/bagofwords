@@ -849,7 +849,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             "userpass": AuthVariant(title="Username / Password", schema=ZabbixUserPassCredentials, scopes=["system", "user"]),
         }),
         client_path="app.data_sources.clients.zabbix_client.ZabbixClient",
-        requires_license="enterprise",
     ),
     "netapp_ontap": DataSourceRegistryEntry(
         type="netapp_ontap",
@@ -894,7 +893,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
         ],
         client_path="app.data_sources.clients.kubernetes_client.KubernetesClient",
         version="beta",
-        requires_license="enterprise",
     ),
     "brocade": DataSourceRegistryEntry(
         type="brocade",
@@ -965,7 +963,6 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.splunk_client.SplunkClient",
-        requires_license="enterprise",
         version="beta",
     ),
     "MSSQL": DataSourceRegistryEntry(

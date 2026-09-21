@@ -492,6 +492,9 @@ class TestDataSourceLicensing:
         assert is_datasource_allowed("postgresql") is True
         assert is_datasource_allowed("mysql") is True
         assert is_datasource_allowed("sqlite") is True
+        assert is_datasource_allowed("splunk") is True
+        assert is_datasource_allowed("zabbix") is True
+        assert is_datasource_allowed("kubernetes") is True
 
     def test_enterprise_datasource_blocked_without_license(self, test_client, license_env_cleanup):
         """Enterprise data sources blocked without license."""
@@ -508,6 +511,8 @@ class TestDataSourceLicensing:
         assert is_datasource_allowed("powerbi") is False
         assert is_datasource_allowed("qvd") is False
         assert is_datasource_allowed("brocade") is False
+        assert is_datasource_allowed("documentum") is False
+        assert is_datasource_allowed("sharepoint_onprem") is False
 
     def test_enterprise_datasource_allowed_with_license(self, test_client, patch_license_key):
         """Enterprise data sources allowed with valid license."""
@@ -530,6 +535,8 @@ class TestDataSourceLicensing:
         assert is_datasource_allowed("powerbi") is True
         assert is_datasource_allowed("qvd") is True
         assert is_datasource_allowed("brocade") is True
+        assert is_datasource_allowed("documentum") is True
+        assert is_datasource_allowed("sharepoint_onprem") is True
 
     def test_enterprise_datasource_with_explicit_features(self, test_client, patch_license_key):
         """License with explicit ds_ features restricts to those only."""

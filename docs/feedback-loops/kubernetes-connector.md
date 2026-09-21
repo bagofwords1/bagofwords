@@ -17,7 +17,8 @@ access file), with a numbered setup guide rendered above the connect form.
   explicit `client_path`, `setup_guide=[…]`) and the new generic
   `SetupStep` model + `setup_guide` field in
   `backend/app/schemas/data_source_registry.py`; `kubernetes` in
-  `ENTERPRISE_DATASOURCES`; `setup_guide` surfaced by
+  `ENTERPRISE_DATASOURCES` (both dropped 2026-09-21 — Kubernetes is now a
+  community connector); `setup_guide` surfaced by
   `GET /data_sources/{type}/fields`.
 - `frontend/components/datasources/ConnectForm.vue` — generic **Setup steps**
   panel (numbered, collapsible, copy button per code block, i18n via

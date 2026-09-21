@@ -846,7 +846,7 @@ class TestRegistry:
         assert resolve_client_class("kubernetes") is KubernetesClient
         assert list(entry.credentials_auth.by_auth) == ["access_file"]
         assert entry.credentials_auth.by_auth["access_file"].scopes == ["system"]
-        assert entry.category == "infra" and entry.requires_license == "enterprise" and entry.is_connection
+        assert entry.category == "infra" and entry.requires_license is None and entry.is_connection
 
     def test_setup_guide_has_three_steps_and_pins_the_script(self):
         from app.schemas.data_source_registry import (
@@ -879,7 +879,9 @@ class TestRegistry:
         assert supports_user_auth("postgresql") is True      # the toggle still shows where it applies
         assert supports_user_auth("no-such-type") is True     # unknown → never hide by accident
 
-    def test_enterprise_gated(self):
-        from app.ee.license import ENTERPRISE_DATASOURCES
+    def test_not_license_gated(self):
+        """Kubernetes is a community connector: no padlock, no 402 on create."""
+        from app.ee.license import ENTERPRISE_DATASOURCES, is_datasource_allowed
 
-        assert "kubernetes" in ENTERPRISE_DATASOURCES
+        assert "kubernetes" not in ENTERPRISE_DATASOURCES
+        assert is_datasource_allowed("kubernetes") is True

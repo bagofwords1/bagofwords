@@ -46,9 +46,10 @@ python3 seed_splunk.py        # 13k events across 5 index::sourcetype pairs
 python3 wildcard_guard_proxy.py
 ```
 
-Then boot the app (enterprise license required — Splunk is an enterprise
-data source), configure an Anthropic **Claude 4.5 Haiku** model, and connect
-a `splunk` data source with `host=http://127.0.0.1:8091`.
+Then boot the app (no license needed — Splunk became a community connector on
+2026-09-21; it required an enterprise license when this loop ran), configure an
+Anthropic **Claude 4.5 Haiku** model, and connect a `splunk` data source with
+`host=http://127.0.0.1:8091`.
 
 ## Observed (2026-08-04, Splunk 9.3.14, Claude 4.5 Haiku)
 
