@@ -141,7 +141,11 @@ dev = [
 # Security constraints for transitive dependencies (not directly imported).
 # pyasn1 < 0.6.4 is affected by SNYK-PYTHON-PYASN1-17972379/17972380/17972383
 # (excessive iteration / algorithmic complexity / incorrect numeric conversion).
-constraint-dependencies = ["pyasn1>=0.6.4"]
+# anyio < 4.14.2 is affected by SNYK-PYTHON-ANYIO-19958324 (Critical, Improper
+# Validation of Certificate with Host Mismatch) and SNYK-PYTHON-ANYIO-19958322
+# (High, Incorrect Privilege Assignment), both fixed in 4.14.2. anyio is pulled
+# in transitively (fastapi / starlette / httpx / anthropic / openai, ...).
+constraint-dependencies = ["pyasn1>=0.6.4", "anyio>=4.14.2"]
 # Security override: force cryptography >= 50.0.0 to fix the PKCS#7 EnvelopedData
 # Bleichenbacher oracle (GHSA-g6cj-pr64-35w5 / SNYK-PYTHON-CRYPTOGRAPHY-18516621,
 # High severity; introduced 44.0.0, only fixed in 50.0.0). The latest fastapi-mail
