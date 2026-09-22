@@ -1,5 +1,6 @@
 import json
 
+from app.ai.llm.reasoning import selected_effort, _effort_to_thinking_config
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
@@ -436,11 +437,26 @@ class Anthropic(LLMClient):
         # text (Opus 4.7+ defaults to "omitted" otherwise). Anthropic requires
         # the default temperature when thinking is on, so drop ours entirely
         # (omitting it is valid on every model).
-        if thinking:
-            t = dict(thinking)
+        # Modern models think even when the caller omits the setting. Ask for
+        # their summaries without overriding the provider's default effort.
+        capability_model = getattr(self, "reasoning_model_id", None) or model_id
+        default_thinking = not _accepts_temperature(capability_model)
+        if thinking or default_thinking:
+            t = dict(thinking or {"type": "adaptive"})
+            effort = selected_effort(thinking)
+            # Re-map for the actual client model, including routed/fallback
+            # models; the planner may have built a budget for another family.
+            mapped = _effort_to_thinking_config(effort, capability_model)
+            if mapped and (thinking.get("effort") or mapped.get("type") == "adaptive"):
+                t.update(mapped)
+                if mapped.get("type") == "adaptive":
+                    t.pop("budget_tokens", None)
+            t.pop("effort", None)
             t.setdefault("display", "summarized")
             extra_body = dict(request_kwargs.pop("extra_body", {}) or {})
             extra_body["thinking"] = t
+            if effort and t.get("type") == "adaptive":
+                extra_body["output_config"] = {"effort": effort}
             request_kwargs["extra_body"] = extra_body
             request_kwargs.pop("temperature", None)
             # max_tokens must exceed budget_tokens; bump if needed.

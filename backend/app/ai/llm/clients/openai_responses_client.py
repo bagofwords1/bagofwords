@@ -1,6 +1,7 @@
 import asyncio
 import json
 
+from app.ai.llm.reasoning import selected_effort, is_openai_reasoning_model, supports_openai_summary
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from typing import AsyncGenerator, AsyncIterator, Any, Optional
@@ -61,6 +62,7 @@ class OpenAIResponsesClient(LLMClient):
         enable_web_search: bool = False,
         temperature: Optional[float] = None,
         default_headers: Optional[dict[str, Any]] = None,
+        verify_ssl: bool = True,
     ):
         super().__init__()
         client_kwargs: dict[str, Any] = {"api_key": api_key}
@@ -68,8 +70,13 @@ class OpenAIResponsesClient(LLMClient):
             client_kwargs["base_url"] = base_url
         if default_headers:
             client_kwargs["default_headers"] = default_headers
-        self.client = OpenAI(**client_kwargs)
-        self.async_client = AsyncOpenAI(**client_kwargs)
+        if not verify_ssl:
+            import httpx
+            self.client = OpenAI(**client_kwargs, http_client=httpx.Client(verify=False))
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(verify=False))
+        else:
+            self.client = OpenAI(**client_kwargs)
+            self.async_client = AsyncOpenAI(**client_kwargs)
         self.enable_web_search = enable_web_search
         # Admin-configured override; None keeps each path's historical default
         # (the legacy Chat Completions helpers send 0.3/1.0, the Responses path
@@ -352,26 +359,22 @@ class OpenAIResponsesClient(LLMClient):
                 disable_parallel_tools = False
             if tools and disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        is_reasoning_model = (
-            model_id.startswith(("o1", "o3", "o4", "gpt-5", "gpt-6"))
-            or model_id in {"o1", "o3"}
-        )
-        if thinking and is_reasoning_model:
-            effort = thinking.get("type")
-            budget = thinking.get("budget_tokens")
-            if effort == "adaptive" or not budget:
-                reasoning_effort = "medium"
-            elif budget >= 10000:
-                reasoning_effort = "high"
-            elif budget >= 3000:
-                reasoning_effort = "medium"
-            else:
-                reasoning_effort = "low"
-            request_kwargs["reasoning"] = {"effort": reasoning_effort, "summary": "auto"}
+        capability_model = getattr(self, "reasoning_model_id", None) or model_id
+        if is_openai_reasoning_model(capability_model):
+            reasoning = {}
+            if supports_openai_summary(capability_model):
+                reasoning["summary"] = "auto"
+            effort = selected_effort(thinking)
+            if effort:
+                reasoning["effort"] = effort
+            if reasoning:
+                request_kwargs["reasoning"] = reasoning
+                request_kwargs.pop("temperature", None)
 
         # Track open tool calls: call_id → {name, args_buffer}
         open_calls: dict[str, dict] = {}
         reasoning_active = False
+        reasoning_tokens = 0
         prompt_tokens = 0
         completion_tokens = 0
         cache_read_tokens = 0
@@ -477,6 +480,8 @@ class OpenAIResponsesClient(LLMClient):
                 response = getattr(event, "response", None)
                 usage = getattr(response, "usage", None) if response else None
                 prompt_tokens, completion_tokens, cache_read_tokens = self._extract_usage(usage)
+                output_details = getattr(usage, "output_tokens_details", None)
+                reasoning_tokens = int(getattr(output_details, "reasoning_tokens", 0) or 0)
                 status = getattr(response, "status", None) if response else None
                 if status == "incomplete":
                     stop_reason = "max_tokens"
@@ -486,9 +491,11 @@ class OpenAIResponsesClient(LLMClient):
             input_tokens=prompt_tokens,
             output_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         )
         self._set_last_usage(LLMUsage(
             prompt_tokens=prompt_tokens,
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
+            reasoning_tokens=reasoning_tokens,
         ))

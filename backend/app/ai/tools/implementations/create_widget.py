@@ -341,6 +341,8 @@ CRITICAL:
         code_context_builder = runtime_ctx.get("code_context_builder") or (getattr(context_hub, "code_builder", None) if context_hub else None)
 
         coder = Coder(
+            reasoning_effort=runtime_ctx.get("reasoning_effort"),
+            reasoning_callback=runtime_ctx.get("reasoning_callback"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
