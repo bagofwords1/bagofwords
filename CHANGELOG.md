@@ -1,5 +1,8 @@
 # Release Notes
 
+## Version 0.0.569 (September 22, 2026)
+- Added GPT-6 Sol (`gpt-6-sol`, $2/$10 per million tokens) and GPT-6 Luna (`gpt-6-luna`, $0.10/$0.50) as OpenAI presets: 1.05M context, 128K max output, vision. GPT-6 Luna is the new OpenAI small default; GPT-5.6 Terra stays the default, since GPT-6 ships no Terra tier
+
 ## Version 0.0.568 (September 22, 2026)
 - Added Claude Opus 5.5 (`claude-opus-5-5`) as an Anthropic preset: 1M context, 128K max output, $4/$20 per million tokens
 - Fixed Claude Opus 5 failing at low, medium or high effort — it was sent a fixed thinking budget the model rejects
