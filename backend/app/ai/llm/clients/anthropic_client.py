@@ -35,7 +35,7 @@ _STOP_REASON_MAP = {
 }
 
 # Model families that reject sampling parameters (temperature/top_p/top_k)
-# with a 400. Sonnet 5 / Opus 5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
+# with a 400. Sonnet 5 / Opus 5 / Opus 5.5 / Opus 4.7 / Opus 4.8 / Fable 5 removed them
 # from the API — prompting is the steering mechanism there. Older models (4.6
 # and earlier) still accept temperature.
 _NO_SAMPLING_PARAM_TAGS = (
