@@ -323,6 +323,7 @@
             <div class="p-5">
                 <div class="text-sm font-medium text-gray-900 dark:text-white">Remove agent?</div>
                 <div class="text-xs text-gray-500 dark:text-gray-400 mt-2">This will remove the agent and disconnect it from the data source. You can reconnect later.</div>
+                <div class="text-xs text-gray-500 dark:text-gray-400 mt-2">Instructions, saved queries and eval cases that exist only on this agent are deleted with it, along with its instruction folders. Anything shared with other agents is kept on those agents.</div>
                 <div class="flex justify-end gap-2 mt-5">
                     <button @click="showDelete = false" class="h-8 px-3 rounded-lg border border-gray-200 dark:border-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-50 dark:hover:bg-gray-800/50">Cancel</button>
                     <button @click="confirmDelete" :disabled="deleting" class="h-8 px-3 rounded-lg bg-red-500 text-white text-xs font-medium hover:bg-red-600 disabled:opacity-50">

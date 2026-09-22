@@ -1989,6 +1989,23 @@ class DataSourceService:
         # Capture details before deletion for audit
         data_source_name = data_source.name
 
+        # 0) Content scoped ONLY to this agent goes with it: instructions,
+        #    saved queries (entities) and eval test cases attached to this
+        #    agent and to no other are deleted; anything shared with another
+        #    agent is merely detached from this one; global content is
+        #    untouched. Dropping only the association rows would leave e.g. an
+        #    instruction with no data sources, which the app treats as
+        #    *global* (visible to every org member and loaded into every
+        #    agent's context) — a silent org-wide publish of this agent's
+        #    private knowledge. The agent's instruction folders go too.
+        await self._delete_agent_scoped_instructions(
+            db, data_source, organization=organization, current_user=current_user
+        )
+        await self._delete_agent_scoped_entities(
+            db, data_source, organization=organization, current_user=current_user
+        )
+        await self._delete_agent_scoped_test_cases(db, data_source_id)
+
         # 1) Delete per-user overlay columns and tables (they hard-FK the data source)
         #    Delete columns via subquery of overlay table ids, then overlay tables.
         overlay_ids_subq = select(UserOverlayTable.id).where(UserOverlayTable.data_source_id == data_source_id)
@@ -2101,6 +2118,184 @@ class DataSourceService:
             pass
 
         return {"message": "Data source deleted successfully"}
+
+    async def _delete_agent_scoped_instructions(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        *,
+        organization: Organization,
+        current_user: User,
+    ) -> List[str]:
+        """Remove an agent's instruction scope before the agent row is deleted.
+
+        - Instructions attached to this agent and to no other are soft-deleted
+          through ``InstructionService.delete_instruction`` (same path as a
+          manual delete: pending suggestions are voided, a removal build is
+          recorded, an audit row is written).
+        - The remaining association rows (shared instructions) are dropped so
+          the shared instruction keeps only its other agents.
+        - The agent's folders and their placements are deleted. Folders
+          hard-FK the agent with no ON DELETE rule, so on Postgres leaving them
+          behind makes the parent DELETE fail.
+
+        Returns the ids of the instructions that were deleted.
+        """
+        from app.models.instruction import Instruction, instruction_data_source_association as assoc
+        from app.models.instruction_directory import InstructionDirectory, InstructionDirectoryPlacement
+
+        data_source_id = str(data_source.id)
+
+        attached_elsewhere = (
+            select(assoc.c.instruction_id)
+            .where(assoc.c.data_source_id != data_source_id)
+        )
+        only_here_q = await db.execute(
+            select(Instruction.id)
+            .join(assoc, assoc.c.instruction_id == Instruction.id)
+            .where(
+                assoc.c.data_source_id == data_source_id,
+                Instruction.organization_id == str(organization.id),
+                Instruction.deleted_at.is_(None),
+                ~Instruction.id.in_(attached_elsewhere),
+            )
+        )
+        only_here = [str(row[0]) for row in only_here_q.fetchall()]
+
+        instruction_service = InstructionService()
+        for instruction_id in only_here:
+            await instruction_service.delete_instruction(
+                db, instruction_id, organization=organization, current_user=current_user
+            )
+
+        # Detach whatever is still linked (instructions shared with other
+        # agents, plus the rows of the instructions just soft-deleted).
+        await db.execute(delete(assoc).where(assoc.c.data_source_id == data_source_id))
+        # The ORM already holds this collection (lazy="selectin"); expire it so
+        # the parent DELETE does not try to remove the same rows again.
+        db.expire(data_source, ["instructions"])
+
+        directory_ids = select(InstructionDirectory.id).where(
+            InstructionDirectory.data_source_id == data_source_id
+        )
+        await db.execute(
+            delete(InstructionDirectoryPlacement).where(
+                InstructionDirectoryPlacement.directory_id.in_(directory_ids)
+            )
+        )
+        await db.execute(
+            delete(InstructionDirectory).where(InstructionDirectory.data_source_id == data_source_id)
+        )
+
+        if only_here:
+            logger.info(
+                "Deleted %d instruction(s) scoped only to data source %s",
+                len(only_here), data_source_id,
+            )
+        return only_here
+
+    async def _delete_agent_scoped_entities(
+        self,
+        db: AsyncSession,
+        data_source: DataSource,
+        *,
+        organization: Organization,
+        current_user: User,
+    ) -> List[str]:
+        """Same rule as instructions, for saved queries (entities).
+
+        Entities attached to this agent and to no other are deleted through
+        ``EntityService.delete_entity`` (audit row written); entities shared
+        with another agent lose only this agent's association row.
+        Returns the ids of the entities that were deleted.
+        """
+        from app.models.entity import Entity, entity_data_source_association as assoc
+        from app.services.entity_service import EntityService
+
+        data_source_id = str(data_source.id)
+
+        attached_elsewhere = (
+            select(assoc.c.entity_id)
+            .where(assoc.c.data_source_id != data_source_id)
+        )
+        only_here_q = await db.execute(
+            select(Entity.id)
+            .join(assoc, assoc.c.entity_id == Entity.id)
+            .where(
+                assoc.c.data_source_id == data_source_id,
+                Entity.organization_id == str(organization.id),
+                Entity.deleted_at.is_(None),
+                ~Entity.id.in_(attached_elsewhere),
+            )
+        )
+        only_here = [str(row[0]) for row in only_here_q.fetchall()]
+
+        entity_service = EntityService()
+        for entity_id in only_here:
+            await entity_service.delete_entity(
+                db, entity_id, organization=organization, current_user=current_user
+            )
+
+        # Detach the shared entities; the ORM collection is lazy="select" and
+        # not loaded, so expiring it keeps the parent DELETE from reloading
+        # (and re-deleting) these rows.
+        await db.execute(delete(assoc).where(assoc.c.data_source_id == data_source_id))
+        db.expire(data_source, ["entities"])
+
+        if only_here:
+            logger.info(
+                "Deleted %d entity(ies) scoped only to data source %s",
+                len(only_here), data_source_id,
+            )
+        return only_here
+
+    async def _delete_agent_scoped_test_cases(self, db: AsyncSession, data_source_id: str) -> List[str]:
+        """Same rule as instructions, for eval test cases.
+
+        A case targets agents through ``TestCase.data_source_ids_json``. A case
+        targeting only this agent is soft-deleted (the same soft delete
+        ``TestCaseService.delete_case`` performs — TestResult rows FK the case,
+        so it is never hard-deleted). A case that also targets other agents
+        just loses this agent's id; an agent-less case runs against every
+        agent and is untouched. The suite the cases live in is not touched
+        here: ``delete_data_source`` re-homes it to the org (see the
+        ``TestSuite`` update there).
+        Returns the ids of the cases that were deleted.
+        """
+        from app.core.eval_scope import _targets_agent
+        from app.models.eval import TestCase
+
+        data_source_id = str(data_source_id)
+        rows = (await db.execute(
+            select(TestCase)
+            .join(TestSuite, TestCase.suite_id == TestSuite.id)
+            .where(
+                TestCase.deleted_at.is_(None),
+                _targets_agent(TestCase.data_source_ids_json, data_source_id),
+            )
+        )).scalars().all()
+
+        deleted: List[str] = []
+        now = datetime.utcnow()
+        for case in rows:
+            targets = [str(x) for x in (case.data_source_ids_json or [])]
+            if data_source_id not in targets:
+                # Textual pre-filter false positive (id embedded in another value).
+                continue
+            remaining = [x for x in targets if x != data_source_id]
+            if remaining:
+                case.data_source_ids_json = remaining
+            else:
+                case.deleted_at = now
+                deleted.append(str(case.id))
+            db.add(case)
+
+        if deleted:
+            logger.info(
+                "Deleted %d eval case(s) scoped only to data source %s",
+                len(deleted), data_source_id,
+            )
+        return deleted
 
     async def delete_data_source_tables(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
         result = await db.execute(select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source_id))
