@@ -172,6 +172,29 @@ LLM_MODEL_DETAILS = [
         "output_cost_per_million_tokens_usd": 15.00
     },
     {
+        # Successor to Claude Opus 5, cheaper per token ($4/$20) with the same
+        # 1M window and 128K output. Selectable but not a default, like Fable
+        # 5.1: moving an org's default is the admin's call.
+        #
+        # Client handling rides on existing substring tags: ``opus-5`` in
+        # _NO_SAMPLING_PARAM_TAGS drops temperature, and in agent_v2's
+        # _effort_to_thinking_config it gets adaptive thinking (budget_tokens
+        # and ``disabled`` both 400 here; effort "off" omits the param, which
+        # runs adaptive). Forced tool_choice also 400s, but we only send auto.
+        # Its 0.05x cache-read rate lives in pricing._ANTHROPIC_READ_RATE_OVERRIDES.
+        "name": "Claude Opus 5.5",
+        "model_id": "claude-opus-5-5",
+        "provider_type": "anthropic",
+        "is_preset": True,
+        "is_enabled": True,
+        "is_default": False,
+        "supports_vision": True,
+        "context_window_tokens": 1000000,
+        "max_output_tokens": 128000,
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
+    },
+    {
         "name": "Claude Opus 5",
         "model_id": "claude-opus-5",
         "provider_type": "anthropic",

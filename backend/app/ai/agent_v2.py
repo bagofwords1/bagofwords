@@ -34,7 +34,7 @@ THINKING_TRIGGERS = (
 # Map a user-facing effort level to the Anthropic ``thinking`` request param.
 # "off" returns None (no thinking sent). Anthropic 4.6+ supports
 # ``adaptive`` (model decides budget); older 4.x needs an explicit
-# budget_tokens. On Sonnet 5 / Opus 4.7+ / Fable 5, budget_tokens is removed
+# budget_tokens. On Sonnet 5 / Opus 4.7+ / Opus 5 / Opus 5.5 / Fable 5, budget_tokens is removed
 # from the API (400 if sent) — adaptive is the only thinking mode, so those
 # models must always get adaptive regardless of effort.
 def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -> Optional[dict]:
@@ -45,7 +45,7 @@ def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -
         tag in model_id
         for tag in (
             "sonnet-4-6", "opus-4-6", "opus-4-7", "sonnet-4-7",
-            "sonnet-5", "opus-4-8", "fable-5", "mythos",
+            "sonnet-5", "opus-4-8", "opus-5", "fable-5", "mythos",
         )
     )
     if supports_adaptive:
