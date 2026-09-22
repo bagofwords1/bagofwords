@@ -442,6 +442,13 @@ class PowerBIClient(DataSourceClient):
         engine_details: List[str] = []   # engine answered, model unqueryable (empty, RLS, ...)
         skipped: List[str] = []          # 404 on executeQueries: no Build, or not a queryable model
         permission_error: Optional[str] = None
+        # True when `permission_error` carries a cause Power BI named itself.
+        # The generic advice below is written for an unknown refusal, and on a
+        # model we KNOW is RLS-protected its first suggestion — make the
+        # identity a workspace Member — silently disables RLS (see
+        # docs/feedback-loops/powerbi-obo-rls.md). A named cause is reported
+        # as the fact it is, with nothing appended.
+        permission_error_named = False
         last_error: Optional[str] = None
 
         for ws in workspaces[: self.MAX_PROBE_WORKSPACES]:
@@ -479,7 +486,12 @@ class PowerBIClient(DataSourceClient):
                     # unqueryable (empty, OLS-hidden tables, RLS, ...).
                     engine_details.append(f"'{ds_name}' ({ws_name}): {detail}")
                 elif outcome == "forbidden":
-                    permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
+                    # A cause Power BI named outranks a later bare 401: probing
+                    # one more workspace must not overwrite the one refusal we
+                    # can actually explain.
+                    if not permission_error_named:
+                        permission_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
+                        permission_error_named = detail in self._NAMED_DENIALS.values()
                 elif outcome == "error":
                     last_error = f"dataset '{ds_name}' in workspace '{ws_name}': {detail}"
                 elif outcome == "skip":
@@ -515,6 +527,12 @@ class PowerBIClient(DataSourceClient):
                 return {
                     "success": True,
                     "message": f"Connected to Power BI. Verified query access on {detail}.",
+                }
+            if permission_error_named:
+                return {
+                    "success": False,
+                    "message": f"Connected, but {permission_error}.",
+                    "connectivity": True,
                 }
             return {
                 "success": False,
@@ -591,7 +609,8 @@ class PowerBIClient(DataSourceClient):
             if len(seen) >= limit:
                 break
         for ds_id, ds_name in seen.items():
-            if self._can_query_dataset(ds_id):
+            queryable, _cause = self._can_query_dataset(ds_id)
+            if queryable:
                 return True, f"semantic model '{ds_name}'"
         return False, ""
 
@@ -619,7 +638,11 @@ class PowerBIClient(DataSourceClient):
             if resp.status_code < 300:
                 return "ok", ""
             if resp.status_code in (401, 403):
-                return "forbidden", self._extract_pbi_error(resp) or f"HTTP {resp.status_code}"
+                return "forbidden", (
+                    self._named_denial(resp)
+                    or self._extract_pbi_error(resp)
+                    or f"HTTP {resp.status_code}"
+                )
             if resp.status_code == 404:
                 return "skip", "HTTP 404"
 
@@ -645,6 +668,40 @@ class PowerBIClient(DataSourceClient):
             return err.get("message") or ""
         except Exception:
             return ""
+
+    # Refusals Power BI names itself, and what to tell the user about each.
+    # Only codes the tenant actually returns belong here — the point of this
+    # map is that every sentence in it is something Power BI stated, not
+    # something we inferred from a status line. Measured live against a real
+    # tenant, see docs/feedback-loops/powerbi-obo-rls.md.
+    _NAMED_DENIALS = {
+        "RLSNotAuthorizedForModel": (
+            "blocked by row-level security (RLS) — this identity is not a member "
+            "of any row-level-security role on this model"
+        ),
+    }
+
+    @classmethod
+    def _named_denial(cls, resp) -> str:
+        """The refusal Power BI NAMED, or "" when it named none.
+
+        A denial under row-level security answers 401 carrying only
+        ``{"error": {"code": "RLSNotAuthorizedForModel"}}`` — no message, no
+        details — so every reader of ``message`` alone reported a bare
+        "HTTP 401" and sent the user to ask for Build permission they already
+        hold. The code is the one place the real cause is stated.
+
+        Deliberately returns "" for a bare 401: a service principal is refused
+        on an RLS model with no code at all (same doc), so naming RLS there
+        would be a guess dressed up as a diagnosis. Callers keep their existing
+        wording when this is empty.
+        """
+        try:
+            err = (resp.json() or {}).get("error", {})
+            code = err.get("code") or (err.get("pbi.error") or {}).get("code") or ""
+        except Exception:
+            return ""
+        return cls._NAMED_DENIALS.get(code, "")
 
     def list_workspaces(self, first_page_only: bool = False) -> List[Dict]:
         """
@@ -886,8 +943,7 @@ class PowerBIClient(DataSourceClient):
         """
         msg = str(e)
         if "RLSNotAuthorizedForModel" in msg:
-            return ("not a member of any row-level-security role on this model "
-                    "(Build permission alone is not sufficient)")
+            return PowerBIClient._NAMED_DENIALS["RLSNotAuthorizedForModel"]
         if "PowerBIEntityNotFound" in msg:
             return "no access to this semantic model (not shared with this identity)"
         if "HTTP 401" in msg or "HTTP 403" in msg:
@@ -1814,8 +1870,9 @@ UNION(
                 str(meta.get("workspaceId") or "").lower() in self._workspace_filter
                 or str(meta.get("workspaceName") or "").lower() in self._workspace_filter
             ):
-                return ds_id, meta, False
-            return ds_id, meta, self._can_query_dataset(ds_id)
+                return ds_id, meta, False, ""
+            queryable, cause = self._can_query_dataset(ds_id)
+            return ds_id, meta, queryable, cause
 
         out: List[Tuple[Dict, Dict, str]] = []
         with ThreadPoolExecutor(max_workers=10) as pool:
@@ -1823,12 +1880,24 @@ UNION(
                 futures = [pool.submit(_probe, d) for d in probed]
                 for fut in as_completed(futures):
                     try:
-                        ds_id, meta, ok = fut.result()
+                        ds_id, meta, ok, cause = fut.result()
                     except IndexingCancelled:
                         raise
                     except Exception:
                         continue
                     if not ok:
+                        # Report only a refusal Power BI named. The model is in
+                        # this identity's catalog, so a named cause is a fix the
+                        # user can act on; an unnamed one would be us guessing
+                        # at scale, once per model they simply do not hold.
+                        if cause:
+                            self.discovery_diagnostics.append({
+                                "datasetId": ds_id,
+                                "datasetName": meta.get("datasetName") or ds_id,
+                                "workspaceId": meta.get("workspaceId"),
+                                "workspaceName": meta.get("workspaceName") or meta.get("workspaceId"),
+                                "reason": cause,
+                            })
                         continue
                     ws_id = meta.get("workspaceId")
                     out.append((
@@ -1848,13 +1917,19 @@ UNION(
             )
         return out
 
-    def _can_query_dataset(self, dataset_id: str) -> bool:
+    def _can_query_dataset(self, dataset_id: str) -> Tuple[bool, str]:
         """Can this identity execute DAX against the dataset right now?
 
         Deliberately tenant-level: the workspace-scoped endpoint needs a
         workspace role, which is exactly what these datasets lack. 200 means
         yes; 401 (no permission / RLS with no role) and 404 (invisible to this
         identity) both mean no.
+
+        Returns ``(queryable, named_cause)``. The cause is non-empty only when
+        Power BI named it (see ``_named_denial``) — every other refusal stays
+        the silent no it has always been, because a model the identity simply
+        does not hold is the normal shape of item-level access, not an
+        incident worth reporting.
         """
         try:
             resp = self._request(
@@ -1863,11 +1938,13 @@ UNION(
                            "serializerSettings": {"includeNulls": True}},
                 timeout=30,
             )
-            return resp.status_code < 300
+            if resp.status_code < 300:
+                return True, ""
+            return False, self._named_denial(resp)
         except IndexingCancelled:
             raise
         except Exception:
-            return False
+            return False, ""
 
     def _tables_from_prior(
         self,
