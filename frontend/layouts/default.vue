@@ -334,7 +334,7 @@
                 </span>
                 <span
                   class="flex-1 truncate"
-                  :class="{ 'report-title-fade': titledReportIds.has(report.id) }"
+                  :class="{ 'report-title-reveal': titledReportIds.has(report.id) }"
                 >{{ report.title || $t('reports.untitled') }}</span>
               </NuxtLink>
               <!-- Project membership: a thin color rule at the leading edge
@@ -1190,10 +1190,15 @@
   }
 
   // Live title updates: the open report page (pages/reports/[id]) dispatches
-  // `report:updated` after it reloads, which is when the server-generated title
-  // first becomes available. Patch the matching sidebar item in place — no route
-  // change happens, so the route watcher above wouldn't catch it — and fade the
-  // new title in. ids in `titledReportIds` get the `.report-title-fade` class.
+  // `report:updated` when the server streams the generated title in — seconds
+  // after the prompt is sent, while the run is still going — and again after a
+  // rename. Patch the matching sidebar item in place; no route change happens,
+  // so the route watcher above wouldn't catch it.
+  //
+  // `detail.generated` marks the streamed title: only that one plays the reveal
+  // (ids in `titledReportIds` get `.report-title-reveal`). A rename is the
+  // user's own edit echoing back, and animating it would just look like a
+  // glitch.
   const titledReportIds = ref<Set<string>>(new Set())
   const onReportUpdated = (e: Event) => {
     const detail = (e as CustomEvent).detail || {}
@@ -1206,19 +1211,18 @@
       fetchRecentReports()
       return
     }
-    // Only animate when the title actually changed (e.g. placeholder → real title).
-    if (title && item.title !== title) {
-      item.title = title
-      const next = new Set(titledReportIds.value)
-      next.add(id)
-      titledReportIds.value = next
-      // Clear after the animation so a later list re-render doesn't replay it.
-      setTimeout(() => {
-        const after = new Set(titledReportIds.value)
-        after.delete(id)
-        titledReportIds.value = after
-      }, 800)
-    }
+    if (!title || item.title === title) return
+    item.title = title
+    if (!detail.generated) return
+    const next = new Set(titledReportIds.value)
+    next.add(id)
+    titledReportIds.value = next
+    // Clear after the animation so a later list re-render doesn't replay it.
+    setTimeout(() => {
+      const after = new Set(titledReportIds.value)
+      after.delete(id)
+      titledReportIds.value = after
+    }, 1200)
   }
   onMounted(() => window.addEventListener('report:updated', onReportUpdated))
   onBeforeUnmount(() => window.removeEventListener('report:updated', onReportUpdated))
@@ -1434,7 +1438,7 @@
 
   const isAdmin = computed<boolean>(() => useCan('full_admin_access'))
  
-  if (environment === 'production' && intercom) {
+  if (environment === 'production' && intercom?.enabled) {
     const hideLauncher = computed<boolean>(() => isExcel.value || isMobile.value)
     $intercom.boot({
       hide_default_launcher: hideLauncher.value,
@@ -1488,16 +1492,44 @@ const createNewReport = () => {
   </script>
 
 <style scoped>
-/* Fade the report title in when it transitions from the "untitled report"
-   placeholder to the server-generated title (see onReportUpdated). */
-@keyframes report-title-fade {
-  from { opacity: 0; transform: translateY(-2px); }
-  to { opacity: 1; transform: translateY(0); }
+/* Reveal the report title when the server-generated one streams in over the
+   "untitled report" placeholder (see onReportUpdated). Two passes: the text
+   rises out of a slight blur, and a single light sheen runs across it so the
+   eye catches the row even when the sidebar isn't where the user is looking.
+   The sheen is painted through background-clip, so it leaves no layout trace
+   once the class is dropped. */
+@keyframes report-title-reveal {
+  0% { opacity: 0; transform: translateY(-3px); filter: blur(2px); }
+  55% { opacity: 1; filter: blur(0); }
+  100% { opacity: 1; transform: none; filter: none; }
 }
-.report-title-fade {
-  animation: report-title-fade 0.45s ease-out;
+@keyframes report-title-sheen {
+  from { background-position: 180% 0; }
+  to { background-position: -80% 0; }
+}
+.report-title-reveal {
+  background-image: linear-gradient(
+    100deg,
+    currentColor 0%,
+    currentColor 38%,
+    rgb(59 130 246) 50%,
+    currentColor 62%,
+    currentColor 100%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation:
+    report-title-reveal 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    report-title-sheen 1s ease-out 0.1s;
 }
 @media (prefers-reduced-motion: reduce) {
-  .report-title-fade { animation: none; }
+  /* No motion, and no transparent fill — the text must stay readable. */
+  .report-title-reveal {
+    animation: none;
+    background-image: none;
+    -webkit-text-fill-color: currentColor;
+  }
 }
 </style>

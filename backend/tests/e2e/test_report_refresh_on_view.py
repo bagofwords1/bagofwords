@@ -29,7 +29,7 @@ from datetime import datetime, timedelta
 import pytest
 
 from app.dependencies import async_session_maker
-from app.models.artifact import Artifact
+from tests.fixtures.artifact import seed_artifact
 from app.models.query import Query
 from app.models.report import Report
 from app.models.step import Step
@@ -82,9 +82,12 @@ async def _seed_artifact(report_id: str):
         db.add(viz)
         await db.flush()
 
-        db.add(Artifact(report_id=report_id, user_id=user_id, organization_id=org_id,
-                        title="Dashboard", mode="page", version=1, status="completed",
-                        content={"code": "function App() {}", "visualization_ids": [str(viz.id)]}))
+        await seed_artifact(
+            db,
+            report_id=report_id, user_id=user_id, organization_id=org_id,
+            mode="page", title="Dashboard",
+            content={"code": "function App() {}", "visualization_ids": [str(viz.id)]},
+        )
         await db.commit()
         return {"query_id": str(query.id), "step_id": str(step.id)}
 

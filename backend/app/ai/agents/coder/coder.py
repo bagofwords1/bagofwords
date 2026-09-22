@@ -779,76 +779,21 @@ class Coder:
                             similar_successful_code_snippets = ""
             except Exception:
                 similar_successful_code_snippets = ""
-            text = f"""
+            # Split into a run-invariant system half and a per-call user half.
+            # Everything in `system_text` (role, org instructions, sandbox/ML/time
+            # rules, the guidelines) is identical for every create_data call in an
+            # organization, so it forms a stable prefix that inference_stream_v2's
+            # system cache breakpoint can reuse. Previously all of this rode in one
+            # user message with no system and no tools, so no cache_control was ever
+            # attached and ~85-97%% of each prompt was re-billed as fresh input.
+            # The per-call context blocks keep their original order and wording.
+            system_text = f"""
             Role: data engineer and data scientist working on the user's analytics request.
 
             Goal: Given the user's prompt and the provided context, generate a Python function named `generate_df(ds_clients, excel_files)`
             that produces a Pandas DataFrame grounded only in the provided schemas and resources.
-            {reuse_directive}
-            {viz_directive}
-
             **Organization Instructions** (authored by the user; apply them):
             {instructions_context}
-
-            **Context and Inputs**:
-            - Current Time: {self._time_context()}
-              Use this to understand what relative phrases ("today", "last week", "this month") refer to — but do NOT bake the resolved dates into the code as literals; follow the Time filters rules below.
-
-            - User Prompt:
-            <user_prompt>
-            {prompt}
-            </user_prompt>
-
-            - Interpreted Prompt:
-            <interpreted_prompt>
-            {interpreted_prompt}
-            </interpreted_prompt>
-
-            - Provided Schemas (Ground Truth):
-            <ground_truth_schemas>
-            {schemas}
-            </ground_truth_schemas>
-
-            - Resources:
-            {resources_context}
-
-            - Files:
-            {files_context}
-
-            - Connection Clients:
-            <connection_clients>
-            {context.data_sources_context or ""}
-            </connection_clients>
-
-            - Mentions:
-            {mentions_context}
-
-            - Entities:
-            {entities_context}
-
-            - Available steps (loadable via load_step):
-            {loadables_context}
-
-            - Messages (recent):
-            <messages>
-            {messages_context}
-            </messages>
-
-            - Past Observations:
-            <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
-
-            - Last Observation:
-            <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
-
-            - Previous code attempts for THIS request that FAILED (retry #{retries}; fix these errors, do not repeat them):
-            <code_and_error_messages>
-            {self._render_error_feedback(code_and_error_messages)}
-            </code_and_error_messages>
-
-            - Similar successful code snippets (for reference on what is working):
-            <similar_successful_code_snippets>
-            {similar_successful_code_snippets}
-            </similar_successful_code_snippets>
 
             {_sandbox_rules_section()}
 
@@ -920,7 +865,7 @@ class Coder:
                - Do not use tables/cols that exist in instructions but are not in the provided schemas.
 
             4. **Handling Previous Code and Errors**:
-               - If the <code_and_error_messages> section above is not "None", review each failed attempt:
+               - If the <code_and_error_messages> section in the request is not "None", review each failed attempt:
                  * Understand the error and write code that cannot fail the same way.
                  * If it's related to a missing column or invalid query, fix it by removing or correcting that column/query.
                  * If it's a "Security violation" from the sandbox, rewrite the code without the forbidden construct (see the sandbox rules above).
@@ -945,6 +890,72 @@ class Coder:
                - If the code fails later in the run, this line is what the retry gets to see, so do not print anywhere else.
                - Return the df.
 
+                        """
+
+            text = f"""
+{reuse_directive}
+            {viz_directive}
+
+            **Context and Inputs**:
+            - Current Time: {self._time_context()}
+              Use this to understand what relative phrases ("today", "last week", "this month") refer to — but do NOT bake the resolved dates into the code as literals; follow the Time filters rules.
+
+            - User Prompt:
+            <user_prompt>
+            {prompt}
+            </user_prompt>
+
+            - Interpreted Prompt:
+            <interpreted_prompt>
+            {interpreted_prompt}
+            </interpreted_prompt>
+
+            - Provided Schemas (Ground Truth):
+            <ground_truth_schemas>
+            {schemas}
+            </ground_truth_schemas>
+
+            - Resources:
+            {resources_context}
+
+            - Files:
+            {files_context}
+
+            - Connection Clients:
+            <connection_clients>
+            {context.data_sources_context or ""}
+            </connection_clients>
+
+            - Mentions:
+            {mentions_context}
+
+            - Entities:
+            {entities_context}
+
+            - Available steps (loadable via load_step):
+            {loadables_context}
+
+            - Messages (recent):
+            <messages>
+            {messages_context}
+            </messages>
+
+            - Past Observations:
+            <past_observations>{json.dumps(past_observations) if past_observations else '[]'}</past_observations>
+
+            - Last Observation:
+            <last_observation>{json.dumps(last_observation) if last_observation else 'None'}</last_observation>
+
+            - Previous code attempts for THIS request that FAILED (retry #{retries}; fix these errors, do not repeat them):
+            <code_and_error_messages>
+            {self._render_error_feedback(code_and_error_messages)}
+            </code_and_error_messages>
+
+            - Similar successful code snippets (for reference on what is working):
+            <similar_successful_code_snippets>
+            {similar_successful_code_snippets}
+            </similar_successful_code_snippets>
+
             Now produce ONLY the Python function code as described. No markdown or extra text.
             """
 
@@ -953,10 +964,12 @@ class Coder:
             with tracer.start_as_current_span("coder.generate_code_stream") as span:
                 span.set_attribute("coder.retry", retries)
                 span.set_attribute("coder.prompt_chars", len(text))
+                span.set_attribute("coder.system_chars", len(system_text))
                 span.set_attribute("coder.has_typed_context", context is not None)
                 span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
                 async for evt in self.llm.inference_stream_v2(
                     messages=[Message(role="user", content=text)],
+                    system=system_text,
                     usage_scope="create_data.code_gen",
                 ):
                     if isinstance(evt, TextDeltaEvent):

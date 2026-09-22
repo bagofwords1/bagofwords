@@ -81,16 +81,23 @@ class Google(LLMClient):
         contents.append(types.Part.from_text(text=prompt.strip()))
         return contents
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None) -> LLMResponse:
+        """``system`` maps to Gemini's native system_instruction. This client
+        surfaces no cached-token counts, so the split costs nothing and buys
+        nothing here today; it keeps the interface uniform across clients."""
         thinking_budget = self._thinking_budget()
 
+        _cfg: dict = {
+            "thinking_config": types.ThinkingConfig(thinking_budget=thinking_budget),
+            "temperature": self.temperature,
+        }
+        if system:
+            _cfg["system_instruction"] = system
         response = self.client.models.generate_content(
             model=model_id,
             contents=self._build_contents(prompt, images),
-            config=types.GenerateContentConfig(
-                thinking_config=types.ThinkingConfig(thinking_budget=thinking_budget),
-                temperature=self.temperature,
-            ),
+            config=types.GenerateContentConfig(**_cfg),
         )
         usage_meta = getattr(response, "usage_metadata", None)
         usage = LLMUsage(

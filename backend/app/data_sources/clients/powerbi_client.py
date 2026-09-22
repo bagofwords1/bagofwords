@@ -81,6 +81,15 @@ class PowerBIClient(DataSourceClient):
     MAX_PROBE_WORKSPACES = 10
     MAX_PROBE_DATASETS = 20
 
+    # Custom tables materialize through a native source rather than SQLAlchemy:
+    # there is no cursor and no planner here, only bounded executeQueries
+    # responses. See fast/powerbi_source.py for what the endpoint actually does.
+    @staticmethod
+    def EXTRACTION_SOURCE(client):
+        from app.data_sources.fast.powerbi_source import PowerBISource
+
+        return PowerBISource(client)
+
     def __init__(
         self,
         tenant_id: str = None,
@@ -121,6 +130,10 @@ class PowerBIClient(DataSourceClient):
         # dataset GUID as a dict lookup instead of re-crawling the tenant.
         self._table_metadata_map: Dict[str, Dict] = {}
         self._table_metadata_attached: bool = False
+        # The semantic model a custom table's DAX runs against, when the admin
+        # pinned one ({datasetId, workspaceId, datasetName}). None means the
+        # extraction source resolves it from the tables the DAX references.
+        self.extraction_target: Optional[Dict] = None
         self._blocked_tables_by_dataset: dict[str, dict[str, str]] = {}
         # Live-discovery cache: get_schemas() is a full tenant crawl (workspaces,
         # datasets, admin scan, COLUMNSTATISTICS) — run it at most once per
@@ -2114,6 +2127,49 @@ UNION(
             return f"{self.BASE_URL}/groups/{workspace_id}/datasets/{dataset_id}/executeQueries"
         return f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
 
+    def execute_dax_rows(
+        self,
+        workspace_id: Optional[str],
+        dataset_id: str,
+        dax: str,
+    ) -> tuple:
+        """One executeQueries request, as the API answers it.
+
+        Returns (rows, response_bytes): the rows are dicts keyed by the API's
+        own column names ('Sales[Region]', '[Total]'), untouched. The
+        extraction source needs both — the raw names are valid DAX column
+        references it builds window filters from, and the byte size is one of
+        the three ceilings at which a response may have been truncated.
+        `_execute_dax_internal` frames the same result as a DataFrame for
+        everyone else.
+        """
+        self.connect()
+        url = self._dataset_query_url(workspace_id, dataset_id)
+
+        body = {
+            "queries": [{"query": dax}],
+            "serializerSettings": {"includeNulls": True},
+        }
+
+        resp = self._request("POST", url, json_body=body, timeout=120)
+        if resp.status_code in (401, 403) and workspace_id and workspace_id not in self._tenant_scoped_workspaces:
+            fallback = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
+            retry = self._request("POST", fallback, json_body=body, timeout=120)
+            if retry.status_code < 300:
+                self._tenant_scoped_workspaces.add(workspace_id)
+                resp = retry
+        if resp.status_code >= 300:
+            detail = self._extract_pbi_error(resp)
+            raise RuntimeError(
+                f"DAX query failed: HTTP {resp.status_code} {detail or resp.text}"
+            )
+
+        payload = resp.json() or {}
+        results = payload.get("results") or []
+        tables = (results[0].get("tables") or []) if results else []
+        rows = (tables[0].get("rows") or []) if tables else []
+        return rows, len(resp.content or b"")
+
     def _execute_dax_internal(
         self,
         workspace_id: Optional[str],
@@ -2133,37 +2189,7 @@ UNION(
         "every query 401s". The fallback result is remembered per workspace so
         each workspace costs at most one wasted request per client instance.
         """
-        self.connect()
-        url = self._dataset_query_url(workspace_id, dataset_id)
-
-        body = {
-            "queries": [{"query": dax}],
-            "serializerSettings": {"includeNulls": True},
-        }
-
-        resp = self._request("POST", url, json_body=body, timeout=120)
-        if resp.status_code in (401, 403) and workspace_id and workspace_id not in self._tenant_scoped_workspaces:
-            fallback = f"{self.BASE_URL}/datasets/{dataset_id}/executeQueries"
-            retry = self._request("POST", fallback, json_body=body, timeout=120)
-            if retry.status_code < 300:
-                self._tenant_scoped_workspaces.add(workspace_id)
-                resp = retry
-        if resp.status_code >= 300:
-            raise RuntimeError(f"DAX query failed: HTTP {resp.status_code} {resp.text}")
-
-        payload = resp.json() or {}
-        results = payload.get("results") or []
-
-        if not results:
-            return pd.DataFrame()
-
-        first_result = results[0]
-        tables = first_result.get("tables") or []
-
-        if not tables:
-            return pd.DataFrame()
-
-        rows = tables[0].get("rows") or []
+        rows, _nbytes = self.execute_dax_rows(workspace_id, dataset_id, dax)
 
         if not rows:
             return pd.DataFrame()

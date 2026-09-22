@@ -26,7 +26,7 @@ from app.ai.tools.schemas import (
     ToolEndEvent,
 )
 from app.ai.tools.schemas.read_artifact import ReadArtifactInput, ReadArtifactOutput
-from app.models.artifact import Artifact
+from app.models.artifact import ArtifactVersion
 from app.models.visualization import Visualization
 from app.models.query import Query
 from app.dependencies import async_session_maker
@@ -231,11 +231,11 @@ class ReadArtifactTool(Tool):
         # Fetch the artifact
         try:
             result = await db.execute(
-                select(Artifact)
+                select(ArtifactVersion)
                 .options(lazyload("*"))
                 .where(
-                    Artifact.id == data.artifact_id,
-                    Artifact.organization_id == str(organization.id),
+                    ArtifactVersion.id == data.artifact_id,
+                    ArtifactVersion.organization_id == str(organization.id),
                 )
             )
             artifact = result.scalar_one_or_none()

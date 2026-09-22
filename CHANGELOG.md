@@ -1,5 +1,34 @@
 # Release Notes
 
+## Version 0.0.567 (September 20, 2026)
+- Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
+
+## Version 0.0.566 (September 20, 2026)
+- Reports are named the moment you hit send, instead of after the run: the title is generated from the prompt itself and streamed to every open client, so the sidebar entry, the report header and the browser tab stop reading "untitled report" seconds into a run rather than minutes. The header types the new title in and the sidebar row reveals it (both respect reduced-motion), and a title you set by hand is never overwritten — including when you rename the report while generation is still in flight (#1160)
+- Renaming a report from its header updates the sidebar immediately and saves once; pressing Enter used to leave the sidebar stale and fire two saves with two confirmations (#1160)
+
+## Version 0.0.565 (September 19, 2026)
+- Fixed cache-read costs being overstated 4x for Claude Fable 5.1 and Mythos 5.1, which bill a cache hit at 0.025x input where the rest of the Claude family pays 0.1x (#1158)
+
+## Version 0.0.564 (September 19, 2026)
+- Agent-loop prompt caching now actually holds across a run: the static context stopped changing shape mid-run, the one-shot prompts (code generation, visualization, follow-ups) send a cacheable system half, and the cache entry lives an hour instead of five minutes — measured 12–37% off a run's LLM cost with the same analyses produced — set `BOW_PROMPT_CACHE_TTL=5m` to go back to the short TTL (#1159)
+- Prompt caching on Amazon Bedrock for Claude and Nova models, off via `BOW_BEDROCK_PROMPT_CACHE=0` (#1159)
+- Cached tokens are priced by model family and cache TTL rather than by provider account: Claude on Vertex no longer bills cached tokens at $0, Claude on Azure no longer has an OpenAI-shaped discount subtracted from a cost that never included those tokens, and a 1-hour cache write bills at 2x instead of 1.25x. The Cost page gains a cache hit rate per provider, shown as "not reported" where the provider sends no cache telemetry rather than as 0% (#1159)
+- Models absent from the preset catalog no longer record $0 spend when an admin supplied their cost rates (#1159)
+- Claude Fable 5.1 (`claude-fable-5-1`) is a selectable Anthropic preset: 1M context, 128K max output, $10/$50 per million tokens. Not a default — at 2x Opus 5 and ~3.3x the Sonnet 5 default, moving an organization onto it is an admin's cost decision; Claude Fable 5 stays available (#1158)
+
+## Version 0.0.563 (September 17, 2026)
+- Custom queries are now called custom tables everywhere (settings, the agent tables page, the authoring modal, agent context, every locale), and Power BI joins the sources they can be built on. A Power BI custom table is a DAX query (one EVALUATE) that BOW materializes on a schedule; the semantic model is detected from the tables the DAX references or pinned from a new "Semantic model" picker. Designed against a live tenant: executeQueries truncates at 100,000 rows or 1,000,000 values with no error, so results are counted with COUNTROWS, fetched in value windows over a numeric or date column when they exceed one response, and refused if any row is missing. Agents then query the cached copy with plain SQL instead of writing DAX against the rate-limited API
+- Artifacts get a parent identity with per-artifact version chains; every write site shares one version factory and the migration backfills existing rows without guessing lineage (#1079)
+- The agent Files tab is a file browser with folder tree, search and in-place previews for connected file sources, sharing read_file's scope checks and audit trail (#1139)
+- RTL: chevrons and arrows relying on the directional auto-flip now actually flip (#1147)
+- The agent Files tree and the Uploaded panel stay in sync on upload and delete (#1148)
+- Indexing runs no longer stay "running" forever: heartbeat, stale-run reaping, idle-based stage timeouts and a last-activity indicator (#1150)
+- Clicking an agent's Instructions row on the agents page opens its instruction list in the right pane, with a search that matches instruction bodies (server-side, scoped to that agent) and a clear button; the "Search everything" box gets a clear button too (#1155)
+- "All time" on the monitoring Explore, Cost and Diagnosis pages now covers the organization's whole history instead of the last 30 days; Diagnosis gains an "All time" preset with monthly buckets for old orgs, and the KPI cards drop the made-up trend for all time (#1156)
+- Security: `@nuxtjs/mdc` bumped from 0.17 to 0.22 to clear a high-severity Snyk finding (SNYK-JS-NUXTJSMDC-19883915); the markdown render API is unchanged (#1157)
+- Docker deployments no longer need `BOW_ENCRYPTION_KEY` set by hand: `start.sh` resolves it from the env var, then a keyfile (`BOW_ENCRYPTION_KEY_FILE`, default on a new `app_data` volume, also usable with Docker secrets), otherwise generating one and persisting it before the workers fork so every worker shares it. An unwritable keyfile still falls back to a temporary key, now with a loud warning instead of silent per-restart credential loss (#1002)
+
 ## Version 0.0.562 (September 16, 2026)
 - Shorter generated code with stdout carried into retries, and a bounded Power BI DAX guide (#1145)
 

@@ -66,7 +66,12 @@
             </div>
         </div>
 
-        <p v-if="elapsed !== null && isActive" class="text-xs text-gray-400">{{ $t('data.setupElapsed', { time: formatDuration(elapsed) }) }}</p>
+        <p v-if="elapsed !== null && isActive" class="text-xs text-gray-400">
+            {{ $t('data.setupElapsed', { time: formatDuration(elapsed) }) }}<template v-if="sinceActivity !== null && !looksStuck"> · {{ $t('data.setupLastActivity', { time: formatDuration(sinceActivity) }) }}</template>
+        </p>
+        <p v-if="looksStuck" class="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1" role="status" data-testid="indexing-no-activity">
+            <UIcon name="heroicons-exclamation-triangle" class="w-4 h-4 shrink-0" />{{ $t('data.setupNoActivity', { time: formatDuration(sinceActivity) }) }}
+        </p>
         <div v-if="previousPhases.length && isActive" class="text-xs text-gray-400 space-y-1">
             <div>{{ $t('data.setupPreviousStages') }}</div>
             <div v-for="phase in previousPhases" :key="phase!" class="flex items-center gap-1.5"><UIcon name="i-heroicons-chevron-right" class="w-3 h-3" />{{ phaseLabel(phase) }}</div>
@@ -136,12 +141,18 @@ const now = ref(Date.now())
 let elapsedTimer: ReturnType<typeof setInterval> | undefined
 onMounted(() => { elapsedTimer = setInterval(() => { now.value = Date.now() }, 1000) })
 onBeforeUnmount(() => clearInterval(elapsedTimer))
-const elapsed = computed(() => {
-  const started = props.indexing?.started_at
-  if (!started) return null
-  const parsed = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(started) ? started : started + 'Z')
+function secondsSince(ts?: string | null): number | null {
+  if (!ts) return null
+  const parsed = Date.parse(/(?:Z|[+-]\d{2}:\d{2})$/.test(ts) ? ts : ts + 'Z')
   return Number.isFinite(parsed) ? Math.max(0, (now.value - parsed) / 1000) : null
-})
+}
+const elapsed = computed(() => secondsSince(props.indexing?.started_at))
+// Only a running run reports progress; a queued one has nothing to be late on.
+const sinceActivity = computed(() => props.indexing?.status === 'running' ? secondsSince(props.indexing?.last_activity_at) : null)
+// Well short of the server's inactivity timeout, so the user sees the warning
+// (and can stop the run) before it fails on its own.
+const NO_ACTIVITY_WARN_SECONDS = 5 * 60
+const looksStuck = computed(() => sinceActivity.value !== null && sinceActivity.value >= NO_ACTIVITY_WARN_SECONDS)
 
 function formatBytes(n?: number | null): string {
     if (!n || n <= 0) return ''
@@ -200,6 +211,7 @@ function phaseLabel(phase?: string | null) {
 const previousPhases = computed(() => [...new Set((props.indexing?.events || []).map(ev => ev.phase).filter(Boolean))].filter(phase => phase !== props.indexing?.phase))
 const summary = computed(() => {
   const idx = props.indexing
+  if (idx?.status === 'pending') return t('data.setupQueued')
   const label = phaseLabel(idx?.phase)
   const count = idx?.progress_total ? ` (${idx.progress_done}/${idx.progress_total})` : ''
   return `${label}${idx?.current_item ? ` · ${idx.current_item}` : ''}${count}`

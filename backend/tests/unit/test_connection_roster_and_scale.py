@@ -170,7 +170,7 @@ def test_duplicate_connection_names_stay_separate():
 
 def test_fast_sibling_stays_a_separate_identity():
     """One physical connection can expose two client identities: the live
-    source and its `::fast` sibling serving materialized custom queries. They
+    source and its `::fast` sibling serving materialized custom tables. They
     share a connection_id ON PURPOSE, so keying the roster on the id alone
     merged them under whichever name came first — and the coder maps that name
     onto a client_key, so half the tables pointed at a client that cannot serve

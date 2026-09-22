@@ -64,17 +64,20 @@ export interface ToolStat { tool: string; calls: number; errors: number; avg_ms:
 export interface Summary { matched: number; errors: number; users: number; cost_usd: number; p50_ms: number | null; unindexed: number }
 export interface Facet { value: string; label: string; count: number }
 
-export type RangePreset = '24h' | '7d' | '30d' | '90d' | 'custom'
+// 'all' is the organization's whole history: the request carries no start/end
+// and the server bounds it by the org's creation day (see console routes).
+export type RangePreset = 'all' | '24h' | '7d' | '30d' | '90d' | 'custom'
 export interface TimeRange { preset: RangePreset; start: Date; end: Date }
 
-const PRESET_MS: Record<Exclude<RangePreset, 'custom'>, number> = {
+const PRESET_MS: Record<Exclude<RangePreset, 'custom' | 'all'>, number> = {
   '24h': 24 * 3600e3, '7d': 7 * 86400e3, '30d': 30 * 86400e3, '90d': 90 * 86400e3,
 }
 
 export function rangeForPreset(preset: RangePreset, custom?: { start: Date; end: Date }): TimeRange {
   if (preset === 'custom' && custom) return { preset, start: custom.start, end: custom.end }
-  const key = preset === 'custom' ? '30d' : preset
   const end = new Date()
+  if (preset === 'all') return { preset, start: new Date(0), end }
+  const key = preset === 'custom' ? '30d' : preset
   return { preset: key, start: new Date(end.getTime() - PRESET_MS[key]), end }
 }
 
@@ -85,7 +88,7 @@ function encodeRange(r: TimeRange): string {
 
 function decodeRange(s: string | undefined): TimeRange {
   if (!s) return rangeForPreset('30d')
-  if (s in PRESET_MS) return rangeForPreset(s as RangePreset)
+  if (s === 'all' || s in PRESET_MS) return rangeForPreset(s as RangePreset)
   const m = /^(\d{4}-\d{2}-\d{2})\.\.(\d{4}-\d{2}-\d{2})$/.exec(s)
   if (m) {
     const start = new Date(m[1] + 'T00:00:00')
@@ -112,7 +115,7 @@ export const useDiagnosisQuery = () => {
   const totalInRange = ref(0)
   const summary = ref<Summary | null>(null)
   const buckets = ref<Bucket[]>([])
-  const granularity = ref<'hour' | 'day' | 'week'>('day')
+  const granularity = ref<'hour' | 'day' | 'week' | 'month'>('day')
   const tools = ref<ToolStat[]>([])
   const canonical = ref('')
   const loading = ref(false)
@@ -129,12 +132,12 @@ export const useDiagnosisQuery = () => {
   let seq = 0
   const tz = -new Date().getTimezoneOffset()
 
-  const baseParams = (q: string) => ({
-    q,
-    start: range.value.start.toISOString(),
-    end: range.value.end.toISOString(),
-    tz: String(tz),
-  })
+  const baseParams = (q: string): Record<string, string> => {
+    const r = range.value
+    // All time sends no bounds; the server fills in the org's lifetime.
+    if (r.preset === 'all') return { q, tz: String(tz) }
+    return { q, start: r.start.toISOString(), end: r.end.toISOString(), tz: String(tz) }
+  }
 
   const encode = (params: Record<string, string>) => new URLSearchParams(params).toString()
 

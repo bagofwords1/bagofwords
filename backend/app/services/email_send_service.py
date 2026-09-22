@@ -455,11 +455,11 @@ class EmailSendService:
 
     async def _resolve_artifact(self, spec, db, report, res):
         """artifact_id -> PPTX (slides) or PDF (page)."""
-        from app.models.artifact import Artifact
+        from app.models.artifact import ArtifactVersion
 
         report_id, _ = self._scope_ids(report, None)
 
-        artifact = await db.get(Artifact, spec.ref_id)
+        artifact = await db.get(ArtifactVersion, spec.ref_id)
         if not artifact or artifact.deleted_at is not None:
             res.error = "Artifact not found"
             return res, None, None

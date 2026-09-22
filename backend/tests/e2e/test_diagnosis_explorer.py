@@ -54,7 +54,10 @@ def world(create_user, login_user, whoami, create_report, seed_agent_executions,
              usage=[{"model": "gpt-4.1", "provider": "openai", "prompt_tokens": 12_000, "completion_tokens": 3_000, "cost": 0.42, "scope": "planner"},
                     {"model": "gpt-4.1-mini", "provider": "openai", "prompt_tokens": 2_000, "completion_tokens": 400, "cost": 0.02, "scope": "tool_call_judge"}]),
         # 1: success, cheap, fast, positive feedback, web, one create_data ok
-        dict(user_id=owner_id, prompt="Top 10 albums by revenue 100% of catalog", created_at=NOW - timedelta(days=2) + timedelta(hours=1),
+        # Sits 12h inside the `created:-2d` window rather than 1h: the window is
+        # measured from the request's clock while NOW is fixed at import, so the
+        # margin must cover how late in a long (xdist, postgres) job this runs.
+        dict(user_id=owner_id, prompt="Top 10 albums by revenue 100% of catalog", created_at=NOW - timedelta(days=2) + timedelta(hours=12),
              status="success", duration_ms=4_900, judge={"response": 5, "instructions": 5, "context": 5},
              feedback={"direction": 1},
              tools=[{"name": "create_data", "action": "execute_sql", "status": "success", "duration_ms": 1_100}],
@@ -411,12 +414,10 @@ def test_bad_queries_are_400_with_a_position(runs, world):
     assert resp.status_code == 400 and resp.json()["detail"]["code"] == "bad_query"
 
 
-def test_requests_are_always_time_bounded(test_client, world):
-    resp = test_client.get(
-        "/api/console/diagnosis/runs",
-        params={"q": ""},
-        headers={"Authorization": f"Bearer {world['token']}", "X-Organization-Id": world["org_id"]},
-    )
+def test_a_reversed_range_is_rejected(runs, world):
+    # A missing range is "all time" (see test_no_range_means_all_time); a
+    # range that ends before it starts is still a bad request.
+    resp = runs("", start=_iso(NOW), end=_iso(NOW - timedelta(days=1)))
     assert resp.status_code == 400 and resp.json()["detail"]["code"] == "bad_request"
 
 
@@ -445,3 +446,46 @@ def test_pre_attribution_runs_get_window_cost_flagged_partial(runs, world):
     assert item["cost_is_partial"] is True
     assert item["cost_usd"] == pytest.approx(0.01)
     assert item["model"] == "gpt-4o"
+
+
+# ---------------------------------------------------------------------------
+# All time
+# ---------------------------------------------------------------------------
+
+def test_no_range_means_all_time(runs, world, seed_agent_executions, rollup_agent_executions, backdate_organization, test_client):
+    """The page's "All time" preset sends no start/end. That must mean the
+    org's whole history (runs older than any preset included), bucketed by
+    month when the org is old enough that weeks would not fit the chart."""
+    org_id = world["org_id"]
+    backdate_organization(org_id, days=3 * 365)
+    old_id = seed_agent_executions(org_id, world["report"]["id"], [
+        dict(user_id=world["owner_id"], prompt="Ancient history: first ever question",
+             created_at=NOW - timedelta(days=2 * 365), status="success", duration_ms=1_000),
+    ])[0]
+    rollup_agent_executions()
+    headers = {"Authorization": f"Bearer {world['token']}", "X-Organization-Id": org_id}
+
+    def get(path, **params):
+        resp = test_client.get(path, params=params, headers=headers)
+        assert resp.status_code == 200, resp.json()
+        return resp.json()
+
+    in_default_window = _ok(runs(""))["total"]
+    everything = get("/api/console/diagnosis/runs", q="", limit=100)
+    assert everything["total"] == in_default_window + 1
+    assert old_id in {i["id"] for i in everything["items"]}
+
+    hist = everything["histogram"]
+    assert hist["granularity"] == "month"
+    assert 0 < len(hist["buckets"]) <= 120
+    assert all(len(b["bucket"]) == len("YYYY-MM") for b in hist["buckets"])
+    assert sum(b["total"] for b in hist["buckets"]) == everything["total_in_range"] == everything["total"]
+
+    # Facets without a range work too, and see the old run's user.
+    facets = get("/api/console/diagnosis/facets/status", q="")
+    assert sum(f["count"] for f in facets) == everything["total"]
+
+    # An explicit range longer than the chart can show in weeks is also monthly.
+    long = _ok(runs("", start=_iso(NOW - timedelta(days=1000)), end=_iso(NOW + timedelta(days=1))))
+    assert long["histogram"]["granularity"] == "month"
+    assert sum(b["total"] for b in long["histogram"]["buckets"]) == long["total"]

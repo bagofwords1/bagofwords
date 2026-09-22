@@ -219,7 +219,7 @@ def test_inference_redacts_before_reaching_provider():
     captured = {}
 
     class StubClient:
-        def inference(self, model_id, prompt, images=None):
+        def inference(self, model_id, prompt, images=None, system=None):
             captured["prompt"] = prompt
             return "ok"
 

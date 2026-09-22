@@ -778,7 +778,10 @@ class ProjectService:
                 Report.status != "archived",
                 Report.deleted_at.is_(None),
                 Report.id.in_(
-                    select(Artifact.report_id).where(Artifact.report_id.isnot(None))
+                    select(Artifact.report_id).where(
+                        Artifact.report_id.isnot(None),
+                        Artifact.deleted_at.is_(None),
+                    )
                 ),
             )
         )

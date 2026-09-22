@@ -52,6 +52,7 @@ from app.schemas.custom_query_schema import (
     CustomQueryRlsUpdate,
     CustomQuerySchema,
     RlsPrincipal,
+    CustomQueryTarget,
 )
 from app.services.custom_query_service import custom_query_service, is_accelerable_type
 
@@ -98,6 +99,7 @@ def _indexing_to_progress(row, include_events: bool = True) -> "ConnectionIndexi
         progress_total=row.progress_total or 0,
         started_at=_iso_utc(row.started_at),
         finished_at=_iso_utc(row.finished_at),
+        last_activity_at=_iso_utc(getattr(row, "last_activity_at", None)),
         error=row.error,
         stats=row.stats_json,
         events=(row.events_json or []) if include_events else [],
@@ -187,7 +189,7 @@ async def list_connections(
     conn_ids = [str(c.id) for c in connections]
 
     # Catalog table count per connection (all available tables in the database).
-    # Scoped to introspected, live rows: BOW custom queries are counted
+    # Scoped to introspected, live rows: BOW custom tables are counted
     # separately below, and soft-deleted rows must not inflate either count.
     catalog_count_by_conn: dict = {}
     custom_query_count_by_conn: dict = {}
@@ -474,6 +476,9 @@ async def get_connection(
                     "authorize_url", "token_url", "client_id", "scopes", "audience",
                     "api_key_header", "token_endpoint_auth_method", "tenant_id",
                     "user", "username", "oauth_tenant_id", "oauth_client_id",
+                    # What DCR discovery derived from the server, so the edit
+                    # form can show "Detected: …" next to the override field.
+                    "discovered_scopes", "scopes_source",
                 )
                 _meta = {k: _creds[k] for k in _NON_SECRET if _creds.get(k) not in (None, "")}
                 credentials_meta = _meta or None
@@ -1108,7 +1113,7 @@ async def get_connection_tables(
 
     result = []
     for table in (connection.connection_tables or []):
-        # BOW custom queries are served by their own endpoint; they are not
+        # BOW custom tables are served by their own endpoint; they are not
         # introspected source tables and must not appear here. Soft-deleted
         # rows must not appear either.
         if table.kind == KIND_BOW or table.deleted_at is not None:
@@ -1121,9 +1126,9 @@ async def get_connection_tables(
     return result
 
 
-# ==================== Custom Queries (BOW-managed, materialized) ====================
+# ==================== Custom Tables (BOW-managed, materialized) ====================
 #
-# A custom query is admin-authored SQL on a connection, materialized to an
+# A custom table is admin-authored SQL on a connection, materialized to an
 # encrypted local artifact on a schedule and served to agents from there instead
 # of the source. Connection-scoped by ownership (one artifact shared by every
 # agent that activates it), gated on `manage_connection`.
@@ -1173,8 +1178,23 @@ async def preview_custom_query(
     await custom_query_service.ensure_enabled(db, organization)
     connection = await connection_service.get_connection(db, connection_id, organization)
     return await custom_query_service.preview(
-        db, connection, payload.definition_sql, current_user
+        db, connection, payload.definition_sql, current_user, target=payload.target
     )
+
+
+@router.get("/{connection_id}/custom-queries/targets", response_model=List[CustomQueryTarget])
+@requires_resource_permission('connection', 'manage_connection')
+async def list_custom_query_targets(
+    connection_id: str,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization)
+):
+    """Where a custom table on this connection can run — Power BI semantic
+    models from the indexed catalog. Empty for connectors that need no target."""
+    await custom_query_service.ensure_enabled(db, organization)
+    connection = await connection_service.get_connection(db, connection_id, organization)
+    return await custom_query_service.list_targets(db, connection)
 
 
 @router.post("/{connection_id}/custom-queries", response_model=CustomQuerySchema)
@@ -1199,6 +1219,7 @@ async def create_custom_query(
         current_user=current_user,
         organization=organization,
         activate_for_datasource_id=payload.activate_for_datasource_id,
+        target=payload.target,
     )
     try:
         await audit_service.log(
@@ -1238,6 +1259,7 @@ async def update_custom_query(
         refresh_at_time=payload.refresh_at_time,
         current_user=current_user,
         organization_timezone=await custom_query_service._org_timezone(db, organization),
+        **({"target": payload.target} if "target" in payload.model_fields_set else {}),
     )
     try:
         await audit_service.log(
@@ -1299,7 +1321,7 @@ async def delete_custom_query(
     return res
 
 
-# ==================== Custom Query RLS ====================
+# ==================== Custom Table RLS ====================
 
 @router.get("/{connection_id}/custom-queries/rls-options", response_model=CustomQueryRlsOptions)
 @requires_resource_permission('connection', 'manage_connection')

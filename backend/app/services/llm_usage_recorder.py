@@ -1,5 +1,6 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.ai.llm import pricing
 from app.models.llm_model import LLMModel
 from app.models.llm_usage_record import LLMUsageRecord
 
@@ -20,6 +21,9 @@ class LLMUsageRecorderService:
         completion_tokens: int = 0,
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
+        cache_write_5m_tokens: int = 0,
+        cache_write_1h_tokens: int = 0,
+        reasoning_tokens: int = 0,
         organization_id: str | None = None,
         user_id: str | None = None,
         report_id: str | None = None,
@@ -30,8 +34,15 @@ class LLMUsageRecorderService:
     ) -> LLMUsageRecord:
 
         provider_type = llm_model.provider.provider_type if llm_model.provider else ""
+        # A write with no TTL breakdown predates the split (or came from a
+        # client that does not report it): bill it at the 5-minute rate, which
+        # is the API default and never over-charges.
+        if cache_creation_tokens and not (cache_write_5m_tokens or cache_write_1h_tokens):
+            cache_write_5m_tokens = cache_creation_tokens
         input_cost = self._calc_input_cost(
-            llm_model, prompt_tokens, cache_read_tokens, cache_creation_tokens, provider_type
+            llm_model, prompt_tokens, cache_read_tokens, cache_creation_tokens, provider_type,
+            cache_write_5m_tokens=cache_write_5m_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
         )
         output_cost = self._calc_output_cost(llm_model, completion_tokens)
 
@@ -57,6 +68,8 @@ class LLMUsageRecorderService:
             completion_tokens=completion_tokens,
             cache_read_tokens=cache_read_tokens,
             cache_creation_tokens=cache_creation_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
+            reasoning_tokens=reasoning_tokens,
             input_cost_usd=input_cost,
             output_cost_usd=output_cost,
             total_cost_usd=input_cost + output_cost,
@@ -75,27 +88,35 @@ class LLMUsageRecorderService:
         cache_read_tokens: int = 0,
         cache_creation_tokens: int = 0,
         provider_type: str = "",
+        cache_write_5m_tokens: int = 0,
+        cache_write_1h_tokens: int = 0,
     ) -> float:
+        """Input cost, with cached tokens priced by MODEL FAMILY and TTL.
+
+        Delegates to app.ai.llm.pricing, which keys on the family rather than
+        the provider account: Claude prices identically whether it is reached
+        first-party, through Vertex, Azure Foundry, Bedrock or an
+        OpenAI-compatible gateway, and pricing on provider_type alone silently
+        charged $0 for cached tokens on some of those routes and applied an
+        OpenAI rebate on others.
+
+        cache_creation_tokens is accepted for backwards compatibility; when the
+        per-TTL split is absent the whole write bills at the 5-minute rate.
+        """
         rate = llm_model.get_input_cost_rate()
         if rate is None:
             return 0.0
-        rate_f = float(rate)
-        # Non-cached input tokens at full rate (Anthropic excludes cached tokens
-        # from input_tokens; OpenAI includes them, so we handle both below).
-        cost = (tokens / 1_000_000) * rate_f if tokens else 0.0
-        if provider_type == "anthropic":
-            # Cache reads: billed at 0.1× input rate.
-            # Cache writes: billed at 1.25× input rate.
-            if cache_read_tokens:
-                cost += (cache_read_tokens / 1_000_000) * rate_f * 0.1
-            if cache_creation_tokens:
-                cost += (cache_creation_tokens / 1_000_000) * rate_f * 1.25
-        elif provider_type in ("openai", "azure"):
-            # OpenAI/Azure include cached tokens in prompt_tokens at full rate,
-            # but actually charge 0.5× for those tokens. Apply the 50% discount.
-            if cache_read_tokens:
-                cost -= (cache_read_tokens / 1_000_000) * rate_f * 0.5
-        return max(cost, 0.0)
+        if cache_creation_tokens and not (cache_write_5m_tokens or cache_write_1h_tokens):
+            cache_write_5m_tokens = cache_creation_tokens
+        return pricing.cached_input_cost(
+            rate_per_million=float(rate),
+            prompt_tokens=tokens,
+            cache_read_tokens=cache_read_tokens,
+            cache_write_5m_tokens=cache_write_5m_tokens,
+            cache_write_1h_tokens=cache_write_1h_tokens,
+            provider_type=provider_type,
+            model_id=getattr(llm_model, "model_id", None),
+        )
 
     @staticmethod
     def _calc_output_cost(llm_model: LLMModel, tokens: int) -> float:

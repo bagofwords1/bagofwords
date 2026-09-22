@@ -44,7 +44,7 @@ def arrow_table(columns: dict):
     is what `AVG(x)` and most arithmetic produce — comes back as a decimal of
     precision 39 or more, and DuckDB cannot store it. Extraction died on
     `SELECT AVG(amount) ... GROUP BY ...`, which is close to the most ordinary
-    custom query anyone would write.
+    custom table anyone would write.
 
     Such columns are widened to float64. That trades exactness for the ability
     to store the value at all, and it only happens for values that had no

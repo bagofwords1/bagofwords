@@ -130,11 +130,21 @@ class OpenAIResponsesClient(LLMClient):
             content.append({"type": "image_url", "image_url": {"url": url}})
         return content
 
-    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None) -> LLMResponse:
+    def inference(self, model_id: str, prompt: str, images: Optional[list[ImageInput]] = None,
+                  system: Optional[str] = None) -> LLMResponse:
+        """``system`` is the run-invariant half of the prompt; see LLMClient.inference.
+
+        OpenAI-family caching is automatic on a prefix of >= 1024 tokens, and a
+        system message renders at position 0, so splitting the stable half out
+        is what makes a one-shot call cacheable here too — no marker to attach.
+        """
         temperature = self.temperature if self.temperature is not None else (1.0 if "gpt-5" in model_id else 0.3)
+        _msgs = [{"role": "user", "content": self._build_chat_content(prompt, images)}]
+        if system:
+            _msgs = [{"role": "system", "content": system}] + _msgs
         chat_completion = self.client.chat.completions.create(
             model=model_id,
-            messages=[{"role": "user", "content": self._build_chat_content(prompt, images)}],
+            messages=_msgs,
             **({"temperature": temperature} if not model_id.startswith("gpt-6") else {}),
         )
         content = chat_completion.choices[0].message.content or ""

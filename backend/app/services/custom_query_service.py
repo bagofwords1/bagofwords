@@ -1,6 +1,6 @@
-"""Custom queries — admin-authored SQL materialized to encrypted local artifacts.
+"""Custom tables — admin-authored SQL materialized to encrypted local artifacts.
 
-Ownership note: a custom query is a **connection-level** object even though the
+Ownership note: a custom table is a **connection-level** object even though the
 UI lets you create one from an agent's tables page. The artifact is one physical
 file shared by every agent that activates it — if it were per-agent, N agents
 would extract the same data N times on N schedules, multiplying exactly the
@@ -71,8 +71,18 @@ logger = logging.getLogger(__name__)
 # spends a rate-limited API call to return at most a few hundred rows;
 # accelerated, an admin's HogQL query is materialized once per schedule and the
 # agent gets unrestricted local SQL over the result.
+#
+# Power BI is the third connector with a native source (fast/powerbi_source.py),
+# and the one where the design came entirely from a live tenant: the
+# executeQueries endpoint truncates at 100,000 rows or 1,000,000 values with
+# HTTP 200 and no flag, and DAX's WINDOW refuses to page a base table ("may have
+# duplicate rows"), so extraction windows over a numeric or date column and is
+# verified against COUNTROWS. A custom table there is a DAX query, and the
+# semantic model it targets is resolved from the tables it references (or
+# pinned explicitly); agents then get plain SQL over the local copy instead of
+# writing DAX against a rate-limited API.
 VERIFIED_TYPES = {"postgresql", "mariadb", "mysql", "sqlite", "snowflake",
-                  "bigquery", "mssql", "oracledb", "posthog"}
+                  "bigquery", "mssql", "oracledb", "posthog", "powerbi"}
 UNVERIFIED_TYPES = {"ms_fabric", "sybase"}
 ACCELERABLE_TYPES = VERIFIED_TYPES | UNVERIFIED_TYPES
 
@@ -143,7 +153,7 @@ class CustomQueryService:
             raise HTTPException(
                 status_code=403,
                 detail=(
-                    "Custom queries are in beta and disabled for this organization. "
+                    "Custom tables are in beta and disabled for this organization. "
                     "An admin can enable them in Settings."
                 ),
             )
@@ -152,7 +162,7 @@ class CustomQueryService:
     def ensure_rls_licensed() -> None:
         """Enterprise gate on AUTHORING row policies — not on enforcing them.
 
-        Query acceleration (custom queries) is a community feature; row-level
+        Query acceleration (custom tables) is a community feature; row-level
         security on top of it is enterprise. The asymmetry is deliberate:
         enabling, editing or previewing a policy requires the license, but a
         policy that is already saved keeps filtering even if the license
@@ -192,7 +202,7 @@ class CustomQueryService:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    f"Custom queries are not available for '{connection.type}' "
+                    f"Custom tables are not available for '{connection.type}' "
                     f"connections yet."
                 ),
             )
@@ -200,12 +210,109 @@ class CustomQueryService:
             raise HTTPException(
                 status_code=400,
                 detail=(
-                    "Custom queries require a connection with shared (system) "
+                    "Custom tables require a connection with shared (system) "
                     "credentials. On a per-user connection, one materialized copy "
                     "cannot represent each user's row visibility — row-level "
                     "security support is planned."
                 ),
             )
+
+    # -- extraction targets -------------------------------------------------
+    #
+    # Most sources need nothing beyond the query text: the connection IS the
+    # target. Power BI is addressed per semantic model, and a DAX text only
+    # names tables, so the target is either resolved from those references
+    # against the connection's catalog (fast/powerbi_source.py) or pinned by
+    # the admin. The pin lives in `metadata_json["target"]`, a generic slot so
+    # a future per-target connector does not need a schema change.
+
+    @staticmethod
+    def target_of(cq: ConnectionTable) -> Optional[dict]:
+        meta = cq.metadata_json if isinstance(cq.metadata_json, dict) else {}
+        t = meta.get("target")
+        return dict(t) if isinstance(t, dict) and t else None
+
+    @staticmethod
+    def _metadata_with_target(existing, target: Optional[dict]) -> dict:
+        meta = dict(existing) if isinstance(existing, dict) else {}
+        clean = {
+            k: v for k, v in (target or {}).items()
+            if k in ("datasetId", "workspaceId", "datasetName") and v not in (None, "")
+        }
+        if clean.get("datasetId"):
+            meta["target"] = clean
+        else:
+            meta.pop("target", None)
+        return meta
+
+    @staticmethod
+    def _needs_catalog(client) -> bool:
+        return hasattr(client, "attach_table_metadata") and hasattr(client, "execute_dax_rows")
+
+    async def _prepare_client(
+        self, db: AsyncSession, connection: Connection, client, target: Optional[dict]
+    ) -> None:
+        """Hand a per-target client what it needs to address the source.
+
+        For Power BI that is the connection's indexed catalog (so the DAX's
+        table references resolve to a semantic model without a tenant crawl)
+        and the admin's explicit pin, when there is one. Everything else is
+        left alone.
+        """
+        if not self._needs_catalog(client):
+            return
+        rows = (
+            await db.execute(
+                select(ConnectionTable.name, ConnectionTable.metadata_json).where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_TABLE,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        client.attach_table_metadata(
+            [{"name": name, "metadata_json": meta} for name, meta in rows]
+        )
+        client.extraction_target = dict(target) if target else None
+
+    async def list_targets(self, db: AsyncSession, connection: Connection) -> list:
+        """The semantic models a custom table on this connection can target.
+
+        Drawn from the indexed catalog rather than a live tenant crawl: it is
+        what the admin can already see on the tables page, and it costs no
+        rate-limited request. Empty for every connector that is not addressed
+        per target.
+        """
+        if (connection.type or "").lower() != "powerbi":
+            return []
+        rows = (
+            await db.execute(
+                select(ConnectionTable.name, ConnectionTable.metadata_json).where(
+                    ConnectionTable.connection_id == str(connection.id),
+                    ConnectionTable.kind == KIND_TABLE,
+                    ConnectionTable.deleted_at.is_(None),
+                )
+            )
+        ).all()
+        models: dict = {}
+        for name, meta in rows:
+            pbi = (meta or {}).get("powerbi") if isinstance(meta, dict) else None
+            if not isinstance(pbi, dict) or not pbi.get("datasetId"):
+                continue
+            ds_id = str(pbi["datasetId"])
+            m = models.setdefault(ds_id, {
+                "datasetId": ds_id,
+                "workspaceId": pbi.get("workspaceId"),
+                "workspaceName": pbi.get("workspaceName"),
+                "datasetName": pbi.get("datasetName") or name.split("/", 1)[0],
+                "tables": [],
+            })
+            table = str(pbi.get("tableName") or name.split("/", 1)[-1]).strip()
+            if table and table not in m["tables"]:
+                m["tables"].append(table)
+        for m in models.values():
+            m["tables"].sort(key=str.lower)
+        return sorted(models.values(), key=lambda m: (m["datasetName"] or "").lower())
 
     @staticmethod
     def validate_name(name: str) -> str:
@@ -243,7 +350,7 @@ class CustomQueryService:
         for r in rows:
             if exclude_id and r.id == exclude_id:
                 continue
-            what = "a table" if r.kind == KIND_TABLE else "another custom query"
+            what = "a table" if r.kind == KIND_TABLE else "another custom table"
             clash = (
                 f"'{name}' already exists on this connection ({what})."
                 if r.name == name
@@ -282,7 +389,7 @@ class CustomQueryService:
         )
         row = (await db.execute(q)).scalar_one_or_none()
         if not row:
-            raise HTTPException(status_code=404, detail="Custom query not found")
+            raise HTTPException(status_code=404, detail="Custom table not found")
         return row
 
     # -- authoring ---------------------------------------------------------
@@ -293,6 +400,7 @@ class CustomQueryService:
         connection: Connection,
         definition_sql: str,
         current_user: User = None,
+        target: dict = None,
     ) -> dict:
         """Run the admin's SQL bounded to 100 rows and return columns + rows.
 
@@ -306,6 +414,7 @@ class CustomQueryService:
         client = await self.connection_service.construct_client(
             db, connection, current_user
         )
+        await self._prepare_client(db, connection, client, target)
 
         def _run():
             est = extractor.estimate(client, definition_sql)
@@ -354,6 +463,7 @@ class CustomQueryService:
         current_user: User = None,
         organization=None,
         activate_for_datasource_id: str = None,
+        target: dict = None,
     ) -> ConnectionTable:
         self.ensure_accelerable(connection)
         name = self.validate_name(name)
@@ -376,6 +486,7 @@ class CustomQueryService:
             fks=[],
             no_rows=0,
             last_refresh_status="pending",
+            metadata_json=self._metadata_with_target({}, target),
         )
         db.add(cq)
         await db.commit()
@@ -461,8 +572,14 @@ class CustomQueryService:
         refresh_at_time: str = None,
         current_user: User = None,
         organization_timezone: str = "UTC",
+        target: dict = ...,
     ) -> ConnectionTable:
         sql_changed = False
+        if target is not ...:
+            new_meta = self._metadata_with_target(cq.metadata_json, target)
+            if new_meta != (cq.metadata_json or {}):
+                cq.metadata_json = new_meta
+                sql_changed = True
         if name is not None and name != cq.name:
             name = self.validate_name(name)
             await self._ensure_name_free(db, connection.id, name, exclude_id=cq.id)
@@ -511,7 +628,7 @@ class CustomQueryService:
         cq.artifact_path = None
         cq.artifact_key_enc = None
         await db.commit()
-        return {"success": True, "message": f"Custom query '{name}' deleted"}
+        return {"success": True, "message": f"Custom table '{name}' deleted"}
 
     # -- refresh -----------------------------------------------------------
 
@@ -530,6 +647,7 @@ class CustomQueryService:
             client = await self.connection_service.construct_client(
                 db, connection, current_user
             )
+            await self._prepare_client(db, connection, client, self.target_of(cq))
             old_path = cq.artifact_path
 
             def _run():
@@ -682,7 +800,7 @@ class CustomQueryService:
         connection_name: str = "",
         identity: Optional[rls.Identity] = None,
     ) -> Optional[FastQueryClient]:
-        """Assemble a FastQueryClient from ACTIVATED custom queries.
+        """Assemble a FastQueryClient from ACTIVATED custom tables.
 
         Two authorization boundaries meet here, and they are different things.
 

@@ -26,6 +26,58 @@ ignore:
           node-forge version exists (all versions affected, no patch). Re-review
           on expiry.
         expires: 2026-12-07T00:00:00.000Z
+  # Uncontrolled Recursion in braces (High). Reached ONLY through build-time
+  # tooling, never the shipped browser bundle:
+  #   @nuxt/ui > @nuxtjs/tailwindcss > tailwindcss > chokidar|fast-glob >
+  #     micromatch > braces        (Tailwind CSS generation at build time)
+  #   nuxt > nitropack > globby > fast-glob > micromatch > braces
+  #     (Nitro build-time file globbing)
+  # The recursion is driven by adversarial brace-expansion patterns; the only
+  # inputs braces sees here are the project's own globs / watched paths during
+  # `nuxt build`, never attacker-controlled runtime data, and braces does not
+  # execute in the production .output server. Every braces version is flagged
+  # (fixedIn: []), so no upgrade remediates it; the vulnerable chain is dropped
+  # by the Nuxt 4 upgrade. Time-boxed for re-review.
+  SNYK-JS-BRACES-19963945:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Tailwind CSS generation and Nitro file
+          globbing via micromatch); not in the production .output runtime. No
+          fixed braces version exists (all versions affected). Re-review on
+          expiry or when the Nuxt 4 upgrade drops the chain.
+        expires: 2026-12-21T00:00:00.000Z
+  # Prototype Pollution in deepmerge (High). Build-time-only transitive:
+  #   nuxt > nitropack > @rollup/plugin-node-resolve > deepmerge
+  # deepmerge runs inside the Rollup/Nitro bundler during `nuxt build`, merging
+  # bundler configuration objects only. Exploiting prototype pollution requires
+  # attacker-controlled objects to be merged; the production .output server
+  # never invokes this code path on request data. Every deepmerge version is
+  # flagged (fixedIn: []), so no upgrade remediates it; resolved by the Nuxt 4
+  # upgrade. Time-boxed for re-review.
+  SNYK-JS-DEEPMERGE-19964053:
+    - '*':
+        reason: >-
+          Build-time-only transitive (Rollup/Nitro bundler config merge); not in
+          the production .output runtime request path. No fixed deepmerge version
+          exists (all versions affected). Re-review on expiry or when the Nuxt 4
+          upgrade drops the chain.
+        expires: 2026-12-21T00:00:00.000Z
+  # Uncontrolled Recursion in ioredis (High). Pulled in transitively as an
+  # OPTIONAL Nitro storage driver:
+  #   nuxt > nitropack > ioredis
+  # ioredis is loaded only when a Redis storage mount is configured. This
+  # deployment configures no Redis storage (frontend/nuxt.config.ts sets no
+  # nitro.storage redis driver; default storage is memory/filesystem), so the
+  # module is never instantiated at runtime. The only fix is 6.0.0-beta.1;
+  # forcing a pre-release ioredis into the Nitro server is riskier than the
+  # dormant finding. Re-review when a stable ioredis 6.x ships or Nuxt 4 lands.
+  SNYK-JS-IOREDIS-19963957:
+    - '*':
+        reason: >-
+          Dormant optional Nitro storage driver; no Redis storage is configured
+          in this deployment, so ioredis is never loaded at runtime. Only fix is
+          a pre-release (6.0.0-beta.1). Re-review on expiry.
+        expires: 2026-12-21T00:00:00.000Z
 exclude:
   code:
     - 'backend/tests'

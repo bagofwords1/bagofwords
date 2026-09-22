@@ -39,7 +39,7 @@ use([CanvasRenderer, BarChart, TooltipComponent, GridComponent])
 
 const props = defineProps<{
     buckets: Bucket[]
-    granularity: 'hour' | 'day' | 'week'
+    granularity: 'hour' | 'day' | 'week' | 'month'
     summary: Summary | null
     totalInRange: number
     rangeLabel: string
@@ -55,6 +55,10 @@ const onBarClick = (params: any) => {
 }
 
 const label = (b: Bucket) => {
+    if (props.granularity === 'month') {
+        const [y, m] = b.bucket.split('-').map(Number)
+        return new Intl.DateTimeFormat(locale.value, { month: 'short', year: '2-digit' }).format(new Date(y, m - 1, 1))
+    }
     const d = new Date(b.bucket.length === 10 ? b.bucket + 'T00:00:00' : b.bucket + ':00')
     if (props.granularity === 'hour') return new Intl.DateTimeFormat(locale.value, { hour: '2-digit' }).format(d)
     return `${d.getMonth() + 1}/${d.getDate()}`

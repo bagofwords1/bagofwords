@@ -455,7 +455,7 @@ class ConnectionService:
         """Return (introspected table count, BOW custom-query count) for a
         connection in ONE grouped aggregate, instead of materializing the whole
         catalog to call len() on it. Soft-deleted rows are excluded from both:
-        the relationship is unfiltered, so a deleted custom query would
+        the relationship is unfiltered, so a deleted custom table would
         otherwise keep inflating the count after the admin removed it."""
         rows = (await db.execute(
             select(ConnectionTable.kind, func.count(ConnectionTable.id))
@@ -876,6 +876,59 @@ class ConnectionService:
                 "truncated": False,
             }
 
+    async def _verify_dcr_discovery(self, config: dict, credentials: dict, result: dict) -> dict:
+        """Run OAuth discovery for a DCR connection at Verify time.
+
+        Reachability alone used to pass Verify for DCR — the server answering
+        401 *is* the healthy state — and then Sign in failed on discovery, the
+        one step that could have said what was wrong. Discovery is a few GETs,
+        so run it here: report what a sign-in will actually request (so the
+        admin sees it before anyone clicks Sign in), or fail now with the reason.
+        """
+        from app.services.mcp_dcr_service import discover_mcp_oauth
+
+        server_url = (config or {}).get("server_url") or ""
+        try:
+            meta = await discover_mcp_oauth(server_url)
+        except Exception as e:
+            return {
+                **result,
+                "success": False,
+                "message": f"Server reachable, but OAuth discovery failed: {e}",
+            }
+        if not meta.get("registration_endpoint"):
+            return {
+                **result,
+                "success": False,
+                "message": (
+                    f"Server reachable, but its authorization server ({meta.get('issuer')}) does "
+                    "not advertise a registration_endpoint, so a client cannot be registered "
+                    "automatically. Choose the admin-registered OAuth app option and supply a client ID."
+                ),
+            }
+        override = (credentials or {}).get("scopes") or ""
+        effective = override or meta.get("scopes") or ""
+        detected = {
+            "authorize_url": meta["authorize_url"],
+            "token_url": meta["token_url"],
+            "registration_endpoint": meta["registration_endpoint"],
+            "resource": meta.get("resource"),
+            "scopes": meta.get("scopes") or "",
+            "scopes_source": meta.get("scopes_source"),
+            "effective_scopes": effective,
+        }
+        if effective:
+            message = (
+                "Server reachable — sign-in required (as configured). "
+                f"Sign-in will request: {effective}."
+            )
+        else:
+            message = (
+                "Server reachable — sign-in required (as configured). "
+                "The server advertises no scopes; sign-in will request none."
+            )
+        return {**result, "message": message, "detected": detected}
+
     async def test_connection_params(
         self,
         data_source_type: str,
@@ -905,13 +958,16 @@ class ConnectionService:
             connection_status = await client.atest_connection()
             if not connection_status.get("success"):
                 if oauth_user_mode and _looks_like_auth_challenge(connection_status.get("message")):
-                    return {
+                    result = {
                         "success": True,
                         "message": "Server reachable — sign-in required (as configured). Tools load after each user signs in.",
                         "connectivity": True,
                         "schema_access": False,
                         "requires_user_auth": True,
                     }
+                    if (config or {}).get("auth_type") == "dcr":
+                        result = await self._verify_dcr_discovery(config, credentials, result)
+                    return result
                 return connection_status
 
             # For tool providers (MCP/API), list tools instead of schema access
@@ -1403,11 +1459,11 @@ class ConnectionService:
             # for unchanged files instead of re-extracting every document
             # (base.aget_schemas only forwards the kwarg to clients that take it).
             connection_id_str = str(connection.id)
-            # Introspected rows ONLY. BOW-managed custom queries (kind='bow')
+            # Introspected rows ONLY. BOW-managed custom tables (kind='bow')
             # must be invisible to this whole upsert/diff/delete pass: they have
             # no counterpart in the source catalog, so they would show up in the
             # `missing` set on every run and get deleted — silently destroying
-            # every custom query on the next scheduled reindex.
+            # every custom table on the next scheduled reindex.
             existing_q = await db.execute(
                 select(ConnectionTable)
                 .filter(
@@ -1559,6 +1615,12 @@ class ConnectionService:
                         "fks": normalize_fks(getattr(t, "fks", []) or []),
                         "metadata_json": getattr(t, "metadata_json", None),
                     }
+
+            if progress_callback is not None:
+                # Discovery is done; upsert + commit report nothing of their
+                # own, so mark the stage for the indexing log and UI.
+                # None counts: keep discovery's done/total on the run.
+                progress_callback("saving", None, None, None)
 
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).

@@ -1,8 +1,8 @@
-"""Who may do what to a custom query.
+"""Who may do what to a custom table.
 
 Two distinct rights, deliberately not the same one:
 
-  * **Authoring** a custom query — its SQL, its schedule, and its RLS policy —
+  * **Authoring** a custom table — its SQL, its schedule, and its RLS policy —
     is a CONNECTION-admin act. The SQL runs with the connection's own
     credential, and the policy decides what every agent on that connection can
     read. That is `manage_connection`.
