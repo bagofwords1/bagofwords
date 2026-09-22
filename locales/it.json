@@ -5167,5 +5167,20 @@
     "preparing": "Preparazione della tua copia…",
     "preparingDetail": "Esecuzione delle query con le tue credenziali. Di solito richiede pochi secondi.",
     "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
+  },
+  "schemaIdentity": {
+    "viewing": "Vista:",
+    "myAccount": "Il mio account",
+    "serviceAccount": "Account di servizio",
+    "changeIdentity": "Cambia identità delle query",
+    "refresh": "Aggiorna schema",
+    "refreshing": "Aggiornamento…",
+    "unknown": "Ultimo aggiornamento dello schema: sconosciuto",
+    "refreshedAt": "Ultimo aggiornamento dello schema: {time}",
+    "attemptedAt": "Ultimo tentativo: {time}",
+    "updated": "Schema aggiornato.",
+    "partial": "Non è stato possibile aggiornare alcuni modelli. Le colonne precedenti sono state mantenute.",
+    "failed": "Aggiornamento dello schema non completato. Riprova.",
+    "connectRequired": "Collega il tuo account per vedere le sue tabelle."
   }
 }

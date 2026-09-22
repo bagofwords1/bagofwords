@@ -5,6 +5,10 @@
       <h1 class="text-lg font-semibold dark:text-white">{{ headerTitle }}</h1>
       <p class="text-gray-500 dark:text-gray-400 text-sm">{{ headerSubtitle }}</p>
     </div>
+    <SchemaIdentityStatus v-for="connection in identityConnections" :key="connection.id"
+      :connection="connection" :show-name="identityConnections.length > 1" :show-refresh="showRefresh"
+      :disabled="loading || refreshing || hasPendingChanges" @refreshed="reloadKnownCatalog"
+      @identity-changed="onSchemaIdentityChanged" />
     <div class="shrink-0 mb-3 flex flex-wrap items-center justify-between gap-x-4 gap-y-2" data-testid="table-view-toolbar">
       <div class="flex items-center gap-4">
         <slot name="reload-left" />
@@ -28,7 +32,7 @@
           class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
-        <button v-if="showRefresh" @click="onRefresh" :disabled="loading || refreshing"
+        <button v-if="showRefresh && (!identityConnections.length || hasOtherSchemaConnections)" @click="onRefresh" :disabled="loading || refreshing"
           :aria-label="t('tableErd.reload')"
           class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
           <Spinner v-if="loading || refreshing" class="w-3 h-3" />
@@ -584,6 +588,7 @@
 <script setup lang="ts">
 import { useScrollLock, useEventListener } from '@vueuse/core'
 import Spinner from '@/components/Spinner.vue'
+import SchemaIdentityStatus from './SchemaIdentityStatus.vue'
 const TablesCanvas = defineAsyncComponent(() => import('./TablesCanvas.vue'))
 import { tableId, matchesTable } from '~/utils/tableGraph'
 import DataSourceIcon from '@/components/DataSourceIcon.vue'
@@ -791,6 +796,19 @@ const bulkUpdating = ref(false)
 // connections instead of an unexplained empty list.
 const authConnections = ref<any[]>([])
 const signingIn = ref(false)
+// Only table connections in this selector's scope; account choice is per connection.
+const identityConnections = computed(() => {
+  const ids = props.connectionFilter.split(',').filter(Boolean)
+  return authConnections.value.filter(c => c.type === 'powerbi' && (!ids.length || ids.includes(c.id)))
+})
+const hasOtherSchemaConnections = computed(() => {
+  const ids = props.connectionFilter.split(',').filter(Boolean)
+  return authConnections.value.some(c => c.type !== 'powerbi' && (!ids.length || ids.includes(c.id)))
+})
+async function onSchemaIdentityChanged() {
+  await loadAuthConnections()
+  await reloadKnownCatalog()
+}
 
 const connectRequiredConn = computed(() => {
   return authConnections.value.find((c: any) =>
