@@ -1,5 +1,9 @@
 # Release Notes
 
+## Version 0.0.568 (September 22, 2026)
+- Added Claude Opus 5.5 (`claude-opus-5-5`) as an Anthropic preset: 1M context, 128K max output, $4/$20 per million tokens
+- Fixed Claude Opus 5 failing at low, medium or high effort — it was sent a fixed thinking budget the model rejects
+
 ## Version 0.0.567 (September 20, 2026)
 - Fixed report titles never being generated on PostgreSQL deployments — every report stayed "untitled report". Generating the title at prompt time (#1160) made it the first LLM call of a run, and that call's quota pre-check, which runs in a worker thread, was executing on an event loop of its own; the first check of a run reads the database, and asyncpg refuses a connection borrowed across loops. The agent now binds the usage context to the run's loop before any threaded call, so the check comes back to the right loop (SQLite deployments were unaffected — its driver tolerated the cross-loop access, which is why this slipped through)
 
