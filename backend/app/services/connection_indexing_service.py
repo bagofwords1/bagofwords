@@ -293,6 +293,7 @@ class ConnectionIndexingService:
         *,
         user_id: Optional[str] = None,
         kick_off: bool = True,
+        force_refresh: bool = False,
     ) -> ConnectionIndexing:
         """Create a pending indexing row and (unless already in-flight) kick off
         the background runner. Idempotent — returns the active row if one
@@ -301,7 +302,9 @@ class ConnectionIndexingService:
         `user_id` selects the scope: omit it for the org-shared catalog run, pass
         a user for a per-user catalog sync (OneDrive / personal Drive after that
         user signs in). The two scopes are independent, so a user signing in
-        never blocks — or is blocked by — the shared run.
+        never blocks — or is blocked by — the shared run. `force_refresh` is
+        set for an explicit personal refresh; routine OAuth sign-in can reuse
+        known model definitions. The option is persisted for the worker.
         """
         existing = await self.get_active(db, str(connection.id), user_id=user_id)
         if existing is not None:
@@ -314,6 +317,7 @@ class ConnectionIndexingService:
             phase=None,
             progress_done=0,
             progress_total=0,
+            stats_json={"force_schema_refresh": True} if force_refresh else None,
         )
         db.add(row)
         await db.commit()
@@ -571,6 +575,7 @@ class ConnectionIndexingService:
                         started=start,
                         data_shape=data_shape,
                         nouns=(noun_sing, noun_plural),
+                        force_refresh=bool((row.stats_json or {}).get("force_schema_refresh")),
                     )
                     return
 
@@ -851,6 +856,7 @@ class ConnectionIndexingService:
         started: float,
         data_shape: str,
         nouns: tuple,
+        force_refresh: bool = False,
     ) -> None:
         """Build ONE user's catalog for this connection, in the background.
 
@@ -890,6 +896,7 @@ class ConnectionIndexingService:
 
         ds_service = DataSourceService()
         item_count = 0
+        unreadable = []
         synced = 0
         try:
             for ds_id in ds_ids:
@@ -910,7 +917,9 @@ class ConnectionIndexingService:
                         data_source=ds,
                         user=user,
                         progress_callback=progress_cb,
+                        force_refresh=force_refresh,
                     )
+                    unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
                     await per_db.commit()
                     item_count += len(tables or [])
                     synced += 1
@@ -952,10 +961,20 @@ class ConnectionIndexingService:
                 "item_noun_plural": noun_plural,
                 "elapsed_s": elapsed_s,
             }
+            if unreadable:
+                fresh.stats_json["unreadable_datasets"] = unreadable
+                fresh.stats_json["unreadable_dataset_count"] = len(unreadable)
             if fresh.progress_total and fresh.progress_done < fresh.progress_total:
                 fresh.progress_done = fresh.progress_total
             await fin_db.commit()
 
+        if unreadable:
+            for diagnostic in unreadable:
+                await append_event(
+                    "warn", state_snapshot()["phase"],
+                    f"{diagnostic.get('datasetName') or diagnostic.get('datasetId')}: "
+                    f"{diagnostic.get('reason', 'No tables discovered')}",
+                )
         item_label = noun_sing if item_count == 1 else noun_plural
         await append_event(
             "info", state_snapshot()["phase"],

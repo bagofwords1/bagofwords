@@ -146,17 +146,20 @@ async def _seed(delegated_first: bool):
         # Power BI crawl only reached ModelA and the colliding `shared_name`.
         for conn, names in ((wh, WAREHOUSE_TABLES), (pbi, ["ModelA/T1", "shared_name"])):
             for name in names:
+                # Power BI catalogs carry model identity; a SQL schema marker
+                # cannot stand in for a semantic model when testing identity matching.
+                metadata = _pbi_payload(name)["metadata_json"] if conn is pbi else {"schema": "public"}
                 ct = ConnectionTable(
                     name=name, connection_id=conn.id,
                     columns=[{"name": "id", "dtype": "int"}],
                     pks=[], fks=[], no_rows=0,
-                    metadata_json={"schema": "public"},
+                    metadata_json=metadata,
                 )
                 db.add(ct)
                 await db.flush()
                 db.add(DataSourceTable(
                     name=name, datasource_id=ds.id, connection_table_id=ct.id,
-                    is_active=True, metadata_json={"schema": "public"},
+                    is_active=True, metadata_json=metadata,
                     columns=[{"name": "id", "dtype": "int"}],
                     pks=[], fks=[], no_rows=0,
                 ))

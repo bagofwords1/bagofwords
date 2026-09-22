@@ -952,18 +952,22 @@ async def refresh_my_connection_schema(
     await _ensure_can_read_connection(db, organization, current_user, connection)
 
     if background:
-        row = await indexing_service.start(db=db, connection=connection, user_id=str(current_user.id))
+        row = await indexing_service.start(
+            db=db, connection=connection, user_id=str(current_user.id), force_refresh=True,
+        )
         progress = _indexing_to_progress(row)
         return {"indexing": progress.model_dump() if progress else None}
 
     from app.services.data_source_service import DataSourceService
     from app.models.user_data_source_overlay import UserDataSourceTable
     ds_service = DataSourceService()
+    unreadable = []
     for ds in (connection.data_sources or []):
         try:
             # Live fetch with the user's creds + upsert their overlay (same path
             # the OAuth callback runs after sign-in).
-            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user)
+            await ds_service.get_user_data_source_schema(db=db, data_source=ds, user=current_user, force_refresh=True)
+            unreadable.extend(getattr(ds_service, "last_discovery_diagnostics", []) or [])
         except Exception as e:
             logger.warning(f"Per-user schema refresh failed for data source {ds.id}: {e}")
 
@@ -980,7 +984,7 @@ async def refresh_my_connection_schema(
             )
         )
         table_count = result.scalar() or 0
-    return {"message": "Schema refreshed", "table_count": table_count}
+    return {"message": "Schema refreshed", "table_count": table_count, "unreadable_datasets": unreadable}
 
 
 @router.get("/{connection_id}/indexing", response_model=ConnectionIndexingProgress)

@@ -276,18 +276,17 @@ class PowerBIClient(DataSourceClient):
         if pbi:
             return pbi
         lowered = table_name.strip().lower()
-        for name, meta in self._table_metadata_map.items():
-            if name.strip().lower() == lowered:
-                return meta
-        for meta in self._table_metadata_map.values():
-            candidates = (
+        matches = [meta for name, meta in self._table_metadata_map.items()
+                   if name.strip().lower() == lowered]
+        if not matches:
+            matches = [meta for meta in self._table_metadata_map.values() if lowered and lowered in (
                 str(meta.get("tableName") or "").strip().lower(),
                 str(meta.get("datasetName") or "").strip().lower(),
                 str(meta.get("datasetId") or "").strip().lower(),
-            )
-            if lowered in candidates and lowered:
-                return meta
-        return None
+            )]
+        if len({(m.get("workspaceId"), m.get("datasetId")) for m in matches}) > 1:
+            raise ValueError(f"Ambiguous Power BI reference '{table_name}'; use the exact schema table name.")
+        return matches[0] if matches else None
 
     def connect(self):
         """
@@ -1383,8 +1382,8 @@ UNION(
         COLUMNSTATISTICS is executeQueries-rate-limited (~120/user/min, i.e.
         minutes-scale on large tenants). Only NEW datasets pay the introspection
         cost; datasets that vanished from the listing are dropped as usual.
-        Callers that must detect column-level drift in known models (scheduled/
-        background reindexing) should NOT pass prior_tables.
+        force_refresh=True re-introspects known models as well; prior_tables
+        still supplies candidates for item-shared models absent from listings.
 
         Strategy:
         1. Fetch datasets and reports for all workspaces in parallel
@@ -1484,9 +1483,9 @@ UNION(
         # missed and keep the ones this identity can actually query.
         all_ds_tasks.extend(self._probe_unlisted_prior_datasets(prior_by_dataset, all_ds_tasks))
 
-        # Datasets already known from prior_tables skip introspection entirely —
-        # they are rebuilt from the stored definitions in Phase 4.
-        known_dataset_ids = set(prior_by_dataset)
+        # Routine discovery reuses known models. Explicit refresh still uses
+        # prior metadata to locate models, but reads their columns live.
+        known_dataset_ids = set() if force_refresh else set(prior_by_dataset)
         introspect_tasks = [
             t for t in all_ds_tasks if str(t[1].get("id")) not in known_dataset_ids
         ]
@@ -1599,7 +1598,7 @@ UNION(
             # Incremental reuse: this dataset was not introspected — rebuild its
             # tables from the prior catalog, refreshed with the listing's
             # current dataset/workspace names and reports.
-            prior_entries = prior_by_dataset.get(str(ds_id))
+            prior_entries = prior_by_dataset.get(str(ds_id)) if not force_refresh else None
             if prior_entries is not None:
                 tables.extend(self._tables_from_prior(
                     prior_entries, ds, ws_id, ws_name,
@@ -1720,6 +1719,24 @@ UNION(
                     metadata_json=metadata_json,
                 ))
 
+        # A user's crawl may see namesakes the service principal cannot see.
+        # Disambiguate before any name-keyed normalization can discard a model.
+        from collections import Counter
+
+        from app.utils.powerbi_catalog import powerbi_identity, qualified_powerbi_name
+        counts = Counter(t.name for t in tables)
+        renames = {}
+        for table in tables:
+            identity = powerbi_identity(table.metadata_json)
+            old_name = table.name
+            if counts[old_name] > 1:
+                table.name = qualified_powerbi_name(old_name, table.metadata_json)
+            renames[(identity[:2], old_name)] = table.name
+        for table in tables:
+            identity = powerbi_identity(table.metadata_json)
+            for fk in table.fks or []:
+                fk.references_name = renames.get((identity[:2], fk.references_name), fk.references_name)
+
         # Relationship coverage is the difference between "the agent can join
         # these models" and "the agent tells users they can't", and it is
         # invisible in the table count — so state it explicitly.
@@ -1780,6 +1797,11 @@ UNION(
 
         def _probe(ds_id: str):
             meta = (prior_by_dataset[ds_id][0][1].get("metadata_json") or {}).get("powerbi") or {}
+            if self._workspace_filter and not (
+                str(meta.get("workspaceId") or "").lower() in self._workspace_filter
+                or str(meta.get("workspaceName") or "").lower() in self._workspace_filter
+            ):
+                return ds_id, meta, False
             return ds_id, meta, self._can_query_dataset(ds_id)
 
         out: List[Tuple[Dict, Dict, str]] = []
@@ -1849,6 +1871,11 @@ UNION(
         ds_id = ds.get("id")
         ds_name = ds.get("name") or ds_id
         out: List[Table] = []
+        reference_names = {}
+        for name, entry in prior_entries:
+            pbi = ((entry.get("metadata_json") or {}).get("powerbi")) or {}
+            internal_name = pbi.get("tableName") or name.split("/", 1)[-1]
+            reference_names[name] = f"{ds_name}/{_clean_table_display_name(internal_name)}"
         for prior_name, entry in prior_entries:
             prior_pbi = ((entry.get("metadata_json") or {}).get("powerbi")) or {}
             tbl_name = prior_pbi.get("tableName") or prior_name.split("/", 1)[-1]
@@ -1894,7 +1921,9 @@ UNION(
             fks: List[ForeignKey] = []
             for fk in entry.get("fks") or []:
                 try:
-                    fks.append(fk if isinstance(fk, ForeignKey) else ForeignKey(**fk))
+                    rebuilt = fk.model_copy(deep=True) if isinstance(fk, ForeignKey) else ForeignKey(**fk)
+                    rebuilt.references_name = reference_names.get(rebuilt.references_name, rebuilt.references_name)
+                    fks.append(rebuilt)
                 except IndexingCancelled:
                     raise
                 except Exception:
@@ -1943,7 +1972,7 @@ UNION(
 
         Accepts:
           - "Dataset/Table" name path (exact match)
-          - Internal table name only (first match)
+          - Internal table name only (when unambiguous)
           - Dataset ID (returns first table in that dataset)
         """
         all_tables = self.get_schemas()
@@ -1953,12 +1982,13 @@ UNION(
             if tbl.name == table_name:
                 return tbl
 
-        # Try by internal table name only (first match)
-        for tbl in all_tables:
-            metadata = tbl.metadata_json or {}
-            pbi = metadata.get("powerbi") or {}
-            if pbi.get("tableName") == table_name:
-                return tbl
+        # A bare table name must not silently choose a different model.
+        matches = [tbl for tbl in all_tables
+                   if ((tbl.metadata_json or {}).get("powerbi") or {}).get("tableName") == table_name]
+        if len(matches) > 1:
+            raise ValueError(f"Ambiguous Power BI reference '{table_name}'; use the exact schema table name.")
+        if matches:
+            return matches[0]
 
         # Try by dataset ID (returns first table in that dataset)
         for tbl in all_tables:

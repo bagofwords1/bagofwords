@@ -154,7 +154,7 @@ _WARM_ATTEMPTS_MAX = 10000
 class DataSourceService:
 
     def __init__(self):
-        pass
+        self.last_discovery_diagnostics = []
 
     async def _bulk_connection_aux(
         self,
@@ -4519,6 +4519,7 @@ class DataSourceService:
         user: User,
         prefetched_tables=None,
         progress_callback=None,
+        force_refresh: bool = False,
     ):
         """Sync + return this user's catalog across EVERY per-user connection.
 
@@ -4533,6 +4534,7 @@ class DataSourceService:
         plain list — which is only reused when there is exactly one per-user
         connection to attribute it to.
         """
+        self.last_discovery_diagnostics = []
         conns = self._per_user_catalog_connections(data_source)
         if not conns:
             return []
@@ -4556,6 +4558,7 @@ class DataSourceService:
                 db=sync_db, data_source=ds, user=usr, connection=conn,
                 prefetched_tables=prefetched_by_conn.get(str(conn.id)),
                 progress_callback=progress_callback,
+                force_refresh=force_refresh,
             )
 
         def _note_failure(conn, e):
@@ -4640,6 +4643,7 @@ class DataSourceService:
         connection,
         prefetched_tables: Optional[list] = None,
         progress_callback=None,
+        force_refresh: bool = False,
     ):
         """Fetch live schema with user creds, persist overlay rows, and return a user-scoped Table list.
 
@@ -4696,6 +4700,40 @@ class DataSourceService:
                     }
                     for r in rows if r.metadata_json
                 } or None
+                if connection.type == "powerbi":
+                    from app.utils.powerbi_catalog import powerbi_identity, qualified_powerbi_name
+                    # A later sign-in must not overwrite a user's freshly read
+                    # columns with an older (or broader) service-account schema.
+                    own_tables = [
+                        t for t in await self.read_user_data_source_schema(db, data_source, user)
+                        if t.connection_id == _cid and powerbi_identity(t.metadata_json) is not None
+                    ]
+                    canonical = {
+                        powerbi_identity(entry["metadata_json"]): entry
+                        for entry in (prior_tables or {}).values()
+                    }
+                    own_models = {powerbi_identity(t.metadata_json)[:2] for t in own_tables}
+                    prior_tables = {
+                        name: entry for name, entry in (prior_tables or {}).items()
+                        if (powerbi_identity(entry["metadata_json"]) or ())[:2] not in own_models
+                    }
+                    for table in own_tables:
+                        entry = canonical.get(powerbi_identity(table.metadata_json)) or {}
+                        columns = {c["name"]: c for c in entry.get("columns", [])}
+                        same_columns = set(columns) == {c.name for c in table.columns}
+                        prior_name = table.name
+                        if (prior_name in prior_tables and
+                            powerbi_identity(prior_tables[prior_name]["metadata_json"]) != powerbi_identity(table.metadata_json)):
+                            prior_name = qualified_powerbi_name(prior_name, table.metadata_json)
+                        prior_tables[prior_name] = {
+                            "columns": [
+                                {**columns.get(c.name, {}), "name": c.name, "dtype": c.dtype}
+                                for c in table.columns
+                            ],
+                            "pks": entry.get("pks", []) if same_columns else [],
+                            "fks": entry.get("fks", []) if same_columns else [],
+                            "metadata_json": table.metadata_json,
+                        }
             except Exception:
                 prior_tables = None
             client = await self._construct_user_catalog_client(
@@ -4710,6 +4748,8 @@ class DataSourceService:
             # callback (every path except the tracked background job) get exactly
             # the call they made before.
             kwargs = {}
+            if force_refresh and _accepts_kwarg(client.aget_schemas, "force_refresh"):
+                kwargs["force_refresh"] = True
             if prior_tables and _accepts_kwarg(client.aget_schemas, "prior_tables"):
                 kwargs["prior_tables"] = prior_tables
             if progress_callback is not None and _accepts_kwarg(
@@ -4717,6 +4757,9 @@ class DataSourceService:
             ):
                 kwargs["progress_callback"] = progress_callback
             fresh = await client.aget_schemas(**kwargs)
+            self.last_discovery_diagnostics.extend(
+                getattr(client, "discovery_diagnostics", []) or []
+            )
         if fresh is None:
             # No snapshot is not an authoritative empty snapshot. A successful
             # empty list must still reconcile and revoke the previous overlay.
@@ -4842,17 +4885,9 @@ class DataSourceService:
             ):
                 canonical_by_name[row.name] = row
 
-        def _dataset_table_key(meta) -> tuple | None:
-            """Stable identity for a Power BI table independent of display name:
-            (datasetId, tableName). Lets a user's row match an existing canonical
-            row even if the dataset was renamed or two datasets share a name."""
-            try:
-                pbi = (meta or {}).get("powerbi") if isinstance(meta, dict) else None
-                if pbi and pbi.get("datasetId") and pbi.get("tableName"):
-                    return (str(pbi["datasetId"]), str(pbi["tableName"]))
-            except Exception:
-                pass
-            return None
+        from app.utils.powerbi_catalog import powerbi_identity, reconcile_powerbi_names
+        _dataset_table_key = powerbi_identity
+        normalized = reconcile_powerbi_names(normalized, canonical_by_name)
 
         # Connection-scoped on the SAME rule as canonical_by_name, and for the
         # same reason: this index is consulted FIRST, so indexing every row here
@@ -4989,6 +5024,10 @@ class DataSourceService:
             if conn_id is not None and row_conn is None:
                 row.connection_id = conn_id
                 db.add(row)
+        prior_by_identity = {
+            _dataset_table_key(row.metadata_json): row for row in prior_by_name.values()
+            if _dataset_table_key(row.metadata_json) is not None
+        }
         new_table_names = set(normalized.keys())
 
         # Batch-load every prior column overlay in ONE pass instead of querying
@@ -5020,8 +5059,20 @@ class DataSourceService:
         # per-table round trips this loop was rewritten to avoid.
         rows_by_name: dict[str, UserOverlayTable] = {}
         for table_name, payload in normalized.items():
-            t_row = prior_by_name.get(table_name)
+            identity = _dataset_table_key(payload.get("metadata_json"))
+            t_row = prior_by_identity.get(identity) if identity is not None else prior_by_name.get(table_name)
+            if t_row is not None and t_row.table_name != table_name:
+                # Rename in place so selections and per-column state survive.
+                prior_by_name.pop(t_row.table_name, None)
+                t_row.table_name = table_name
+                prior_by_name[table_name] = t_row
             if t_row is None:
+                conflicting = prior_by_name.get(table_name)
+                if conflicting is not None:
+                    historical_name = f"{table_name} [revoked {conflicting.id}]"
+                    conflicting.table_name = historical_name
+                    prior_by_name[historical_name] = prior_by_name.pop(table_name)
+                    await db.flush()
                 t_row = UserOverlayTable(
                     # Assign the id up front: the column rows below need it as an
                     # FK, and generating it here removes a per-table `flush()`
@@ -5422,13 +5473,10 @@ class DataSourceService:
                         f"(auth_policy={auth_policy})"
                     )
                     svc = ConnectionService()
-                    # Interactive reload: only introspect NEW datasets; known
-                    # ones are rebuilt from the indexed catalog (column-level
-                    # drift is picked up by scheduled/background reindexing,
-                    # which runs with the default full introspection).
+                    # Explicit Reload must pick up column-level changes.
                     await svc.refresh_schema(
                         db=conn_db, connection=conn, current_user=user_in_session,
-                        introspection="incremental",
+                        introspection="full",
                     )
                     await conn_db.commit()
                     fetched = getattr(svc, "last_refresh_fresh_tables", None)
@@ -5585,6 +5633,7 @@ class DataSourceService:
                 await self.get_user_data_source_schema(
                     db=db, data_source=data_source, user=current_user,
                     prefetched_tables=prefetched_tables,
+                    force_refresh=True,
                 )
             except Exception:
                 # Degrading here is deliberate (a live fetch against the user's
@@ -6225,6 +6274,31 @@ class DataSourceService:
             if not t.connection_table_id:
                 unlinked_by_name.setdefault(t.name, []).append(t)
 
+        from app.utils.powerbi_catalog import powerbi_identity, reconcile_powerbi_names
+        conn_ids = {t.id for t in conn_tables}
+        def belongs_here(row):
+            if row.connection_table_id:
+                return row.connection_table_id in conn_ids
+            provenance = (row.metadata_json or {}).get("discovered_connection_id")
+            return provenance is None or str(provenance) == connection_id_str
+
+        # An SP can discover a different model with the same label as an
+        # existing user-contributed row. Never adopt that row or its selection.
+        scoped_existing = {r.name: r for r in existing_rows if belongs_here(r)}
+        from copy import deepcopy
+        domain_payloads = reconcile_powerbi_names(
+            {t.name: {"id": t.id, "metadata_json": t.metadata_json, "fks": deepcopy(t.fks or [])}
+             for t in conn_tables},
+            scoped_existing,
+        )
+        domain_names = {payload["id"]: name for name, payload in domain_payloads.items()}
+        domain_fks = {payload["id"]: payload["fks"] for payload in domain_payloads.values()}
+        unlinked_by_identity = {
+            powerbi_identity(r.metadata_json): r for r in existing_rows
+            if r.connection_table_id is None and belongs_here(r)
+            and powerbi_identity(r.metadata_json) is not None
+        }
+
         total_tables = len(conn_tables)
 
         # Determine initial activation:
@@ -6239,12 +6313,14 @@ class DataSourceService:
             needs_smart_selection = total_tables > max_auto_select
 
         for conn_table in conn_tables:
+            domain_name = domain_names[conn_table.id]
             if conn_table.id in existing_by_conn_table_id:
                 # Update existing - refresh schema data (preserves is_active)
                 domain_table = existing_by_conn_table_id[conn_table.id]
+                domain_table.name = domain_name
                 domain_table.columns = conn_table.columns
                 domain_table.pks = conn_table.pks
-                domain_table.fks = conn_table.fks
+                domain_table.fks = domain_fks[conn_table.id]
                 domain_table.no_rows = conn_table.no_rows
                 domain_table.metadata_json = conn_table.metadata_json
             else:
@@ -6253,13 +6329,21 @@ class DataSourceService:
                 # rather than inserting a duplicate. Preserves its is_active (it may
                 # be the row users currently see/select) and its per-user overlay
                 # links (UserDataSourceTable.data_source_table_id points at it).
-                pool = unlinked_by_name.get(conn_table.name)
-                if pool:
-                    domain_table = pool.pop(0)
+                identity = powerbi_identity(conn_table.metadata_json)
+                pool = unlinked_by_name.get(domain_name) or []
+                candidate = unlinked_by_identity.pop(identity, None) if identity else None
+                if candidate is None:
+                    candidate = next((r for r in pool if belongs_here(r)
+                                      and powerbi_identity(r.metadata_json) == identity), None)
+                if candidate is not None:
+                    domain_table = candidate
+                    domain_table.name = domain_name
+                    if candidate in pool:
+                        pool.remove(candidate)
                     domain_table.connection_table_id = conn_table.id
                     domain_table.columns = conn_table.columns
                     domain_table.pks = conn_table.pks
-                    domain_table.fks = conn_table.fks
+                    domain_table.fks = domain_fks[conn_table.id]
                     domain_table.no_rows = conn_table.no_rows
                     domain_table.metadata_json = conn_table.metadata_json
                     domain_table.centrality_score = conn_table.centrality_score
@@ -6272,7 +6356,7 @@ class DataSourceService:
                 else:
                     # Create new domain table linked to connection table
                     domain_table = DataSourceTable(
-                        name=conn_table.name,
+                        name=domain_name,
                         datasource_id=data_source.id,
                         connection_table_id=conn_table.id,
                         # A BOW custom query always starts inactive on a new
@@ -6288,7 +6372,7 @@ class DataSourceService:
                         # Copy legacy fields for backward compatibility
                         columns=conn_table.columns,
                         pks=conn_table.pks,
-                        fks=conn_table.fks,
+                        fks=domain_fks[conn_table.id],
                         no_rows=conn_table.no_rows,
                         metadata_json=conn_table.metadata_json,
                         centrality_score=conn_table.centrality_score,
@@ -6350,7 +6434,9 @@ class DataSourceService:
             )).scalars().all()
             for orphan in orphan_rows:
                 target = linked_by_name.get(orphan.name)
-                if target is None or str(target.id) == str(orphan.id):
+                if (target is None or str(target.id) == str(orphan.id)
+                    or not belongs_here(orphan)
+                    or powerbi_identity(orphan.metadata_json) != powerbi_identity(target.metadata_json)):
                     continue
                 oid, tid = str(orphan.id), str(target.id)
                 # Re-point everything that referenced the orphan onto the canonical
