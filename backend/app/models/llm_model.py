@@ -21,8 +21,8 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        # Selectable, but not the default: Astra is ~4x Terra's input price and
-        # 3.3x its output price, so switching every org's default on upgrade is
+        # Selectable, but not the default: Astra is 5x Terra's input price and
+        # ~4x its output price, so switching every org's default on upgrade is
         # a cost decision, not a catalog one.
         "is_default": False,
         "supports_vision": True,
@@ -49,8 +49,8 @@ LLM_MODEL_DETAILS = [
     },
     {
         # https://developers.openai.com/api/docs/models/gpt-6-luna
-        # Small default: a tenth of GPT-5.6 Luna's input price for the same
-        # 1.05M window.
+        # Small default: half GPT-5.6 Luna's input price and under half its
+        # output price, for the same 1.05M window.
         "name": "GPT-6 Luna",
         "model_id": "gpt-6-luna",
         "provider_type": "openai",
@@ -74,8 +74,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 5.00,
-        "output_cost_per_million_tokens_usd": 30.00
+        "input_cost_per_million_tokens_usd": 4.00,
+        "output_cost_per_million_tokens_usd": 20.00
     },
     {
         "name": "GPT-5.6 Terra",
@@ -87,8 +87,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 2.50,
-        "output_cost_per_million_tokens_usd": 15.00
+        "input_cost_per_million_tokens_usd": 2.00,
+        "output_cost_per_million_tokens_usd": 12.00
     },
     {
         "name": "GPT-5.6 Luna",
@@ -101,8 +101,8 @@ LLM_MODEL_DETAILS = [
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
-        "input_cost_per_million_tokens_usd": 1.00,
-        "output_cost_per_million_tokens_usd": 6.00
+        "input_cost_per_million_tokens_usd": 0.20,
+        "output_cost_per_million_tokens_usd": 1.20
     },
     {
         "name": "GPT-5.5",
