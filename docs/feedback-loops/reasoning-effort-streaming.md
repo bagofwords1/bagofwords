@@ -19,7 +19,7 @@ Azure/custom deployment aliases can declare the real capability identity in `LLM
 From `backend`, using the installed Python 3.12 environment:
 
 ```sh
-TESTING=true .venv/bin/python -m pytest --noconftest -q \
+BOW_DATABASE_URL=sqlite:///db/app.db TESTING=true .venv/bin/python -m pytest --noconftest -q \
   tests/unit/test_reasoning_stream_contract.py \
   tests/unit/test_reasoning_text_streamer.py
 ```
@@ -28,7 +28,7 @@ These tests replace provider SDK request boundaries, not application logic. They
 
 **Before:** the initial 18-case adapter reproduction returned **16 failed, 2 passed**. Failures showed absent Anthropic `output_config`, medium replacing low/high, missing custom effort, absent default summaries, and dropped Chat reasoning deltas.
 
-**After:** the final focused suite returned **177 passed**, including the above contracts plus OpenAI reasoning/temperature, Azure route/stream, Anthropic caching, tool-call IDs, coder truncation/time/relative-date/return-trimming regressions. Separate routing/fallback coverage returned **35 passed**. Deprecation warnings remain. This is focused verification, not the entire backend suite.
+**After:** the final focused suite returned **177 passed**, including the above contracts plus OpenAI reasoning/temperature, Azure route/stream, Anthropic caching, tool-call IDs, coder truncation/time/relative-date/return-trimming regressions. Separate routing/fallback coverage returned **35 passed**. After applying the change to current main, the combined suite returned **212 passed**. The fresh checkout initially lacked `BOW_DATABASE_URL`; setting the synthetic SQLite URL resolved collection setup. Deprecation warnings remain. This is focused verification, not the entire backend suite.
 
 ## Loop B — bounded live API confirmation
 
