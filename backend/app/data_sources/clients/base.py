@@ -173,6 +173,7 @@ class DataSourceClient(ABC):
         progress_callback: Optional[ProgressCallback] = None,
         prior_catalog: "dict | None" = None,
         prior_tables: "dict | None" = None,
+        force_refresh: bool = False,
     ):
         """Forwards `progress_callback` / `prior_catalog` / `prior_tables` to
         the sync `get_schemas` only if it accepts each kwarg, determined by
@@ -181,13 +182,16 @@ class DataSourceClient(ABC):
         re-extracting unchanged files (incremental indexing). `prior_tables`
         is the richer `{table_name: {columns, pks, fks, metadata_json}}` form —
         catalog-crawling clients (Power BI) use it to skip re-introspecting
-        datasets that are already indexed.
+        datasets that are already indexed. `force_refresh` requests live
+        introspection while preserving prior metadata as discovery candidates.
 
         We do NOT catch a bare `TypeError` from the call: a real `TypeError`
         from inside `get_schemas` (e.g. a bug in a client) should surface,
         not be silently retried without progress.
         """
         kwargs = {}
+        if force_refresh and _accepts_kwarg(self.get_schemas, "force_refresh"):
+            kwargs["force_refresh"] = True
         if progress_callback is not None and _accepts_kwarg(self.get_schemas, "progress_callback"):
             kwargs["progress_callback"] = progress_callback
         if prior_catalog and _accepts_kwarg(self.get_schemas, "prior_catalog"):

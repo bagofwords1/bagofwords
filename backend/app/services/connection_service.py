@@ -1355,9 +1355,8 @@ class ConnectionService:
           - "full" (default): every dataset is introspected — required for
             scheduled/background reindexing to pick up column-level drift.
           - "incremental": already-indexed tables are passed to the client as
-            `prior_tables`, so it only introspects NEW datasets. Used by the
-            interactive Reload path, where per-dataset introspection is
-            rate-limited to minutes-scale on large tenants.
+            `prior_tables`, so it only introspects NEW datasets. Explicit
+            reloads use full discovery; routine sign-in may reuse definitions.
 
         After a successful run, the freshly fetched schema list and the
         identity it was fetched with are stashed on the instance
@@ -1479,7 +1478,7 @@ class ConnectionService:
             }
 
             prior_tables_arg = None
-            if introspection == "incremental" and existing_tables:
+            if (introspection == "incremental" or connection.type == "powerbi") and existing_tables:
                 prior_tables_arg = {
                     name: {
                         "columns": t.columns or [],
@@ -1497,6 +1496,8 @@ class ConnectionService:
             _extra = {}
             if prior_tables_arg and _accepts_kwarg(client.aget_schemas, "prior_tables"):
                 _extra["prior_tables"] = prior_tables_arg
+            if introspection == "full" and _accepts_kwarg(client.aget_schemas, "force_refresh"):
+                _extra["force_refresh"] = True
             fresh_tables = await client.aget_schemas(
                 progress_callback=progress_callback,
                 prior_catalog=prior_catalog,
@@ -1624,6 +1625,19 @@ class ConnectionService:
             # Existing tables were loaded before schema discovery (they also
             # feed `prior_catalog` for incremental file indexing).
             logger.info(f"refresh_schema: Found {len(existing_tables)} existing ConnectionTable records")
+
+            from app.utils.powerbi_catalog import powerbi_identity, reconcile_powerbi_names
+            incoming = reconcile_powerbi_names(incoming, existing_tables)
+            by_identity = {
+                powerbi_identity(t.metadata_json): t for t in existing_tables.values()
+                if powerbi_identity(t.metadata_json) is not None
+            }
+            for name, payload in incoming.items():
+                row = by_identity.get(powerbi_identity(payload.get("metadata_json")))
+                if authoritative and row is not None and row.name != name:
+                    existing_tables.pop(row.name, None)
+                    row.name = name
+                    existing_tables[name] = row
 
             # Upsert tables
             created_count = 0
