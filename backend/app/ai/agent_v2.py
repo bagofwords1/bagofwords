@@ -16,54 +16,11 @@ from sqlalchemy.orm import lazyload, selectinload
 logger = logging.getLogger(__name__)
 
 
-# Substring triggers that bump a completion's reasoning_effort to "high".
-# Matched case-insensitive against the user-submitted prompt text only —
-# not system prompts, instructions, or rendered context. See
-# _detect_thinking_trigger / _resolve_reasoning_effort below.
-THINKING_TRIGGERS = (
-    "think hard",
-    "think harder",
-    "ultrathink",
-    "think step by step",
-    "think carefully",
-    "think deeply",
-    "deep dive",
-    "be thorough",
+from app.ai.llm.reasoning import (
+    THINKING_TRIGGERS, _detect_thinking_trigger, _effort_to_thinking_config,
+    _resolve_reasoning_effort,
 )
 
-# Map a user-facing effort level to the Anthropic ``thinking`` request param.
-# "off" returns None (no thinking sent). Anthropic 4.6+ supports
-# ``adaptive`` (model decides budget); older 4.x needs an explicit
-# budget_tokens. On Sonnet 5 / Opus 4.7+ / Opus 5 / Opus 5.5 / Fable 5, budget_tokens is removed
-# from the API (400 if sent) — adaptive is the only thinking mode, so those
-# models must always get adaptive regardless of effort.
-def _effort_to_thinking_config(effort: Optional[str], model_id: Optional[str]) -> Optional[dict]:
-    if not effort or effort == "off":
-        return None
-    e = str(effort).lower()
-    supports_adaptive = bool(model_id) and any(
-        tag in model_id
-        for tag in (
-            "sonnet-4-6", "opus-4-6", "opus-4-7", "sonnet-4-7",
-            "sonnet-5", "opus-4-8", "opus-5", "fable-5", "mythos",
-        )
-    )
-    if supports_adaptive:
-        return {"type": "adaptive"}
-    if e == "low":
-        return {"type": "enabled", "budget_tokens": 1024}
-    if e == "medium":
-        return {"type": "enabled", "budget_tokens": 5000}
-    if e == "high":
-        return {"type": "enabled", "budget_tokens": 15000}
-    return None
-
-
-def _detect_thinking_trigger(prompt_text: Optional[str]) -> bool:
-    if not prompt_text:
-        return False
-    p = prompt_text.lower()
-    return any(kw in p for kw in THINKING_TRIGGERS)
 
 
 def repeated_call_action(actions: list, threshold: int) -> Optional[str]:
@@ -337,22 +294,6 @@ def _shrunk_context_factor(current: float, provider_message: Optional[str]) -> f
     else:
         nxt = current * 0.85
     return max(0.2, nxt)
-
-
-def _resolve_reasoning_effort(
-    *,
-    per_completion: Optional[str],
-    prompt_text: Optional[str],
-    model_default: Optional[str],
-) -> str:
-    """Resolution order: per-completion > trigger words > model default > off."""
-    if per_completion:
-        return per_completion.lower()
-    if _detect_thinking_trigger(prompt_text):
-        return "high"
-    if model_default:
-        return str(model_default).lower()
-    return "off"
 
 
 from app.ai.code_execution.code_execution import ml_training_settings
@@ -2109,6 +2050,7 @@ class AgentV2:
                         "project_files": await self._get_project_files(),
                         "project_manager": self.project_manager,
                         "model": self.model,
+                        "reasoning_effort": getattr(self, "_reasoning_effort", None),
                         "small_model": self.small_model,
                         "routing_controller": self._routing_controller,
                         "sigkill_event": self.sigkill_event,
@@ -2165,6 +2107,9 @@ class AgentV2:
                                 pass
 
                     tool_output = None
+                    runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(
+                        str(harness_decision_block.id) if harness_decision_block else None
+                    )
                     try:
                         tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, _harness_emit)
                     except Exception as run_err:
@@ -3044,6 +2989,43 @@ class AgentV2:
             except Exception:
                 pass
 
+    def _coder_reasoning_callback(self, block_id):
+        """Each parallel invocation owns a stream; summaries never enter code
+        or the planner transcript. Serialize shared-session reads and writes."""
+        from app.models.completion_block import CompletionBlock
+        from app.streaming.reasoning_streamer import ReasoningTextStreamer
+        streamer = None
+
+        async def callback(event):
+            nonlocal streamer
+            if not block_id or (streamer is None and not event.text):
+                return
+            if streamer is None:
+                async with self._tool_db_lock:
+                    block = await self.db.get(CompletionBlock, block_id)
+                    initial = (block.reasoning or "") if block else ""
+                async def persist(reasoning, content):
+                    async with self._tool_db_lock:
+                        block = await self.db.get(CompletionBlock, block_id)
+                        if block is not None:
+                            try:
+                                block.reasoning = reasoning
+                                await self.db.commit()
+                            except Exception:
+                                await self.db.rollback()
+                                raise
+                async def next_seq():
+                    async with self._tool_db_lock:
+                        return await self.project_manager.next_seq(self.db, self.current_execution)
+                streamer = ReasoningTextStreamer(
+                    emit=self._emit_sse_event, seq_fn=next_seq,
+                    completion_id=str(self.system_completion_id),
+                    agent_execution_id=str(self.current_execution.id),
+                    block_id=block_id, persist=persist, initial_reasoning=initial,
+                )
+            await streamer.append(event)
+        return callback
+
     async def _capture_telemetry_background(self, event_name: str, properties: dict):
         """Capture telemetry in background to avoid blocking main execution."""
         try:
@@ -3245,6 +3227,9 @@ class AgentV2:
         """
         from app.ai.llm import LLM
         self.model = model
+        self._thinking_config = _effort_to_thinking_config(
+            getattr(self, "_reasoning_effort", None), getattr(model, "model_id", None)
+        )
         if cause == "routing":
             self._routing_escalated = True
         else:
@@ -4195,8 +4180,7 @@ class AgentV2:
 
             # Resolve extended-thinking effort once per completion. Order:
             #   per-completion prompt.reasoning_effort > trigger words > model.config.reasoning_effort > "off"
-            # Only Anthropic honors the resulting thinking config today;
-            # other providers receive None / ignore. See _effort_to_thinking_config.
+            # Each provider adapter translates the shared effort configuration.
             _per_completion_effort = (
                 self.head_completion.prompt.get("reasoning_effort")
                 if self.head_completion.prompt else None
@@ -5886,6 +5870,7 @@ class AgentV2:
                                         "project_files": await self._get_project_files(),
                                         "project_manager": self.project_manager,
                                         "model": self.model,
+                                        "reasoning_effort": getattr(self, "_reasoning_effort", None),
                                         "small_model": self.small_model,
                                         "routing_controller": self._routing_controller,
                                         "sigkill_event": self.sigkill_event,
@@ -5958,6 +5943,7 @@ class AgentV2:
                                         span.set_attribute("report.id", str(self.report_id))
                                     if tool_execution is not None:
                                         span.set_attribute("tool_execution.id", str(tool_execution.id))
+                                    runtime_ctx["reasoning_callback"] = self._coder_reasoning_callback(_block_id_for_action)
                                     tool_result = await self.tool_runner.run(tool, tool_input, runtime_ctx, emit)
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 

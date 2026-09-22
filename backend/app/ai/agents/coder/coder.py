@@ -1,11 +1,12 @@
-import asyncio
+import logging
 from typing import Callable, Optional
 
 from partialjson.json_parser import JSONParser
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
-from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent
+from app.ai.llm.reasoning import _effort_to_thinking_config, _resolve_reasoning_effort
+from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent, ReasoningDeltaEvent, ReasoningCompleteEvent
 
 
 # Raised message when a codegen stream stops at the model's output-token cap.
@@ -198,13 +199,36 @@ class Coder:
         context_hub=None,
         usage_session_maker: Optional[Callable[[], AsyncSession]] = None,
         usage_context: Optional[UsageLimitContext] = None,
+        reasoning_effort: Optional[str] = None,
+        reasoning_callback=None,
     ) -> None:
         self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
+        self.reasoning_callback = reasoning_callback
+        self.reasoning_effort = reasoning_effort
+        self.model = model
         self.organization_settings = organization_settings
         self.enable_llm_see_data = organization_settings.get_config("allow_llm_see_data").value
         # Back-compat: accept either legacy builder or new context hub
         self.instruction_context_builder = instruction_context_builder
         self.context_hub = context_hub
+
+    async def _forward_reasoning(self, event):
+        callback = getattr(self, "reasoning_callback", None)
+        if callback and isinstance(event, (ReasoningDeltaEvent, ReasoningCompleteEvent)):
+            try:
+                await callback(event)
+            except Exception:
+                logging.getLogger(__name__).exception("Could not stream coder reasoning")
+
+    def _thinking_for_prompt(self, prompt: str) -> Optional[dict]:
+        model = getattr(self, "model", None)
+        config = getattr(model, "config", None) or {}
+        effort = _resolve_reasoning_effort(
+            per_completion=getattr(self, "reasoning_effort", None),
+            prompt_text=prompt,
+            model_default=config.get("reasoning_effort") if isinstance(config, dict) else None,
+        )
+        return _effort_to_thinking_config(effort, getattr(model, "model_id", None))
 
     def _time_context(self) -> str:
         """Current-time line for codegen prompts, same clock the planner sees.
@@ -514,9 +538,18 @@ class Coder:
         Now produce ONLY the Python function code as described. Do not output anything else besides the function python code. No markdown, no comments, no triple backticks, no triple quotes, no triple anything, no text, no anything.
         """
 
-        result = await asyncio.to_thread(
-            self.llm.inference, text, usage_scope="create_data.code_gen"
-        )
+        chunks = []
+        async for evt in self.llm.inference_stream_v2(
+            messages=[Message(role="user", content=text)],
+            usage_scope="create_data.code_gen",
+            thinking=self._thinking_for_prompt(prompt),
+        ):
+            await self._forward_reasoning(evt)
+            if isinstance(evt, TextDeltaEvent):
+                chunks.append(evt.text)
+            elif _is_truncation(evt):
+                raise RuntimeError(_TRUNCATION_ERROR)
+        result = "".join(chunks)
 
         # Remove markdown code fence (with optional language tag) if present
         result = re.sub(r'^\s*```(?:[A-Za-z0-9_\-]+)?\s*\r?\n', '', result.strip(), flags=re.IGNORECASE)
@@ -971,7 +1004,9 @@ class Coder:
                     messages=[Message(role="user", content=text)],
                     system=system_text,
                     usage_scope="create_data.code_gen",
+                    thinking=self._thinking_for_prompt(prompt),
                 ):
+                    await self._forward_reasoning(evt)
                     if isinstance(evt, TextDeltaEvent):
                         chunks.append(evt.text)
                     elif _is_truncation(evt):
@@ -1125,7 +1160,9 @@ class Coder:
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="create_data.inspection",
+            thinking=self._thinking_for_prompt(prompt),
         ):
+            await self._forward_reasoning(evt)
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
             elif _is_truncation(evt):
@@ -1274,7 +1311,9 @@ class Coder:
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="write_csv.transform",
+            thinking=self._thinking_for_prompt(prompt),
         ):
+            await self._forward_reasoning(evt)
             if isinstance(evt, TextDeltaEvent):
                 chunks.append(evt.text)
             elif _is_truncation(evt):

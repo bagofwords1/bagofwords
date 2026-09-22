@@ -1699,6 +1699,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
             else None
         )
         coder = Coder(
+            reasoning_effort=runtime_ctx.get("reasoning_effort"),
+            reasoning_callback=runtime_ctx.get("reasoning_callback"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,

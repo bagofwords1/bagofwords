@@ -365,7 +365,7 @@
 													>
 														<template v-if="block.plan_decision?.reasoning || block.reasoning">
 															<MarkdownRender
-																:content="block.plan_decision?.reasoning || block.reasoning || ''"
+																:content="block.reasoning || block.plan_decision?.reasoning || ''"
 																:final="isBlockFinalized(block)"
 																:typewriter="!isBlockFinalized(block)"
 																:render-code-blocks-as-pre="true"
