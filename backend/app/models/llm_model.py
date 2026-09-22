@@ -21,9 +21,9 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        # Selectable, but not the default: Astra is 5x Terra's input price and
-        # ~4x its output price, so switching every org's default on upgrade is
-        # a cost decision, not a catalog one.
+        # Selectable, but not the default: Astra is 5x GPT-6 Sol's input and
+        # output price, so switching every org's default on upgrade is a cost
+        # decision, not a catalog one.
         "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
@@ -33,14 +33,15 @@ LLM_MODEL_DETAILS = [
     },
     {
         # https://developers.openai.com/api/docs/models/gpt-6-sol
-        # GPT-6 ships Astra, Sol and Luna only — there is no gpt-6-terra, so
-        # GPT-5.6 Terra keeps the provider default.
+        # Provider default. GPT-6 ships Astra, Sol and Luna only (no Terra);
+        # Sol matches GPT-5.6 Terra's input price with cheaper output, so it
+        # takes the default from it.
         "name": "GPT-6 Sol",
         "model_id": "gpt-6-sol",
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": False,
+        "is_default": True,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,
@@ -83,7 +84,7 @@ LLM_MODEL_DETAILS = [
         "provider_type": "openai",
         "is_preset": True,
         "is_enabled": True,
-        "is_default": True,
+        "is_default": False,
         "supports_vision": True,
         "context_window_tokens": 1050000,
         "max_output_tokens": 128000,

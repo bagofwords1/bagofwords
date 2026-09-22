@@ -1,7 +1,7 @@
 # Release Notes
 
 ## Version 0.0.569 (September 22, 2026)
-- Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Luna is the new small default
+- Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Sol is the new default and GPT-6 Luna the new small default
 
 ## Version 0.0.568 (September 22, 2026)
 - Added Claude Opus 5.5 (`claude-opus-5-5`) as an Anthropic preset: 1M context, 128K max output, $4/$20 per million tokens

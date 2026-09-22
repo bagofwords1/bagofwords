@@ -206,8 +206,8 @@ def create_llm_provider_and_models(test_client):
                    "credentials": credentials,
                    "models": [
                        {
-                           "model_id": "gpt-5.6-sol",
-                           "name": "GPT-5.6 Sol",
+                           "model_id": "gpt-6-sol",
+                           "name": "GPT-6 Sol",
                            "is_custom": False
                        },
                        {
