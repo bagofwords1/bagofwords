@@ -95,3 +95,31 @@ hard" enables coder thinking).
 Unlocked shared-session reads inside `create_data` (viz instructions,
 `LoadablesResolver`) still exist. With this change, the reasoning stream no
 longer competes with them.
+
+## Follow-up — SQLite regression from this fix (and its correction)
+
+Moving coder-reasoning persistence to its own session was right for Postgres but
+wrong for SQLite. There single-writer mode is always on: the agent's session is
+the only writer and holds the write lock through the tool run, so the second
+session waited out `busy_timeout` on every ~1.2s snapshot. The wait is awaited
+inside the coder's LLM stream, so parallel `create_data` stalled into the 300s
+tool hard timeout (`hard timeout` ×3, retried, ×3 again; the scheduler's own
+writes failed with `database is locked` meanwhile).
+
+Reproduced in the SQLite sandbox with the same three-table parallel prompt
+(data source attached, Claude Haiku 4.5):
+
+| code | result |
+|---|---|
+| `40af090` (before this fix) | success, 42s, tools 12–18s |
+| `2951f80` (this fix) | all 3 `create_data` hit the 300s hard timeout, twice |
+| `2951f80` + correction | success, 40s, tools 7–15s; reasoning, visualizations, table usage and event→fetch checks all intact |
+
+Correction: in single-writer mode the callback reads and writes through
+`self.db` under `_tool_db_lock` (the pre-fix behaviour); off single-writer it
+keeps its own short-lived session. Postgres re-verified with the Loop A repro
+(all modes as above) and a real parallel run.
+
+Regression test: `test_single_writer_reasoning_stream_uses_the_writer_session`
+holds SQLite's write lock on the agent session and fails if the stream opens a
+second session — **fails on `2951f80` (2 of 2), passes with the correction.**

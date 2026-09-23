@@ -2994,12 +2994,18 @@ class AgentV2:
         """Each parallel invocation owns a stream; summaries never enter code
         or the planner transcript.
 
-        Reads and writes go through a short-lived session of their own, never
-        `self.db`: the coder streams while sibling tools of a parallel batch
-        use the shared session, and on Postgres a snapshot commit that
-        collides with them (asyncpg "another operation is in progress") ended
-        in a shared-session rollback, which expires every loaded object — the
-        agent's next plain attribute read then raised MissingGreenlet."""
+        Off single-writer (Postgres), reads and writes go through a short-lived
+        session of their own, never `self.db`: the coder streams while sibling
+        tools of a parallel batch use the shared session, and a snapshot commit
+        that collided with them (asyncpg "another operation is in progress")
+        ended in a shared-session rollback, which expires every loaded object —
+        the agent's next plain attribute read then raised MissingGreenlet.
+
+        In single-writer mode (always on SQLite) the agent's session is the only
+        writer and holds the write lock through the tool run, so a second
+        session would wait out busy_timeout on every snapshot and stall codegen
+        into the tool's hard timeout. There the writes stay on `self.db`, under
+        `_tool_db_lock` like every other shared-session writer."""
         from app.models.completion_block import CompletionBlock
         from app.streaming.reasoning_streamer import ReasoningTextStreamer
         streamer = None
@@ -3008,24 +3014,38 @@ class AgentV2:
         _identity = sa_inspect(execution).identity if execution is not None else None
         execution_id = str(_identity[0]) if _identity else None
         completion_id = str(self.system_completion_id)
+        single_writer = self._use_single_write_session()
 
         async def callback(event):
             nonlocal streamer
             if not block_id or not execution_id or (streamer is None and not event.text):
                 return
             if streamer is None:
-                async with self._session_maker() as session:
-                    initial = await session.scalar(
-                        select(CompletionBlock.reasoning).where(CompletionBlock.id == block_id)
-                    ) or ""
-                async def persist(reasoning, content):
+                _read = select(CompletionBlock.reasoning).where(CompletionBlock.id == block_id)
+                if single_writer:
+                    async with self._tool_db_lock:
+                        initial = await self.db.scalar(_read) or ""
+                else:
                     async with self._session_maker() as session:
-                        await session.execute(
-                            sa_update(CompletionBlock)
-                            .where(CompletionBlock.id == block_id)
-                            .values(reasoning=reasoning)
-                        )
-                        await session.commit()
+                        initial = await session.scalar(_read) or ""
+                async def persist(reasoning, content):
+                    _write = (
+                        sa_update(CompletionBlock)
+                        .where(CompletionBlock.id == block_id)
+                        .values(reasoning=reasoning)
+                    )
+                    if single_writer:
+                        async with self._tool_db_lock:
+                            try:
+                                await self.db.execute(_write)
+                                await self.db.commit()
+                            except Exception:
+                                await self.db.rollback()
+                                raise
+                    else:
+                        async with self._session_maker() as session:
+                            await session.execute(_write)
+                            await session.commit()
                     # Keep the shared session's copy (if loaded) in step with
                     # the row, so later reads there — transcript rebuild —
                     # don't see stale text. Pure in-memory: no IO, not dirty.

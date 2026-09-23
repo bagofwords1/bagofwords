@@ -56,6 +56,9 @@ class Stub:
         self.system_completion_id = completion_id
         self.seqs = []
 
+    def _use_single_write_session(self):
+        return False  # Postgres default (single-writer is opt-in there)
+
     async def _emit_sse_event(self, ev):
         self.seqs.append(ev.seq)
 

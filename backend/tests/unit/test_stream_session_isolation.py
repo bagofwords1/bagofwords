@@ -80,7 +80,7 @@ async def run_ctx(tmp_path):
     await engine.dispose()
 
 
-def _agent(db, execution, maker, completion_id):
+def _agent(db, execution, maker, completion_id, single_writer=False):
     events = []
 
     async def emit(ev):
@@ -94,6 +94,7 @@ def _agent(db, execution, maker, completion_id):
         current_execution=execution,
         system_completion_id=completion_id,
         _emit_sse_event=emit,
+        _use_single_write_session=lambda: single_writer,
     )
     return agent, events
 
@@ -148,3 +149,37 @@ async def test_coder_reasoning_stream_is_isolated_from_shared_session(run_ctx, r
     if streamed is not None:
         # A still-loaded shared copy mirrors the row rather than going stale.
         assert inspect(streamed).dict["reasoning"] == persisted
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("chunk_count", [3, 9])
+async def test_single_writer_reasoning_stream_uses_the_writer_session(run_ctx, chunk_count):
+    """SQLite allows one writer, and in single-writer mode that is the agent's
+    session, which holds the write lock through the tool run. The reasoning
+    stream must persist through it: a second session would block on the lock
+    for busy_timeout on every snapshot and stall codegen."""
+    ids = run_ctx.ids
+
+    def _no_second_session():
+        raise AssertionError("single-writer mode opened a second DB session")
+
+    async with run_ctx.maker() as db:
+        execution = await db.get(AgentExecution, ids.execution)
+        # An uncommitted write: this session now holds SQLite's write lock.
+        execution.status = "in_progress"
+        execution.latest_seq = 41
+        await db.flush()
+
+        agent, events = _agent(db, execution, _no_second_session, ids.completion, single_writer=True)
+        callback = AgentV2._coder_reasoning_callback(agent, ids.block)
+        chunks = [f"writer step {i}. " for i in range(chunk_count)]
+        for chunk in chunks:
+            await callback(ReasoningDeltaEvent(text=chunk))
+        await callback(ReasoningCompleteEvent(text=""))
+        await db.commit()
+
+    async with run_ctx.maker() as fresh:
+        persisted = (await fresh.get(CompletionBlock, ids.block)).reasoning
+    assert persisted.startswith("Planner reasoning.")
+    assert all(chunk.strip() in persisted for chunk in chunks)
+    assert events and all(b.seq > a.seq for a, b in zip(events, events[1:]))
