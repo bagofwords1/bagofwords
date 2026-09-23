@@ -21,6 +21,7 @@ Three ideas carry the design:
 """
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Any, Literal, Optional, Union
@@ -164,6 +165,12 @@ class Turn:
                 total += p.tokens
             elif isinstance(p, (TextPart, ThinkingPart)):
                 total += max(len(p.text) // 4, 0)
+            elif isinstance(p, ToolCallPart):
+                # The arguments are replayed to the provider on every later
+                # iteration — create_data / edit_artifact code routinely runs
+                # to tens of thousands of characters. Leaving them out made the
+                # budget blind to the largest parts of a long run.
+                total += estimate_tokens(json.dumps(p.args, default=str)) if p.args else 0
         return total
 
 

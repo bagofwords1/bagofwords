@@ -269,3 +269,25 @@ def test_floor_shrinks_as_results_decay():
     t = _built(8)
     floor_before = t.floor_tokens()
     assert floor_before < t.tokens(), "some of the transcript must be reducible"
+
+
+@pytest.mark.parametrize("arg_chars", [4_000, 116_000])
+def test_tool_call_arguments_count_toward_the_budget(arg_chars):
+    """Call arguments are replayed to the provider every iteration (generated
+    code in create_data / edit_artifact is often the largest thing in a run),
+    so the budget must see them."""
+    small = Transcript()
+    small.add_assistant_step(calls=[ToolCallPart(id="a", tool_name="create_data", args={"code": "x"})])
+    big = Transcript()
+    big.add_assistant_step(calls=[ToolCallPart(id="a", tool_name="create_data", args={"code": "x" * arg_chars})])
+    assert big.tokens() - small.tokens() >= arg_chars // 5
+
+
+def test_large_call_arguments_push_decay_of_older_results():
+    t = _built(6)
+    within = t.tokens() + 10
+    assert t.fit_to_budget(within)["digested"] == 0
+    t.add_assistant_step(calls=[ToolCallPart(id="big", tool_name="edit_artifact", args={"code": "y" * 8_000})])
+    t.add_tool_results([_result("big")])
+    stats = t.fit_to_budget(within)
+    assert stats["digested"] + stats["dropped"] > 0
