@@ -604,6 +604,15 @@ class ProjectService:
             files = rows.scalars().all()
             if len(files) != len(set(str(x) for x in file_ids)):
                 raise HTTPException(status_code=404, detail="File not found")
+            # A project default is readable by every project member, so it
+            # must be a file the caller may already see. Files already on the
+            # project stay settable, so a manager can re-save the list without
+            # tripping over a file another manager added.
+            from app.services.file_access_service import user_can_view_file
+            current = set(await self.get_default_file_ids(db, str(project.id)))
+            for f in files:
+                if str(f.id) not in current and not await user_can_view_file(db, current_user, organization, f):
+                    raise HTTPException(status_code=404, detail="File not found")
 
         await db.execute(
             project_file_association.delete().where(

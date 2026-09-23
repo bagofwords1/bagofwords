@@ -967,10 +967,13 @@ class ReportService:
         )
         db.add(empty_layout)
 
-        # Associate files only if there are any (skip unnecessary query)
+        # Associate files only if there are any (skip unnecessary query).
+        # Same gate as data sources below: attaching makes a file readable
+        # through this report, so only files the creator may already see go on
+        # (org-scoped; anything else is dropped).
         if file_uuids:
-            file_result = await db.execute(select(File).filter(File.id.in_(file_uuids)))
-            files = file_result.scalars().all()
+            from app.services.file_access_service import filter_viewable_files
+            files = await filter_viewable_files(db, current_user, organization, file_uuids)
             report.files.extend(files)
 
         # Associate data sources only if there are any (skip unnecessary query)
