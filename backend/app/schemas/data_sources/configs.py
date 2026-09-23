@@ -2967,6 +2967,128 @@ class InforOlapConfig(BaseModel):
     )
 
 
+# Infor EPM — Application Engine REST API (IFS / OAuth2 via ION API Gateway)
+class InforEpmIonCredentials(BaseModel):
+    gateway_token_url: str = Field(
+        ...,
+        title="ION Token URL",
+        description="OAuth token URL formed from the pu and ot values in the .ionapi credentials file.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    gateway_client_id: str = Field(
+        ...,
+        title="ION Client ID",
+        description="Client ID (ci) from the backend-service .ionapi credentials file.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    gateway_client_secret: str = Field(
+        ...,
+        title="ION Client Secret",
+        description="Client secret (cs) from the backend-service .ionapi credentials file.",
+        json_schema_extra={"ui:type": "password"},
+    )
+    gateway_scope: str = Field(
+        "",
+        title="ION OAuth Scope",
+        description="Optional space-separated OAuth scopes assigned to the authorized application.",
+        json_schema_extra={"ui:type": "string"},
+    )
+
+
+class InforEpmTokenCredentials(BaseModel):
+    bearer_token: str = Field(
+        ...,
+        title="Bearer Token",
+        description=(
+            "A pre-issued gateway access token (e.g. copied from the ION API Swagger page). "
+            "Tokens expire — use this for testing only; production connections should use ION API Gateway credentials."
+        ),
+        json_schema_extra={"ui:type": "password"},
+    )
+
+
+class InforEpmConfig(BaseModel):
+    api_url: str = Field(
+        ...,
+        title="Application Engine API URL",
+        description=(
+            "Base URL of the Application Engine REST service as shown in the ION API Swagger — "
+            "everything before the process name (e.g. https://<gateway>/<tenant>/.../api/rest/<Service>/v1). "
+            "Processes are called as <URL>/<ProcessName>[/async] and results fetched from <URL>/getasyncresult."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    olap_database: str = Field(
+        ...,
+        title="OLAP Database",
+        description="Name of the OLAP data connection / database, passed to every BOW process as OLAPName.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    max_rows: int = Field(
+        5000,
+        ge=1,
+        le=1000000,
+        title="Max rows per query",
+        description="Cell cap passed to BOW_ExecuteMdx as rowLimit; results beyond it are truncated.",
+        json_schema_extra={"ui:type": "number"},
+    )
+    timeout_sec: int = Field(
+        120,
+        ge=1,
+        le=1800,
+        title="Query timeout (sec)",
+        description="Maximum time to wait for a process call (including async polling).",
+        json_schema_extra={"ui:type": "number"},
+    )
+    async_mode: bool = Field(
+        True,
+        title="Asynchronous execution",
+        description="Call processes via /async and poll getasyncresult (recommended). Disable to call processes synchronously.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    verify_ssl: bool = Field(
+        True,
+        title="Verify SSL",
+        description="Verify the gateway's TLS certificate.",
+        json_schema_extra={"ui:type": "boolean"},
+    )
+    cube_list_process: str = Field(
+        "BOW_GetCubeList",
+        title="Cube list process",
+        description="Application Engine process returning the cube names (one per line).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    cube_schema_process: str = Field(
+        "BOW_GetCubeSchema",
+        title="Cube schema process",
+        description="Application Engine process returning a cube's <BOWSchema> XML (dimensions, hierarchies, element samples).",
+        json_schema_extra={"ui:type": "string"},
+    )
+    mdx_process: str = Field(
+        "BOW_ExecuteMdx",
+        title="MDX process",
+        description="Application Engine process executing an MDX statement and returning one cell per line.",
+        json_schema_extra={"ui:type": "string"},
+    )
+    measure_dimension_pattern: str = Field(
+        "measure",
+        title="Measure dimension pattern",
+        description=(
+            "Dimensions whose name contains this text (case-insensitive) are treated as the cube's measures "
+            "dimension when the OLAP model does not flag one (ODBO type 2). Their elements become measure columns."
+        ),
+        json_schema_extra={"ui:type": "string"},
+    )
+    poll_interval_sec: int = Field(
+        1,
+        ge=1,
+        le=30,
+        title="Poll interval (sec)",
+        description="Delay between getasyncresult polls in asynchronous mode.",
+        json_schema_extra={"ui:type": "number"},
+    )
+
+
 # Microsoft Analysis Services (SSAS — Multidimensional & Tabular, via XMLA)
 class AnalysisServicesCredentials(BaseModel):
     username: str = Field(

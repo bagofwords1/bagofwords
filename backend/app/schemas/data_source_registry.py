@@ -153,6 +153,10 @@ from app.schemas.data_sources.configs import (
     InforOlapConfig,
     InforOlapCredentials,
     InforOlapIonCredentials,
+    # Infor EPM (Application Engine REST API)
+    InforEpmConfig,
+    InforEpmIonCredentials,
+    InforEpmTokenCredentials,
     # Microsoft Analysis Services (SSAS — XMLA)
     AnalysisServicesConfig,
     AnalysisServicesCredentials,
@@ -1658,6 +1662,33 @@ REGISTRY: Dict[str, DataSourceRegistryEntry] = {
             },
         ),
         client_path="app.data_sources.clients.infor_olap_client.InforOlapClient",
+        requires_license="enterprise",
+    ),
+    "infor_epm": DataSourceRegistryEntry(
+        type="infor_epm",
+        category="bi",
+        title="Infor EPM (Application Engine)",
+        description=(
+            "Query Infor d/EPM OLAP cubes via MDX through Application Engine processes published on the "
+            "ION API Gateway. Uses IFS/OAuth2 authentication — no OLAP Basic credentials required."
+        ),
+        config_schema=InforEpmConfig,
+        credentials_auth=AuthOptions(
+            default="ion_oauth",
+            by_auth={
+                "ion_oauth": AuthVariant(
+                    title="ION API Gateway",
+                    schema=InforEpmIonCredentials,
+                    scopes=["system"],
+                ),
+                "bearer_token": AuthVariant(
+                    title="Bearer Token (testing)",
+                    schema=InforEpmTokenCredentials,
+                    scopes=["system"],
+                ),
+            },
+        ),
+        client_path="app.data_sources.clients.infor_epm_client.InforEpmClient",
         requires_license="enterprise",
     ),
     "analysis_services": DataSourceRegistryEntry(
