@@ -291,3 +291,100 @@ def test_shared_sync_does_not_merge_user_only_namesake(create_user, login_user, 
             assert all(r.is_active for r in rows)
 
     asyncio.run(check())
+
+
+@pytest.mark.parametrize("repair_path", ["refresh", "migration"])
+@pytest.mark.parametrize("qualified_selected", [False, True])
+def test_duplicate_identity_refresh_preserves_links_and_selection(
+    monkeypatch, create_user, login_user, whoami, qualified_selected, repair_path,
+):
+    from sqlalchemy import text
+    from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
+    from app.models.table_stats import TableStats
+
+    user = create_user(email=f"duplicates-{uuid.uuid4().hex}@example.com")
+    profile = whoami(login_user(user["email"], user["password"]))
+    ids = asyncio.run(seed_legacy(profile["organizations"][0]["id"], profile["id"], False))
+
+    async def check():
+        async with async_session_maker() as db:
+            # Historical rows predate the identity constraint; no supported API
+            # should create this state after the repair ships.
+            await db.execute(text("DROP INDEX IF EXISTS uq_connection_powerbi_identity"))
+            original = await db.get(DataSourceTable, ids[2])
+            original.is_active = not qualified_selected
+            ct = await db.get(ConnectionTable, original.connection_table_id)
+            duplicate = ConnectionTable(connection_id=ids[0], name=ct.name + " [Workspace; ws-a/ds-a/Orders]",
+                columns=ct.columns, pks=[], fks=[], metadata_json=meta("ds-a"))
+            db.add(duplicate)
+            await db.flush()
+            dt = DataSourceTable(datasource_id=ids[1], connection_table_id=duplicate.id,
+                name=duplicate.name, columns=duplicate.columns, pks=[], fks=[],
+                metadata_json=meta("ds-a"), is_active=qualified_selected)
+            db.add(dt)
+            await db.flush()
+            selected_id = dt.id if qualified_selected else original.id
+            for linked in (original, dt):
+                db.add(TableStats(org_id=profile["organizations"][0]["id"], data_source_id=ids[1],
+                    datasource_table_id=linked.id, table_fqn=linked.name, usage_count=7))
+            overlay = UserConnectionTable(connection_id=ids[0], user_id=profile["id"],
+                connection_table_id=duplicate.id, table_name=duplicate.name,
+                is_accessible=False, status="inaccessible", metadata_json=meta("ds-a"))
+            db.add(overlay)
+            await db.flush()
+            column = UserConnectionColumn(user_connection_table_id=overlay.id,
+                column_name="restricted", is_accessible=False, is_masked=True)
+            db.add(column)
+            await db.commit()
+            overlay_id, column_id = overlay.id, column.id
+            if repair_path == "migration":
+                import importlib.util
+                from pathlib import Path
+                from alembic.migration import MigrationContext
+                from alembic.operations import Operations
+
+                spec = importlib.util.spec_from_file_location("identity_migration",
+                    Path(__file__).parents[2] / "alembic/versions/pbiidentity01_unique_powerbi_table_identity.py")
+                migration = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(migration)
+                def upgrade(session):
+                    with Operations.context(MigrationContext.configure(session.connection())):
+                        migration.upgrade()
+                await db.run_sync(upgrade)
+                await db.commit()
+            ds = await db.get(DataSource, ids[1])
+            conn = await db.get(Connection, ids[0])
+            # Direct agent refresh must repair existing duplicates too, without
+            # requiring a successful external schema discovery first.
+            await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
+            for _ in range(2):
+                service = ConnectionService()
+                refreshed = await service.refresh_schema(db, conn)
+                assert {c["name"] for t in refreshed for c in t.columns} == {"renamed", "added"}
+                await DataSourceService().sync_domain_tables_from_connection(db, ds, conn)
+            tables = (await db.execute(select(ConnectionTable).where(ConnectionTable.connection_id == ids[0]))).scalars().all()
+            domains = (await db.execute(select(DataSourceTable).where(DataSourceTable.datasource_id == ids[1]))).scalars().all()
+            assert len(tables) == len(domains) == 1
+            assert domains[0].is_active
+            assert domains[0].id == selected_id
+            stats = (await db.execute(select(TableStats).where(TableStats.data_source_id == ids[1]))).scalars().all()
+            assert len(stats) == 2 and sum(s.usage_count for s in stats) == 14
+            assert {s.datasource_table_id for s in stats} == {selected_id}
+            assert domains[0].connection_table_id == tables[0].id
+            assert {c["name"] for c in domains[0].columns} == {"renamed", "added"}
+            table_id, domain_id = tables[0].id, domains[0].id
+            db.expire_all()
+            overlay = await db.get(UserConnectionTable, overlay_id)
+            column = await db.get(UserConnectionColumn, column_id)
+            assert overlay.connection_table_id == table_id
+            assert not overlay.is_accessible and overlay.status == "inaccessible"
+            assert not column.is_accessible and column.is_masked
+            personal = (await db.execute(select(UserDataSourceTable).where(UserDataSourceTable.data_source_id == ids[1]))).scalars().all()
+            assert len(personal) == 1 and personal[0].data_source_table_id == domain_id
+
+    tenant = Tenant([("ws-a", "ds-a", ["renamed", "added"])])
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.Session", lambda: tenant)
+    token = Mock(status_code=200)
+    token.json.return_value = {"access_token": "app-test-token"}
+    monkeypatch.setattr("app.data_sources.clients.powerbi_client.requests.post", lambda *a, **k: token)
+    asyncio.run(check())

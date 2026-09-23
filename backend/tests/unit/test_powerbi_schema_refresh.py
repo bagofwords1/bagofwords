@@ -70,7 +70,7 @@ class Tenant:
                 status = 400
         else:
             status = 403
-        r = Mock(status_code=status, headers={}, text=json.dumps(payload))
+        r = Mock(status_code=status, headers={}, text=json.dumps(payload), content=json.dumps(payload).encode())
         r.json.return_value = payload
         return r
 
