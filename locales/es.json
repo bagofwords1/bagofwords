@@ -933,7 +933,22 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "Uso de LLM en esta conversación",
     "turnTokensTooltip": "Tokens LLM del planificador en este turno",
-    "turnUsageTooltip": "Uso de LLM en este turno"
+    "turnUsageTooltip": "Uso de LLM en este turno",
+    "setup": "Preparación",
+    "setupTooltip": "Tiempo desde el inicio hasta el primer paso (construcción de contexto, etc.)",
+    "overhead": "Otros",
+    "overheadTooltip": "Tiempo no atribuido a ningún paso: persistencia, actualización de contexto entre pasos, finalización",
+    "segment_planner": "LLM del planificador",
+    "segment_tool_llm": "LLM de la herramienta",
+    "segment_tool_exec": "Ejecución de la herramienta",
+    "segment_setup": "Preparación",
+    "plannerShort": "Plan",
+    "toolShort": "Herr.",
+    "stepTiming": "Tiempo del paso",
+    "stepTotal": "Total del paso",
+    "firstToken": "Tiempo hasta el primer token",
+    "thinking": "Razonamiento",
+    "tool": "Herramienta"
   },
   "reportView": {
     "tabChat": "Chat",

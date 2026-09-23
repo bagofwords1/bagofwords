@@ -919,7 +919,22 @@
     "tokensCount": "{count} رمز",
     "llmUsageTooltip": "استخدام LLM في هذه المحادثة",
     "turnTokensTooltip": "رموز LLM للمخطط في هذا الدور",
-    "turnUsageTooltip": "استخدام LLM في هذا الدور"
+    "turnUsageTooltip": "استخدام LLM في هذا الدور",
+    "setup": "التحضير",
+    "setupTooltip": "الوقت من بدء التشغيل حتى بدء الخطوة الأولى (بناء السياق وغيره)",
+    "overhead": "أخرى",
+    "overheadTooltip": "وقت غير منسوب لأي خطوة: الحفظ، تحديث السياق بين الخطوات، الإنهاء",
+    "segment_planner": "LLM المخطِّط",
+    "segment_tool_llm": "LLM الأداة",
+    "segment_tool_exec": "تنفيذ الأداة",
+    "segment_setup": "التحضير",
+    "plannerShort": "تخطيط",
+    "toolShort": "أداة",
+    "stepTiming": "توقيت الخطوة",
+    "stepTotal": "إجمالي الخطوة",
+    "firstToken": "الوقت حتى أول رمز",
+    "thinking": "التفكير",
+    "tool": "الأداة"
   },
   "reportView": {
     "tabChat": "محادثة",
