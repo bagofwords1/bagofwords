@@ -211,6 +211,18 @@ async def _send_block_to_slack(block_id: str):
     session_maker = create_async_session_factory()
     async with session_maker() as db:
         try:
+            # Route only runs that originated from a chat platform. Check that
+            # first with a column-only lookup: this fires for every terminal
+            # block of every run, and web runs must not load the block,
+            # plan decision and completion->report graph just to find out.
+            routing = (await db.execute(
+                select(Completion.external_platform, Completion.external_user_id)
+                .join(CompletionBlock, CompletionBlock.completion_id == Completion.id)
+                .where(CompletionBlock.id == block_id)
+            )).first()
+            if not routing or not (routing[0] in ('slack', 'teams', 'whatsapp', 'google_chat') and routing[1]):
+                return
+
             # Load block
             block_stmt = select(CompletionBlock).where(CompletionBlock.id == block_id)
             block_result = await db.execute(block_stmt)

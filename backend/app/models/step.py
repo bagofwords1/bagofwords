@@ -1,14 +1,12 @@
 # Path: backend/app/models/step.py
 
-import json
 import logging
 
-from sqlalchemy import JSON, Column, ForeignKey, String, Text, event, inspect, select
+from sqlalchemy import JSON, Column, ForeignKey, String, Text, event, inspect
 from sqlalchemy.orm import relationship
 
 from app.core.fire_and_forget import spawn
-from app.models.widget import Widget
-from app.streaming.completion_event_bus import websocket_manager
+from app.models.widget import Widget  # noqa: F401 — registers the mapper Step.widget resolves
 
 from .base import BaseSchema
 from app.ee.encryption import EncryptedJSON
@@ -83,106 +81,23 @@ def before_write_step_context_summary(mapper, connection, target):
         logger.warning("Failed to build context summary for step %s: %s", target.id, exc)
 
 def after_update_step(mapper, connection, target):
+    # Chat-originated runs (Slack etc.) also receive step results from this
+    # hook. send_step_result_to_slack resolves routing with a one-column query
+    # and returns before loading anything for web runs.
+    #
+    # Steps are no longer published on the in-process completion event bus:
+    # its only subscriber (AgentV2._handle_completion_update) reads completion
+    # events, so every step broadcast was serialized (full result rows),
+    # permission-checked on a fresh session, then parsed and dropped.
     try:
-        data = {
-            "event": "update_step",
-            "id": str(target.id),
-            "step_id": str(target.id),
-            "widget_id": str(target.widget_id),
-            "report_id": str(target.widget.report_id),
-            "title": target.title,
-            "slug": target.slug,
-            "status": target.status,
-            "prompt": target.prompt,
-            "code": target.code,
-            "data": target.data,
-            "description": target.description,
-            "type": target.type,
-            "data_model": target.data_model
-        }
-        spawn(broadcast_step_update(data))
-
         if target.status == "success":
             from app.services.slack_notification_service import send_step_result_to_slack
             logger.debug("STEP_UPDATE: Triggering Slack DM for successful step %s", target.id)
             spawn(send_step_result_to_slack(str(target.id)))
-
     except Exception as e:
         logger.warning("Error in after_update_step: %s", e)
-
-async def _strip_withheld_step_data(data):
-    """A report broadcast reaches every subscriber indiscriminately, so it
-    can't serve per-user rows. In viewer-identity mode on user-scoped
-    connections the shared snapshot is credential-differentiated creator data —
-    strip it from the payload (subscribers load their own via the API)."""
-    try:
-        report_id = data.get("report_id")
-        if not report_id:
-            return data
-        from app.dependencies import async_session_maker
-        from app.services.viewer_data_policy import report_snapshot_withheld
-        async with async_session_maker() as db:
-            if await report_snapshot_withheld(db, str(report_id)):
-                data = {**data, "data": {}, "data_model": {}, "snapshot_withheld": True}
-    except Exception as e:
-        logger.warning("Error checking step broadcast withholding: %s", e)
-    return data
-
-async def broadcast_step_update(data):
-    try:
-        data = await _strip_withheld_step_data(data)
-        await websocket_manager.broadcast_to_report(
-            str(data["report_id"]),
-            json.dumps(data)
-        )
-    except Exception as e:
-        logger.warning("Error broadcasting step update: %s", e)
-
-async def broadcast_step_insert(data):
-    try:
-        data = await _strip_withheld_step_data(data)
-        await websocket_manager.broadcast_to_report(
-            str(data["report_id"]),
-            json.dumps(data)
-        )
-    except Exception as e:
-        logger.warning("Error broadcasting step insert: %s", e)
-
-def after_insert_step(mapper, connection, target):
-    try:
-        # Get report_id directly from the database using the widget_id
-        result = connection.execute(
-            select(Widget.report_id).filter(Widget.id == target.widget_id)
-        ).first()
-        
-        if not result:
-            logger.warning("Widget %s not found for step %s, skipping broadcast", target.widget_id, target.id)
-            return
-            
-        report_id = result[0]
-        
-        data = {
-            "event": "insert_step",
-            "id": str(target.id),
-            "step_id": str(target.id),
-            "widget_id": str(target.widget_id),
-            "report_id": str(report_id),
-            "title": target.title,
-            "slug": target.slug,
-            "status": target.status,
-            "prompt": target.prompt,
-            "code": target.code,
-            "data": target.data,
-            "description": target.description,
-            "type": target.type,
-            "data_model": target.data_model
-        }
-        spawn(broadcast_step_insert(data))
-    except Exception as e:
-        logger.warning("Error in after_insert_step: %s", e)
 
 # Register the event listener
 event.listen(Step, 'before_insert', before_write_step_context_summary)
 event.listen(Step, 'before_update', before_write_step_context_summary)
 event.listen(Step, 'after_update', after_update_step)
-event.listen(Step, 'after_insert', after_insert_step)

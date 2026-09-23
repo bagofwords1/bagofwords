@@ -484,6 +484,14 @@ class ProjectManager:
         object: Query.default_step_id and Step.query_id reference each other,
         so a Query and a Step dirty in the same flush is a circular
         dependency ("Circular dependency detected" at commit)."""
+        await self._stage_query_parameters(db, step, parameters, applied_params)
+        await db.commit()
+        await db.refresh(step)
+        return step
+
+    async def _stage_query_parameters(self, db, step, parameters, applied_params=None):
+        """Stage (no commit) declared ParamSpecs on the step's Query (Core
+        UPDATE, see update_query_parameters) and resolved values on the Step."""
         step.applied_params = applied_params or None
         db.add(step)
         if getattr(step, "query_id", None):
@@ -510,10 +518,160 @@ class ProjectManager:
                 .where(_Query.id == str(step.query_id))
                 .values(parameters=specs or None)
             )
-        await db.commit()
-        await db.refresh(step)
-        return step
     
+    async def finalize_tool_step(
+        self, db, step, *, code, data, data_model=None, parameters=None,
+        applied_params=None, status="success",
+    ):
+        """Persist a finished tool's step in ONE commit, without refresh.
+
+        Replaces update_step_with_data_model + update_step_with_code +
+        update_step_with_data + update_query_parameters + update_step_status on
+        the agent path: each of those committed and then refreshed the step,
+        and a refresh reloads its whole eager graph (query -> report -> widgets
+        -> steps, decrypting step data) — ~270 statements per create_data where
+        one UPDATE does. Sessions use expire_on_commit=False, so the in-memory
+        step already holds what was written.
+
+        Same fallback as update_step_with_data: if the commit fails, the error
+        is persisted as the step's data and the rest of the write is retried.
+        """
+        if data_model is not None:
+            step.data_model = data_model
+        step.code = code
+        step.data = _to_json_safe(data)
+        step.status = status
+        step.status_reason = None
+        db.add(step)
+        try:
+            if parameters:
+                # Savepoint: a failed parameter write must not take the step's
+                # data down with it (it used to be a separate commit).
+                try:
+                    async with db.begin_nested():
+                        await self._stage_query_parameters(db, step, parameters, applied_params)
+                except Exception:
+                    logging.getLogger(__name__).exception(
+                        "finalize_tool_step: staging parameters failed for step %s", getattr(step, "id", None)
+                    )
+            await db.commit()
+        except Exception as exc:
+            await db.rollback()
+            logging.getLogger(__name__).exception(
+                "finalize_tool_step failed for step %s; persisting error payload",
+                getattr(step, "id", None),
+            )
+            if data_model is not None:
+                step.data_model = data_model
+            step.code = code
+            step.data = {"error": f"failed to persist data: {type(exc).__name__}: {exc}"}
+            step.status = status
+            step.status_reason = None
+            db.add(step)
+            try:
+                await db.commit()
+            except Exception:
+                await db.rollback()
+                raise
+        return step
+
+    async def finalize_visualization(self, db, visualization, view: dict | ViewSchema, status: str):
+        """Set a visualization's final view and status in one commit, without
+        the get + refresh of VisualizationService.update (both load the
+        report graph through Visualization.report/query)."""
+        try:
+            from app.schemas.visualization_schema import VisualizationUpdate
+            patch = VisualizationUpdate(
+                view=(view if isinstance(view, ViewSchema) else ViewSchema(**(view or {}))),
+                status=status,
+            )
+            visualization.view = patch.view.model_dump(exclude_none=True) if hasattr(patch.view, "model_dump") else patch.view
+            visualization.status = patch.status
+            db.add(visualization)
+            await db.commit()
+        except Exception as e:
+            self.logger.warning(f"finalize_visualization failed: {e}")
+            try:
+                if not db.is_active:
+                    await db.rollback()
+            except Exception:
+                pass
+        return visualization
+
+    async def create_query_step_visualization(
+        self, db, report, title: str, *, step_type: str = "chart",
+        initial_data_model: dict | None = None, viz_view: dict | None = None,
+        viz_status: str = "draft", create_visualization: bool = True,
+        organization_id: str | None = None, user_id: str | None = None,
+    ):
+        """Create a tool's Query (with its anchor Widget), first Step (set as
+        the query's default) and draft Visualization in ONE transaction.
+
+        Was create_query_v2 + create_step_for_query + set_query_default_step_if_empty
+        + create_visualization_v2: four commits, each followed by a refresh that
+        reloads the report graph, all awaited before code generation starts.
+        IDs are client-side, so they are available after flush without a
+        refresh. Returns (query, step, visualization|None).
+        """
+        from app.models.step import Step
+        from app.models.visualization import Visualization
+        from app.schemas.query_schema import QueryCreate
+        from sqlalchemy import update as _update
+        from sqlalchemy.orm.attributes import set_committed_value
+        import uuid as _uuid
+
+        org_id = organization_id or str(getattr(report, "organization_id", None))
+        usr_id = user_id or (str(getattr(report, "user_id", None)) if hasattr(report, "user_id") else None)
+        try:
+            query = await self.query_service.create_query(
+                db, QueryCreate(title=title, report_id=str(report.id)),
+                organization_id=org_id, user_id=usr_id, commit=False,
+            )
+            step = Step(
+                title=title,
+                slug=f"step-{_uuid.uuid4().hex[:8]}",
+                type=step_type,
+                widget_id=getattr(query, "widget_id", None),
+                query_id=str(query.id),
+                code="",
+                data={},
+                data_model=initial_data_model or {},
+                status="draft",
+            )
+            db.add(step)
+            await db.flush()
+            # Query.default_step_id <-> Step.query_id reference each other: set
+            # the default with a Core UPDATE (as set_query_default_step_if_empty
+            # does) and mirror it in memory without dirtying the Query.
+            await db.execute(
+                _update(type(query)).where(type(query).id == str(query.id)).values(default_step_id=str(step.id))
+            )
+            set_committed_value(query, "default_step_id", str(step.id))
+            visualization = None
+            if create_visualization:
+                payload = VisualizationCreate(
+                    title=title or "", status=viz_status or "draft",
+                    report_id=str(report.id), query_id=str(query.id),
+                    view=ViewSchema(**(viz_view or {})),
+                )
+                visualization = Visualization(
+                    title=payload.title,
+                    status=payload.status,
+                    report_id=str(payload.report_id),
+                    query_id=str(payload.query_id),
+                    view=(payload.view.model_dump(exclude_none=True) if hasattr(payload.view, "model_dump") else payload.view) or {},
+                )
+                db.add(visualization)
+            await db.commit()
+            return query, step, visualization
+        except Exception as e:
+            self.logger.warning(f"create_query_step_visualization failed: {e}")
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            raise
+
     async def update_step_with_data(self, db, step, data):
         safe_data = _to_json_safe(data)
         try:
@@ -536,12 +694,13 @@ class ProjectManager:
         await db.refresh(step)
         return step
     
-    async def update_step_with_data_model(self, db, step, data_model):
+    async def update_step_with_data_model(self, db, step, data_model, refresh: bool = True):
         # LEGACY path still used to persist Step.data_model; preferred flow sets Query+Visualization
         step.data_model = data_model
         db.add(step)
         await db.commit()
-        await db.refresh(step)
+        if refresh:
+            await db.refresh(step)
         return step
 
     async def ensure_step_default_view(self, db, step, theme_name: str | None = None, theme_overrides: dict | None = None):
@@ -565,12 +724,13 @@ class ProjectManager:
         await db.refresh(step)
         return step
     
-    async def update_step_status(self, db, step, status, status_reason=None):
+    async def update_step_status(self, db, step, status, status_reason=None, refresh: bool = True):
         step.status = status
         step.status_reason = status_reason
         db.add(step)
         await db.commit()
-        await db.refresh(step)
+        if refresh:
+            await db.refresh(step)
         return step
 
     async def create_step_for_query(self, db, query, title: str, step_type: str, initial_data_model: dict | None = None):

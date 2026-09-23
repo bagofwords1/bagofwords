@@ -7646,10 +7646,19 @@ class AgentV2:
         try:
             async with self._writes_session() as fresh_db:
                 # Re-fetch what we actually need into the fresh session so
-                # any subsequent update_*/refresh ops bind to a live conn.
-                exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
-                report_obj = await fresh_db.get(Report, report_id) if report_id else None
-                cur_step = await fresh_db.get(Step, cur_step_id) if cur_step_id else None
+                # any subsequent update ops bind to a live conn. lazyload("*"):
+                # only columns are read here, and a plain get() pulled each
+                # row's eager graph (Report: widgets, steps, queries, ...) on
+                # every data-writing progress event.
+                async def _load(model, pk):
+                    if not pk:
+                        return None
+                    return (await fresh_db.execute(
+                        select(model).options(lazyload("*")).where(model.id == pk)
+                    )).scalar_one_or_none()
+                exec_obj = await _load(AgentExecution, exec_id)
+                report_obj = await _load(Report, report_id)
+                cur_step = await _load(Step, cur_step_id)
 
                 if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                     if stage == "data_model_type_determined":
@@ -7663,29 +7672,17 @@ class AgentV2:
                         )
 
                         if data_model_type and report_obj and not cur_step:
-                            # Create query (transitional service may still create a widget under the hood)
-                            try:
-                                inv.current_query = await self.project_manager.create_query_v2(
-                                    fresh_db, report_obj, query_title
-                                )
-                            except Exception:
-                                inv.current_query = None
-
-                            # Create step under the query
+                            # Query (+ anchor widget), its default step and a draft
+                            # visualization with only the type in view — one commit.
                             initial_data_model = {"type": data_model_type, "columns": [], "series": []}
-                            inv.current_step = await self.project_manager.create_step_for_query(
-                                fresh_db, inv.current_query, query_title, "chart", initial_data_model
+                            inv.current_query, inv.current_step, inv.current_visualization = (
+                                await self.project_manager.create_query_step_visualization(
+                                    fresh_db, report_obj, query_title,
+                                    initial_data_model=initial_data_model,
+                                    viz_view={"type": data_model_type},
+                                )
                             )
                             inv.current_step_id = str(inv.current_step.id)
-                            await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-
-                            # Create visualization (draft) with only type in view
-                            try:
-                                inv.current_visualization = await self.project_manager.create_visualization_v2(
-                                    fresh_db, str(report_obj.id), str(inv.current_query.id), query_title, view={"type": data_model_type}, status="draft"
-                                )
-                            except Exception:
-                                inv.current_visualization = None
 
                             # Emit early query/visualization creation events
                             try:
@@ -7753,7 +7750,7 @@ class AgentV2:
                                      for col in current_data_model["columns"]):
                                 current_data_model["columns"].append(column)
                                 await self.project_manager.update_step_with_data_model(
-                                    fresh_db, cur_step, current_data_model
+                                    fresh_db, cur_step, current_data_model, refresh=False
                                 )
                                 # Emit artifact delta per column
                                 try:
@@ -7783,7 +7780,7 @@ class AgentV2:
                             current_data_model = getattr(cur_step, "data_model", {}) or {}
                             current_data_model["series"] = series
                             await self.project_manager.update_step_with_data_model(
-                                fresh_db, cur_step, current_data_model
+                                fresh_db, cur_step, current_data_model, refresh=False
                             )
                             # Emit artifact delta for series update
                             try:
@@ -7812,7 +7809,7 @@ class AgentV2:
                             if is_valid is False and cur_step:
                                 error_msg = payload.get("error") or "Validation failed"
                                 await self.project_manager.update_step_status(
-                                    fresh_db, cur_step, "error", status_reason=str(error_msg)
+                                    fresh_db, cur_step, "error", status_reason=str(error_msg), refresh=False
                                 )
                         except Exception:
                             pass
@@ -7825,11 +7822,14 @@ class AgentV2:
                         # If for some reason earlier streaming did not create query/step/visualization, create them now
                         if data_model and not cur_step and report_obj:
                             try:
-                                inv.current_query = await self.project_manager.create_query_v2(fresh_db, report_obj, query_title)
-                                inv.current_step = await self.project_manager.create_step_for_query(fresh_db, inv.current_query, query_title, "chart", {"type": data_model.get("type"), "columns": [], "series": []})
+                                inv.current_query, inv.current_step, inv.current_visualization = (
+                                    await self.project_manager.create_query_step_visualization(
+                                        fresh_db, report_obj, query_title,
+                                        initial_data_model={"type": data_model.get("type"), "columns": [], "series": []},
+                                        viz_view={"type": data_model.get("type")},
+                                    )
+                                )
                                 inv.current_step_id = str(inv.current_step.id)
-                                await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-                                inv.current_visualization = await self.project_manager.create_visualization_v2(fresh_db, str(report_obj.id), str(inv.current_query.id), query_title, view={"type": data_model.get("type")}, status="draft")
                                 # Emit creation events
                                 seq = await self.project_manager.next_seq(fresh_db, exec_obj)
                                 await self._emit_sse_event(SSEEvent(event="query.created", completion_id=sys_completion_id, agent_execution_id=exec_id, seq=seq, data={"query_id": str(inv.current_query.id), "report_id": report_id, "title": query_title}))
@@ -7844,36 +7844,15 @@ class AgentV2:
                         try:
                             query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
                             if not cur_step and report_obj:
-                                # Create query and step with a default table view
-                                try:
-                                    inv.current_query = await self.project_manager.create_query_v2(
-                                        fresh_db, report_obj, query_title
+                                # Query, default step and a draft table visualization — one commit.
+                                inv.current_query, inv.current_step, inv.current_visualization = (
+                                    await self.project_manager.create_query_step_visualization(
+                                        fresh_db, report_obj, query_title,
+                                        initial_data_model={"type": "table", "columns": [], "series": []},
+                                        viz_view={"type": "table"},
                                     )
-                                except Exception:
-                                    inv.current_query = None
-
-                                inv.current_step = await self.project_manager.create_step_for_query(
-                                    fresh_db,
-                                    inv.current_query,
-                                    query_title,
-                                    "chart",
-                                    {"type": "table", "columns": [], "series": []},
                                 )
                                 inv.current_step_id = str(inv.current_step.id)
-                                await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-
-                                # Create a draft visualization with table view
-                                try:
-                                    inv.current_visualization = await self.project_manager.create_visualization_v2(
-                                        fresh_db,
-                                        str(report_obj.id),
-                                        str(inv.current_query.id),
-                                        query_title,
-                                        view={"type": "table"},
-                                        status="draft",
-                                    )
-                                except Exception:
-                                    inv.current_visualization = None
 
                                 # Emit creation events
                                 try:
@@ -8065,6 +8044,7 @@ class AgentV2:
 
                     if step_obj and success and widget_data:
                         # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
+                        merged = None
                         try:
                             if isinstance(data_model_from_tool, dict) and data_model_from_tool:
                                 existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
@@ -8089,35 +8069,20 @@ class AgentV2:
                                 for key in ("series", "group_by", "sort", "limit", "filters"):
                                     if data_model_from_tool.get(key) is not None:
                                         merged[key] = data_model_from_tool.get(key)
-                                await self.project_manager.update_step_with_data_model(fresh_db, step_obj, merged)
-                                # Refresh the object to read the updated data_model
-                                await fresh_db.refresh(step_obj)
                         except Exception:
-                            pass
-                        # Update step with code
-                        await self.project_manager.update_step_with_code(
-                            fresh_db, step_obj, code
-                        )
-                        # Update step with full data (not just preview)
-                        await self.project_manager.update_step_with_data(
-                            fresh_db, step_obj, widget_data
-                        )
-
-                        # Persist declared parameters onto the Query (the stable
-                        # identity) and the run's resolved values onto the Step.
-                        try:
-                            _tool_params = tool_output.get("parameters")
-                            _tool_applied = tool_output.get("applied_params")
-                            if _tool_params:
-                                await self.project_manager.update_query_parameters(
-                                    fresh_db, step_obj, _tool_params, _tool_applied
-                                )
-                        except Exception:
-                            pass
-
-                        # Update step status
-                        await self.project_manager.update_step_status(
-                            fresh_db, step_obj, "success"
+                            merged = None
+                        # Data model, code, full data (not just preview), declared
+                        # parameters (onto the Query, the stable identity) with the
+                        # run's resolved values, and status — one commit. The UI
+                        # fetches the step after tool.finished; this commit precedes it.
+                        await self.project_manager.finalize_tool_step(
+                            fresh_db, step_obj,
+                            code=code,
+                            data=widget_data,
+                            data_model=merged,
+                            parameters=tool_output.get("parameters"),
+                            applied_params=tool_output.get("applied_params"),
+                            status="success",
                         )
 
                         # Table-usage analytics: the data model's tables, then every
@@ -8174,8 +8139,9 @@ class AgentV2:
                                             view["options"] = merged_options
                                     except Exception:
                                         pass
-                                await self.project_manager.update_visualization_view(fresh_db, viz_obj, view)
-                                await self.project_manager.set_visualization_status(fresh_db, viz_obj, "success")
+                                # View + status in one commit, before visualization.updated
+                                # (the UI refetches on it).
+                                await self.project_manager.finalize_visualization(fresh_db, viz_obj, view, "success")
                                 # Emit visualization.updated
                                 try:
                                     seq = await self.project_manager.next_seq(fresh_db, exec_obj)
