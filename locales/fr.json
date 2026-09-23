@@ -5167,5 +5167,20 @@
     "preparing": "Préparation de votre copie…",
     "preparingDetail": "Exécution des requêtes avec vos propres identifiants. Cela prend généralement quelques secondes.",
     "nothingRan": "Votre copie n’a pas pu être créée : aucune de ses requêtes n’a pu s’exécuter avec vos identifiants."
+  },
+  "schemaIdentity": {
+    "viewing": "Affichage :",
+    "myAccount": "Mon compte",
+    "serviceAccount": "Compte de service",
+    "changeIdentity": "Changer l’identité des requêtes",
+    "refresh": "Actualiser le schéma",
+    "refreshing": "Actualisation…",
+    "unknown": "Dernière actualisation du schéma : inconnue",
+    "refreshedAt": "Dernière actualisation du schéma : {time}",
+    "attemptedAt": "Dernière tentative : {time}",
+    "updated": "Schéma actualisé.",
+    "partial": "Certains modèles n’ont pas pu être actualisés. Leurs anciennes colonnes ont été conservées.",
+    "failed": "L’actualisation du schéma n’a pas abouti. Réessayez.",
+    "connectRequired": "Connectez votre compte pour voir ses tables."
   }
 }

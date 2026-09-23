@@ -5230,5 +5230,20 @@
     "preparing": "Preparing your copy…",
     "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
+  },
+  "schemaIdentity": {
+    "viewing": "Viewing:",
+    "myAccount": "My account",
+    "serviceAccount": "Service account",
+    "changeIdentity": "Change query identity",
+    "refresh": "Refresh schema",
+    "refreshing": "Refreshing…",
+    "unknown": "Schema last refreshed: unknown",
+    "refreshedAt": "Schema last refreshed: {time}",
+    "attemptedAt": "Last refresh attempt: {time}",
+    "updated": "Schema updated.",
+    "partial": "Some models could not be refreshed. Their previous columns were retained.",
+    "failed": "Schema refresh did not complete. Try again.",
+    "connectRequired": "Connect your account to view its tables."
   }
 }

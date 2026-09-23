@@ -5167,5 +5167,20 @@
     "preparing": "Förbereder din kopia…",
     "preparingDetail": "Kör frågorna med dina egna inloggningsuppgifter. Det brukar ta några sekunder.",
     "nothingRan": "Din kopia kunde inte skapas: ingen av dess frågor kunde köras med dina inloggningsuppgifter."
+  },
+  "schemaIdentity": {
+    "viewing": "Visar:",
+    "myAccount": "Mitt konto",
+    "serviceAccount": "Tjänstekonto",
+    "changeIdentity": "Byt frågeidentitet",
+    "refresh": "Uppdatera schema",
+    "refreshing": "Uppdaterar…",
+    "unknown": "Schemat uppdaterades senast: okänt",
+    "refreshedAt": "Schemat uppdaterades senast: {time}",
+    "attemptedAt": "Senaste uppdateringsförsök: {time}",
+    "updated": "Schemat uppdaterat.",
+    "partial": "Vissa modeller kunde inte uppdateras. Deras tidigare kolumner behölls.",
+    "failed": "Schemauppdateringen slutfördes inte. Försök igen.",
+    "connectRequired": "Anslut ditt konto för att se dess tabeller."
   }
 }

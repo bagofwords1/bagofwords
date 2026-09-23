@@ -5167,5 +5167,20 @@
     "preparing": "Deine Kopie wird vorbereitet…",
     "preparingDetail": "Die Abfragen werden mit deinen eigenen Zugangsdaten ausgeführt. Das dauert meist nur ein paar Sekunden.",
     "nothingRan": "Deine Kopie konnte nicht erstellt werden: Keine ihrer Abfragen ließ sich mit deinen Zugangsdaten ausführen."
+  },
+  "schemaIdentity": {
+    "viewing": "Ansicht:",
+    "myAccount": "Mein Konto",
+    "serviceAccount": "Dienstkonto",
+    "changeIdentity": "Abfrageidentität ändern",
+    "refresh": "Schema aktualisieren",
+    "refreshing": "Wird aktualisiert…",
+    "unknown": "Schema zuletzt aktualisiert: unbekannt",
+    "refreshedAt": "Schema zuletzt aktualisiert: {time}",
+    "attemptedAt": "Letzter Aktualisierungsversuch: {time}",
+    "updated": "Schema aktualisiert.",
+    "partial": "Einige Modelle konnten nicht aktualisiert werden. Ihre bisherigen Spalten wurden beibehalten.",
+    "failed": "Die Schemaaktualisierung wurde nicht abgeschlossen. Versuchen Sie es erneut.",
+    "connectRequired": "Verbinden Sie Ihr Konto, um dessen Tabellen zu sehen."
   }
 }

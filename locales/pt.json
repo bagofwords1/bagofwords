@@ -5167,5 +5167,20 @@
     "preparing": "Preparando sua cópia…",
     "preparingDetail": "Executando as consultas com suas próprias credenciais. Isso normalmente leva alguns segundos.",
     "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
+  },
+  "schemaIdentity": {
+    "viewing": "Visualizando:",
+    "myAccount": "Minha conta",
+    "serviceAccount": "Conta de serviço",
+    "changeIdentity": "Alterar identidade das consultas",
+    "refresh": "Atualizar esquema",
+    "refreshing": "Atualizando…",
+    "unknown": "Última atualização do esquema: desconhecida",
+    "refreshedAt": "Última atualização do esquema: {time}",
+    "attemptedAt": "Última tentativa: {time}",
+    "updated": "Esquema atualizado.",
+    "partial": "Alguns modelos não puderam ser atualizados. Suas colunas anteriores foram mantidas.",
+    "failed": "A atualização do esquema não foi concluída. Tente novamente.",
+    "connectRequired": "Conecte sua conta para ver suas tabelas."
   }
 }
