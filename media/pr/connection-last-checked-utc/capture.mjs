@@ -1,0 +1,27 @@
+import { chromium } from 'playwright';
+const [,, out, tz='America/New_York'] = process.argv;
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' });
+const ctx = await b.newContext({ timezoneId: tz, locale: 'en-US', viewport: { width: 1400, height: 900 } });
+const page = await ctx.newPage();
+const api = [];
+page.on('response', async r => { if (/\/api\/connections\/[0-9a-f-]+$/.test(r.url())) { try { api.push(await r.json()); } catch {} } });
+await page.goto('http://localhost:3000/users/sign-in');
+await page.fill('input[type=email], #email', 'admin@example.com');
+await page.fill('input[type=password]', 'Password123!');
+await page.click('button[type=submit]');
+await page.waitForURL(u => !u.pathname.includes('sign-in'), { timeout: 60000 });
+await page.waitForTimeout(3000);
+const skip = page.getByText('Skip onboarding'); if (await skip.count()) { await skip.click(); await page.waitForTimeout(3000); }
+await page.goto('http://localhost:3000/agents');
+await page.waitForTimeout(6000);
+await page.screenshot({ path: out.replace('.png', '-agents.png') });
+await page.mouse.click(372, 879);
+await page.waitForTimeout(3000);
+await page.screenshot({ path: out.replace('.png', '-detail.png') });
+await page.getByRole('button', { name: 'Manage connection' }).click();
+await page.getByText('Last checked').waitFor({ timeout: 30000 });
+await page.waitForTimeout(1500);
+const txt = await page.getByText('Last checked').first().innerText();
+await page.screenshot({ path: out });
+console.log(JSON.stringify({ tz, rendered: txt, api_checked_at: api.at(-1)?.last_connection_checked_at, browser_now: await page.evaluate(() => new Date().toLocaleString('en-US')) }));
+await b.close();
