@@ -20,7 +20,12 @@ from app.models.user import User
 from app.models.organization import Organization
 from app.models.report import Report
 from app.project_manager import ProjectManager
-from app.schemas.mcp import MCPCreateDataInput, MCPCreateDataOutput
+from app.schemas.mcp import (
+    MCPCreateDataInput,
+    MCPCreateDataOutput,
+    MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS,
+    MCP_CREATE_DATA_MAX_PREVIEW_ROWS,
+)
 from app.dependencies import async_session_maker
 from app.services.usage_policy_service import UsageLimitContext
 from app.ai.tools.implementations.create_data import (
@@ -29,6 +34,24 @@ from app.ai.tools.implementations.create_data import (
     ALLOWED_VIZ_TYPES,
     _infer_palette_theme,
 )
+
+
+def resolve_preview_limit(organization_settings: Any, requested: Optional[int]) -> int:
+    """Rows create_data returns inline: the org's `mcp_create_data_preview_rows`,
+    lowered to the caller's ``limit`` when one is given.
+
+    The org value is clamped to 1..MCP_CREATE_DATA_MAX_PREVIEW_ROWS so a bad
+    stored value can neither empty the preview nor flood the caller's context.
+    """
+    try:
+        cfg = organization_settings.get_config("mcp_create_data_preview_rows") if organization_settings else None
+        org_limit = int(getattr(cfg, "value", MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS))
+    except (TypeError, ValueError, AttributeError):
+        org_limit = MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS
+    org_limit = max(1, min(MCP_CREATE_DATA_MAX_PREVIEW_ROWS, org_limit))
+    if requested is None:
+        return org_limit
+    return max(1, min(org_limit, int(requested)))
 
 
 def build_data_preview(formatted: dict[str, Any], *, limit: int) -> dict[str, Any]:
@@ -372,7 +395,10 @@ class CreateDataMCPTool(MCPTool):
         )
         
         # Build data preview (limited rows)
-        data_preview = build_data_preview(formatted, limit=input_data.limit)
+        data_preview = build_data_preview(
+            formatted,
+            limit=resolve_preview_limit(rich_ctx.org_settings, input_data.limit),
+        )
         
         # Audit: successful data query via MCP
         try:

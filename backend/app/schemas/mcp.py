@@ -173,10 +173,12 @@ class MCPInspectDataOutput(BaseInspectDataOutput):
 
 # === create_data ===
 
-# Ceiling on rows returned inline by create_data. The result lands in the
-# caller's model context as one JSON text block, so it is bounded; the full
-# result is always persisted in the report.
-MCP_CREATE_DATA_MAX_PREVIEW_ROWS = 1000
+# Rows returned inline by create_data. The result lands in the caller's model
+# context as one JSON text block, so it is bounded; the full result is always
+# persisted in the report. The default is the org's `mcp_create_data_preview_rows`
+# setting; the ceiling is a hard stop no org value can exceed.
+MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS = 1000
+MCP_CREATE_DATA_MAX_PREVIEW_ROWS = 10000
 
 
 class MCPCreateDataInput(BaseModel):
@@ -186,15 +188,16 @@ class MCPCreateDataInput(BaseModel):
     title: Optional[str] = Field(default=None, description="Title for the visualization.")
     visualization_type: Optional[str] = Field(default=None, description="Chart type hint (table, bar_chart, line_chart, etc.).")
     tables: Optional[List[TablesBySource]] = Field(default=None, description="Explicit tables. Auto-discovered if not provided.")
-    limit: int = Field(
-        default=MCP_CREATE_DATA_MAX_PREVIEW_ROWS,
+    limit: Optional[int] = Field(
+        default=None,
         ge=1,
         le=MCP_CREATE_DATA_MAX_PREVIEW_ROWS,
         description=(
-            "Maximum number of result rows to return in data_preview "
-            f"(1-{MCP_CREATE_DATA_MAX_PREVIEW_ROWS}). The full result is always "
-            "persisted in the report; data_preview.total_rows reports the true count "
-            "and data_preview.truncated tells whether rows were left out."
+            "Maximum number of result rows to return in data_preview. Omit to get "
+            "the organization's default; a larger value is capped at that default. "
+            "The full result is always persisted in the report; data_preview.total_rows "
+            "reports the true count and data_preview.truncated tells whether rows "
+            "were left out."
         ),
     )
 

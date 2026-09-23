@@ -1,15 +1,21 @@
 """create_data over MCP returns an inline preview of the query result.
 
-Contract: the caller chooses how many rows come back through ``limit``
-(default and ceiling 1000, always at least one). The preview reports the true
+Contract: the organization sets how many rows come back
+(``mcp_create_data_preview_rows``, default 1000, clamped 1-10000). A caller may
+ask for fewer through ``limit``, never more. The preview reports the true
 ``total_rows`` and says when rows were left out, so a client can tell a
 complete result from a cut one without a second call.
 """
 import pytest
 from pydantic import ValidationError
 
-from app.ai.tools.mcp.create_data import build_data_preview
-from app.schemas.mcp import MCP_CREATE_DATA_MAX_PREVIEW_ROWS, MCPCreateDataInput
+from app.ai.tools.mcp.create_data import build_data_preview, resolve_preview_limit
+from app.models.organization_settings import OrganizationSettings
+from app.schemas.mcp import (
+    MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS,
+    MCP_CREATE_DATA_MAX_PREVIEW_ROWS,
+    MCPCreateDataInput,
+)
 
 
 def _formatted(n_rows: int, total_rows: int | None = None) -> dict:
@@ -20,30 +26,68 @@ def _formatted(n_rows: int, total_rows: int | None = None) -> dict:
     }
 
 
+def _settings(value=None) -> OrganizationSettings:
+    """Real settings model; ``value=None`` leaves the key unset (schema default)."""
+    config = {}
+    if value is not None:
+        config["mcp_create_data_preview_rows"] = {
+            "value": value, "name": "MCP data preview rows", "description": "",
+        }
+    return OrganizationSettings(config=config)
+
+
 # ── input contract ──────────────────────────────────────────────────────────
 
-def test_limit_defaults_to_the_ceiling():
-    inp = MCPCreateDataInput(report_id="r", prompt="p")
-    assert inp.limit == MCP_CREATE_DATA_MAX_PREVIEW_ROWS == 1000
+def test_limit_is_optional_so_the_org_default_applies():
+    assert MCPCreateDataInput(report_id="r", prompt="p").limit is None
 
 
-@pytest.mark.parametrize("limit", [1, 20, 999, 1000])
+@pytest.mark.parametrize("limit", [1, 20, 1000, MCP_CREATE_DATA_MAX_PREVIEW_ROWS])
 def test_limit_accepts_values_within_range(limit):
     assert MCPCreateDataInput(report_id="r", prompt="p", limit=limit).limit == limit
 
 
-@pytest.mark.parametrize("limit", [0, -1, 1001, 50_000])
-def test_limit_rejects_values_outside_range_instead_of_clamping(limit):
+@pytest.mark.parametrize("limit", [0, -1, MCP_CREATE_DATA_MAX_PREVIEW_ROWS + 1])
+def test_limit_rejects_values_outside_range(limit):
     with pytest.raises(ValidationError):
         MCPCreateDataInput(report_id="r", prompt="p", limit=limit)
 
 
 def test_limit_is_advertised_in_the_tool_schema():
-    schema = MCPCreateDataInput.model_json_schema()
-    prop = schema["properties"]["limit"]
-    assert prop["default"] == MCP_CREATE_DATA_MAX_PREVIEW_ROWS
-    assert prop["minimum"] == 1
-    assert prop["maximum"] == MCP_CREATE_DATA_MAX_PREVIEW_ROWS
+    prop = MCPCreateDataInput.model_json_schema()["properties"]["limit"]
+    assert "default" not in prop or prop["default"] is None
+    assert "organization" in prop["description"]
+
+
+# ── org setting ─────────────────────────────────────────────────────────────
+
+def test_unset_org_setting_falls_back_to_schema_default():
+    assert resolve_preview_limit(_settings(), None) == MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS == 1000
+
+
+def test_no_settings_at_all_uses_default():
+    assert resolve_preview_limit(None, None) == MCP_CREATE_DATA_DEFAULT_PREVIEW_ROWS
+
+
+@pytest.mark.parametrize("value", [20, 664, 5000])
+def test_org_value_is_the_default(value):
+    assert resolve_preview_limit(_settings(value), None) == value
+
+
+@pytest.mark.parametrize("value,expected", [(0, 1), (-5, 1), (50_000, MCP_CREATE_DATA_MAX_PREVIEW_ROWS), ("junk", 1000)])
+def test_bad_org_value_is_clamped(value, expected):
+    assert resolve_preview_limit(_settings(value), None) == expected
+
+
+@pytest.mark.parametrize("org,requested,expected", [(1000, 20, 20), (1000, 5000, 1000), (50, 100, 50), (5000, 5000, 5000)])
+def test_caller_can_lower_but_not_exceed_org_value(org, requested, expected):
+    assert resolve_preview_limit(_settings(org), requested) == expected
+
+
+def test_setting_is_registered_in_org_settings_schema():
+    from app.schemas.organization_settings_schema import OrganizationSettingsConfig
+    cfg = OrganizationSettingsConfig().mcp_create_data_preview_rows
+    assert cfg.value == 1000 and cfg.editable
 
 
 # ── preview contract ────────────────────────────────────────────────────────
