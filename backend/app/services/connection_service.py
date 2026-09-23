@@ -27,6 +27,7 @@ from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
 from app.models.webhook_data_source_association import webhook_data_source_association
+from app.models.project import project_data_source_association
 from app.models.domain_connection import domain_connection
 from app.schemas.data_source_registry import (
     resolve_client_class,
@@ -771,6 +772,13 @@ class ConnectionService:
                         await db.execute(
                             delete(webhook_data_source_association).where(
                                 webhook_data_source_association.c.data_source_id == ds.id
+                            )
+                        )
+                        # Same for project default agents (M2M only on
+                        # Project.data_sources).
+                        await db.execute(
+                            delete(project_data_source_association).where(
+                                project_data_source_association.c.data_source_id == ds.id
                             )
                         )
                         # Preserve per-agent Drafts suites and their cases. The
