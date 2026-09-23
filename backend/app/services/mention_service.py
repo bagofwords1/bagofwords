@@ -34,8 +34,14 @@ class MentionService:
             # Example: [{ name: 'DATA SOURCES', items: [...] }, { name: 'TABLES', items: [...] }, ...]
             groups = { (g.get("name") or "").upper(): (g.get("items") or []) for g in (mentions or []) }
 
-            # FILES
-            for file_mention in groups.get("FILES", []):
+            # FILES — only files the author may see can be pulled into the
+            # report: a mention payload is client-supplied, and attaching a
+            # file id here is what makes it readable through the report.
+            file_mentions = groups.get("FILES", [])
+            viewable_file_ids = await self._viewable_mentioned_file_ids(db, completion, file_mentions)
+            for file_mention in file_mentions:
+                if str(file_mention.get("id")) not in viewable_file_ids:
+                    continue
                 m = MentionCreate(
                     completion_id=completion.id,
                     report_id=completion.report_id,
@@ -273,6 +279,30 @@ class MentionService:
             pass
         return tables
 
+    async def _viewable_mentioned_file_ids(self, db: AsyncSession, completion: Completion, file_mentions) -> set:
+        if not file_mentions:
+            return set()
+        from sqlalchemy.orm import lazyload
+
+        from app.models.report import Report
+        from app.services.file_access_service import filter_viewable_files
+
+        report = (await db.execute(
+            select(Report).options(lazyload("*")).where(Report.id == completion.report_id)
+        )).scalar_one_or_none()
+        if report is None:
+            return set()
+        # Completions from external platforms may carry no user; the report
+        # owner is who they run as.
+        user = await db.get(User, completion.user_id or report.user_id)
+        organization = await db.get(Organization, report.organization_id)
+        if user is None or organization is None:
+            return set()
+        files = await filter_viewable_files(
+            db, user, organization, [m.get("id") for m in file_mentions]
+        )
+        return {str(f.id) for f in files}
+
     async def _get_files(
         self,
         db: AsyncSession,
@@ -280,7 +310,7 @@ class MentionService:
         current_user: User
     ) -> List[Dict[str, Any]]:
         try:
-            files = await self.file_service.get_files(db=db, organization=organization)
+            files = await self.file_service.get_files(db=db, organization=organization, current_user=current_user)
             return [
                 {
                     'id': str(file.id),

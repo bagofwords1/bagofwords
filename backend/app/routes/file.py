@@ -21,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import get_async_db
 from app.models.report import Report
 from app.ee.audit.service import audit_service
+from app.services import file_access_service as file_access
 
 router = APIRouter(tags=["files"])
 file_service = FileService()
@@ -28,6 +29,26 @@ file_service = FileService()
 @router.post("/files", response_model=FileSchema)
 @requires_permission('manage_files')
 async def upload_file(request: Request, file: UploadFile = File(...), report_id: Optional[str] = Form(None), data_source_id: Optional[str] = Form(None), current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
+    # Attaching to a report is a write on it: owner only, like posting a
+    # completion. Checked before the bytes hit disk. 404 rather than 403 so
+    # other users' report ids don't leak.
+    if report_id:
+        from sqlalchemy.orm import lazyload
+        target = (await db.execute(
+            select(Report).options(lazyload("*")).where(
+                Report.id == report_id, Report.organization_id == organization.id,
+            )
+        )).scalar_one_or_none()
+        if not file_access.user_owns_report(current_user, target):
+            raise HTTPException(status_code=404, detail="Report not found")
+    # Attaching to an agent's library needs manage on that agent — the same
+    # gate as POST /data_sources/{id}/files.
+    if data_source_id:
+        from app.core.permissions_decorator import check_resource_permissions
+        await check_resource_permissions(
+            db, str(current_user.id), str(organization.id),
+            'data_source', [str(data_source_id)], 'manage',
+        )
     result = await file_service.upload_file(db, file, current_user, organization, report_id, data_source_id)
     try:
         await audit_service.log(
@@ -107,10 +128,10 @@ async def remove_file_from_data_source(
 @router.get("/reports/{report_id}/files", response_model=list[FileSchemaWithCompletionId])
 @requires_permission('manage_files', model=Report)
 async def get_files_by_report(report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.get_files_by_report(db, report_id, organization)
+    return await file_service.get_files_by_report(db, report_id, organization, current_user)
 
 @router.delete("/reports/{report_id}/files/{file_id}")
-@requires_permission('manage_files', model=Report)
+@requires_permission('manage_files', model=Report, owner_only=True)
 async def remove_file_from_report(file_id: str, report_id: str, current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
     # Capture the filename before removal for the event text.
     _f = await db.get(FileModel, file_id)
@@ -170,7 +191,7 @@ def _content_disposition(kind: str, filename: str) -> str:
 @router.get("/files", response_model=list[FileSchemaWithMetadata])
 @requires_permission('manage_files')
 async def get_files(current_user: User = Depends(current_user), db: AsyncSession = Depends(get_async_db), organization: Organization = Depends(get_current_organization)):
-    return await file_service.get_files(db, organization)
+    return await file_service.get_files(db, organization, current_user)
 
 @router.get("/files/{file_id}/content")
 @requires_permission('manage_files')
@@ -184,12 +205,7 @@ async def get_file_content(file_id: str, request: Request, current_user: User = 
     except (ValueError, AttributeError):
         raise HTTPException(status_code=404, detail="File not found")
 
-    stmt = select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)
-    result = await db.execute(stmt)
-    file = result.scalar_one_or_none()
-
-    if not file:
-        raise HTTPException(status_code=404, detail="File not found")
+    file = await file_access.get_viewable_file_or_404(db, current_user, organization, file_id)
 
     if not file.path:
         raise HTTPException(status_code=404, detail="File content not found")
@@ -254,19 +270,16 @@ async def get_file_embed_token(
     """Mint a short-lived, file-scoped capability token for embedding.
 
     The token lets an artifact sandbox iframe (which can't send an auth header)
-    load this file via GET /files/{id}/embed?token=… . Authorized by org
-    membership here; the token is never persisted (minted fresh per render)."""
+    load this file via GET /files/{id}/embed?token=… . Authorized by the same
+    per-file access rule as /content; the token is never persisted (minted
+    fresh per render)."""
     import uuid as _uuid
     try:
         _uuid.UUID(file_id)
     except (ValueError, AttributeError):
         raise HTTPException(status_code=404, detail="File not found")
 
-    file = (await db.execute(
-        select(FileModel).filter(FileModel.id == file_id, FileModel.organization_id == organization.id)
-    )).scalar_one_or_none()
-    if not file:
-        raise HTTPException(status_code=404, detail="File not found")
+    await file_access.get_viewable_file_or_404(db, current_user, organization, file_id)
 
     from app.core.file_tokens import mint_file_token, file_embed_url
     token = mint_file_token(file_id)
