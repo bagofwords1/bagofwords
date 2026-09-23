@@ -141,7 +141,7 @@
                 </div>
 
                 <!-- Pane C: expanded block -->
-                <div class="flex-1 flex flex-col min-h-0">
+                <div class="flex-1 min-w-0 flex flex-col min-h-0">
                     <!-- Per-turn summary strip -->
                     <div v-if="selectedTurn" class="px-5 py-2.5 border-b border-gray-200 dark:border-gray-800 flex items-center gap-2 flex-wrap">
                         <span :class="['inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium', statusChipClass(selectedTurn.status)]">
@@ -292,18 +292,18 @@
                                         </div>
                                         <div v-if="selectedItem.message">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.message') }}</div>
-                                            <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.message }}</pre>
+                                            <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.message }}</pre>
                                         </div>
                                     </div>
                                     <!-- Non-feedback details -->
                                     <div v-else>
                                         <div v-if="selectedItem.reasoning || selectedItem.plan_decision?.reasoning">
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.reasoning') }}</div>
-                                            <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
+                                            <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.reasoning || selectedItem.plan_decision?.reasoning }}</pre>
                                         </div>
                                         <div>
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.content') }}</div>
-                                            <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
+                                            <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
                                         </div>
 
                                         <!-- Tool execution with specialized rendering -->
