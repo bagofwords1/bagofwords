@@ -261,6 +261,7 @@ class SearchAgentsTool(Tool):
                     id=str(ds.id), name=getattr(ds, "name", "") or "",
                     description=one_liners.get(str(ds.id), "") or None,
                     status=getattr(ds, "publish_status", None),
+                    reliability_status=getattr(ds, "reliability_status", None),
                     focused=str(ds.id) in focus_ids,
                     attached=str(ds.id) in attached_ids,
                     needs_signin=str(ds.id) in needs_signin,
