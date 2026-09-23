@@ -12,6 +12,7 @@ from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +330,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
-from sqlalchemy import select, func, update as sa_update
+from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
@@ -2991,36 +2992,54 @@ class AgentV2:
 
     def _coder_reasoning_callback(self, block_id):
         """Each parallel invocation owns a stream; summaries never enter code
-        or the planner transcript. Serialize shared-session reads and writes."""
+        or the planner transcript.
+
+        Reads and writes go through a short-lived session of their own, never
+        `self.db`: the coder streams while sibling tools of a parallel batch
+        use the shared session, and on Postgres a snapshot commit that
+        collides with them (asyncpg "another operation is in progress") ended
+        in a shared-session rollback, which expires every loaded object — the
+        agent's next plain attribute read then raised MissingGreenlet."""
         from app.models.completion_block import CompletionBlock
         from app.streaming.reasoning_streamer import ReasoningTextStreamer
         streamer = None
+        execution = self.current_execution
+        # Identity read, never a lazy load — `execution` may already be expired.
+        _identity = sa_inspect(execution).identity if execution is not None else None
+        execution_id = str(_identity[0]) if _identity else None
+        completion_id = str(self.system_completion_id)
 
         async def callback(event):
             nonlocal streamer
-            if not block_id or (streamer is None and not event.text):
+            if not block_id or not execution_id or (streamer is None and not event.text):
                 return
             if streamer is None:
-                async with self._tool_db_lock:
-                    block = await self.db.get(CompletionBlock, block_id)
-                    initial = (block.reasoning or "") if block else ""
+                async with self._session_maker() as session:
+                    initial = await session.scalar(
+                        select(CompletionBlock.reasoning).where(CompletionBlock.id == block_id)
+                    ) or ""
                 async def persist(reasoning, content):
-                    async with self._tool_db_lock:
-                        block = await self.db.get(CompletionBlock, block_id)
-                        if block is not None:
-                            try:
-                                block.reasoning = reasoning
-                                await self.db.commit()
-                            except Exception:
-                                await self.db.rollback()
-                                raise
+                    async with self._session_maker() as session:
+                        await session.execute(
+                            sa_update(CompletionBlock)
+                            .where(CompletionBlock.id == block_id)
+                            .values(reasoning=reasoning)
+                        )
+                        await session.commit()
+                    # Keep the shared session's copy (if loaded) in step with
+                    # the row, so later reads there — transcript rebuild —
+                    # don't see stale text. Pure in-memory: no IO, not dirty.
+                    shared = self.db.sync_session
+                    cached = shared.identity_map.get(shared.identity_key(CompletionBlock, block_id))
+                    if cached is not None:
+                        set_committed_value(cached, "reasoning", reasoning)
                 async def next_seq():
-                    async with self._tool_db_lock:
-                        return await self.project_manager.next_seq(self.db, self.current_execution)
+                    # In-memory counter only; no IO on the shared session.
+                    return await self.project_manager.next_seq(None, execution)
                 streamer = ReasoningTextStreamer(
                     emit=self._emit_sse_event, seq_fn=next_seq,
-                    completion_id=str(self.system_completion_id),
-                    agent_execution_id=str(self.current_execution.id),
+                    completion_id=completion_id,
+                    agent_execution_id=execution_id,
                     block_id=block_id, persist=persist, initial_reasoning=initial,
                 )
             await streamer.append(event)
@@ -6547,17 +6566,26 @@ class AgentV2:
                     # — so an unnecessary rollback would sabotage the retry it
                     # is meant to enable. After a genuine rollback, eagerly
                     # re-load the objects (and relationships) the loop reads via
-                    # plain attribute access.
+                    # plain attribute access. A best-effort path that rolled
+                    # back on its own (its session left active again) leaves
+                    # the same expired objects behind, so reload those too —
+                    # otherwise every retry dies on the same MissingGreenlet.
                     try:
-                        if not self.db.is_active:
-                            await self.db.rollback()
-                            for _obj in (
+                        _core = [
+                            _o for _o in (
                                 self.report, self.organization, self.head_completion,
                                 self.system_completion, self.current_execution,
                                 self.model, self.widget, self.step,
-                            ):
-                                if _obj is None:
-                                    continue
+                            ) if _o is not None
+                        ]
+                        _poisoned = not self.db.is_active
+                        if _poisoned:
+                            await self.db.rollback()
+                        if _poisoned or any(
+                            getattr(sa_inspect(_o, raiseerr=False), "expired_attributes", None)
+                            for _o in _core
+                        ):
+                            for _obj in _core:
                                 try:
                                     await self.db.refresh(_obj)
                                 except Exception:

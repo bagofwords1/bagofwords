@@ -13,7 +13,7 @@ from app.models.widget import Widget
 from app.models.step import Step
 from app.models.plan import Plan
 from app.models.report import Report
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, inspect
 import asyncio
 import logging
 from app.services.table_usage_service import TableUsageService
@@ -1661,9 +1661,21 @@ class ProjectManager:
         
         This is in-memory only - no DB commit per call for streaming performance.
         The latest_seq will be persisted when the agent execution completes.
+
+        The live counter is a plain (unmapped) attribute on the instance: a
+        rollback of the shared session expires `latest_seq`, and reading an
+        expired column lazy-loads — MissingGreenlet under AsyncSession — and
+        would also rewind the counter to the last committed value (duplicate
+        SSE seqs). Neither can happen to an unmapped attribute.
         """
-        agent_execution.latest_seq = (agent_execution.latest_seq or 0) + 1
-        return agent_execution.latest_seq
+        seq = agent_execution.__dict__.get("_stream_seq")
+        if seq is None:
+            # Seed from the loaded column value without triggering a load.
+            seq = inspect(agent_execution).dict.get("latest_seq") or 0
+        seq += 1
+        agent_execution._stream_seq = seq
+        agent_execution.latest_seq = seq
+        return seq
 
     # ==============================
     # Completion Blocks (Timeline Projection)
