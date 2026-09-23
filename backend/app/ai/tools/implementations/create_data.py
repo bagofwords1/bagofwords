@@ -2051,7 +2051,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         # Success path: format data and privacy-aware preview
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
-        formatted = streamer.format_df_for_widget(exec_df)
+        formatted = await streamer.format_df_for_widget_async(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)

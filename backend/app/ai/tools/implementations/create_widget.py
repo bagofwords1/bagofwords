@@ -422,7 +422,7 @@ CRITICAL:
 
         # Success path: format widget data and preview (privacy aware)
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
-        widget_data = streamer.format_df_for_widget(exec_df)
+        widget_data = await streamer.format_df_for_widget_async(exec_df)
         info = widget_data.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         if allow_llm_see_data:
