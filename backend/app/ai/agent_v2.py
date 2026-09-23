@@ -5,9 +5,10 @@ import os
 import re as _re_mod
 import time as _time
 import uuid as _uuid_mod
+import copy
 from collections import Counter
 from datetime import datetime
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
@@ -3472,6 +3473,21 @@ class AgentV2:
         self._pending_writes.append(task)
         return task
 
+    def _single_writer_guard(self):
+        """Serialize a writer against the shared session only when it writes
+        through it.
+
+        In single-writer mode (always on SQLite) ``_writes_session()`` yields
+        ``self.db``, so parallel tools must take ``_tool_db_lock``. Otherwise
+        each writer opens its own short-lived session and never touches
+        ``self.db``; holding the lock there only made parallel tools queue
+        behind each other's step/visualization persistence (measured on
+        Postgres: ~70s of lock hold per three-tool batch).
+        """
+        if self._use_single_write_session():
+            return self._tool_db_lock
+        return nullcontext()
+
     def _use_single_write_session(self) -> bool:
         """Whether this agent run should route writes through the single
         dedicated `self._writes` session (the single-writer architecture
@@ -5950,7 +5966,7 @@ class AgentV2:
                                     # Streaming side-effects (query/step/viz creation) write through
                                     # the shared session guard; created objects land on _inv so a
                                     # concurrent sibling invocation can't cross-attribute them.
-                                    async with self._tool_db_lock:
+                                    async with self._single_writer_guard():
                                         await self._handle_streaming_event(tool_name, ev, tool_input, inv=_inv)
                                     # Forward events to UI — keyed by block/tool_execution so the
                                     # frontend can route concurrent streams to the right card.
@@ -5987,29 +6003,32 @@ class AgentV2:
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 
 
-                                async with self._tool_db_lock:
-                                    # Capture training_build_id if set by create_instruction tool
-                                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                                        self.training_build_id = runtime_ctx["training_build_id"]
+                                # Capture training_build_id if set by create_instruction tool
+                                if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                                    self.training_build_id = runtime_ctx["training_build_id"]
 
-                                    # Extract observation, output, and sub_timings from tool result
-                                    if isinstance(tool_result, dict) and "observation" in tool_result:
-                                        observation = tool_result["observation"]
-                                        tool_output = tool_result.get("output")
-                                        tool_sub_timings = tool_result.get("sub_timings")
-                                    else:
-                                        observation = tool_result
-                                        tool_output = None
-                                        tool_sub_timings = None
+                                # Extract observation, output, and sub_timings from tool result
+                                if isinstance(tool_result, dict) and "observation" in tool_result:
+                                    observation = tool_result["observation"]
+                                    tool_output = tool_result.get("output")
+                                    tool_sub_timings = tool_result.get("sub_timings")
+                                else:
+                                    observation = tool_result
+                                    tool_output = None
+                                    tool_sub_timings = None
 
-                                    if tool_input.get("_verification_group_id"):
-                                        for payload in (tool_output, observation):
-                                            if isinstance(payload, dict):
-                                                payload["verification_group_id"] = tool_input["_verification_group_id"]
+                                if tool_input.get("_verification_group_id"):
+                                    for payload in (tool_output, observation):
+                                        if isinstance(payload, dict):
+                                            payload["verification_group_id"] = tool_input["_verification_group_id"]
 
-                                    # Handle tool outputs and manage widget/step state
+                                # Handle tool outputs and manage widget/step state. Writes
+                                # go through _writes_session(), so the shared-session lock
+                                # is only needed when that is self.db (single-writer).
+                                async with self._single_writer_guard():
                                     await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
 
+                                async with self._tool_db_lock:
                                     # Extract created objects from observation, with fallback to orchestrator state
                                     created_widget_id = None
                                     created_step_id = None
@@ -7917,6 +7936,43 @@ class AgentV2:
             logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
             # Don't re-raise; this is streaming and shouldn't break the main flow
 
+    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id):
+        """Emit TableUsageEvents for a finished step (data model first, then
+        tables_by_source; the recorder dedupes). Best-effort, never raises."""
+        try:
+            await self.project_manager.emit_table_usage(
+                db=db, report=report_obj, step=step_obj, data_model=data_model,
+                user_id=user_id, user_role=None,
+            )
+        except Exception:
+            pass
+        if tables_by_source:
+            try:
+                await self.project_manager.emit_table_usage_from_tables_by_source(
+                    db=db, report=report_obj, step=step_obj, tables_by_source=tables_by_source,
+                    user_id=user_id, user_role=None, source_type="sql",
+                )
+            except Exception:
+                pass
+
+    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id):
+        """Background variant on a short-lived session of its own. The step's
+        status/data were committed before this was scheduled."""
+        if not report_id or not step_id:
+            return
+        async with self._session_maker() as db:
+            report_obj = (await db.execute(
+                select(Report)
+                .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
+                .where(Report.id == report_id)
+            )).unique().scalar_one_or_none()
+            step_obj = (await db.execute(
+                select(Step).options(lazyload("*")).where(Step.id == step_id)
+            )).scalar_one_or_none()
+            if report_obj is None or step_obj is None:
+                return
+            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id)
+
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None, inv=None):
         """Handle tool outputs and manage final state updates.
 
@@ -8064,38 +8120,28 @@ class AgentV2:
                             fresh_db, step_obj, "success"
                         )
 
-                        # Emit table usage events based on the step's data model (align with legacy agent)
-                        try:
-                            await self.project_manager.emit_table_usage(
-                                db=fresh_db,
-                                report=report_obj,
-                                step=step_obj,
-                                data_model=getattr(step_obj, "data_model", {}) or {},
-                                user_id=head_user_id,
-                                user_role=None
+                        # Table-usage analytics: the data model's tables, then every
+                        # source table passed to create_data (`tables_by_source` covers
+                        # joined tables the result columns omit). No UI event depends
+                        # on these rows, so off single-writer they are recorded on a
+                        # background session (drained before completion.finished)
+                        # instead of adding their round trips to the tool's latency.
+                        _tbs = None
+                        if tool_name == "create_data" and isinstance(tool_input, dict):
+                            _tbs = tool_input.get("tables_by_source") or None
+                        _usage_data_model = getattr(step_obj, "data_model", {}) or {}
+                        if self._use_single_write_session():
+                            await self._record_step_table_usage(
+                                fresh_db, report_obj, step_obj, _usage_data_model, _tbs, head_user_id,
                             )
-                        except Exception:
-                            pass
-
-                        # `tables_by_source` records every source table passed to create_data.
-                        # It complements the data model, whose columns can describe only
-                        # the resulting dataset and otherwise omit joined tables.
-                        try:
-                            if tool_name == "create_data":
-                                if isinstance(tool_input, dict):
-                                    tbs = tool_input.get("tables_by_source")
-                                    if tbs:
-                                        await self.project_manager.emit_table_usage_from_tables_by_source(
-                                            db=fresh_db,
-                                            report=report_obj,
-                                            step=step_obj,
-                                            tables_by_source=tbs,
-                                            user_id=head_user_id,
-                                            user_role=None,
-                                            source_type="sql",
-                                        )
-                        except Exception:
-                            pass
+                        else:
+                            self._schedule_bg_write(
+                                "table_usage",
+                                self._record_step_table_usage_bg(
+                                    report_id, str(step_obj.id), copy.deepcopy(_usage_data_model),
+                                    copy.deepcopy(_tbs), head_user_id,
+                                ),
+                            )
 
                         # Finalize visualization view.encoding and status
                         try:
