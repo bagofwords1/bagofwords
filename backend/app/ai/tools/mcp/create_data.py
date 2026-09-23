@@ -31,6 +31,27 @@ from app.ai.tools.implementations.create_data import (
 )
 
 
+def build_data_preview(formatted: dict[str, Any], *, limit: int) -> dict[str, Any]:
+    """Inline preview of a query result for the MCP caller.
+
+    ``formatted`` is a ``format_df_for_widget`` dict (``rows``, ``columns``,
+    ``info``). Returns at most ``limit`` rows, the true ``total_rows`` and a
+    ``truncated`` flag so the caller can tell when it did not get everything.
+    """
+    rows = formatted.get("rows", []) or []
+    info = formatted.get("info", {}) or {}
+    total_rows = info.get("total_rows")
+    if not isinstance(total_rows, int):
+        total_rows = len(rows)
+    returned = rows[:limit]
+    return {
+        "columns": formatted.get("columns", []) or [],
+        "rows": returned,
+        "total_rows": total_rows,
+        "truncated": len(returned) < total_rows,
+    }
+
+
 class CreateDataMCPTool(MCPTool):
     """Generate data and create a tracked, reproducible visualization.
     
@@ -351,11 +372,7 @@ class CreateDataMCPTool(MCPTool):
         )
         
         # Build data preview (limited rows)
-        data_preview = {
-            "columns": formatted.get("columns", []),
-            "rows": formatted.get("rows", [])[:20],
-            "total_rows": formatted.get("info", {}).get("total_rows", len(formatted.get("rows", []))),
-        }
+        data_preview = build_data_preview(formatted, limit=input_data.limit)
         
         # Audit: successful data query via MCP
         try:
