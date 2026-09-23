@@ -14,8 +14,9 @@ A non-admin may see a file when any of these holds:
 4. it is attached to a report whose conversation they can view (owner,
    project collaborator, or the conversation is shared with them);
 5. it is embedded in an artifact of a report whose conversation OR artifact
-   they can view — a dashboard shared internally shows its embedded images,
-   but not every upload that sits in the chat behind it.
+   they can view, and the report's owner can see it by 1-4 — a dashboard
+   shared internally shows its embedded images, but not every upload that sits
+   in the chat behind it, and an owner cannot grant a file they can't see.
 
 Full admins see every file in the org.
 
@@ -159,11 +160,21 @@ async def user_can_view_file(
 ) -> bool:
     if file is None or str(file.organization_id) != str(organization.id):
         return False
+    # 1. Their own upload.
     if str(file.user_id or "") == str(user.id):
         return True
     if await is_full_admin(db, user, organization):
         return True
+    if await _reachable_without_embeds(db, user, organization, file):
+        return True
+    # 5. Embedded in an artifact of a report the user can view.
+    return await _embedded_in_viewable_artifact(db, user, organization, file)
 
+
+async def _reachable_without_embeds(
+    db: AsyncSession, user: User, organization: Organization, file: File
+) -> bool:
+    """Rules 2-4."""
     # 2. Agent library.
     ds_ids = {str(r[0]) for r in (await db.execute(
         select(data_source_file_association.c.data_source_id).where(
@@ -188,18 +199,37 @@ async def user_can_view_file(
             report_file_association.c.file_id == str(file.id)
         )
     )).all()]
-    if await _any_viewable_report(db, user, organization, report_ids, CONVERSATION):
-        return True
+    return await _any_viewable_report(db, user, organization, report_ids, CONVERSATION)
 
-    # 5. Embedded in an artifact of a report the user can view. Artifacts
-    # carry their embedded files as {"files": [{"id": ...}]} in the version
-    # content; the id is a UUID, so a substring match on the serialized JSON
-    # is exact enough and portable across sqlite and postgres.
-    # Only reports someone besides their owner can open are scanned (plus the
-    # caller's own), so a request never walks every artifact in the org.
+
+def _embedded_ids(content) -> set[str]:
+    """File ids an artifact version embeds: dashboards list them under
+    content.files[].id, docs under content.file_ids. Anything else in the
+    content (code, markdown text) is not an embed."""
+    if not isinstance(content, dict):
+        return set()
+    ids = {str(f.get("id")) for f in (content.get("files") or []) if isinstance(f, dict)}
+    ids |= {str(f) for f in (content.get("file_ids") or []) if isinstance(f, (str, int))}
+    return ids
+
+
+async def _embedded_in_viewable_artifact(
+    db: AsyncSession, user: User, organization: Organization, file: File
+) -> bool:
+    """Rule 5. An embed is a delegation by the report's owner: it only extends
+    a file the OWNER may already see (rules 1-4) to the report's viewers.
+    Artifact content is writable by its owner through several paths (agent
+    tools, PATCH /artifacts), so writing someone else's file id into your own
+    dashboard must not be a way to read it."""
     from app.models.artifact import ArtifactVersion
-    embedded_in = [r[0] for r in (await db.execute(
-        select(ArtifactVersion.report_id)
+
+    # Cheap prefilter in SQL (the id is a UUID, so a substring match on the
+    # serialized JSON is portable across sqlite and postgres), then the real
+    # structural check in Python. Only reports someone besides their owner can
+    # open are scanned (plus the caller's own), so a request never walks every
+    # artifact in the org.
+    rows = (await db.execute(
+        select(ArtifactVersion.report_id, ArtifactVersion.content)
         .join(Report, Report.id == ArtifactVersion.report_id)
         .where(
             ArtifactVersion.organization_id == str(organization.id),
@@ -210,11 +240,34 @@ async def user_can_view_file(
                 Report.conversation_visibility.in_(("public", "internal", "shared")),
             ),
             cast(ArtifactVersion.content, String).contains(str(file.id)),
-        ).distinct()
-    )).all()]
-    return await _any_viewable_report(
-        db, user, organization, embedded_in, CONVERSATION_OR_ARTIFACT
-    )
+        )
+    )).all()
+    report_ids = {str(rid) for rid, content in rows if str(file.id) in _embedded_ids(content)}
+    if not report_ids:
+        return False
+
+    reports = (await db.execute(
+        select(Report).options(lazyload("*")).where(
+            Report.id.in_(report_ids),
+            Report.organization_id == str(organization.id),
+        )
+    )).scalars().all()
+    for report in reports:
+        if not await user_can_view_report(db, user, organization, report, CONVERSATION_OR_ARTIFACT):
+            continue
+        owner = await db.get(User, str(report.user_id))
+        if owner is not None and await _owner_can_view_file(db, owner, organization, file):
+            return True
+    return False
+
+
+async def _owner_can_view_file(
+    db: AsyncSession, owner: User, organization: Organization, file: File
+) -> bool:
+    """Rules 1-4 for the report owner (never rule 5, so embeds can't chain)."""
+    if str(file.user_id or "") == str(owner.id) or await is_full_admin(db, owner, organization):
+        return True
+    return await _reachable_without_embeds(db, owner, organization, file)
 
 
 async def get_viewable_file_or_404(
@@ -248,3 +301,33 @@ async def filter_viewable_files(
     )).scalars().all()
     return [f for f in files if await user_can_view_file(db, user, organization, f)]
 
+
+
+async def run_principal(db: AsyncSession, user: User | None, report: Report | None) -> User | None:
+    """Who an agent run acts as for file access: its user, or — for runs with
+    none (schedules, inbound email, external platforms) — the report owner."""
+    if user is not None and getattr(user, "id", None):
+        return user
+    owner_id = getattr(report, "user_id", None) if report is not None else None
+    return await db.get(User, str(owner_id)) if owner_id else None
+
+
+async def run_viewable_file_ids(
+    db: AsyncSession,
+    *,
+    user: User | None,
+    report: Report | None,
+    organization: Organization | None,
+    file_ids: Iterable[str],
+) -> set[str]:
+    """The subset of `file_ids` an agent run may reference (embed, attach,
+    copy out). A file id reaching a tool comes from the model, so it is
+    checked against the same rule as the HTTP routes rather than trusted
+    because it happens to exist in the org."""
+    if organization is None:
+        return set()
+    principal = await run_principal(db, user, report)
+    if principal is None:
+        return set()
+    files = await filter_viewable_files(db, principal, organization, file_ids)
+    return {str(f.id) for f in files}

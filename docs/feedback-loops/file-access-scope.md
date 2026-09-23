@@ -17,8 +17,10 @@ non-admin can see a file when any of these is true:
 4. it is attached to a report whose **conversation** they can view (they own
    it, they collaborate on its project, or the conversation is shared with them);
 5. it is **embedded in an artifact** of a report whose conversation *or*
-   artifact they can view. A dashboard shared org-wide shows its embedded
-   images, but not every file uploaded in the chat behind it.
+   artifact they can view, **and the report's owner can see the file by rules
+   1–4**. A dashboard shared org-wide shows its embedded images, but not every
+   file uploaded in the chat behind it. An embed passes on access the owner
+   already has; it can't grant access the owner doesn't have.
 
 Full admins see every file. Changing a report's files (upload with `report_id`,
 detach) is limited to the report owner, the same rule as every other report
@@ -84,12 +86,32 @@ public-route, doc-artifact and legacy-attach suites (481 + 142 tests, all
 green). `test_connection_file_browse.py::test_contract_sharepoint_server`
 fails identically on HEAD and is unrelated.
 
+## Round 2 — agent tools
+
+A file id that reaches a tool comes from the model, so tools now apply the same
+rule to the **run's principal**: the run's user, or the report owner for runs
+without one (schedules, inbound email, notifications). This is
+`run_viewable_file_ids` in `file_access_service.py`. It covers:
+
+- `create_artifact` / `edit_artifact_legacy` `file_ids`: other ids are dropped with a warning;
+- `create_doc` / `edit_doc` `{{file:<id>}}` placeholders: other ids are dropped from `file_ids`;
+- `write_file` `source_file_id` (copying out to a connection): the call returns "not found";
+- email/notify `file` attachments (`EmailSendService.resolve_attachment`, which takes the sender): the attachment fails.
+
+**Hole found by the new tests.** Rule 5 first matched the file id *anywhere* in
+the artifact JSON, so a doc whose markdown merely mentioned an id granted access
+to that file. And `PATCH`/`POST /api/artifacts` accept arbitrary content, so
+filtering in the tools alone can't make embeds trustworthy. Rule 5 now reads
+only the structured embed lists (`files[].id`, `file_ids`) and requires the
+report owner to reach the file by rules 1–4 (`test_embedding_a_file_id_does_not_grant_access_to_it`).
+
+The 5 new tests fail on the round-1 commit and pass now.
+
 ## Not changed / residual
 
-- **Agent tools** (`create_artifact` `file_ids`, `write_file` `source_file_id`) still
-  resolve a file id org-wide. An id the agent never saw can no longer be listed
-  or leaked through the API, but tightening these to the run's visible files is
-  a follow-up.
+- **`POST /api/artifacts`** doesn't check that the caller owns the target
+  `report_id`, so any member can add content to another user's report. It no
+  longer leaks files (see rule 5), but it's filed as a separate follow-up.
 - **`GET /api/files`** lists rules 1–3 only (own, agent and project files). Files
   reached through someone else's shared report are read through that report
   (`GET /reports/{id}/files`), not through the org-wide picker.

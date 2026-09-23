@@ -231,3 +231,142 @@ def test_admin_sees_every_file(test_client, cast):
     assert file_id in _ids(test_client.get("/api/files", headers=_h(admin, org_id)))
     assert _can_read(test_client, admin, org_id, file_id)
     assert file_id in _ids(test_client.get(f"/api/reports/{report_id}/files", headers=_h(admin, org_id)))
+
+
+# ── Agent tools ─────────────────────────────────────────────────────────────
+# A file id reaching a tool comes from the model (or a prompt it read), so the
+# tools must apply the same rule as the routes to the run's user. Tools run
+# for real against the DB; only external connector clients are stubbed.
+
+async def _tool_ctx(db, report_id, user_id):
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+    report = await db.get(Report, report_id)
+    return {
+        "db": db, "report": report,
+        "user": await db.get(User, user_id),
+        "organization": await db.get(Organization, report.organization_id),
+    }
+
+
+async def _run_tool(tool, tool_input, report_id, user_id):
+    async with async_session_maker() as db:
+        ctx = await _tool_ctx(db, report_id, user_id)
+        events = [e async for e in tool.run_stream(tool_input, ctx)]
+    ends = [e for e in events if e.type == "tool.end"]
+    assert ends, [e.type for e in events]
+    return ends[-1].payload["output"]
+
+
+@pytest.mark.e2e
+def test_doc_tools_embed_only_files_the_run_user_can_see(test_client, cast):
+    from app.ai.tools.implementations.create_doc import CreateDocTool
+    from app.ai.tools.implementations.edit_doc import EditDocTool
+
+    org_id, owner, other = cast["org_id"], cast["owner"], cast["other"]
+    others_file = _upload(test_client, other["token"], org_id).json()["id"]
+    report_id = _report(test_client, owner["token"], org_id)
+    own_file = _upload(test_client, owner["token"], org_id, report_id=report_id).json()["id"]
+
+    md = f"# Doc\n\n{{{{file:{own_file}}}}}\n\n{{{{file:{others_file}}}}}\n"
+    out = asyncio.run(_run_tool(CreateDocTool(), {"title": "D", "markdown": md}, report_id, owner["user_id"]))
+    assert out["success"] is True, out
+
+    async def _doc_file_ids():
+        from sqlalchemy import select
+
+        from app.models.artifact import ArtifactVersion
+        async with async_session_maker() as db:
+            row = (await db.execute(
+                select(ArtifactVersion).where(ArtifactVersion.report_id == report_id)
+                .order_by(ArtifactVersion.created_at.desc())
+            )).scalars().first()
+            return row.content.get("file_ids")
+
+    assert asyncio.run(_doc_file_ids()) == [own_file]
+    # And the other member's file is therefore not reachable through the doc.
+    assert not _can_read(test_client, owner["token"], org_id, others_file)
+
+    edited = asyncio.run(_run_tool(
+        EditDocTool(), {"doc_id": out["doc_id"], "markdown": f"# Doc v2\n\n{{{{file:{others_file}}}}}\n"},
+        report_id, owner["user_id"],
+    ))
+    assert edited["success"] is True, edited
+    assert asyncio.run(_doc_file_ids()) == []
+
+
+@pytest.mark.e2e
+def test_email_attachments_only_files_the_sender_can_see(test_client, cast):
+    from app.ai.tools.schemas.send_email import EmailAttachmentSpec
+    from app.services.email_send_service import EmailSendService
+
+    org_id, owner, other = cast["org_id"], cast["owner"], cast["other"]
+    others_file = _upload(test_client, other["token"], org_id).json()["id"]
+    report_id = _report(test_client, owner["token"], org_id)
+    own_file = _upload(test_client, owner["token"], org_id, report_id=report_id).json()["id"]
+
+    async def _resolve(file_id, as_user):
+        async with async_session_maker() as db:
+            ctx = await _tool_ctx(db, report_id, owner["user_id"])
+            user = ctx["user"] if as_user else None  # None → notifications act as the report owner
+            spec = EmailAttachmentSpec(ref_type="file", ref_id=file_id)
+            res, att, _ = await EmailSendService().resolve_attachment(
+                spec, db, ctx["report"], ctx["organization"], user=user
+            )
+            return res.success and att is not None
+
+    for as_user in (True, False):
+        assert asyncio.run(_resolve(own_file, as_user)) is True
+        assert asyncio.run(_resolve(others_file, as_user)) is False
+
+
+@pytest.mark.e2e
+def test_write_file_copies_only_files_the_run_user_can_see(test_client, cast):
+    from unittest.mock import AsyncMock, patch
+
+    from app.ai.tools.implementations.write_file import WriteFileTool
+    from app.data_sources.clients.base import Capability
+
+    org_id, owner, other = cast["org_id"], cast["owner"], cast["other"]
+    others_file = _upload(test_client, other["token"], org_id).json()["id"]
+    report_id = _report(test_client, owner["token"], org_id)
+    own_file = _upload(test_client, owner["token"], org_id, report_id=report_id).json()["id"]
+
+    def _copy(file_id):
+        client = AsyncMock()
+        client.capabilities = {Capability.WRITE_FILE}
+        client.awrite_file = AsyncMock(return_value={
+            "id": "out/x.csv", "name": "x.csv", "path": "out/x.csv", "mime_type": "text/csv",
+            "size": 1, "modified_at": None, "web_url": None,
+        })
+        with patch("app.ai.tools.implementations.write_file.resolve_file_client",
+                   new=AsyncMock(return_value=(client, None))):
+            out = asyncio.run(_run_tool(
+                WriteFileTool(), {"connection_id": "c", "filename": "x.csv", "source_file_id": file_id},
+                report_id, owner["user_id"],
+            ))
+        return out["success"], client.awrite_file.await_count
+
+    assert _copy(own_file) == (True, 1)
+    assert _copy(others_file) == (False, 0)
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("key", ["files", "file_ids"])
+def test_embedding_a_file_id_does_not_grant_access_to_it(test_client, cast, set_visibility, key):
+    """An embed only shares what the report owner can already see. Writing
+    another member's file id into your own dashboard (or doc) content — which
+    the artifact routes accept verbatim — must not make it readable."""
+    org_id, owner, other = cast["org_id"], cast["owner"], cast["other"]
+    victim_file = _upload(test_client, other["token"], org_id).json()["id"]
+    report_id = _report(test_client, owner["token"], org_id)
+    embed = [{"id": victim_file, "content_type": "text/csv"}] if key == "files" else [victim_file]
+    resp = test_client.post("/api/artifacts", json={
+        "report_id": report_id, "mode": "page", "title": "x", "content": {"code": "", key: embed},
+    }, headers=_h(owner["token"], org_id))
+    assert resp.status_code == 200, resp.text
+    set_visibility(report_id, "artifact", "internal", user_token=owner["token"], org_id=org_id)
+
+    assert not _can_read(test_client, owner["token"], org_id, victim_file)
+    assert _can_read(test_client, other["token"], org_id, victim_file)  # still the uploader's

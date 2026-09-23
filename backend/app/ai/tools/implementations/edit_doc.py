@@ -32,7 +32,6 @@ from ._doc_markdown import (
     heading_outline,
 )
 from .create_doc import doc_observation_snapshot, validate_doc_visualizations
-from app.models.file import File
 
 logger = logging.getLogger(__name__)
 
@@ -164,13 +163,11 @@ class EditDocTool(Tool):
         file_ids = extract_file_placeholders(new_markdown)
         valid_file_ids: List[str] = []
         if file_ids and organization is not None:
-            rows = await db.execute(
-                select(File.id).where(
-                    File.id.in_(file_ids),
-                    File.organization_id == str(organization.id),
-                )
+            # Only files the run's user may see: the doc's viewers get them.
+            from app.services.file_access_service import run_viewable_file_ids
+            owned = await run_viewable_file_ids(
+                db, user=user, report=report, organization=organization, file_ids=file_ids,
             )
-            owned = {str(r) for r in rows.scalars().all()}
             valid_file_ids = [f for f in file_ids if f in owned]
 
         new_title = data.title or artifact.title
