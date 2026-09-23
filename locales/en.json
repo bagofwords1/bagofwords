@@ -959,7 +959,22 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM usage for this conversation",
     "turnTokensTooltip": "Planner LLM tokens for this turn",
-    "turnUsageTooltip": "LLM usage for this turn"
+    "turnUsageTooltip": "LLM usage for this turn",
+    "setup": "Setup",
+    "setupTooltip": "Time from run start until the first step began (context building, etc.)",
+    "overhead": "Other",
+    "overheadTooltip": "Time not attributed to any step: persistence, context refresh between steps, finalization",
+    "segment_planner": "Planner LLM",
+    "segment_tool_llm": "Tool LLM",
+    "segment_tool_exec": "Tool execution",
+    "segment_setup": "Setup",
+    "plannerShort": "Plan",
+    "toolShort": "Tool",
+    "stepTiming": "Step timing",
+    "stepTotal": "Step total",
+    "firstToken": "Time to first token",
+    "thinking": "Thinking",
+    "tool": "Tool"
   },
   "reportView": {
     "tabChat": "Chat",

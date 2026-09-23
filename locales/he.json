@@ -933,7 +933,22 @@
     "tokensCount": "{count} טוקנים",
     "llmUsageTooltip": "שימוש ב-LLM בשיחה זו",
     "turnTokensTooltip": "טוקני LLM של המתכנן בסבב זה",
-    "turnUsageTooltip": "שימוש ב-LLM בסבב זה"
+    "turnUsageTooltip": "שימוש ב-LLM בסבב זה",
+    "setup": "הכנה",
+    "setupTooltip": "הזמן מתחילת הריצה ועד תחילת הצעד הראשון (בניית הקשר וכו')",
+    "overhead": "אחר",
+    "overheadTooltip": "זמן שאינו משויך לצעד: שמירה, רענון הקשר בין צעדים, סיום",
+    "segment_planner": "LLM מתכנן",
+    "segment_tool_llm": "LLM של הכלי",
+    "segment_tool_exec": "הרצת הכלי",
+    "segment_setup": "הכנה",
+    "plannerShort": "תכנון",
+    "toolShort": "כלי",
+    "stepTiming": "תזמון הצעד",
+    "stepTotal": "סך הצעד",
+    "firstToken": "זמן עד הטוקן הראשון",
+    "thinking": "חשיבה",
+    "tool": "כלי"
   },
   "reportView": {
     "tabChat": "צ'אט",

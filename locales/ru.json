@@ -919,7 +919,22 @@
     "tokensCount": "{count} токенов",
     "llmUsageTooltip": "Использование LLM в этом диалоге",
     "turnTokensTooltip": "Токены LLM планировщика за этот ход",
-    "turnUsageTooltip": "Использование LLM за этот ход"
+    "turnUsageTooltip": "Использование LLM за этот ход",
+    "setup": "Подготовка",
+    "setupTooltip": "Время от начала запуска до первого шага (сбор контекста и т. п.)",
+    "overhead": "Прочее",
+    "overheadTooltip": "Время вне шагов: сохранение, обновление контекста между шагами, завершение",
+    "segment_planner": "LLM планировщика",
+    "segment_tool_llm": "LLM инструмента",
+    "segment_tool_exec": "Выполнение инструмента",
+    "segment_setup": "Подготовка",
+    "plannerShort": "План",
+    "toolShort": "Инстр.",
+    "stepTiming": "Время шага",
+    "stepTotal": "Итого по шагу",
+    "firstToken": "Время до первого токена",
+    "thinking": "Размышление",
+    "tool": "Инструмент"
   },
   "reportView": {
     "tabChat": "Чат",

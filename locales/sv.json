@@ -919,7 +919,22 @@
     "tokensCount": "{count} tokens",
     "llmUsageTooltip": "LLM-användning för denna konversation",
     "turnTokensTooltip": "Planerarens LLM-tokens för denna tur",
-    "turnUsageTooltip": "LLM-användning för denna tur"
+    "turnUsageTooltip": "LLM-användning för denna tur",
+    "setup": "Förberedelse",
+    "setupTooltip": "Tid från start till första steget (kontextbygge m.m.)",
+    "overhead": "Övrigt",
+    "overheadTooltip": "Tid som inte hör till något steg: lagring, kontextuppdatering mellan steg, avslut",
+    "segment_planner": "Planerar-LLM",
+    "segment_tool_llm": "Verktygs-LLM",
+    "segment_tool_exec": "Verktygskörning",
+    "segment_setup": "Förberedelse",
+    "plannerShort": "Plan",
+    "toolShort": "Verktyg",
+    "stepTiming": "Stegtid",
+    "stepTotal": "Steg totalt",
+    "firstToken": "Tid till första token",
+    "thinking": "Tänkande",
+    "tool": "Verktyg"
   },
   "reportView": {
     "tabChat": "Chatt",

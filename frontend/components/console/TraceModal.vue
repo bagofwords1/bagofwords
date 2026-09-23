@@ -80,7 +80,7 @@
                                     <div class="flex items-center gap-1.5">
                                         <UIcon :name="getStatusIcon(block.status)" :class="getStatusIconClass(block.status)" />
                                         <span class="text-xs font-medium text-gray-800 dark:text-gray-200 truncate">{{ chatBlockTitle(block) }}</span>
-                                        <span v-if="block.duration_ms != null" class="ms-auto text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(block.duration_ms) }}</span>
+                                        <span v-if="chatBlockDurationMs(block) != null" class="ms-auto text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(chatBlockDurationMs(block) || 0) }}</span>
                                     </div>
                                     <div v-if="block.reasoning" class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 line-clamp-3 leading-snug whitespace-pre-line">{{ block.reasoning }}</div>
                                     <div v-if="block.content" class="mt-1.5 text-xs text-gray-700 dark:text-gray-300 markdown-wrapper" dir="auto">
@@ -120,6 +120,16 @@
                                 <UIcon :name="harnessCollapsed ? 'i-heroicons-chevron-right-20-solid' : 'i-heroicons-chevron-down-20-solid'" class="w-3 h-3 rtl-flip" />
                                 <span>{{ item.title }}</span><span class="text-gray-400 dark:text-gray-500">· {{ harnessCount }}</span>
                             </div>
+                            <div v-else-if="item.kind === 'timing'" class="px-2 py-1.5" :data-testid="'timing-row-' + item.id">
+                                <div class="flex items-center gap-1.5">
+                                    <UIcon name="i-heroicons-cog-6-tooth" class="w-4 h-4 text-gray-400" />
+                                    <span class="text-[11px] text-gray-500 dark:text-gray-400 truncate flex-1" :title="$t('traceModal.setupTooltip')">{{ item.title }}</span>
+                                    <span class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(item.durationMs) }}</span>
+                                </div>
+                                <div class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden relative">
+                                    <div v-for="(seg, si) in item.segments" :key="si" :class="['absolute inset-y-0', segmentClass(seg)]" :style="segmentStyle(seg)"></div>
+                                </div>
+                            </div>
                             <button v-else type="button" @click="selectLeftItem(item)"
                                 :class="[
                                     'w-full text-start rounded-md px-2 py-1.5 border',
@@ -131,12 +141,31 @@
                                     <span class="text-[11px] text-gray-700 dark:text-gray-300 truncate flex-1">{{ item.title }}</span>
                                     <span v-if="getItemDurationMs(item) !== null" class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(getItemDurationMs(item) || 0) }}</span>
                                 </div>
-                                <div v-if="getItemDurationMs(item) !== null" class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden flex">
-                                    <div class="h-full bg-purple-400" :style="{ width: barPct(itemLlmMs(item)) + '%' }"></div>
-                                    <div class="h-full bg-amber-400" :style="{ width: barPct(itemExecMs(item)) + '%' }"></div>
+                                <div v-if="stepTimingFor(item)" class="mt-1 h-1.5 rounded bg-gray-100 dark:bg-gray-800 overflow-hidden relative" data-testid="step-timing-bar">
+                                    <div v-for="(seg, si) in stepTimingFor(item)!.segments" :key="si"
+                                         :class="['absolute inset-y-0', segmentClass(seg)]" :style="segmentStyle(seg)"
+                                         :title="`${$t('traceModal.segment_' + seg.kind)} · ${formatDuration(seg.ms)}`"></div>
+                                </div>
+                                <div v-if="stepTimingFor(item)" class="mt-0.5 flex items-center gap-2 text-[9px] text-gray-400 dark:text-gray-500 font-mono">
+                                    <span v-if="stepTimingFor(item)!.plannerMs != null">{{ $t('traceModal.plannerShort') }} {{ formatDuration(stepTimingFor(item)!.plannerMs || 0) }}</span>
+                                    <span v-if="stepTimingFor(item)!.toolMs != null">{{ $t('traceModal.toolShort') }} {{ formatDuration(stepTimingFor(item)!.toolMs || 0) }}</span>
                                 </div>
                             </button>
                         </template>
+                        <!-- Unplaced time, so the rows reconcile with the run total -->
+                        <div v-if="overheadMs" class="px-2 py-1.5" data-testid="timing-overhead-row">
+                            <div class="flex items-center gap-1.5">
+                                <UIcon name="i-heroicons-ellipsis-horizontal-circle" class="w-4 h-4 text-gray-400" />
+                                <span class="text-[11px] text-gray-500 dark:text-gray-400 truncate flex-1" :title="$t('traceModal.overheadTooltip')">{{ $t('traceModal.overhead') }}</span>
+                                <span class="text-[10px] text-gray-400 dark:text-gray-500 font-mono flex-shrink-0">{{ formatDuration(overheadMs) }}</span>
+                            </div>
+                        </div>
+                        <!-- Legend -->
+                        <div v-if="stepTimings.size" class="px-2 pt-2 mt-1 border-t border-gray-100 dark:border-gray-800 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-500 dark:text-gray-400">
+                            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-purple-400"></span>{{ $t('traceModal.segment_planner') }}</span>
+                            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-purple-200 dark:bg-purple-300/60"></span>{{ $t('traceModal.segment_tool_llm') }}</span>
+                            <span class="inline-flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-amber-400"></span>{{ $t('traceModal.segment_tool_exec') }}</span>
+                        </div>
                     </div>
                 </div>
 
@@ -304,6 +333,24 @@
                                         <div>
                                             <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-1">{{ $t('traceModal.content') }}</div>
                                             <pre class="text-xs text-gray-900 dark:text-gray-100 whitespace-pre-wrap font-sans leading-relaxed break-words [overflow-wrap:anywhere]">{{ selectedItem.content || selectedItem.plan_decision?.assistant || $t('traceModal.noContent') }}</pre>
+                                        </div>
+
+                                        <!-- Step timing: planner LLM + tool -->
+                                        <div v-if="selectedStepTiming" class="mt-4" data-testid="step-timing-detail">
+                                            <div class="text-[11px] uppercase tracking-wide text-gray-500 dark:text-gray-400 mb-2">{{ $t('traceModal.stepTiming') }}</div>
+                                            <div class="space-y-1 text-[11px]">
+                                                <div v-for="row in selectedStepTimingRows" :key="row.key" class="flex items-center gap-2" :class="row.indent ? 'ps-4' : ''">
+                                                    <span class="w-32 truncate" :class="row.indent ? 'text-gray-500 dark:text-gray-400' : 'text-gray-700 dark:text-gray-300 font-medium'">{{ row.label }}</span>
+                                                    <span class="w-14 text-end font-mono text-gray-700 dark:text-gray-300">{{ formatDuration(row.ms) }}</span>
+                                                    <div class="flex-1 h-2 bg-gray-100 dark:bg-gray-800 rounded overflow-hidden">
+                                                        <div class="h-full rounded" :class="row.color" :style="{ width: Math.max(1, (row.ms / Math.max(selectedStepTiming.totalMs, 1)) * 100) + '%' }"></div>
+                                                    </div>
+                                                </div>
+                                                <div class="flex items-center gap-2 pt-1 border-t border-gray-100 dark:border-gray-800">
+                                                    <span class="w-32 text-gray-700 dark:text-gray-300 font-medium">{{ $t('traceModal.stepTotal') }}</span>
+                                                    <span class="w-14 text-end font-mono font-medium text-gray-900 dark:text-gray-100">{{ formatDuration(selectedStepTiming.totalMs) }}</span>
+                                                </div>
+                                            </div>
                                         </div>
 
                                         <!-- Tool execution with specialized rendering -->
@@ -816,6 +863,10 @@ const leftItems = computed(() => {
     if (traceData.value) {
         items.push({ id: 'overview', kind: 'overview', title: 'Overview', subtitle: traceData.value.head_prompt_snippet })
     }
+    // 1b) Setup — run start until the first step begins (context build etc.)
+    if (setupMs.value) {
+        items.push({ id: 'timing_setup', kind: 'timing', title: t('traceModal.setup'), durationMs: setupMs.value, segments: setupSegments.value })
+    }
     // 2) Decisions (blocks) — main-loop first, then knowledge harness
     const mainBlocks = blocks.value.filter((b: any) => (b as any).phase !== 'knowledge_harness')
     const harnessBlocks = blocks.value.filter((b: any) => (b as any).phase === 'knowledge_harness')
@@ -920,30 +971,169 @@ const onChatBlockClick = async (turn: ConversationTurn, block: any) => {
     selectBlock(match)
 }
 
-// Pane B: timeline bar helpers
-const itemLlmMs = (item: any): number => {
-    const st = item?.ref?.tool_execution?.sub_timings_json
-    if (st?.codegen_ms != null) return st.codegen_ms
-    const pm = item?.ref?.plan_decision?.metrics_json
-    if (pm?.total_duration_ms != null) return pm.total_duration_ms
-    return 0
+// Pane B: per-step timing waterfall.
+// A step is one loop iteration: the planner LLM decides, then the tool runs.
+// Planner time lives on plan_decision.metrics_json (the PlanDecision row is
+// written when the planner finishes, so created_at ≈ planner end); tool time
+// lives on tool_execution. Offsets are relative to agent_execution.started_at
+// so bars share the run's time axis and gaps between steps stay visible.
+type TimingSegment = { kind: 'planner' | 'tool_llm' | 'tool_exec' | 'setup', start: number, ms: number }
+interface StepTiming {
+    plannerMs: number | null
+    firstTokenMs: number | null
+    thinkingMs: number | null
+    toolMs: number | null
+    codegenMs: number | null
+    execMs: number | null
+    totalMs: number
+    segments: TimingSegment[]
 }
-const itemExecMs = (item: any): number => {
-    const st = item?.ref?.tool_execution?.sub_timings_json
-    if (st?.execution_ms != null) return st.execution_ms
-    if (item?.ref?.tool_execution) {
-        const total = getItemDurationMs(item) || 0
-        return Math.max(total - (st?.codegen_ms || 0), 0)
+
+const parseTs = (v: any): number | null => {
+    if (!v) return null
+    const s = String(v)
+    // Naive timestamps from the backend are UTC
+    const ms = Date.parse(/[zZ]|[+-]\d\d:?\d\d$/.test(s) ? s : s + 'Z')
+    return Number.isNaN(ms) ? null : ms
+}
+
+const runStartTs = computed(() => parseTs(traceData.value?.agent_execution?.started_at))
+
+function buildStepTimings(blockList: any[], runStart: number | null): Map<string, StepTiming> {
+    const out = new Map<string, StepTiming>()
+    const seenDecisions = new Set<string>()
+    let cursor = 0  // fallback placement when timestamps are missing
+    for (const b of blockList) {
+        const pd = b.plan_decision
+        const pm = pd?.metrics_json
+        const te = b.tool_execution
+        // A decision that fans out into several tools yields several blocks;
+        // only the first one carries the planner time.
+        let plannerMs: number | null = null
+        if (pd && pm?.total_duration_ms != null && !seenDecisions.has(pd.id)) {
+            plannerMs = pm.total_duration_ms
+        }
+        if (pd?.id) seenDecisions.add(pd.id)
+        const toolMs: number | null = typeof te?.duration_ms === 'number' ? te.duration_ms : null
+        if (plannerMs == null && toolMs == null) continue
+
+        const st = te?.sub_timings_json
+        const codegenMs = st?.codegen_ms ?? null
+        const execMs = st?.execution_ms ?? (toolMs != null ? Math.max(toolMs - (codegenMs || 0), 0) : null)
+
+        const segments: TimingSegment[] = []
+        const pdEnd = parseTs(pd?.created_at)
+        let plannerStart = runStart != null && pdEnd != null && plannerMs != null ? pdEnd - plannerMs - runStart : null
+        const teStart = parseTs(te?.started_at)
+        let toolStart = runStart != null && teStart != null ? teStart - runStart : null
+        if (plannerMs != null) {
+            if (plannerStart == null) plannerStart = toolStart != null ? toolStart - plannerMs : cursor
+            segments.push({ kind: 'planner', start: Math.max(plannerStart, 0), ms: plannerMs })
+        }
+        if (toolMs != null) {
+            if (toolStart == null) toolStart = plannerStart != null && plannerMs != null ? plannerStart + plannerMs : cursor
+            const llm = Math.min(codegenMs || 0, toolMs)
+            if (llm > 0) segments.push({ kind: 'tool_llm', start: toolStart, ms: llm })
+            if (toolMs - llm > 0) segments.push({ kind: 'tool_exec', start: toolStart + llm, ms: toolMs - llm })
+        }
+        const end = Math.max(...segments.map(s => s.start + s.ms))
+        cursor = Math.max(cursor, end)
+        out.set(b.id, {
+            plannerMs,
+            firstTokenMs: plannerMs != null ? (pm?.first_token_ms ?? null) : null,
+            thinkingMs: plannerMs != null ? (pm?.thinking_ms ?? null) : null,
+            toolMs, codegenMs, execMs,
+            totalMs: (plannerMs || 0) + (toolMs || 0),
+            segments,
+        })
     }
-    return 0
+    return out
 }
-const maxItemMs = computed(() => {
-    const ds = visibleLeftItems.value
-        .map((it: any) => getItemDurationMs(it))
-        .filter((x: any) => x != null) as number[]
-    return ds.length ? Math.max(...ds, 1) : 1
+
+const stepTimings = computed(() => buildStepTimings(blocks.value as any[], runStartTs.value))
+
+// Chat pane shows every turn, not just the focused one; totals only.
+const chatStepTimings = computed(() => {
+    const out = new Map<string, StepTiming>()
+    for (const turn of turns.value) {
+        for (const [id, timing] of buildStepTimings(turn.completion_blocks || [], null)) out.set(id, timing)
+    }
+    return out
 })
-const barPct = (ms: number) => (ms ? Math.max((ms / maxItemMs.value) * 100, 1) : 0)
+const chatBlockDurationMs = (block: any): number | null =>
+    chatStepTimings.value.get(block.id)?.totalMs ?? (typeof block.duration_ms === 'number' ? block.duration_ms : null)
+
+const selectedStepTiming = computed(() => (selectedItem.value?.id ? stepTimings.value.get(selectedItem.value.id) || null : null))
+const selectedStepTimingRows = computed(() => {
+    const st = selectedStepTiming.value
+    if (!st) return []
+    const rows: Array<{ key: string, label: string, ms: number, color: string, indent?: boolean }> = []
+    if (st.plannerMs != null) {
+        rows.push({ key: 'planner', label: t('traceModal.segment_planner'), ms: st.plannerMs, color: 'bg-purple-400' })
+        if (st.firstTokenMs != null) rows.push({ key: 'ttft', label: t('traceModal.firstToken'), ms: st.firstTokenMs, color: 'bg-purple-200', indent: true })
+        if (st.thinkingMs != null) rows.push({ key: 'thinking', label: t('traceModal.thinking'), ms: st.thinkingMs, color: 'bg-purple-200', indent: true })
+    }
+    if (st.toolMs != null) {
+        rows.push({ key: 'tool', label: t('traceModal.tool'), ms: st.toolMs, color: 'bg-amber-400' })
+        if (st.codegenMs != null) rows.push({ key: 'codegen', label: t('traceModal.segment_tool_llm'), ms: st.codegenMs, color: 'bg-purple-200', indent: true })
+        if (st.execMs != null && st.codegenMs != null) rows.push({ key: 'exec', label: t('traceModal.segment_tool_exec'), ms: st.execMs, color: 'bg-amber-300', indent: true })
+    }
+    return rows
+})
+
+const stepTimingFor = (item: any): StepTiming | null => {
+    const id = item?.ref?.id ?? item?.id
+    return id ? stepTimings.value.get(id) || null : null
+}
+
+// Setup = time from run start to the first step starting (context build etc.)
+const setupMs = computed(() => {
+    const starts = [...stepTimings.value.values()].flatMap(t => t.segments.map(s => s.start))
+    if (!starts.length || runStartTs.value == null) return traceData.value?.timing_breakdown?.setup_ms ?? null
+    return Math.max(Math.min(...starts), 0)
+})
+
+const runTotalMs = computed(() => {
+    const total = traceData.value?.timing_breakdown?.total_duration_ms ?? traceData.value?.agent_execution?.total_duration_ms
+    const ends = [...stepTimings.value.values()].flatMap(t => t.segments.map(s => s.start + s.ms))
+    return Math.max(total || 0, ...ends, 1)
+})
+
+// Whatever the steps and setup don't cover: DB commits, context refresh
+// between iterations, final persistence. Shown so the rows add up to the total.
+const overheadMs = computed(() => {
+    const total = traceData.value?.timing_breakdown?.total_duration_ms ?? traceData.value?.agent_execution?.total_duration_ms
+    if (total == null) return null
+    // Union of the timeline intervals — tools of one decision can run in
+    // parallel, so summing step totals would double-count the overlap.
+    const intervals = [...stepTimings.value.values()]
+        .flatMap(t => t.segments.map(s => [s.start, s.start + s.ms] as [number, number]))
+        .sort((a, b) => a[0] - b[0])
+    let covered = 0
+    let curStart = -1, curEnd = -1
+    for (const [a, b] of intervals) {
+        if (a > curEnd) { covered += curEnd - curStart; curStart = a; curEnd = b }
+        else curEnd = Math.max(curEnd, b)
+    }
+    covered += curEnd - curStart
+    const rest = total - covered - (setupMs.value || 0)
+    return rest >= 50 ? rest : null
+})
+
+const setupSegments = computed<TimingSegment[]>(() => (setupMs.value ? [{ kind: 'setup', start: 0, ms: setupMs.value }] : []))
+
+const segmentStyle = (s: TimingSegment) => {
+    const total = runTotalMs.value
+    const left = Math.min((s.start / total) * 100, 100)
+    const width = Math.max(Math.min((s.ms / total) * 100, 100 - left), 0.75)
+    return { insetInlineStart: left + '%', width: width + '%' }
+}
+const segmentClass = (s: TimingSegment) => ({
+    planner: 'bg-purple-400',
+    tool_llm: 'bg-purple-200 dark:bg-purple-300/60',
+    tool_exec: 'bg-amber-400',
+    setup: 'bg-gray-300 dark:bg-gray-600',
+}[s.kind])
 
 const fetchTraceData = async () => {
     if (!props.reportId || !selectedCompletionId.value) return
@@ -1059,15 +1249,13 @@ const selectLeftItem = (item: any) => {
 }
 
 
+// Step duration = planner LLM + tool. Falls back to the block's own span for
+// blocks without planner/tool timing.
 function getItemDurationMs(item: any): number | null {
+    const timing = stepTimingFor(item)
+    if (timing) return timing.totalMs
     const block = item?.ref || item
-    if (!block) return null
-    const te = block.tool_execution
-    if (te && typeof te.duration_ms === 'number') return te.duration_ms
-    if (typeof block.duration_ms === 'number') return block.duration_ms
-    // Planner decision timing
-    const pm = block.plan_decision?.metrics_json
-    if (pm?.total_duration_ms != null) return pm.total_duration_ms
+    if (typeof block?.duration_ms === 'number') return block.duration_ms
     return null
 }
 
