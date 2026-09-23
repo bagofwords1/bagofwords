@@ -49,21 +49,22 @@ Claude Haiku 4.5 as the only enabled model):
 TEST CONNECTION => Connected successfully. Found 2 tables.
 >> save and continue
 >> wait for schema indexing to complete
-CONNECTION => Infor EPM (mock farm) infor_epm 99e266e8-… is_active: true
+CONNECTION => Infor EPM (mock farm) infor_epm 9618fc72-… is_active: true
 INDEXING => completed tables: 2
 >> create agent over the connection via API
 ACTIVATE TABLES => 200 {"activated_count":2,"deactivated_count":0,"total_selected":2}
 >> type + send the prompt
-REPORT URL => http://localhost:3000/reports/8e177c6e-…
+REPORT URL => http://localhost:3000/reports/a7b27bcb-…
 COMPLETIONS => user:success, system:success
 ANSWER MENTIONS REGIONS => true
 E2E RESULT: PASS
 ```
 
-The agent's turn (from `completions` / `tool_executions`): `describe_tables`
-found `DEMO_OLAP/Sales` with its dimension and measure columns; `create_data`
-wrote MDX against `[Sales]`, got one syntax rejection back from the process
-(surfaced verbatim as the tool error), corrected itself, and rendered:
+The agent's turn (from `completions` / `tool_executions`): `create_data`
+wrote MDX against `[Sales]` in a single attempt (an earlier run, before the
+mock's WHERE grammar was relaxed — see finding 2 — needed one self-correction
+after the process rejected the statement; the rejection text reached the
+agent verbatim as the tool error) and rendered:
 
 | Region | Revenue |
 |---|---|
@@ -74,8 +75,8 @@ wrote MDX against `[Sales]`, got one syntax rejection back from the process
 
 — identical to the mock cube's own aggregation for
 `{[SalesMeasures].[Revenue]} ON COLUMNS, [Region].[All].Children ON ROWS … WHERE ([Period].[2024])`.
-The mock log shows four `BOW_ExecuteMdx/async` calls with two
-`getasyncresult` polls each (first poll `Running`, second `Completed`).
+The mock log shows one `BOW_ExecuteMdx/async` call for the turn with two
+`getasyncresult` polls (first poll `Running`, second `Completed`).
 
 Screenshots: `docs/feedback-loops/assets/infor-epm/` (form, Test Connection,
 agent answer).
