@@ -3283,7 +3283,22 @@
     "userNotFound": "Användaren hittades inte i organisationen",
     "copyFailed": "Det gick inte att kopiera",
     "includeDataTab": "Inkludera fliken Data",
-    "includeDataTabDesc": "Mottagarna ser hela datahistoriken och processen som användes för att skapa den här rapporten"
+    "includeDataTabDesc": "Mottagarna ser hela datahistoriken och processen som användes för att skapa den här rapporten",
+    "allowChat": "Tillåt chatt",
+    "allowChatDesc": "Inloggade medlemmar i arbetsytan kan ställa frågor om den här instrumentpanelen",
+    "chatScope": "Chatten kan använda",
+    "chatScopeAgents": "Rapportens agenter",
+    "chatScopeAgentsDesc": "Chatten får köra skrivskyddade livefrågor mot de valda agenterna",
+    "chatScopeDataOnly": "Endast instrumentpanelens data",
+    "chatScopeDataOnlyDesc": "Chatten svarar bara utifrån data som redan finns på den här instrumentpanelen",
+    "chatNoAgents": "Inga agenter är kopplade till den här rapporten — chatten svarar bara utifrån instrumentpanelens data.",
+    "chatModel": "Standardmodell",
+    "chatModelDesc": "Modellen som chatten använder för tittare. Tittare utan åtkomst till den använder sin egen standardmodell.",
+    "chatModelOrgDefault": "Organisationens standard ({name})",
+    "chatModelOrgDefaultPlain": "Organisationens standard",
+    "chatModelReport": "Samma som rapporten ({name})",
+    "chatModelReportPlain": "Samma som rapporten",
+    "chatModelUnavailable": "Modellen är inte tillgänglig — standard används"
   },
   "publish": {
     "published": "Publicerad",

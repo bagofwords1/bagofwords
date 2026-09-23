@@ -347,8 +347,11 @@ class ReportService:
                 report.artifact_chat_data_source_ids = ids
 
         if share_type == 'artifact' and artifact_chat_model_id is not None:
+            from app.services.artifact_chat_service import ORG_DEFAULT_CHAT_MODEL
             if artifact_chat_model_id == "":
                 report.artifact_chat_model_id = None
+            elif artifact_chat_model_id == ORG_DEFAULT_CHAT_MODEL:
+                report.artifact_chat_model_id = ORG_DEFAULT_CHAT_MODEL
             else:
                 # Same gate as ReportUpdate.model_id: the owner must be able to
                 # use the model they hand to viewers (exists, enabled, granted).

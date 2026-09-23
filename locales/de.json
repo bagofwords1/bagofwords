@@ -3283,7 +3283,22 @@
     "userNotFound": "Benutzer in Organisation nicht gefunden",
     "copyFailed": "Kopieren fehlgeschlagen",
     "includeDataTab": "Registerkarte „Daten“ einschließen",
-    "includeDataTabDesc": "Empfänger sehen den vollständigen Datenverlauf und den Prozess, mit dem dieser Bericht erstellt wurde"
+    "includeDataTabDesc": "Empfänger sehen den vollständigen Datenverlauf und den Prozess, mit dem dieser Bericht erstellt wurde",
+    "allowChat": "Chat erlauben",
+    "allowChatDesc": "Angemeldete Mitglieder des Arbeitsbereichs können Fragen zu diesem Dashboard stellen",
+    "chatScope": "Chat darf verwenden",
+    "chatScopeAgents": "Agenten des Berichts",
+    "chatScopeAgentsDesc": "Der Chat darf schreibgeschützte Live-Abfragen an die ausgewählten Agenten ausführen",
+    "chatScopeDataOnly": "Nur Dashboard-Daten",
+    "chatScopeDataOnlyDesc": "Der Chat antwortet nur mit den Daten, die bereits auf diesem Dashboard sind",
+    "chatNoAgents": "Diesem Bericht sind keine Agenten zugeordnet – der Chat antwortet nur mit den Dashboard-Daten.",
+    "chatModel": "Standardmodell",
+    "chatModelDesc": "Das Modell, das der Chat für Betrachter verwendet. Betrachter ohne Zugriff darauf nutzen ihr eigenes Standardmodell.",
+    "chatModelOrgDefault": "Standard der Organisation ({name})",
+    "chatModelOrgDefaultPlain": "Standard der Organisation",
+    "chatModelReport": "Wie im Bericht ({name})",
+    "chatModelReportPlain": "Wie im Bericht",
+    "chatModelUnavailable": "Modell nicht verfügbar – Standard wird verwendet"
   },
   "publish": {
     "published": "Veröffentlicht",

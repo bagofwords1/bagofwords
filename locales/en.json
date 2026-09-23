@@ -3445,9 +3445,11 @@
     "chatScopeDataOnlyDesc": "Chat answers only from the data already on this dashboard",
     "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only.",
     "chatModel": "Default model",
-    "chatModelDesc": "Model viewer chat uses. Viewers without access to it fall back to their own default.",
-    "chatModelDefault": "Workspace default",
+    "chatModelDesc": "The model chat uses for viewers. Viewers without access to it fall back to their own default.",
+    "chatModelOrgDefault": "Organization default ({name})",
+    "chatModelOrgDefaultPlain": "Organization default",
     "chatModelReport": "Same as report ({name})",
+    "chatModelReportPlain": "Same as report",
     "chatModelUnavailable": "Unavailable model — using default"
   },
   "publish": {

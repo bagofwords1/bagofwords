@@ -30,6 +30,10 @@ logger = logging.getLogger(__name__)
 # prompt bounded on large dashboards while staying complete for typical ones.
 MAX_CONTEXT_ROWS_PER_VIZ = 100
 
+# artifact_chat_model_id sentinel: "use the organization default model",
+# as opposed to null ("inherit the dashboard's own model").
+ORG_DEFAULT_CHAT_MODEL = 'org_default'
+
 
 class ArtifactChatService:
 
@@ -156,11 +160,17 @@ class ArtifactChatService:
 
     @staticmethod
     def chat_model_id(source: Report) -> str | None:
-        """Model pinned on a viewer's chat report: the owner's chat default,
-        else the dashboard's own model; None = viewer/org default. Access is
-        not checked here — get_default_model_for_report gates it per viewer
-        at run time and falls back silently."""
-        return getattr(source, 'artifact_chat_model_id', None) or source.model_id
+        """Model pinned on a viewer's chat report.
+
+        artifact_chat_model_id: null = inherit the dashboard's own model;
+        ORG_DEFAULT_CHAT_MODEL = pin nothing, so the organization default
+        resolves at run time (and Auto routing may apply); an id = that model.
+        Access is not checked here — get_default_model_for_report gates it per
+        viewer at run time and falls back silently."""
+        chosen = getattr(source, 'artifact_chat_model_id', None)
+        if chosen == ORG_DEFAULT_CHAT_MODEL:
+            return None
+        return chosen or source.model_id
 
     async def resolve_chat_report(self, db, source: Report, user, agent_ids: list[str]) -> Report:
         """Get-or-create this viewer's chat report and sync its roster.

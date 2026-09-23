@@ -3283,7 +3283,22 @@
     "userNotFound": "Utente non trovato nell'organizzazione",
     "copyFailed": "Impossibile copiare",
     "includeDataTab": "Includi la scheda Dati",
-    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report"
+    "includeDataTabDesc": "I destinatari vedranno la cronologia completa dei dati e il processo utilizzato per generare questo report",
+    "allowChat": "Consenti chat",
+    "allowChatDesc": "I membri dell'area di lavoro che hanno effettuato l'accesso possono porre domande su questa dashboard",
+    "chatScope": "La chat può usare",
+    "chatScopeAgents": "Agenti del report",
+    "chatScopeAgentsDesc": "La chat può eseguire query live in sola lettura sugli agenti selezionati",
+    "chatScopeDataOnly": "Solo dati della dashboard",
+    "chatScopeDataOnlyDesc": "La chat risponde solo con i dati già presenti in questa dashboard",
+    "chatNoAgents": "Nessun agente è collegato a questo report: la chat risponderà solo con i dati della dashboard.",
+    "chatModel": "Modello predefinito",
+    "chatModelDesc": "Il modello usato dalla chat per chi visualizza. Chi non vi ha accesso usa il proprio modello predefinito.",
+    "chatModelOrgDefault": "Predefinito dell'organizzazione ({name})",
+    "chatModelOrgDefaultPlain": "Predefinito dell'organizzazione",
+    "chatModelReport": "Come nel report ({name})",
+    "chatModelReportPlain": "Come nel report",
+    "chatModelUnavailable": "Modello non disponibile: viene usato il predefinito"
   },
   "publish": {
     "published": "Pubblicato",

@@ -3283,7 +3283,22 @@
     "userNotFound": "Utilisateur introuvable dans l'organisation",
     "copyFailed": "Échec de la copie",
     "includeDataTab": "Inclure l'onglet Données",
-    "includeDataTabDesc": "Les destinataires verront l'historique complet des données et le processus utilisé pour générer ce rapport"
+    "includeDataTabDesc": "Les destinataires verront l'historique complet des données et le processus utilisé pour générer ce rapport",
+    "allowChat": "Autoriser le chat",
+    "allowChatDesc": "Les membres connectés de l'espace de travail peuvent poser des questions sur ce tableau de bord",
+    "chatScope": "Le chat peut utiliser",
+    "chatScopeAgents": "Agents du rapport",
+    "chatScopeAgentsDesc": "Le chat peut exécuter des requêtes en direct en lecture seule sur les agents sélectionnés",
+    "chatScopeDataOnly": "Données du tableau de bord uniquement",
+    "chatScopeDataOnlyDesc": "Le chat répond uniquement à partir des données déjà présentes sur ce tableau de bord",
+    "chatNoAgents": "Aucun agent n'est associé à ce rapport — le chat répondra uniquement à partir des données du tableau de bord.",
+    "chatModel": "Modèle par défaut",
+    "chatModelDesc": "Le modèle utilisé par le chat pour les lecteurs. Ceux qui n'y ont pas accès utilisent leur propre modèle par défaut.",
+    "chatModelOrgDefault": "Par défaut de l'organisation ({name})",
+    "chatModelOrgDefaultPlain": "Par défaut de l'organisation",
+    "chatModelReport": "Identique au rapport ({name})",
+    "chatModelReportPlain": "Identique au rapport",
+    "chatModelUnavailable": "Modèle indisponible — modèle par défaut utilisé"
   },
   "publish": {
     "published": "Publié",

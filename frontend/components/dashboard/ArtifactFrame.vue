@@ -212,7 +212,7 @@
         </UTooltip>
 
         <!-- Share Dashboard -->
-        <ShareModal v-if="report" :report="report" share-type="artifact" title="Share Dashboard" />
+        <ShareModal v-if="report" :report="report" share-type="artifact" :title="$t('share.shareDashboard')" />
       </div>
     </div>
 

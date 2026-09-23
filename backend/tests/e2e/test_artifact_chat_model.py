@@ -8,7 +8,8 @@ PUT /reports/{id}/visibility/artifact). Contract locked in here:
 - every viewer message re-syncs the viewer's hidden chat report
   (report_type='artifact_chat') to the setting — including chat reports that
   already existed before the owner changed it — falling back to the
-  dashboard's own model_id when the setting is cleared.
+  dashboard's own model_id when the setting is cleared, and pinning nothing
+  (organization default at run time) for "org_default".
 
 The agent loop is stubbed at AgentV2.main_execution so no LLM is contacted;
 routes/services/DB run real.
@@ -96,6 +97,10 @@ def test_chat_model_set_clear_and_omit(
     assert r.status_code == 404
     assert get_report(rid, user_token=token, org_id=org_id)["artifact_chat_model_id"] == models[0]["id"]
 
+    # "org_default" is stored as-is (no model validation — it is not an id).
+    assert _put_chat(test_client, rid, token, org_id, artifact_chat_model_id="org_default").status_code == 200
+    assert get_report(rid, user_token=token, org_id=org_id)["artifact_chat_model_id"] == "org_default"
+
     # "" clears back to inherit.
     assert _put_chat(test_client, rid, token, org_id, artifact_chat_model_id="").status_code == 200
     assert get_report(rid, user_token=token, org_id=org_id)["artifact_chat_model_id"] is None
@@ -148,6 +153,13 @@ def test_chat_report_model_follows_owner_setting(
     assert _put_chat(test_client, rid, token, org_id, artifact_chat_model_id="").status_code == 200
     _send_chat(test_client, rid, token, org_id)
     assert _chat_report_model(test_client, rid, token, org_id) == m1
+
+    # "org_default" skips the dashboard's model: nothing pinned, so the
+    # organization default resolves at run time.
+    assert _put_chat(test_client, rid, token, org_id, artifact_chat_model_id="org_default").status_code == 200
+    _send_chat(test_client, rid, token, org_id)
+    assert _chat_report_model(test_client, rid, token, org_id) is None
+    assert _put_chat(test_client, rid, token, org_id, artifact_chat_model_id="").status_code == 200
 
     # No dashboard model either → nothing pinned (viewer/org default at run time).
     assert test_client.put(f"/api/reports/{rid}", json={"model_id": ""},

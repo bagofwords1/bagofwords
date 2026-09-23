@@ -124,12 +124,12 @@
                     </label>
                     <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ $t('share.chatNoAgents') }}</p>
 
-                    <!-- Default model for viewer chat. INHERIT_MODEL = the
-                         report's model, then each viewer's/org default. -->
+                    <!-- Default model for viewer chat: the report's own
+                         model, the organization default, or a specific model. -->
                     <div class="pt-2" data-testid="chat-model">
                         <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-1">{{ $t('share.chatModel') }}</label>
                         <USelectMenu
-                            v-model="chatModelId"
+                            v-model="chatModelValue"
                             :options="chatModelOptions"
                             value-attribute="value"
                             option-attribute="label"
@@ -271,24 +271,42 @@ const chatEnabled = ref(false)
 const chatScope = ref<'agents' | 'data_only'>('agents')
 const chatAgentIds = ref<string[]>([])
 const reportAgents = ref<{ id: string; name: string }[]>([])
-// Default model for artifact-page chat. USelectMenu treats '' as "nothing
-// selected" (blank label), so the inherit option carries its own sentinel and
-// is mapped to the backend's "" clear value on save.
+// Default model for artifact-page chat. Stored values: null = inherit the
+// report's own model, ORG_DEFAULT_MODEL = the organization default, else a
+// model id. USelectMenu treats '' as "nothing selected" (blank label), so
+// inherit carries its own sentinel and is sent as the backend's "" clear value.
 const INHERIT_MODEL = '__inherit__'
+const ORG_DEFAULT_MODEL = 'org_default'
 const chatModelId = ref(INHERIT_MODEL)
-const chatModels = ref<{ id: string; name: string; provider?: string }[]>([])
-// The report's own model override — what INHERIT_MODEL resolves to before the workspace default.
+const chatModels = ref<{ id: string; name: string; provider?: string; isDefault?: boolean }[]>([])
+// The report's own model override (what INHERIT_MODEL resolves to).
 const reportModelId = ref('')
 const modelLabel = (m: { name: string; provider?: string }) => (m.provider ? `${m.name} · ${m.provider}` : m.name)
+// Without a report model, inheriting IS the organization default: show one
+// option for both stored values instead of two identical ones.
+const chatModelValue = computed({
+    get: () => (!reportModelId.value && chatModelId.value === INHERIT_MODEL ? ORG_DEFAULT_MODEL : chatModelId.value),
+    set: (v: string) => { chatModelId.value = v },
+})
 const chatModelOptions = computed(() => {
-    const inherited = chatModels.value.find(m => m.id === reportModelId.value)
-    const options = [
-        { value: INHERIT_MODEL, label: inherited ? t('share.chatModelReport', { name: inherited.name }) : t('share.chatModelDefault') },
-        ...chatModels.value.map(m => ({ value: m.id, label: modelLabel(m) })),
-    ]
+    const orgDefault = chatModels.value.find(m => m.isDefault)
+    const orgOption = {
+        value: ORG_DEFAULT_MODEL,
+        label: orgDefault ? t('share.chatModelOrgDefault', { name: orgDefault.name }) : t('share.chatModelOrgDefaultPlain'),
+    }
+    const options = reportModelId.value
+        ? (() => {
+            const inherited = chatModels.value.find(m => m.id === reportModelId.value)
+            return [
+                { value: INHERIT_MODEL, label: inherited ? t('share.chatModelReport', { name: inherited.name }) : t('share.chatModelReportPlain') },
+                orgOption,
+            ]
+        })()
+        : [orgOption]
+    options.push(...chatModels.value.map(m => ({ value: m.id, label: modelLabel(m) })))
     // A stored pick that was since disabled/deleted: keep it visible (chat
     // falls back to the default at run time) instead of a blank select.
-    if (chatModelId.value !== INHERIT_MODEL && !chatModels.value.some(m => m.id === chatModelId.value)) {
+    if (![INHERIT_MODEL, ORG_DEFAULT_MODEL].includes(chatModelId.value) && !chatModels.value.some(m => m.id === chatModelId.value)) {
         options.push({ value: chatModelId.value, label: t('share.chatModelUnavailable') })
     }
     return options
@@ -486,7 +504,7 @@ const fetchVisibility = async () => {
             try {
                 const modelsRes = await useMyFetch('/llm/models?is_enabled=true')
                 chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
-                    id: m.id, name: m.name || m.model_id, provider: m.provider?.name,
+                    id: m.id, name: m.name || m.model_id, provider: m.provider?.name, isDefault: !!m.is_default,
                 }))
             } catch { chatModels.value = [] }
             const storedIds = data.artifact_chat_data_source_ids
