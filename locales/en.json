@@ -3443,7 +3443,12 @@
     "chatScopeAgentsDesc": "Chat may run live read-only queries against the selected agents",
     "chatScopeDataOnly": "Dashboard data only",
     "chatScopeDataOnlyDesc": "Chat answers only from the data already on this dashboard",
-    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only."
+    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only.",
+    "chatModel": "Default model",
+    "chatModelDesc": "Model viewer chat uses. Viewers without access to it fall back to their own default.",
+    "chatModelDefault": "Workspace default",
+    "chatModelReport": "Same as report ({name})",
+    "chatModelUnavailable": "Unavailable model — using default"
   },
   "publish": {
     "published": "Published",

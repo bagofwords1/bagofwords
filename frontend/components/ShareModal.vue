@@ -123,6 +123,23 @@
                         </span>
                     </label>
                     <p v-if="reportAgents.length === 0" class="text-[11px] text-gray-400">{{ $t('share.chatNoAgents') }}</p>
+
+                    <!-- Default model for viewer chat. INHERIT_MODEL = the
+                         report's model, then each viewer's/org default. -->
+                    <div class="pt-2" data-testid="chat-model">
+                        <label class="text-[11px] font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider block mb-1">{{ $t('share.chatModel') }}</label>
+                        <USelectMenu
+                            v-model="chatModelId"
+                            :options="chatModelOptions"
+                            value-attribute="value"
+                            option-attribute="label"
+                            size="xs"
+                            :disabled="isSaving"
+                            :ui="{ rounded: 'rounded-lg', size: { xs: 'text-xs' }, padding: { xs: 'px-2.5 py-1.5' } }"
+                            @change="onChatModelChange"
+                        />
+                        <span class="text-[11px] text-gray-400 block mt-1">{{ $t('share.chatModelDesc') }}</span>
+                    </div>
                 </div>
             </div>
 
@@ -254,6 +271,28 @@ const chatEnabled = ref(false)
 const chatScope = ref<'agents' | 'data_only'>('agents')
 const chatAgentIds = ref<string[]>([])
 const reportAgents = ref<{ id: string; name: string }[]>([])
+// Default model for artifact-page chat. USelectMenu treats '' as "nothing
+// selected" (blank label), so the inherit option carries its own sentinel and
+// is mapped to the backend's "" clear value on save.
+const INHERIT_MODEL = '__inherit__'
+const chatModelId = ref(INHERIT_MODEL)
+const chatModels = ref<{ id: string; name: string; provider?: string }[]>([])
+// The report's own model override — what INHERIT_MODEL resolves to before the workspace default.
+const reportModelId = ref('')
+const modelLabel = (m: { name: string; provider?: string }) => (m.provider ? `${m.name} · ${m.provider}` : m.name)
+const chatModelOptions = computed(() => {
+    const inherited = chatModels.value.find(m => m.id === reportModelId.value)
+    const options = [
+        { value: INHERIT_MODEL, label: inherited ? t('share.chatModelReport', { name: inherited.name }) : t('share.chatModelDefault') },
+        ...chatModels.value.map(m => ({ value: m.id, label: modelLabel(m) })),
+    ]
+    // A stored pick that was since disabled/deleted: keep it visible (chat
+    // falls back to the default at run time) instead of a blank select.
+    if (chatModelId.value !== INHERIT_MODEL && !chatModels.value.some(m => m.id === chatModelId.value)) {
+        options.push({ value: chatModelId.value, label: t('share.chatModelUnavailable') })
+    }
+    return options
+})
 
 const currentVisibility = ref('none')
 const conversationShareToken = ref<string | null>(null)
@@ -441,6 +480,15 @@ const fetchVisibility = async () => {
             } catch {
                 reportAgents.value = (data.data_sources || []).map((ds: any) => ({ id: ds.id, name: ds.name }))
             }
+            chatModelId.value = data.artifact_chat_model_id || INHERIT_MODEL
+            if (props.report) props.report.artifact_chat_model_id = data.artifact_chat_model_id || null
+            reportModelId.value = data.model_id || ''
+            try {
+                const modelsRes = await useMyFetch('/llm/models?is_enabled=true')
+                chatModels.value = ((modelsRes.data.value as any[]) || []).map((m: any) => ({
+                    id: m.id, name: m.name || m.model_id, provider: m.provider?.name,
+                }))
+            } catch { chatModels.value = [] }
             const storedIds = data.artifact_chat_data_source_ids
             if (storedIds === null || storedIds === undefined) {
                 chatScope.value = reportAgents.value.length > 0 ? 'agents' : 'data_only'
@@ -599,6 +647,17 @@ const onChatScopeChange = async () => {
         chatAgentIds.value = reportAgents.value.map(a => a.id)
     }
     await saveChatSettings({ artifact_chat_data_source_ids: chatScopeIdsPayload() }, () => {})
+}
+
+const onChatModelChange = async (value: string) => {
+    const next = value === INHERIT_MODEL ? '' : value
+    const prev = props.report?.artifact_chat_model_id || ''
+    if (next === prev) return
+    if (props.report) props.report.artifact_chat_model_id = next || null
+    await saveChatSettings(
+        { artifact_chat_model_id: next },
+        () => { chatModelId.value = prev || INHERIT_MODEL; if (props.report) props.report.artifact_chat_model_id = prev || null },
+    )
 }
 
 const onChatAgentsChange = async () => {

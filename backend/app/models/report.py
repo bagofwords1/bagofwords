@@ -70,6 +70,11 @@ class Report(BaseSchema):
     # subset. Never Auto: a viewer's chat can only narrow from here — the
     # effective set is this ∩ the viewer's own accessible agents.
     artifact_chat_data_source_ids = Column(JSON, nullable=True, default=None)
+    # Default LLM for artifact-page chat, chosen by the owner. null = inherit
+    # this report's own model_id, then the viewer's/org default. Applied to each
+    # viewer's chat report on every message, so owner edits take effect at once;
+    # a viewer who cannot use the model falls back to their own default.
+    artifact_chat_model_id = Column(String(36), nullable=True, default=None)
 
     cron_schedule = Column(String, nullable=True)
     # Rerun the artifact's queries when a viewer opens the shared report page

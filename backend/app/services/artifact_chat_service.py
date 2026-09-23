@@ -154,6 +154,14 @@ class ArtifactChatService:
             if str(ds.id) in allowed_ids and DataSourceService.is_execution_live(ds)
         ]
 
+    @staticmethod
+    def chat_model_id(source: Report) -> str | None:
+        """Model pinned on a viewer's chat report: the owner's chat default,
+        else the dashboard's own model; None = viewer/org default. Access is
+        not checked here — get_default_model_for_report gates it per viewer
+        at run time and falls back silently."""
+        return getattr(source, 'artifact_chat_model_id', None) or source.model_id
+
     async def resolve_chat_report(self, db, source: Report, user, agent_ids: list[str]) -> Report:
         """Get-or-create this viewer's chat report and sync its roster.
 
@@ -177,13 +185,17 @@ class ArtifactChatService:
                 status='draft',
                 report_type='artifact_chat',
                 mode='chat',
-                model_id=source.model_id,
+                model_id=self.chat_model_id(source),
                 user_id=str(user.id),
                 organization_id=str(source.organization_id),
                 forked_from_id=str(source.id),
             )
             db.add(chat_report)
             await db.flush()
+        else:
+            # Re-synced every message, like the roster: owner edits to the chat
+            # default model apply on the viewer's next turn.
+            chat_report.model_id = self.chat_model_id(source)
 
         # Sync roster to the effective set (idempotent).
         current_rows = (await db.execute(
