@@ -119,6 +119,7 @@ Arguments:
                 data.tables_by_source,
                 context_hub.schema_builder,
                 db_lock=runtime_ctx.get("tool_db_lock"),
+                static_schemas=getattr(getattr(runtime_ctx.get("context_view"), "static", None), "schemas", None),
             )
 
         # 2. Build context
@@ -204,6 +205,7 @@ Arguments:
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,

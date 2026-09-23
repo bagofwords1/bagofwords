@@ -343,6 +343,7 @@ CRITICAL:
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,

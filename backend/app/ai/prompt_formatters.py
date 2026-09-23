@@ -126,7 +126,16 @@ async def build_codegen_context(
             enable_load_step=_ls_enabled,
             step_max_age_seconds=_ls_max_age,
         )
-        if resolver.db is not None and resolver.report is not None:
+        # A read on its own short-lived session: this runs inside parallel
+        # tool calls, and the agent's shared session is not safe for
+        # concurrent use (a collision here used to drop the section silently).
+        _read_sm = runtime_ctx.get("read_session_maker") if isinstance(runtime_ctx, dict) else None
+        if _read_sm is not None and resolver.report is not None:
+            async with _read_sm() as _read_db:
+                resolver.db = _read_db
+                section = await resolver.list_for_discovery()
+            loadables_context = section.render() if section else ""
+        elif resolver.db is not None and resolver.report is not None:
             section = await resolver.list_for_discovery()
             loadables_context = section.render() if section else ""
     except Exception:

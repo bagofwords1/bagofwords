@@ -190,6 +190,26 @@ def _excel_files_mapping(excel_files) -> str:
     return "\n".join(lines)
 
 
+def _render_snippets(top_success) -> str:
+    """Render the successful-examples section. Past code is the style the model
+    copies, so a long example teaches long code: keep only short ones; none is
+    better than a bad reference."""
+    top_success = [
+        s for s in (top_success or [])
+        if isinstance(s, dict)
+        and (s.get("code") or "").count("\n") <= _MAX_EXAMPLE_SNIPPET_LINES
+    ]
+    if not top_success:
+        return ""
+    lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
+    for idx, s in enumerate(top_success, start=1):
+        lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
+        code = s.get("code") or ""
+        lines.append(code)
+        lines.append("")
+    return "\n".join(lines).strip()
+
+
 class Coder:
     def __init__(
         self,
@@ -201,8 +221,14 @@ class Coder:
         usage_context: Optional[UsageLimitContext] = None,
         reasoning_effort: Optional[str] = None,
         reasoning_callback=None,
+        read_session_maker: Optional[Callable[[], AsyncSession]] = None,
     ) -> None:
         self.llm = LLM(model, usage_session_maker=usage_session_maker, usage_context=usage_context)
+        # Short-lived session factory for read-only context lookups (code
+        # snippets). The context hub's session is the agent's shared one,
+        # which parallel tool calls must not use concurrently.
+        self.read_session_maker = read_session_maker
+        self._snippets_cache: dict = {}
         self.reasoning_callback = reasoning_callback
         self.reasoning_effort = reasoning_effort
         self.model = model
@@ -773,7 +799,29 @@ class Coder:
             # Retrieve top successful snippets based on targeted tables if provided
             similar_successful_code_snippets = ""
             try:
-                if getattr(context, "tables_by_source", None):
+                _snip_key = None
+                try:
+                    _snip_key = json.dumps(context.tables_by_source, sort_keys=True, default=str)
+                except Exception:
+                    _snip_key = None
+                if _snip_key is not None and _snip_key in getattr(self, "_snippets_cache", {}):
+                    # Same tables on a retry: the lookup's result can't differ.
+                    similar_successful_code_snippets = self._snippets_cache[_snip_key]
+                elif getattr(context, "tables_by_source", None) and getattr(self, "read_session_maker", None) is not None and code_context_builder is None and self.context_hub is not None:
+                    from app.ai.context.builders.code_context_builder import CodeContextBuilder
+                    organization = getattr(self.context_hub, "organization", None)
+                    current_user = getattr(self.context_hub, "user", None)
+                    if organization is not None:
+                        try:
+                            async with self.read_session_maker() as _read_db:
+                                _builder = CodeContextBuilder(db=_read_db, organization=organization, current_user=current_user)
+                                top_success = await _builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
+                            similar_successful_code_snippets = _render_snippets(top_success)
+                        except Exception:
+                            similar_successful_code_snippets = ""
+                    if _snip_key is not None:
+                        self._snippets_cache[_snip_key] = similar_successful_code_snippets
+                elif getattr(context, "tables_by_source", None):
                     builder = None
                     try:
                         # Prefer explicit code_context_builder param when provided
@@ -792,22 +840,7 @@ class Coder:
                     if builder is not None and hasattr(builder, "get_top_successful_snippets_for_tables"):
                         try:
                             top_success = await builder.get_top_successful_snippets_for_tables(context.tables_by_source, top_k=2)
-                            # Past code is the style the model copies, so a
-                            # long example teaches long code. Keep only short
-                            # ones; none is better than a bad reference.
-                            top_success = [
-                                s for s in (top_success or [])
-                                if isinstance(s, dict)
-                                and (s.get("code") or "").count("\n") <= _MAX_EXAMPLE_SNIPPET_LINES
-                            ]
-                            if top_success:
-                                lines = ["=== SUCCESSFUL EXAMPLES (by targeted tables) ==="]
-                                for idx, s in enumerate(top_success, start=1):
-                                    lines.append(f"[{idx}] step_id={s.get('step_id')} score={s.get('score')} success_rate={s.get('success_rate')}")
-                                    code = s.get("code") or ""
-                                    lines.append(code)
-                                    lines.append("")
-                                similar_successful_code_snippets = "\n".join(lines).strip()
+                            similar_successful_code_snippets = _render_snippets(top_success)
                         except Exception as e:
                             similar_successful_code_snippets = ""
             except Exception:

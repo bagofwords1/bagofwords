@@ -2065,6 +2065,9 @@ class AgentV2:
                         # write_csv) so parallel tool batches don't use the
                         # non-concurrency-safe AsyncSession at the same time.
                         "tool_db_lock": self._tool_db_lock,
+                        # Short-lived sessions for tool-side READS that must not
+                        # touch the shared session (see _tool_db_lock).
+                        "read_session_maker": self._session_maker,
                         "usage_limit_context": self.usage_limit_context,
                         "training_build_id": self.training_build_id,
                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -5937,6 +5940,9 @@ class AgentV2:
                                         # site: serialize tool-side shared-session
                                         # reads across parallel tool batches.
                                         "tool_db_lock": self._tool_db_lock,
+                                        # Short-lived sessions for tool-side READS that must not
+                                        # touch the shared session (see _tool_db_lock).
+                                        "read_session_maker": self._session_maker,
                                         "loaded_agent_ids": self.loaded_agent_ids,
                                         "used_agent_ids": self.used_agent_ids,
                                         "_file_enum_seen": self._file_enum_seen,
