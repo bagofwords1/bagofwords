@@ -1577,6 +1577,18 @@ class ConnectionService:
                 logger.warning(f"refresh_schema: No tables returned from get_schemas()")
                 return []
 
+            # Discovery may be slow. Serialize only the catalog write phase,
+            # then re-read: another identity may have indexed while we crawled.
+            from app.services.powerbi_catalog_service import prepare_powerbi_catalog
+            await prepare_powerbi_catalog(db, connection)
+            existing_q = await db.execute(
+                select(ConnectionTable).where(
+                    ConnectionTable.connection_id == connection_id_str,
+                    ConnectionTable.kind == KIND_TABLE,
+                ).execution_options(populate_existing=True)
+            )
+            existing_tables = {t.name: t for t in existing_q.scalars().all()}
+
             # Normalize incoming tables
             from app.schemas.datasource_table_schema import normalize_indexed_columns as normalize_columns
 
@@ -1634,9 +1646,10 @@ class ConnectionService:
             }
             for name, payload in incoming.items():
                 row = by_identity.get(powerbi_identity(payload.get("metadata_json")))
-                if authoritative and row is not None and row.name != name:
-                    existing_tables.pop(row.name, None)
-                    row.name = name
+                if row is not None and row.name != name:
+                    if authoritative:
+                        existing_tables.pop(row.name, None)
+                        row.name = name
                     existing_tables[name] = row
 
             # Upsert tables

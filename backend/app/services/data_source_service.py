@@ -6428,10 +6428,14 @@ class DataSourceService:
         """
         from app.models.connection_table import ConnectionTable
 
+        from app.services.powerbi_catalog_service import prepare_powerbi_catalog
+        await prepare_powerbi_catalog(db, connection)
+
         # Get connection tables - ensure connection_id is string
         connection_id_str = str(connection.id)
         conn_tables = await db.execute(
             select(ConnectionTable).filter(ConnectionTable.connection_id == connection_id_str)
+            .execution_options(populate_existing=True)
         )
         conn_tables = conn_tables.scalars().all()
 
@@ -6445,6 +6449,7 @@ class DataSourceService:
         # This allows the same table name from different connections to coexist
         existing = await db.execute(
             select(DataSourceTable).filter(DataSourceTable.datasource_id == data_source.id)
+            .execution_options(populate_existing=True)
         )
         existing_rows = existing.scalars().all()
         existing_by_conn_table_id = {t.connection_table_id: t for t in existing_rows if t.connection_table_id}
