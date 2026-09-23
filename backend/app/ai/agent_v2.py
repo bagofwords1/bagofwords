@@ -2733,30 +2733,71 @@ class AgentV2:
         Excludes full schemas and instructions to avoid redundant storage.
         Only saves what was actually sent to the LLM.
         """
-        # Start with full view but we'll replace large sections
-        data = view.model_dump()
-        
+        # Usage summaries first; a section whose summary was built is then left
+        # out of the dump entirely (it used to be dumped in full — schemas and
+        # instructions are the largest parts of the view — and discarded).
+        schemas_usage = None
+        instructions_usage = None
         try:
-            # Replace full schemas with usage tracking only
             if view.static.schemas:
-                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema)
-                data["schemas_usage"] = schemas_usage.model_dump()
-                # Remove full schemas to save space
-                if "static" in data and "schemas" in data["static"]:
-                    data["static"]["schemas"] = None
-            
-            # Replace full instructions with usage tracking only
-            if view.static.instructions and view.static.instructions.items:
-                data["instructions_usage"] = [
-                    item.model_dump() for item in view.static.instructions.items
-                ]
-                # Remove full instructions to save space
-                if "static" in data and "instructions" in data["static"]:
-                    data["static"]["instructions"] = None
+                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema).model_dump()
         except Exception:
-            pass  # Usage tracking is optional, don't fail if it errors
-        
+            schemas_usage = None  # Usage tracking is optional, don't fail if it errors
+        try:
+            if view.static.instructions and view.static.instructions.items:
+                instructions_usage = [item.model_dump() for item in view.static.instructions.items]
+        except Exception:
+            instructions_usage = None
+
+        drop = set()
+        if schemas_usage is not None:
+            drop.add("schemas")
+        if instructions_usage is not None:
+            drop.add("instructions")
+        data = view.model_dump(exclude={"static": drop} if drop else None)
+
+        if schemas_usage is not None:
+            data["schemas_usage"] = schemas_usage
+            data.setdefault("static", {})["schemas"] = None
+        if instructions_usage is not None:
+            data["instructions_usage"] = instructions_usage
+            data.setdefault("static", {})["instructions"] = None
         return data
+
+    async def _save_post_tool_snapshots(self, view, tool_execution_ids: list):
+        """One post_tool context snapshot for a finished tool batch, back-filled
+        onto each tool execution. Background off single-writer; inline (on the
+        writer session) in single-writer mode."""
+        exec_id = str(self.current_execution.id)
+        snap_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+
+        async def _save():
+            try:
+                from app.models.agent_execution import AgentExecution as _AE
+                from app.models.tool_execution import ToolExecution as _TE
+                async with self._writes_session() as bg_db:
+                    bg_exec = (await bg_db.execute(
+                        select(_AE).options(lazyload("*")).where(_AE.id == exec_id)
+                    )).scalar_one_or_none()
+                    if not bg_exec:
+                        return
+                    snap = await self.project_manager.save_context_snapshot(
+                        bg_db, agent_execution=bg_exec,
+                        kind="post_tool", context_view_json=snap_data,
+                    )
+                    if not snap:
+                        return
+                    await bg_db.execute(
+                        sa_update(_TE).where(_TE.id.in_(tool_execution_ids)).values(context_snapshot_id=str(snap.id))
+                    )
+                    await bg_db.commit()
+            except Exception as _e:
+                logger.warning(f"[agent] post_snap failed: {_e!r}")
+
+        if self._use_single_write_session():
+            await _save()
+        else:
+            asyncio.create_task(_save())
 
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
         """Save context snapshot. Routes through _writes_session so single-
@@ -2765,8 +2806,11 @@ class AgentV2:
         try:
             async with self._writes_session() as session:
                 try:
-                    # Re-fetch agent execution in this session
-                    agent_execution = await session.get(type(self.current_execution), self.current_execution.id)
+                    # Re-fetch agent execution in this session (columns only)
+                    _AE = type(self.current_execution)
+                    agent_execution = (await session.execute(
+                        select(_AE).options(lazyload("*")).where(_AE.id == str(self.current_execution.id))
+                    )).scalar_one_or_none()
                     if agent_execution:
                         await self.project_manager.save_context_snapshot(
                             session,
@@ -4563,6 +4607,15 @@ class AgentV2:
                     # don't starve the connection pool (idle-in-transaction).
                     await self._release_db_between_steps()
 
+                    # The browser-tool policy check (own session, several permission
+                    # queries) doesn't depend on the warm refresh: start it now so it
+                    # overlaps; the planner-input build below awaits it where it used
+                    # to run it.
+                    _browser_catalog_task = asyncio.create_task(self._refresh_browser_tool_catalog())
+                    _browser_catalog_task.add_done_callback(
+                        lambda t: t.cancelled() or t.exception()  # mark retrieved if never awaited
+                    )
+
                     # Refresh warm context (skip on first loop - already done above)
                     if loop_index > 0:
                         view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
@@ -4666,7 +4719,7 @@ class AgentV2:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
-                        await self._refresh_browser_tool_catalog()
+                        await _browser_catalog_task
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -5652,6 +5705,10 @@ class AgentV2:
                                 except Exception as _eb_exc:
                                     logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
                                     _action_block_ids.append(None)
+                            # Tool executions of this batch that get a post-tool context
+                            # snapshot, saved once after the batch (see below).
+                            _post_snap_tool_exec_ids: list = []
+
                             async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view):
                                 """Run ONE planner action end-to-end and return its outcome.
 
@@ -6046,9 +6103,10 @@ class AgentV2:
                                     if not created_step_id and _inv.current_step_id:
                                         created_step_id = _inv.current_step_id
 
-                                    # Refresh context (needed for next planner iteration — in-memory, no DB write here)
-                                    post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
-                                    await self._update_context_token_metadata(post_view)
+                                    # No per-tool warm refresh here: its view only fed the token
+                                    # meter and the post-tool snapshot, and a batch of N tools
+                                    # did N of them under _tool_db_lock. Both now come from the
+                                    # one post-batch refresh ("post_tool_next_iteration").
 
                                     # Build created_visualization_ids with fallback to orchestrator state
                                     created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
@@ -6115,35 +6173,9 @@ class AgentV2:
                                             observation=observation,
                                         )
 
-                                    # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
-                                    _post_snap_exec_id = str(self.current_execution.id)
-                                    _post_snap_tool_exec_id = str(tool_execution.id)
-                                    _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
-
-                                    async def _bg_post_snap():
-                                        try:
-                                            from app.models.agent_execution import AgentExecution as _AE
-                                            from app.models.tool_execution import ToolExecution as _TE
-                                            async with self._writes_session() as bg_db:
-                                                bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
-                                                if bg_exec:
-                                                    snap = await self.project_manager.save_context_snapshot(
-                                                        bg_db, agent_execution=bg_exec,
-                                                        kind="post_tool", context_view_json=_post_snap_data,
-                                                    )
-                                                    # Back-fill context_snapshot_id onto the tool execution row
-                                                    bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
-                                                    if bg_te and snap:
-                                                        bg_te.context_snapshot_id = str(snap.id)
-                                                        bg_db.add(bg_te)
-                                                        await bg_db.commit()
-                                        except Exception as _e:
-                                            logger.warning(f"[agent] post_snap failed: {_e!r}")
-
-                                    if self._use_single_write_session():
-                                        await _bg_post_snap()
-                                    else:
-                                        asyncio.create_task(_bg_post_snap())
+                                    # Post-tool context snapshot: saved after the batch from the
+                                    # post-batch view (not user-facing, not needed for the next loop).
+                                    _post_snap_tool_exec_ids.append(str(tool_execution.id))
 
                                     # Telemetry: tool finished (in-memory counters — no IO)
                                     self._tool_call_counts[tool_name] += 1
@@ -6555,6 +6587,9 @@ class AgentV2:
 
                             # Refresh for next iteration
                             view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
+                            await self._update_context_token_metadata(view)
+                            if _post_snap_tool_exec_ids:
+                                await self._save_post_tool_snapshots(view, list(_post_snap_tool_exec_ids))
                             # NOTE: schemas_excerpt is deliberately NOT recomputed here.
                             # It used to be reassigned from `view.static.schemas.render()`,
                             # which bypassed _render_schemas_with_roster() and so:

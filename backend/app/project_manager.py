@@ -1749,7 +1749,8 @@ class ProjectManager:
         )
         db.add(snapshot)
         await db.commit()
-        await db.refresh(snapshot)
+        # No refresh: callers use the (client-side) id, and a refresh re-read
+        # the whole snapshot JSON right after writing it.
         return snapshot
 
     async def finish_agent_execution(self, db, agent_execution, status, first_token_ms=None,
