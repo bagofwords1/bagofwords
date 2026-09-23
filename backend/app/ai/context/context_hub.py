@@ -357,7 +357,7 @@ class ContextHub:
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
-        self.mention_builder = MentionContextBuilder(self.db, self.organization, self.report, self.head_completion, user=self.user)
+        self.mention_builder = MentionContextBuilder(self.db, self.organization, self.report, self.head_completion, user=self.user, data_sources=self.data_sources)
         self.entity_builder = EntityContextBuilder(self.db, self.organization, self.report, user=self.user)
         
         # Observation context builder (tracks tool execution results)
