@@ -323,6 +323,59 @@ def test_mcp_tools_list(
 
 
 @pytest.mark.e2e
+def test_mcp_create_data_preview_rows_is_an_org_setting(
+    enable_mcp,
+    test_client,
+    create_api_key,
+    create_user,
+    login_user,
+    whoami,
+    get_organization_settings,
+    update_organization_settings,
+):
+    """create_data's inline row count defaults to 1000, an admin can change it,
+    and the saved value is what the MCP tool resolves."""
+    from app.ai.tools.mcp.create_data import resolve_preview_limit
+    from app.models.organization_settings import OrganizationSettings
+
+    user = create_user()
+    user_token = login_user(user["email"], user["password"])
+    org_id = whoami(user_token)['organizations'][0]['id']
+    api_key = create_api_key(user_token=user_token, org_id=org_id)["key"]
+    enable_mcp(user_token=user_token, org_id=org_id)
+
+    settings = get_organization_settings(user_token=user_token, org_id=org_id)
+    assert settings["config"]["mcp_create_data_preview_rows"]["value"] == 1000
+    assert resolve_preview_limit(OrganizationSettings(config=settings["config"]), None) == 1000
+
+    updated = update_organization_settings(
+        config={"mcp_create_data_preview_rows": {"value": 5000}},
+        user_token=user_token,
+        org_id=org_id,
+    )
+    assert updated["config"]["mcp_create_data_preview_rows"]["value"] == 5000
+    saved = OrganizationSettings(
+        config=get_organization_settings(user_token=user_token, org_id=org_id)["config"]
+    )
+    assert resolve_preview_limit(saved, None) == 5000
+    assert resolve_preview_limit(saved, 20) == 20
+    assert resolve_preview_limit(saved, 9000) == 5000
+
+    # The advertised schema leaves the default to the org, not a fixed number.
+    response = test_client.post(
+        "/api/mcp",
+        json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        headers={"X-API-Key": api_key},
+    )
+    create_data = next(t for t in response.json()["result"]["tools"] if t["name"] == "create_data")
+    limit = create_data["inputSchema"]["properties"]["limit"]
+    assert limit.get("default") is None
+    int_branch = next(b for b in limit["anyOf"] if b.get("type") == "integer")
+    assert int_branch["minimum"] == 1
+    assert int_branch["maximum"] == 10000
+
+
+@pytest.mark.e2e
 def test_mcp_invalid_method(
     enable_mcp,
     test_client,
