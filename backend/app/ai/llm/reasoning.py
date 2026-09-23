@@ -16,6 +16,11 @@ THINKING_TRIGGERS = (
     "be thorough",
 )
 
+# Effort sent when reasoning is "off" to a model that cannot stop thinking
+# (Sonnet 5, Opus 4.7+, Fable 5). Omitting it leaves the provider default,
+# which is high — the opposite of what "off" asks for.
+OFF_EFFORT_FOR_ALWAYS_THINKING = "low"
+
 # Shared configuration retains legacy budget fields for existing adapters.
 # ``effort`` is metadata: adapters must not put it inside API thinking objects.
 # "off" returns None (no thinking sent). Anthropic 4.6+ supports

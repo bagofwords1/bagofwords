@@ -1,6 +1,6 @@
 import json
 
-from app.ai.llm.reasoning import selected_effort, _effort_to_thinking_config
+from app.ai.llm.reasoning import OFF_EFFORT_FOR_ALWAYS_THINKING, selected_effort, _effort_to_thinking_config
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 from typing import Any, AsyncGenerator, AsyncIterator, Optional
 
@@ -438,16 +438,21 @@ class Anthropic(LLMClient):
         # the default temperature when thinking is on, so drop ours entirely
         # (omitting it is valid on every model).
         # Modern models think even when the caller omits the setting. Ask for
-        # their summaries without overriding the provider's default effort.
+        # their summaries, and for low effort when the caller asked for none.
         capability_model = getattr(self, "reasoning_model_id", None) or model_id
         default_thinking = not _accepts_temperature(capability_model)
         if thinking or default_thinking:
             t = dict(thinking or {"type": "adaptive"})
-            effort = selected_effort(thinking)
+            # No thinking requested means reasoning is "off". These models
+            # cannot turn it off, and left to the provider they run at its
+            # default effort (high): tens of seconds of reasoning on routine
+            # planner steps. Ask for the least instead; an explicit effort
+            # (per-completion, model default, "think hard") still wins.
+            effort = selected_effort(thinking) if thinking else OFF_EFFORT_FOR_ALWAYS_THINKING
             # Re-map for the actual client model, including routed/fallback
             # models; the planner may have built a budget for another family.
             mapped = _effort_to_thinking_config(effort, capability_model)
-            if mapped and (thinking.get("effort") or mapped.get("type") == "adaptive"):
+            if mapped and ((thinking or {}).get("effort") or mapped.get("type") == "adaptive"):
                 t.update(mapped)
                 if mapped.get("type") == "adaptive":
                     t.pop("budget_tokens", None)

@@ -60,7 +60,7 @@ async def test_selected_effort_reaches_provider(kind, effort):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize('kind', ['anthropic', 'responses'])
-async def test_summary_requested_without_effort_override(kind):
+async def test_summary_requested_when_no_effort_given(kind):
     client = make_client(kind)
     create = capture(client, kind)
     model = 'claude-sonnet-5' if kind == 'anthropic' else 'gpt-5.2'
@@ -69,7 +69,9 @@ async def test_summary_requested_without_effort_override(kind):
     params = create.call_args.kwargs
     if kind == 'anthropic':
         assert params['extra_body']['thinking']['display'] == 'summarized'
-        assert 'output_config' not in params['extra_body']
+        # Sonnet 5 cannot stop thinking; with no effort asked for it gets the
+        # least rather than the provider's default (high).
+        assert params['extra_body']['output_config'] == {'effort': 'low'}
     else:
         assert params['reasoning'] == {'summary': 'auto'}
     await client.async_client.close()
