@@ -5202,7 +5202,10 @@
     "exitFullscreen": "Salir de pantalla completa",
     "searchColumns": "Buscar columnas…",
     "noColumns": "No hay columnas coincidentes",
-    "centrality": "Centralidad"
+    "centrality": "Centralidad",
+    "columnsSelectedBadge": "{selected}/{total} cols",
+    "selectAllColumns": "Seleccionar todas las columnas",
+    "columnsSelectedTooltip": "{selected} de {total} columnas seleccionadas"
   },
   "fork": {
     "preparing": "Preparando tu copia…",

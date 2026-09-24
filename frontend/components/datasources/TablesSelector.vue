@@ -345,9 +345,10 @@
                   v-if="canUpdate"
                   color="blue"
                   :model-value="isTableActive(tableKey(table))"
+                  :indeterminate="isTablePartial(table)"
                   :disabled="saving"
-                  :data-testid="table.custom_query_id ? `cq-toggle-${table.name}` : undefined"
-                  @update:model-value="(val: boolean) => onTableToggle(tableKey(table), val)"
+                  :data-testid="table.custom_query_id ? `cq-toggle-${table.name}` : `table-toggle-${table.name}`"
+                  @update:model-value="(val: boolean) => onTableCheckbox(table, val)"
                   class="me-3"
                 />
                 <button type="button" class="flex items-center justify-between text-start flex-1" @click="toggleTableExpand(table)">
@@ -363,6 +364,12 @@
                     <span v-if="table.last_refresh_status === 'error'" class="ms-2 text-[10px] text-red-500">{{ t('tableErd.refreshFailed') }}</span>
                     <span v-if="!isTableActive(tableKey(table)) && canUpdate" class="ms-2 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400">inactive</span>
                     <span v-if="isTableDirty(tableKey(table))" class="ms-1 text-[10px] px-1 py-0.5 rounded bg-yellow-100 text-yellow-700">modified</span>
+                    <UTooltip v-if="isTablePartial(table)" :text="t('tableErd.columnsSelectedTooltip', { selected: selectedColumnCount(table), total: table.columns?.length || 0 })">
+                      <span
+                        :data-testid="`cols-badge-${table.name}`"
+                        class="ms-1.5 text-[10px] px-1 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+                      >{{ t('tableErd.columnsSelectedBadge', { selected: selectedColumnCount(table), total: table.columns?.length || 0 }) }}</span>
+                    </UTooltip>
                     <!-- Relationships are listed in the expanded panel, which
                          means finding the connected tables costs one click per
                          row. The badge puts that on the collapsed row so a
@@ -413,14 +420,41 @@
               <div v-if="expandedTables[table.name]" class="mt-2 ms-7">
                 <!-- Columns -->
                 <div v-if="table.columns?.length" class="border border-gray-100 dark:border-gray-800 rounded">
-                  <div class="grid grid-cols-2 text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t">
+                  <div
+                    class="grid text-xs font-medium text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-900 px-2 py-1 rounded-t items-center"
+                    :class="canUpdate ? 'grid-cols-[1.75rem_1fr_1fr]' : 'grid-cols-2'"
+                  >
+                    <UCheckbox
+                      v-if="canUpdate"
+                      color="blue"
+                      :model-value="isTableActive(tableKey(table)) && selectedColumnCount(table) === table.columns.length"
+                      :indeterminate="isTablePartial(table)"
+                      :disabled="saving"
+                      :aria-label="t('tableErd.selectAllColumns')"
+                      :data-testid="`cols-all-${table.name}`"
+                      @update:model-value="(val: boolean) => onAllColumnsToggle(table, val)"
+                    />
                     <div>Name</div>
                     <div>Type</div>
                   </div>
                   <div class="divide-y divide-gray-100 dark:divide-gray-800">
-                    <div v-for="col in table.columns" :key="col.name" class="grid grid-cols-2 text-xs px-2 py-1">
-                      <div class="text-gray-700 dark:text-gray-300">{{ col.name }}</div>
-                      <div class="text-gray-500 dark:text-gray-400">{{ col.dtype || col.type }}</div>
+                    <div
+                      v-for="col in table.columns"
+                      :key="col.name"
+                      class="grid text-xs px-2 py-1 items-center"
+                      :class="canUpdate ? 'grid-cols-[1.75rem_1fr_1fr]' : 'grid-cols-2'"
+                    >
+                      <UCheckbox
+                        v-if="canUpdate"
+                        color="blue"
+                        :model-value="isColumnSelected(table, col.name)"
+                        :disabled="saving"
+                        :aria-label="col.name"
+                        :data-testid="`col-toggle-${table.name}-${col.name}`"
+                        @update:model-value="(val: boolean) => onColumnToggle(table, col.name, val)"
+                      />
+                      <div :class="isColumnSelected(table, col.name) ? 'text-gray-700 dark:text-gray-300' : 'text-gray-400 dark:text-gray-500 line-through'">{{ col.name }}</div>
+                      <div :class="isColumnSelected(table, col.name) ? 'text-gray-500 dark:text-gray-400' : 'text-gray-300 dark:text-gray-600'">{{ col.dtype || col.type }}</div>
                     </div>
                   </div>
                 </div>
@@ -983,6 +1017,10 @@ const sort = reactive<{ key: 'name' | 'is_active' | 'usage' | null; direction: '
 // Dirty tracking - track changes from original state
 const originalActiveState = ref<Map<string, boolean>>(new Map())
 const currentActiveState = ref<Map<string, boolean>>(new Map())
+// Columns unchecked in the draft, per table key. A column not listed is
+// selected, so columns added by a later schema refresh start selected.
+// UI only for now: nothing loads or saves this yet.
+const excludedColumns = ref<Map<string, Set<string>>>(new Map())
 
 // The catalog is loaded only for ERD or bulk selection. It uses the same
 // permission-scoped endpoint as the list, across every page.
@@ -1199,12 +1237,82 @@ function relationshipSummary(table: Table): string {
 function isTableDirty(key: string): boolean {
   const original = originalActiveState.value.get(key)
   const current = currentActiveState.value.get(key)
-  return original !== current
+  return original !== current || (excludedColumns.value.get(key)?.size ?? 0) > 0
 }
 
 function onTableToggle(key: string, newValue: boolean) {
   if (!props.canUpdate || saving.value) return
   currentActiveState.value.set(key, newValue)
+}
+
+// ---- Column selection -----------------------------------------------------
+// A table is fully selected, partially selected (some columns unchecked) or
+// not selected. Unchecking its last column deselects the table, and checking
+// a column of an unselected table selects the table with just that column.
+
+function excludedFor(table: Table): Set<string> {
+  return excludedColumns.value.get(tableKey(table)) ?? new Set()
+}
+
+function isColumnSelected(table: Table, column: string): boolean {
+  return isTableActive(tableKey(table)) && !excludedFor(table).has(column)
+}
+
+function selectedColumnCount(table: Table): number {
+  if (!isTableActive(tableKey(table))) return 0
+  const excluded = excludedFor(table)
+  return (table.columns || []).filter(c => !excluded.has(c.name)).length
+}
+
+function isTablePartial(table: Table): boolean {
+  const total = table.columns?.length || 0
+  const selected = selectedColumnCount(table)
+  return selected > 0 && selected < total
+}
+
+function setExcluded(table: Table, excluded: Set<string>) {
+  const next = new Map(excludedColumns.value)
+  if (excluded.size) next.set(tableKey(table), excluded)
+  else next.delete(tableKey(table))
+  excludedColumns.value = next
+}
+
+function onColumnToggle(table: Table, column: string, selected: boolean) {
+  if (!props.canUpdate || saving.value) return
+  const key = tableKey(table)
+  const names = (table.columns || []).map(c => c.name)
+  if (selected && !isTableActive(key)) {
+    // Selecting a column of an unselected table: the table with only it.
+    setExcluded(table, new Set(names.filter(n => n !== column)))
+    onTableToggle(key, true)
+    return
+  }
+  const excluded = new Set(excludedFor(table))
+  if (selected) excluded.delete(column)
+  else excluded.add(column)
+  if (names.length && names.every(n => excluded.has(n))) {
+    // No columns left: the table is deselected; checking it again restores all.
+    setExcluded(table, new Set())
+    onTableToggle(key, false)
+    return
+  }
+  setExcluded(table, excluded)
+}
+
+function onAllColumnsToggle(table: Table, selected: boolean) {
+  if (!props.canUpdate || saving.value) return
+  setExcluded(table, new Set())
+  onTableToggle(tableKey(table), selected)
+}
+
+function onTableCheckbox(table: Table, selected: boolean) {
+  // Clicking a partially selected table selects all of its columns.
+  if (isTablePartial(table)) {
+    setExcluded(table, new Set())
+    return
+  }
+  if (selected) setExcluded(table, new Set())
+  onTableToggle(tableKey(table), selected)
 }
 
 function endpointForSchema(): string {

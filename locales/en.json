@@ -5239,7 +5239,10 @@
     "exitFullscreen": "Exit full screen",
     "searchColumns": "Search columns…",
     "noColumns": "No matching columns",
-    "centrality": "Centrality"
+    "centrality": "Centrality",
+    "columnsSelectedBadge": "{selected}/{total} cols",
+    "selectAllColumns": "Select all columns",
+    "columnsSelectedTooltip": "{selected} of {total} columns selected"
   },
   "fork": {
     "preparing": "Preparing your copy…",

@@ -5222,7 +5222,10 @@
     "exitFullscreen": "יציאה ממסך מלא",
     "searchColumns": "חיפוש עמודות…",
     "noColumns": "אין עמודות תואמות",
-    "centrality": "מרכזיות"
+    "centrality": "מרכזיות",
+    "columnsSelectedBadge": "{selected}/{total} עמודות",
+    "selectAllColumns": "בחר את כל העמודות",
+    "columnsSelectedTooltip": "{selected} מתוך {total} עמודות נבחרו"
   },
   "fork": {
     "preparing": "מכין את העותק שלך…",
