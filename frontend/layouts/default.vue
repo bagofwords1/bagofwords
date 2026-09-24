@@ -130,7 +130,7 @@
                @click="createNewReport"
                :class="[
                  'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70',
-                 isCollapsed ? 'flex-col justify-center gap-1' : 'gap-2.5'
+                 isCollapsed ? 'justify-center' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
                 <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
@@ -1617,7 +1617,9 @@
     // which leaves it resting against the bar it explains. Disabled so it
     // never reads as something to click.
     if (myQuota.value) {
-      groups.push([{ kind: 'quota', label: '', disabled: true }])
+      // The class undoes Nuxt UI's disabled look (opacity-50, not-allowed
+      // cursor), which would wash out the red/amber rows of a readout.
+      groups.push([{ kind: 'quota', label: '', disabled: true, class: 'opacity-100 cursor-default' }])
     }
     return groups
   })

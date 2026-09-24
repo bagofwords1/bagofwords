@@ -1,6 +1,7 @@
 # Release Notes
 
 ## Version 0.0.570 (September 24, 2026)
+- Added a member's own usage quota under their name in the sidebar, with the full breakdown in the account menu (#1196)
 - Added Infor EPM (Application Engine) connector (#1178)
 - Added default model setting for dashboard chat (#1180)
 - Fixed connection timestamps shown in the wrong timezone (#1179)
