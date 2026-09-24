@@ -420,10 +420,36 @@
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
             :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
             <template #item="{ item }">
-              <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span v-else class="w-4 h-4 shrink-0"></span>
-              <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              <template v-if="item.kind === 'quota' && myQuota">
+                <span class="flex flex-col gap-2 w-full py-0.5 text-start">
+                  <span v-for="row in myQuota.rows" :key="row.key" class="flex flex-col gap-1">
+                    <span class="flex items-baseline justify-between gap-2">
+                      <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+                      <span
+                        class="text-[11px] tabular-nums"
+                        :class="row.blocked ? 'font-semibold text-red-600 dark:text-red-400'
+                          : row.near ? 'font-medium text-amber-700 dark:text-amber-400'
+                          : 'text-gray-700 dark:text-gray-200'"
+                      >{{ row.usedLabel }} / {{ row.limitLabel }}</span>
+                    </span>
+                    <span class="h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <span
+                        class="block h-full rounded-full"
+                        :class="row.blocked ? 'bg-red-500'
+                          : row.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                        :style="{ width: row.barWidth }"
+                      ></span>
+                    </span>
+                  </span>
+                  <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ myQuotaResetLabel }}</span>
+                </span>
+              </template>
+              <template v-else>
+                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-else class="w-4 h-4 shrink-0"></span>
+                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              </template>
             </template>
              <button :class="[
                'flex px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
@@ -472,12 +498,7 @@
                      it fills the width, and the centring became visible. -->
                 <span v-if="showText" class="flex flex-col min-w-0 flex-1 gap-1 text-start">
                   <span class="truncate">{{ currentUserName }}</span>
-                  <UTooltip
-                    v-if="myQuota"
-                    :text="myQuotaTooltip"
-                    :popper="{ placement: tooltipPlacement }"
-                    class="flex items-center gap-1.5"
-                  >
+                  <span v-if="myQuota" class="flex items-center gap-1.5">
                     <span class="flex-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
                       <span
                         class="block h-full rounded-full transition-all duration-500"
@@ -487,20 +508,13 @@
                         :style="{ width: myQuota.barWidth }"
                       ></span>
                     </span>
-                    <!-- Past the ceiling the exact share stops being the
-                         useful fact — that every run is now refused is. The
-                         word carries that; a red bar on its own would leave
-                         anyone who cannot pick the colour out with nothing.
-                         The numbers stay one hover away. -->
                     <span
-                      class="text-[10px] shrink-0 whitespace-nowrap"
-                      :class="[
-                        myQuota.blocked ? 'font-semibold text-red-600 dark:text-red-400'
-                          : myQuota.near ? 'font-medium text-amber-700 dark:text-amber-400 tabular-nums'
-                          : 'text-gray-400 dark:text-gray-500 tabular-nums'
-                      ]"
-                    >{{ myQuota.blocked ? $t('quota.exhausted') : myQuota.percentLabel }}</span>
-                  </UTooltip>
+                      class="text-[10px] shrink-0 whitespace-nowrap tabular-nums"
+                      :class="myQuota.blocked ? 'font-semibold text-red-600 dark:text-red-400'
+                        : myQuota.near ? 'font-medium text-amber-700 dark:text-amber-400'
+                        : 'text-gray-400 dark:text-gray-500'"
+                    >{{ myQuota.percentLabel }}</span>
+                  </span>
                 </span>
                 <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ms-auto w-4 h-4 text-gray-400 shrink-0" />
               </template>
@@ -1475,38 +1489,51 @@
       Number(row.value.percent ?? 0) > Number(worst.value.percent ?? 0) ? row : worst
     )
 
+    // Every capped metric, for the menu. A policy can cap any combination of
+    // the four, and the one that leads the sidebar row is rarely the only one
+    // a member wants to see — the data ceiling is often the one that bites.
+    // Uncapped metrics stay out: there is no share to draw for them.
+    const rows = capped.map((row) => {
+      const rowPercent = Number(row.value.percent ?? 0)
+      return {
+        key: row.metric.key,
+        label: row.metric.label(),
+        usedLabel: row.metric.format(row.value.used ?? 0),
+        limitLabel: row.metric.format(row.value.limit),
+        near: rowPercent >= QUOTA_NEAR,
+        blocked: rowPercent >= QUOTA_FULL,
+        barWidth: `${Math.min(Math.max(rowPercent, 0), 100)}%`,
+      }
+    })
+
     const percent = Number(chosen.value.percent ?? 0)
     return {
       percent,
+      rows,
       near: percent >= QUOTA_NEAR,
       blocked: percent >= QUOTA_FULL,
       barWidth: `${Math.min(Math.max(percent, 0), 100)}%`,
       // The row shows the share, not the amount: "$78" says nothing about how
       // close the ceiling is, and closeness is the only thing worth a glance.
-      // The amount itself is one hover away.
-      percentLabel: `${Math.round(percent)}%`,
+      // Held at 100 once the ceiling is reached — "190%" invites arithmetic
+      // about an overage that changes nothing, where "100%" simply reads as
+      // full. The real figures are in the account menu.
+      percentLabel: `${Math.min(Math.round(percent), 100)}%`,
       usedLabel: chosen.metric.format(chosen.value.used ?? 0),
       limitLabel: chosen.metric.format(chosen.value.limit),
       metricLabel: chosen.metric.label(),
     }
   })
 
-  // Hover carries what the row has no space for: which metric, the ceiling,
-  // and when the window rolls over.
-  const myQuotaTooltip = computed<string>(() => {
-    const quota = myQuota.value
-    if (!quota) return ''
+  // When the window rolls over — the one fact the menu adds that the row
+  // cannot carry.
+  const myQuotaResetLabel = computed<string>(() => {
     const summary: any = usageQuota.value
-    const head = t('quota.tooltip', {
-      metric: quota.metricLabel,
-      used: quota.usedLabel,
-      limit: quota.limitLabel,
-    })
     const end = summary?.window_end ? new Date(summary.window_end) : null
-    if (!end || Number.isNaN(end.getTime())) return head
-    return `${head} · ${t('quota.resetsOn', {
+    if (!end || Number.isNaN(end.getTime())) return ''
+    return t('quota.resetsOn', {
       date: end.toLocaleDateString(locale.value, { day: 'numeric', month: 'long' }),
-    })}`
+    })
   })
   const userOrganizations = computed<any[]>(() => {
     return ((currentUser.value as any)?.organizations || []) as any[]
@@ -1583,6 +1610,15 @@
       icon: 'heroicons-arrow-left',
       click: signOff
     }])
+
+    // Last, under the actions: the usage detail opens with the menu rather
+    // than on a hover of its own — one gesture, one surface. It is a readout,
+    // so it sits below everything there is to do, and the menu opens upwards,
+    // which leaves it resting against the bar it explains. Disabled so it
+    // never reads as something to click.
+    if (myQuota.value) {
+      groups.push([{ kind: 'quota', label: '', disabled: true }])
+    }
     return groups
   })
 

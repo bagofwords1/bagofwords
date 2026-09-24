@@ -5184,8 +5184,6 @@
     "nothingRan": "Deine Kopie konnte nicht erstellt werden: Keine ihrer Abfragen ließ sich mit deinen Zugangsdaten ausführen."
   },
   "quota": {
-    "exhausted": "Erschöpft",
-    "tooltip": "{metric}: {used} von {limit}",
     "resetsOn": "Zurücksetzung am {date}"
   }
 }

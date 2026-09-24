@@ -5247,8 +5247,6 @@
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
   },
   "quota": {
-    "exhausted": "Used up",
-    "tooltip": "{metric}: {used} of {limit}",
     "resetsOn": "resets {date}"
   }
 }

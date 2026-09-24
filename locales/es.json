@@ -5210,8 +5210,6 @@
     "nothingRan": "No se pudo crear tu copia: ninguna de sus consultas pudo ejecutarse con tus credenciales."
   },
   "quota": {
-    "exhausted": "Agotada",
-    "tooltip": "{metric}: {used} de {limit}",
     "resetsOn": "se reinicia el {date}"
   }
 }

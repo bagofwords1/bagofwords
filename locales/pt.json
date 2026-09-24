@@ -5184,8 +5184,6 @@
     "nothingRan": "Não foi possível criar sua cópia: nenhuma das consultas pôde ser executada com suas credenciais."
   },
   "quota": {
-    "exhausted": "Esgotada",
-    "tooltip": "{metric}: {used} de {limit}",
     "resetsOn": "reinicia em {date}"
   }
 }

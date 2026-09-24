@@ -5184,8 +5184,6 @@
     "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
   },
   "quota": {
-    "exhausted": "Esaurita",
-    "tooltip": "{metric}: {used} di {limit}",
     "resetsOn": "si azzera il {date}"
   }
 }

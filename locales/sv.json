@@ -5184,8 +5184,6 @@
     "nothingRan": "Din kopia kunde inte skapas: ingen av dess frågor kunde köras med dina inloggningsuppgifter."
   },
   "quota": {
-    "exhausted": "Slut",
-    "tooltip": "{metric}: {used} av {limit}",
     "resetsOn": "återställs {date}"
   }
 }
