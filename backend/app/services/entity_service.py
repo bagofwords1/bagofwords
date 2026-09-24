@@ -436,11 +436,15 @@ class EntityService:
         # Shared with more than the agent it was written on: run it there now,
         # so each agent opens with its own rows (and a query that cannot run
         # on one is refused before anything is saved).
-        await self.run_on_new_agents(
-            db, entity, agents,
-            [str(a.id) for a in agents if str(a.id) != str(entity.origin_data_source_id or "")],
-            organization, current_user,
-        )
+        run_on = [str(a.id) for a in agents if str(a.id) != str(entity.origin_data_source_id or "")]
+        if templated.mode == entity_runtime.ec.MODE_DYNAMIC and len(agents) > 1:
+            # Code that names no agent ran in the report over all of its
+            # agents: the step's rows are not the origin's alone. Run it on
+            # every agent, the origin included, instead of copying them.
+            entity.data = {}
+            entity.applied_params = None
+            run_on = [str(a.id) for a in agents]
+        await self.run_on_new_agents(db, entity, agents, run_on, organization, current_user)
 
         await db.flush()
         await db.commit()
@@ -822,8 +826,16 @@ class EntityService:
         for agent in targets:
             try:
                 prepared = await entity_runtime.prepare_run(db, subject, agent, user)
-            except AppError:
-                raise
+            except AppError as e:
+                if e.error_code != ErrorCode.ENTITY_AGENT_NO_CONNECTION_TYPE.value:
+                    raise
+                # validate_sharing passed, so the connection exists but is
+                # inactive now: an outage — keep the share, record it.
+                await entity_runtime.store_snapshot(
+                    db, entity, str(agent.id), None, None,
+                    error=f"connection unavailable: {e.message}",
+                )
+                continue
             except Exception as e:
                 # The agent's connection could not be built (down, bad
                 # credentials): not the query's fault — keep the share.
@@ -850,6 +862,22 @@ class EntityService:
             # may author it on that agent (same predicate as a refresh).
             if not await entity_data_withheld(db, entity, user, data_source_id=str(agent.id)):
                 await entity_runtime.store_snapshot(db, entity, str(agent.id), df, resolved)
+
+    @staticmethod
+    async def accessible_agent_ids(db: AsyncSession, organization, user) -> Optional[set]:
+        """Agent ids `user` can access in the organization (public ones
+        included) — None for an org admin, who reaches every agent."""
+        from app.core.permission_resolver import get_accessible_data_source_ids
+        is_admin, ids = await get_accessible_data_source_ids(db, str(user.id), str(organization.id))
+        if is_admin:
+            return None
+        public = (await db.execute(
+            select(DataSource.id).where(
+                DataSource.organization_id == str(organization.id),
+                DataSource.is_public == True,  # noqa: E712
+            )
+        )).scalars().all()
+        return {str(i) for i in (ids or [])} | {str(i) for i in public}
 
     @staticmethod
     async def reachable_agent_ids(db: AsyncSession, entity, user) -> List[str]:

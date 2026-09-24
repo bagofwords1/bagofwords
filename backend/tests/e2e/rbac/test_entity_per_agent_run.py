@@ -693,3 +693,123 @@ def test_handing_a_join_to_another_origin_keeps_its_one_result(test_client, shar
 
 def _stores_of(body):
     return {r["store"] for r in (body.get("data") or {}).get("rows", [])}
+
+
+# ── Self-review before review round 5 ─────────────────────────────────────────
+
+@pytest.mark.e2e
+def test_a_link_for_an_agent_no_longer_on_the_query_opens_it_on_one_that_is(test_client, shared, sqlite_data_source):
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    stranger = sqlite_data_source(name=f"s_{uuid.uuid4().hex[:6]}", user_token=w["admin"]["token"], org_id=w["org_id"])
+    got = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": stranger["id"]}, headers=h)
+    assert got.status_code == 200, got.text
+    assert got.json()["run_data_source_id"] in {w["origin"]["id"], w["other"]["id"]}
+
+
+@pytest.mark.e2e
+def test_sharing_with_an_agent_whose_connection_is_down_keeps_the_share(test_client, shared, sqlite_data_source):
+    """Its connection of the type exists but is marked inactive: an outage,
+    recorded on that agent — not an agent the query cannot run on."""
+    import asyncio
+    from sqlalchemy import select, update
+    from app.dependencies import async_session_maker
+    from app.models.connection import Connection
+    from app.models.domain_connection import domain_connection
+
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    path = _store_db("DOWN")
+    try:
+        down = sqlite_data_source(name=f"d_{uuid.uuid4().hex[:6]}", user_token=w["admin"]["token"], org_id=w["org_id"], database=path)
+
+        async def mark_inactive():
+            # Direct write: is_active is the health flag a failed connection
+            # test sets; the API has no call that sets it on demand.
+            async with async_session_maker() as db:
+                ids = (await db.execute(select(domain_connection.c.connection_id).where(
+                    domain_connection.c.data_source_id == down["id"]))).scalars().all()
+                await db.execute(update(Connection).where(Connection.id.in_(ids)).values(is_active=False))
+                await db.commit()
+
+        asyncio.run(mark_inactive())
+        resp = test_client.put(
+            f"/api/entities/{w['entity']['id']}",
+            json={"data_source_ids": [w["origin"]["id"], w["other"]["id"], down["id"]]}, headers=h,
+        )
+        assert resp.status_code == 200, resp.text
+        got = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": down["id"]}, headers=h).json()
+        assert got["run_error"]
+    finally:
+        os.unlink(path)
+
+
+@pytest.mark.e2e
+def test_a_step_that_read_every_agent_is_not_saved_as_the_origins_rows(test_client, shared):
+    """Code naming no agent ran in the report over all its agents: saving it
+    runs it per agent instead of labeling the report's rows as the origin's."""
+    import asyncio
+    from datetime import datetime, timedelta
+    from app.dependencies import async_session_maker
+    from app.models.report import Report
+    from app.models.widget import Widget
+    from app.models.query import Query
+    from app.models.step import Step
+
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    report = test_client.post(
+        "/api/reports", json={"title": f"r_{uuid.uuid4().hex[:6]}", "data_sources": [w["origin"]["id"], w["other"]["id"]]}, headers=h,
+    )
+    assert report.status_code == 200, report.text
+    rid = report.json()["id"]
+    union = {"rows": [{"store": s, "total": 42.0} for s in w["stores"].values()], "columns": [{"field": "store"}, {"field": "total"}]}
+
+    async def seed():
+        # Seeded like tests/e2e/rbac/test_rbac_entity_creation.py::_seed_step:
+        # the AI flow produces steps; there is no public API to create one.
+        suffix = uuid.uuid4().hex[:8]
+        async with async_session_maker() as db:
+            rep = await db.get(Report, rid)
+            widget = Widget(title=f"W {suffix}", slug=f"w-{suffix}", report_id=rid)
+            db.add(widget)
+            await db.flush()
+            query = Query(title="Q", report_id=rid, widget_id=widget.id,
+                          organization_id=rep.organization_id, user_id=rep.user_id)
+            db.add(query)
+            await db.flush()
+            step = Step(title=f"S {suffix}", slug=f"s-{suffix}", status="success", widget_id=widget.id,
+                        query_id=query.id, code=DYNAMIC_CODE, data=union,
+                        created_at=datetime.utcnow() - timedelta(minutes=5))
+            db.add(step)
+            await db.flush()
+            query.default_step_id = step.id
+            await db.commit()
+            return str(step.id)
+
+    step_id = asyncio.run(seed())
+    saved = test_client.post(f"/api/entities/from_step/{step_id}", json={"publish": True}, headers=h)
+    assert saved.status_code == 200, saved.text
+    ent = saved.json()
+    assert ent["code_mode"] == "dynamic"
+    for ds in (w["origin"], w["other"]):
+        got = test_client.get(f"/api/entities/{ent['id']}", params={"data_source_id": ds["id"]}, headers=h).json()
+        assert _stores_of(got) == {w["stores"][ds["id"]]}, f"under {ds['name']}"
+
+
+@pytest.mark.e2e
+def test_a_reader_is_not_told_the_agents_they_cannot_reach(test_client, shared):
+    w = shared
+    h = _hdr(w["member"]["token"], w["org_id"])
+    w["grant"](resource_type="data_source", resource_id=w["other"]["id"], principal_type="user",
+               principal_id=w["member"]["user_id"], permissions=["access"], user_token=w["admin"]["token"], org_id=w["org_id"])
+
+    got = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["other"]["id"]}, headers=h).json()
+    assert {d["id"] for d in got["data_sources"]} == {w["other"]["id"]}
+    assert got["hidden_agent_count"] == 1
+    assert got["origin_data_source_id"] is None
+
+    listed = test_client.get("/api/entities", params={"data_source_ids": w["other"]["id"]}, headers=h).json()
+    row = next(e for e in listed if e["id"] == w["entity"]["id"])
+    assert {d["id"] for d in row["data_sources"]} == {w["other"]["id"]}
+    assert row["hidden_agent_count"] == 1

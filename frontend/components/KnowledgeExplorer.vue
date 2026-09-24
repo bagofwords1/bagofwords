@@ -4310,7 +4310,12 @@ const explorerUrl = (): string => {
 const syncUrl = () => {
   if (!process.client) return
   const target = explorerUrl()
-  if (location.pathname.replace(/\/$/, '') + location.search === target) return
+  // The tree owns the path and `?agent=` only. Compare just those, so other
+  // URL-bound state (e.g. `?instructions=all&state=…`) is not rewritten away.
+  const [targetPath, targetQuery = ''] = target.split('?')
+  const targetAgent = new URLSearchParams(targetQuery).get('agent')
+  const currentAgent = new URLSearchParams(location.search).get('agent')
+  if (location.pathname.replace(/\/$/, '') === targetPath && currentAgent === targetAgent) return
   try { history.replaceState({ ...history.state }, '', target) } catch {}
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)

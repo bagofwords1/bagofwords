@@ -281,3 +281,11 @@ def test_a_key_of_a_deleted_agent_is_still_repaired():
     t = templatize(_code(f"deleted_{uuid.uuid4().hex[:4]}:pg-1"), [a], existing_keys={f"{a.name}:{a.connections[0].name}"})
     assert t.mode == MODE_TEMPLATED
     assert t.repaired
+
+
+def test_a_mentioned_query_names_the_agent_its_rows_come_from():
+    from app.ai.context.sections.mentions_section import EntityMentionItem, MentionsSection
+
+    agent = f"agent_{uuid.uuid4().hex[:5]}"
+    rendered = MentionsSection(entities=[EntityMentionItem(id="e1", title="Q", agent=agent)]).render()
+    assert f"<agent>{agent}</agent>" in "".join(rendered.split())

@@ -318,6 +318,7 @@ type EntityDetail = {
   run_data_source_id?: string | null
   code_for_agent?: string | null
   run_error?: string | null
+  hidden_agent_count?: number
 }
 
 // The entity to show. Lives as a prop rather than a route param so the same
@@ -357,7 +358,11 @@ const loading = ref(true)
 // strings), so every affordance was admin-only.
 const detailDsIds = computed(() => (detail.value?.data_sources || []).map((d: any) => d?.id).filter(Boolean))
 const canManageEntity = computed(() =>
-  detailDsIds.value.length ? useCanAll('create_entities', 'data_source', detailDsIds.value) : useCan('manage_entities')
+  // Agents this reader cannot reach are not listed (only counted): editing
+  // needs every agent, so any hidden one rules it out.
+  (detail.value?.hidden_agent_count || 0) > 0
+    ? false
+    : detailDsIds.value.length ? useCanAll('create_entities', 'data_source', detailDsIds.value) : useCan('manage_entities')
 )
 const canCreateEntities = canManageEntity
 // The entity's owner may edit/delete their own entity while it is not

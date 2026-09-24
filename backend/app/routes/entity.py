@@ -148,6 +148,18 @@ async def _resolve_create_tier(db, user, organization, ds_ids: List[str]) -> boo
     )
 
 
+def _hide_unreachable_agents(schema, reachable) -> None:
+    """A published query can be read by someone who reaches only one of its
+    agents; do not hand them the names/ids of the agents they cannot reach —
+    only how many there are."""
+    ids = {str(i) for i in reachable}
+    visible = [d for d in (schema.data_sources or []) if str(d.id) in ids]
+    schema.hidden_agent_count = len(schema.data_sources or []) - len(visible)
+    schema.data_sources = visible
+    if schema.origin_data_source_id and str(schema.origin_data_source_id) not in ids:
+        schema.origin_data_source_id = None
+
+
 def _validate_declared_params(payload) -> None:
     """A declaration list a form sends to save or preview is validated
     strictly (400 with the reason), not silently pruned at run time."""
@@ -285,7 +297,14 @@ async def list_entities(
         skip=skip,
         limit=limit,
     )
-    return [EntityListSchema.model_validate(e) for e in entities]
+    reachable = await service.accessible_agent_ids(db, organization, current_user)
+    out = []
+    for e in entities:
+        item = EntityListSchema.model_validate(e)
+        if reachable is not None:
+            _hide_unreachable_agents(item, reachable)
+        out.append(item)
+    return out
 
 
 # Declared BEFORE /{entity_id} so "counts" is not swallowed as an entity id.
@@ -318,7 +337,13 @@ async def get_entity(
     reachable = getattr(entity, "_reachable_agent_ids", None)
     if reachable is None:
         reachable = await service.reachable_agent_ids(db, entity, current_user)
-    target = entity_runtime.pick_target(entity, data_source_id)
+    try:
+        target = entity_runtime.pick_target(entity, data_source_id)
+    except AppError:
+        # A link made for an agent the query is no longer shared with opens
+        # it on an agent it still is (below), rather than failing.
+        data_source_id = None
+        target = entity_runtime.pick_target(entity, None)
     target_id = str(target.id) if target is not None else None
     if target_id and target_id not in reachable:
         if data_source_id:
@@ -331,6 +356,7 @@ async def get_entity(
     schema.last_refreshed_at = snap.last_refreshed_at
     schema.run_error = snap.error
     schema.run_data_source_id = target_id
+    _hide_unreachable_agents(schema, reachable)
     run_agent = next((d for d in (entity.data_sources or []) if str(d.id) == str(target_id)), None)
     schema.code_for_agent = entity_runtime.render_for(entity, run_agent)
     # Withhold the materialized snapshot from non-owners when the entity reads

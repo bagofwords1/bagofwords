@@ -111,6 +111,9 @@ class EntitySchema(EntityBase):
     origin_data_source_id: Optional[str] = None
     # The agent whose result `data` is (the one asked for, else the origin).
     run_data_source_id: Optional[str] = None
+    # Agents the query is also on that this reader cannot reach (listed only
+    # by count).
+    hidden_agent_count: int = 0
     # `code` as it runs on that agent — its own client keys, for display and
     # editing (a save takes the agent back out).
     code_for_agent: Optional[str] = None
@@ -151,6 +154,7 @@ class EntityListSchema(BaseModel):
     # unresolved) and the agent it was written for.
     code_mode: Optional[str] = None
     origin_data_source_id: Optional[str] = None
+    hidden_agent_count: int = 0
     updated_at: UTCDatetime
     pinned: bool = False
     auto_refresh_enabled: bool = False

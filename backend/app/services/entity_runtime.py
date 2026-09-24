@@ -61,13 +61,19 @@ async def org_client_keys(db: AsyncSession, organization_id) -> set:
     agent that still exists (it only left the query) is never "repaired"
     onto another agent (entity_code.templatize)."""
     from app.models.data_source import DataSource
-    rows = (await db.execute(
-        select(DataSource).where(
-            DataSource.organization_id == str(organization_id),
-            DataSource.deleted_at.is_(None),
-        )
-    )).scalars().unique().all()
-    return ec.all_client_keys(ec.agent_info(d) for d in rows)
+    # One request asks this several times (validate, preview, run): load the
+    # organization's agents once per session.
+    cache = db.info.setdefault("_entity_org_client_keys", {})
+    key = str(organization_id)
+    if key not in cache:
+        rows = (await db.execute(
+            select(DataSource).where(
+                DataSource.organization_id == key,
+                DataSource.deleted_at.is_(None),
+            )
+        )).scalars().unique().all()
+        cache[key] = ec.all_client_keys(ec.agent_info(d) for d in rows)
+    return cache[key]
 
 
 def apply_code(
@@ -204,7 +210,15 @@ async def prepare_run(
     if target is None:
         raise AppError.bad_request(ErrorCode.ENTITY_NO_AGENT, "Choose an agent to run this query on.")
     rendered = ec.render(code, ec.agent_info(target))
-    clients, _ = await _clients_for(db, [target], user, tolerate_errors=False)
+    from fastapi import HTTPException
+    try:
+        clients, _ = await _clients_for(db, [target], user, tolerate_errors=False)
+    except (HTTPException, AppError):
+        raise  # access refusals keep their status
+    except Exception as e:
+        # A connection that cannot be built (driver error, no connection) is
+        # the caller's 4xx, as it was before per-agent runs — not a 500.
+        raise ValueError(f'Agent "{target.name}": {getattr(e, "detail", None) or e}') from e
     return PreparedRun(code=rendered, ds_clients=clients, target_id=str(target.id), errors=[])
 
 
@@ -481,7 +495,16 @@ def validate_sharing(result: ec.Templated, agents: Iterable) -> None:
             )
         return
     for a in agents:
-        ec.check_runnable_on(result.code, result.mode, ec.agent_info(a))
+        info = ec.agent_info(a)
+        try:
+            ec.check_runnable_on(result.code, result.mode, info)
+        except AppError as e:
+            # Its connection of the type exists but is down right now: that is
+            # an outage (the share keeps, run_on_new_agents records it), not
+            # an agent the query cannot run on.
+            if e.error_code != ErrorCode.ENTITY_AGENT_NO_CONNECTION_TYPE.value:
+                raise
+            ec.check_runnable_on(result.code, result.mode, ec.as_all_active(info))
 
 
 async def load_agents(db: AsyncSession, ids: Iterable[str]) -> list:

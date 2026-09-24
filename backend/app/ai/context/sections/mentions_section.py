@@ -31,6 +31,9 @@ class EntityMentionItem(BaseModel):
     sample_rows: Optional[List[Dict[str, Any]]] = None
     status: Optional[str] = None
     entity_type: Optional[str] = None
+    # The agent the rows and code above come from (a query shared with
+    # several agents renders for the agent of the conversation).
+    agent: Optional[str] = None
 
 
 class InstructionMentionItem(BaseModel):
@@ -96,6 +99,9 @@ class MentionsSection(ContextSection):
                 inner = []
                 if e.title:
                     inner.append(xml_tag("title", xml_escape(e.title)))
+                if getattr(e, "agent", None):
+                    # The agent its rows and code below come from.
+                    inner.append(xml_tag("agent", xml_escape(e.agent)))
                 if e.description:
                     # Trim description a bit to keep context compact
                     desc_short = (e.description or "")[:300]

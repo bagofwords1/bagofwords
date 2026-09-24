@@ -355,6 +355,10 @@ class ContextHub:
         # New builders (port from agent.py)
         self.schema_builder = SchemaContextBuilder(self.db, self.data_sources, self.organization, self.report, user=self.user, organization_settings=self.organization_settings, mode=self.mode)
         self.message_builder = MessageContextBuilder(self.db, self.organization, self.report, self.user)
+        # Past mentions of a shared query are summarized for this run's agents
+        # (an Auto report has none attached) — the same set the entity and
+        # mention sections use.
+        self.message_builder.run_agent_ids = self._run_agent_ids()
         self.widget_builder = WidgetContextBuilder(self.db, self.organization, self.report)
         self.query_builder = QueryContextBuilder(self.db, self.organization, self.report)
         self.mention_builder = MentionContextBuilder(self.db, self.organization, self.report, self.head_completion, user=self.user)

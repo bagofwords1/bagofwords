@@ -352,6 +352,16 @@ def render(code: str, agent: AgentInfo) -> str:
     return _replace_keys(code, mapping) if mapping else (code or "")
 
 
+def as_all_active(agent: AgentInfo) -> AgentInfo:
+    """`agent` with every connection treated as active — whether it HAS the
+    connections a query needs, regardless of which are up right now."""
+    from dataclasses import replace
+    return AgentInfo(
+        id=agent.id, name=agent.name,
+        connections=tuple(replace(c, is_active=True) for c in agent.connections),
+    )
+
+
 def check_runnable_on(code: str, mode: str, agent: AgentInfo) -> None:
     """Raise the typed error that running this query on `agent` would hit."""
     if mode == MODE_UNRESOLVED:

@@ -2106,10 +2106,12 @@ class MessageContextBuilder:
         if ent_map:
             from app.services.viewer_data_policy import resolve_entity_data
             from app.services import entity_runtime
-            try:
-                _run_ids = [str(d.id) for d in (getattr(self.report, "data_sources", None) or [])]
-            except Exception:
-                _run_ids = []
+            _run_ids = list(getattr(self, "run_agent_ids", None) or [])
+            if not _run_ids:
+                try:
+                    _run_ids = [str(d.id) for d in (getattr(self.report, "data_sources", None) or [])]
+                except Exception:
+                    _run_ids = []
             _cache = self.__dict__.setdefault("_entity_digest_cache", {})
             for _eid, _e in ent_map.items():
                 if _eid in _cache:
