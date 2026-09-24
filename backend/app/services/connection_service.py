@@ -264,6 +264,18 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
     return None
 
 
+def _dialect_insert(db: AsyncSession):
+    """INSERT construct with ON CONFLICT support for the app database."""
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise ValueError(f"Unsupported application database: {dialect}")
+    return insert
+
+
 class ConnectionService:
     """Service for managing database connections."""
 
@@ -2313,6 +2325,7 @@ class ConnectionService:
             # Upsert tools
             created_count = 0
             updated_count = 0
+            new_tools = []
             for name, payload in incoming.items():
                 if name in existing_tools:
                     tool = existing_tools[name]
@@ -2325,7 +2338,7 @@ class ConnectionService:
                         tool.policy = payload["explicit_policy"]
                     updated_count += 1
                 else:
-                    tool = ConnectionTool(
+                    new_tools.append(dict(
                         name=name,
                         connection_id=connection_id_str,
                         description=payload["description"],
@@ -2338,9 +2351,21 @@ class ConnectionService:
                         # allow. Auto-policied tools keep whatever an admin
                         # sets later (only new rows are seeded).
                         policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
-                    )
-                    db.add(tool)
+                    ))
                     created_count += 1
+
+            # Two discoveries of one connection can overlap: agent create runs
+            # one in the request and one in background indexing, and a manual
+            # refresh can meet a scheduled reindex. Both see a new tool as
+            # missing, so a plain INSERT made the later one fail on
+            # uq_connection_tool_name. The first to land wins; the rows match.
+            if new_tools:
+                insert = _dialect_insert(db)
+                for values in new_tools:
+                    await db.execute(
+                        insert(ConnectionTool).values(**values)
+                        .on_conflict_do_nothing(index_elements=["connection_id", "name"])
+                    )
 
             # Delete stale tools — but never on an empty discovery result. A
             # flaky/misconfigured server returning zero tools would otherwise
@@ -2348,10 +2373,19 @@ class ConnectionService:
             # overlays and per-user policy preferences hanging off them.
             deleted_count = 0
             if incoming:
-                for existing_name, existing_tool in existing_tools.items():
-                    if existing_name not in incoming:
-                        await db.delete(existing_tool)
-                        deleted_count += 1
+                stale = [t for n, t in existing_tools.items() if n not in incoming]
+                if stale:
+                    # Statement deletes: an overlapping run may already have
+                    # removed these rows, and an ORM delete of a vanished row
+                    # raises StaleDataError. user_connection_tools has no ON
+                    # DELETE rule, so clear it first (the ORM cascade did).
+                    stale_ids = [str(t.id) for t in stale]
+                    await db.execute(delete(UserConnectionTool).where(
+                        UserConnectionTool.connection_tool_id.in_(stale_ids)))
+                    await db.execute(delete(ConnectionTool).where(ConnectionTool.id.in_(stale_ids)))
+                    for t in stale:
+                        db.expunge(t)
+                    deleted_count = len(stale_ids)
             elif existing_tools:
                 logger.warning(
                     f"refresh_tools: provider returned no tools for connection {connection.id}; "
