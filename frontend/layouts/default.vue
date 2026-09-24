@@ -130,7 +130,7 @@
                @click="createNewReport"
                :class="[
                  'flex items-center px-2.5 py-1.5 w-full rounded-md text-blue-500 hover:bg-gray-100 dark:hover:bg-gray-800/70',
-                 isCollapsed ? 'justify-center' : 'gap-2.5'
+                 isCollapsed ? 'flex-col justify-center gap-1' : 'gap-2.5'
                ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.newReport')" :popper="{ placement: tooltipPlacement }">
                 <span :class="['flex items-center justify-center', isCollapsed ? 'w-5 h-5 text-[16px]' : 'w-5 h-5 text-[18px]']">
@@ -420,14 +420,46 @@
           <UDropdown :items="userDropdownItems" :popper="{ placement: 'top-start' }" class="block w-full"
             :ui="{ width: 'w-56', item: { size: 'text-[13px]', padding: 'px-2 py-1.5', icon: { base: 'flex-shrink-0 w-4 h-4' } } }">
             <template #item="{ item }">
-              <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
-              <span v-else class="w-4 h-4 shrink-0"></span>
-              <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              <template v-if="item.kind === 'quota' && myQuota">
+                <span class="flex flex-col gap-2 w-full py-0.5 text-start">
+                  <span v-for="row in myQuota.rows" :key="row.key" class="flex flex-col gap-1">
+                    <span class="flex items-baseline justify-between gap-2">
+                      <span class="text-[11px] text-gray-500 dark:text-gray-400">{{ row.label }}</span>
+                      <span
+                        class="text-[11px] tabular-nums"
+                        :class="row.blocked ? 'font-semibold text-red-600 dark:text-red-400'
+                          : row.near ? 'font-medium text-amber-700 dark:text-amber-400'
+                          : 'text-gray-700 dark:text-gray-200'"
+                      >{{ row.usedLabel }} / {{ row.limitLabel }}</span>
+                    </span>
+                    <span class="h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <span
+                        class="block h-full rounded-full"
+                        :class="row.blocked ? 'bg-red-500'
+                          : row.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                        :style="{ width: row.barWidth }"
+                      ></span>
+                    </span>
+                  </span>
+                  <span class="text-[10px] text-gray-400 dark:text-gray-500">{{ myQuotaResetLabel }}</span>
+                </span>
+              </template>
+              <template v-else>
+                <component v-if="item.iconComponent" :is="item.iconComponent" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <UIcon v-else-if="item.icon" :name="item.icon" class="w-4 h-4 shrink-0 text-gray-400 dark:text-gray-500" />
+                <span v-else class="w-4 h-4 shrink-0"></span>
+                <span class="truncate text-gray-700 dark:text-gray-200">{{ item.label }}</span>
+              </template>
             </template>
              <button :class="[
-               'flex items-center px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
-               isCollapsed ? 'justify-center' : 'gap-2.5'
+               'flex px-2.5 py-1.5 w-full rounded-md text-gray-500 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-800/70',
+               isCollapsed ? 'flex-col items-center justify-center gap-1' : 'gap-2.5',
+               // With a quota the row is two lines tall, and centring would sink
+               // the avatar and the chevron to the middle of both. Aligning to
+               // the top keeps all three on the name's line, where they read as
+               // one row with the bar tucked underneath.
+               !isCollapsed && myQuota ? 'items-start' : '',
+               !isCollapsed && !myQuota ? 'items-center' : ''
              ]">
               <UTooltip v-if="isCollapsed" :text="$t('nav.loggedInAs', { name: currentUserName })" :popper="{ placement: tooltipPlacement }">
                 <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
@@ -435,13 +467,56 @@
                   {{ userInitial }}
                 </div>
               </UTooltip>
-              <template v-else>
-                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100" />
-                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full">
+              <!-- Collapsed rail: no room for the number, but the bar still
+                   fits under the avatar, so a blocked member is not left
+                   without any signal at all. -->
+              <span
+                v-if="isCollapsed && myQuota"
+                class="block w-5 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden"
+              >
+                <span
+                  class="block h-full rounded-full"
+                  :class="myQuota.blocked
+                    ? 'bg-red-500'
+                    : myQuota.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                  :style="{ width: myQuota.barWidth }"
+                ></span>
+              </span>
+              <template v-else-if="!isCollapsed">
+                <img v-if="userImageUrl" :src="userImageUrl" alt="" class="w-5 h-5 rounded-full object-cover bg-gray-100 shrink-0" />
+                <div v-else class="flex items-center justify-center w-5 h-5 bg-blue-500 text-white text-[10px] font-bold rounded-full shrink-0">
                   {{ userInitial }}
                 </div>
-                <span v-if="showText" class="truncate">{{ currentUserName }}</span>
-                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ml-auto w-4 h-4 text-gray-400 shrink-0" />
+                <!-- Name, and under it the member's own quota. Inside this
+                     button rather than on a row of its own: the quota belongs
+                     to the person named right above it, and the pairing says
+                     so without a label. Members without a quota see only the
+                     name, exactly as before. -->
+                <!-- text-start is load-bearing: a <button> centres its text by
+                     default, which went unnoticed while the name was a plain
+                     flex item sized to its content. As a stretched column child
+                     it fills the width, and the centring became visible. -->
+                <span v-if="showText" class="flex flex-col min-w-0 flex-1 gap-1 text-start">
+                  <span class="truncate">{{ currentUserName }}</span>
+                  <span v-if="myQuota" class="flex items-center gap-1.5">
+                    <span class="flex-1 h-1 rounded-full bg-gray-100 dark:bg-gray-800 overflow-hidden">
+                      <span
+                        class="block h-full rounded-full transition-all duration-500"
+                        :class="myQuota.blocked
+                          ? 'bg-red-500'
+                          : myQuota.near ? 'bg-amber-500' : 'bg-gray-300 dark:bg-gray-600'"
+                        :style="{ width: myQuota.barWidth }"
+                      ></span>
+                    </span>
+                    <span
+                      class="text-[10px] shrink-0 whitespace-nowrap tabular-nums"
+                      :class="myQuota.blocked ? 'font-semibold text-red-600 dark:text-red-400'
+                        : myQuota.near ? 'font-medium text-amber-700 dark:text-amber-400'
+                        : 'text-gray-400 dark:text-gray-500'"
+                    >{{ myQuota.percentLabel }}</span>
+                  </span>
+                </span>
+                <UIcon v-if="showText" name="i-heroicons-chevron-up-down" class="ms-auto w-4 h-4 text-gray-400 shrink-0" />
               </template>
             </button>
           </UDropdown>
@@ -462,7 +537,9 @@
             <UTooltip :text="$t('changelog.title')" :popper="{ placement: tooltipPlacement }">
               <span>v{{ version }}</span>
             </UTooltip>
+
           </button>
+
         </li>
       </ul>
     </div>
@@ -1357,7 +1434,107 @@
 
   const userImageUrl = computed<string | null>(() => (currentUser.value as any)?.image_url || null)
 
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+
+  // ── The member's own quota, on the version row ──────────────────────────
+  // Read straight off the session summary the composable already exposes, so
+  // this costs no request. Members without a quota (most of them) get nothing
+  // at all — no row, no placeholder.
+  const { usageQuota } = useUsageQuota()
+
+  const QUOTA_NEAR = 75
+  const QUOTA_FULL = 100
+
+  function formatQuotaUsd(value: number): string {
+    return new Intl.NumberFormat(locale.value, {
+      style: 'currency',
+      currency: 'USD',
+      maximumFractionDigits: 2,
+    }).format(Number(value) || 0)
+  }
+
+  function formatQuotaCount(value: number): string {
+    return new Intl.NumberFormat(locale.value).format(Math.round(Number(value) || 0))
+  }
+
+  function formatQuotaBytes(value: number): string {
+    const bytes = Number(value) || 0
+    if (bytes < 1024) return `${bytes} B`
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`
+  }
+
+  const QUOTA_METRICS = [
+    { key: 'spend', label: () => t('quotaPolicies.spendShort'), format: formatQuotaUsd },
+    { key: 'tokens', label: () => t('quotaPolicies.tokensShort'), format: formatQuotaCount },
+    { key: 'queries', label: () => t('quotaPolicies.queriesShort'), format: formatQuotaCount },
+    { key: 'data_bytes', label: () => t('quotaPolicies.dataShort'), format: formatQuotaBytes },
+  ] as const
+
+  const myQuota = computed(() => {
+    const summary: any = usageQuota.value
+    if (!summary || summary.enabled !== true) return null
+
+    const capped = QUOTA_METRICS
+      .map(metric => ({ metric, value: summary[metric.key] }))
+      .filter(row => row.value && row.value.limit !== null && row.value.limit !== undefined)
+    if (!capped.length) return null  // metered but uncapped — nothing to show a share of
+
+    // Money leads: it is what members and their admins actually ask about.
+    // Only when spend is uncapped does the metric closest to its ceiling stand
+    // in, so a token-only policy still says something true.
+    const spend = capped.find(row => row.metric.key === 'spend')
+    const chosen = spend || capped.reduce((worst, row) =>
+      Number(row.value.percent ?? 0) > Number(worst.value.percent ?? 0) ? row : worst
+    )
+
+    // Every capped metric, for the menu. A policy can cap any combination of
+    // the four, and the one that leads the sidebar row is rarely the only one
+    // a member wants to see — the data ceiling is often the one that bites.
+    // Uncapped metrics stay out: there is no share to draw for them.
+    const rows = capped.map((row) => {
+      const rowPercent = Number(row.value.percent ?? 0)
+      return {
+        key: row.metric.key,
+        label: row.metric.label(),
+        usedLabel: row.metric.format(row.value.used ?? 0),
+        limitLabel: row.metric.format(row.value.limit),
+        near: rowPercent >= QUOTA_NEAR,
+        blocked: rowPercent >= QUOTA_FULL,
+        barWidth: `${Math.min(Math.max(rowPercent, 0), 100)}%`,
+      }
+    })
+
+    const percent = Number(chosen.value.percent ?? 0)
+    return {
+      percent,
+      rows,
+      near: percent >= QUOTA_NEAR,
+      blocked: percent >= QUOTA_FULL,
+      barWidth: `${Math.min(Math.max(percent, 0), 100)}%`,
+      // The row shows the share, not the amount: "$78" says nothing about how
+      // close the ceiling is, and closeness is the only thing worth a glance.
+      // Held at 100 once the ceiling is reached — "190%" invites arithmetic
+      // about an overage that changes nothing, where "100%" simply reads as
+      // full. The real figures are in the account menu.
+      percentLabel: `${Math.min(Math.round(percent), 100)}%`,
+      usedLabel: chosen.metric.format(chosen.value.used ?? 0),
+      limitLabel: chosen.metric.format(chosen.value.limit),
+      metricLabel: chosen.metric.label(),
+    }
+  })
+
+  // When the window rolls over — the one fact the menu adds that the row
+  // cannot carry.
+  const myQuotaResetLabel = computed<string>(() => {
+    const summary: any = usageQuota.value
+    const end = summary?.window_end ? new Date(summary.window_end) : null
+    if (!end || Number.isNaN(end.getTime())) return ''
+    return t('quota.resetsOn', {
+      date: end.toLocaleDateString(locale.value, { day: 'numeric', month: 'long' }),
+    })
+  })
   const userOrganizations = computed<any[]>(() => {
     return ((currentUser.value as any)?.organizations || []) as any[]
   })
@@ -1433,6 +1610,15 @@
       icon: 'heroicons-arrow-left',
       click: signOff
     }])
+
+    // Last, under the actions: the usage detail opens with the menu rather
+    // than on a hover of its own — one gesture, one surface. It is a readout,
+    // so it sits below everything there is to do, and the menu opens upwards,
+    // which leaves it resting against the bar it explains. Disabled so it
+    // never reads as something to click.
+    if (myQuota.value) {
+      groups.push([{ kind: 'quota', label: '', disabled: true }])
+    }
     return groups
   })
 

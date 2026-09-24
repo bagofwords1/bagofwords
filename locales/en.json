@@ -5253,5 +5253,8 @@
     "preparing": "Preparing your copy…",
     "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
+  },
+  "quota": {
+    "resetsOn": "resets {date}"
   }
 }

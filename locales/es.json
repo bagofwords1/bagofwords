@@ -5224,5 +5224,8 @@
     "preparing": "Preparando tu copia…",
     "preparingDetail": "Ejecutando las consultas con tus propias credenciales. Suele tardar unos segundos.",
     "nothingRan": "No se pudo crear tu copia: ninguna de sus consultas pudo ejecutarse con tus credenciales."
+  },
+  "quota": {
+    "resetsOn": "se reinicia el {date}"
   }
 }
