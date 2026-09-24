@@ -21,7 +21,7 @@ def _tool(name):
         name=name,
         description=f"does {name}",
         connection_id="conn-1",
-        connection_name="LNMCP",
+        connection_name="SampleMCP",
         policy="allow",
         input_schema={
             "type": "object",
@@ -33,7 +33,7 @@ def _tool(name):
 
 def _section(tool_count, *, native_mcp):
     return TablesSchemaContext.DataSource(
-        info=DataSourceSummarySchema(id="ds-1", name="LNTesting", type="mcp"),
+        info=DataSourceSummarySchema(id="ds-1", name="SampleAgent", type="mcp"),
         tables=[],
         mcp_tools=[_tool(f"get_thing_{i}") for i in range(tool_count)],
         native_mcp=native_mcp,
@@ -63,7 +63,7 @@ def test_tools_are_always_listed_under_either_path():
 def test_default_is_the_safe_direction():
     """A section built without the flag inlines — a schema present, never absent."""
     section = TablesSchemaContext.DataSource(
-        info=DataSourceSummarySchema(id="ds-1", name="LNTesting", type="mcp"),
+        info=DataSourceSummarySchema(id="ds-1", name="SampleAgent", type="mcp"),
         mcp_tools=[_tool("get_thing")],
     )
     assert section.native_mcp is False
