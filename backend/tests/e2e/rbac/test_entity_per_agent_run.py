@@ -526,3 +526,44 @@ def test_a_query_left_without_agents_still_runs_on_the_agent_it_named(test_clien
     run = test_client.post(f"/api/entities/{w['entity']['id']}/run", json={}, headers=h)
     assert run.status_code == 200, run.text
     assert _stores(run) == {w["stores"][w["origin"]["id"]]}
+
+
+def _edited_code_for(test_client, w, ds, h):
+    view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": ds["id"]}, headers=h).json()
+    return view["code_for_agent"].replace("SUM(amount)", "SUM(amount) * 2")
+
+
+@pytest.mark.e2e
+def test_editing_the_code_under_another_agent_leaves_no_old_code_rows_on_the_origin(test_client, shared):
+    """Save new SQL from agent B's view: A (the origin) must not keep serving
+    the old SQL's rows under the new code."""
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    assert _run(test_client, w, w["origin"]["id"]).status_code == 200
+
+    new_code = _edited_code_for(test_client, w, w["other"], h)
+    saved = test_client.put(f"/api/entities/{w['entity']['id']}", json={"code": new_code}, headers=h)
+    assert saved.status_code == 200, saved.text
+
+    origin_view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["origin"]["id"]}, headers=h)
+    assert origin_view.status_code == 200, origin_view.text
+    assert not (origin_view.json().get("data") or {}).get("rows"), "origin still shows the old code's rows"
+
+    refreshed = _run(test_client, w, w["origin"]["id"])
+    assert refreshed.status_code == 200, refreshed.text
+    assert {float(r["total"]) for r in refreshed.json()["data"]["rows"]} == {84.0}
+
+
+@pytest.mark.e2e
+def test_a_code_change_run_on_another_agent_leaves_no_old_code_rows_on_the_origin(test_client, shared):
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    assert _run(test_client, w, w["origin"]["id"]).status_code == 200
+
+    new_code = _edited_code_for(test_client, w, w["other"], h)
+    ran = _run(test_client, w, w["other"]["id"], code=new_code)
+    assert ran.status_code == 200, ran.text
+    assert {float(r["total"]) for r in ran.json()["data"]["rows"]} == {84.0}
+
+    origin_view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["origin"]["id"]}, headers=h)
+    assert not (origin_view.json().get("data") or {}).get("rows"), "origin still shows the old code's rows"

@@ -988,14 +988,15 @@ class EntityService:
             if not code_edited and chosen != previous_origin:
                 # Move results with the origin (Entity.data is the origin's).
                 await entity_runtime.hand_origin_to(db, entity, chosen, previous_origin_id=previous_origin)
-            elif code_edited and chosen != previous_origin:
-                # New code on a new origin: the rows in Entity.data are the old
-                # origin's, from the old code — they belong to neither. The
-                # post-save run fills the new origin's.
-                entity.data = {}
-                entity.applied_params = None
-                entity.last_refreshed_at = None
         if code_edited:
+            # Every stored result came from the old code — the origin's
+            # (Entity.data) as much as the other agents'. Clear them all: an
+            # agent shows no rows until it is run again, never the old code's
+            # rows under the new code. The edit form's post-save run fills the
+            # agent it was opened under.
+            entity.data = {}
+            entity.applied_params = None
+            entity.last_refreshed_at = None
             await entity_runtime.drop_snapshots(db, str(entity.id))
         elif removed:
             await entity_runtime.drop_snapshots(db, str(entity.id), removed)
@@ -1182,9 +1183,14 @@ class EntityService:
             return entity
 
         if code_changed:
-            # Every other agent's result came from the old code.
+            # Every other agent's result came from the old code — including the
+            # origin's (Entity.data) when this run is on another agent.
             entity_runtime.apply_code(entity, new_code, entity_runtime.attached_agents(entity), entity.origin_data_source_id)
             await entity_runtime.drop_snapshots(db, str(entity.id))
+            if not entity_runtime._is_origin(entity, target_id):
+                entity.data = {}
+                entity.applied_params = None
+                entity.last_refreshed_at = None
         await entity_runtime.store_snapshot(db, entity, target_id, df, resolved_params)
 
         # Apply optional payload updates
