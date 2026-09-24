@@ -9,7 +9,7 @@ from defusedxml import ElementTree as ET
 
 from app.ai.prompt_formatters import ServiceFormatter, Table, TableColumn
 from app.data_sources.clients.base import DataSourceClient
-from app.data_sources.clients.progress import ProgressCallback, ProgressReporter
+from app.data_sources.clients.progress import ProgressCallback, discovery_items, discovery_progress
 
 # Payload conventions shared with the BOW_* Application Engine processes.
 # The processes are plain BI# functions that return a string; these markers
@@ -336,17 +336,13 @@ class InforEpmClient(DataSourceClient):
         pattern = self.measure_dimension_pattern
         return bool(pattern) and pattern in (dim.get("name") or "").lower()
 
+    @discovery_progress
     def get_schemas(self, progress_callback: ProgressCallback | None = None) -> list[Table]:
         self.connect()
-        reporter = ProgressReporter(progress_callback)
-        cubes = self._list_cubes()
-        reporter.phase("cubes", total=len(cubes))
         tables: list[Table] = []
-        for cube in cubes:
-            reporter.item(cube)
+        for cube in discovery_items(self._list_cubes(), "cubes", label=str):
             schema = self._cube_schema(cube)
             tables.append(self._build_table(cube, schema))
-        reporter.done()
         self._schema_cache = tables
         return tables
 

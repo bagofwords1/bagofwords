@@ -222,7 +222,9 @@ class TestSchemas:
     def test_progress_callback_reports_each_cube(self, engine):
         seen = []
         _client().get_schemas(progress_callback=lambda ph, item, done, total: seen.append((item, done, total)))
-        assert ("Sales", 1, 2) in seen and ("Finance", 2, 2) in seen
+        # Shared discovery contract: `done` counts cubes finished before this one.
+        assert ("Sales", 0, 2) in seen and ("Finance", 1, 2) in seen
+        assert (None, 2, 2) in seen
 
     def test_get_schema_resolves_by_table_or_cube_name(self, engine):
         c = _client()
