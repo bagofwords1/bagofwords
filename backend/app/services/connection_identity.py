@@ -53,6 +53,28 @@ def management_requires_user_auth(connection: Connection, config_overrides: dict
     return False
 
 
+def has_org_catalog(connection: Connection) -> bool:
+    """True when a user_required connection has a SHARED catalog the org's own
+    credentials can discover — the "all tables" view of the tables selector.
+
+    False for system_only (there is only one view), tool providers (no tables),
+    per-user catalogs and OAuth-client-only setups (nothing can crawl without a
+    signed-in user), and connections whose admin never stored credentials.
+    """
+    if (connection.auth_policy or "system_only") != "user_required":
+        return False
+    from app.schemas.data_source_registry import requires_no_credentials, tool_provider_types
+
+    if connection.type in tool_provider_types():
+        return False
+    if requires_no_credentials(connection.type):
+        # Indexed from `config` alone (SQLite/DuckDB/QVD).
+        return True
+    if management_requires_user_auth(connection):
+        return False
+    return bool(connection.credentials)
+
+
 def supports_user_token(connection: Connection) -> bool:
     """True if this connection authenticates users with a per-user OAuth/OBO token."""
     modes = connection.allowed_user_auth_modes or []

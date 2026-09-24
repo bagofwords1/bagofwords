@@ -219,6 +219,7 @@ async def get_data_source_full_schema(
     sort_by: str = Query("name", description="Sort by: name, centrality_score, is_active, richness"),
     sort_dir: str = Query("asc", description="Sort direction: asc or desc"),
     selected_state: Optional[str] = Query(None, description="Filter by selection state: 'selected' or 'unselected'"),
+    catalog_view: Optional[str] = Query(None, description="'all' shows every table of delegated connections the caller manages that have an org catalog (agent managers only)"),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
@@ -269,6 +270,11 @@ async def get_data_source_full_schema(
             # per-file catalog rows out of the tables selector.
             exclude_file_source_types=True,
             restrict_to_active=restrict_to_active,
+            # The "All tables / My tables" toggle lives in the agent-manager
+            # table picker; per connection it also requires `manage_connection`
+            # (checked in the service). Anyone else gets no toggle, and
+            # `catalog_view=all` is simply ignored.
+            org_catalog_view=None if restrict_to_active else (catalog_view == "all"),
         )
         await release_request_db(db)  # free the pooled connection before serialization (Cause A, Phase 1)
         return paginated
@@ -406,11 +412,18 @@ async def llm_sync(
 @requires_resource_permission('data_source', 'view_schema')
 async def refresh_data_source_schema(
     data_source_id: str,
+    catalog_view: Optional[str] = Query(None, description="'all' refreshes the delegated connections the caller manages with the org's credentials (agent managers only)"),
     db: AsyncSession = Depends(get_async_db),
     organization: Organization = Depends(get_current_organization),
     current_user: User = Depends(current_user)
 ):
-    return await data_source_service.refresh_data_source_schema(db, data_source_id, organization, current_user)
+    org_catalog_view = False
+    if catalog_view == "all":
+        resolved = await resolve_permissions(db, str(current_user.id), str(organization.id))
+        org_catalog_view = resolved.has_resource_permission("data_source", str(data_source_id), "manage")
+    return await data_source_service.refresh_data_source_schema(
+        db, data_source_id, organization, current_user, org_catalog_view=org_catalog_view,
+    )
 
 @router.get("/data_sources/{data_source_id}/metadata_resources", response_model=MetadataIndexingJobSchema)
 @requires_resource_permission('data_source', 'view')
