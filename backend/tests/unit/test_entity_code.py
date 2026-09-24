@@ -220,3 +220,24 @@ def test_an_inactive_connection_of_the_same_type_does_not_make_the_code_ambiguou
     assert t.mode == MODE_TEMPLATED
     keys, _ = client_keys(render(t.code, agent))
     assert keys == [f"{agent.name}:{live.name}"]
+
+
+def test_code_naming_an_inactive_connection_is_never_moved_to_another_one():
+    """`sales:prod` (inactive) beside `staging` (active, same type): a type
+    token would run on staging. The key stays pinned to prod instead."""
+    prod = _conn("pg", name="prod", active=False)
+    staging = _conn("pg", name="staging")
+    agent = _agent(None, prod, staging)
+    code = _code(f"{agent.name}:prod")
+    t = templatize(code, [agent])
+    assert t.mode == MODE_BOUND
+    assert t.code == code
+
+
+def test_the_only_connection_of_its_type_templates_even_while_inactive():
+    """A connection that is merely down right now is still the only one the
+    key can mean."""
+    only = _conn("pg", active=False)
+    agent = _agent(None, only)
+    t = templatize(_code(f"{agent.name}:{only.name}"), [agent])
+    assert t.mode == MODE_TEMPLATED

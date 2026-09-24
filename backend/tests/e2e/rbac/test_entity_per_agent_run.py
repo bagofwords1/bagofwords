@@ -604,3 +604,38 @@ def test_a_query_reading_two_agents_together_has_one_result_on_both(test_client,
         got = test_client.get(f"/api/entities/{ent['id']}", params={"data_source_id": ds["id"]}, headers=h)
         assert got.status_code == 200, got.text
         assert _stores(got) == both, f"opened from {ds['name']}"
+
+
+@pytest.mark.e2e
+def test_a_query_repaired_at_run_time_keeps_each_agents_result_apart(test_client, shared):
+    """A query stored as unresolved whose agents now allow the repair is saved
+    as repaired on its first run — so a refresh from B stores B's rows as B's,
+    not as the one shared result A is then served."""
+    import asyncio
+    from app.dependencies import async_session_maker
+    from app.models.entity import Entity
+
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    assert _run(test_client, w, w["origin"]["id"]).status_code == 200
+
+    async def make_unresolved():
+        # Direct write: the API never stores an unresolved query that its
+        # agents could repair — this is the state of rows classified before
+        # their agents allowed the repair.
+        async with async_session_maker() as db:
+            ent = await db.get(Entity, w["entity"]["id"])
+            ent.code = _code_for(f"gone_{uuid.uuid4().hex[:4]}:x")
+            ent.code_mode = "unresolved"
+            await db.commit()
+
+    asyncio.run(make_unresolved())
+
+    from_b = _run(test_client, w, w["other"]["id"])
+    assert from_b.status_code == 200, from_b.text
+    assert _stores(from_b) == {w["stores"][w["other"]["id"]]}
+
+    a_view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["origin"]["id"]}, headers=h)
+    assert a_view.status_code == 200, a_view.text
+    assert w["stores"][w["other"]["id"]] not in _stores(a_view), "agent A is served agent B's rows"
+    assert a_view.json()["code_mode"] == "templated"

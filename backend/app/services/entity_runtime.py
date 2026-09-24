@@ -167,8 +167,15 @@ async def prepare_run(
         return await _prepare_agentless(db, entity, code, user)
     if mode == ec.MODE_UNRESOLVED:
         # Classified before its agents allowed a repair (or before repairs
-        # existed): try again against the agents it has now.
+        # existed): try again against the agents it has now. A repair that
+        # works is SAVED on the query (code, mode, origin) — the caller
+        # commits — so everything else sees a per-agent query and its result
+        # is stored per agent, not as the one shared result an unresolved
+        # query has.
         retry = ec.templatize(code, [ec.agent_info(a) for a in agents])
+        if retry.mode != ec.MODE_UNRESOLVED and hasattr(entity, "__table__"):
+            apply_code(entity, code, agents, getattr(entity, "origin_data_source_id", None))
+            await log_repair(db, entity, retry, str(getattr(user, "id", "")) or None, commit=False)
         code, mode = retry.code, retry.mode
     if mode == ec.MODE_UNRESOLVED:
         ec.check_runnable_on(code, mode, ec.agent_info(target) if target is not None else ec.AgentInfo(id="", name=""))
