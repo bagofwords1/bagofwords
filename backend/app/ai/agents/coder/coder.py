@@ -1,4 +1,5 @@
 import logging
+import time
 from typing import Callable, Optional
 
 from partialjson.json_parser import JSONParser
@@ -6,7 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai.llm import LLM
 from app.ai.llm.reasoning import _effort_to_thinking_config, _resolve_reasoning_effort
-from app.ai.llm.types import Message, MessageStopEvent, TextDeltaEvent, ReasoningDeltaEvent, ReasoningCompleteEvent
+from app.ai.llm.types import (
+    Message, MessageStopEvent, TextDeltaEvent,
+    ReasoningStartEvent, ReasoningDeltaEvent, ReasoningCompleteEvent,
+)
 
 
 # Raised message when a codegen stream stops at the model's output-token cap.
@@ -212,7 +216,31 @@ class Coder:
         self.instruction_context_builder = instruction_context_builder
         self.context_hub = context_hub
 
+    def _time_reasoning(self, event) -> None:
+        """Accumulate wall time spent inside reasoning blocks of the stream.
+
+        A block opens on its start (or first delta) and closes on its complete
+        event — or on the first non-reasoning event, for a stream that never
+        sends one. Read by callers as ``reasoning_ms`` after a generation.
+        """
+        now = time.monotonic()
+        opened = getattr(self, "_reasoning_opened_at", None)
+        if isinstance(event, (ReasoningStartEvent, ReasoningDeltaEvent)):
+            if opened is None:
+                self._reasoning_opened_at = now
+            return
+        if opened is not None:
+            self.reasoning_ms = round(
+                getattr(self, "reasoning_ms", 0.0) + (now - opened) * 1000.0, 1
+            )
+            self._reasoning_opened_at = None
+
+    def _reset_reasoning_clock(self) -> None:
+        self.reasoning_ms = 0.0
+        self._reasoning_opened_at = None
+
     async def _forward_reasoning(self, event):
+        self._time_reasoning(event)
         callback = getattr(self, "reasoning_callback", None)
         if callback and isinstance(event, (ReasoningDeltaEvent, ReasoningCompleteEvent)):
             try:
@@ -1000,6 +1028,7 @@ class Coder:
                 span.set_attribute("coder.system_chars", len(system_text))
                 span.set_attribute("coder.has_typed_context", context is not None)
                 span.set_attribute("coder.allow_llm_see_data", bool(self.enable_llm_see_data))
+                self._reset_reasoning_clock()
                 async for evt in self.llm.inference_stream_v2(
                     messages=[Message(role="user", content=text)],
                     system=system_text,
@@ -1011,6 +1040,7 @@ class Coder:
                         chunks.append(evt.text)
                     elif _is_truncation(evt):
                         truncated = True
+                self._time_reasoning(None)  # close a block the stream never ended
                 span.set_attribute("coder.chunks", len(chunks))
                 span.set_attribute("coder.output_chars", sum(len(chunk) for chunk in chunks))
                 span.set_attribute("coder.truncated", truncated)
@@ -1157,6 +1187,7 @@ class Coder:
 
         chunks: list[str] = []
         truncated = False
+        self._reset_reasoning_clock()
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="create_data.inspection",
@@ -1167,6 +1198,7 @@ class Coder:
                 chunks.append(evt.text)
             elif _is_truncation(evt):
                 truncated = True
+        self._time_reasoning(None)  # close a block the stream never ended
         if truncated:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)
@@ -1308,6 +1340,7 @@ class Coder:
 
         chunks: list[str] = []
         truncated = False
+        self._reset_reasoning_clock()
         async for evt in self.llm.inference_stream_v2(
             messages=[Message(role="user", content=text)],
             usage_scope="write_csv.transform",
@@ -1318,6 +1351,7 @@ class Coder:
                 chunks.append(evt.text)
             elif _is_truncation(evt):
                 truncated = True
+        self._time_reasoning(None)  # close a block the stream never ended
         if truncated:
             raise RuntimeError(_TRUNCATION_ERROR)
         result = "".join(chunks)

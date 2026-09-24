@@ -274,6 +274,7 @@ Queries are subject to a per-connection timeout.
         executed_queries: List[str] = []
         query_timings: List[dict] = []
         codegen_ms = None
+        codegen_reasoning_ms = None
         execution_ms = None
         execution_start = time.monotonic()
         raw_errors: List[Any] = []
@@ -331,6 +332,7 @@ Queries are subject to a per-connection timeout.
                 executed_queries = e["payload"].get("executed_queries") or []
                 query_timings = e["payload"].get("query_timings") or []
                 codegen_ms = e["payload"].get("codegen_ms")
+                codegen_reasoning_ms = getattr(coder, "reasoning_ms", None) or None
                 execution_ms = e["payload"].get("execution_ms")
                 if e["payload"].get("errors"):
                     success = False
@@ -431,6 +433,7 @@ Queries are subject to a per-connection timeout.
                     "execution_duration_ms": execution_duration_ms,
                     "query_timings": query_timings,
                     "codegen_ms": codegen_ms,
+                    "codegen_reasoning_ms": codegen_reasoning_ms,
                     "execution_ms": execution_ms,
                 },
                 "observation": observation,
