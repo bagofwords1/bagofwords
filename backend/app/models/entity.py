@@ -29,7 +29,19 @@ class Entity(BaseSchema):
     tags = Column(JSON, nullable=True, default=list)
 
     # Execution and preview
+    # Stored agent-free when it can be: `ds_clients["$agent:<connection type>"]`
+    # instead of `ds_clients["<agent>:<connection>"]`, rendered for the agent
+    # each run is made from. See app/services/entity_code.py.
     code = Column(Text, nullable=False)  # single source of truth (SQL or expression)
+    # How `code` binds to agents: templated | dynamic | bound | unresolved
+    # (entity_code.MODE_*). NULL on rows no save/backfill has classified yet.
+    code_mode = Column(String(20), nullable=True)
+    # The agent the query was written for: the default agent a run without
+    # one is made from, and the one whose result `data` holds. Results for the
+    # query's other agents live in entity_agent_snapshots.
+    origin_data_source_id = Column(
+        String(36), ForeignKey('data_sources.id', ondelete='SET NULL'), nullable=True, index=True,
+    )
     bow_source_access = Column(JSON, nullable=True)
     data = Column(EncryptedJSON, nullable=True, default=dict)
     # Declared ParamSpec dicts (app/schemas/param_schema.py), carried over
