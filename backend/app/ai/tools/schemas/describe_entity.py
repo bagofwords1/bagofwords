@@ -33,6 +33,14 @@ class DescribeEntityInput(BaseModel):
             "server-side and must not be set here."
         ),
     )
+    agent: Optional[str] = Field(
+        default=None,
+        description=(
+            "The agent (name or id) to run the saved query on, when it is shared "
+            "with several (the `ds` attribute in <entities>). Omit to use the "
+            "agent in this conversation, or the query's own agent."
+        ),
+    )
 
 
 class DescribeEntityOutput(BaseModel):
@@ -45,7 +53,8 @@ class DescribeEntityOutput(BaseModel):
     entity_type: Optional[str] = Field(default=None, description="Entity type: model or metric")
     title: Optional[str] = Field(default=None, description="Entity title")
     description: Optional[str] = Field(default=None, description="Entity description")
-    code: Optional[str] = Field(default=None, description="Entity SQL/code")
+    code: Optional[str] = Field(default=None, description="Entity code, as it runs on `agent`")
+    agent: Optional[str] = Field(default=None, description="The agent the query ran on / whose result this is")
     
     # Data profile (when not creating)
     data_profile: Optional[Dict[str, Any]] = Field(

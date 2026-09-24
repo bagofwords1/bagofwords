@@ -682,6 +682,11 @@ class ContextHub:
             _hub_logger.warning(f"[context_hub] _instruction_query failed: {e}")
             return query
 
+    async def _build_mentions(self):
+        # Mentioned saved queries are shown as they run on this run's agents.
+        self.mention_builder.run_agent_ids = self._run_agent_ids()
+        return await self.mention_builder.build()
+
     def _run_agent_ids(self) -> Optional[List[str]]:
         """Ids of the agents this run executes against. Entities are
         discovered against THIS set, not the report's attachments: an Auto
@@ -925,7 +930,7 @@ class ContextHub:
         messages, queries, mentions, entities = await self._run_builders("refresh_warm", [
             ("messages", lambda: _timed("messages", self.message_builder.build(max_messages=DEFAULT_CONTEXT_LIMITS["messages_max"]))),
             ("queries", lambda: _timed("queries", self.query_builder.build(max_queries=5, include_data_preview=allow_llm_see_data))),
-            ("mentions", lambda: _timed("mentions", self.mention_builder.build())),
+            ("mentions", lambda: _timed("mentions", self._build_mentions())),
             ("entities", lambda: _timed("entities", self.entity_builder.build_for_turn(
                 top_k=5,
                 require_source_assoc=True,

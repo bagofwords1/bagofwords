@@ -767,7 +767,14 @@ EXAMPLES (sources are published by default → most asks proceed with a stated a
                 "params={name: value} where name is the param's name= attribute exactly (not a "
                 "column name); omitted parameters keep their defaults. Do not write new code for "
                 "data an entity already provides; reach for create_data only when no entity fits "
-                "or its rows must be transformed or combined with other data.</entities_guidance>"
+                "or its rows must be transformed or combined with other data. An entity shared "
+                "with several agents runs on the agent of this conversation (its ds= attribute): "
+                "describe_entity runs it there, and code taken from it must use only the client "
+                "keys of this conversation, never another agent's. When ds= lists more than one "
+                "agent, each has its own data: unless the user named one, call describe_entity "
+                "once per listed agent (agent=<name>) and answer with every result labeled by its "
+                "agent — do not choose one agent yourself; if the user named one, run it on that "
+                "agent only. Always name the agent a number came from.</entities_guidance>"
             )
         if getattr(planner_input, "available_steps_context", None):
             parts.append(f"  {planner_input.available_steps_context}")
