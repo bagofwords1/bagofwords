@@ -1659,7 +1659,8 @@
     "parametersHeading": "Parameters",
     "parametersBody": "Saved with the query. Anyone loading this entity can pass their own values; identity parameters always bind to the viewer.",
     "paramIdentity": "scoped to viewer",
-    "paramAll": "= All"
+    "paramAll": "= All",
+    "savingAndRunning": "Saving and running on the new agents…"
   },
   "mentionInput": {
     "placeholder": "Type {'@'} to mention...",
@@ -3485,6 +3486,12 @@
     "locale.invalid": "Locale is not enabled",
     "report.not_found": "Report not found",
     "entity.not_found": "Entity not found",
+    "entity.agent_no_connection_type": "Agent \"{agent}\" has no active {type} connection, so this query cannot run on it.",
+    "entity.agent_ambiguous_connection": "Agent \"{agent}\" has more than one active {type} connection, so this query cannot tell which one to use.",
+    "entity.agent_not_attached": "This query is not shared with that agent.",
+    "entity.not_shareable": "This query reads specific agents together, so it cannot also be shared with \"{agent}\".",
+    "entity.unresolved_code": "This query's code refers to an agent or connection that no longer exists. Edit the query to fix it.",
+    "entity.no_agent": "This query is not attached to any agent, so there is nothing to run it against.",
     "user.not_found": "User not found",
     "membership.not_found": "Membership not found",
     "role.not_found": "Role not found",
@@ -3502,7 +3509,8 @@
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
-    }
+    },
+    "entity.share_run_failed": "This query failed on agent \"{agent}\", so it cannot be shared with it: {error}"
   },
   "email": {
     "dashboardShare": {
@@ -3612,8 +3620,16 @@
       "paramAll": "All",
       "paramListPlaceholder": "a, b, … (empty = All)",
       "errRunParams": "Run failed",
-      "paramsCached": "served from cache"
-    }
+      "paramsCached": "served from cache",
+      "runsOnAgent": "Runs on {agent}",
+      "originAgentBadge": "Written for this agent",
+      "unresolvedWarning": "This query's code refers to an agent or connection that no longer exists. Edit the query to fix it.",
+      "boundNote": "This query reads these agents together, so it runs on all of them at once and cannot be shared with other agents.",
+      "errLoad": "Couldn't open this query",
+      "errRefresh": "Refresh failed",
+      "runErrorOnAgent": "The last run on {agent} failed: {error}. Refresh to try again."
+    },
+    "agentKeyHint": "Fitted to each agent the query is shared with"
   },
   "scheduled": {
     "title": "Scheduled Tasks",

@@ -1633,7 +1633,8 @@
     "parametersHeading": "Parámetros",
     "parametersBody": "Se guardan con la consulta. Quien cargue esta entidad puede pasar sus propios valores; los parámetros de identidad siempre se vinculan al usuario que la ve.",
     "paramIdentity": "según el usuario",
-    "paramAll": "= Todos"
+    "paramAll": "= Todos",
+    "savingAndRunning": "Guardando y ejecutando en los agentes nuevos…"
   },
   "mentionInput": {
     "placeholder": "Escribe {'@'} para mencionar...",
@@ -3415,6 +3416,12 @@
     "locale.invalid": "Ese idioma no está habilitado",
     "report.not_found": "Informe no encontrado",
     "entity.not_found": "Entidad no encontrada",
+    "entity.agent_no_connection_type": "El agente \"{agent}\" no tiene ninguna conexión {type} activa, así que esta consulta no puede ejecutarse en él.",
+    "entity.agent_ambiguous_connection": "El agente \"{agent}\" tiene más de una conexión {type} activa, así que esta consulta no puede saber cuál usar.",
+    "entity.agent_not_attached": "Esta consulta no está compartida con ese agente.",
+    "entity.not_shareable": "Esta consulta lee varios agentes concretos a la vez, así que no puede compartirse también con \"{agent}\".",
+    "entity.unresolved_code": "El código de esta consulta hace referencia a un agente o una conexión que ya no existe. Edita la consulta para corregirlo.",
+    "entity.no_agent": "Esta consulta no está vinculada a ningún agente, así que no hay contra qué ejecutarla.",
     "user.not_found": "Usuario no encontrado",
     "membership.not_found": "Membresía no encontrada",
     "role.not_found": "Rol no encontrado",
@@ -3434,7 +3441,8 @@
       "model_id_required": "El ID del modelo no puede estar vacío",
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
-    }
+    },
+    "entity.share_run_failed": "Esta consulta falló en el agente \"{agent}\", así que no puede compartirse con él: {error}"
   },
   "email": {
     "dashboardShare": {
@@ -3524,8 +3532,16 @@
       "paramAll": "Todos",
       "paramListPlaceholder": "a, b, … (vacío = Todos)",
       "errRunParams": "La ejecución falló",
-      "paramsCached": "desde la caché"
-    }
+      "paramsCached": "desde la caché",
+      "runsOnAgent": "Se ejecuta en {agent}",
+      "originAgentBadge": "Escrita para este agente",
+      "unresolvedWarning": "El código de esta consulta hace referencia a un agente o una conexión que ya no existe. Edita la consulta para corregirlo.",
+      "boundNote": "Esta consulta lee estos agentes a la vez, así que se ejecuta en todos ellos y no puede compartirse con otros agentes.",
+      "errLoad": "No se pudo abrir esta consulta",
+      "errRefresh": "La actualización falló",
+      "runErrorOnAgent": "La última ejecución en {agent} falló: {error}. Actualiza para volver a intentarlo."
+    },
+    "agentKeyHint": "Se adapta a cada agente con el que se comparte la consulta"
   },
   "scheduled": {
     "title": "Tareas programadas",

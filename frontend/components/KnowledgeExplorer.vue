@@ -544,8 +544,9 @@
           </div>
           <div class="flex-1 overflow-auto">
             <EntityDetailPanel
-              :key="'query-' + queryView.entityId"
+              :key="'query-' + queryView.entityId + ':' + (queryView.agentId || '')"
               :entity-id="queryView.entityId"
+              :agent-id="queryView.agentId || null"
               @changed="onQueryChanged"
               @deleted="onQueryDeleted"
             />
@@ -1216,6 +1217,7 @@ import { useOrgSettings } from '~/composables/useOrgSettings'
 const h = useInstructionHelpers()
 const toast = useToast()
 const { t, locale } = useI18n()
+const { getErrorMessage } = useErrorMessage()
 // Training mode is the per-agent admin capability: gated on the org setting plus
 // manage_instructions on the currently-open agent (a per-DS `manage` grant
 // implies it; full_admin bypasses). Mirrors the backend gate.
@@ -4294,7 +4296,12 @@ const explorerUrl = (): string => {
   // /agents/global-evals rather than /agents//global-evals.
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
-  if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
+  // The agent rides along: a query shared with several agents shows the
+  // result of the one it was opened under.
+  if (queryView.value) {
+    const agent = queryView.value.agentId ? `?agent=${encodeURIComponent(queryView.value.agentId)}` : ''
+    return `/agents/queries/${queryView.value.entityId}${agent}`
+  }
   if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
@@ -4303,7 +4310,7 @@ const explorerUrl = (): string => {
 const syncUrl = () => {
   if (!process.client) return
   const target = explorerUrl()
-  if (location.pathname.replace(/\/$/, '') === target) return
+  if (location.pathname.replace(/\/$/, '') + location.search === target) return
   try { history.replaceState({ ...history.state }, '', target) } catch {}
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
@@ -4333,14 +4340,25 @@ const restoreFromRoute = () => {
   // under one of its own agents (they all list it) so the pane has a parent.
   if (seg[0] === 'queries' && seg[1]) {
     const entityId = seg[1]
-    if (queryView.value?.entityId === entityId) return
-    useMyFetch<any>(`/api/entities/${entityId}`, { method: 'GET' })
-      .then(({ data }: any) => {
+    const wantAgent = typeof route.query.agent === 'string' ? route.query.agent : ''
+    if (queryView.value?.entityId === entityId && (!wantAgent || queryView.value?.agentId === wantAgent)) return
+    const agentParam = wantAgent ? `?data_source_id=${encodeURIComponent(wantAgent)}` : ''
+    useMyFetch<any>(`/api/entities/${entityId}${agentParam}`, { method: 'GET' })
+      .then(({ data, error }: any) => {
         const ent = data?.value
-        if (!ent) return
-        // Hang it under one of its own agents so Back has a list to return to.
-        // A query attached to none has no such list; it still opens on its own.
-        const agentId = String(ent.data_sources?.[0]?.id || '')
+        if (error?.value || !ent) {
+          // Say why the link did nothing (no access to its agent, or gone)
+          // instead of leaving the reader on an unchanged page.
+          toast.add({ description: getErrorMessage(error?.value, t('queries.detail.errLoad')), color: 'red' })
+          return
+        }
+        // Hang it under the agent it was linked for (else the one the server
+        // served it on) so Back has a list to return to. A query attached to
+        // none has no such list; it still opens on its own.
+        const ids = (ent.data_sources || []).map((d: any) => String(d?.id))
+        const agentId = (wantAgent && ids.includes(wantAgent))
+          ? wantAgent
+          : String(ent.run_data_source_id || ent.origin_data_source_id || ids[0] || '')
         if (agentId) {
           expand('agent:' + agentId, true)
           openPanel('queries', agentId)

@@ -436,7 +436,7 @@
             <NuxtLink
               v-for="entity in queries"
               :key="entity.id"
-              :to="`/queries/${entity.id}`"
+              :to="selectedAgentId ? `/queries/${entity.id}?agent=${encodeURIComponent(String(selectedAgentId))}` : `/queries/${entity.id}`"
               class="w-full px-3 py-2 text-start text-xs flex items-start gap-2 hover:bg-gray-50 dark:hover:bg-gray-800/50 border-b border-gray-100 dark:border-gray-800 last:border-b-0 block"
             >
               <div class="flex-1 min-w-0">

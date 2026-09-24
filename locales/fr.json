@@ -3325,6 +3325,12 @@
     "locale.invalid": "Cette langue n'est pas activée",
     "report.not_found": "Rapport introuvable",
     "entity.not_found": "Entité introuvable",
+    "entity.agent_no_connection_type": "L'agent « {agent} » n'a aucune connexion {type} active ; cette requête ne peut donc pas s'exécuter dessus.",
+    "entity.agent_ambiguous_connection": "L'agent « {agent} » a plusieurs connexions {type} actives ; cette requête ne peut pas savoir laquelle utiliser.",
+    "entity.agent_not_attached": "Cette requête n'est pas partagée avec cet agent.",
+    "entity.not_shareable": "Cette requête lit plusieurs agents précis ensemble ; elle ne peut donc pas aussi être partagée avec « {agent} ».",
+    "entity.unresolved_code": "Le code de cette requête fait référence à un agent ou à une connexion qui n'existe plus. Modifiez la requête pour corriger cela.",
+    "entity.no_agent": "Cette requête n'est rattachée à aucun agent ; il n'y a donc rien sur quoi l'exécuter.",
     "user.not_found": "Utilisateur introuvable",
     "membership.not_found": "Adhésion introuvable",
     "role.not_found": "Rôle introuvable",
@@ -3344,7 +3350,8 @@
       "model_id_required": "L'ID du modèle ne peut pas être vide",
       "model_id_not_editable": "Seuls les modèles personnalisés sur les fournisseurs Azure, AWS Bedrock ou personnalisés (compatibles OpenAI) peuvent voir leur ID de modèle modifié",
       "model_id_duplicate": "Le modèle « {model_id} » existe déjà chez ce fournisseur"
-    }
+    },
+    "entity.share_run_failed": "Cette requête a échoué sur l'agent « {agent} » ; elle ne peut donc pas être partagée avec lui : {error}"
   },
   "email": {
     "dashboardShare": {

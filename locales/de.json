@@ -3325,6 +3325,12 @@
     "locale.invalid": "Sprache ist nicht aktiviert",
     "report.not_found": "Bericht nicht gefunden",
     "entity.not_found": "Entität nicht gefunden",
+    "entity.agent_no_connection_type": "Der Agent „{agent}“ hat keine aktive {type}-Verbindung, daher kann diese Abfrage nicht auf ihm laufen.",
+    "entity.agent_ambiguous_connection": "Der Agent „{agent}“ hat mehr als eine aktive {type}-Verbindung, daher kann diese Abfrage nicht erkennen, welche sie nutzen soll.",
+    "entity.agent_not_attached": "Diese Abfrage ist nicht mit diesem Agenten geteilt.",
+    "entity.not_shareable": "Diese Abfrage liest bestimmte Agenten gemeinsam und kann daher nicht zusätzlich mit „{agent}“ geteilt werden.",
+    "entity.unresolved_code": "Der Code dieser Abfrage verweist auf einen Agenten oder eine Verbindung, die es nicht mehr gibt. Bearbeite die Abfrage, um das zu beheben.",
+    "entity.no_agent": "Diese Abfrage ist mit keinem Agenten verknüpft, daher gibt es nichts, worauf sie laufen kann.",
     "user.not_found": "Benutzer nicht gefunden",
     "membership.not_found": "Mitgliedschaft nicht gefunden",
     "role.not_found": "Rolle nicht gefunden",
@@ -3344,7 +3350,8 @@
       "model_id_required": "Die Modell-ID darf nicht leer sein",
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
-    }
+    },
+    "entity.share_run_failed": "Diese Abfrage ist auf dem Agenten „{agent}“ fehlgeschlagen und kann daher nicht mit ihm geteilt werden: {error}"
   },
   "email": {
     "dashboardShare": {

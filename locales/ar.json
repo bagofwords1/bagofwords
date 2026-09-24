@@ -3325,6 +3325,12 @@
     "locale.invalid": "اللغة غير مفعّلة",
     "report.not_found": "التقرير غير موجود",
     "entity.not_found": "الكيان غير موجود",
+    "entity.agent_no_connection_type": "لا يملك الوكيل \"{agent}\" اتصال {type} نشطًا، لذا لا يمكن تشغيل هذا الاستعلام عليه.",
+    "entity.agent_ambiguous_connection": "يملك الوكيل \"{agent}\" أكثر من اتصال {type} نشط، لذا لا يستطيع هذا الاستعلام تحديد أيّها يستخدم.",
+    "entity.agent_not_attached": "هذا الاستعلام غير مُشارَك مع ذلك الوكيل.",
+    "entity.not_shareable": "يقرأ هذا الاستعلام من وكلاء محددين معًا، لذا لا يمكن مشاركته أيضًا مع \"{agent}\".",
+    "entity.unresolved_code": "تشير شيفرة هذا الاستعلام إلى وكيل أو اتصال لم يعد موجودًا. عدّل الاستعلام لإصلاح ذلك.",
+    "entity.no_agent": "هذا الاستعلام غير مرتبط بأي وكيل، لذا لا يوجد ما يُشغَّل عليه.",
     "user.not_found": "المستخدم غير موجود",
     "membership.not_found": "العضوية غير موجودة",
     "role.not_found": "الدور غير موجود",
@@ -3344,7 +3350,8 @@
       "model_id_required": "لا يمكن أن يكون معرّف النموذج فارغًا",
       "model_id_not_editable": "لا يمكن تعديل معرّف النموذج إلا للنماذج المخصّصة لدى مزوّدي Azure أو AWS Bedrock أو المزوّدين المخصّصين (المتوافقين مع OpenAI)",
       "model_id_duplicate": "النموذج '{model_id}' موجود بالفعل لدى هذا المزوّد"
-    }
+    },
+    "entity.share_run_failed": "فشل هذا الاستعلام على الوكيل \"{agent}\"، لذا لا يمكن مشاركته معه: {error}"
   },
   "email": {
     "dashboardShare": {
