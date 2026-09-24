@@ -4,7 +4,7 @@
 - Added Infor EPM (Application Engine) connector (#1178)
 - Added default model setting for dashboard chat (#1180)
 - Fixed connection timestamps shown in the wrong timezone (#1179)
-- Fixed transcript rendering, artifact caching, and default reasoning effort (#1181)
+- Fixed transcript rendering, artifact caching, default reasoning effort, and "Thought for" showing tool run time instead of reasoning time (#1181)
 - Fixed parallel data steps failing with "greenlet_spawn" errors (#1182)
 - Fixed revoked columns and unchecked @table mentions reaching the agent prompt (#1183)
 - Faster agent runs: lighter step saves, context refreshes, and token streaming (#1184, #1185, #1186, #1187)
