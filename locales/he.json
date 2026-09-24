@@ -3449,7 +3449,8 @@
       "model_id_required": "מזהה המודל לא יכול להיות ריק",
       "model_id_not_editable": "ניתן לערוך את מזהה המודל רק עבור מודלים מותאמים אישית בספקי Azure, AWS Bedrock או ספקים מותאמים (תואמי OpenAI)",
       "model_id_duplicate": "המודל '{model_id}' כבר קיים אצל ספק זה"
-    }
+    },
+    "data_source.in_use": "הסוכן \"{agent}\" עדיין בשימוש ({reference}), ולכן אי אפשר למחוק אותו. שום דבר לא נמחק."
   },
   "email": {
     "dashboardShare": {

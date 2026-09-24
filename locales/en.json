@@ -3509,7 +3509,8 @@
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
-    }
+    },
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
   },
   "email": {
     "dashboardShare": {

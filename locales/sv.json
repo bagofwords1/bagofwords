@@ -3359,7 +3359,8 @@
       "model_id_required": "Modell-ID:t får inte vara tomt",
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
-    }
+    },
+    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort."
   },
   "email": {
     "dashboardShare": {

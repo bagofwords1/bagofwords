@@ -110,6 +110,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.webhook_data_source_association import webhook_data_source_association
+from app.models.project import project_data_source_association
 from app.models.eval import TestSuite
 
 from typing import List, Dict, Any, Optional
@@ -149,6 +150,40 @@ def normalize_overlay_fks(fks) -> list:
 _WARM_ATTEMPTS: dict[tuple, float] = {}
 _WARM_RETRY_S = 300.0
 _WARM_ATTEMPTS_MAX = 10000
+
+
+# Every table holding a foreign key to data_sources whose database rule does
+# not delete or null it on its own (no ON DELETE CASCADE / SET NULL) must be
+# listed in exactly one of these, or deleting an agent stops on that key —
+# after the delete has already removed the agent's instructions and saved
+# queries. tests/unit/test_agent_delete_covers_every_reference.py enforces it.
+#
+# Cleared by delete_data_source (explicitly, or via an ORM relationship on
+# DataSource that deletes the rows):
+AGENT_DELETE_CLEARS = frozenset({
+    "data_source_file_association",      # DataSource.files (secondary)
+    "data_source_memberships",           # explicit delete
+    "datasource_tables",                 # delete_data_source_tables (+ retry)
+    "entity_data_source_association",    # _delete_agent_scoped_entities
+    "git_repositories",                  # explicit delete
+    "instruction_data_source_association",  # _delete_agent_scoped_instructions
+    "instruction_directories",           # _delete_agent_scoped_instructions
+    "metadata_indexing_jobs",            # explicit delete
+    "metadata_resources",                # explicit delete
+    "project_data_source_association",   # explicit detach (Project-side M2M)
+    "prompt_data_source_association",    # DataSource.prompts (secondary)
+    "report_data_source_association",    # DataSource.reports (secondary)
+    "table_feedback_events",             # DataSource.table_feedback_events (cascade)
+    "table_stats",                       # DataSource.table_stats (cascade)
+    "table_usage_events",                # DataSource.table_usage_events (cascade)
+    "user_data_source_credentials",      # explicit delete
+    "webhook_data_source_association",   # explicit detach (Webhook-side M2M)
+})
+# Deliberately left pointing at the deleted id: history, and no database-level
+# constraint (the model declares a ForeignKey, the migration never created it).
+AGENT_DELETE_KEEPS = frozenset({
+    "llm_usage_records",                 # b1c2d3e4f5a6 adds the column without an FK
+})
 
 
 class DataSourceService:
@@ -1989,6 +2024,12 @@ class DataSourceService:
         # Capture details before deletion for audit
         data_source_name = data_source.name
 
+        # Refuse BEFORE deleting anything if a reference this procedure does
+        # not clear still points at the agent: the steps below commit as they
+        # go, so a key that blocks the final DELETE would otherwise leave the
+        # agent in place with its instructions and saved queries already gone.
+        await self._assert_nothing_blocks_agent_delete(db, data_source_id, data_source_name)
+
         # 0) Content scoped ONLY to this agent goes with it: instructions,
         #    saved queries (entities) and eval test cases attached to this
         #    agent and to no other are deleted; anything shared with another
@@ -2045,6 +2086,15 @@ class DataSourceService:
         await db.execute(
             delete(webhook_data_source_association).where(
                 webhook_data_source_association.c.data_source_id == data_source_id
+            )
+        )
+
+        # 2c) Same for projects that list this agent among their defaults
+        #     (Project.data_sources is declared only on the Project side). The
+        #     project stays; it just no longer offers this agent.
+        await db.execute(
+            delete(project_data_source_association).where(
+                project_data_source_association.c.data_source_id == data_source_id
             )
         )
 
@@ -2193,6 +2243,33 @@ class DataSourceService:
                 len(only_here), data_source_id,
             )
         return only_here
+
+    @staticmethod
+    async def _assert_nothing_blocks_agent_delete(db: AsyncSession, data_source_id: str, name: str) -> None:
+        """Raise before any delete when a table this procedure does not clear
+        (see AGENT_DELETE_CLEARS) still references the agent through a foreign
+        key the database would enforce."""
+        from sqlalchemy import func
+        from app.models.base import metadata
+        from app.errors import AppError, ErrorCode
+
+        for table in metadata.tables.values():
+            if table.name in AGENT_DELETE_CLEARS or table.name in AGENT_DELETE_KEEPS:
+                continue
+            for fk in table.foreign_keys:
+                if fk.column.table.name != "data_sources":
+                    continue
+                if (fk.ondelete or "").upper() in ("CASCADE", "SET NULL"):
+                    continue
+                count = (await db.execute(
+                    select(func.count()).select_from(table).where(fk.parent == data_source_id)
+                )).scalar() or 0
+                if count:
+                    raise AppError.conflict(
+                        ErrorCode.DATA_SOURCE_IN_USE,
+                        f'Agent "{name}" is still referenced by {table.name}, so it cannot be deleted. Nothing was deleted.',
+                        agent=name, reference=table.name,
+                    )
 
     async def _delete_agent_scoped_entities(
         self,
