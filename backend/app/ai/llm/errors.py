@@ -221,24 +221,47 @@ def classify(
             raw_tail=raw_tail,
         )
 
-    # Provider quota / credit exhaustion. Checked before rate_limit because
-    # most providers report it as a 429 (OpenAI ``insufficient_quota``, Google
-    # RESOURCE_EXHAUSTED); 402 is Payment Required by definition. Our own usage
-    # caps are excluded — see _INTERNAL_QUOTA_MARKERS.
+    # Usage caps, ours then the provider's. Both are checked before rate_limit
+    # because most providers report exhaustion as a 429 (OpenAI
+    # ``insufficient_quota``, Google RESOURCE_EXHAUSTED); 402 is Payment
+    # Required by definition. Ours is matched first so its wording can never be
+    # read as the provider's.
     haystack = f"{pmsg_low}\n{low}"
-    if not any(t in haystack for t in _INTERNAL_QUOTA_MARKERS):
-        quota_hit = status == 402 or any(t in haystack for t in _QUOTA_MARKERS)
-        if quota_hit and not any(t in haystack for t in _TRANSIENT_LIMIT_MARKERS):
-            return LLMError(
-                code="quota",
-                provider=provider,
-                model=model,
-                status=status,
-                summary=f"{provider} quota or credit balance exhausted",
-                provider_message=provider_message,
-                request_id=request_id,
-                raw_tail=raw_tail,
-            )
+
+    # Our OWN cap, not the provider's: the org spent its monthly allowance and
+    # we stopped the call before it was sent. Falling through from here used to
+    # land in the terminal 'unknown' branch, whose summary is
+    # "{provider} call failed" — so an admin-set budget read as an outage at
+    # OpenAI and sent users to vendor support instead of to their admin.
+    # Named explicitly: no retry and no fallback (this code is in neither
+    # _RETRYABLE_CODES nor FALLBACK_ELIGIBLE_CODES — another model would just
+    # spend the same exhausted budget), and a summary that says whose limit it
+    # is. provider/model stay for trace context; the UI renders only
+    # "{summary}: {provider_message}".
+    if any(t in haystack for t in _INTERNAL_QUOTA_MARKERS):
+        return LLMError(
+            code="usage_cap",
+            provider=provider,
+            model=model,
+            status=status,
+            summary="Organization usage quota reached",
+            provider_message=provider_message,
+            request_id=request_id,
+            raw_tail=raw_tail,
+        )
+
+    quota_hit = status == 402 or any(t in haystack for t in _QUOTA_MARKERS)
+    if quota_hit and not any(t in haystack for t in _TRANSIENT_LIMIT_MARKERS):
+        return LLMError(
+            code="quota",
+            provider=provider,
+            model=model,
+            status=status,
+            summary=f"{provider} quota or credit balance exhausted",
+            provider_message=provider_message,
+            request_id=request_id,
+            raw_tail=raw_tail,
+        )
 
     # AWS error names — botocore carries no usable status, so name-match first
     # (a ThrottlingException must not fall through to 'unknown').
