@@ -33,6 +33,14 @@ class ErrorCode(str, Enum):
     # Resources (common CRUD)
     REPORT_NOT_FOUND = "report.not_found"
     ENTITY_NOT_FOUND = "entity.not_found"
+    # A saved query run from / shared with an agent that cannot serve it
+    ENTITY_AGENT_NO_CONNECTION_TYPE = "entity.agent_no_connection_type"
+    ENTITY_AGENT_AMBIGUOUS_CONNECTION = "entity.agent_ambiguous_connection"
+    ENTITY_AGENT_NOT_ATTACHED = "entity.agent_not_attached"
+    ENTITY_NOT_SHAREABLE = "entity.not_shareable"
+    ENTITY_UNRESOLVED_CODE = "entity.unresolved_code"
+    ENTITY_NO_AGENT = "entity.no_agent"
+    ENTITY_SHARE_RUN_FAILED = "entity.share_run_failed"
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     FILE_NOT_FOUND = "file.not_found"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"

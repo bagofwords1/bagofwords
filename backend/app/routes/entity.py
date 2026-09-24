@@ -60,14 +60,33 @@ async def _require_ds_access(db, user, organization, ds_ids: List[str]) -> None:
             )
 
 
-async def _require_entity_run_access(db, entity_id: str, organization, user) -> None:
-    """Body check for run/preview: the entity's owner needs ACCESS to every
-    attached data source; anyone else needs per-DS `create_entities` on all of
-    them (org admins pass via implication)."""
+def _gated_agent_ids(entity, data_source_id: Optional[str]) -> List[str]:
+    """The agents a run of `entity` must be allowed on.
+
+    A published catalog query runs on ONE of its agents (the one asked for,
+    else its origin), so only that agent gates the run. Anything else — a
+    draft, a suggestion, a query that reads several agents together, or an
+    edit (`data_source_id` not applicable) — needs every attached agent.
+    """
+    from app.services.entity_service import is_per_agent_catalog_entity
+    from app.services import entity_runtime
+    all_ids = [str(ds.id) for ds in (entity.data_sources or [])]
+    if data_source_id is not False and is_per_agent_catalog_entity(entity):
+        target = entity_runtime.pick_target(entity, data_source_id or None)
+        return [str(target.id)] if target is not None else all_ids
+    return all_ids
+
+
+async def _require_entity_run_access(db, entity_id: str, organization, user, data_source_id=False) -> None:
+    """Body check for run/preview: the entity's owner needs ACCESS to the
+    agents the run touches; anyone else needs per-DS `create_entities` on
+    them (org admins pass via implication). A catalog query run on one of its
+    agents touches that agent only; `data_source_id=False` (editing) always
+    means every attached agent."""
     existing = await service.get_entity(db, entity_id, organization, user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
-    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    ds_ids = _gated_agent_ids(existing, data_source_id)
     if str(existing.owner_id) == str(user.id):
         if ds_ids:
             await _require_ds_access(db, user, organization, ds_ids)
@@ -90,15 +109,15 @@ async def _require_entity_run_access(db, entity_id: str, organization, user) -> 
     )
 
 
-async def _require_entity_view_access(db, entity_id: str, organization, user) -> None:
+async def _require_entity_view_access(db, entity_id: str, organization, user, data_source_id=None) -> None:
     """Body check for viewer-mode (parameter VALUES) runs: the entity must be
-    visible to the caller and they need ACCESS to every attached data source
-    — the same bar as reading it. get_entity already applies the per-DS
-    access filter; the explicit check keeps the error precise."""
+    visible to the caller and they need ACCESS to the agent the run is made
+    on (every attached agent, for a query that is not per-agent) — the same
+    bar as reading it there."""
     existing = await service.get_entity(db, entity_id, organization, user)
     if not existing:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found")
-    ds_ids = [str(ds.id) for ds in (existing.data_sources or [])]
+    ds_ids = _gated_agent_ids(existing, data_source_id)
     if ds_ids:
         await _require_ds_access(db, user, organization, ds_ids)
 
@@ -200,6 +219,7 @@ async def preview_code(
         return await service.preview_code(
             db, payload.code, ds_ids, organization, current_user=current_user,
             parameters=payload.parameters, params=payload.params,
+            data_source_id=payload.data_source_id,
         )
     except ParamError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -284,6 +304,7 @@ async def get_entity_counts(
 @router.get("/{entity_id}", response_model=EntitySchema)
 async def get_entity(
     entity_id: str,
+    data_source_id: Optional[str] = Query(None, description="The agent whose result to return (default: the query's origin, else one the caller can reach)"),
     db: AsyncSession = Depends(get_async_db),
     current_user: User = Depends(current_user),
     organization: Organization = Depends(get_current_organization),
@@ -291,12 +312,33 @@ async def get_entity(
     entity = await service.get_entity(db, entity_id, organization, current_user)
     if not entity:
         raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found or access denied")
+    # Whose result: the agent asked for (it must be one the caller reaches),
+    # else the origin when they reach it, else the first agent they do.
+    from app.services import entity_runtime
+    reachable = getattr(entity, "_reachable_agent_ids", None)
+    if reachable is None:
+        reachable = await service.reachable_agent_ids(db, entity, current_user)
+    target = entity_runtime.pick_target(entity, data_source_id)
+    target_id = str(target.id) if target is not None else None
+    if target_id and target_id not in reachable:
+        if data_source_id:
+            raise AppError.not_found(ErrorCode.ENTITY_NOT_FOUND, "Entity not found or access denied")
+        target_id = reachable[0] if reachable else target_id
     schema = EntitySchema.model_validate(entity)
+    snap = await entity_runtime.snapshot_of(db, entity, target_id)
+    schema.data = snap.data
+    schema.applied_params = snap.applied_params
+    schema.last_refreshed_at = snap.last_refreshed_at
+    schema.run_error = snap.error
+    schema.run_data_source_id = target_id
+    run_agent = next((d for d in (entity.data_sources or []) if str(d.id) == str(target_id)), None)
+    schema.code_for_agent = entity_runtime.render_for(entity, run_agent)
     # Withhold the materialized snapshot from non-owners when the entity reads
-    # a credential-differentiated source (user_required / RLS): its `data` is
-    # one identity's row slice and must not be served to other readers.
+    # a credential-differentiated source (user_required / RLS) on that agent:
+    # its `data` is one identity's row slice and must not be served to other
+    # readers.
     from app.services.viewer_data_policy import entity_data_withheld
-    if await entity_data_withheld(db, entity, current_user):
+    if await entity_data_withheld(db, entity, current_user, data_source_id=target_id):
         schema.data = {}
         schema.snapshot_withheld = True
     return schema
@@ -446,6 +488,7 @@ async def create_entity_from_step(
             # fallback) so the service attaches exactly what was checked.
             data_source_ids_override=(payload.data_source_ids or target_ds_ids or None),
             creator_can_publish=can_publish,
+            origin_data_source_id=payload.origin_data_source_id,
         )
         return EntitySchema.model_validate(entity)
     except ValueError as e:
@@ -470,14 +513,26 @@ async def run_entity(
     rewrites the shared snapshot, so it needs only what reading the entity
     needs — the entity visible to the caller and access to its data sources.
     That is the "load a saved query with my values" path for every member."""
+    # Changing the query itself (its code, title, type, view or status) is
+    # editing — shared by every agent it is on, so it needs every one of them.
+    # Only a plain refresh is gated on the agent it runs on.
+    edits = any(getattr(payload, f, None) is not None for f in ("code", "title", "slug", "description", "type", "view", "status"))
+    run_on = False if edits else payload.data_source_id
     if payload.params:
-        await _require_entity_view_access(db, entity_id, organization, current_user)
+        await _require_entity_view_access(db, entity_id, organization, current_user, payload.data_source_id)
     else:
-        await _require_entity_run_access(db, entity_id, organization, current_user)
+        await _require_entity_run_access(db, entity_id, organization, current_user, run_on)
     from app.ai.code_execution.query_params import ParamError
     try:
         entity = await service.run_entity_with_update(db, entity_id, payload, organization, current_user=current_user)
-        return EntitySchema.model_validate(entity)
+        schema = EntitySchema.model_validate(entity)
+        from app.services import entity_runtime
+        run_agent = next(
+            (d for d in (entity.data_sources or []) if str(d.id) == str(getattr(entity, "run_data_source_id", "") or "")),
+            None,
+        )
+        schema.code_for_agent = entity_runtime.render_for(entity, run_agent)
+        return schema
     except ParamError as e:
         # Bad parameter VALUES (unknown name, identity-locked, required
         # missing, wrong type) are a client error, not a missing entity.

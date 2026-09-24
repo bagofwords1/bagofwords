@@ -147,18 +147,42 @@ class EntityContextBuilder:
             data_source_ids=data_source_ids,
         )
         from app.services.viewer_data_policy import resolve_entity_data
+        from app.services import entity_runtime
+        from app.services.entity_code import MODE_BOUND
+
+        run_ids = list(data_source_ids or [])
+        if not run_ids:
+            try:
+                run_ids = [str(ds.id) for ds in (getattr(self.report, "data_sources", []) or [])]
+            except Exception:
+                run_ids = []
 
         items: List[EntityItem] = []
         for e in ents:
+            # A saved query shared with several agents runs on the one of them
+            # in play here: show that agent, its result, and its code — never
+            # another agent's name or rows, which the model would then reuse.
+            target = entity_runtime.pick_target(e, None, run_ids)
+            target_id = str(target.id) if target is not None else None
             try:
-                ds_names = [str(getattr(ds, 'name', getattr(ds, 'id', '')) or '') for ds in (getattr(e, "data_sources", []) or [])]
+                if target is not None and entity_runtime.code_mode(e) != MODE_BOUND:
+                    # Every agent of this conversation it is shared with, the
+                    # one its code and rows below come from first: with more
+                    # than one, the planner runs it on each (entities_guidance).
+                    in_play = [
+                        a for a in (getattr(e, "data_sources", []) or [])
+                        if str(a.id) in run_ids and str(a.id) != target_id
+                    ]
+                    ds_names = [str(target.name or target.id)] + [str(a.name or a.id) for a in in_play]
+                else:
+                    ds_names = [str(getattr(ds, 'name', getattr(ds, 'id', '')) or '') for ds in (getattr(e, "data_sources", []) or [])]
                 ds_names = [n for n in ds_names if n]
             except Exception:
                 ds_names = []
             # Per-reader snapshot resolution: on a user-scoped source the
             # cached rows are the OWNER's slice — withheld readers get the
             # entity without data (title/description/code stay discoverable).
-            data = await resolve_entity_data(self.db, e, self.user)
+            data = await resolve_entity_data(self.db, e, self.user, data_source_id=target_id)
             if e.bow_source_access:
                 from app.services.bow_source_access import protect_report
                 await protect_report(self.db, getattr(self.report, "id", None), e.bow_source_access)
@@ -168,10 +192,14 @@ class EntityContextBuilder:
                     type=e.type,
                     title=e.title,
                     description=e.description or "",
-                    code=getattr(e, 'code', None),
+                    code=entity_runtime.render_for(e, target),
                     data=data or None,
                     data_model=(getattr(e, 'original_data_model', None) or getattr(e, 'view', None)),
                     ds_names=ds_names,
+                    # Declared parameters: rendered so the planner passes
+                    # VALUES to describe_entity(params=...) instead of
+                    # writing new code for "the same query, other values".
+                    parameters=list(getattr(e, 'parameters', None) or []) or None,
                 )
             )
         return EntitiesSection(items=items, allow_llm_see_data=allow_llm_see_data)

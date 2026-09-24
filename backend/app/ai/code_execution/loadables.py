@@ -149,11 +149,21 @@ class LoadablesResolver:
     def __init__(
         self, db: AsyncSession, organization, report=None, current_user=None,
         *, enable_load_step: bool = True, step_max_age_seconds: Optional[int] = None,
+        run_agent_ids: Optional[List[str]] = None,
     ):
         self.db = db
         self.organization = organization
         self.report = report
         self.current_user = current_user
+        # The agents this run is made on: a saved query shared with several
+        # agents serves the result of the one among them (default: the
+        # report's agents).
+        if run_agent_ids is None and report is not None:
+            try:
+                run_agent_ids = [str(d.id) for d in (getattr(report, "data_sources", None) or [])]
+            except Exception:
+                run_agent_ids = []
+        self.run_agent_ids = [str(i) for i in (run_agent_ids or [])]
         # When False, load_step is disabled: no steps are advertised for
         # discovery and none are resolved. load_entity is unaffected.
         self.enable_load_step = enable_load_step
@@ -298,7 +308,8 @@ class LoadablesResolver:
             from app.services.entity_service import EntityService
             try:
                 data = await EntityService().resolve_entity_data_for_user(
-                    self.db, entity, self.organization, self.current_user
+                    self.db, entity, self.organization, self.current_user,
+                    run_agent_ids=self.run_agent_ids,
                 )
             except Exception as e:
                 result["errors"].append(
@@ -390,8 +401,17 @@ class LoadablesResolver:
 
         if entity.data_sources and self.current_user is not None:
             from app.core.permission_resolver import user_can_access_data_source
+            from app.services.entity_service import is_per_agent_catalog_entity
+            from app.services import entity_runtime
 
-            for ds in entity.data_sources:
+            # A catalog query shared per agent is read on the agent this run
+            # is made on; anything else needs every attached agent.
+            gated = list(entity.data_sources)
+            if is_per_agent_catalog_entity(entity):
+                target = entity_runtime.pick_target(entity, None, self.run_agent_ids)
+                if target is not None:
+                    gated = [target]
+            for ds in gated:
                 if not await user_can_access_data_source(
                     self.db, str(self.current_user.id), org_id, ds
                 ):

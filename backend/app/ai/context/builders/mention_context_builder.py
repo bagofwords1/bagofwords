@@ -98,8 +98,22 @@ class MentionContextBuilder:
                     from app.services.viewer_data_policy import resolve_entity_data
                     entity_columns = None
                     entity_sample_rows = None
+                    # A saved query shared with several agents is shown as it
+                    # runs on the agent of this conversation: that agent's
+                    # rows and its code with that agent's client key.
+                    from app.services import entity_runtime
+                    _run_ids = list(getattr(self, "run_agent_ids", None) or [])
+                    if not _run_ids:
+                        try:
+                            _run_ids = [str(d.id) for d in (getattr(self.report, "data_sources", None) or [])]
+                        except Exception:
+                            _run_ids = []
+                    _target = entity_runtime.pick_target(ent, None, _run_ids) if ent is not None else None
                     try:
-                        data_json = await resolve_entity_data(self.db, ent, self.user) if ent is not None else {}
+                        data_json = await resolve_entity_data(
+                            self.db, ent, self.user,
+                            data_source_id=str(_target.id) if _target is not None else None,
+                        ) if ent is not None else {}
                         # Expect optional shape: {"columns": ["col1", ...], "rows": [{...}, ...]}
                         cols = data_json.get("columns") if isinstance(data_json, dict) else None
                         rows = data_json.get("rows") if isinstance(data_json, dict) else None
@@ -115,7 +129,8 @@ class MentionContextBuilder:
                         "entity_type": getattr(ent, "type", None),
                         "status": getattr(ent, "status", None),
                         "description": getattr(ent, "description", None),
-                        "code": getattr(ent, "code", None),
+                        "code": entity_runtime.render_for(ent, _target) if ent is not None else None,
+                        "agent": getattr(_target, "name", None),
                         "columns": entity_columns,
                         "sample_rows": entity_sample_rows,
                     }

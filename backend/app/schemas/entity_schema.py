@@ -56,6 +56,9 @@ class EntityCreate(EntityBase):
     # org) when the caller — the manual "New query" form — doesn't send one.
     slug: Optional[str] = None
     data_source_ids: Optional[List[str]] = []
+    # The agent the query was written for — its default agent (see
+    # app/services/entity_runtime.py). None = the first of data_source_ids.
+    origin_data_source_id: Optional[str] = None
 
 
 class EntityUpdate(BaseModel):
@@ -73,6 +76,7 @@ class EntityUpdate(BaseModel):
     published_at: OptionalUTCDatetime = None
     last_refreshed_at: OptionalUTCDatetime = None
     data_source_ids: Optional[List[str]] = None
+    origin_data_source_id: Optional[str] = None
     private_status: Optional[str] = None
     global_status: Optional[str] = None
     is_admin_approval: Optional[bool] = False
@@ -85,6 +89,9 @@ class EntityFromStepCreate(BaseModel):
     description: Optional[str] = None
     publish: Optional[bool] = False
     data_source_ids: Optional[List[str]] = None
+    # The agent the query was written for — its default agent (see
+    # app/services/entity_runtime.py). None = the first of data_source_ids.
+    origin_data_source_id: Optional[str] = None
 
 
 class EntitySchema(EntityBase):
@@ -98,6 +105,18 @@ class EntitySchema(EntityBase):
     updated_at: UTCDatetime
     source_step_id: Optional[str] = None
     trigger_reason: Optional[str] = None
+    # How the stored code binds to agents (templated | dynamic | bound |
+    # unresolved) and the agent it was written for.
+    code_mode: Optional[str] = None
+    origin_data_source_id: Optional[str] = None
+    # The agent whose result `data` is (the one asked for, else the origin).
+    run_data_source_id: Optional[str] = None
+    # `code` as it runs on that agent — its own client keys, for display and
+    # editing (a save takes the agent back out).
+    code_for_agent: Optional[str] = None
+    # Set when the last run on that agent failed (the reason), so an agent
+    # without rows says why instead of showing an empty result.
+    run_error: Optional[str] = None
     # True when the materialized `data` snapshot was withheld from this reader
     # because the entity reads a credential-differentiated source (user_required
     # or RLS) and they are not the owner. `data` is empty in that case.
@@ -128,6 +147,10 @@ class EntityListSchema(BaseModel):
     organization_id: str
     owner_id: str
     data_sources: List[DataSourceMinimalSchema] = []
+    # How the stored code binds to agents (templated | dynamic | bound |
+    # unresolved) and the agent it was written for.
+    code_mode: Optional[str] = None
+    origin_data_source_id: Optional[str] = None
     updated_at: UTCDatetime
     pinned: bool = False
     auto_refresh_enabled: bool = False
@@ -172,6 +195,8 @@ class EntityRunPayload(BaseModel):
     params: Optional[Dict[str, Any]] = None
     # Viewer-mode only: bypass the cached per-user result.
     force_refresh: bool = False
+    # The agent to run on — one of the query's agents. None = its origin.
+    data_source_id: Optional[str] = None
 
 
 class EntityPreviewPayload(BaseModel):
@@ -180,6 +205,8 @@ class EntityPreviewPayload(BaseModel):
     # the entity's saved ones) and test values for the input params.
     parameters: Optional[list] = None
     params: Optional[Dict[str, Any]] = None
+    # The agent to run on — one of the query's agents. None = its origin.
+    data_source_id: Optional[str] = None
 
 
 class EntityCodePreviewPayload(BaseModel):
@@ -187,6 +214,8 @@ class EntityCodePreviewPayload(BaseModel):
     the listed agents without any Entity row existing yet."""
     code: str
     data_source_ids: List[str] = Field(default_factory=list)
+    # The listed agent to run on. None = the one the code names, else the first.
+    data_source_id: Optional[str] = None
     # Declared ParamSpec dicts the form will save with the query, and test
     # values for the input ones — resolved like a saved entity's would be.
     parameters: Optional[list] = None

@@ -3325,6 +3325,12 @@
     "locale.invalid": "Språket är inte aktiverat",
     "report.not_found": "Rapporten hittades inte",
     "entity.not_found": "Entiteten hittades inte",
+    "entity.agent_no_connection_type": "Agenten \"{agent}\" har ingen aktiv {type}-anslutning, så den här frågan kan inte köras på den.",
+    "entity.agent_ambiguous_connection": "Agenten \"{agent}\" har fler än en aktiv {type}-anslutning, så den här frågan kan inte avgöra vilken som ska användas.",
+    "entity.agent_not_attached": "Den här frågan är inte delad med den agenten.",
+    "entity.not_shareable": "Den här frågan läser flera specifika agenter tillsammans och kan därför inte också delas med \"{agent}\".",
+    "entity.unresolved_code": "Koden i den här frågan hänvisar till en agent eller anslutning som inte längre finns. Redigera frågan för att åtgärda det.",
+    "entity.no_agent": "Den här frågan är inte kopplad till någon agent, så det finns inget att köra den mot.",
     "user.not_found": "Användaren hittades inte",
     "membership.not_found": "Medlemskapet hittades inte",
     "role.not_found": "Rollen hittades inte",
@@ -3344,7 +3350,8 @@
       "model_id_required": "Modell-ID:t får inte vara tomt",
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
-    }
+    },
+    "entity.share_run_failed": "Den här frågan misslyckades på agenten \"{agent}\" och kan därför inte delas med den: {error}"
   },
   "email": {
     "dashboardShare": {

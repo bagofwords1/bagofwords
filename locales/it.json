@@ -3325,6 +3325,12 @@
     "locale.invalid": "La lingua non è abilitata",
     "report.not_found": "Report non trovato",
     "entity.not_found": "Entità non trovata",
+    "entity.agent_no_connection_type": "L'agente \"{agent}\" non ha una connessione {type} attiva, quindi questa query non può essere eseguita su di esso.",
+    "entity.agent_ambiguous_connection": "L'agente \"{agent}\" ha più di una connessione {type} attiva, quindi questa query non può sapere quale usare.",
+    "entity.agent_not_attached": "Questa query non è condivisa con quell'agente.",
+    "entity.not_shareable": "Questa query legge insieme agenti specifici, quindi non può essere condivisa anche con \"{agent}\".",
+    "entity.unresolved_code": "Il codice di questa query fa riferimento a un agente o a una connessione che non esiste più. Modifica la query per correggerlo.",
+    "entity.no_agent": "Questa query non è collegata a nessun agente, quindi non c'è nulla su cui eseguirla.",
     "user.not_found": "Utente non trovato",
     "membership.not_found": "Appartenenza non trovata",
     "role.not_found": "Ruolo non trovato",
@@ -3344,7 +3350,8 @@
       "model_id_required": "L'ID del modello non può essere vuoto",
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider"
-    }
+    },
+    "entity.share_run_failed": "Questa query non è riuscita sull'agente \"{agent}\", quindi non può essere condivisa con esso: {error}"
   },
   "email": {
     "dashboardShare": {

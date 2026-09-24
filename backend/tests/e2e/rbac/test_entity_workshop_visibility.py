@@ -31,7 +31,7 @@ def _make_entity(test_client, *, token, org_id, title, slug, ds_ids, status="pub
             "type": "model",
             "title": title,
             "slug": slug,
-            "code": "select 1 as v",
+            "code": "def generate_df(ds_clients, excel_files):\n    import pandas as pd\n    return pd.DataFrame({'v': [1]})\n",
             "data": {},
             "tags": [],
             "status": status,

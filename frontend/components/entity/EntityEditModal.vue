@@ -58,6 +58,11 @@
             <div class="h-9 px-4 flex items-center gap-2 border-b border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/60 flex-shrink-0">
               <span class="text-[11px] font-medium uppercase tracking-wide text-gray-600 dark:text-gray-300">{{ $t('queries.codeLabel') }}</span>
               <span class="text-[11px] font-mono text-gray-400 dark:text-gray-500">generate_df · {{ editorLang || 'python' }}</span>
+              <span
+                class="text-[11px] text-gray-400 dark:text-gray-500 truncate"
+                :title="$t('queries.agentKeyHint')"
+                data-testid="entity-agent-key-hint"
+              >{{ $t('queries.agentKeyHint') }}</span>
               <button
                 type="button"
                 data-testid="entity-edit-params-toggle"
@@ -164,7 +169,8 @@
           :disabled="saving || !canSave"
           @click="onSave"
         >
-          <span v-if="saving">{{ (!isCreate || canCreateEntities) ? $t('entityCreate.saving') : $t('entityCreate.submitting') }}</span>
+          <span v-if="saving && addsAgents">{{ $t('entityCreate.savingAndRunning') }}</span>
+          <span v-else-if="saving">{{ (!isCreate || canCreateEntities) ? $t('entityCreate.saving') : $t('entityCreate.submitting') }}</span>
           <span v-else-if="!isCreate">{{ $t('queries.save') }}</span>
           <span v-else>{{ canCreateEntities ? $t('queries.createQuery') : $t('queries.suggestQuery') }}</span>
         </button>
@@ -242,6 +248,13 @@ const runError = ref('')
 const errorMsg = ref('')
 const running = ref(false)
 const saving = ref(false)
+// Saving shares the query with agents it is not on yet: the server runs it on
+// each of them before the save completes, so the wait is longer.
+const addsAgents = computed(() => {
+  const before = new Set((props.detail?.data_sources || []).map((d: any) => String(d?.id)))
+  const origin = props.dsId ? String(props.dsId) : ''
+  return selectedIds.value.some((i: string) => !before.has(String(i)) && (!isCreate.value || String(i) !== origin))
+})
 const lastRunAt = ref('')
 
 // Declared parameters + test values, edited in the panel beside the code.
@@ -288,8 +301,10 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 // Entity code is `generate_df(ds_clients, excel_files)` reaching an agent
-// through `ds_clients["<agent name>:<connection name>"]`. Seed a new query
-// with the opening agent's real key so the user only has to replace the SQL.
+// through `ds_clients["<agent name>:<connection name>"]`. The form always shows
+// the keys of the agent it was opened under; the server stores the code
+// without the agent and fits it to each agent the query is shared with. Seed a
+// new query with the opening agent's real key so the user only replaces the SQL.
 function template(key?: string): string {
   const client = key ? `ds_clients[${JSON.stringify(key)}]` : 'ds_clients["<agent>:<connection>"]'
   return `def generate_df(ds_clients, excel_files):\n    return ${client}.execute_query("""\n        SELECT 1 AS example\n    """)\n`
@@ -314,7 +329,9 @@ async function reset() {
       data_source_ids: (d.data_sources || []).map(ds => ds.id),
       global_status: d.global_status || null,
     }
-    code.value = d.code || ''
+    // Edit the code as it runs on the agent the query was opened under; saving
+    // takes the agent back out.
+    code.value = d.code_for_agent || d.code || ''
     savedCode.value = code.value
     result.value = d.data || null
     paramSpecs.value = Array.isArray(d.parameters) ? d.parameters.map((p: any) => ({ ...p })) : []
@@ -355,6 +372,8 @@ async function run() {
       params: collectTestValues(paramSpecs.value, paramTestValues.value),
     }
     if (isCreate.value) body.data_source_ids = selectedIds.value
+    // Run on the agent the form was opened from, when it is one of the query's.
+    if (props.dsId && selectedIds.value.includes(String(props.dsId))) body.data_source_id = String(props.dsId)
     const { data, error } = isCreate.value
       ? await useMyFetch<any>('/api/entities/preview', { method: 'POST', body })
       : await useMyFetch<any>(`/api/entities/${props.entityId}/preview`, { method: 'POST', body })
@@ -365,11 +384,21 @@ async function run() {
     if (payload?.error) { runError.value = payload.error; result.value = null; return }
     result.value = payload?.data || null
   } catch (e: any) {
-    runError.value = e?.data?.detail || e?.message || t('queries.runFailed')
+    runError.value = getErrorMessage(e, t('queries.runFailed'))
     result.value = null
   } finally {
     running.value = false
   }
+}
+
+const { getErrorMessage } = useErrorMessage()
+
+// The post-save snapshot run: the edited code, on the agent the form was
+// opened from when the query is shared with it (default: its own agent).
+function runBody() {
+  const body: Record<string, any> = { code: code.value }
+  if (props.dsId && selectedIds.value.includes(String(props.dsId))) body.data_source_id = String(props.dsId)
+  return body
 }
 
 async function onSave() {
@@ -387,6 +416,8 @@ async function onSave() {
         data: {},
         status,
         data_source_ids: selectedIds.value,
+        // The agent the form was opened from is the one the query is written for.
+        origin_data_source_id: props.dsId && selectedIds.value.includes(String(props.dsId)) ? String(props.dsId) : null,
         parameters,
       }
       const { data, error } = await useMyFetch<any>('/api/entities', { method: 'POST', body })
@@ -394,7 +425,7 @@ async function onSave() {
       const saved: any = data.value
       // Fill the snapshot so the row opens with data; a failed run still
       // leaves a saved query the user can fix here.
-      try { await useMyFetch(`/api/entities/${saved.id}/run`, { method: 'POST', body: { code: code.value } }) } catch { /* see above */ }
+      try { await useMyFetch(`/api/entities/${saved.id}/run`, { method: 'POST', body: runBody() }) } catch { /* see above */ }
       toast.add({
         title: saved?.global_status === 'approved' && saved?.status === 'published'
           ? t('entityCreate.publishedToast') : t('entityCreate.suggestedToast'),
@@ -416,13 +447,13 @@ async function onSave() {
       const { data, error } = await useMyFetch<any>(`/api/entities/${props.entityId}`, { method: 'PUT', body })
       if (error.value) throw error.value
       if (code.value !== savedCode.value) {
-        try { await useMyFetch(`/api/entities/${props.entityId}/run`, { method: 'POST', body: { code: code.value } }) } catch { /* snapshot refresh is best-effort */ }
+        try { await useMyFetch(`/api/entities/${props.entityId}/run`, { method: 'POST', body: runBody() }) } catch { /* snapshot refresh is best-effort */ }
       }
       emit('saved', data.value)
     }
     open.value = false
   } catch (e: any) {
-    errorMsg.value = e?.data?.detail || e?.message || t('entityCreate.saveFailed')
+    errorMsg.value = getErrorMessage(e, t('entityCreate.saveFailed'))
     toast.add({ title: t('entityCreate.saveFailed'), description: errorMsg.value, color: 'red' })
   } finally {
     saving.value = false

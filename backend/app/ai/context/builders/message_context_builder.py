@@ -860,6 +860,7 @@ class MessageContextBuilder:
         self.db = db
         self.report = report
         self.organization = organization
+        self.user = user
         self.organization_settings = organization.settings if organization else None
         # ContextHub keeps one builder for the lifetime of an agent run. Tool
         # executions are immutable once terminal, so retain their already-
@@ -2098,6 +2099,33 @@ class MessageContextBuilder:
                     ent_map[str(getattr(e, 'id', ''))] = e
             except Exception:
                 pass
+        # The rows a past entity mention is summarized from go through the
+        # viewer policy, on the agent of this report — never the raw shared
+        # snapshot, which on a user-scoped source is another identity's slice.
+        ent_data: Dict[str, Any] = {}
+        if ent_map:
+            from app.services.viewer_data_policy import resolve_entity_data
+            from app.services import entity_runtime
+            try:
+                _run_ids = [str(d.id) for d in (getattr(self.report, "data_sources", None) or [])]
+            except Exception:
+                _run_ids = []
+            _cache = self.__dict__.setdefault("_entity_digest_cache", {})
+            for _eid, _e in ent_map.items():
+                if _eid in _cache:
+                    # One builder lives for one agent run; a mentioned query's
+                    # digest does not change between its context refreshes.
+                    ent_data[_eid] = _cache[_eid]
+                    continue
+                try:
+                    _t = entity_runtime.pick_target(_e, None, _run_ids)
+                    ent_data[_eid] = await resolve_entity_data(
+                        self.db, _e, getattr(self, "user", None),
+                        data_source_id=str(_t.id) if _t is not None else None,
+                    )
+                except Exception:
+                    ent_data[_eid] = {}
+                _cache[_eid] = ent_data[_eid]
 
         # Prefetch blocks + their tool executions for every system completion in
         # ONE pair of queries. This loop previously issued a query per system
@@ -2237,7 +2265,7 @@ class MessageContextBuilder:
                                         cols_preview: List[str] = []
                                         rows_count: Optional[int] = None
                                         try:
-                                            data_json = getattr(e, 'data', None) or {}
+                                            data_json = ent_data.get(str(m.object_id)) or {}
                                             if isinstance(data_json, dict):
                                                 cols = data_json.get('columns')
                                                 if isinstance(cols, list):

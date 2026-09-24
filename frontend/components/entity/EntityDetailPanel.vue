@@ -51,6 +51,33 @@
             </div>
             <h1 class="text-lg font-semibold text-gray-900 dark:text-white">{{ detail?.title || detail?.slug }}</h1>
             <div class="text-[12px] text-gray-600 dark:text-gray-400 mt-1">{{ detail?.description || '—' }}</div>
+            <!-- A query shared with several agents runs on one of them: say which,
+                 and mark the one it was written for. -->
+            <div
+              v-if="runAgent && (detail?.data_sources?.length || 0) > 1"
+              class="mt-2 text-[11px] text-gray-500 dark:text-gray-400 flex items-center gap-1.5 flex-wrap"
+              data-testid="entity-run-agent"
+            >
+              <span>{{ $t('queries.detail.runsOnAgent', { agent: runAgent.name || runAgent.id }) }}</span>
+              <span
+                v-if="runAgent.id === detail?.origin_data_source_id"
+                class="text-[10px] px-1.5 py-0.5 rounded border text-gray-600 dark:text-gray-300 border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900"
+              >{{ $t('queries.detail.originAgentBadge') }}</span>
+            </div>
+            <div
+              v-if="detail?.run_error"
+              class="mt-2 text-[11px] px-2 py-1 rounded border text-red-800 dark:text-red-200 border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10"
+              data-testid="entity-run-error"
+            >{{ $t('queries.detail.runErrorOnAgent', { agent: runAgent?.name || '', error: detail.run_error }) }}</div>
+            <div
+              v-if="detail?.code_mode === 'unresolved'"
+              class="mt-2 text-[11px] px-2 py-1 rounded border text-amber-800 dark:text-amber-200 border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10"
+              data-testid="entity-unresolved-warning"
+            >{{ $t('queries.detail.unresolvedWarning') }}</div>
+            <div
+              v-else-if="detail?.code_mode === 'bound' && (detail?.data_sources?.length || 0) > 1"
+              class="mt-2 text-[11px] text-gray-500 dark:text-gray-400"
+            >{{ $t('queries.detail.boundNote') }}</div>
             <!-- Data source icons under description -->
             <div v-if="detail?.data_sources?.length" class="mt-2 flex items-center gap-1.5">
               <img
@@ -231,7 +258,7 @@
                     <span class="text-[11px] text-gray-500 dark:text-gray-400">&nbsp;</span>
                     <button class="text-[11px] px-2 py-0.5 rounded border border-gray-200 dark:border-gray-700 hover:bg-white dark:hover:bg-gray-800" @click="copyCode">{{ $t('queries.detail.copyAction') }}</button>
                   </div>
-                  <pre class="text-[11px] text-gray-800 dark:text-gray-200"><code>{{ detail?.code || $t('queries.detail.noCode') }}</code></pre>
+                  <pre class="text-[11px] text-gray-800 dark:text-gray-200"><code>{{ shownCode || $t('queries.detail.noCode') }}</code></pre>
                 </div>
               </Transition>
             </div>
@@ -244,6 +271,7 @@
       v-model="openEdit"
       :detail="detail"
       :entity-id="id"
+      :ds-id="runAgentId"
       :editor-lang="editorLang"
       @saved="onModalSaved"
     />
@@ -285,16 +313,41 @@ type EntityDetail = {
   reviewed_by?: any
   parameters?: any[] | null
   applied_params?: Record<string, any> | null
+  code_mode?: string | null
+  origin_data_source_id?: string | null
+  run_data_source_id?: string | null
+  code_for_agent?: string | null
+  run_error?: string | null
 }
 
 // The entity to show. Lives as a prop rather than a route param so the same
 // panel serves the /agents tree (right pane) and the /queries/<id> deep link.
-const props = defineProps<{ entityId: string }>()
+// `agentId` is the agent the query is opened under: a query shared with
+// several agents runs — and shows its result — on that one (default: the
+// query's own agent).
+const props = defineProps<{ entityId: string; agentId?: string | null }>()
 // `changed` carries the updated row so a host tree can refresh the leaf's badge
 // without re-fetching the whole group; `deleted` is the row going away.
 const emit = defineEmits<{ (e: 'deleted'): void; (e: 'changed', entity: any): void }>()
 const { data: authData } = useAuth()
 const id = computed(() => String(props.entityId || ''))
+const { getErrorMessage } = useErrorMessage()
+// The agent this panel runs the query on: the one it was opened under when
+// the query is shared with it, else whichever the server served.
+const runAgentId = computed<string | null>(() => {
+  const want = props.agentId ? String(props.agentId) : ''
+  const ids = (detail.value?.data_sources || []).map((d: any) => String(d?.id))
+  if (want && ids.includes(want)) return want
+  return detail.value?.run_data_source_id || detail.value?.origin_data_source_id || null
+})
+// The code as it runs on this agent (its own client keys), not the stored
+// agent-free form.
+const shownCode = computed(() => detail.value?.code_for_agent || detail.value?.code || '')
+const runAgent = computed(() =>
+  (detail.value?.data_sources || []).find((d: any) => String(d?.id) === runAgentId.value) || null)
+function withAgent(body: Record<string, any>) {
+  return runAgentId.value ? { ...body, data_source_id: runAgentId.value } : body
+}
 const detail = ref<EntityDetail | null>(null)
 const loading = ref(true)
 // Per-agent `create_entities` on EVERY attached agent gates manage actions
@@ -440,7 +493,7 @@ const effectiveStep = computed(() => {
     id: detail.value?.id,
     data: detail.value?.data,
     data_model: detail.value?.data_model || { type: viewType.value },
-    code: detail.value?.code,
+    code: shownCode.value,
     status: 'success'
   } as any
 })
@@ -487,7 +540,7 @@ onMounted(load)
 // Switching leaves in the tree swaps the prop on a mounted panel: reset the
 // per-entity state or the previous query's rows and parameter inputs bleed
 // into the next one while it loads.
-watch(() => props.entityId, () => {
+watch(() => [props.entityId, props.agentId], () => {
   detail.value = null
   paramValues.value = {}
   paramOptions.value = {}
@@ -505,10 +558,12 @@ function applyDetail(v: any) {
 async function load() {
   loading.value = true
   try {
-    const { data, error } = await useMyFetch(`/api/entities/${id.value}`, { method: 'GET' })
+    const agent = props.agentId ? `?data_source_id=${encodeURIComponent(String(props.agentId))}` : ''
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}${agent}`, { method: 'GET' })
     if (error.value) throw error.value
     detail.value = data.value as any
-  } catch {
+  } catch (e: any) {
+    toast.add({ description: getErrorMessage(e, t('queries.detail.errLoad')), color: 'red' })
   } finally {
     loading.value = false
   }
@@ -575,11 +630,11 @@ async function runWithParams() {
     }
     // No values at all → the shared-snapshot refresh path.
     if (!Object.keys(params).length) { await refreshEntity(); return }
-    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: { params } })
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: withAgent({ params }) })
     if (error.value) throw error.value
     applyDetail(data.value as any)
   } catch (e: any) {
-    paramRunError.value = e?.data?.detail || e?.message || t('queries.detail.errRunParams')
+    paramRunError.value = getErrorMessage(e, t('queries.detail.errRunParams'))
   } finally {
     paramRunLoading.value = false
   }
@@ -590,10 +645,12 @@ async function refreshEntity() {
   if (refreshing.value) return
   refreshing.value = true
   try {
-    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: {} })
+    const { data, error } = await useMyFetch(`/api/entities/${id.value}/run`, { method: 'POST', body: withAgent({}) })
     if (error.value) throw error.value
     applyDetail(data.value as any)
-  } catch {}
+  } catch (e: any) {
+    toast.add({ description: getErrorMessage(e, t('queries.detail.errRefresh')), color: 'red' })
+  }
   refreshing.value = false
 }
 
@@ -756,8 +813,7 @@ function dataSourceIcon(type?: string) {
 
 function copyCode() {
   try {
-    const code = detail.value?.code || ''
-    navigator.clipboard.writeText(code)
+    navigator.clipboard.writeText(shownCode.value || '')
   } catch {}
 }
 

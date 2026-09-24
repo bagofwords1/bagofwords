@@ -1633,7 +1633,8 @@
     "parametersHeading": "פרמטרים",
     "parametersBody": "נשמרים יחד עם השאילתה. כל מי שטוען את הישות יכול להעביר ערכים משלו; פרמטרים של זהות תמיד נקשרים למשתמש הצופה.",
     "paramIdentity": "לפי המשתמש הצופה",
-    "paramAll": "= הכל"
+    "paramAll": "= הכל",
+    "savingAndRunning": "שומר ומריץ על הסוכנים החדשים…"
   },
   "mentionInput": {
     "placeholder": "הקלד {'@'} כדי לאזכר...",
@@ -3415,6 +3416,12 @@
     "locale.invalid": "השפה אינה מופעלת",
     "report.not_found": "הדוח לא נמצא",
     "entity.not_found": "הישות לא נמצאה",
+    "entity.agent_no_connection_type": "לסוכן \"{agent}\" אין חיבור {type} פעיל, ולכן אי אפשר להריץ עליו את השאילתה.",
+    "entity.agent_ambiguous_connection": "לסוכן \"{agent}\" יש יותר מחיבור {type} פעיל אחד, ולכן השאילתה לא יכולה לדעת באיזה מהם להשתמש.",
+    "entity.agent_not_attached": "השאילתה הזו לא משותפת עם הסוכן הזה.",
+    "entity.not_shareable": "השאילתה הזו קוראת מכמה סוכנים מסוימים יחד, ולכן אי אפשר לשתף אותה גם עם \"{agent}\".",
+    "entity.unresolved_code": "הקוד של השאילתה מפנה לסוכן או לחיבור שכבר לא קיימים. ערכו את השאילתה כדי לתקן.",
+    "entity.no_agent": "השאילתה לא מחוברת לאף סוכן, ולכן אין מול מה להריץ אותה.",
     "user.not_found": "המשתמש לא נמצא",
     "membership.not_found": "החברות לא נמצאה",
     "role.not_found": "התפקיד לא נמצא",
@@ -3434,7 +3441,8 @@
       "model_id_required": "מזהה המודל לא יכול להיות ריק",
       "model_id_not_editable": "ניתן לערוך את מזהה המודל רק עבור מודלים מותאמים אישית בספקי Azure, AWS Bedrock או ספקים מותאמים (תואמי OpenAI)",
       "model_id_duplicate": "המודל '{model_id}' כבר קיים אצל ספק זה"
-    }
+    },
+    "entity.share_run_failed": "השאילתה נכשלה על הסוכן \"{agent}\", ולכן אי אפשר לשתף אותה איתו: {error}"
   },
   "email": {
     "dashboardShare": {
@@ -3544,8 +3552,16 @@
       "paramAll": "הכל",
       "paramListPlaceholder": "a, b, … (ריק = הכל)",
       "errRunParams": "ההרצה נכשלה",
-      "paramsCached": "מהמטמון"
-    }
+      "paramsCached": "מהמטמון",
+      "runsOnAgent": "רצה על {agent}",
+      "originAgentBadge": "נכתבה עבור הסוכן הזה",
+      "unresolvedWarning": "הקוד של השאילתה מפנה לסוכן או לחיבור שכבר לא קיימים. ערכו את השאילתה כדי לתקן.",
+      "boundNote": "השאילתה קוראת מהסוכנים האלה יחד, ולכן היא רצה על כולם בבת אחת ואי אפשר לשתף אותה עם סוכנים אחרים.",
+      "errLoad": "לא ניתן לפתוח את השאילתה",
+      "errRefresh": "הרענון נכשל",
+      "runErrorOnAgent": "ההרצה האחרונה על {agent} נכשלה: {error}. לחצו על רענון כדי לנסות שוב."
+    },
+    "agentKeyHint": "הקוד מותאם אוטומטית לכל סוכן שהשאילתה משותפת איתו"
   },
   "scheduled": {
     "title": "משימות מתוזמנות",
