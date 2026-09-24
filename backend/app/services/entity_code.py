@@ -166,13 +166,48 @@ def _replace_keys(code: str, mapping: Dict[str, str]) -> str:
     return _KEY_ACCESS.sub(sub, code or "")
 
 
-def templatize(code: str, agents: Iterable[AgentInfo], *, repair: bool = True) -> Templated:
+def _type_token_is_exact(agent: AgentInfo, conn: ConnInfo) -> bool:
+    """Whether `$agent:<type>` rendered on `agent` lands on `conn` — the one
+    rule every conversion below obeys. `render` picks among ACTIVE
+    connections of the type, so:
+    - an active connection is exact when no other ACTIVE one shares its type;
+    - an inactive one only when it is the sole connection of its type (were
+      another active one there, render would silently run on that one).
+    """
+    same_type = [c for c in agent.connections if c.type == conn.type]
+    if conn.is_active:
+        return len([c for c in same_type if c.is_active]) == 1
+    return len(same_type) == 1
+
+
+def all_client_keys(agents: Iterable[AgentInfo]) -> Set[str]:
+    """Every client key any of `agents` answers to (see _key_map)."""
+    out: Set[str] = set()
+    for a in agents:
+        out.update(_key_map(a))
+    return out
+
+
+def templatize(
+    code: str, agents: Iterable[AgentInfo], *, repair: bool = True,
+    existing_keys: Optional[Set[str]] = None,
+) -> Templated:
     """Take agent names out of `code`. `agents` are the candidates its keys
     may name (the query's agents; at creation, the agent it was written in).
 
-    `repair=False` when `agents` are not the query's own (a lookup across the
-    whole organization): a key naming nothing is then left unresolved rather
-    than matched to whatever connection type the org happens to have."""
+    A key is replaced by a type token only when that token means exactly the
+    connection the key named (_type_token_is_exact); otherwise the code stays
+    as it is (bound). Keys naming no connection of `agents` are repaired only
+    when ALL of these hold — otherwise the query is unresolved and a person
+    fixes it:
+    - `repair` (False for a lookup across the whole organization);
+    - the key's agent no longer exists at all: `existing_keys` (every key of
+      the organization's agents) does not contain it — a key of an agent that
+      merely left the query is never "repaired" onto another agent;
+    - the code does not already read several agents (a join);
+    - the query's agents leave exactly one connection the key can mean
+      (_repair_type).
+    """
     code = code or ""
     agents = list(agents)
     keys, _dynamic = client_keys(code)
@@ -191,66 +226,46 @@ def templatize(code: str, agents: Iterable[AgentInfo], *, repair: bool = True) -
                 break
     named = {a.id for (a, _c, _f) in resolved.values()}
     unknown = [k for k in dict.fromkeys(literal) if k not in resolved]
-    if unknown and not repair:
+
+    def unresolved() -> Templated:
         return Templated(code=code, mode=MODE_UNRESOLVED, agent_ids=named)
+
+    repaired: Dict[str, str] = {}
     if unknown:
-        # A key naming nothing that exists (its agent was deleted or renamed,
-        # or it was hand-edited to another agent's name) cannot run anywhere.
-        # When the query's agents leave only one connection it can mean, take
-        # it from them rather than leave the query broken.
-        if len(named) > 1:
-            return Templated(code=code, mode=MODE_UNRESOLVED, agent_ids=named)
-        repaired: Dict[str, str] = {}
+        if not repair or len(named) > 1:
+            return unresolved()
+        if existing_keys is not None and any(k in existing_keys for k in unknown):
+            return unresolved()
         for key in unknown:
             ctype = _repair_type(key, agents)
             if ctype is None:
-                return Templated(code=code, mode=MODE_UNRESOLVED, agent_ids=named)
+                return unresolved()
             repaired[key] = f"{TEMPLATE_PREFIX}{ctype}" + (FAST_SUFFIX if key.endswith(FAST_SUFFIX) else "")
-        mapping = dict(repaired)
-        origin: Optional[AgentInfo] = next((a for (a, _c, _f) in resolved.values()), None)
-        for key, (_a, c, fast) in resolved.items():
-            mapping[key] = f"{TEMPLATE_PREFIX}{c.type}" + (FAST_SUFFIX if fast else "")
-        if origin is None:
-            wanted = {t[len(TEMPLATE_PREFIX):].removesuffix(FAST_SUFFIX) for t in repaired.values()}
-            origin = next((a for a in agents if wanted <= {c.type for c in a.active}), agents[0])
-        return Templated(
-            code=_replace_keys(code, mapping), mode=MODE_TEMPLATED,
-            origin_id=origin.id, agent_ids={origin.id}, repaired=repaired,
-        )
+
     if len(named) > 1 or (has_tokens and named):
         return Templated(code=code, mode=MODE_BOUND, agent_ids=named)
 
-    agent = next(a for (a, _c, _f) in resolved.values())
-    conns_by_type: Dict[str, Set[str]] = {}
-    for (_a, c, _f) in resolved.values():
-        conns_by_type.setdefault(c.type, set()).add(c.id)
-    for ctype, ids in conns_by_type.items():
-        # A type-only token must mean exactly the connection the key named,
-        # on this agent as on any other. It cannot when:
-        # - the code names two of the agent's connections of this type;
-        # - the named connection is active next to another ACTIVE one of the
-        #   type (render picks among active ones — inactive ones don't count);
-        # - the named connection is INACTIVE while another of the type exists:
-        #   render would silently run it on that other connection.
-        if len(ids) > 1:
-            return Templated(code=code, mode=MODE_BOUND, agent_ids=named)
-        named_conn = next(c for c in agent.connections if c.id in ids)
-        same_type = [c for c in agent.connections if c.type == ctype]
-        active_same = [c for c in same_type if c.is_active]
-        if named_conn.is_active:
-            ambiguous = len(active_same) > 1
-        else:
-            ambiguous = len(same_type) > 1
-        if ambiguous:
-            return Templated(code=code, mode=MODE_BOUND, agent_ids=named)
+    agent: Optional[AgentInfo] = next((a for (a, _c, _f) in resolved.values()), None)
+    if agent is not None:
+        conns_by_type: Dict[str, Set[str]] = {}
+        for (_a, c, _f) in resolved.values():
+            conns_by_type.setdefault(c.type, set()).add(c.id)
+        for ids in conns_by_type.values():
+            conn = next(c for c in agent.connections if c.id in ids)
+            if len(ids) > 1 or not _type_token_is_exact(agent, conn):
+                # Two of the agent's connections of one type, or one a type
+                # token would not land on: keep the code pinned as it is.
+                return unresolved() if repaired else Templated(code=code, mode=MODE_BOUND, agent_ids=named)
 
-    mapping = {
-        key: f"{TEMPLATE_PREFIX}{c.type}" + (FAST_SUFFIX if fast else "")
-        for key, (_a, c, fast) in resolved.items()
-    }
+    mapping = dict(repaired)
+    for key, (_a, c, fast) in resolved.items():
+        mapping[key] = f"{TEMPLATE_PREFIX}{c.type}" + (FAST_SUFFIX if fast else "")
+    if agent is None:
+        wanted = {t[len(TEMPLATE_PREFIX):].removesuffix(FAST_SUFFIX) for t in repaired.values()}
+        agent = next((a for a in agents if wanted <= {c.type for c in a.active}), agents[0])
     return Templated(
         code=_replace_keys(code, mapping), mode=MODE_TEMPLATED,
-        origin_id=agent.id, agent_ids={agent.id},
+        origin_id=agent.id, agent_ids={agent.id}, repaired=repaired,
     )
 
 
@@ -260,22 +275,31 @@ def _repair_type(key: str, agents: List[AgentInfo]) -> Optional[str]:
     First by connection name — `"<agent>:<connection>"` whose agent was
     renamed or removed still names its connection — then by type alone: when
     every active connection of the query's agents is of a single type, that
-    is the only thing the key can have reached. None when it stays ambiguous
-    (the agents mix types and the name matches nothing, or matches several
-    types) — guessing there could send one engine's SQL to another.
+    is the only thing the key can have reached. Then the type must be exact
+    on every one of those agents: an agent with two connections of it (active
+    or not) could run the key on the wrong one, so the key is not repaired.
+    None when it stays ambiguous — a person fixes the query instead.
     """
     if not agents:
         return None
     base = key[: -len(FAST_SUFFIX)] if key.endswith(FAST_SUFFIX) else key
+    ctype: Optional[str] = None
     if ":" in base:
         conn_name = base.rsplit(":", 1)[1]
         by_name = {c.type for a in agents for c in a.connections if c.name == conn_name}
         if len(by_name) == 1:
-            return next(iter(by_name))
-    types = {c.type for a in agents for c in a.active}
-    if not types:
-        types = {c.type for a in agents for c in a.connections}
-    return next(iter(types)) if len(types) == 1 else None
+            ctype = next(iter(by_name))
+    if ctype is None:
+        types = {c.type for a in agents for c in a.active}
+        if not types:
+            types = {c.type for a in agents for c in a.connections}
+        if len(types) != 1:
+            return None
+        ctype = next(iter(types))
+    for a in agents:
+        if len([c for c in a.connections if c.type == ctype]) > 1:
+            return None
+    return ctype
 
 
 def required_types(code: str) -> List[str]:

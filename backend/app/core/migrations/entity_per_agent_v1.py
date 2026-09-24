@@ -1,9 +1,10 @@
 """Backfill for entagent01: take agent names out of saved queries' code.
 
-Frozen with the migration that calls it — later changes to entity_code must
-not change what this revision did, so the classification it needs is imported
-from app.services.entity_code at the version this file was written against,
-and the SQL below names tables and columns explicitly (no ORM).
+This uses the LIVE classification in app.services.entity_code (templatize /
+render), not a frozen copy: an upgrade classifies existing queries by the same
+rules a save applies today. tests/unit/test_entity_per_agent_migration.py runs
+this backfill and its downgrade against those rules, so a change to them that
+would change what the migration does to existing queries fails there.
 """
 from __future__ import annotations
 
@@ -14,8 +15,10 @@ from typing import Dict, List
 
 import sqlalchemy as sa
 
+from dataclasses import replace
+
 from app.services.entity_code import (
-    AgentInfo, ConnInfo, MODE_BOUND, render, templatize,
+    AgentInfo, ConnInfo, MODE_BOUND, all_client_keys, render, templatize,
 )
 
 
@@ -66,7 +69,10 @@ def backfill(bind) -> None:
             # Saved from an Auto report: no agent rows. Its code keeps the
             # agent names it names and runs on exactly those; left unclassified.
             continue
-        result = templatize(e["code"] or "", candidates)
+        result = templatize(
+            e["code"] or "", candidates,
+            existing_keys=all_client_keys(org_agents.values()),
+        )
         if result.origin_id:
             origin = result.origin_id
         elif result.mode == MODE_BOUND and result.agent_ids:
@@ -111,5 +117,14 @@ def restore_code(bind) -> None:
         try:
             code = render(e["code"] or "", agent)
         except Exception:
-            continue  # leave it templated rather than guess
+            # The only connection of the type is inactive: render (active
+            # connections only) refuses it, but the pre-migration code named
+            # exactly that connection — put it back.
+            try:
+                code = render(e["code"] or "", AgentInfo(
+                    id=agent.id, name=agent.name,
+                    connections=tuple(replace(c, is_active=True) for c in agent.connections),
+                ))
+            except Exception:
+                continue  # still ambiguous: leave it templated rather than guess
         bind.execute(sa.text("UPDATE entities SET code = :code WHERE id = :id"), {"code": code, "id": e["id"]})

@@ -51,12 +51,32 @@ def code_mode(entity) -> str:
         return mode
     if not attached_agents(entity):
         return ec.MODE_BOUND  # agentless: runs on the agents its code names
-    return ec.templatize(getattr(entity, "code", "") or "", [ec.agent_info(a) for a in attached_agents(entity)]).mode
+    return ec.templatize(
+        getattr(entity, "code", "") or "", [ec.agent_info(a) for a in attached_agents(entity)], repair=False,
+    ).mode
 
 
-def apply_code(entity, code: str, agents: Iterable, preferred_origin_id: Optional[str] = None) -> ec.Templated:
+async def org_client_keys(db: AsyncSession, organization_id) -> set:
+    """Every client key the organization's agents answer to — so a key of an
+    agent that still exists (it only left the query) is never "repaired"
+    onto another agent (entity_code.templatize)."""
+    from app.models.data_source import DataSource
+    rows = (await db.execute(
+        select(DataSource).where(
+            DataSource.organization_id == str(organization_id),
+            DataSource.deleted_at.is_(None),
+        )
+    )).scalars().unique().all()
+    return ec.all_client_keys(ec.agent_info(d) for d in rows)
+
+
+def apply_code(
+    entity, code: str, agents: Iterable, preferred_origin_id: Optional[str] = None,
+    *, existing_keys: Optional[set] = None,
+) -> ec.Templated:
     """Store `code` on the entity agent-free when possible, and set its mode
-    and origin. `agents` are the agents its keys may name."""
+    and origin. `agents` are the agents its keys may name; `existing_keys`
+    (org_client_keys) keeps a key of a living agent from being repaired."""
     agents = list(agents)
     if not agents:
         # A query saved from an Auto report has no agent rows: its code keeps
@@ -66,7 +86,7 @@ def apply_code(entity, code: str, agents: Iterable, preferred_origin_id: Optiona
         entity.code_mode = None
         entity.origin_data_source_id = None
         return ec.Templated(code=entity.code, mode=ec.MODE_BOUND)
-    result = ec.templatize(code or "", [ec.agent_info(a) for a in agents])
+    result = ec.templatize(code or "", [ec.agent_info(a) for a in agents], existing_keys=existing_keys)
     entity.code = result.code
     entity.code_mode = result.mode
     ids = [str(a.id) for a in agents]
@@ -153,7 +173,10 @@ async def prepare_run(
     """
     agents = attached_agents(entity)
     if code is not None:
-        t = ec.templatize(code, [ec.agent_info(a) for a in agents])
+        t = ec.templatize(
+            code, [ec.agent_info(a) for a in agents],
+            existing_keys=await org_client_keys(db, entity.organization_id),
+        )
         code, mode = t.code, t.mode
     else:
         code = getattr(entity, "code", "") or ""
@@ -165,18 +188,9 @@ async def prepare_run(
         if getattr(entity, "bow_source_access", None):
             return PreparedRun(code=code, ds_clients={}, target_id=None, errors=[])
         return await _prepare_agentless(db, entity, code, user)
-    if mode == ec.MODE_UNRESOLVED:
-        # Classified before its agents allowed a repair (or before repairs
-        # existed): try again against the agents it has now. A repair that
-        # works is SAVED on the query (code, mode, origin) — the caller
-        # commits — so everything else sees a per-agent query and its result
-        # is stored per agent, not as the one shared result an unresolved
-        # query has.
-        retry = ec.templatize(code, [ec.agent_info(a) for a in agents])
-        if retry.mode != ec.MODE_UNRESOLVED and hasattr(entity, "__table__"):
-            apply_code(entity, code, agents, getattr(entity, "origin_data_source_id", None))
-            await log_repair(db, entity, retry, str(getattr(user, "id", "")) or None, commit=False)
-        code, mode = retry.code, retry.mode
+    # A run never repairs code: repairs happen when the query is saved (or by
+    # the migration), where they are validated and audited. An unresolved
+    # query is refused with a typed error until someone fixes or re-saves it.
     if mode == ec.MODE_UNRESOLVED:
         ec.check_runnable_on(code, mode, ec.agent_info(target) if target is not None else ec.AgentInfo(id="", name=""))
     if mode == ec.MODE_BOUND:
@@ -368,6 +382,10 @@ async def hand_origin_to(
     from app.models.entity_agent_snapshot import EntityAgentSnapshot
     if new_origin_id is None:
         entity.origin_data_source_id = None
+        return
+    if getattr(entity, "code_mode", None) not in ec.SHAREABLE_MODES:
+        # One result for every agent (see _is_origin): nothing to move.
+        entity.origin_data_source_id = str(new_origin_id)
         return
     old_origin = str(previous_origin_id) if previous_origin_id else origin_id(entity)
     if old_origin == str(new_origin_id):

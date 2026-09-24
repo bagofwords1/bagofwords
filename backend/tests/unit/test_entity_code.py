@@ -241,3 +241,43 @@ def test_the_only_connection_of_its_type_templates_even_while_inactive():
     agent = _agent(None, only)
     t = templatize(_code(f"{agent.name}:{only.name}"), [agent])
     assert t.mode == MODE_TEMPLATED
+
+
+# ── Review round 4: repairs never guess a connection ──────────────────────────
+
+def test_a_stale_key_does_not_let_an_inactive_connection_move_to_another():
+    prod = _conn("pg", name="prod", active=False)
+    agent = _agent("sales", prod, _conn("pg", name="staging"))
+    code = _code("sales:prod", f"gone_{uuid.uuid4().hex[:4]}:prod")
+    t = templatize(code, [agent])
+    assert t.mode != MODE_TEMPLATED
+    assert t.code == code
+
+
+def test_a_renamed_agents_key_is_not_repaired_onto_a_sibling_connection():
+    """sales_old was renamed to sales; its key still names `prod`, which is
+    inactive beside an active `staging` of the same type."""
+    agent = _agent("sales", _conn("pg", name="prod", active=False), _conn("pg", name="staging"))
+    code = _code("sales_old:prod")
+    t = templatize(code, [agent])
+    assert t.mode == MODE_UNRESOLVED
+    assert t.code == code
+
+
+def test_a_key_of_an_agent_that_still_exists_is_never_repaired():
+    """Removing B from a join must not turn B's key into A's (a self-join)."""
+    from app.services.entity_code import all_client_keys
+
+    a = _agent(None, _conn("pg"))
+    b = _agent(None, _conn("pg"))
+    code = _code(f"{a.name}:{a.connections[0].name}", f"{b.name}:{b.connections[0].name}")
+    t = templatize(code, [a], existing_keys=all_client_keys([a, b]))
+    assert t.mode == MODE_UNRESOLVED
+    assert t.code == code
+
+
+def test_a_key_of_a_deleted_agent_is_still_repaired():
+    a = _agent(None, _conn("pg"))
+    t = templatize(_code(f"deleted_{uuid.uuid4().hex[:4]}:pg-1"), [a], existing_keys={f"{a.name}:{a.connections[0].name}"})
+    assert t.mode == MODE_TEMPLATED
+    assert t.repaired

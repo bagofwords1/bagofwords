@@ -607,10 +607,10 @@ def test_a_query_reading_two_agents_together_has_one_result_on_both(test_client,
 
 
 @pytest.mark.e2e
-def test_a_query_repaired_at_run_time_keeps_each_agents_result_apart(test_client, shared):
-    """A query stored as unresolved whose agents now allow the repair is saved
-    as repaired on its first run — so a refresh from B stores B's rows as B's,
-    not as the one shared result A is then served."""
+def test_a_run_never_repairs_a_stored_unresolved_query(test_client, shared):
+    """Repairs happen on save, validated and audited — never as a side effect
+    of someone's refresh. An unresolved query is refused, and no agent's rows
+    change."""
     import asyncio
     from app.dependencies import async_session_maker
     from app.models.entity import Entity
@@ -618,24 +618,78 @@ def test_a_query_repaired_at_run_time_keeps_each_agents_result_apart(test_client
     w = shared
     h = _hdr(w["admin"]["token"], w["org_id"])
     assert _run(test_client, w, w["origin"]["id"]).status_code == 200
+    stored_code = _code_for(f"gone_{uuid.uuid4().hex[:4]}:x")
 
     async def make_unresolved():
-        # Direct write: the API never stores an unresolved query that its
-        # agents could repair — this is the state of rows classified before
-        # their agents allowed the repair.
+        # Direct write: rows classified unresolved before their agents
+        # allowed a repair — a state the API itself never produces.
         async with async_session_maker() as db:
             ent = await db.get(Entity, w["entity"]["id"])
-            ent.code = _code_for(f"gone_{uuid.uuid4().hex[:4]}:x")
+            ent.code = stored_code
             ent.code_mode = "unresolved"
             await db.commit()
 
     asyncio.run(make_unresolved())
 
     from_b = _run(test_client, w, w["other"]["id"])
-    assert from_b.status_code == 200, from_b.text
-    assert _stores(from_b) == {w["stores"][w["other"]["id"]]}
+    assert from_b.status_code == 400, from_b.text
+    assert from_b.json()["error_code"] == "entity.unresolved_code"
 
-    a_view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["origin"]["id"]}, headers=h)
-    assert a_view.status_code == 200, a_view.text
-    assert w["stores"][w["other"]["id"]] not in _stores(a_view), "agent A is served agent B's rows"
-    assert a_view.json()["code_mode"] == "templated"
+    a_view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["origin"]["id"]}, headers=h).json()
+    assert a_view["code"] == stored_code and a_view["code_mode"] == "unresolved"
+    assert w["stores"][w["other"]["id"]] not in {r.get("store") for r in (a_view.get("data") or {}).get("rows", [])}
+
+
+
+def _join(test_client, w, h):
+    k_origin = _client_key(test_client, w["origin"], w["admin"], w["org_id"])
+    k_other = _client_key(test_client, w["other"], w["admin"], w["org_id"])
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    import pandas as pd\n"
+        f"    a = ds_clients[{k_origin!r}].execute_query(\"SELECT store, SUM(amount) AS total FROM sales GROUP BY store\")\n"
+        f"    b = ds_clients[{k_other!r}].execute_query(\"SELECT store, SUM(amount) AS total FROM sales GROUP BY store\")\n"
+        "    return pd.concat([a, b])\n"
+    )
+    resp = test_client.post(
+        "/api/entities/global",
+        json={"type": "model", "title": f"Join {uuid.uuid4().hex[:4]}", "slug": f"join-{uuid.uuid4().hex[:8]}",
+              "code": code, "data": {}, "status": "published",
+              "data_source_ids": [w["origin"]["id"], w["other"]["id"]],
+              "origin_data_source_id": w["origin"]["id"]},
+        headers=h,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["code_mode"] == "bound"
+    return resp.json()
+
+
+@pytest.mark.e2e
+def test_removing_one_agent_from_a_join_is_refused_not_turned_into_a_self_join(test_client, shared):
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    join = _join(test_client, w, h)
+    resp = test_client.put(f"/api/entities/{join['id']}", json={"data_source_ids": [w["origin"]["id"]]}, headers=h)
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["error_code"] == "entity.unresolved_code"
+    after = test_client.get(f"/api/entities/{join['id']}", headers=h).json()
+    assert after["code"] == join["code"]
+    assert {d["id"] for d in after["data_sources"]} == {w["origin"]["id"], w["other"]["id"]}
+
+
+@pytest.mark.e2e
+def test_handing_a_join_to_another_origin_keeps_its_one_result(test_client, shared):
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    join = _join(test_client, w, h)
+    assert test_client.post(f"/api/entities/{join['id']}/run", json={}, headers=h).status_code == 200
+
+    moved = test_client.put(f"/api/entities/{join['id']}", json={"origin_data_source_id": w["other"]["id"]}, headers=h)
+    assert moved.status_code == 200, moved.text
+    for ds in (w["origin"], w["other"]):
+        got = test_client.get(f"/api/entities/{join['id']}", params={"data_source_id": ds["id"]}, headers=h).json()
+        assert _stores_of(got) == set(w["stores"].values()), f"lost under {ds['name']}"
+
+
+def _stores_of(body):
+    return {r["store"] for r in (body.get("data") or {}).get("rows", [])}

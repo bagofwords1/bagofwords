@@ -413,7 +413,10 @@ class EntityService:
         # and refuse agents it cannot run on now rather than on first use.
         from app.services import entity_runtime
         agents = await entity_runtime.load_agents(db, ds_ids)
-        templated = entity_runtime.apply_code(entity, step.code or "", agents, origin_data_source_id)
+        templated = entity_runtime.apply_code(
+            entity, step.code or "", agents, origin_data_source_id,
+            existing_keys=await entity_runtime.org_client_keys(db, organization.id),
+        )
         entity_runtime.validate_sharing(templated, agents)
 
         db.add(entity)
@@ -527,6 +530,7 @@ class EntityService:
         agents = await entity_runtime.load_agents(db, payload.data_source_ids or [])
         templated = entity_runtime.apply_code(
             entity, payload.code, agents, getattr(payload, "origin_data_source_id", None),
+            existing_keys=await entity_runtime.org_client_keys(db, organization.id),
         )
         entity_runtime.validate_sharing(templated, agents)
         db.add(entity)
@@ -980,7 +984,10 @@ class EntityService:
             wanted = payload.origin_data_source_id if str(payload.origin_data_source_id or "") in new_ids else None
             if wanted is None:
                 wanted = previous_origin if previous_origin in new_ids else (new_ids[0] if new_ids else None)
-            templated = entity_runtime.apply_code(entity, entity.code or "", agents, wanted)
+            templated = entity_runtime.apply_code(
+                entity, entity.code or "", agents, wanted,
+                existing_keys=await entity_runtime.org_client_keys(db, organization.id),
+            )
             code_edited = payload.code is not None and (entity.code or "") != old_code
             entity_runtime.validate_sharing(templated, agents)
             await entity_runtime.log_repair(db, entity, templated, str(current_user.id), commit=False)
@@ -1114,7 +1121,10 @@ class EntityService:
         code_changed = new_code is not None
         if code_changed:
             agents = entity_runtime.attached_agents(entity)
-            templated = entity_runtime.ec.templatize(new_code, [entity_runtime.ec.agent_info(a) for a in agents])
+            known_keys = await entity_runtime.org_client_keys(db, organization.id)
+            templated = entity_runtime.ec.templatize(
+                new_code, [entity_runtime.ec.agent_info(a) for a in agents], existing_keys=known_keys,
+            )
             entity_runtime.validate_sharing(templated, agents)
             code_changed = templated.code != (entity.code or "")
         prepared = await entity_runtime.prepare_run(db, entity, target, current_user, code=new_code)
@@ -1185,7 +1195,10 @@ class EntityService:
         if code_changed:
             # Every other agent's result came from the old code — including the
             # origin's (Entity.data) when this run is on another agent.
-            entity_runtime.apply_code(entity, new_code, entity_runtime.attached_agents(entity), entity.origin_data_source_id)
+            entity_runtime.apply_code(
+                entity, new_code, entity_runtime.attached_agents(entity), entity.origin_data_source_id,
+                existing_keys=known_keys,
+            )
             await entity_runtime.drop_snapshots(db, str(entity.id))
             if not entity_runtime._is_origin(entity, target_id):
                 entity.data = {}
@@ -1276,7 +1289,10 @@ class EntityService:
             subject = entity
         else:
             agents = list(ds_list or [])
-            t = entity_runtime.ec.templatize(code or "", [entity_runtime.ec.agent_info(a) for a in agents])
+            t = entity_runtime.ec.templatize(
+                code or "", [entity_runtime.ec.agent_info(a) for a in agents],
+                existing_keys=await entity_runtime.org_client_keys(db, organization.id),
+            )
             subject = SimpleNamespace(
                 data_sources=agents, code=t.code, code_mode=t.mode, bow_source_access=None,
                 origin_data_source_id=t.origin_id, organization_id=str(organization.id),
@@ -1371,7 +1387,10 @@ class EntityService:
             ds_list = [found[str(i)] for i in dict.fromkeys(str(i) for i in data_source_ids)]
             # The form is about to share the query with all of these: refuse
             # the agents it could not run on now, not after saving.
-            templated = entity_runtime.ec.templatize(code or "", [entity_runtime.ec.agent_info(a) for a in ds_list])
+            templated = entity_runtime.ec.templatize(
+                code or "", [entity_runtime.ec.agent_info(a) for a in ds_list],
+                existing_keys=await entity_runtime.org_client_keys(db, organization.id),
+            )
             entity_runtime.validate_sharing(templated, ds_list)
         resolved_params = await self._resolve_param_specs(
             db, parameters, current_user, organization, params or None,
