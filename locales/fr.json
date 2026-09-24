@@ -5182,5 +5182,10 @@
     "preparing": "Préparation de votre copie…",
     "preparingDetail": "Exécution des requêtes avec vos propres identifiants. Cela prend généralement quelques secondes.",
     "nothingRan": "Votre copie n’a pas pu être créée : aucune de ses requêtes n’a pu s’exécuter avec vos identifiants."
+  },
+  "quota": {
+    "exhausted": "Épuisé",
+    "tooltip": "{metric} : {used} sur {limit}",
+    "resetsOn": "réinitialisation le {date}"
   }
 }

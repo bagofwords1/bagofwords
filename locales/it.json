@@ -5182,5 +5182,10 @@
     "preparing": "Preparazione della tua copia…",
     "preparingDetail": "Esecuzione delle query con le tue credenziali. Di solito richiede pochi secondi.",
     "nothingRan": "Impossibile creare la tua copia: nessuna delle sue query è stata eseguita con le tue credenziali."
+  },
+  "quota": {
+    "exhausted": "Esaurita",
+    "tooltip": "{metric}: {used} di {limit}",
+    "resetsOn": "si azzera il {date}"
   }
 }
