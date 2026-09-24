@@ -899,19 +899,28 @@ class DataSourceService:
         # instead discover their tools now so the connector is immediately usable
         # by the agent (execute_mcp gates on ConnectionTool rows). Members can't
         # call the connection refresh-tools route, so we do it here on create.
+        # Everything above is committed first and ids are kept as plain strings:
+        # discovery is best-effort, and a failed flush must be rolled back —
+        # otherwise the reload below raised PendingRollbackError and the whole
+        # create 500'd — without losing the agent or touching expired objects.
+        new_data_source_id = str(new_data_source.id)
         try:
             tps = tool_provider_types()
             conns_for_tools = connections_to_link if connections_to_link else [new_connection]
-            tool_conns = [c for c in conns_for_tools if getattr(c, "type", None) in tps]
-            if tool_conns:
+            tool_conn_ids = [str(c.id) for c in conns_for_tools if getattr(c, "type", None) in tps]
+            if tool_conn_ids:
+                await db.commit()
                 from app.services.connection_service import ConnectionService
                 _csvc = ConnectionService()
-                for c in tool_conns:
+                for conn_id in tool_conn_ids:
                     try:
+                        c = await db.get(Connection, conn_id, populate_existing=True)
                         await _csvc.refresh_tools(db, c, current_user)
                     except Exception as _te:
-                        logger.warning(f"create_data_source: tool discovery failed for connection {getattr(c,'id',None)}: {_te}")
+                        await db.rollback()
+                        logger.warning(f"create_data_source: tool discovery failed for connection {conn_id}: {_te}")
         except Exception as _te:
+            await db.rollback()
             logger.warning(f"create_data_source: tool-provider refresh skipped: {_te}")
 
         # Reload the data source with relationships to avoid serialization issues
@@ -922,7 +931,7 @@ class DataSourceService:
                 selectinload(DataSource.connections),
                 selectinload(DataSource.tables),
             )
-            .where(DataSource.id == new_data_source.id)
+            .where(DataSource.id == new_data_source_id)
         )
         result = await db.execute(stmt)
         final_data_source = result.scalar_one()
