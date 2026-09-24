@@ -210,3 +210,13 @@ def test_rendering_into_single_quotes_escapes_an_apostrophe():
     compile(rendered, "<entity>", "exec")
     keys, _ = client_keys(rendered)
     assert keys == [f"{target.name}:{target.connections[0].name}"]
+
+
+def test_an_inactive_connection_of_the_same_type_does_not_make_the_code_ambiguous():
+    """templatize must agree with render, which only picks active connections."""
+    live = _conn("pg")
+    agent = _agent(None, live, _conn("pg", active=False))
+    t = templatize(_code(f"{agent.name}:{live.name}"), [agent])
+    assert t.mode == MODE_TEMPLATED
+    keys, _ = client_keys(render(t.code, agent))
+    assert keys == [f"{agent.name}:{live.name}"]

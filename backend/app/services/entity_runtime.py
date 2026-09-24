@@ -253,6 +253,11 @@ class Snapshot:
 def _is_origin(entity, data_source_id: Optional[str]) -> bool:
     if data_source_id is None:
         return True
+    # Only a per-agent query has a result per agent. One that reads several
+    # agents together (bound), cannot run (unresolved) or has no agent has ONE
+    # result — Entity.data — whichever agent it is opened or refreshed from.
+    if getattr(entity, "code_mode", None) not in ec.SHAREABLE_MODES:
+        return True
     # The stored origin first: a row being created has no loaded `data_sources`
     # to fall back on (and touching them there would lazy-load in async).
     oid = getattr(entity, "origin_data_source_id", None)

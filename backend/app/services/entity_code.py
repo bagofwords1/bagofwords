@@ -227,7 +227,12 @@ def templatize(code: str, agents: Iterable[AgentInfo], *, repair: bool = True) -
     for ctype, ids in conns_by_type.items():
         # Two of the agent's connections share a type: a type-only token
         # could not say which one a key meant — not even on this agent.
-        same_type = [c for c in agent.connections if c.type == ctype]
+        # Active connections only — the rule render/connection_for_type use —
+        # so a stale, inactive connection of the same type does not make the
+        # code look ambiguous. All of them only when none is active.
+        same_type = [c for c in agent.active if c.type == ctype] or [
+            c for c in agent.connections if c.type == ctype
+        ]
         if len(ids) > 1 or len(same_type) > 1:
             return Templated(code=code, mode=MODE_BOUND, agent_ids=named)
 

@@ -567,3 +567,40 @@ def test_a_code_change_run_on_another_agent_leaves_no_old_code_rows_on_the_origi
 
     origin_view = test_client.get(f"/api/entities/{w['entity']['id']}", params={"data_source_id": w["origin"]["id"]}, headers=h)
     assert not (origin_view.json().get("data") or {}).get("rows"), "origin still shows the old code's rows"
+
+
+@pytest.mark.e2e
+def test_a_query_reading_two_agents_together_has_one_result_on_both(test_client, shared):
+    """A bound query (it names both agents) is one result: opened or refreshed
+    from either agent, both see the same rows."""
+    w = shared
+    h = _hdr(w["admin"]["token"], w["org_id"])
+    k_origin = _client_key(test_client, w["origin"], w["admin"], w["org_id"])
+    k_other = _client_key(test_client, w["other"], w["admin"], w["org_id"])
+    code = (
+        "def generate_df(ds_clients, excel_files):\n"
+        "    import pandas as pd\n"
+        f"    a = ds_clients[{k_origin!r}].execute_query(\"SELECT store, SUM(amount) AS total FROM sales GROUP BY store\")\n"
+        f"    b = ds_clients[{k_other!r}].execute_query(\"SELECT store, SUM(amount) AS total FROM sales GROUP BY store\")\n"
+        "    return pd.concat([a, b])\n"
+    )
+    created = test_client.post(
+        "/api/entities/global",
+        json={"type": "model", "title": f"Both {uuid.uuid4().hex[:4]}", "slug": f"both-{uuid.uuid4().hex[:8]}",
+              "code": code, "data": {}, "status": "published",
+              "data_source_ids": [w["origin"]["id"], w["other"]["id"]]},
+        headers=h,
+    )
+    assert created.status_code == 200, created.text
+    ent = created.json()
+    assert ent["code_mode"] == "bound"
+
+    refreshed = test_client.post(f"/api/entities/{ent['id']}/run", json={"data_source_id": w["other"]["id"]}, headers=h)
+    assert refreshed.status_code == 200, refreshed.text
+    both = set(w["stores"].values())
+    assert _stores(refreshed) == both
+
+    for ds in (w["origin"], w["other"]):
+        got = test_client.get(f"/api/entities/{ent['id']}", params={"data_source_id": ds["id"]}, headers=h)
+        assert got.status_code == 200, got.text
+        assert _stores(got) == both, f"opened from {ds['name']}"
