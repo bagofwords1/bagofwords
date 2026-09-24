@@ -110,6 +110,7 @@ from app.schemas.datasource_table_schema import DataSourceTableSchema
 from app.models.datasource_table import DataSourceTable  # Add this import at the top of the file
 from app.models.user_data_source_overlay import UserDataSourceTable as UserOverlayTable, UserDataSourceColumn as UserOverlayColumn
 from app.models.webhook_data_source_association import webhook_data_source_association
+from app.models.project import project_data_source_association
 from app.models.eval import TestSuite
 
 from typing import List, Dict, Any, Optional
@@ -149,6 +150,40 @@ def normalize_overlay_fks(fks) -> list:
 _WARM_ATTEMPTS: dict[tuple, float] = {}
 _WARM_RETRY_S = 300.0
 _WARM_ATTEMPTS_MAX = 10000
+
+
+# Every table holding a foreign key to data_sources whose database rule does
+# not delete or null it on its own (no ON DELETE CASCADE / SET NULL) must be
+# listed in exactly one of these, or deleting an agent stops on that key —
+# after the delete has already removed the agent's instructions and saved
+# queries. tests/unit/test_agent_delete_covers_every_reference.py enforces it.
+#
+# Cleared by delete_data_source (explicitly, or via an ORM relationship on
+# DataSource that deletes the rows):
+AGENT_DELETE_CLEARS = frozenset({
+    "data_source_file_association",      # DataSource.files (secondary)
+    "data_source_memberships",           # explicit delete
+    "datasource_tables",                 # delete_data_source_tables (+ retry)
+    "entity_data_source_association",    # _delete_agent_scoped_entities
+    "git_repositories",                  # explicit delete
+    "instruction_data_source_association",  # _delete_agent_scoped_instructions
+    "instruction_directories",           # _delete_agent_scoped_instructions
+    "metadata_indexing_jobs",            # explicit delete
+    "metadata_resources",                # explicit delete
+    "project_data_source_association",   # explicit detach (Project-side M2M)
+    "prompt_data_source_association",    # DataSource.prompts (secondary)
+    "report_data_source_association",    # DataSource.reports (secondary)
+    "table_feedback_events",             # DataSource.table_feedback_events (cascade)
+    "table_stats",                       # DataSource.table_stats (cascade)
+    "table_usage_events",                # DataSource.table_usage_events (cascade)
+    "user_data_source_credentials",      # explicit delete
+    "webhook_data_source_association",   # explicit detach (Webhook-side M2M)
+})
+# Deliberately left pointing at the deleted id: history, and no database-level
+# constraint (the model declares a ForeignKey, the migration never created it).
+AGENT_DELETE_KEEPS = frozenset({
+    "llm_usage_records",                 # b1c2d3e4f5a6 adds the column without an FK
+})
 
 
 class DataSourceService:
@@ -898,19 +933,28 @@ class DataSourceService:
         # instead discover their tools now so the connector is immediately usable
         # by the agent (execute_mcp gates on ConnectionTool rows). Members can't
         # call the connection refresh-tools route, so we do it here on create.
+        # Everything above is committed first and ids are kept as plain strings:
+        # discovery is best-effort, and a failed flush must be rolled back —
+        # otherwise the reload below raised PendingRollbackError and the whole
+        # create 500'd — without losing the agent or touching expired objects.
+        new_data_source_id = str(new_data_source.id)
         try:
             tps = tool_provider_types()
             conns_for_tools = connections_to_link if connections_to_link else [new_connection]
-            tool_conns = [c for c in conns_for_tools if getattr(c, "type", None) in tps]
-            if tool_conns:
+            tool_conn_ids = [str(c.id) for c in conns_for_tools if getattr(c, "type", None) in tps]
+            if tool_conn_ids:
+                await db.commit()
                 from app.services.connection_service import ConnectionService
                 _csvc = ConnectionService()
-                for c in tool_conns:
+                for conn_id in tool_conn_ids:
                     try:
+                        c = await db.get(Connection, conn_id, populate_existing=True)
                         await _csvc.refresh_tools(db, c, current_user)
                     except Exception as _te:
-                        logger.warning(f"create_data_source: tool discovery failed for connection {getattr(c,'id',None)}: {_te}")
+                        await db.rollback()
+                        logger.warning(f"create_data_source: tool discovery failed for connection {conn_id}: {_te}")
         except Exception as _te:
+            await db.rollback()
             logger.warning(f"create_data_source: tool-provider refresh skipped: {_te}")
 
         # Reload the data source with relationships to avoid serialization issues
@@ -921,7 +965,7 @@ class DataSourceService:
                 selectinload(DataSource.connections),
                 selectinload(DataSource.tables),
             )
-            .where(DataSource.id == new_data_source.id)
+            .where(DataSource.id == new_data_source_id)
         )
         result = await db.execute(stmt)
         final_data_source = result.scalar_one()
@@ -1989,6 +2033,12 @@ class DataSourceService:
         # Capture details before deletion for audit
         data_source_name = data_source.name
 
+        # Refuse BEFORE deleting anything if a reference this procedure does
+        # not clear still points at the agent: the steps below commit as they
+        # go, so a key that blocks the final DELETE would otherwise leave the
+        # agent in place with its instructions and saved queries already gone.
+        await self._assert_nothing_blocks_agent_delete(db, data_source_id, data_source_name)
+
         # 0) Content scoped ONLY to this agent goes with it: instructions,
         #    saved queries (entities) and eval test cases attached to this
         #    agent and to no other are deleted; anything shared with another
@@ -2045,6 +2095,15 @@ class DataSourceService:
         await db.execute(
             delete(webhook_data_source_association).where(
                 webhook_data_source_association.c.data_source_id == data_source_id
+            )
+        )
+
+        # 2c) Same for projects that list this agent among their defaults
+        #     (Project.data_sources is declared only on the Project side). The
+        #     project stays; it just no longer offers this agent.
+        await db.execute(
+            delete(project_data_source_association).where(
+                project_data_source_association.c.data_source_id == data_source_id
             )
         )
 
@@ -2193,6 +2252,33 @@ class DataSourceService:
                 len(only_here), data_source_id,
             )
         return only_here
+
+    @staticmethod
+    async def _assert_nothing_blocks_agent_delete(db: AsyncSession, data_source_id: str, name: str) -> None:
+        """Raise before any delete when a table this procedure does not clear
+        (see AGENT_DELETE_CLEARS) still references the agent through a foreign
+        key the database would enforce."""
+        from sqlalchemy import func
+        from app.models.base import metadata
+        from app.errors import AppError, ErrorCode
+
+        for table in metadata.tables.values():
+            if table.name in AGENT_DELETE_CLEARS or table.name in AGENT_DELETE_KEEPS:
+                continue
+            for fk in table.foreign_keys:
+                if fk.column.table.name != "data_sources":
+                    continue
+                if (fk.ondelete or "").upper() in ("CASCADE", "SET NULL"):
+                    continue
+                count = (await db.execute(
+                    select(func.count()).select_from(table).where(fk.parent == data_source_id)
+                )).scalar() or 0
+                if count:
+                    raise AppError.conflict(
+                        ErrorCode.DATA_SOURCE_IN_USE,
+                        f'Agent "{name}" is still referenced by {table.name}, so it cannot be deleted. Nothing was deleted.',
+                        agent=name, reference=table.name,
+                    )
 
     async def _delete_agent_scoped_entities(
         self,
@@ -6396,17 +6482,78 @@ class DataSourceService:
             )
         )
         
-        # Remove domain tables that reference this connection's tables
         from app.models.connection_table import ConnectionTable
+        from app.models.connection_tool import ConnectionTool
+        from app.models.data_source_connection_tool import DataSourceConnectionTool
+        from app.models.instruction_reference import InstructionReference
+        from app.models.table_feedback_event import TableFeedbackEvent
+        from app.models.table_stats import TableStats
+        from app.models.table_usage_event import TableUsageEvent
+
+        # The agent's tables that came from this connection. A subquery, not a
+        # bound id list: a connection can carry tens of thousands of tables,
+        # past PostgreSQL's 32767-parameter ceiling.
+        removed_table_ids = select(DataSourceTable.id).where(
+            DataSourceTable.datasource_id == data_source_id,
+            DataSourceTable.connection_table_id.in_(
+                select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
+            ),
+        )
+
+        # Clear what hangs off those tables before deleting them. The bulk
+        # DELETE below bypasses the ORM delete-orphan cascade declared on
+        # DataSourceTable, and these FKs have no ON DELETE rule, so Postgres
+        # rejected the unlink (table_stats_datasource_table_id_fkey) as soon as
+        # any table had been queried or rated. SQLite never enforced it.
+        for model in (TableStats, TableUsageEvent, TableFeedbackEvent):
+            await db.execute(
+                delete(model).where(model.datasource_table_id.in_(removed_table_ids))
+            )
+        # Polymorphic reference (no FK): the table ids are gone for good — a
+        # relink creates new rows — so an instruction would point at nothing.
+        await db.execute(
+            delete(InstructionReference).where(
+                InstructionReference.object_type == "datasource_table",
+                InstructionReference.object_id.in_(removed_table_ids),
+            )
+        )
+        # Per-user overlays of this connection within this agent. Legacy rows
+        # carry no connection_id; catch those by the table they point at.
+        overlay_filter = and_(
+            UserOverlayTable.data_source_id == data_source_id,
+            or_(
+                UserOverlayTable.connection_id == connection_id,
+                UserOverlayTable.data_source_table_id.in_(removed_table_ids),
+            ),
+        )
+        await db.execute(
+            delete(UserOverlayColumn).where(UserOverlayColumn.user_data_source_table_id.in_(
+                select(UserOverlayTable.id).where(overlay_filter)
+            ))
+        )
+        await db.execute(delete(UserOverlayTable).where(overlay_filter))
+
         await db.execute(
             delete(DataSourceTable).where(
                 DataSourceTable.datasource_id == data_source_id,
                 DataSourceTable.connection_table_id.in_(
                     select(ConnectionTable.id).where(ConnectionTable.connection_id == connection_id)
-                )
+                ),
             )
         )
-        
+
+        # This agent's tool policies for the connection's tools. They only
+        # cascade on agent/tool delete, so they outlived the unlink, leaked into
+        # the agent's YAML export, and silently came back on a relink.
+        await db.execute(
+            delete(DataSourceConnectionTool).where(
+                DataSourceConnectionTool.data_source_id == data_source_id,
+                DataSourceConnectionTool.connection_tool_id.in_(
+                    select(ConnectionTool.id).where(ConnectionTool.connection_id == connection_id)
+                ),
+            )
+        )
+
         await db.commit()
         return {"message": "Connection removed from agent"}
 

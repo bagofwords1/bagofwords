@@ -213,6 +213,7 @@ class SchemaContextBuilder:
         name_patterns: Optional[List[str]] = None,
         active_only: bool = True,
         sort: str = "score",  # "score" | "usage" | "centrality" | "alpha"
+        split_file_scopes: bool = True,
     ) -> TablesSchemaContext:
         """Return TablesSchemaContext with optional filtering and sorting.
 
@@ -225,6 +226,9 @@ class SchemaContextBuilder:
             name_patterns: Filter tables by regex patterns.
             active_only: If True (default), only return active tables. If False, include inactive.
             sort: Sort order for tables.
+            split_file_scopes: If True (default), file-source connections render
+                as scope descriptors and their per-file rows leave `tables`.
+                False keeps them as tables (for callers resolving a table by id).
         """
         ds_sections: List[TablesSchemaContext.DataSource] = []
 
@@ -381,9 +385,14 @@ class SchemaContextBuilder:
                 visible_table_names = {
                     (getattr(ot, 'table_name', '') or '') for ot in overlay_tables
                 }
+                # Only columns this user can still reach. A sync keeps the row
+                # of a column the user lost (is_accessible=False) rather than
+                # deleting it, so an unfiltered read put revoked columns back in
+                # the prompt. Same rule as read_user_data_source_schema.
                 cols_q = await self.db.execute(
                     select(UserDataSourceColumn).where(
-                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids)
+                        UserDataSourceColumn.user_data_source_table_id.in_(overlay_ids),
+                        UserDataSourceColumn.is_accessible.is_(True),
                     )
                 )
                 cols = cols_q.scalars().all()
@@ -710,6 +719,7 @@ class SchemaContextBuilder:
                 ]
 
                 tbl = PromptTable(
+                    id=item.get("table_id"),
                     name=item.get("name", ""),
                     columns=columns,
                     pks=pks,
@@ -826,7 +836,10 @@ class SchemaContextBuilder:
             # Pull file-source connections OUT of the table pool: they render as
             # compact scope descriptors, not per-file <table> rows — so they
             # never consume the top_k budget or bloat the prompt.
-            file_scopes, tables = self._build_file_scopes(ds, tables)
+            if split_file_scopes:
+                file_scopes, tables = self._build_file_scopes(ds, tables)
+            else:
+                file_scopes = []
 
             tables = _cached_first(tables)
 

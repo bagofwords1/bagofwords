@@ -141,12 +141,38 @@ def test_internal_usage_limits_never_classify_as_quota(detail):
     """UsageLimitExceeded says "quota exceeded" too, and must not fall back.
 
     The provider is healthy; the org spent its own budget. Substituting a
-    model would only spend it somewhere else, so these stay 'unknown' —
-    surfaced verbatim, not retried, not eligible for substitution.
+    model would only spend it somewhere else, so these are neither retried
+    nor eligible for substitution.
     """
     code = _code("openai", detail)
-    assert code == "unknown"
+    assert code != "quota"
     assert code not in FALLBACK_ELIGIBLE_CODES
+    assert code not in _RETRYABLE_CODES
+
+
+@pytest.mark.parametrize(
+    "detail",
+    [
+        "Monthly LLM token quota exceeded.",
+        "Monthly LLM spend quota exceeded.",
+        "Monthly usage quota exceeded.",
+    ],
+)
+def test_internal_usage_cap_headline_does_not_blame_the_provider(detail):
+    """The headline must name the org's own limit, not the vendor.
+
+    The report UI renders "{summary}: {provider_message}". While these fell
+    through to the terminal 'unknown' branch the summary was
+    "openai call failed", so an admin-set budget read as a vendor outage and
+    sent users to OpenAI support instead of to their own admin.
+    """
+    err = classify(_wrapped("openai", detail), provider="openai", model="m")
+
+    assert err.code == "usage_cap"
+    assert "openai" not in err.summary.lower()
+    assert "call failed" not in err.summary.lower()
+    # The cap's own wording still reaches the user verbatim.
+    assert detail.rstrip(".").lower() in err.provider_message.lower()
 
 
 # ── providers previously invisible to the classifier ───────────────────────

@@ -36,6 +36,7 @@ class ErrorCode(str, Enum):
     ARTIFACT_NOT_FOUND = "artifact.not_found"
     FILE_NOT_FOUND = "file.not_found"
     DATA_SOURCE_NOT_FOUND = "data_source.not_found"
+    DATA_SOURCE_IN_USE = "data_source.in_use"
     CONNECTION_NOT_FOUND = "connection.not_found"
     USER_NOT_FOUND = "user.not_found"
     MEMBERSHIP_NOT_FOUND = "membership.not_found"

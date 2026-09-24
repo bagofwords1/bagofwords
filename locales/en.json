@@ -3443,7 +3443,14 @@
     "chatScopeAgentsDesc": "Chat may run live read-only queries against the selected agents",
     "chatScopeDataOnly": "Dashboard data only",
     "chatScopeDataOnlyDesc": "Chat answers only from the data already on this dashboard",
-    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only."
+    "chatNoAgents": "No agents are attached to this report — chat will answer from dashboard data only.",
+    "chatModel": "Default model",
+    "chatModelDesc": "The model chat uses for viewers. Viewers without access to it fall back to their own default.",
+    "chatModelOrgDefault": "Organization default ({name})",
+    "chatModelOrgDefaultPlain": "Organization default",
+    "chatModelReport": "Same as report ({name})",
+    "chatModelReportPlain": "Same as report",
+    "chatModelUnavailable": "Unavailable model — using default"
   },
   "publish": {
     "published": "Published",
@@ -3502,7 +3509,8 @@
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
-    }
+    },
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
   },
   "email": {
     "dashboardShare": {
@@ -5245,5 +5253,8 @@
     "preparing": "Preparing your copy…",
     "preparingDetail": "Running the queries with your own credentials. This usually takes a few seconds.",
     "nothingRan": "Your copy couldn't be created: none of its queries could be run with your credentials."
+  },
+  "quota": {
+    "resetsOn": "resets {date}"
   }
 }

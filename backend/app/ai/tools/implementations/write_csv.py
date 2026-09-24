@@ -1,3 +1,4 @@
+import asyncio
 import csv
 import re
 import time
@@ -119,6 +120,7 @@ Arguments:
                 data.tables_by_source,
                 context_hub.schema_builder,
                 db_lock=runtime_ctx.get("tool_db_lock"),
+                static_schemas=getattr(getattr(runtime_ctx.get("context_view"), "static", None), "schemas", None),
             )
 
         # 2. Build context
@@ -204,6 +206,7 @@ Arguments:
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
@@ -323,8 +326,9 @@ Arguments:
         dest_path = os.path.join("uploads", "files", unique_name)
         os.rename(csv_path, dest_path)
 
-        # Read full CSV for widget data
-        full_df = pd.read_csv(dest_path)
+        # Read full CSV for widget data (off the event loop: a large file
+        # parsed inline stalls every other stream/tool in the process).
+        full_df = await asyncio.get_running_loop().run_in_executor(None, pd.read_csv, dest_path)
         total_rows = len(full_df)
 
         # Format data for visualization (same structure as create_data)
@@ -333,7 +337,7 @@ Arguments:
             logger=None,
             context_hub=runtime_ctx.get("context_hub"),
         )
-        formatted = streamer.format_df_for_widget(full_df)
+        formatted = await streamer.format_df_for_widget_async(full_df)
         info = formatted.get("info", {})
         data_preview = full_df.head(5).to_string() if not full_df.empty else ""
 

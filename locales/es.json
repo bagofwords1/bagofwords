@@ -3373,7 +3373,22 @@
     "userNotFound": "Usuario no encontrado en la organización",
     "copyFailed": "No se pudo copiar",
     "includeDataTab": "Incluir pestaña de datos",
-    "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe"
+    "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe",
+    "allowChat": "Permitir chat",
+    "allowChatDesc": "Los miembros del espacio de trabajo que hayan iniciado sesión pueden hacer preguntas sobre este panel",
+    "chatScope": "El chat puede usar",
+    "chatScopeAgents": "Agentes del informe",
+    "chatScopeAgentsDesc": "El chat puede ejecutar consultas en vivo de solo lectura sobre los agentes seleccionados",
+    "chatScopeDataOnly": "Solo datos del panel",
+    "chatScopeDataOnlyDesc": "El chat responde solo con los datos que ya están en este panel",
+    "chatNoAgents": "No hay agentes asociados a este informe: el chat responderá solo con los datos del panel.",
+    "chatModel": "Modelo predeterminado",
+    "chatModelDesc": "El modelo que usa el chat para los espectadores. Quienes no tengan acceso a él usarán su propio modelo predeterminado.",
+    "chatModelOrgDefault": "Predeterminado de la organización ({name})",
+    "chatModelOrgDefaultPlain": "Predeterminado de la organización",
+    "chatModelReport": "Igual que el informe ({name})",
+    "chatModelReportPlain": "Igual que el informe",
+    "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado"
   },
   "publish": {
     "published": "Publicado",
@@ -3434,7 +3449,8 @@
       "model_id_required": "El ID del modelo no puede estar vacío",
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
-    }
+    },
+    "data_source.in_use": "El agente \"{agent}\" todavía está en uso ({reference}), así que no se puede eliminar. No se eliminó nada."
   },
   "email": {
     "dashboardShare": {
@@ -5208,5 +5224,8 @@
     "preparing": "Preparando tu copia…",
     "preparingDetail": "Ejecutando las consultas con tus propias credenciales. Suele tardar unos segundos.",
     "nothingRan": "No se pudo crear tu copia: ninguna de sus consultas pudo ejecutarse con tus credenciales."
+  },
+  "quota": {
+    "resetsOn": "se reinicia el {date}"
   }
 }

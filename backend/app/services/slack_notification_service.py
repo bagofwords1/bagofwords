@@ -3,7 +3,7 @@ import uuid
 import csv
 import logging
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import lazyload, selectinload
 import pandas as pd
 import matplotlib
 matplotlib.use('Agg')
@@ -217,6 +217,27 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
     session_maker = create_async_session_factory()
     async with session_maker() as db:
         try:
+            # Discover routing details only if not explicitly provided. Resolve
+            # them BEFORE loading the step: the step-update hook calls this for
+            # every successful step, and web runs (no chat-linked completion)
+            # must exit after this one lookup rather than after loading the
+            # step's widget/report graph.
+            completion = None
+            if external_user_id is None or organization_id is None:
+                comp_stmt = (
+                    select(Completion)
+                    .options(lazyload("*"))
+                    .where(Completion.step_id == step_id)
+                    .order_by(Completion.created_at.desc())
+                    .limit(1)
+                )
+                comp_result = await db.execute(comp_stmt)
+                completion = comp_result.scalar_one_or_none()
+
+                if not (completion and completion.external_platform in ("slack", "teams", "whatsapp", "google_chat") and completion.external_user_id):
+                    logger.info("SLACK_NOTIFIER: No chat-linked completion found for step %s. Caller should supply routing details.", step_id)
+                    return
+
             stmt = select(Step).options(
                 selectinload(Step.widget).selectinload(Widget.report)
             ).where(Step.id == step_id)
@@ -226,16 +247,7 @@ async def send_step_result_to_slack(step_id: str, external_user_id: str | None =
                 logger.info("SLACK_NOTIFIER: Could not find step with id %s", step_id)
                 return
 
-            # Discover routing details only if not explicitly provided
-            if external_user_id is None or organization_id is None:
-                comp_stmt = select(Completion).where(Completion.step_id == step_id).order_by(Completion.created_at.desc()).limit(1)
-                comp_result = await db.execute(comp_stmt)
-                completion = comp_result.scalar_one_or_none()
-
-                if not (completion and completion.external_platform in ("slack", "teams", "whatsapp", "google_chat") and completion.external_user_id):
-                    logger.info("SLACK_NOTIFIER: No chat-linked completion found for step %s. Caller should supply routing details.", step_id)
-                    return
-
+            if completion is not None:
                 external_user_id = external_user_id or completion.external_user_id
                 organization_id = organization_id or step.widget.report.organization_id
                 platform_type = platform_type or completion.external_platform

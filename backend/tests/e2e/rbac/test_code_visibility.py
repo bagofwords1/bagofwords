@@ -452,3 +452,120 @@ async def test_signed_in_restricted_member_gets_no_code_from_the_public_route(
     assert resp.status_code == 200, resp.text
     assert resp.json()["code"] is None
     assert "SUM(revenue)" not in resp.text
+
+
+# ── The monitoring console path ──────────────────────────────────────────
+
+
+async def _seed_console_run_for(user_id, org_id, code=GENERATED_SQL):
+    """Seed one agent run whose create_data call carries generated code.
+
+    Direct DB writes (see tests/AGENTS.md rule 5): agent executions and their
+    tool calls only come from a live agent run, which crosses the LLM boundary.
+    """
+    from datetime import datetime
+
+    from app.models.agent_execution import AgentExecution
+    from app.models.completion import Completion
+    from app.models.completion_block import CompletionBlock
+    from app.models.tool_execution import ToolExecution
+
+    suffix = uuid.uuid4().hex[:8]
+    now = datetime.utcnow()
+    async with async_session_maker() as db:
+        report = Report(
+            title=f"ConsoleCode {suffix}", slug=f"console-code-{suffix}",
+            status="draft", user_id=user_id, organization_id=org_id,
+        )
+        db.add(report)
+        await db.flush()
+
+        head = Completion(
+            prompt={"content": "revenue by region"}, completion={"content": ""},
+            role="user", message_type="user_message", report_id=report.id,
+            user_id=user_id, created_at=now,
+        )
+        db.add(head)
+        await db.flush()
+        system = Completion(
+            prompt={"content": ""}, completion={"content": "done"}, role="system",
+            parent_id=head.id, report_id=report.id, created_at=now,
+        )
+        db.add(system)
+        await db.flush()
+
+        ae = AgentExecution(
+            completion_id=system.id, organization_id=org_id, user_id=user_id,
+            report_id=report.id, status="completed", created_at=now,
+            started_at=now, completed_at=now,
+        )
+        db.add(ae)
+        await db.flush()
+
+        te = ToolExecution(
+            agent_execution_id=ae.id, tool_name="create_data",
+            arguments_json={"title": "Revenue"}, result_json={"code": code},
+            status="success", success=True, started_at=now, completed_at=now,
+            attempt_number=1, max_retries=0, created_at=now,
+        )
+        db.add(te)
+        await db.flush()
+
+        db.add(CompletionBlock(
+            completion_id=system.id, agent_execution_id=ae.id, source_type="tool",
+            tool_execution_id=te.id, block_index=0, title="Create data",
+            status="completed",
+        ))
+        await db.commit()
+        return {"report_id": str(report.id), "completion_id": str(system.id)}
+
+
+def _console_trace_urls(seeded):
+    return [
+        f"/api/console/reports/{seeded['report_id']}/conversation",
+        f"/api/console/agent_executions/by-completion/{seeded['completion_id']}",
+    ]
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_console_trace_shows_generated_code_to_a_code_viewer(
+    test_client, bootstrap_admin
+):
+    """Console routes gate through `console_scope`, not `@requires_permission`.
+    If that gate never publishes the code-visibility decision, the serializers
+    fall back to deny and the monitoring trace loses its code for everyone —
+    admins included."""
+    admin = bootstrap_admin()
+    seeded = await _seed_console_run_for(admin["user_id"], admin["org_id"])
+
+    for url in _console_trace_urls(seeded):
+        resp = test_client.get(url, headers=_hdr(admin["token"], admin["org_id"]))
+        assert resp.status_code == 200, (url, resp.text)
+        assert GENERATED_SQL in resp.text, url
+
+
+@pytest.mark.e2e
+@pytest.mark.asyncio
+async def test_console_trace_withholds_code_from_a_console_user_without_view_code(
+    test_client, bootstrap_admin, invite_user_to_org, create_role, assign_role,
+    enterprise_license,
+):
+    """Console access and code visibility are separate grants: opening the
+    console must not become a way around a role that withholds code."""
+    admin = bootstrap_admin()
+    member = invite_user_to_org(org_id=admin["org_id"], admin_token=admin["token"])
+    seeded = await _seed_console_run_for(admin["user_id"], admin["org_id"])
+
+    role_id = _strip_code_role(test_client, admin, member, create_role, assign_role)
+    updated = test_client.put(
+        f"/api/organizations/{admin['org_id']}/roles/{role_id}",
+        json={"permissions": ["view_reports", "manage_settings"]},
+        headers=_hdr(admin["token"], admin["org_id"]),
+    )
+    assert updated.status_code == 200, updated.text
+
+    for url in _console_trace_urls(seeded):
+        resp = test_client.get(url, headers=_hdr(member["token"], admin["org_id"]))
+        assert resp.status_code == 200, (url, resp.text)
+        assert "SUM(revenue)" not in resp.text, url

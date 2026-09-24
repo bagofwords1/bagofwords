@@ -10,7 +10,7 @@ from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
-from sqlalchemy import delete, update, func
+from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -26,7 +26,6 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.models.webhook_data_source_association import webhook_data_source_association
 from app.models.domain_connection import domain_connection
 from app.schemas.data_source_registry import (
     resolve_client_class,
@@ -263,6 +262,18 @@ def default_user_auth_modes(conn_type: str, config: dict, credentials: dict) -> 
         # admin-equivalent on the Qlik site and must not be requested per user.
         return ["identity"]
     return None
+
+
+def _dialect_insert(db: AsyncSession):
+    """INSERT construct with ON CONFLICT support for the app database."""
+    dialect = db.get_bind().dialect.name
+    if dialect == "postgresql":
+        from sqlalchemy.dialects.postgresql import insert
+    elif dialect == "sqlite":
+        from sqlalchemy.dialects.sqlite import insert
+    else:
+        raise ValueError(f"Unsupported application database: {dialect}")
+    return insert
 
 
 class ConnectionService:
@@ -740,7 +751,7 @@ class ConnectionService:
                     extra={"connection_id": str(connection_id)},
                 )
 
-        async def _load_and_delete(org: Organization) -> tuple[str, int, list]:
+        async def _load_and_delete(org: Organization) -> str:
             connection = await self.get_connection(db, connection_id, org)
             connection_name = connection.name
 
@@ -753,44 +764,48 @@ class ConnectionService:
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
 
-            agent_count = len(connection.data_sources) if connection.data_sources else 0
-            deleted_agent_names: list = []
-            if agent_count > 0:
-                agent_names = [ds.name for ds in connection.data_sources]
-                logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {agent_count} agent(s): {agent_names}")
-
-                # Delete data sources that only have this connection
-                for ds in connection.data_sources:
-                    if len(ds.connections) == 1:
-                        deleted_agent_names.append(ds.name)
-                        logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
-                        # Detach from trigger webhooks first. The M2M lives only
-                        # on Webhook.data_sources, so the ORM cascade below never
-                        # clears these rows and Postgres rejects the DELETE on
-                        # webhook_data_source_association_data_source_id_fkey.
-                        await db.execute(
-                            delete(webhook_data_source_association).where(
-                                webhook_data_source_association.c.data_source_id == ds.id
-                            )
-                        )
-                        # Preserve per-agent Drafts suites and their cases. The
-                        # suite link is a home only, so removing the sole-linked
-                        # agent turns it back into an org-level suite.
-                        from app.models.eval import TestSuite
-                        await db.execute(
-                            update(TestSuite)
-                            .where(TestSuite.data_source_id == ds.id)
-                            .values(data_source_id=None)
-                        )
-                        await db.delete(ds)
-
+            # Agents that existed only through this connection were deleted
+            # above, through the agent delete; any left here share another
+            # connection and only lose this link (domain_connection cascade).
             await db.delete(connection)
             await db.commit()
-            return connection_name, agent_count, deleted_agent_names
+            return connection_name
 
         await _drain()
+
+        # Agents that exist only through this connection go with it — through
+        # the full agent delete (DataSourceService.delete_data_source), the one
+        # place that knows every reference to an agent: content scoped to it,
+        # project / webhook / instruction links, folders, repositories, audit.
+        # A hand-rolled `db.delete(ds)` here used to skip most of that and fail
+        # on Postgres foreign keys. Every such agent is checked first, so one
+        # that cannot be deleted stops the connection delete before anything is
+        # removed.
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        connection = await self.get_connection(db, connection_id, organization)
+        linked = list(connection.data_sources or [])
+        agent_count = len(linked)
+        sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
+        if agent_count:
+            logger.info(
+                f"Deleting connection {connection.name} ({connection_id}) which is linked to "
+                f"{agent_count} agent(s): {[ds.name for ds in linked]}"
+            )
+        for ds_id, ds_name in sole:
+            await ds_service._assert_nothing_blocks_agent_delete(db, ds_id, ds_name)
+        deleted_agent_names: list = []
+        for ds_id, ds_name in sole:
+            logger.info(f"Deleting data source {ds_name} ({ds_id}) as it only has this connection")
+            await ds_service.delete_data_source(db, ds_id, organization, current_user)
+            deleted_agent_names.append(ds_name)
+        # The loaded connection still lists the agents just deleted; drop the
+        # stale state so the connection delete below re-reads what remains.
+        db.expire_all()
+        organization = await db.get(Organization, organization_id)
+
         try:
-            connection_name, agent_count, deleted_agent_names = await _load_and_delete(organization)
+            connection_name = await _load_and_delete(organization)
         except IntegrityError:
             # Safety net for the (now narrow) window where a concurrent writer
             # committed a child row after our eager load. Roll back, drain the
@@ -806,7 +821,7 @@ class ConnectionService:
             )
             organization = await db.get(Organization, organization_id)
             await _drain()
-            connection_name, agent_count, deleted_agent_names = await _load_and_delete(organization)
+            connection_name = await _load_and_delete(organization)
 
         # Audit log
         try:
@@ -2310,6 +2325,7 @@ class ConnectionService:
             # Upsert tools
             created_count = 0
             updated_count = 0
+            new_tools = []
             for name, payload in incoming.items():
                 if name in existing_tools:
                     tool = existing_tools[name]
@@ -2322,7 +2338,7 @@ class ConnectionService:
                         tool.policy = payload["explicit_policy"]
                     updated_count += 1
                 else:
-                    tool = ConnectionTool(
+                    new_tools.append(dict(
                         name=name,
                         connection_id=connection_id_str,
                         description=payload["description"],
@@ -2335,9 +2351,21 @@ class ConnectionService:
                         # allow. Auto-policied tools keep whatever an admin
                         # sets later (only new rows are seeded).
                         policy=payload.get("explicit_policy") or payload.get("default_policy") or "allow",
-                    )
-                    db.add(tool)
+                    ))
                     created_count += 1
+
+            # Two discoveries of one connection can overlap: agent create runs
+            # one in the request and one in background indexing, and a manual
+            # refresh can meet a scheduled reindex. Both see a new tool as
+            # missing, so a plain INSERT made the later one fail on
+            # uq_connection_tool_name. The first to land wins; the rows match.
+            if new_tools:
+                insert = _dialect_insert(db)
+                for values in new_tools:
+                    await db.execute(
+                        insert(ConnectionTool).values(**values)
+                        .on_conflict_do_nothing(index_elements=["connection_id", "name"])
+                    )
 
             # Delete stale tools — but never on an empty discovery result. A
             # flaky/misconfigured server returning zero tools would otherwise
@@ -2345,10 +2373,19 @@ class ConnectionService:
             # overlays and per-user policy preferences hanging off them.
             deleted_count = 0
             if incoming:
-                for existing_name, existing_tool in existing_tools.items():
-                    if existing_name not in incoming:
-                        await db.delete(existing_tool)
-                        deleted_count += 1
+                stale = [t for n, t in existing_tools.items() if n not in incoming]
+                if stale:
+                    # Statement deletes: an overlapping run may already have
+                    # removed these rows, and an ORM delete of a vanished row
+                    # raises StaleDataError. user_connection_tools has no ON
+                    # DELETE rule, so clear it first (the ORM cascade did).
+                    stale_ids = [str(t.id) for t in stale]
+                    await db.execute(delete(UserConnectionTool).where(
+                        UserConnectionTool.connection_tool_id.in_(stale_ids)))
+                    await db.execute(delete(ConnectionTool).where(ConnectionTool.id.in_(stale_ids)))
+                    for t in stale:
+                        db.expunge(t)
+                    deleted_count = len(stale_ids)
             elif existing_tools:
                 logger.warning(
                     f"refresh_tools: provider returned no tools for connection {connection.id}; "

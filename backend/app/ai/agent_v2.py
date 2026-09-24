@@ -5,13 +5,15 @@ import os
 import re as _re_mod
 import time as _time
 import uuid as _uuid_mod
+import copy
 from collections import Counter
 from datetime import datetime
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, nullcontext
 from typing import Dict, List, Optional
 from pydantic import ValidationError
 from opentelemetry.trace import StatusCode
 from sqlalchemy.orm import lazyload, selectinload
+from sqlalchemy.orm.attributes import set_committed_value
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +157,20 @@ _VISION_IMAGE_RETENTION_LOOPS = 3
 # re-send its whole gallery on every call.
 _FOLLOWUP_IMAGE_LIMIT = 2
 
+
+
+# Numeric split of a tool's duration for the live chat (codegen, its reasoning,
+# execution). Per-query entries are left out: they carry SQL text, which the
+# REST serializer redacts by code visibility and a live event must not leak.
+_TIMING_SPLIT_KEYS = ("codegen_ms", "codegen_reasoning_ms", "execution_ms")
+
+
+def _timing_split(tool_execution):
+    timings = getattr(tool_execution, "sub_timings_json", None)
+    if not isinstance(timings, dict):
+        return None
+    split = {k: timings[k] for k in _TIMING_SPLIT_KEYS if timings.get(k) is not None}
+    return split or None
 
 class ToolInvocationState:
     """Created-object state for one tool invocation.
@@ -329,7 +345,7 @@ from app.models.widget import Widget
 from app.models.completion import Completion
 from app.models.report import Report
 from app.ai.agents.reporter.reporter import Reporter
-from sqlalchemy import select, func, update as sa_update
+from sqlalchemy import select, func, update as sa_update, inspect as sa_inspect
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.tool_execution import ToolExecution
 from app.models.agent_execution import AgentExecution
@@ -2063,6 +2079,9 @@ class AgentV2:
                         # write_csv) so parallel tool batches don't use the
                         # non-concurrency-safe AsyncSession at the same time.
                         "tool_db_lock": self._tool_db_lock,
+                        # Short-lived sessions for tool-side READS that must not
+                        # touch the shared session (see _tool_db_lock).
+                        "read_session_maker": self._session_maker,
                         "usage_limit_context": self.usage_limit_context,
                         "training_build_id": self.training_build_id,
                         "agent_execution_id": str(self.current_execution.id) if self.current_execution else None,
@@ -2197,6 +2216,7 @@ class AgentV2:
                                 "result_summary": observation.get("summary", "") if observation else "",
                                 "result_json": safe_result_json,
                                 "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                "sub_timings_json": _timing_split(tool_execution),
                             },
                         ))
                     except Exception:
@@ -2728,30 +2748,71 @@ class AgentV2:
         Excludes full schemas and instructions to avoid redundant storage.
         Only saves what was actually sent to the LLM.
         """
-        # Start with full view but we'll replace large sections
-        data = view.model_dump()
-        
+        # Usage summaries first; a section whose summary was built is then left
+        # out of the dump entirely (it used to be dumped in full — schemas and
+        # instructions are the largest parts of the view — and discarded).
+        schemas_usage = None
+        instructions_usage = None
         try:
-            # Replace full schemas with usage tracking only
             if view.static.schemas:
-                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema)
-                data["schemas_usage"] = schemas_usage.model_dump()
-                # Remove full schemas to save space
-                if "static" in data and "schemas" in data["static"]:
-                    data["static"]["schemas"] = None
-            
-            # Replace full instructions with usage tracking only
-            if view.static.instructions and view.static.instructions.items:
-                data["instructions_usage"] = [
-                    item.model_dump() for item in view.static.instructions.items
-                ]
-                # Remove full instructions to save space
-                if "static" in data and "instructions" in data["static"]:
-                    data["static"]["instructions"] = None
+                schemas_usage = view.static.schemas.get_usage_snapshot(top_k_per_ds=top_k_schema).model_dump()
         except Exception:
-            pass  # Usage tracking is optional, don't fail if it errors
-        
+            schemas_usage = None  # Usage tracking is optional, don't fail if it errors
+        try:
+            if view.static.instructions and view.static.instructions.items:
+                instructions_usage = [item.model_dump() for item in view.static.instructions.items]
+        except Exception:
+            instructions_usage = None
+
+        drop = set()
+        if schemas_usage is not None:
+            drop.add("schemas")
+        if instructions_usage is not None:
+            drop.add("instructions")
+        data = view.model_dump(exclude={"static": drop} if drop else None)
+
+        if schemas_usage is not None:
+            data["schemas_usage"] = schemas_usage
+            data.setdefault("static", {})["schemas"] = None
+        if instructions_usage is not None:
+            data["instructions_usage"] = instructions_usage
+            data.setdefault("static", {})["instructions"] = None
         return data
+
+    async def _save_post_tool_snapshots(self, view, tool_execution_ids: list):
+        """One post_tool context snapshot for a finished tool batch, back-filled
+        onto each tool execution. Background off single-writer; inline (on the
+        writer session) in single-writer mode."""
+        exec_id = str(self.current_execution.id)
+        snap_data = self._build_slim_context_snapshot(view, top_k_schema=self.top_k_schema)
+
+        async def _save():
+            try:
+                from app.models.agent_execution import AgentExecution as _AE
+                from app.models.tool_execution import ToolExecution as _TE
+                async with self._writes_session() as bg_db:
+                    bg_exec = (await bg_db.execute(
+                        select(_AE).options(lazyload("*")).where(_AE.id == exec_id)
+                    )).scalar_one_or_none()
+                    if not bg_exec:
+                        return
+                    snap = await self.project_manager.save_context_snapshot(
+                        bg_db, agent_execution=bg_exec,
+                        kind="post_tool", context_view_json=snap_data,
+                    )
+                    if not snap:
+                        return
+                    await bg_db.execute(
+                        sa_update(_TE).where(_TE.id.in_(tool_execution_ids)).values(context_snapshot_id=str(snap.id))
+                    )
+                    await bg_db.commit()
+            except Exception as _e:
+                logger.warning(f"[agent] post_snap failed: {_e!r}")
+
+        if self._use_single_write_session():
+            await _save()
+        else:
+            asyncio.create_task(_save())
 
     async def _save_context_snapshot_background(self, kind: str, context_view_json: dict, prompt_text: str = ""):
         """Save context snapshot. Routes through _writes_session so single-
@@ -2760,8 +2821,11 @@ class AgentV2:
         try:
             async with self._writes_session() as session:
                 try:
-                    # Re-fetch agent execution in this session
-                    agent_execution = await session.get(type(self.current_execution), self.current_execution.id)
+                    # Re-fetch agent execution in this session (columns only)
+                    _AE = type(self.current_execution)
+                    agent_execution = (await session.execute(
+                        select(_AE).options(lazyload("*")).where(_AE.id == str(self.current_execution.id))
+                    )).scalar_one_or_none()
                     if agent_execution:
                         await self.project_manager.save_context_snapshot(
                             session,
@@ -2991,36 +3055,74 @@ class AgentV2:
 
     def _coder_reasoning_callback(self, block_id):
         """Each parallel invocation owns a stream; summaries never enter code
-        or the planner transcript. Serialize shared-session reads and writes."""
+        or the planner transcript.
+
+        Off single-writer (Postgres), reads and writes go through a short-lived
+        session of their own, never `self.db`: the coder streams while sibling
+        tools of a parallel batch use the shared session, and a snapshot commit
+        that collided with them (asyncpg "another operation is in progress")
+        ended in a shared-session rollback, which expires every loaded object —
+        the agent's next plain attribute read then raised MissingGreenlet.
+
+        In single-writer mode (always on SQLite) the agent's session is the only
+        writer and holds the write lock through the tool run, so a second
+        session would wait out busy_timeout on every snapshot and stall codegen
+        into the tool's hard timeout. There the writes stay on `self.db`, under
+        `_tool_db_lock` like every other shared-session writer."""
         from app.models.completion_block import CompletionBlock
         from app.streaming.reasoning_streamer import ReasoningTextStreamer
         streamer = None
+        execution = self.current_execution
+        # Identity read, never a lazy load — `execution` may already be expired.
+        _identity = sa_inspect(execution).identity if execution is not None else None
+        execution_id = str(_identity[0]) if _identity else None
+        completion_id = str(self.system_completion_id)
+        single_writer = self._use_single_write_session()
 
         async def callback(event):
             nonlocal streamer
-            if not block_id or (streamer is None and not event.text):
+            if not block_id or not execution_id or (streamer is None and not event.text):
                 return
             if streamer is None:
-                async with self._tool_db_lock:
-                    block = await self.db.get(CompletionBlock, block_id)
-                    initial = (block.reasoning or "") if block else ""
-                async def persist(reasoning, content):
+                _read = select(CompletionBlock.reasoning).where(CompletionBlock.id == block_id)
+                if single_writer:
                     async with self._tool_db_lock:
-                        block = await self.db.get(CompletionBlock, block_id)
-                        if block is not None:
+                        initial = await self.db.scalar(_read) or ""
+                else:
+                    async with self._session_maker() as session:
+                        initial = await session.scalar(_read) or ""
+                async def persist(reasoning, content):
+                    _write = (
+                        sa_update(CompletionBlock)
+                        .where(CompletionBlock.id == block_id)
+                        .values(reasoning=reasoning)
+                    )
+                    if single_writer:
+                        async with self._tool_db_lock:
                             try:
-                                block.reasoning = reasoning
+                                await self.db.execute(_write)
                                 await self.db.commit()
                             except Exception:
                                 await self.db.rollback()
                                 raise
+                    else:
+                        async with self._session_maker() as session:
+                            await session.execute(_write)
+                            await session.commit()
+                    # Keep the shared session's copy (if loaded) in step with
+                    # the row, so later reads there — transcript rebuild —
+                    # don't see stale text. Pure in-memory: no IO, not dirty.
+                    shared = self.db.sync_session
+                    cached = shared.identity_map.get(shared.identity_key(CompletionBlock, block_id))
+                    if cached is not None:
+                        set_committed_value(cached, "reasoning", reasoning)
                 async def next_seq():
-                    async with self._tool_db_lock:
-                        return await self.project_manager.next_seq(self.db, self.current_execution)
+                    # In-memory counter only; no IO on the shared session.
+                    return await self.project_manager.next_seq(None, execution)
                 streamer = ReasoningTextStreamer(
                     emit=self._emit_sse_event, seq_fn=next_seq,
-                    completion_id=str(self.system_completion_id),
-                    agent_execution_id=str(self.current_execution.id),
+                    completion_id=completion_id,
+                    agent_execution_id=execution_id,
                     block_id=block_id, persist=persist, initial_reasoning=initial,
                 )
             await streamer.append(event)
@@ -3432,6 +3534,21 @@ class AgentV2:
         task = asyncio.create_task(_runner(), name=f"agent.bg_write.{label}")
         self._pending_writes.append(task)
         return task
+
+    def _single_writer_guard(self):
+        """Serialize a writer against the shared session only when it writes
+        through it.
+
+        In single-writer mode (always on SQLite) ``_writes_session()`` yields
+        ``self.db``, so parallel tools must take ``_tool_db_lock``. Otherwise
+        each writer opens its own short-lived session and never touches
+        ``self.db``; holding the lock there only made parallel tools queue
+        behind each other's step/visualization persistence (measured on
+        Postgres: ~70s of lock hold per three-tool batch).
+        """
+        if self._use_single_write_session():
+            return self._tool_db_lock
+        return nullcontext()
 
     def _use_single_write_session(self) -> bool:
         """Whether this agent run should route writes through the single
@@ -4505,6 +4622,15 @@ class AgentV2:
                     # don't starve the connection pool (idle-in-transaction).
                     await self._release_db_between_steps()
 
+                    # The browser-tool policy check (own session, several permission
+                    # queries) doesn't depend on the warm refresh: start it now so it
+                    # overlaps; the planner-input build below awaits it where it used
+                    # to run it.
+                    _browser_catalog_task = asyncio.create_task(self._refresh_browser_tool_catalog())
+                    _browser_catalog_task.add_done_callback(
+                        lambda t: t.cancelled() or t.exception()  # mark retrieved if never awaited
+                    )
+
                     # Refresh warm context (skip on first loop - already done above)
                     if loop_index > 0:
                         view = await self._refresh_warm_traced("loop_start", loop_index=loop_index)
@@ -4608,7 +4734,7 @@ class AgentV2:
                                 logger.exception("instruction re-scope on focus change failed")
                             self._rendered_focus_key = _focus_key
                             _mlog(f"schemas_rerendered len={len(schemas_excerpt)} focus={_focus_key}")
-                        await self._refresh_browser_tool_catalog()
+                        await _browser_catalog_task
                         planner_input = PlannerInput(
                             organization_name=self.organization.name,
                             organization_ai_analyst_name=self.ai_analyst_name,
@@ -5594,6 +5720,10 @@ class AgentV2:
                                 except Exception as _eb_exc:
                                     logger.warning(f"[agent] extra-block upsert failed: {_eb_exc!r}")
                                     _action_block_ids.append(None)
+                            # Tool executions of this batch that get a post-tool context
+                            # snapshot, saved once after the batch (see below).
+                            _post_snap_tool_exec_ids: list = []
+
                             async def _run_one(tool_index: int, action, _block_id_for_action, _inv, _view):
                                 """Run ONE planner action end-to-end and return its outcome.
 
@@ -5882,6 +6012,9 @@ class AgentV2:
                                         # site: serialize tool-side shared-session
                                         # reads across parallel tool batches.
                                         "tool_db_lock": self._tool_db_lock,
+                                        # Short-lived sessions for tool-side READS that must not
+                                        # touch the shared session (see _tool_db_lock).
+                                        "read_session_maker": self._session_maker,
                                         "loaded_agent_ids": self.loaded_agent_ids,
                                         "used_agent_ids": self.used_agent_ids,
                                         "_file_enum_seen": self._file_enum_seen,
@@ -5911,7 +6044,7 @@ class AgentV2:
                                     # Streaming side-effects (query/step/viz creation) write through
                                     # the shared session guard; created objects land on _inv so a
                                     # concurrent sibling invocation can't cross-attribute them.
-                                    async with self._tool_db_lock:
+                                    async with self._single_writer_guard():
                                         await self._handle_streaming_event(tool_name, ev, tool_input, inv=_inv)
                                     # Forward events to UI — keyed by block/tool_execution so the
                                     # frontend can route concurrent streams to the right card.
@@ -5948,29 +6081,32 @@ class AgentV2:
                                     span.set_attribute("tool.result_type", type(tool_result).__name__)
 
 
-                                async with self._tool_db_lock:
-                                    # Capture training_build_id if set by create_instruction tool
-                                    if runtime_ctx.get("training_build_id") and not self.training_build_id:
-                                        self.training_build_id = runtime_ctx["training_build_id"]
+                                # Capture training_build_id if set by create_instruction tool
+                                if runtime_ctx.get("training_build_id") and not self.training_build_id:
+                                    self.training_build_id = runtime_ctx["training_build_id"]
 
-                                    # Extract observation, output, and sub_timings from tool result
-                                    if isinstance(tool_result, dict) and "observation" in tool_result:
-                                        observation = tool_result["observation"]
-                                        tool_output = tool_result.get("output")
-                                        tool_sub_timings = tool_result.get("sub_timings")
-                                    else:
-                                        observation = tool_result
-                                        tool_output = None
-                                        tool_sub_timings = None
+                                # Extract observation, output, and sub_timings from tool result
+                                if isinstance(tool_result, dict) and "observation" in tool_result:
+                                    observation = tool_result["observation"]
+                                    tool_output = tool_result.get("output")
+                                    tool_sub_timings = tool_result.get("sub_timings")
+                                else:
+                                    observation = tool_result
+                                    tool_output = None
+                                    tool_sub_timings = None
 
-                                    if tool_input.get("_verification_group_id"):
-                                        for payload in (tool_output, observation):
-                                            if isinstance(payload, dict):
-                                                payload["verification_group_id"] = tool_input["_verification_group_id"]
+                                if tool_input.get("_verification_group_id"):
+                                    for payload in (tool_output, observation):
+                                        if isinstance(payload, dict):
+                                            payload["verification_group_id"] = tool_input["_verification_group_id"]
 
-                                    # Handle tool outputs and manage widget/step state
+                                # Handle tool outputs and manage widget/step state. Writes
+                                # go through _writes_session(), so the shared-session lock
+                                # is only needed when that is self.db (single-writer).
+                                async with self._single_writer_guard():
                                     await self._handle_tool_output(tool_name, tool_input, observation, tool_output, inv=_inv)
 
+                                async with self._tool_db_lock:
                                     # Extract created objects from observation, with fallback to orchestrator state
                                     created_widget_id = None
                                     created_step_id = None
@@ -5982,9 +6118,10 @@ class AgentV2:
                                     if not created_step_id and _inv.current_step_id:
                                         created_step_id = _inv.current_step_id
 
-                                    # Refresh context (needed for next planner iteration — in-memory, no DB write here)
-                                    post_view = await self._refresh_warm_traced("post_tool_before_block_update", loop_index=loop_index)
-                                    await self._update_context_token_metadata(post_view)
+                                    # No per-tool warm refresh here: its view only fed the token
+                                    # meter and the post-tool snapshot, and a batch of N tools
+                                    # did N of them under _tool_db_lock. Both now come from the
+                                    # one post-batch refresh ("post_tool_next_iteration").
 
                                     # Build created_visualization_ids with fallback to orchestrator state
                                     created_visualization_ids = (observation.get("created_visualization_ids") if observation else None)
@@ -6051,35 +6188,9 @@ class AgentV2:
                                             observation=observation,
                                         )
 
-                                    # Save post-tool context snapshot in background (not user-facing, not needed for next loop).
-                                    _post_snap_exec_id = str(self.current_execution.id)
-                                    _post_snap_tool_exec_id = str(tool_execution.id)
-                                    _post_snap_data = self._build_slim_context_snapshot(post_view, top_k_schema=self.top_k_schema)
-
-                                    async def _bg_post_snap():
-                                        try:
-                                            from app.models.agent_execution import AgentExecution as _AE
-                                            from app.models.tool_execution import ToolExecution as _TE
-                                            async with self._writes_session() as bg_db:
-                                                bg_exec = await bg_db.get(_AE, _post_snap_exec_id)
-                                                if bg_exec:
-                                                    snap = await self.project_manager.save_context_snapshot(
-                                                        bg_db, agent_execution=bg_exec,
-                                                        kind="post_tool", context_view_json=_post_snap_data,
-                                                    )
-                                                    # Back-fill context_snapshot_id onto the tool execution row
-                                                    bg_te = await bg_db.get(_TE, _post_snap_tool_exec_id)
-                                                    if bg_te and snap:
-                                                        bg_te.context_snapshot_id = str(snap.id)
-                                                        bg_db.add(bg_te)
-                                                        await bg_db.commit()
-                                        except Exception as _e:
-                                            logger.warning(f"[agent] post_snap failed: {_e!r}")
-
-                                    if self._use_single_write_session():
-                                        await _bg_post_snap()
-                                    else:
-                                        asyncio.create_task(_bg_post_snap())
+                                    # Post-tool context snapshot: saved after the batch from the
+                                    # post-batch view (not user-facing, not needed for the next loop).
+                                    _post_snap_tool_exec_ids.append(str(tool_execution.id))
 
                                     # Telemetry: tool finished (in-memory counters — no IO)
                                     self._tool_call_counts[tool_name] += 1
@@ -6251,6 +6362,7 @@ class AgentV2:
                                             # Include query_id for hydration in frontend previews when available
                                             "result_json": ({**safe_result_json, "query_id": (str(_inv.current_query.id) if getattr(_inv, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
                                             "duration_ms": tool_execution.duration_ms,
+                                            "sub_timings_json": _timing_split(tool_execution),
                                             "created_widget_id": created_widget_id,
                                             "created_step_id": created_step_id,
                                             "created_visualization_ids": created_visualization_ids,
@@ -6491,6 +6603,9 @@ class AgentV2:
 
                             # Refresh for next iteration
                             view = await self._refresh_warm_traced("post_tool_next_iteration", loop_index=loop_index)
+                            await self._update_context_token_metadata(view)
+                            if _post_snap_tool_exec_ids:
+                                await self._save_post_tool_snapshots(view, list(_post_snap_tool_exec_ids))
                             # NOTE: schemas_excerpt is deliberately NOT recomputed here.
                             # It used to be reassigned from `view.static.schemas.render()`,
                             # which bypassed _render_schemas_with_roster() and so:
@@ -6547,17 +6662,26 @@ class AgentV2:
                     # — so an unnecessary rollback would sabotage the retry it
                     # is meant to enable. After a genuine rollback, eagerly
                     # re-load the objects (and relationships) the loop reads via
-                    # plain attribute access.
+                    # plain attribute access. A best-effort path that rolled
+                    # back on its own (its session left active again) leaves
+                    # the same expired objects behind, so reload those too —
+                    # otherwise every retry dies on the same MissingGreenlet.
                     try:
-                        if not self.db.is_active:
-                            await self.db.rollback()
-                            for _obj in (
+                        _core = [
+                            _o for _o in (
                                 self.report, self.organization, self.head_completion,
                                 self.system_completion, self.current_execution,
                                 self.model, self.widget, self.step,
-                            ):
-                                if _obj is None:
-                                    continue
+                            ) if _o is not None
+                        ]
+                        _poisoned = not self.db.is_active
+                        if _poisoned:
+                            await self.db.rollback()
+                        if _poisoned or any(
+                            getattr(sa_inspect(_o, raiseerr=False), "expired_attributes", None)
+                            for _o in _core
+                        ):
+                            for _obj in _core:
                                 try:
                                     await self.db.refresh(_obj)
                                 except Exception:
@@ -7579,10 +7703,19 @@ class AgentV2:
         try:
             async with self._writes_session() as fresh_db:
                 # Re-fetch what we actually need into the fresh session so
-                # any subsequent update_*/refresh ops bind to a live conn.
-                exec_obj = await fresh_db.get(AgentExecution, exec_id) if exec_id else None
-                report_obj = await fresh_db.get(Report, report_id) if report_id else None
-                cur_step = await fresh_db.get(Step, cur_step_id) if cur_step_id else None
+                # any subsequent update ops bind to a live conn. lazyload("*"):
+                # only columns are read here, and a plain get() pulled each
+                # row's eager graph (Report: widgets, steps, queries, ...) on
+                # every data-writing progress event.
+                async def _load(model, pk):
+                    if not pk:
+                        return None
+                    return (await fresh_db.execute(
+                        select(model).options(lazyload("*")).where(model.id == pk)
+                    )).scalar_one_or_none()
+                exec_obj = await _load(AgentExecution, exec_id)
+                report_obj = await _load(Report, report_id)
+                cur_step = await _load(Step, cur_step_id)
 
                 if tool_name in ["create_widget", "create_data", "describe_entity", "write_csv"]:
                     if stage == "data_model_type_determined":
@@ -7596,29 +7729,17 @@ class AgentV2:
                         )
 
                         if data_model_type and report_obj and not cur_step:
-                            # Create query (transitional service may still create a widget under the hood)
-                            try:
-                                inv.current_query = await self.project_manager.create_query_v2(
-                                    fresh_db, report_obj, query_title
-                                )
-                            except Exception:
-                                inv.current_query = None
-
-                            # Create step under the query
+                            # Query (+ anchor widget), its default step and a draft
+                            # visualization with only the type in view — one commit.
                             initial_data_model = {"type": data_model_type, "columns": [], "series": []}
-                            inv.current_step = await self.project_manager.create_step_for_query(
-                                fresh_db, inv.current_query, query_title, "chart", initial_data_model
+                            inv.current_query, inv.current_step, inv.current_visualization = (
+                                await self.project_manager.create_query_step_visualization(
+                                    fresh_db, report_obj, query_title,
+                                    initial_data_model=initial_data_model,
+                                    viz_view={"type": data_model_type},
+                                )
                             )
                             inv.current_step_id = str(inv.current_step.id)
-                            await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-
-                            # Create visualization (draft) with only type in view
-                            try:
-                                inv.current_visualization = await self.project_manager.create_visualization_v2(
-                                    fresh_db, str(report_obj.id), str(inv.current_query.id), query_title, view={"type": data_model_type}, status="draft"
-                                )
-                            except Exception:
-                                inv.current_visualization = None
 
                             # Emit early query/visualization creation events
                             try:
@@ -7686,7 +7807,7 @@ class AgentV2:
                                      for col in current_data_model["columns"]):
                                 current_data_model["columns"].append(column)
                                 await self.project_manager.update_step_with_data_model(
-                                    fresh_db, cur_step, current_data_model
+                                    fresh_db, cur_step, current_data_model, refresh=False
                                 )
                                 # Emit artifact delta per column
                                 try:
@@ -7716,7 +7837,7 @@ class AgentV2:
                             current_data_model = getattr(cur_step, "data_model", {}) or {}
                             current_data_model["series"] = series
                             await self.project_manager.update_step_with_data_model(
-                                fresh_db, cur_step, current_data_model
+                                fresh_db, cur_step, current_data_model, refresh=False
                             )
                             # Emit artifact delta for series update
                             try:
@@ -7745,7 +7866,7 @@ class AgentV2:
                             if is_valid is False and cur_step:
                                 error_msg = payload.get("error") or "Validation failed"
                                 await self.project_manager.update_step_status(
-                                    fresh_db, cur_step, "error", status_reason=str(error_msg)
+                                    fresh_db, cur_step, "error", status_reason=str(error_msg), refresh=False
                                 )
                         except Exception:
                             pass
@@ -7758,11 +7879,14 @@ class AgentV2:
                         # If for some reason earlier streaming did not create query/step/visualization, create them now
                         if data_model and not cur_step and report_obj:
                             try:
-                                inv.current_query = await self.project_manager.create_query_v2(fresh_db, report_obj, query_title)
-                                inv.current_step = await self.project_manager.create_step_for_query(fresh_db, inv.current_query, query_title, "chart", {"type": data_model.get("type"), "columns": [], "series": []})
+                                inv.current_query, inv.current_step, inv.current_visualization = (
+                                    await self.project_manager.create_query_step_visualization(
+                                        fresh_db, report_obj, query_title,
+                                        initial_data_model={"type": data_model.get("type"), "columns": [], "series": []},
+                                        viz_view={"type": data_model.get("type")},
+                                    )
+                                )
                                 inv.current_step_id = str(inv.current_step.id)
-                                await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-                                inv.current_visualization = await self.project_manager.create_visualization_v2(fresh_db, str(report_obj.id), str(inv.current_query.id), query_title, view={"type": data_model.get("type")}, status="draft")
                                 # Emit creation events
                                 seq = await self.project_manager.next_seq(fresh_db, exec_obj)
                                 await self._emit_sse_event(SSEEvent(event="query.created", completion_id=sys_completion_id, agent_execution_id=exec_id, seq=seq, data={"query_id": str(inv.current_query.id), "report_id": report_id, "title": query_title}))
@@ -7777,36 +7901,15 @@ class AgentV2:
                         try:
                             query_title = (tool_input and (tool_input.get("title") or tool_input.get("widget_title"))) or "Untitled Query"
                             if not cur_step and report_obj:
-                                # Create query and step with a default table view
-                                try:
-                                    inv.current_query = await self.project_manager.create_query_v2(
-                                        fresh_db, report_obj, query_title
+                                # Query, default step and a draft table visualization — one commit.
+                                inv.current_query, inv.current_step, inv.current_visualization = (
+                                    await self.project_manager.create_query_step_visualization(
+                                        fresh_db, report_obj, query_title,
+                                        initial_data_model={"type": "table", "columns": [], "series": []},
+                                        viz_view={"type": "table"},
                                     )
-                                except Exception:
-                                    inv.current_query = None
-
-                                inv.current_step = await self.project_manager.create_step_for_query(
-                                    fresh_db,
-                                    inv.current_query,
-                                    query_title,
-                                    "chart",
-                                    {"type": "table", "columns": [], "series": []},
                                 )
                                 inv.current_step_id = str(inv.current_step.id)
-                                await self.project_manager.set_query_default_step_if_empty(fresh_db, inv.current_query, inv.current_step_id)
-
-                                # Create a draft visualization with table view
-                                try:
-                                    inv.current_visualization = await self.project_manager.create_visualization_v2(
-                                        fresh_db,
-                                        str(report_obj.id),
-                                        str(inv.current_query.id),
-                                        query_title,
-                                        view={"type": "table"},
-                                        status="draft",
-                                    )
-                                except Exception:
-                                    inv.current_visualization = None
 
                                 # Emit creation events
                                 try:
@@ -7868,6 +7971,43 @@ class AgentV2:
             logger = logging.getLogger(__name__)
             logger.error(f"Error handling streaming event {stage} for {tool_name}: {e}")
             # Don't re-raise; this is streaming and shouldn't break the main flow
+
+    async def _record_step_table_usage(self, db, report_obj, step_obj, data_model, tables_by_source, user_id):
+        """Emit TableUsageEvents for a finished step (data model first, then
+        tables_by_source; the recorder dedupes). Best-effort, never raises."""
+        try:
+            await self.project_manager.emit_table_usage(
+                db=db, report=report_obj, step=step_obj, data_model=data_model,
+                user_id=user_id, user_role=None,
+            )
+        except Exception:
+            pass
+        if tables_by_source:
+            try:
+                await self.project_manager.emit_table_usage_from_tables_by_source(
+                    db=db, report=report_obj, step=step_obj, tables_by_source=tables_by_source,
+                    user_id=user_id, user_role=None, source_type="sql",
+                )
+            except Exception:
+                pass
+
+    async def _record_step_table_usage_bg(self, report_id, step_id, data_model, tables_by_source, user_id):
+        """Background variant on a short-lived session of its own. The step's
+        status/data were committed before this was scheduled."""
+        if not report_id or not step_id:
+            return
+        async with self._session_maker() as db:
+            report_obj = (await db.execute(
+                select(Report)
+                .options(lazyload("*"), selectinload(Report.data_sources).options(lazyload("*")))
+                .where(Report.id == report_id)
+            )).unique().scalar_one_or_none()
+            step_obj = (await db.execute(
+                select(Step).options(lazyload("*")).where(Step.id == step_id)
+            )).scalar_one_or_none()
+            if report_obj is None or step_obj is None:
+                return
+            await self._record_step_table_usage(db, report_obj, step_obj, data_model, tables_by_source, user_id)
 
     async def _handle_tool_output(self, tool_name: str, tool_input: dict, observation: dict, tool_output: dict = None, inv=None):
         """Handle tool outputs and manage final state updates.
@@ -7961,6 +8101,7 @@ class AgentV2:
 
                     if step_obj and success and widget_data:
                         # If tool provided a minimal data_model (type/series), merge it into the step before deriving view
+                        merged = None
                         try:
                             if isinstance(data_model_from_tool, dict) and data_model_from_tool:
                                 existing_dm = (getattr(step_obj, "data_model", {}) or {}).copy()
@@ -7985,69 +8126,44 @@ class AgentV2:
                                 for key in ("series", "group_by", "sort", "limit", "filters"):
                                     if data_model_from_tool.get(key) is not None:
                                         merged[key] = data_model_from_tool.get(key)
-                                await self.project_manager.update_step_with_data_model(fresh_db, step_obj, merged)
-                                # Refresh the object to read the updated data_model
-                                await fresh_db.refresh(step_obj)
                         except Exception:
-                            pass
-                        # Update step with code
-                        await self.project_manager.update_step_with_code(
-                            fresh_db, step_obj, code
-                        )
-                        # Update step with full data (not just preview)
-                        await self.project_manager.update_step_with_data(
-                            fresh_db, step_obj, widget_data
-                        )
-
-                        # Persist declared parameters onto the Query (the stable
-                        # identity) and the run's resolved values onto the Step.
-                        try:
-                            _tool_params = tool_output.get("parameters")
-                            _tool_applied = tool_output.get("applied_params")
-                            if _tool_params:
-                                await self.project_manager.update_query_parameters(
-                                    fresh_db, step_obj, _tool_params, _tool_applied
-                                )
-                        except Exception:
-                            pass
-
-                        # Update step status
-                        await self.project_manager.update_step_status(
-                            fresh_db, step_obj, "success"
+                            merged = None
+                        # Data model, code, full data (not just preview), declared
+                        # parameters (onto the Query, the stable identity) with the
+                        # run's resolved values, and status — one commit. The UI
+                        # fetches the step after tool.finished; this commit precedes it.
+                        await self.project_manager.finalize_tool_step(
+                            fresh_db, step_obj,
+                            code=code,
+                            data=widget_data,
+                            data_model=merged,
+                            parameters=tool_output.get("parameters"),
+                            applied_params=tool_output.get("applied_params"),
+                            status="success",
                         )
 
-                        # Emit table usage events based on the step's data model (align with legacy agent)
-                        try:
-                            await self.project_manager.emit_table_usage(
-                                db=fresh_db,
-                                report=report_obj,
-                                step=step_obj,
-                                data_model=getattr(step_obj, "data_model", {}) or {},
-                                user_id=head_user_id,
-                                user_role=None
+                        # Table-usage analytics: the data model's tables, then every
+                        # source table passed to create_data (`tables_by_source` covers
+                        # joined tables the result columns omit). No UI event depends
+                        # on these rows, so off single-writer they are recorded on a
+                        # background session (drained before completion.finished)
+                        # instead of adding their round trips to the tool's latency.
+                        _tbs = None
+                        if tool_name == "create_data" and isinstance(tool_input, dict):
+                            _tbs = tool_input.get("tables_by_source") or None
+                        _usage_data_model = getattr(step_obj, "data_model", {}) or {}
+                        if self._use_single_write_session():
+                            await self._record_step_table_usage(
+                                fresh_db, report_obj, step_obj, _usage_data_model, _tbs, head_user_id,
                             )
-                        except Exception:
-                            pass
-
-                        # `tables_by_source` records every source table passed to create_data.
-                        # It complements the data model, whose columns can describe only
-                        # the resulting dataset and otherwise omit joined tables.
-                        try:
-                            if tool_name == "create_data":
-                                if isinstance(tool_input, dict):
-                                    tbs = tool_input.get("tables_by_source")
-                                    if tbs:
-                                        await self.project_manager.emit_table_usage_from_tables_by_source(
-                                            db=fresh_db,
-                                            report=report_obj,
-                                            step=step_obj,
-                                            tables_by_source=tbs,
-                                            user_id=head_user_id,
-                                            user_role=None,
-                                            source_type="sql",
-                                        )
-                        except Exception:
-                            pass
+                        else:
+                            self._schedule_bg_write(
+                                "table_usage",
+                                self._record_step_table_usage_bg(
+                                    report_id, str(step_obj.id), copy.deepcopy(_usage_data_model),
+                                    copy.deepcopy(_tbs), head_user_id,
+                                ),
+                            )
 
                         # Finalize visualization view.encoding and status
                         try:
@@ -8080,8 +8196,9 @@ class AgentV2:
                                             view["options"] = merged_options
                                     except Exception:
                                         pass
-                                await self.project_manager.update_visualization_view(fresh_db, viz_obj, view)
-                                await self.project_manager.set_visualization_status(fresh_db, viz_obj, "success")
+                                # View + status in one commit, before visualization.updated
+                                # (the UI refetches on it).
+                                await self.project_manager.finalize_visualization(fresh_db, viz_obj, view, "success")
                                 # Emit visualization.updated
                                 try:
                                     seq = await self.project_manager.next_seq(fresh_db, exec_obj)
