@@ -813,7 +813,12 @@ class CreateDataTool(Tool):
         context_hub = runtime_ctx.get("context_hub")
         if context_hub and getattr(context_hub, "instruction_builder", None):
             try:
-                viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
+                # The instruction builder reads the agent's shared session;
+                # serialize with parallel siblings (a collision used to drop
+                # the visualization instructions silently).
+                _lock = runtime_ctx.get("tool_db_lock")
+                async with (_lock if _lock is not None else nullcontext()):
+                    viz_section = await context_hub.instruction_builder.build(categories=["visualizations", "visualization", "general"])
                 viz_instructions = viz_section.render() or ""
             except Exception:
                 viz_instructions = ""
@@ -1176,13 +1181,62 @@ Do not use generic placeholders like "value" unless that is the actual column na
             return _schemas_section_obj.render() if _schemas_section_obj else ""
 
     @staticmethod
+    def _resolve_group_from_static(static_schemas, ds_id: Optional[str], name_patterns: List[str]):
+        """Resolve one tables_by_source group from the in-memory schema context.
+
+        Mirrors the schema builder's own name filter (``re.search`` per
+        pattern) and grouping. Returns the resolved group(s), or None when any
+        requested table has no match there — the caller then builds from the
+        DB, since the static context is top-k capped.
+        """
+        import re
+        sections = list(getattr(static_schemas, "data_sources", None) or [])
+        if not sections:
+            return None
+        try:
+            compiled = [re.compile(p) for p in name_patterns]
+        except re.error:
+            return None
+        matched_by_ds: Dict[str, List[str]] = {}
+        pattern_hit = [False] * len(compiled)
+        for ds in sections:
+            ds_info = getattr(ds, "info", None)
+            sec_id = str(getattr(ds_info, "id", "") or "") if ds_info else ""
+            if ds_id and sec_id != ds_id:
+                continue
+            for t in (getattr(ds, "tables", None) or []):
+                name = getattr(t, "name", None) or ""
+                hits = [i for i, rp in enumerate(compiled) if rp.search(name)]
+                if not hits:
+                    continue
+                for i in hits:
+                    pattern_hit[i] = True
+                matched_by_ds.setdefault(sec_id or "__all__", []).append(name)
+        if not all(pattern_hit):
+            return None
+        if ds_id:
+            return [{"data_source_id": ds_id, "tables": matched_by_ds.get(ds_id, [])}]
+        return [
+            {"data_source_id": (None if k == "__all__" else k), "tables": v}
+            for k, v in matched_by_ds.items() if v
+        ]
+
+    @staticmethod
     async def _resolve_active_tables(
         tables_by_source: List[Any],
         schema_builder,
         data_sources: Optional[List[Any]] = None,
         db_lock: Optional["asyncio.Lock"] = None,
+        static_schemas: Any = None,
     ) -> tuple[List[Dict[str, Any]], List[str]]:
         """Resolve table patterns to active tables only.
+
+        static_schemas: the run's already-built schema context
+        (``context_view.static.schemas`` — same builder, user and active-only
+        filter). A group whose every requested table is found there resolves
+        in memory; otherwise it falls back to a schema build, as before. The
+        static context is top-k capped, which is why a miss falls back rather
+        than meaning "not found".
 
         Args:
             tables_by_source: List of TablesBySource with table names/patterns
@@ -1239,6 +1293,11 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     name_patterns.append(f"(?i)(?:^|[./]){esc}$")
 
                 if not name_patterns:
+                    continue
+
+                static_hit = CreateDataTool._resolve_group_from_static(static_schemas, ds_id, name_patterns)
+                if static_hit is not None:
+                    resolved.extend(static_hit)
                     continue
 
                 # Resolve via schema_builder (only returns active tables)
@@ -1501,6 +1560,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     data.tables_by_source,
                     context_hub.schema_builder,
                     db_lock=runtime_ctx.get("tool_db_lock"),
+                    static_schemas=getattr(getattr(context_view, "static", None), "schemas", None),
                 )
         
         if any(str(g.data_source_id) == "builtin:bow" for g in (data.tables_by_source or [])) and "bow" not in runtime_ctx.get("ds_clients", {}):
@@ -1701,6 +1761,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         coder = Coder(
             reasoning_effort=runtime_ctx.get("reasoning_effort"),
             reasoning_callback=runtime_ctx.get("reasoning_callback"),
+            read_session_maker=runtime_ctx.get("read_session_maker"),
             model=runtime_ctx.get("model"),
             organization_settings=organization_settings,
             context_hub=context_hub,
@@ -1819,6 +1880,13 @@ Do not use generic placeholders like "value" unless that is the actual column na
             step_max_age_seconds=_ls_max_age,
         )
 
+        async def _resolve_loadables(step_refs, entity_refs):
+            # The resolver reads (and via protect_report may commit) on the
+            # agent's shared session: serialize with parallel siblings.
+            _lock = runtime_ctx.get("tool_db_lock")
+            async with (_lock if _lock is not None else nullcontext()):
+                return await _loadables_resolver.resolve(step_refs, entity_refs)
+
         # Schema/context reads can autoflush the in-memory event sequence. Do
         # not hold that write transaction throughout the coder's LLM request.
         _writer_db = runtime_ctx.get("db") or (context_hub.db if context_hub else None)
@@ -1837,7 +1905,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                 code_context_builder=None,
                 code_generator_fn=coder.generate_code,
                 sigkill_event=runtime_ctx.get("sigkill_event"),
-                loadable_resolver_fn=_loadables_resolver.resolve,
+                loadable_resolver_fn=_resolve_loadables,
                 params=resolved_default_params,
                 param_specs=declared_param_specs,
             ):
@@ -1983,7 +2051,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
 
         # Success path: format data and privacy-aware preview
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "formatting_widget"})
-        formatted = streamer.format_df_for_widget(exec_df)
+        formatted = await streamer.format_df_for_widget_async(exec_df)
         info = formatted.get("info", {})
         allow_llm_see_data = organization_settings.get_config("allow_llm_see_data").value if organization_settings else True
         data_preview = build_data_preview(formatted, allow_llm_see_data=allow_llm_see_data)

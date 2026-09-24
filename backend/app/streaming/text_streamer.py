@@ -8,7 +8,9 @@ from app.schemas.sse_schema import SSEEvent
 class PlanningTextStreamer:
     """Throttled hybrid text streamer for planning blocks.
 
-    - Emits small token deltas for typing effect (block.delta.token)
+    - Emits token deltas for typing effect (block.delta.token), coalesced
+      per field: a delta goes out once `char_threshold` chars are pending or
+      `throttle_ms` has passed (a timer flushes a quiet tail)
     - Periodically emits snapshots for robustness (block.delta.text)
     - Sends completion markers when finished (block.delta.text.complete)
 
@@ -55,6 +57,12 @@ class PlanningTextStreamer:
         self.split_large_chunks = split_large_chunks
         self.max_chunk_size = max_chunk_size
         self.split_delay_ms = split_delay_ms
+        self._pending = {"reasoning": "", "content": ""}
+        self._last_flush = 0.0
+        self._flush_task: Optional[asyncio.Task] = None
+        # Serializes buffer take → seq → emit between update() and the timer
+        # flush so tokens and snapshots leave in order.
+        self._lock = asyncio.Lock()
 
     def set_block(self, block_id: str):
         self.block_id = block_id
@@ -64,6 +72,8 @@ class PlanningTextStreamer:
 
     @staticmethod
     def _delta(prev: str, new: str) -> str:
+        if new.startswith(prev):
+            return new[len(prev):]
         # Compute delta via common prefix
         i = 0
         limit = min(len(prev), len(new))
@@ -102,22 +112,42 @@ class PlanningTextStreamer:
                 if pos < len(delta):
                     await asyncio.sleep(self.split_delay_ms / 1000.0)
 
+    async def _flush_pending(self):
+        """Emit buffered deltas (caller holds the lock)."""
+        self._last_flush = self._now_ms()
+        for field in ("reasoning", "content"):
+            token = self._pending[field]
+            if token:
+                self._pending[field] = ""
+                await self._emit_chunked(field, token)
+
+    async def _delayed_flush(self):
+        await asyncio.sleep(self.throttle_ms / 1000.0)
+        async with self._lock:
+            await self._flush_pending()
+
+    def _cancel_timer(self):
+        if self._flush_task is not None and not self._flush_task.done():
+            self._flush_task.cancel()
+        self._flush_task = None
+
     async def update(self, reasoning: Optional[str], content: Optional[str], reset_on_source_change: bool = False):
         if not self.block_id:
             return
+        async with self._lock:
+            await self._update_locked(reasoning, content, reset_on_source_change)
 
+    async def _update_locked(self, reasoning: Optional[str], content: Optional[str], reset_on_source_change: bool):
         reasoning = reasoning or ""
         content = content or ""
         now = self._now_ms()
 
-        # Emit reasoning delta immediately
         if reasoning != self.prev_reasoning:
             rdelta = self._delta(self.prev_reasoning, reasoning)
             if rdelta:
-                await self._emit_field_delta("reasoning", rdelta)
+                self._pending["reasoning"] += rdelta
                 self.prev_reasoning = reasoning
 
-        # Emit content delta immediately.
         # If reset_on_source_change=True and the new content is not an extension of what
         # was previously streamed (i.e. the source field switched, e.g. assistant_message
         # → final_answer), emit a full replacement snapshot and reset prev_content so
@@ -126,6 +156,7 @@ class PlanningTextStreamer:
             is_extension = content.startswith(self.prev_content)
             if reset_on_source_change and self.prev_content and content and not is_extension:
                 # Source switched mid-stream: replace accumulated content entirely.
+                await self._flush_pending()
                 seq = await self.seq_fn()
                 await self.emit(SSEEvent(
                     event="block.delta.text",
@@ -143,12 +174,21 @@ class PlanningTextStreamer:
             else:
                 cdelta = self._delta(self.prev_content, content)
                 if cdelta:
-                    await self._emit_field_delta("content", cdelta)
+                    self._pending["content"] += cdelta
                     self.prev_content = content
+
+        pending = len(self._pending["reasoning"]) + len(self._pending["content"])
+        if pending and (pending >= self.char_threshold or (now - self._last_flush) >= self.throttle_ms):
+            self._cancel_timer()
+            await self._flush_pending()
+        elif pending and (self._flush_task is None or self._flush_task.done()):
+            self._flush_task = asyncio.create_task(self._delayed_flush())
 
         # Periodic full snapshot for robustness
         if (now - self.last_snapshot) >= self.snapshot_every_ms:
             self.last_snapshot = now
+            self._cancel_timer()
+            await self._flush_pending()
             if self.persist is not None and (self.prev_reasoning or self.prev_content):
                 try:
                     await self.persist(self.prev_reasoning, self.prev_content)
@@ -184,6 +224,12 @@ class PlanningTextStreamer:
     async def complete(self):
         if not self.block_id:
             return
+        async with self._lock:
+            self._cancel_timer()
+            await self._flush_pending()
+            await self._complete_locked()
+
+    async def _complete_locked(self):
         # Final snapshots
         if self.prev_reasoning:
             seq = await self.seq_fn()
