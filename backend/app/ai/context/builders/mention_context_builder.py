@@ -12,13 +12,21 @@ from app.ai.context.sections.mentions_section import MentionsSection
 
 
 class MentionContextBuilder:
-    def __init__(self, db: AsyncSession, organization, report, head_completion, user=None):
+    def __init__(self, db: AsyncSession, organization, report, head_completion, user=None, data_sources=None):
         self.db = db
         self.organization = organization
         self.report = report
         self.head_completion = head_completion
         # Requesting user for per-reader entity snapshot resolution.
         self.user = user
+        # The agents this run is scoped to. A table mention resolves only
+        # against these, under the same visibility rules as the schema
+        # context (see _resolve_table_mention).
+        self.data_sources = data_sources or []
+        # Each agent's visible tables, keyed by agent id. Kept for this
+        # builder's lifetime (one run): refresh_warm rebuilds mentions on every
+        # agent loop, and one schema build per agent per run is enough.
+        self._visible_cache: Dict[str, Dict[str, object]] = {}
 
     async def build(self, max_items_per_group: int = 10, max_columns_preview: int = 8, max_tags_preview: int = 8) -> MentionsSection:
         files: List[dict] = []
@@ -60,34 +68,9 @@ class MentionContextBuilder:
                     }
                     data_sources.append(item)
                 elif m.type == MentionType.TABLE:
-                    tbl = await self.db.get(DataSourceTable, str(m.object_id))
-                    # derive data source
-                    ds = None
-                    try:
-                        ds_id = getattr(tbl, "data_source_id", None)
-                        if ds_id:
-                            ds = await self.db.get(DataSource, str(ds_id))
-                    except Exception:
-                        ds = None
-                    # columns preview
-                    cols_preview: List[str] = []
-                    try:
-                        for c in (getattr(tbl, "columns", None) or [])[:max_columns_preview]:
-                            name = getattr(c, "name", None) or str(c)
-                            dtype = getattr(c, "dtype", None)
-                            cols_preview.append(f"{name}:{dtype}")
-                        extra = max(0, len(getattr(tbl, "columns", []) or []) - len(cols_preview))
-                        if extra > 0:
-                            cols_preview.append(f"+{extra}")
-                    except Exception:
-                        pass
-                    item = {
-                        "id": str(m.object_id),
-                        "data_source_name": getattr(ds, "name", None) if ds else None,
-                        "table_name": getattr(tbl, "name", None) or m.mention_content,
-                        "columns_preview": cols_preview or None,
-                    }
-                    tables.append(item)
+                    item = await self._resolve_table_mention(m, max_columns_preview)
+                    if item is not None:
+                        tables.append(item)
                 elif m.type == MentionType.ENTITY:
                     ent = await self.db.get(Entity, str(m.object_id))
                     tags = (getattr(ent, "tags", None) or [])[:max_tags_preview]
@@ -149,4 +132,62 @@ class MentionContextBuilder:
 
         return MentionsSection(files=files, data_sources=data_sources, tables=tables, entities=entities, instructions=instructions)
 
+    async def _resolve_table_mention(self, m: Mention, max_columns_preview: int) -> Optional[dict]:
+        """Render a mentioned table only if this run's schema context shows it.
 
+        The mention's object_id comes from the client, so it is not proof the
+        caller may see the table. Resolving through SchemaContextBuilder applies
+        the same rules as the rest of the prompt: the table belongs to one of
+        this run's agents, is activated on it, and, on a delegated connection,
+        is reachable with the caller's own credentials, listing only the
+        columns they can reach. Anything else is dropped rather than rendered
+        from the raw catalog row.
+        """
+        tbl = await self.db.get(DataSourceTable, str(m.object_id))
+        if tbl is None:
+            return None
+        ds = next(
+            (d for d in self.data_sources if str(getattr(d, "id", "")) == str(tbl.datasource_id)),
+            None,
+        )
+        if ds is None:
+            return None
+
+        visible = await self._visible_tables(ds)
+        prompt_table = visible.get(str(tbl.id))
+        if prompt_table is None:
+            return None
+
+        cols = list(getattr(prompt_table, "columns", None) or [])
+        cols_preview: List[str] = [f"{c.name}:{c.dtype}" for c in cols[:max_columns_preview]]
+        extra = len(cols) - len(cols_preview)
+        if extra > 0:
+            cols_preview.append(f"+{extra}")
+        return {
+            "id": str(m.object_id),
+            "data_source_name": getattr(ds, "name", None),
+            "table_name": prompt_table.name,
+            "columns_preview": cols_preview or None,
+        }
+
+    async def _visible_tables(self, ds) -> Dict[str, object]:
+        """Tables of `ds` the schema context shows this user, keyed by
+        canonical DataSourceTable id. Built once per agent per run."""
+        cache = self._visible_cache
+        key = str(ds.id)
+        if key not in cache:
+            from app.ai.context.builders.schema_context_builder import SchemaContextBuilder
+            builder = SchemaContextBuilder(self.db, [ds], self.organization, self.report, user=self.user)
+            ctx = await builder.build(
+                with_stats=False,
+                data_source_ids=[key],
+                active_only=True,
+                split_file_scopes=False,
+            )
+            cache[key] = {
+                str(t.id): t
+                for section in ctx.data_sources
+                for t in (section.tables or [])
+                if getattr(t, "id", None)
+            }
+        return cache[key]
