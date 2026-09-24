@@ -11,6 +11,7 @@
 - Fixed deleting an agent linked to a project wiping its content before failing (#1193)
 - Fixed generated code hidden in monitoring traces for users with code access (#1194)
 - Fixed unlinking a connection from an agent failing on PostgreSQL (#1195)
+- Fixed a reached org usage quota being reported as a provider failure (#1197)
 
 ## Version 0.0.569 (September 22, 2026)
 - Added GPT-6 Sol and GPT-6 Luna as OpenAI presets — GPT-6 Luna is the new small default
