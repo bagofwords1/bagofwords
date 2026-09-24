@@ -1864,6 +1864,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
         executed_queries = []
         query_timings = []
         codegen_ms = None
+        codegen_reasoning_ms = None
         execution_ms = None
 
         # Resolver for load_step()/load_entity() calls the generated code may
@@ -1946,6 +1947,8 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     query_timings = e["payload"].get("query_timings") or []
                     codegen_ms = e["payload"].get("codegen_ms")
                     execution_ms = e["payload"].get("execution_ms")
+                    # Reasoning inside that codegen_ms (last attempt, like it).
+                    codegen_reasoning_ms = getattr(coder, "reasoning_ms", None) or None
             codegen_span.set_attribute("codegen.success", generated_code is not None and exec_df is not None)
             codegen_span.set_attribute("codegen.error_count", len(code_errors))
             codegen_span.set_attribute("codegen.query_count", len(executed_queries))
@@ -2223,6 +2226,7 @@ Do not use generic placeholders like "value" unless that is the actual column na
                     "executed_queries": executed_queries,
                     "query_timings": query_timings,
                     "codegen_ms": codegen_ms,
+                    "codegen_reasoning_ms": codegen_reasoning_ms,
                     "execution_ms": execution_ms,
                     "parameters": surviving_params,
                     "applied_params": (

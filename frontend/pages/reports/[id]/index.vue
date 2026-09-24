@@ -2781,11 +2781,13 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtProcess')
 	}
 
-	// Prefer planner-provided reasoning duration when available
+	// Measured reasoning time. A tool's code generation (create_data,
+	// inspect_data) streams its reasoning into this same block, so the two add.
 	const metricsAny: any = (block.plan_decision as any)?.metrics || (block.plan_decision as any)?.metrics_json
-	const thinkingMs: number | undefined = metricsAny?.thinking_ms
-	if (typeof thinkingMs === 'number' && isFinite(thinkingMs) && thinkingMs >= 0) {
-		const secs = Math.max(0, Math.round(thinkingMs / 1000))
+	const measured = [metricsAny?.thinking_ms, (block.tool_execution as any)?.sub_timings_json?.codegen_reasoning_ms]
+		.filter((ms): ms is number => typeof ms === 'number' && isFinite(ms) && ms >= 0)
+	if (measured.length) {
+		const secs = Math.max(0, Math.round(measured.reduce((a, b) => a + b, 0) / 1000))
 		return t('reportView.thoughtForSeconds', { seconds: secs })
 	}
 
@@ -2804,11 +2806,8 @@ function getThoughtProcessLabel(block: CompletionBlock): string {
 		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
 	}
 
-	// Fallback to duration from tool execution if available
-	if (block.tool_execution?.duration_ms) {
-		const durationSeconds = (block.tool_execution.duration_ms / 1000).toFixed(1)
-		return t('reportView.thoughtForSeconds', { seconds: durationSeconds })
-	}
+	// No reasoning time recorded. The tool's own duration is not one — it covers
+	// code generation and execution, and already shows on the tool row.
 
 	// Default fallback
 	return t('reportView.thoughtProcess')
@@ -3665,6 +3664,9 @@ async function handleStreamingEvent(eventType: string | null, payload: any, sysM
 					if (payload.duration_ms !== undefined) {
 						blockWithTool.tool_execution.duration_ms = payload.duration_ms
 					}
+					if (payload.sub_timings_json) {
+						;(blockWithTool.tool_execution as any).sub_timings_json = payload.sub_timings_json
+					}
 					if (payload.created_widget_id) {
 						blockWithTool.tool_execution.created_widget_id = payload.created_widget_id
 					}
@@ -3964,6 +3966,8 @@ async function loadCompletions({ skipEstimate = false } = {}) {
 					result_json: b.tool_execution.result_json,
 					arguments_json: b.tool_execution.arguments_json,
 					duration_ms: b.tool_execution.duration_ms,
+					// Split of duration_ms (codegen, its reasoning, execution) for the thought label
+					sub_timings_json: b.tool_execution.sub_timings_json,
 					created_widget_id: b.tool_execution.created_widget_id,
 					created_step_id: b.tool_execution.created_step_id,
 					created_widget: b.tool_execution.created_widget,
@@ -4194,6 +4198,8 @@ async function loadPreviousCompletions() {
                     result_json: b.tool_execution.result_json,
                     arguments_json: b.tool_execution.arguments_json,
                     duration_ms: b.tool_execution.duration_ms,
+                    // Split of duration_ms (codegen, its reasoning, execution) for the thought label
+                    sub_timings_json: b.tool_execution.sub_timings_json,
                     created_widget_id: b.tool_execution.created_widget_id,
                     created_step_id: b.tool_execution.created_step_id,
                     created_widget: b.tool_execution.created_widget,

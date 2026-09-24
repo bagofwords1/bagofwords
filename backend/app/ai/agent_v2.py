@@ -158,6 +158,20 @@ _VISION_IMAGE_RETENTION_LOOPS = 3
 _FOLLOWUP_IMAGE_LIMIT = 2
 
 
+
+# Numeric split of a tool's duration for the live chat (codegen, its reasoning,
+# execution). Per-query entries are left out: they carry SQL text, which the
+# REST serializer redacts by code visibility and a live event must not leak.
+_TIMING_SPLIT_KEYS = ("codegen_ms", "codegen_reasoning_ms", "execution_ms")
+
+
+def _timing_split(tool_execution):
+    timings = getattr(tool_execution, "sub_timings_json", None)
+    if not isinstance(timings, dict):
+        return None
+    split = {k: timings[k] for k in _TIMING_SPLIT_KEYS if timings.get(k) is not None}
+    return split or None
+
 class ToolInvocationState:
     """Created-object state for one tool invocation.
 
@@ -2202,6 +2216,7 @@ class AgentV2:
                                 "result_summary": observation.get("summary", "") if observation else "",
                                 "result_json": safe_result_json,
                                 "duration_ms": getattr(tool_execution, "duration_ms", None),
+                                "sub_timings_json": _timing_split(tool_execution),
                             },
                         ))
                     except Exception:
@@ -6347,6 +6362,7 @@ class AgentV2:
                                             # Include query_id for hydration in frontend previews when available
                                             "result_json": ({**safe_result_json, "query_id": (str(_inv.current_query.id) if getattr(_inv, "current_query", None) else None), "created_visualization_ids": created_visualization_ids} if isinstance(safe_result_json, dict) else safe_result_json),
                                             "duration_ms": tool_execution.duration_ms,
+                                            "sub_timings_json": _timing_split(tool_execution),
                                             "created_widget_id": created_widget_id,
                                             "created_step_id": created_step_id,
                                             "created_visualization_ids": created_visualization_ids,
