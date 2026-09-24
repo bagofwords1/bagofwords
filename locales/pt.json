@@ -3283,7 +3283,22 @@
     "userNotFound": "Usuário não encontrado na organização",
     "copyFailed": "Falha ao copiar",
     "includeDataTab": "Incluir a aba Dados",
-    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório"
+    "includeDataTabDesc": "Os destinatários verão o histórico completo dos dados e o processo usado para gerar este relatório",
+    "allowChat": "Permitir chat",
+    "allowChatDesc": "Membros do espaço de trabalho conectados podem fazer perguntas sobre este painel",
+    "chatScope": "O chat pode usar",
+    "chatScopeAgents": "Agentes do relatório",
+    "chatScopeAgentsDesc": "O chat pode executar consultas ao vivo somente leitura nos agentes selecionados",
+    "chatScopeDataOnly": "Somente dados do painel",
+    "chatScopeDataOnlyDesc": "O chat responde apenas com os dados que já estão neste painel",
+    "chatNoAgents": "Nenhum agente está associado a este relatório — o chat responderá apenas com os dados do painel.",
+    "chatModel": "Modelo padrão",
+    "chatModelDesc": "O modelo que o chat usa para os visualizadores. Quem não tiver acesso a ele usará o próprio modelo padrão.",
+    "chatModelOrgDefault": "Padrão da organização ({name})",
+    "chatModelOrgDefaultPlain": "Padrão da organização",
+    "chatModelReport": "Igual ao relatório ({name})",
+    "chatModelReportPlain": "Igual ao relatório",
+    "chatModelUnavailable": "Modelo indisponível — usando o padrão"
   },
   "publish": {
     "published": "Publicado",

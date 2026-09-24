@@ -3373,7 +3373,22 @@
     "userNotFound": "Usuario no encontrado en la organización",
     "copyFailed": "No se pudo copiar",
     "includeDataTab": "Incluir pestaña de datos",
-    "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe"
+    "includeDataTabDesc": "Los destinatarios verán el historial completo de datos y el proceso utilizado para generar este informe",
+    "allowChat": "Permitir chat",
+    "allowChatDesc": "Los miembros del espacio de trabajo que hayan iniciado sesión pueden hacer preguntas sobre este panel",
+    "chatScope": "El chat puede usar",
+    "chatScopeAgents": "Agentes del informe",
+    "chatScopeAgentsDesc": "El chat puede ejecutar consultas en vivo de solo lectura sobre los agentes seleccionados",
+    "chatScopeDataOnly": "Solo datos del panel",
+    "chatScopeDataOnlyDesc": "El chat responde solo con los datos que ya están en este panel",
+    "chatNoAgents": "No hay agentes asociados a este informe: el chat responderá solo con los datos del panel.",
+    "chatModel": "Modelo predeterminado",
+    "chatModelDesc": "El modelo que usa el chat para los espectadores. Quienes no tengan acceso a él usarán su propio modelo predeterminado.",
+    "chatModelOrgDefault": "Predeterminado de la organización ({name})",
+    "chatModelOrgDefaultPlain": "Predeterminado de la organización",
+    "chatModelReport": "Igual que el informe ({name})",
+    "chatModelReportPlain": "Igual que el informe",
+    "chatModelUnavailable": "Modelo no disponible: se usa el predeterminado"
   },
   "publish": {
     "published": "Publicado",

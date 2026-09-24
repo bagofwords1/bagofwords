@@ -246,6 +246,7 @@ class ReportService:
         include_data_tab: bool | None = None,
         artifact_chat_enabled: bool | None = None,
         artifact_chat_data_source_ids: list[str] | None = None,
+        artifact_chat_model_id: str | None = None,
     ) -> dict:
         """Set visibility for artifact or conversation sharing.
 
@@ -344,6 +345,21 @@ class ReportService:
                     if unknown:
                         raise HTTPException(status_code=400, detail="Unknown data source in artifact_chat_data_source_ids")
                 report.artifact_chat_data_source_ids = ids
+
+        if share_type == 'artifact' and artifact_chat_model_id is not None:
+            from app.services.artifact_chat_service import ORG_DEFAULT_CHAT_MODEL
+            if artifact_chat_model_id == "":
+                report.artifact_chat_model_id = None
+            elif artifact_chat_model_id == ORG_DEFAULT_CHAT_MODEL:
+                report.artifact_chat_model_id = ORG_DEFAULT_CHAT_MODEL
+            else:
+                # Same gate as ReportUpdate.model_id: the owner must be able to
+                # use the model they hand to viewers (exists, enabled, granted).
+                from app.services.llm_service import LLMService
+                await LLMService().validate_model_for_user(
+                    db, organization, current_user, artifact_chat_model_id
+                )
+                report.artifact_chat_model_id = artifact_chat_model_id
 
         # Sync legacy fields for backward compatibility
         if share_type == 'artifact':
@@ -537,6 +553,9 @@ class ReportService:
             "shared_group_ids": shared_group_ids or [],
             "shared_run_identity": report.shared_run_identity,
             "include_data_tab": report.include_data_tab,
+            "artifact_chat_enabled": bool(report.artifact_chat_enabled),
+            "artifact_chat_data_source_ids": report.artifact_chat_data_source_ids,
+            "artifact_chat_model_id": report.artifact_chat_model_id,
             "conversation_share_token": report.conversation_share_token if share_type == 'conversation' and visibility != 'none' else None,
         }
 
@@ -720,6 +739,7 @@ class ReportService:
             include_data_tab=bool(getattr(report, "include_data_tab", True)),
             artifact_chat_enabled=bool(getattr(report, "artifact_chat_enabled", False)),
             artifact_chat_data_source_ids=getattr(report, "artifact_chat_data_source_ids", None),
+            artifact_chat_model_id=getattr(report, "artifact_chat_model_id", None),
             artifact_shared_user_ids=[
                 str(s.user_id) for s in (report.shares or [])
                 if s.share_type == 'artifact' and s.user_id and s.deleted_at is None
