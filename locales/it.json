@@ -3344,7 +3344,8 @@
       "model_id_required": "L'ID del modello non può essere vuoto",
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider"
-    }
+    },
+    "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla."
   },
   "email": {
     "dashboardShare": {

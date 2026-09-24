@@ -954,6 +954,8 @@ async function onTogglePublic(value: boolean) {
     saving.public = false
 }
 
+const { getErrorMessage } = useErrorMessage()
+
 async function confirmDelete() {
     if (deleting.value) return
     deleting.value = true
@@ -965,7 +967,9 @@ async function confirmDelete() {
         showDelete.value = false
         emit('deleted')
     } else {
-        toast?.add?.({ title: 'Failed to delete', description: String(error.value), color: 'red' })
+        // Typed server errors (e.g. data_source.in_use) arrive localized; a
+        // refused delete has changed nothing, and the message says so.
+        toast?.add?.({ title: 'Failed to delete', description: getErrorMessage(error.value, String(error.value)), color: 'red' })
     }
 }
 </script>

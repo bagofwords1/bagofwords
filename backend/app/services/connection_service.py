@@ -10,7 +10,7 @@ from typing import List, Optional
 from uuid import UUID
 import uuid as uuid_module
 
-from sqlalchemy import delete, update, func
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy.orm import selectinload, lazyload
@@ -26,7 +26,6 @@ from app.models.organization import Organization
 from app.models.user import User
 from app.models.user_connection_credentials import UserConnectionCredentials
 from app.models.user_connection_overlay import UserConnectionTable, UserConnectionColumn
-from app.models.webhook_data_source_association import webhook_data_source_association
 from app.models.domain_connection import domain_connection
 from app.schemas.data_source_registry import (
     resolve_client_class,
@@ -740,7 +739,7 @@ class ConnectionService:
                     extra={"connection_id": str(connection_id)},
                 )
 
-        async def _load_and_delete(org: Organization) -> tuple[str, int, list]:
+        async def _load_and_delete(org: Organization) -> str:
             connection = await self.get_connection(db, connection_id, org)
             connection_name = connection.name
 
@@ -753,44 +752,48 @@ class ConnectionService:
             # function on a concurrent-write FK violation.
             _invalidate_engine_pool(connection)
 
-            agent_count = len(connection.data_sources) if connection.data_sources else 0
-            deleted_agent_names: list = []
-            if agent_count > 0:
-                agent_names = [ds.name for ds in connection.data_sources]
-                logger.info(f"Deleting connection {connection.name} ({connection_id}) which is linked to {agent_count} agent(s): {agent_names}")
-
-                # Delete data sources that only have this connection
-                for ds in connection.data_sources:
-                    if len(ds.connections) == 1:
-                        deleted_agent_names.append(ds.name)
-                        logger.info(f"Deleting data source {ds.name} ({ds.id}) as it only has this connection")
-                        # Detach from trigger webhooks first. The M2M lives only
-                        # on Webhook.data_sources, so the ORM cascade below never
-                        # clears these rows and Postgres rejects the DELETE on
-                        # webhook_data_source_association_data_source_id_fkey.
-                        await db.execute(
-                            delete(webhook_data_source_association).where(
-                                webhook_data_source_association.c.data_source_id == ds.id
-                            )
-                        )
-                        # Preserve per-agent Drafts suites and their cases. The
-                        # suite link is a home only, so removing the sole-linked
-                        # agent turns it back into an org-level suite.
-                        from app.models.eval import TestSuite
-                        await db.execute(
-                            update(TestSuite)
-                            .where(TestSuite.data_source_id == ds.id)
-                            .values(data_source_id=None)
-                        )
-                        await db.delete(ds)
-
+            # Agents that existed only through this connection were deleted
+            # above, through the agent delete; any left here share another
+            # connection and only lose this link (domain_connection cascade).
             await db.delete(connection)
             await db.commit()
-            return connection_name, agent_count, deleted_agent_names
+            return connection_name
 
         await _drain()
+
+        # Agents that exist only through this connection go with it — through
+        # the full agent delete (DataSourceService.delete_data_source), the one
+        # place that knows every reference to an agent: content scoped to it,
+        # project / webhook / instruction links, folders, repositories, audit.
+        # A hand-rolled `db.delete(ds)` here used to skip most of that and fail
+        # on Postgres foreign keys. Every such agent is checked first, so one
+        # that cannot be deleted stops the connection delete before anything is
+        # removed.
+        from app.services.data_source_service import DataSourceService
+        ds_service = DataSourceService()
+        connection = await self.get_connection(db, connection_id, organization)
+        linked = list(connection.data_sources or [])
+        agent_count = len(linked)
+        sole = [(str(ds.id), ds.name) for ds in linked if len(ds.connections) == 1]
+        if agent_count:
+            logger.info(
+                f"Deleting connection {connection.name} ({connection_id}) which is linked to "
+                f"{agent_count} agent(s): {[ds.name for ds in linked]}"
+            )
+        for ds_id, ds_name in sole:
+            await ds_service._assert_nothing_blocks_agent_delete(db, ds_id, ds_name)
+        deleted_agent_names: list = []
+        for ds_id, ds_name in sole:
+            logger.info(f"Deleting data source {ds_name} ({ds_id}) as it only has this connection")
+            await ds_service.delete_data_source(db, ds_id, organization, current_user)
+            deleted_agent_names.append(ds_name)
+        # The loaded connection still lists the agents just deleted; drop the
+        # stale state so the connection delete below re-reads what remains.
+        db.expire_all()
+        organization = await db.get(Organization, organization_id)
+
         try:
-            connection_name, agent_count, deleted_agent_names = await _load_and_delete(organization)
+            connection_name = await _load_and_delete(organization)
         except IntegrityError:
             # Safety net for the (now narrow) window where a concurrent writer
             # committed a child row after our eager load. Roll back, drain the
@@ -806,7 +809,7 @@ class ConnectionService:
             )
             organization = await db.get(Organization, organization_id)
             await _drain()
-            connection_name, agent_count, deleted_agent_names = await _load_and_delete(organization)
+            connection_name = await _load_and_delete(organization)
 
         # Audit log
         try:

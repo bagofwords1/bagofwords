@@ -3344,7 +3344,8 @@
       "model_id_required": "O ID do modelo não pode ficar vazio",
       "model_id_not_editable": "Somente modelos personalizados em provedores Azure, AWS Bedrock ou personalizados (compatíveis com OpenAI) podem ter o ID do modelo editado",
       "model_id_duplicate": "O modelo \"{model_id}\" já existe neste provedor"
-    }
+    },
+    "data_source.in_use": "O agente \"{agent}\" ainda está em uso ({reference}), então não pode ser excluído. Nada foi excluído."
   },
   "email": {
     "dashboardShare": {

@@ -3344,7 +3344,8 @@
       "model_id_required": "لا يمكن أن يكون معرّف النموذج فارغًا",
       "model_id_not_editable": "لا يمكن تعديل معرّف النموذج إلا للنماذج المخصّصة لدى مزوّدي Azure أو AWS Bedrock أو المزوّدين المخصّصين (المتوافقين مع OpenAI)",
       "model_id_duplicate": "النموذج '{model_id}' موجود بالفعل لدى هذا المزوّد"
-    }
+    },
+    "data_source.in_use": "الوكيل \"{agent}\" لا يزال قيد الاستخدام ({reference})، لذا لا يمكن حذفه. لم يُحذف أي شيء."
   },
   "email": {
     "dashboardShare": {

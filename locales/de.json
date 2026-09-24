@@ -3344,7 +3344,8 @@
       "model_id_required": "Die Modell-ID darf nicht leer sein",
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
-    }
+    },
+    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht."
   },
   "email": {
     "dashboardShare": {
