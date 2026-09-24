@@ -294,7 +294,8 @@ async def has_rls_relations(db: AsyncSession, report_id: str) -> bool:
 
 
 async def entity_data_withheld(
-    db: AsyncSession, entity: Any, requesting_user: Any = None
+    db: AsyncSession, entity: Any, requesting_user: Any = None,
+    data_source_id: str | None = None,
 ) -> bool:
     """True when a non-owner must not see a shared Entity.data snapshot.
 
@@ -313,6 +314,10 @@ async def entity_data_withheld(
     predicate: run_entity_with_update only writes the shared snapshot when this
     returns False for the runner, so a non-owner refresh on a user-scoped
     source stays transient.)
+
+    `data_source_id` narrows the source check to the agent whose snapshot is
+    being served: a query shared with several agents keeps one snapshot per
+    agent, each materialized on that agent's connections alone.
     """
     from app.services.bow_source_access import can_read
     bow_access = getattr(entity, "bow_source_access", None)
@@ -338,7 +343,11 @@ async def entity_data_withheld(
                 return True
     except Exception:
         pass
-    ids = await _entity_data_source_ids(db, str(entity.id))
+    # One agent's snapshot is built on that agent alone — unless the code
+    # reads several agents together (bound), whose snapshot came from all.
+    from app.services.entity_code import SHAREABLE_MODES
+    per_agent = bool(data_source_id) and getattr(entity, "code_mode", None) in SHAREABLE_MODES
+    ids = [str(data_source_id)] if per_agent else await _entity_data_source_ids(db, str(entity.id))
     if not ids:
         # Entities promoted from chat steps carry no data-source association —
         # they executed against the org-level fallback, exactly like DS-less
@@ -350,7 +359,8 @@ async def entity_data_withheld(
 
 
 async def resolve_entity_data(
-    db: AsyncSession, entity: Any, requesting_user: Any = None
+    db: AsyncSession, entity: Any, requesting_user: Any = None,
+    data_source_id: str | None = None,
 ) -> dict:
     """The entity snapshot a given reader may see — {} when withheld.
 
@@ -359,10 +369,13 @@ async def resolve_entity_data(
     mentions), code-execution loadables and the describe_entity tool must
     resolve through this instead of reading Entity.data directly, exactly
     like step surfaces go through resolve_step_data.
+
+    `data_source_id` picks which agent's snapshot (default: the origin's).
     """
-    if await entity_data_withheld(db, entity, requesting_user):
+    if await entity_data_withheld(db, entity, requesting_user, data_source_id=data_source_id):
         return {}
-    return entity.data or {}
+    from app.services.entity_runtime import snapshot_of
+    return (await snapshot_of(db, entity, data_source_id)).data
 
 
 async def snapshot_withheld_for_viewers(

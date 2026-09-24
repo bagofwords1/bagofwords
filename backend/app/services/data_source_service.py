@@ -2001,6 +2001,10 @@ class DataSourceService:
         await self._delete_agent_scoped_instructions(
             db, data_source, organization=organization, current_user=current_user
         )
+        # Shared saved queries this agent was the origin of pass to their next
+        # agent (with that agent's result) before this one is detached.
+        from app.services.entity_runtime import on_agent_removed
+        await on_agent_removed(db, str(data_source.id))
         await self._delete_agent_scoped_entities(
             db, data_source, organization=organization, current_user=current_user
         )

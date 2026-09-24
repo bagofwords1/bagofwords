@@ -782,6 +782,10 @@ class ConnectionService:
                             .where(TestSuite.data_source_id == ds.id)
                             .values(data_source_id=None)
                         )
+                        # Saved queries whose origin this agent was pass to
+                        # their next agent (see entity_runtime).
+                        from app.services.entity_runtime import on_agent_removed
+                        await on_agent_removed(db, str(ds.id))
                         await db.delete(ds)
 
             await db.delete(connection)

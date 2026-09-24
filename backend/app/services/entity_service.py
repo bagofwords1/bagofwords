@@ -92,9 +92,10 @@ class EntityService:
         return out
 
     async def _upsert_entity_user_result(
-        self, db: AsyncSession, entity, user, resolved_params: dict, df: dict
+        self, db: AsyncSession, entity, user, resolved_params: dict, df: dict,
+        data_source_id: Optional[str] = None,
     ) -> None:
-        """Cache a viewer's slice per (entity, user, values fingerprint)."""
+        """Cache a viewer's slice per (entity, user, agent, values fingerprint)."""
         from app.ai.code_execution.query_params import params_fingerprint
         from app.models.entity_user_result import EntityUserResult
         fingerprint = params_fingerprint(resolved_params)
@@ -102,6 +103,8 @@ class EntityService:
             select(EntityUserResult).where(
                 EntityUserResult.entity_id == str(entity.id),
                 EntityUserResult.user_id == str(user.id),
+                (EntityUserResult.data_source_id == str(data_source_id)) if data_source_id
+                else EntityUserResult.data_source_id.is_(None),
                 EntityUserResult.params_fingerprint == fingerprint,
             )
         )).scalars().first()
@@ -110,6 +113,7 @@ class EntityService:
                 entity_id=str(entity.id),
                 user_id=str(user.id),
                 organization_id=str(entity.organization_id),
+                data_source_id=str(data_source_id) if data_source_id else None,
                 params_fingerprint=fingerprint,
             )
         row.status = "success"
@@ -126,29 +130,38 @@ class EntityService:
         entity,
         organization,
         user,
+        *,
+        data_source_id: Optional[str] = None,
+        run_agent_ids: Optional[List[str]] = None,
     ) -> Optional[dict]:
-        """The entity rows a given reader may consume (load_entity, previews).
+        """The entity rows a given reader may consume (load_entity, previews),
+        on the agent they read it from (`data_source_id`, else the one of
+        `run_agent_ids` the query is shared with, else its origin).
 
-        - Owner (or a non-identity, non-withheld entity): the shared snapshot.
+        - Owner (or a non-identity, non-withheld entity): that agent's shared
+          snapshot.
         - Identity-scoped entity + another signed-in user: their cached slice
-          (fresh = run after the shared snapshot's last refresh), else execute
-          with THEIR identity binding and cache it.
+          (fresh = run after that agent's snapshot last refreshed), else
+          execute with THEIR identity binding and cache it.
         - Anonymous readers of identity-scoped entities: None (withheld).
         """
         from app.services.bow_source_access import assert_read
+        from app.services import entity_runtime
         await assert_read(db, getattr(entity, "bow_source_access", None), user)
+        target = entity_runtime.pick_target(entity, data_source_id, run_agent_ids)
+        target_id = str(target.id) if target is not None else None
         from app.services.identity_taint import entity_identity_scope
         has_identity, _upstream = await entity_identity_scope(db, entity)
         owner_id = str(getattr(entity, "owner_id", "") or "")
         is_owner = user is not None and owner_id and str(user.id) == owner_id
         if not has_identity or is_owner:
             from app.services.viewer_data_policy import entity_data_withheld
-            if await entity_data_withheld(db, entity, user):
+            if await entity_data_withheld(db, entity, user, data_source_id=target_id):
                 return None
-            return entity.data or {}
+            return (await entity_runtime.snapshot_of(db, entity, target_id)).data
         if user is None:
             return None
-        result = await self.run_entity_for_user(db, entity, organization, user)
+        result = await self.run_entity_for_user(db, entity, organization, user, data_source_id=target_id)
         return result["data"]
 
     async def run_entity_for_user(
@@ -160,31 +173,37 @@ class EntityService:
         request_values: Optional[dict] = None,
         *,
         force_refresh: bool = False,
+        data_source_id: Optional[str] = None,
     ) -> dict:
-        """Viewer-execute a saved entity with parameter VALUES, as `user`.
+        """Viewer-execute a saved entity with parameter VALUES, as `user`, on
+        one of its agents (`data_source_id`, default its origin).
 
         This is the no-LLM path for "load a saved query with parameters":
-        the entity's stored code runs with defaults <- `request_values` <-
-        the caller's identity bindings, and the result is cached per
-        (entity, user, values fingerprint) in entity_user_results — a repeat
-        request with the same values never re-executes until the shared
-        snapshot (or a loadable upstream) refreshes past it, or
-        `force_refresh` is set. The shared Entity.data snapshot is never
-        touched here.
+        the entity's stored code runs, rendered for that agent, with defaults
+        <- `request_values` <- the caller's identity bindings, and the result
+        is cached per (entity, user, agent, values fingerprint) in
+        entity_user_results — a repeat request with the same values never
+        re-executes until that agent's shared snapshot (or a loadable
+        upstream) refreshes past it, or `force_refresh` is set. No shared
+        snapshot is touched here.
 
-        Returns {"data": grid, "applied_params": resolved, "cached": bool}.
-        Raises ParamError for bad values and ValueError when no data-source
-        client can be built for the caller.
+        Returns {"data": grid, "applied_params": resolved, "cached": bool,
+        "data_source_id": agent}. Raises ParamError for bad values, AppError
+        when the agent cannot run the query, and ValueError when no client
+        can be built for the caller.
         """
         from app.ai.code_execution.query_params import ParamError, params_fingerprint
         from app.models.entity_user_result import EntityUserResult
         from app.services.bow_source_access import assert_read
+        from app.services import entity_runtime
         await assert_read(db, getattr(entity, "bow_source_access", None), user)
         from app.services.identity_taint import entity_identity_scope
 
         if user is None:
             raise ParamError("running an entity with parameters requires an authenticated user")
 
+        target = entity_runtime.pick_target(entity, data_source_id)
+        target_id = str(target.id) if target is not None else None
         resolved = await self._resolve_entity_params(
             db, entity, user, organization, request_values
         )
@@ -193,13 +212,14 @@ class EntityService:
             select(EntityUserResult).where(
                 EntityUserResult.entity_id == str(entity.id),
                 EntityUserResult.user_id == str(user.id),
+                (EntityUserResult.data_source_id == target_id) if target_id else EntityUserResult.data_source_id.is_(None),
                 EntityUserResult.params_fingerprint == fingerprint,
             )
         )).scalars().first()
-        # Stale once the entity OR any of its loadable upstreams refreshed
-        # past the cached slice.
+        # Stale once that agent's snapshot OR any of the entity's loadable
+        # upstreams refreshed past the cached slice.
         _has_identity, upstream_refresh = await entity_identity_scope(db, entity)
-        refreshed_at = getattr(entity, "last_refreshed_at", None)
+        refreshed_at = (await entity_runtime.snapshot_of(db, entity, target_id)).last_refreshed_at
         if upstream_refresh is not None and (
             refreshed_at is None or upstream_refresh > refreshed_at
         ):
@@ -209,49 +229,26 @@ class EntityService:
             and row is not None and row.status == "success"
             and (refreshed_at is None or row.last_run_at is None or row.last_run_at >= refreshed_at)
         ):
-            return {"data": row.data or {}, "applied_params": resolved, "cached": True}
+            return {"data": row.data or {}, "applied_params": resolved, "cached": True, "data_source_id": target_id}
 
-        # Execute with the caller's credentials and identity binding, then
-        # cache the slice.
+        # Execute on that agent alone, with the caller's credentials and
+        # identity binding, then cache the slice.
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
-        from app.services.data_source_service import DataSourceService
-        ds_service = DataSourceService()
-        ds_list = list(entity.data_sources or [])
-        if not ds_list and not entity.bow_source_access:
-            # DS-less entities (promoted from chat-created reports whose data
-            # sources were agent-level, not report-associated): construct the
-            # org's data sources — generated code addresses clients by
-            # "<data source name>:<connection>" keys, so this resolves them.
-            ds_stmt = select(DataSource).where(
-                DataSource.organization_id == str(entity.organization_id),
-                DataSource.deleted_at.is_(None),
-            )
-            ds_list = list((await db.execute(ds_stmt)).scalars().unique().all())
-        ds_clients: dict = {}
-        ds_errors: list = []
-        for ds in ds_list:
-            try:
-                ds_conns = await ds_service.construct_clients(db, ds, current_user=user)
-                ds_clients.update(ds_conns)
-            except Exception as e:
-                ds_errors.append(str(getattr(e, "detail", None) or e))
-        if not ds_clients and ds_errors:
-            raise ValueError("; ".join(ds_errors[:2]))
+        prepared = await entity_runtime.prepare_run(db, entity, target, user)
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
-        await install_entity_client(db, organization, user, entity, ds_clients)
+        await install_entity_client(db, organization, user, entity, prepared.ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
         exec_df, _log, _ = await executor.execute_code_async(
-            code=entity.code or "", ds_clients=ds_clients, excel_files=[],
+            code=prepared.code, ds_clients=prepared.ds_clients, excel_files=[],
             params=resolved,
         )
         df = executor.format_df_for_widget(exec_df)
         if exec_df.attrs.get("bow_source"):
             from app.services.bow_source_access import merge_access
             entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
-        await self._upsert_entity_user_result(db, entity, user, resolved, df)
-        return {"data": df, "applied_params": resolved, "cached": False}
-
+        await self._upsert_entity_user_result(db, entity, user, resolved, df, data_source_id=target_id)
+        return {"data": df, "applied_params": resolved, "cached": False, "data_source_id": target_id}
 
     async def step_report_data_source_ids(
         self, db: AsyncSession, step_id: str, organization: Organization,
@@ -301,6 +298,7 @@ class EntityService:
         publish: bool = False,
         data_source_ids_override: Optional[List[str]] = None,
         creator_can_publish: Optional[bool] = None,
+        origin_data_source_id: Optional[str] = None,
     ) -> Entity:
         """Create an Entity from a successful Step.
 
@@ -400,16 +398,25 @@ class EntityService:
             entity.status = "draft"
             entity.published_at = None
 
-        db.add(entity)
         # Link data sources - use override if provided, otherwise use report data sources
         ds_ids: list[str] = []
         if data_source_ids_override is not None and len(data_source_ids_override) > 0:
-            ds_ids = list({str(i) for i in data_source_ids_override})
+            ds_ids = list(dict.fromkeys(str(i) for i in data_source_ids_override))
         else:
             # Fall back to report data sources
             report_ds = list((step.query.report.data_sources or []))
             if report_ds:
-                ds_ids = list({str(ds.id) for ds in report_ds})
+                ds_ids = list(dict.fromkeys(str(ds.id) for ds in report_ds))
+
+        # Store the step's code without its agent's name, so the query runs on
+        # whichever of its agents it is run from (app/services/entity_code.py),
+        # and refuse agents it cannot run on now rather than on first use.
+        from app.services import entity_runtime
+        agents = await entity_runtime.load_agents(db, ds_ids)
+        templated = entity_runtime.apply_code(entity, step.code or "", agents, origin_data_source_id)
+        entity_runtime.validate_sharing(templated, agents)
+
+        db.add(entity)
 
         if ds_ids:
             # Insert association rows explicitly to avoid async lazy-load on relationship set
@@ -423,9 +430,19 @@ class EntityService:
             if rows:
                 await db.execute(insert(entity_data_source_association), rows)
 
+        # Shared with more than the agent it was written on: run it there now,
+        # so each agent opens with its own rows (and a query that cannot run
+        # on one is refused before anything is saved).
+        await self.run_on_new_agents(
+            db, entity, agents,
+            [str(a.id) for a in agents if str(a.id) != str(entity.origin_data_source_id or "")],
+            organization, current_user,
+        )
+
         await db.flush()
         await db.commit()
         await db.refresh(entity)
+        await entity_runtime.log_repair(db, entity, templated, str(current_user.id))
         # Telemetry: entity created from step (minimal fields only)
         try:
             await telemetry.capture(
@@ -506,6 +523,12 @@ class EntityService:
             entity.global_status = "suggested"
             entity.status = "draft"
             entity.published_at = None
+        from app.services import entity_runtime
+        agents = await entity_runtime.load_agents(db, payload.data_source_ids or [])
+        templated = entity_runtime.apply_code(
+            entity, payload.code, agents, getattr(payload, "origin_data_source_id", None),
+        )
+        entity_runtime.validate_sharing(templated, agents)
         db.add(entity)
         if payload.data_source_ids:
             from sqlalchemy import insert
@@ -517,8 +540,16 @@ class EntityService:
             if rows:
                 await db.execute(insert(entity_data_source_association), rows)
         await db.flush()
+        # Run on every agent besides the origin (the form ran that one) — see
+        # create_entity_from_step.
+        await self.run_on_new_agents(
+            db, entity, agents,
+            [str(a.id) for a in agents if str(a.id) != str(entity.origin_data_source_id or "")],
+            organization, current_user,
+        )
         await db.commit()
         await db.refresh(entity)
+        await entity_runtime.log_repair(db, entity, templated, str(current_user.id))
         # Telemetry: entity created (payload)
         try:
             await telemetry.capture(
@@ -595,13 +626,24 @@ class EntityService:
             )
         )
         
-        # Base query: show entities where user has access to ALL data sources
-        # (i.e., entities that don't have any inaccessible data sources)
+        # A published catalog query that can run on any one of its agents is
+        # visible to whoever can reach one of them (under that agent, when the
+        # list is filtered by agent). Everything else — drafts, suggestions,
+        # and queries that read several agents together — still needs every
+        # agent it is attached to.
+        reach_filter = [entity_data_source_association.c.data_source_id.in_(accessible_ds_subquery)]
+        if data_source_ids:
+            reach_filter.append(entity_data_source_association.c.data_source_id.in_([str(i) for i in data_source_ids]))
+        reaches_one = exists(
+            select(1)
+            .select_from(entity_data_source_association)
+            .where(and_(entity_data_source_association.c.entity_id == Entity.id, *reach_filter))
+        )
         stmt = (
             select(Entity)
             .where(Entity.organization_id == str(organization.id))
             .where(Entity.deleted_at == None)
-            .where(~has_inaccessible_ds)  # Exclude entities with any inaccessible data sources
+            .where(or_(and_(_per_agent_catalog_row(), reaches_one), ~has_inaccessible_ds))
             .where(bow_visible)
         )
         
@@ -707,7 +749,15 @@ class EntityService:
             )
             .where(Entity.organization_id == str(organization.id))
             .where(Entity.deleted_at == None)
-            .where(~has_inaccessible_ds)
+            # Same rule as the list: a per-agent catalog query counts under
+            # each agent the caller can reach; anything else needs them all.
+            .where(or_(
+                and_(
+                    _per_agent_catalog_row(),
+                    entity_data_source_association.c.data_source_id.in_(accessible_ds_subquery),
+                ),
+                ~has_inaccessible_ds,
+            ))
             .where(bow_visible)
             # The tree hides archived rows, so the badge must not count them.
             .where(Entity.status != "archived")
@@ -722,6 +772,90 @@ class EntityService:
         )
         by_agent = {str(ds_id): int(n) for ds_id, n in rows.all()}
         return {"by_agent": by_agent, "total": sum(by_agent.values())}
+
+    async def run_on_new_agents(
+        self, db: AsyncSession, entity, agents: list, new_agent_ids: List[str],
+        organization, user,
+    ) -> None:
+        """Run the query on every agent it was just shared with, BEFORE the
+        share is committed, and record each agent's result.
+
+        Sharing is refused (AppError entity.share_run_failed, nothing is
+        committed) when the code itself fails on an agent — its tables or
+        columns are not there — so a user learns at once that the query cannot
+        be shared there. An agent whose connection cannot be reached right now
+        keeps the share: the failure is recorded on that agent's result and a
+        later refresh fills it.
+
+        `agents` are the query's agents after the change (connections loaded);
+        the caller commits.
+        """
+        from types import SimpleNamespace
+        from app.errors import AppError, ErrorCode
+        from app.services import entity_runtime
+        from app.ai.code_execution.code_execution import StreamingCodeExecutor
+        from app.services.viewer_data_policy import entity_data_withheld
+
+        by_id = {str(a.id): a for a in agents}
+        targets = [by_id[i] for i in dict.fromkeys(str(x) for x in new_agent_ids) if i in by_id]
+        if not targets or not (entity.code or "").strip():
+            return
+        if entity.code_mode not in entity_runtime.ec.SHAREABLE_MODES:
+            # A query reading several agents together (bound) has ONE result,
+            # not one per agent — and it cannot be shared beyond the agents it
+            # reads (validate_sharing). Nothing per-agent to run.
+            return
+        subject = SimpleNamespace(
+            data_sources=agents, code=entity.code, code_mode=entity.code_mode,
+            bow_source_access=getattr(entity, "bow_source_access", None),
+            origin_data_source_id=entity.origin_data_source_id,
+            organization_id=str(entity.organization_id), id=entity.id,
+        )
+        resolved = await self._resolve_entity_params(db, entity, user, organization)
+        org_settings = await organization.get_settings(db) if organization else None
+        from app.services.bow_source_access import install_entity_client
+
+        for agent in targets:
+            try:
+                prepared = await entity_runtime.prepare_run(db, subject, agent, user)
+            except AppError:
+                raise
+            except Exception as e:
+                # The agent's connection could not be built (down, bad
+                # credentials): not the query's fault — keep the share.
+                await entity_runtime.store_snapshot(
+                    db, entity, str(agent.id), None, None,
+                    error=f"connection unavailable: {getattr(e, 'detail', None) or e}",
+                )
+                continue
+            await install_entity_client(db, organization, user, entity, prepared.ds_clients)
+            executor = StreamingCodeExecutor(organization_settings=org_settings)
+            try:
+                exec_df, _log, _ = await executor.execute_code_async(
+                    code=prepared.code, ds_clients=prepared.ds_clients, excel_files=[],
+                    params=resolved,
+                )
+            except Exception as e:
+                raise AppError.bad_request(
+                    ErrorCode.ENTITY_SHARE_RUN_FAILED,
+                    f'This query failed on agent "{agent.name}", so it cannot be shared with it: {str(e)[:500]}',
+                    agent=str(agent.name), error=str(e)[:500],
+                )
+            df = executor.format_df_for_widget(exec_df)
+            # A snapshot is shared: only record it when the runner's identity
+            # may author it on that agent (same predicate as a refresh).
+            if not await entity_data_withheld(db, entity, user, data_source_id=str(agent.id)):
+                await entity_runtime.store_snapshot(db, entity, str(agent.id), df, resolved)
+
+    @staticmethod
+    async def reachable_agent_ids(db: AsyncSession, entity, user) -> List[str]:
+        """The entity's agents `user` can access, in attachment order."""
+        from app.core.permission_resolver import user_can_access_data_source
+        out: List[str] = []
+        for ds in entity.data_sources or []:
+            if await user_can_access_data_source(db, str(user.id), str(entity.organization_id), ds):
+                out.append(str(ds.id))
+        return out
 
     async def get_entity(
         self,
@@ -743,14 +877,18 @@ class EntityService:
         if not entity or not current_user:
             return entity
         
-        # Check if user has access to all data sources of this entity
+        # Agent access: a per-agent catalog query needs one reachable agent
+        # (the route then serves that agent's result); anything else needs
+        # every agent it is attached to.
         if entity.data_sources:
-            from app.core.permission_resolver import user_can_access_data_source
-            for ds in entity.data_sources:
-                if not await user_can_access_data_source(
-                    db, str(current_user.id), str(organization.id), ds
-                ):
+            reachable = await self.reachable_agent_ids(db, entity, current_user)
+            # Kept for the route, which picks the agent to serve from them.
+            entity._reachable_agent_ids = reachable
+            if is_per_agent_catalog_entity(entity):
+                if not reachable:
                     return None
+            elif len(reachable) < len(entity.data_sources):
+                return None
 
         # ...and the same workshop rule the list applies, so a draft that is
         # hidden from the tree cannot be read by guessing its id.
@@ -796,6 +934,12 @@ class EntityService:
             resource_authorized=resource_authorized,
         )
         
+        old_code = entity.code or ""
+        old_agents = list(entity.data_sources or [])
+        old_agent_ids = [str(d.id) for d in old_agents]
+        from app.services import entity_runtime
+        entity_runtime_origin = entity_runtime.origin_id(entity)
+
         # Handle the update based on type
         if update_type == "admin_review":
             await self._handle_admin_review(entity, payload, current_user)
@@ -807,12 +951,59 @@ class EntityService:
             raise HTTPException(status_code=403, detail="Permission denied")
 
         # Handle data source associations
+        from app.services import entity_runtime
         if payload.data_source_ids is not None:
             if payload.data_source_ids:
-                result = await db.execute(select(DataSource).where(DataSource.id.in_(payload.data_source_ids)))
-                entity.data_sources = list(result.scalars().all())
+                entity.data_sources = await entity_runtime.load_agents(
+                    db, list(dict.fromkeys(str(i) for i in payload.data_source_ids)),
+                )
             else:
                 entity.data_sources = []
+
+        # The code and the agents it runs on move together: store the code
+        # agent-free, keep the origin among the agents, refuse agents the code
+        # cannot run on, and forget results the old code / departed agents
+        # produced.
+        agents = list(entity.data_sources or [])
+        new_ids = [str(d.id) for d in agents]
+        if not agents and old_agents and "$agent:" in (entity.code or ""):
+            # Left with no agent (made org-wide): an agentless query runs on
+            # the agents its code NAMES, so put its origin's name back in.
+            prev = next((a for a in old_agents if str(a.id) == str(entity_runtime_origin)), old_agents[0])
+            entity.code = entity_runtime.render_for(entity, prev)
+        removed = [i for i in old_agent_ids if i not in new_ids]
+        # The editor shows each agent its own client keys; what counts as an
+        # edit is a change to the code once the agent is taken back out.
+        code_edited = False
+        if payload.code is not None or payload.data_source_ids is not None or payload.origin_data_source_id is not None:
+            previous_origin = entity.origin_data_source_id if str(entity.origin_data_source_id or "") in old_agent_ids else (old_agent_ids[0] if old_agent_ids else None)
+            wanted = payload.origin_data_source_id if str(payload.origin_data_source_id or "") in new_ids else None
+            if wanted is None:
+                wanted = previous_origin if previous_origin in new_ids else (new_ids[0] if new_ids else None)
+            templated = entity_runtime.apply_code(entity, entity.code or "", agents, wanted)
+            code_edited = payload.code is not None and (entity.code or "") != old_code
+            entity_runtime.validate_sharing(templated, agents)
+            await entity_runtime.log_repair(db, entity, templated, str(current_user.id), commit=False)
+            chosen = entity.origin_data_source_id
+            if not code_edited and chosen != previous_origin:
+                # Move results with the origin (Entity.data is the origin's).
+                await entity_runtime.hand_origin_to(db, entity, chosen, previous_origin_id=previous_origin)
+            elif code_edited and chosen != previous_origin:
+                # New code on a new origin: the rows in Entity.data are the old
+                # origin's, from the old code — they belong to neither. The
+                # post-save run fills the new origin's.
+                entity.data = {}
+                entity.applied_params = None
+                entity.last_refreshed_at = None
+        if code_edited:
+            await entity_runtime.drop_snapshots(db, str(entity.id))
+        elif removed:
+            await entity_runtime.drop_snapshots(db, str(entity.id), removed)
+        # Agents the query was just shared with run it now, before the share
+        # is committed: a query whose code fails there is refused.
+        added = [i for i in new_ids if i not in old_agent_ids]
+        if added:
+            await self.run_on_new_agents(db, entity, agents, added, organization, current_user)
 
         await db.flush()
         await db.commit()
@@ -876,69 +1067,77 @@ class EntityService:
         organization: Organization,
         current_user: Optional[User] = None,
     ) -> Entity:
-        """Execute the entity's code, update its data/view/metadata, and persist."""
+        """Execute the entity's code on one of its agents, record that agent's
+        result, apply payload edits, and persist.
+
+        The agent is `payload.data_source_id` (default: the query's origin).
+        Its result goes to Entity.data for the origin agent and to
+        entity_agent_snapshots for any other, so agents never overwrite each
+        other's rows. The returned entity carries the run agent's result in
+        `data` and names the agent in `run_data_source_id`.
+        """
+        from app.errors import AppError
+        from app.services import entity_runtime
         # Load entity scoped to organization
         result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
             raise ValueError("Entity not found")
+        requested_ds = getattr(payload, "data_source_id", None) if payload else None
 
         # Parameter VALUES make this a viewer-mode run: execute the SAVED code
         # with those values as the caller, serve/cache per (entity, user,
-        # values), and hand back a detached copy carrying that slice. The
-        # shared snapshot (defaults + owner identity) is never rewritten by a
-        # values run — that is what keeps load_entity/describe_entity stable.
+        # agent, values), and hand back a detached copy carrying that slice.
+        # No shared snapshot is rewritten by a values run — that is what keeps
+        # load_entity/describe_entity stable.
         request_values = dict(getattr(payload, "params", None) or {}) if payload else {}
         if request_values:
             result = await self.run_entity_for_user(
                 db, entity, organization, current_user, request_values,
                 force_refresh=bool(getattr(payload, "force_refresh", False)),
+                data_source_id=requested_ds,
             )
             db.expunge(entity)
             entity.data = result["data"]
             entity.applied_params = result["applied_params"]
+            entity.run_data_source_id = result["data_source_id"]
             return entity
 
-        # Determine code to run (payload override or stored)
-        code_to_run = (payload.code if (payload and getattr(payload, "code", None) is not None) else entity.code) or ""
+        target = entity_runtime.pick_target(entity, requested_ds)
+        target_id = str(target.id) if target is not None else None
 
-        # Resolve report/data sources context via any linked data sources on the entity
-        # When entities are not tied to a report, we execute with all entity data sources
+        # A code edit arrives here too (the edit form saves, then runs): store
+        # it agent-free, check every agent of the query can still run it, and
+        # run the edited code.
+        new_code = payload.code if (payload and getattr(payload, "code", None) is not None) else None
+        code_changed = new_code is not None
+        if code_changed:
+            agents = entity_runtime.attached_agents(entity)
+            templated = entity_runtime.ec.templatize(new_code, [entity_runtime.ec.agent_info(a) for a in agents])
+            entity_runtime.validate_sharing(templated, agents)
+            code_changed = templated.code != (entity.code or "")
+        prepared = await entity_runtime.prepare_run(db, entity, target, current_user, code=new_code)
+
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
-        from app.services.data_source_service import DataSourceService
-        ds_service = DataSourceService()
-        ds_list = list(entity.data_sources or [])
-        if not ds_list and not entity.bow_source_access:
-            # DS-less entities (promoted from chat-created reports): fall back
-            # to the org's data sources — generated code addresses clients by
-            # "<data source name>:<connection>" keys.
-            _ds_stmt = select(DataSource).where(
-                DataSource.organization_id == str(organization.id),
-                DataSource.deleted_at.is_(None),
-            )
-            ds_list = list((await db.execute(_ds_stmt)).scalars().unique().all())
-        ds_clients = {}
-        for ds in ds_list:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
-            ds_clients.update(ds_conns)
         excel_files = []
 
         # Pass organization_settings so widget serialization honors the org's
         # limit_row_count instead of falling back to the hardcoded 1000-row cap.
         org_settings = await organization.get_settings(db) if organization else None
         from app.services.bow_source_access import install_entity_client
-        await install_entity_client(db, organization, current_user, entity, ds_clients)
+        await install_entity_client(db, organization, current_user, entity, prepared.ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
 
         # Snapshot-identity guard: execution runs under the CALLER's
-        # credentials, but Entity.data is a SHARED snapshot the policy treats
-        # as the owner's identity. On a credential-differentiated source
-        # (user_required/RLS) — or an identity-parameterized entity — a
-        # non-owner refresh must not overwrite the shared snapshot with their
-        # own row slice. entity_data_withheld is exactly that predicate
-        # (False for the owner and for system-only, non-identity entities).
+        # credentials, but a snapshot is SHARED and the policy treats it as
+        # the owner's identity. On a credential-differentiated source
+        # (user_required/RLS) on the run agent — or an identity-parameterized
+        # entity — a non-owner refresh must not overwrite the shared snapshot
+        # with their own row slice. entity_data_withheld is exactly that
+        # predicate (False for the owner and for system-only, non-identity
+        # entities).
         from app.services.viewer_data_policy import entity_data_withheld
-        persist_data = not await entity_data_withheld(db, entity, current_user)
+        persist_data = not await entity_data_withheld(db, entity, current_user, data_source_id=target_id)
 
         # Declared parameters resolve like a step run: defaults + the RUN
         # user's identity bindings. Legacy code (no `params` argument) is
@@ -949,60 +1148,70 @@ class EntityService:
 
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(
-                code=code_to_run, ds_clients=ds_clients, excel_files=excel_files,
+                code=prepared.code, ds_clients=prepared.ds_clients, excel_files=excel_files,
                 params=resolved_params,
             )
-            df = executor.format_df_for_widget(exec_df)
-            if exec_df.attrs.get("bow_source"):
-                from app.services.bow_source_access import merge_access
-                entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
-
-            if not persist_data:
-                # Transient run: the caller's own slice. Cache it per
-                # (entity, user, values) so load_entity and later reads reuse
-                # it, then detach the instance so the shared snapshot is
-                # never flushed.
-                if current_user is not None:
-                    await self._upsert_entity_user_result(
-                        db, entity, current_user, resolved_params, df
-                    )
-                db.expunge(entity)
-                entity.data = df
-                return entity
-            # Persist execution results
-            entity.data = df
-            entity.applied_params = dict(resolved_params) if resolved_params else None
-            entity.last_refreshed_at = datetime.utcnow()
-
-            # Apply optional payload updates
-            if payload:
-                if getattr(payload, "title", None) is not None:
-                    entity.title = payload.title  # type: ignore
-                if getattr(payload, "description", None) is not None:
-                    entity.description = payload.description  # type: ignore
-                if getattr(payload, "type", None) is not None:
-                    entity.type = payload.type  # type: ignore
-                if getattr(payload, "code", None) is not None:
-                    entity.code = payload.code  # type: ignore
-                if getattr(payload, "view", None) is not None:
-                    # view is a Pydantic model; store as dict
-                    v = payload.view
-                    entity.view = v.model_dump() if hasattr(v, "model_dump") else v  # type: ignore
-                if getattr(payload, "status", None) is not None:
-                    entity.status = payload.status  # type: ignore
-
-            await db.flush()
-            await db.commit()
-            await db.refresh(entity)
-            return entity
         except Exception as e:
             if persist_data:
-                # Persist last_refreshed_at but do not overwrite existing data on failure
-                entity.last_refreshed_at = datetime.utcnow()
+                # Record the attempt but do not overwrite existing data on failure
+                await entity_runtime.store_snapshot(db, entity, target_id, None, None, error=str(e))
                 await db.flush()
                 await db.commit()
+            if isinstance(e, AppError):
+                raise
             # Re-raise as ValueError for route to map to 404/400 as designed
             raise ValueError(str(e))
+
+        df = executor.format_df_for_widget(exec_df)
+        if exec_df.attrs.get("bow_source"):
+            from app.services.bow_source_access import merge_access
+            entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
+
+        if not persist_data:
+            # Transient run: the caller's own slice. Cache it per
+            # (entity, user, agent, values) so load_entity and later reads
+            # reuse it, then detach the instance so no shared snapshot is
+            # ever flushed.
+            if current_user is not None:
+                await self._upsert_entity_user_result(
+                    db, entity, current_user, resolved_params, df, data_source_id=target_id,
+                )
+            db.expunge(entity)
+            entity.data = df
+            entity.run_data_source_id = target_id
+            return entity
+
+        if code_changed:
+            # Every other agent's result came from the old code.
+            entity_runtime.apply_code(entity, new_code, entity_runtime.attached_agents(entity), entity.origin_data_source_id)
+            await entity_runtime.drop_snapshots(db, str(entity.id))
+        await entity_runtime.store_snapshot(db, entity, target_id, df, resolved_params)
+
+        # Apply optional payload updates
+        if payload:
+            if getattr(payload, "title", None) is not None:
+                entity.title = payload.title  # type: ignore
+            if getattr(payload, "description", None) is not None:
+                entity.description = payload.description  # type: ignore
+            if getattr(payload, "type", None) is not None:
+                entity.type = payload.type  # type: ignore
+            if getattr(payload, "view", None) is not None:
+                # view is a Pydantic model; store as dict
+                v = payload.view
+                entity.view = v.model_dump() if hasattr(v, "model_dump") else v  # type: ignore
+            if getattr(payload, "status", None) is not None:
+                entity.status = payload.status  # type: ignore
+
+        await db.flush()
+        await db.commit()
+        await db.refresh(entity)
+        if not entity_runtime._is_origin(entity, target_id):
+            # Serve this agent's rows without letting them reach Entity.data.
+            db.expunge(entity)
+            entity.data = df
+            entity.applied_params = dict(resolved_params) if resolved_params else None
+        entity.run_data_source_id = target_id
+        return entity
 
     @staticmethod
     def slugify(text: str) -> str:
@@ -1037,31 +1246,37 @@ class EntityService:
         current_user: Optional[User],
         resolved_params: Optional[dict] = None,
         entity: Optional[Entity] = None,
+        data_source_id: Optional[str] = None,
     ) -> dict:
-        """Run `code` against `ds_list` (or every org agent when empty) without
-        persisting anything. Shared by the per-entity preview and the stateless
-        one the "New query" form uses before a row exists.
+        """Run `code` on ONE agent without persisting anything. Shared by the
+        per-entity preview and the stateless one the "New query" form uses
+        before a row exists.
 
-        `entity` is the saved row when there is one: its BOW source access
-        gates the run and is widened by what the run read."""
+        `entity` is the saved row when there is one: the run is made from
+        `data_source_id` (default: its origin), and its BOW source access
+        gates the run and is widened by what the run read. Without one, the
+        agent is `data_source_id`, else the one the code names, else the
+        first of `ds_list`. Never every agent of the organization: code with
+        no agent to run on is a typed error (entity.no_agent).
+
+        Agent errors (the agent lacks the connection the code needs, …) raise
+        AppError; a failure of the code itself comes back as {"error": ...}.
+        """
+        from types import SimpleNamespace
         from app.ai.code_execution.code_execution import StreamingCodeExecutor
-        from app.services.data_source_service import DataSourceService
-        ds_service = DataSourceService()
-        bow_access = getattr(entity, "bow_source_access", None) if entity is not None else None
-        ds_list = list(ds_list or [])
-        if not ds_list and not bow_access:
-            # DS-less entities (promoted from chat-created reports): fall back
-            # to the org's data sources — generated code addresses clients by
-            # "<data source name>:<connection>" keys.
-            _ds_stmt = select(DataSource).where(
-                DataSource.organization_id == str(organization.id),
-                DataSource.deleted_at.is_(None),
+        from app.services import entity_runtime
+
+        if entity is not None:
+            subject = entity
+        else:
+            agents = list(ds_list or [])
+            t = entity_runtime.ec.templatize(code or "", [entity_runtime.ec.agent_info(a) for a in agents])
+            subject = SimpleNamespace(
+                data_sources=agents, code=t.code, code_mode=t.mode, bow_source_access=None,
+                origin_data_source_id=t.origin_id, organization_id=str(organization.id),
             )
-            ds_list = list((await db.execute(_ds_stmt)).scalars().unique().all())
-        ds_clients = {}
-        for ds in ds_list:
-            ds_conns = await ds_service.construct_clients(db, ds, current_user=current_user)
-            ds_clients.update(ds_conns)
+        target = entity_runtime.pick_target(subject, data_source_id)
+        prepared = await entity_runtime.prepare_run(db, subject, target, current_user, code=code)
         excel_files = []
 
         # Pass organization_settings so widget serialization honors the org's
@@ -1069,11 +1284,11 @@ class EntityService:
         org_settings = await organization.get_settings(db) if organization else None
         if entity is not None:
             from app.services.bow_source_access import install_entity_client
-            await install_entity_client(db, organization, current_user, entity, ds_clients)
+            await install_entity_client(db, organization, current_user, entity, prepared.ds_clients)
         executor = StreamingCodeExecutor(organization_settings=org_settings)
         try:
             exec_df, execution_log, _ = await executor.execute_code_async(
-                code=code, ds_clients=ds_clients, excel_files=excel_files,
+                code=prepared.code, ds_clients=prepared.ds_clients, excel_files=excel_files,
                 params=resolved_params or {},
             )
             df = executor.format_df_for_widget(exec_df)
@@ -1081,9 +1296,12 @@ class EntityService:
                 from app.services.bow_source_access import merge_access
                 entity.bow_source_access = merge_access(entity.bow_source_access, exec_df.attrs["bow_source"])
 
-            return {"data": df, "execution_log": execution_log, "applied_params": resolved_params or None}
+            return {
+                "data": df, "execution_log": execution_log, "applied_params": resolved_params or None,
+                "data_source_id": prepared.target_id,
+            }
         except Exception as e:
-            return {"data": None, "error": str(e)}
+            return {"data": None, "error": str(e), "data_source_id": prepared.target_id}
 
     async def preview_entity(
         self,
@@ -1093,13 +1311,14 @@ class EntityService:
         organization: Organization,
         current_user: Optional[User] = None,
     ) -> dict:
-        """Execute provided code (or entity code) without persisting, return preview/result or error."""
+        """Execute provided code (or entity code) on one of the entity's agents
+        without persisting, return preview/result or error."""
         result = await db.execute(select(Entity).where(Entity.id == str(entity_id), Entity.organization_id == str(organization.id)))
         entity = result.scalar_one_or_none()
         if not entity:
             raise ValueError("Entity not found")
 
-        code_to_run = (getattr(payload, "code", None) if payload else None) or entity.code or ""
+        sent_code = getattr(payload, "code", None) if payload else None
         # The form may send the declarations it is about to save (edited
         # params) and test values; otherwise the saved ones apply as-is.
         sent_specs = getattr(payload, "parameters", None) if payload else None
@@ -1109,8 +1328,9 @@ class EntityService:
             (getattr(payload, "params", None) if payload else None) or None,
         )
         return await self._execute_entity_code(
-            db, code_to_run, list(entity.data_sources or []), organization, current_user, resolved_params,
-            entity=entity,
+            db, sent_code if sent_code else (entity.code or ""), list(entity.data_sources or []),
+            organization, current_user, resolved_params,
+            entity=entity, data_source_id=getattr(payload, "data_source_id", None) if payload else None,
         )
 
     async def preview_code(
@@ -1122,14 +1342,16 @@ class EntityService:
         current_user: Optional[User] = None,
         parameters: Optional[list] = None,
         params: Optional[dict] = None,
+        data_source_id: Optional[str] = None,
     ) -> dict:
-        """Stateless preview: run `code` against the given agents. No Entity row
-        is read or written — this is "try before save" for a manual query.
+        """Stateless preview: run `code` on one of the given agents. No Entity
+        row is read or written — this is "try before save" for a manual query.
 
         `parameters` are the ParamSpec dicts the form would save with the
         query; `params` are test values for the input ones. They resolve
         exactly as a saved entity's would (identity params bind to the
         caller), so what Run shows is what Save will run."""
+        from app.services import entity_runtime
         ds_list: list = []
         if data_source_ids:
             stmt = select(DataSource).where(
@@ -1137,14 +1359,20 @@ class EntityService:
                 DataSource.deleted_at.is_(None),
                 DataSource.id.in_([str(i) for i in data_source_ids]),
             )
-            ds_list = list((await db.execute(stmt)).scalars().unique().all())
-            if len(ds_list) != len({str(i) for i in data_source_ids}):
+            found = {str(d.id): d for d in (await db.execute(stmt)).scalars().unique().all()}
+            if len(found) != len({str(i) for i in data_source_ids}):
                 raise ValueError("Agent not found")
+            ds_list = [found[str(i)] for i in dict.fromkeys(str(i) for i in data_source_ids)]
+            # The form is about to share the query with all of these: refuse
+            # the agents it could not run on now, not after saving.
+            templated = entity_runtime.ec.templatize(code or "", [entity_runtime.ec.agent_info(a) for a in ds_list])
+            entity_runtime.validate_sharing(templated, ds_list)
         resolved_params = await self._resolve_param_specs(
             db, parameters, current_user, organization, params or None,
         )
         return await self._execute_entity_code(
             db, code or "", ds_list, organization, current_user, resolved_params,
+            data_source_id=data_source_id,
         )
 
     async def _get_owned_entity(
@@ -1278,7 +1506,7 @@ class EntityService:
                 entity.reviewed_by_user_id = admin_user.id
         
         # Apply all changes (admin has full control)
-        update_data = payload.model_dump(exclude_unset=True, exclude={'data_source_ids'})
+        update_data = payload.model_dump(exclude_unset=True, exclude={'data_source_ids', 'origin_data_source_id'})
         for field, value in update_data.items():
             if field == 'view' and value is not None:
                 entity.view = value.model_dump() if hasattr(value, 'model_dump') else value
@@ -1297,3 +1525,26 @@ class EntityService:
         if payload.view is not None:
             entity.view = payload.view.model_dump() if hasattr(payload.view, 'model_dump') else payload.view
 
+
+
+def _per_agent_catalog_row():
+    """SQL: a published catalog query whose code runs on any one of its agents
+    (see is_per_agent_catalog_entity)."""
+    from sqlalchemy import and_
+    from app.services.entity_code import SHAREABLE_MODES
+    return and_(
+        Entity.private_status.is_(None),
+        Entity.status == "published",
+        or_(Entity.global_status.is_(None), Entity.global_status == "approved"),
+        Entity.code_mode.in_(sorted(SHAREABLE_MODES)),
+    )
+
+
+def is_per_agent_catalog_entity(entity) -> bool:
+    """A published catalog query that runs on whichever of its agents it is
+    run from — reaching ONE of them is enough to read and run it there.
+    Drafts and suggestions (workshop rows) and queries that read several
+    agents together keep the every-agent rule."""
+    from app.core.entity_scope import is_catalog_row
+    from app.services.entity_code import SHAREABLE_MODES
+    return is_catalog_row(entity) and getattr(entity, "code_mode", None) in SHAREABLE_MODES
