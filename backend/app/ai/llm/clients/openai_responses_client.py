@@ -70,10 +70,18 @@ class OpenAIResponsesClient(LLMClient):
             client_kwargs["base_url"] = base_url
         if default_headers:
             client_kwargs["default_headers"] = default_headers
+        # SSL verification stays on by default. It is only relaxed when an admin
+        # explicitly sets verify_ssl=False on a custom OpenAI-compatible provider
+        # (e.g. an internal gateway with a self-signed cert); the flag is plumbed
+        # through provider.additional_config in llm.py. Mirror the sibling
+        # OpenAi (Chat Completions) client: build an http_client only when we
+        # actually need to override a default, so the secure path keeps the SDK's
+        # own httpx defaults untouched.
         if not verify_ssl:
             import httpx
-            self.client = OpenAI(**client_kwargs, http_client=httpx.Client(verify=False))
-            self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(verify=False))
+            http_kwargs: dict[str, Any] = {"verify": False}
+            self.client = OpenAI(**client_kwargs, http_client=httpx.Client(**http_kwargs))
+            self.async_client = AsyncOpenAI(**client_kwargs, http_client=httpx.AsyncClient(**http_kwargs))
         else:
             self.client = OpenAI(**client_kwargs)
             self.async_client = AsyncOpenAI(**client_kwargs)
