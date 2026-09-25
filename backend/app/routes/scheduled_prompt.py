@@ -12,7 +12,12 @@ from app.models.report import Report
 from app.models.user import User
 from app.models.organization import Organization
 from app.services.scheduled_prompt_service import scheduled_prompt_service
+from app.services.scheduled_task_template_service import scheduled_task_template_service
 from app.ee.audit.service import audit_service
+from app.schemas.scheduled_task_template_schema import (
+    ScheduledTaskTemplateEnableRequest,
+    ScheduledTaskTemplateState,
+)
 from app.schemas.scheduled_prompt_schema import (
     ScheduledPromptCreate,
     ScheduledPromptUpdate,
@@ -72,6 +77,74 @@ async def list_all_scheduled_prompts(
         items.append(item)
 
     return ScheduledPromptListResponse(scheduled_prompts=items, meta=result["meta"])
+
+
+@router.get("/scheduled-prompt-templates", response_model=List[ScheduledTaskTemplateState])
+async def list_scheduled_prompt_templates(
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Built-in task templates, annotated with the calling user's enabled state."""
+    return await scheduled_task_template_service.list_templates(db, current_user, organization)
+
+
+@router.post("/scheduled-prompt-templates/{key}/enable", response_model=ScheduledTaskTemplateState)
+@requires_permission('create_reports')
+async def enable_scheduled_prompt_template(
+    key: str,
+    request: Request,
+    body: Optional[ScheduledTaskTemplateEnableRequest] = None,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Turn a template on for the calling user.
+
+    First enable creates the host report plus the scheduled task; the optional
+    body narrows the agent scope and overrides the shipped cron (defaults:
+    every usable data source, the template's schedule). Enabling a paused
+    template resumes the existing row with its history. Gated on
+    ``create_reports`` because there is no report to scope to yet — enabling
+    is what creates it.
+    """
+    state = await scheduled_task_template_service.enable(db, key, current_user, organization, options=body)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="scheduled_prompt.template_enabled",
+            user_id=current_user.id, resource_type="scheduled_prompt",
+            resource_id=state.scheduled_prompt_id,
+            details={"template_key": key, "report_id": state.report_id},
+            request=request,
+        )
+    except Exception:
+        pass
+    return state
+
+
+@router.post("/scheduled-prompt-templates/{key}/disable", response_model=ScheduledTaskTemplateState)
+async def disable_scheduled_prompt_template(
+    key: str,
+    request: Request,
+    current_user: User = Depends(current_user),
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+):
+    """Pause the calling user's instance of a template (history kept).
+
+    No permission decorator: the service only touches rows owned by the caller.
+    """
+    state = await scheduled_task_template_service.disable(db, key, current_user, organization)
+    try:
+        await audit_service.log(
+            db=db, organization_id=organization.id, action="scheduled_prompt.template_disabled",
+            user_id=current_user.id, resource_type="scheduled_prompt",
+            resource_id=state.scheduled_prompt_id,
+            details={"template_key": key}, request=request,
+        )
+    except Exception:
+        pass
+    return state
 
 
 @router.post("/reports/{report_id}/scheduled-prompts", response_model=ScheduledPromptSchema)
