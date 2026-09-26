@@ -187,8 +187,35 @@ Rules:
 
 ## 7. Tools (Phase 2)
 
-These replace `update_user_memory`. Update the timeline tool card in both report
-pages accordingly.
+These replace `update_user_memory`.
+
+**How the tools look in the report while the agent runs: a single line, nothing
+to expand.** Reuse the existing `frontend/components/tools/UpdateUserMemoryTool.vue`
+pattern for all three tools. That component is already a non-expandable single
+line that shows the agent's `title` and never the memory content.
+
+- **While running:** a bookmark icon with a shimmer, plus the tool's dynamic
+  `title`. For example: "Updating memory: prefers the number first",
+  "Remembering your board meeting", "Checking what I know about your region".
+  Fallbacks when `title` is empty:
+  - `create_memory` / `edit_memory`: "Updating memory…"
+  - `search_memory`: "Checking memory…"
+- **Done:** the same line, static, with the `title` (or "Memory updated" /
+  "Checked memory").
+- **Failed:** "Couldn't update memory" with an error icon. There's no detail, and
+  the agent handles the error itself.
+- **Never shown:** entry text, handles, tags, search results, or a
+  dedupe/refusal explanation. Details live in the profile UI and the trace.
+- **Wiring:** map `create_memory`, `edit_memory` and `search_memory` to this
+  component in `getToolComponent`, in `frontend/pages/reports/[id]/index.vue`
+  (~`:2576`) and `frontend/pages/c/[token]/index.vue` (~`:683`). Keep
+  `update_user_memory` mapped too, so old reports still render. Rename the
+  component (e.g. `MemoryTool.vue`) and pick the running/done/fallback strings by
+  `tool_name`. Add the i18n keys under `tools.memory.*` in every
+  `locales/*.json`.
+- Every tool schema's `title` description tells the model to write a short,
+  friendly, 3–7 word status in the user's language, with no private details
+  beyond what the user just said.
 
 The tools are available on **human-initiated turns in every channel** (web,
 Slack, Teams, email). They are **not** available in training mode or in machine
@@ -429,7 +456,7 @@ change needs before/after evidence captured with the **ui-evidence** skill.
 | Phase | Scope | Exit criteria |
 |---|---|---|
 | 1 | The `enable_user_memory` setting and locales; the `memory_entries` model and migration; migration of existing memory text; `MemoryService` (dedupe, expiry, cap, filters); `MemoryContextBuilder` (tiers, tags, keyword matching); injection switched over | Unit tests pass on sqlite and postgres. Migrated memory appears in the always tier. Turning the setting off stops injection. Budgets hold with 200 entries |
-| 2 | `create_memory`, `edit_memory`, `search_memory` (replacing `update_user_memory`); prompt rules and tool descriptions carrying the memory vs instructions boundary; user API and profile UI; tool cards | The agent saves on corrections without being asked. It routes definitions to instructions, not memory. Parallel writes don't lose entries. User-authored entries are protected. Admins get 403 |
+| 2 | `create_memory`, `edit_memory`, `search_memory` (replacing `update_user_memory`); prompt rules and tool descriptions carrying the memory vs instructions boundary; user API and profile UI; single-line memory tool status in the report | The agent saves on corrections without being asked. It routes definitions to instructions, not memory. Parallel writes don't lose entries. User-authored entries are protected. Admins get 403 |
 | 3 | TraceModal memory lines; tuning from Loop B | The trace shows injection and tool activity, and the privacy rule holds |
 
 ## 13. Feedback loop (to run in the new session)
