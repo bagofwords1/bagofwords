@@ -1,20 +1,17 @@
-# Memory: user memory (v1) and project memory (v2)
+# User memory: entries, tools, context builder and nightly dream
 
 Status: **plan** (nothing implemented yet). Build it as a sandbox feedback loop
 (`.agents/skills/sandbox-feedback-loop/SKILL.md`). The loop report goes in
 `docs/feedback-loops/user-memory.md`.
 
 Related plan: `docs/design/agent-checkins.md`. Check-ins **read** memory;
-memory never depends on check-ins (§13).
+memory never depends on check-ins (§12).
 
 ## 1. What we are building
 
-- **Memory entries.** One row per durable fact, with a section, tags, optional
-  dates, and provenance (the report, the turn, and a short quote).
-  - **v1: user scope.** Facts about the person. Private to that user.
-  - **v2: project scope.** Facts about the work in a project folder. Visible to
-    everyone who has access to the project. The table supports both scopes from
-    day one.
+- **Memory entries.** One row per durable fact about the user, with a section,
+  tags, optional dates, and provenance (the report, the turn, and a short quote).
+  Entries are private to that user.
 - **Three agent tools**, named like the existing instruction and note tools:
   `create_memory`, `edit_memory` and `search_memory`. The agent saves memory
   **whenever it notices something durable**, not only when asked.
@@ -72,8 +69,6 @@ memory never depends on check-ins (§13).
 | Tool card in the report timeline | `frontend/pages/reports/[id]/index.vue`, `frontend/pages/c/[token]/index.vue` |
 | Tool naming convention to mirror | `ai/tools/implementations/{create,edit,search,read}_instruction.py`, `{create,edit}_note.py` |
 | Keyword matching to reuse (always vs intelligent, keyword extraction, relevance gate) | `backend/app/ai/context/builders/instruction_context_builder.py` (`_extract_keywords`, `search_instructions` `:377`, `build` `:481`) |
-| Project model (folder, access `private`/`org` plus `ResourceGrant` view/manage, human-written `instructions`) | `backend/app/models/project.py:28-60` |
-| Project context block `<project>` | `_build_project_context`, `backend/app/ai/agent_v2.py:892-957` |
 | Scheduler, leader-only jobs, exactly-once claim | `backend/main.py:470-611`; `claim_scheduled_run`, `backend/app/core/scheduler.py:109` |
 | Rolling session summary per report | `backend/app/models/report_context_state.py` (`summary_json`); `services/context_compaction_service.py` |
 | Org settings pattern | `backend/app/schemas/organization_settings_schema.py:340-360`; names and descriptions in `locales/*.json` |
@@ -106,13 +101,6 @@ enable_memory_dreaming: FeatureConfig = FeatureConfig(
                 "learn new memories and tidy existing ones (merge duplicates, "
                 "retire outdated facts). Requires User memory.",
     is_lab=True, editable=True)
-# v2
-enable_project_memory: FeatureConfig = FeatureConfig(
-    value=False, name="Project memory",
-    description="Let the agent remember facts about the work in a project "
-                "(decisions, deadlines, project vocabulary), shared with everyone "
-                "who can access the project. Requires User memory.",
-    is_lab=True, editable=True)
 ```
 
 - `enable_user_memory` defaults to **on**, because memory exists today. Turning it
@@ -131,7 +119,6 @@ enable_project_memory: FeatureConfig = FeatureConfig(
 | Memory context injection | `enable_user_memory` |
 | `create_memory` / `edit_memory` / `search_memory` in the tool catalog | `enable_user_memory` |
 | Nightly dream: enqueueing orgs, then again per user before writing | `enable_user_memory` **and** `enable_memory_dreaming` |
-| Project scope in the tools, context and UI (v2) | also `enable_project_memory` |
 | User memory API and profile UI section | `enable_user_memory` |
 | Check-in planner and judge reading memory | `enable_user_memory` |
 
@@ -145,11 +132,9 @@ SQLite and Postgres.
 |---|---|---|
 | `id` | str(36) pk | |
 | `organization_id` | FK, indexed | |
-| `scope` | str(8), indexed | `user` (v1) or `project` (v2) |
-| `user_id` | FK, indexed | For `user` scope, the owner. For `project` scope, the user whose session produced it |
-| `project_id` | FK projects, nullable, indexed | Required when `scope='project'` |
-| `handle` | str(12) | Stable short id, unique within (org, scope owner). `m1`, `m2`… for user scope; `p1`, `p2`… for project scope |
-| `section` | str(16) | `style`, `role`, `vocabulary`, `events`, `focus`, `preferences`, and for projects (v2) `decisions` |
+| `user_id` | FK, indexed | The owner. Memory is per user **per org**, same as today |
+| `handle` | str(12) | Stable short id, unique per (org, user): `m1`, `m2`… |
+| `section` | str(16) | `style`, `role`, `vocabulary`, `events`, `focus`, `preferences` |
 | `text` | text, at most 280 chars | One declarative fact, never an imperative |
 | `tags` | JSON list | 1–4 normalized slugs (§6) |
 | `aliases` | JSON list, nullable | Other words for the same thing (vocabulary, focus) |
@@ -169,9 +154,7 @@ Rules:
   looks stale, but they never update, supersede or forget them.
 - `forgotten` blanks `text`, `aliases`, `tags` and `evidence`. Only the id, status
   and timestamps are kept.
-- Deleting a membership deletes the user-scope entries. Deleting a project
-  deletes its project-scope entries. User data exports include user-scope
-  entries.
+- Deleting a membership deletes its entries. User data exports include them.
 - **Migration:** every non-empty `Membership.memory` becomes one entry per line
   or bullet, with `section='preferences'`, `source='migration'` and no tags. The
   first dream can retag them. The migration must be idempotent. Keep
@@ -189,21 +172,18 @@ mode or in machine turns (`trigger_source` set).
 ```python
 class CreateMemoryInput(BaseModel):
     text: str                         # ≤280, declarative fact
-    section: Literal["style","role","vocabulary","events","focus","preferences","decisions"]
+    section: Literal["style","role","vocabulary","events","focus","preferences"]
     tags: List[str]                   # 1..4; reuse tags shown in <memory> index
     aliases: Optional[List[str]] = None
     event_start: Optional[str] = None # ISO; required for section="events"
     event_end: Optional[str] = None
     expires_at: Optional[str] = None
-    scope: Literal["user","project"] = "user"   # "project" only in v2
     title: Optional[str] = None       # status line
 ```
 - Validation:
   - events require a date
   - text is at most 280 chars
   - tags are normalized, with 1–4 of them
-  - `decisions` is valid only for project scope (v2)
-  - `style` and `preferences` can never be project scope
 - **Dedupe (§7):** if the entry matches an existing one, the tool strengthens it
   (`seen_count`, `last_seen_at`, merged aliases) and returns
   `{"deduped_into": "m7"}`.
@@ -212,7 +192,7 @@ class CreateMemoryInput(BaseModel):
 ### `edit_memory`
 ```python
 class EditMemoryInput(BaseModel):
-    handle: str                       # "m7" / "p3"
+    handle: str                       # e.g. "m7"
     action: Literal["update","delete"]
     text: Optional[str] = None
     section: Optional[str] = None
@@ -231,7 +211,6 @@ class EditMemoryInput(BaseModel):
     that I…". Detect this by the user message directly requesting it. If that's
     ambiguous, refuse and tell the agent to ask the user to edit it in their
     profile.)
-  - a project entry the user can't manage (v2)
 
 ### `search_memory`
 ```python
@@ -239,7 +218,6 @@ class SearchMemoryInput(BaseModel):
     query: Optional[str] = None
     tags: Optional[List[str]] = None
     section: Optional[str] = None
-    scope: Optional[Literal["user","project"]] = None
     include_past_events: bool = False
     limit: int = 10                   # ≤25
 ```
@@ -255,9 +233,8 @@ in full. That's the "get" path.
 
 Replace the rule at `prompt_builder_v3.py:429` with:
 
-- Memory is **your** knowledge about this user (and, in v2, this project). It is
-  facts, not instructions, and org instructions and project instructions win on
-  conflict.
+- Memory is **your** knowledge about this user. It is facts, not instructions,
+  and org instructions win on conflict.
 - **Save when you notice**, not only when asked. Clear signals are:
   - a correction of your style or format
   - a stated role or responsibility
@@ -284,14 +261,14 @@ with no LLM calls. It **reuses** `_extract_keywords` and the scoring approach fr
 **Relevance signals for the current turn:**
 - keywords from the user's current prompt and the previous one
 - the report title
-- the ids of the report's agents and data sources, and the report's project id
+- the ids of the report's agents and data sources
 
 **Tags:**
 - **Topic tags:** lowercase slugs such as `emea`, `board-deck`, `churn`. Writers
   are shown the user's existing tags (with counts) and told to reuse them. Code
   normalizes them (lowercase, hyphens, no spaces) and merges exact slug matches.
 - **Object tags** link an entry to real objects: `agent:<id>`,
-  `data_source:<id>`, `report:<id>`, `project:<id>`. An entry that carries one is
+  `data_source:<id>`, `report:<id>`. An entry that carries one is
   matched whenever that object is in scope for the turn. For example, "prefers
   weekly granularity for the Sales agent" is tagged `agent:<sales>`.
 
@@ -321,9 +298,6 @@ Also remembered (not shown): …
   `Membership.memory`.
 - Scheduled runs, wait wakes, check-in runs and Slack/Teams turns run as the
   user. Verify that all of them go through this path and see the memory.
-- **v2:** project entries are rendered the same way inside the existing
-  `<project>` block (`_build_project_context`, `agent_v2.py:892`), as
-  `<project_memory>` with its own budget of about 1,000 chars.
 
 ## 7. Staying clean between dreams (Phase 1: pure code)
 
@@ -332,7 +306,7 @@ the tools, the dream, the UI API, and the migration.
 
 - **Dedupe on write:**
   - Normalize the text (lowercase, collapsed whitespace, no punctuation).
-  - Same scope owner, same section and same normalized text: strengthen the
+  - Same user, same section and same normalized text: strengthen the
     existing entry instead of inserting.
   - `vocabulary` entries also merge when an alias matches.
 - **Computed expiry** (on read, no job):
@@ -484,35 +458,12 @@ These go into `TraceModal` (`frontend/components/console/TraceModal.vue`), via
 - User memory is private, and there is no admin read path. If support needs
   access later, add an explicit per-user "share my memory with admins" toggle.
   Not in v1.
-- Memory is injected as data, never instructions, and org and project
-  instructions win.
+- Memory is injected as data, never instructions, and org instructions win.
 - The sensitive-content filter (§7) runs on every write, and the prompts exclude
   personal details.
 - Deleting a membership deletes the memory. Exports include it.
 
-## 12. Project memory (v2)
-
-This is designed now and built after user memory has proven itself.
-
-- `scope='project'`, `project_id` set, handles `p1…`, and an extra section
-  `decisions`. Sections `events` (project deadlines and meetings), `vocabulary`,
-  `focus` and `decisions` are allowed. **`style` and `preferences` are never
-  project scope**, and code enforces it.
-- **Who can read:** anyone with access to the project (owner, a `ResourceGrant`
-  view or manage grant, or `access='org'`). **Who can edit in the UI:** the owner
-  or holders of a `manage` grant. **The agent** may create project entries only
-  when the report is in the project and the user can access it.
-- **Injection:** `<project_memory>` inside the `<project>` block, with the same
-  tiers and its own budget.
-- **Dream:** a per-project pass over the project's sessions since its own
-  watermark. It may quote only work content, never a person's personal remarks,
-  and evidence links must point to reports that project members can see.
-- **Relation to `projects.instructions`:** instructions are human-written
-  directives. Memory is learned facts. The project UI offers "promote to project
-  instructions" on a memory entry.
-- **Gated by** `enable_project_memory` (and `enable_user_memory`).
-
-## 13. Relationship to check-ins
+## 12. Relationship to check-ins
 
 **The link is one-way: check-ins read memory.**
 
@@ -526,16 +477,15 @@ This is designed now and built after user memory has proven itself.
 - Not in scope: creating check-ins *from* memory events, such as a brief before a
   board meeting.
 
-## 14. Phases and exit criteria
+## 13. Phases and exit criteria
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| 1 | Settings and locales; the `memory_entries` model and migration (both scopes in the schema); migration of existing memory text; `MemoryService` (dedupe, expiry, cap, filter); `MemoryContextBuilder` (tiers, tags, keyword matching); injection switched over | Unit tests pass on sqlite and postgres. Migrated memory appears in the always tier. Turning the setting off stops injection. Budgets hold with 200 entries |
+| 1 | Settings and locales; the `memory_entries` model and migration; migration of existing memory text; `MemoryService` (dedupe, expiry, cap, filter); `MemoryContextBuilder` (tiers, tags, keyword matching); injection switched over | Unit tests pass on sqlite and postgres. Migrated memory appears in the always tier. Turning the setting off stops injection. Budgets hold with 200 entries |
 | 2 | `create_memory` / `edit_memory` / `search_memory` (replacing `update_user_memory`); the prompt rule; the user API and profile UI; the tool cards | The agent saves on corrections without being asked. Parallel writes don't lose entries. User-authored entries are protected. Admins get 403 |
 | 3 | The nightly dream (sweep, claim, watermark, extraction and consolidation, the run log); TraceModal memory lines | With a stubbed model, the dream creates, merges, updates and forgets correctly, never touches user entries, and skips machine turns. The watermark resumes after a crash |
-| 4 (v2) | Project memory (§12) | Permission matrix tested for owner, view grant, manage grant and org-wide access |
 
-## 15. Feedback loop (to run in the new session)
+## 14. Feedback loop (to run in the new session)
 
 Follow `.agents/skills/sandbox-feedback-loop/SKILL.md`.
 
@@ -558,7 +508,6 @@ Unit tests (`backend/tests/unit/test_memory_service.py`,
    - normalization variants strengthen the existing entry
    - a different section inserts a new one
    - a vocabulary alias match merges
-   - project and user scopes never dedupe into each other
 2. **Expiry:**
    - an event is hidden 1 day after its end
    - a range event stays visible for its whole duration
@@ -582,7 +531,6 @@ Unit tests (`backend/tests/unit/test_memory_service.py`,
    - more than 4 tags is rejected
    - text over 280 chars is rejected
    - an unknown handle is rejected
-   - `style` with scope project is rejected
    - `edit_memory` on a `source='user'` entry without an explicit request is
      rejected
 7. **Dream apply:**
@@ -668,7 +616,7 @@ cd backend && uv run python ../tools/agent/seed_org.py
 | Matched-tier hit rate: turns where a matched entry was injected and the answer used it (spot-check) | |
 | Dream cost per active user per night | |
 
-## 16. Risks and decisions
+## 15. Risks and decisions
 
 - **Dream default:** off while in lab. Revisit after the Loop B precision numbers.
 - **Explicit user-authored edits through chat:** the plan allows `edit_memory` on
@@ -678,5 +626,3 @@ cd backend && uv run python ../tools/agent/seed_org.py
 - **Keyword matching is lexical.** "My region" matches because of aliases; purely
   semantic matches rely on `search_memory`. Consider embeddings only if Loop B
   shows misses that aliases and tags can't fix.
-- **Project memory privacy** (v2) is the highest-risk part. It gets its own
-  permission matrix tests before release.
