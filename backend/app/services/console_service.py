@@ -84,6 +84,9 @@ _NON_TURN_USAGE_SCOPE_PREFIXES = (
 _NON_TURN_USAGE_SCOPES = (
     "tool_call_judge",
     "webhook_classifier",
+    # Agent check-ins: planner/judge are priced on their own check-in card.
+    "checkin_planner",
+    "checkin_judge",
 )
 
 
@@ -2110,6 +2113,7 @@ class ConsoleService:
                 UserCompletion.id.label('user_completion_id'),
                 UserCompletion.prompt.label('user_prompt'),
                 UserCompletion.role.label('user_role'),
+                UserCompletion.trigger_source.label('trigger_source'),
                 UserCompletion.external_platform.label('external_platform'),
                 UserCompletion.instructions_effectiveness.label('instructions_effectiveness'),
                 UserCompletion.context_effectiveness.label('context_effectiveness'),
@@ -2269,6 +2273,9 @@ class ConsoleService:
             tail = _re.sub(r'\s+', ' ', tail).strip()
             return tail
 
+        checkins = await self._report_checkins(db, organization, str(report.id))
+        checkin_by_run = {c.run_completion_id: c.id for c in checkins if c.run_completion_id}
+
         turns: List[ConversationTurnSchema] = []
         failed_turns = 0
         negative_feedback_turns = 0
@@ -2289,6 +2296,8 @@ class ConsoleService:
                 user_completion_id=str(r.user_completion_id) if r.user_completion_id else None,
                 user_prompt=_text(r.user_prompt)[:2000],
                 role=r.user_role or 'user',
+                trigger_source=r.trigger_source,
+                checkin_id=checkin_by_run.get(str(r.completion_id)) if r.completion_id else None,
                 completion_id=str(r.completion_id) if r.completion_id else None,
                 agent_execution_id=str(r.ae_id),
                 assistant_content=_clean_answer(r.assistant_completion)[:2000],
@@ -2365,7 +2374,58 @@ class ConsoleService:
             total_llm_tokens=total_llm_tokens,
             total_llm_cost_usd=total_llm_cost_usd,
             turns=turns,
+            checkins=checkins,
         )
+
+    async def _report_checkins(self, db: AsyncSession, organization: Organization, report_id: str) -> list:
+        """Every agent check-in row for the report, with planner/judge LLM usage
+        (llm_usage_records scoped checkin_planner / checkin_judge, keyed by the
+        check-in id)."""
+        from app.models.agent_checkin import AgentCheckin
+        from app.schemas.agent_execution_trace_schema import CheckinTraceSchema
+
+        rows = (await db.execute(
+            select(AgentCheckin).where(
+                AgentCheckin.report_id == report_id,
+                AgentCheckin.organization_id == str(organization.id),
+                AgentCheckin.deleted_at.is_(None),
+            ).order_by(AgentCheckin.created_at.asc())
+        )).scalars().all()
+        if not rows:
+            return []
+        ids = [str(r.id) for r in rows]
+        usage: dict = {}
+        uq = (
+            select(
+                LLMUsageRecord.scope_ref_id,
+                LLMUsageRecord.scope,
+                func.coalesce(func.sum(_row_total_tokens_expr()), 0),
+                func.coalesce(func.sum(LLMUsageRecord.total_cost_usd), 0),
+            )
+            .where(
+                LLMUsageRecord.scope.in_(("checkin_planner", "checkin_judge")),
+                LLMUsageRecord.scope_ref_id.in_(ids),
+            )
+            .group_by(LLMUsageRecord.scope_ref_id, LLMUsageRecord.scope)
+        )
+        for ref_id, scope, tokens, cost in (await db.execute(uq)).all():
+            usage[(str(ref_id), scope)] = (int(tokens or 0) or None, round(float(cost or 0), 6) or None)
+        out = []
+        for r in rows:
+            p_tok, p_cost = usage.get((str(r.id), "checkin_planner"), (None, None))
+            j_tok, j_cost = usage.get((str(r.id), "checkin_judge"), (None, None))
+            out.append(CheckinTraceSchema(
+                id=str(r.id), status=r.status, status_reason=r.status_reason,
+                source_completion_id=r.source_completion_id, run_completion_id=r.run_completion_id,
+                note=r.note, plan_reason=r.plan_reason, due_at=r.due_at,
+                judge_decision=r.judge_decision, judge_reason=r.judge_reason, judge_focus=r.judge_focus,
+                judged_at=r.judged_at, notified=bool(r.notified), notify_subject=r.notify_subject,
+                sent_at=r.sent_at,
+                planner_llm_tokens=p_tok, planner_llm_cost_usd=p_cost,
+                judge_llm_tokens=j_tok, judge_llm_cost_usd=j_cost,
+                created_at=r.created_at,
+            ))
+        return out
 
     async def get_agent_execution_summaries(
         self,

@@ -461,6 +461,11 @@
         "title": "⚡ \"{name}\" הופעל — {summary}",
         "body": "החקירה הושלמה — פתחו את הסשן לצפייה בממצאים."
       }
+    },
+    "checkin": {
+      "badge": "מעקב",
+      "openReport": "פתח דוח",
+      "assistantFallback": "אנליסט AI"
     }
   },
   "auth": {
@@ -948,7 +953,61 @@
     "stepTotal": "סך הצעד",
     "firstToken": "זמן עד הטוקן הראשון",
     "thinking": "חשיבה",
-    "tool": "כלי"
+    "tool": "כלי",
+    "machineTurn": "תור אוטומטי ({source})",
+    "checkin": {
+      "title": "מעקב יזום של הסוכן",
+      "runTurn": "הרצת מעקב (יזום של הסוכן)",
+      "noFollowUp": "לא תוכנן מעקב",
+      "noReason": "המתכנן לא נתן סיבה.",
+      "due": "מתוזמן ל-{when}",
+      "note": "הערה לעצמי",
+      "planReason": "למה מעקב",
+      "judge": "שופט",
+      "focus": "מיקוד",
+      "whyRun": "למה השופט הריץ את המעקב",
+      "plannerUsage": "מתכנן",
+      "judgeUsage": "שופט",
+      "status": {
+        "not_proposed": "לא הוצע",
+        "rejected": "נדחה",
+        "planned": "מתוכנן",
+        "cancelled": "בוטל",
+        "skipped": "דולג",
+        "running": "רץ",
+        "ran_quiet": "רץ בשקט",
+        "sent": "נשלחה התראה",
+        "failed": "נכשל"
+      },
+      "decision": {
+        "run": "להריץ",
+        "skip": "לדלג"
+      },
+      "reason": {
+        "disabled": "ההגדרה כבויה",
+        "pending_exists_user": "כבר יש למשתמש מעקב ממתין",
+        "pending_exists_report": "כבר יש לדוח מעקב ממתין",
+        "weekly_cap": "הגיע למגבלה השבועית",
+        "org_daily_cap": "הארגון הגיע למגבלה היומית",
+        "report_deleted": "הדוח נמחק",
+        "access_lost": "הגישה בוטלה",
+        "judge_skip": "השופט דילג",
+        "run_failed": "ההרצה נכשלה",
+        "invalid_judge_output": "תשובת השופט לא תקינה",
+        "opted_out": "המשתמש ביטל הסכמה"
+      },
+      "outcome": {
+        "sent": "נשלחה התראה למשתמש",
+        "sentWithSubject": "נשלחה התראה למשתמש: {subject}",
+        "ran_quiet": "רץ בשקט — אין מה לדווח",
+        "planned": "ממתין למועד",
+        "running": "רץ כעת",
+        "skipped": "השופט דילג — לא רץ דבר",
+        "failed": "הרצת המעקב נכשלה — לא נשלח דבר",
+        "rejected": "לא תוזמן: {reason}",
+        "cancelled": "בוטל: {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "צ'אט",
@@ -2660,6 +2719,18 @@
         "llm_fallback": {
           "name": "גיבוי LLM",
           "description": "ארגוני. כשהמודל הפעיל נכשל בשל הגבלת קצב, עומס אצל הספק או שגיאת רשת, הבקשה נשלחת אוטומטית שוב למודל הבא בסדר הגיבוי (שמוגדר בעמוד ה-LLM) למשך שארית הריצה. ההחלפה תמיד מדווחת בצ'אט. כבוי כברירת מחדל; ההפעלה מחייבת רישיון ארגוני."
+        },
+        "enable_agent_checkins": {
+          "name": "מעקב יזום של הסוכן",
+          "description": "מאפשר לסוכן לחזור לשיחה ביוזמתו כשיש משהו ששווה לבדוק שוב (למשל אחרי רענון נתונים). המעקב רץ בשם המשתמש באותו דוח, ומודיע לו רק כשמשהו השתנה באופן משמעותי."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "מעקבים למשתמש בשבוע",
+          "description": "מספר המעקבים המרבי שמשתמש אחד יכול לקבל ב-7 ימים."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "הרצות מעקב ביום",
+          "description": "תקרה להרצות מעקב בכל הארגון ביום (הגבלת עלות)."
         }
       }
     },
@@ -4675,7 +4746,11 @@
       "defaultModelSaved": "מודל ברירת המחדל עודכן",
       "defaultModelFailed": "עדכון מודל ברירת המחדל נכשל",
       "directorySubtitle": "פרטי התפקיד מסונכרנים מספק הזהויות של הארגון. גלויים ל-AI כהקשר.",
-      "directoryTitle": "פרופיל מהספרייה הארגונית"
+      "directoryTitle": "פרופיל מהספרייה הארגונית",
+      "checkinsTitle": "מעקב יזום של הסוכן",
+      "checkinsSubtitle": "מאפשר לסוכן לחזור לשיחה ביוזמתו כשיש משהו ששווה לבדוק שוב (למשל אחרי רענון נתונים). הוא ישלח לך התראה רק כשמשהו השתנה באופן משמעותי.",
+      "checkinsSaved": "העדפת המעקב נשמרה",
+      "checkinsFailed": "לא ניתן לשמור את העדפת המעקב"
     },
     "instructions": {
       "title": "הוראות מותאמות אישית",
@@ -4993,7 +5068,15 @@
   },
   "events": {
     "evalRunFinished": "ריצת בדיקת האיכות '{title}' הסתיימה — {passed}/{total} עברו ({status})",
-    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}"
+    "waitResumed": "ההמתנה הסתיימה — ממשיך: {reason}",
+    "checkin": {
+      "label": "מעקב",
+      "running": "חוזר לשיחה הזו למעקב…",
+      "sent": "מעקב — נשלחה אליך התראה",
+      "sentWithSubject": "מעקב — נשלחה אליך התראה: {subject}",
+      "quiet": "נבדק שוב: אין חדש",
+      "failed": "המעקב נכשל"
+    }
   },
   "sessionEvents": {
     "run_stopped": "ההרצה הופסקה",

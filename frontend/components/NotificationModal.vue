@@ -81,11 +81,27 @@
               !n.read ? 'bg-blue-50/40 dark:bg-blue-500/[0.06]' : ''
             ]"
           >
-            <div :class="['mt-0.5 flex items-center justify-center w-7 h-7 rounded-full shrink-0', sevBg(n)]">
+            <div
+              v-if="isCheckin(n)"
+              class="mt-0.5 flex items-center justify-center w-7 h-7 rounded-full shrink-0 bg-gradient-to-br from-blue-500 to-indigo-500 text-white shadow-sm"
+              data-testid="checkin-notification-avatar"
+            >
+              <UIcon name="i-heroicons-sparkles" class="w-4 h-4" />
+            </div>
+            <div v-else :class="['mt-0.5 flex items-center justify-center w-7 h-7 rounded-full shrink-0', sevBg(n)]">
               <UIcon :name="iconFor(n)" :class="['w-4 h-4', sevText(n)]" />
             </div>
 
-            <div class="min-w-0 flex-1 pe-5">
+            <div class="min-w-0 flex-1 pe-5" :data-testid="isCheckin(n) ? 'checkin-notification' : undefined">
+              <!-- Agent follow-up: reads like a message from the assistant -->
+              <div v-if="isCheckin(n)" class="flex items-center gap-1.5 text-[11px] text-gray-500 dark:text-gray-400 mb-0.5">
+                <span class="font-medium text-gray-700 dark:text-gray-300" dir="auto">{{ assistantName }}</span>
+                <span class="text-gray-300 dark:text-gray-600">&middot;</span>
+                <span class="inline-flex items-center gap-0.5 px-1.5 py-px rounded-full bg-blue-50 dark:bg-blue-500/10 text-blue-600 dark:text-blue-300">
+                  <UIcon name="i-heroicons-arrow-path-rounded-square" class="w-3 h-3" />
+                  {{ $t('notifications.checkin.badge') }}
+                </span>
+              </div>
               <div class="flex items-center gap-2">
                 <span
                   :class="[
@@ -95,7 +111,11 @@
                 >{{ displayTitle(n) }}</span>
                 <span v-if="!n.read" class="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
               </div>
-              <p v-if="displayBody(n)" class="text-[12px] text-gray-500 dark:text-gray-400 mt-0.5 line-clamp-2">{{ displayBody(n) }}</p>
+              <p v-if="displayBody(n)" :class="['text-[12px] text-gray-500 dark:text-gray-400 mt-0.5', isCheckin(n) ? 'line-clamp-3 whitespace-pre-line' : 'line-clamp-2']" dir="auto">{{ displayBody(n) }}</p>
+              <span v-if="isCheckin(n) && n.link" class="inline-flex items-center gap-0.5 mt-1 text-[11px] font-medium text-blue-600 dark:text-blue-400">
+                {{ $t('notifications.checkin.openReport') }}
+                <UIcon name="i-heroicons-arrow-right-20-solid" class="w-3 h-3 rtl-flip" />
+              </span>
               <span class="text-[11px] text-gray-400 dark:text-gray-500 mt-1 block">{{ relativeTime(n.created_at) }}</span>
             </div>
 
@@ -159,6 +179,7 @@ const TYPE_ICONS: Record<string, string> = {
   // A failed unattended run reads as an alert, not as the automation that
   // produced it — so it keeps the warning glyph whichever kind it came from.
   automation_failed: 'i-heroicons-exclamation-triangle',
+  checkin_followup: 'i-heroicons-arrow-path-rounded-square',
 }
 const SOURCE_ICONS: Record<string, string> = {
   review: 'i-heroicons-bell-alert',
@@ -166,12 +187,26 @@ const SOURCE_ICONS: Record<string, string> = {
   schedule: 'i-heroicons-clock',
   trigger: 'i-heroicons-bolt',
   report_tool: 'i-heroicons-sparkles',
+  checkin: 'i-heroicons-arrow-path-rounded-square',
 }
 function iconFor(n: BowNotification): string {
   return TYPE_ICONS[n.type] || SOURCE_ICONS[n.source] || 'i-heroicons-bell'
 }
 
 const { relativeTime } = useRelativeTime()
+
+// Agent check-in follow-ups are presented as a message from the assistant
+// (the org's AI analyst name), not as a system alert.
+const { data: currentUser } = useAuth()
+const { organization } = useOrganization()
+function isCheckin(n: BowNotification): boolean {
+  return n.source === 'checkin'
+}
+const assistantName = computed(() => {
+  const orgs = (currentUser.value as any)?.organizations || []
+  const org = orgs.find((o: any) => o.id === organization.value?.id) || orgs[0]
+  return org?.ai_analyst_name || t('notifications.checkin.assistantFallback')
+})
 
 // Title/body are stored in English at emit time (the backend can't know which
 // locale each future reader will use). Emit sites attach their interpolation

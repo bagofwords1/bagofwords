@@ -37,10 +37,15 @@ async def run_machine_turn(
     details: Optional[str] = None,
     meta: Optional[dict] = None,
     mode: Optional[str] = None,
-) -> None:
+    on_event=None,
+):
     """Post a visible machine event on ``report`` and run the agent on
     ``instruction`` as a hidden trigger. Blocks until the agent turn ends;
-    the event entry's status mirrors the outcome."""
+    the event entry's status mirrors the outcome. Returns the event entry.
+
+    ``on_event(event)`` (optional) is called with the event entry as soon as
+    it is committed — before the agent runs — so a caller can link to it even
+    if the run raises."""
     from app.schemas.completion_schema import PromptSchema
     from app.schemas.completion_v2_schema import CompletionCreate
     from app.services.completion_service import CompletionService
@@ -80,6 +85,11 @@ async def run_machine_turn(
     session.add(event)
     await session.commit()
     await session.refresh(event)
+    if on_event is not None:
+        try:
+            on_event(event)
+        except Exception:
+            pass
 
     try:
         await CompletionService().create_completion(
@@ -95,6 +105,7 @@ async def run_machine_turn(
         )
         event.status = "success"
         await session.commit()
+        return event
     except Exception as e:
         logger.error(f"machine turn ({trigger_source}) on report {report.id} failed: {e}")
         try:

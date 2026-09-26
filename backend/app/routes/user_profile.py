@@ -248,6 +248,61 @@ async def update_my_default_model(
     return UserDefaultModelSchema(model_id=model_id)
 
 
+class UserCheckinsSchema(BaseModel):
+    # True = the agent may follow up with this user on its own (check-ins).
+    enabled: bool = True
+    # Read-only: whether the org has agent check-ins turned on at all. The
+    # personal toggle only matters (and is only shown) while this is true.
+    available: bool = False
+
+
+async def _checkins_available(db: AsyncSession, organization: Organization) -> bool:
+    from app.services.checkin_policy import feature_enabled, load_org_settings
+    return feature_enabled(await load_org_settings(db, str(organization.id)))
+
+
+@router.get("/users/me/checkins", response_model=UserCheckinsSchema)
+async def get_my_checkins(
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """The current user's agent check-in preference in the active org."""
+    membership = await _get_current_membership(db, current_user, organization)
+    return UserCheckinsSchema(
+        enabled=not bool(getattr(membership, "checkins_opt_out", False)),
+        available=await _checkins_available(db, organization),
+    )
+
+
+@router.put("/users/me/checkins", response_model=UserCheckinsSchema)
+async def update_my_checkins(
+    payload: UserCheckinsSchema,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Opt in/out of agent check-ins for yourself. Opting out also cancels
+    your pending check-ins in this org right away."""
+    membership = await _get_current_membership(db, current_user, organization)
+    if membership is None:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    membership.checkins_opt_out = not payload.enabled
+    await db.commit()
+    if not payload.enabled:
+        from app.models.agent_checkin import AgentCheckin, REASON_OPTED_OUT
+        from app.services.checkin_service import checkin_service
+        await checkin_service._cancel_where(
+            db, REASON_OPTED_OUT,
+            AgentCheckin.organization_id == str(organization.id),
+            AgentCheckin.user_id == str(current_user.id),
+        )
+    return UserCheckinsSchema(
+        enabled=payload.enabled,
+        available=await _checkins_available(db, organization),
+    )
+
+
 class UserDefaultAgentsSchema(BaseModel):
     # data_source ids the user pinned in the prompt box. An EMPTY list is not
     # "no agents" — it is Auto, the absence of a pin, which the backend

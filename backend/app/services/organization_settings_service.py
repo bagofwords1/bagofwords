@@ -16,12 +16,15 @@ from app.schemas.organization_settings_schema import (
     SignupPolicySchema,
 )
 from datetime import datetime
+import logging
 import os
 import hashlib
 from PIL import Image
 from io import BytesIO
 from app.ee.audit.service import audit_service
 from app.core.telemetry import telemetry
+
+logger = logging.getLogger(__name__)
 
 
 class OrganizationSettingsService:
@@ -378,6 +381,18 @@ class OrganizationSettingsService:
                 db.add(settings) # Add settings to session if changed
                 await db.commit()
                 await db.refresh(settings)
+
+                # Agent check-ins turned off: remove every pending checkin:* job
+                # for the org right away and mark those rows cancelled:disabled,
+                # so no dormant job is left behind.
+                if 'enable_agent_checkins' in update_data['config']:
+                    try:
+                        from app.services.checkin_policy import feature_enabled
+                        if not feature_enabled(settings):
+                            from app.services.checkin_service import checkin_service
+                            await checkin_service.cancel_all_for_org(db, str(organization.id))
+                    except Exception:
+                        logger.warning("Failed to cancel pending check-ins on settings-off", exc_info=True)
 
                 # Drop the cached PII redactor so a toggle/rule change takes
                 # effect immediately instead of waiting out the loader TTL.

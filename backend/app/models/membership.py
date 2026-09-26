@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON
+from sqlalchemy import Column, ForeignKey, Table, String, DateTime, JSON, Boolean, false
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
 from app.models.base import BaseSchema
@@ -43,6 +43,10 @@ class Membership(BaseSchema):
     # <user_profile> context block alongside ``note``/``memory``. JSON object of
     # attribute name -> value ({} / NULL when nothing is synced).
     profile_attributes = Column(JSON, nullable=True)
+    # Per-user opt-out of agent check-ins (the agent's own follow-ups) in this
+    # org. Only meaningful while the org's enable_agent_checkins setting is on;
+    # respected at plan time (no planner call) and at fire time.
+    checkins_opt_out = Column(Boolean, nullable=False, default=False, server_default=false())
 
     user = relationship("User", back_populates="memberships")
     organization = relationship("Organization", back_populates="memberships")

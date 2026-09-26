@@ -118,15 +118,25 @@ class NotifyTool(Tool):
             )
             return
 
-        yield ToolStartEvent(
-            type="tool.start",
-            payload={"subject": data.subject, "recipient_count": len(data.recipients) + 1},
-        )
-
         db = runtime_ctx.get("db")
         user = runtime_ctx.get("user")
         organization = runtime_ctx.get("organization")
         report = runtime_ctx.get("report")
+
+        # Agent check-in run (the agent following up on its own): self only,
+        # at most one call, and only while the org setting is on.
+        checkin = None
+        head = runtime_ctx.get("head_completion")
+        if getattr(head, "trigger_source", None) == "checkin":
+            refusal, checkin = await self._checkin_guard(db, organization, report, data)
+            if refusal:
+                yield ToolErrorEvent(type="tool.error", payload=refusal)
+                return
+
+        yield ToolStartEvent(
+            type="tool.start",
+            payload={"subject": data.subject, "recipient_count": len(data.recipients) + 1},
+        )
 
         if not db or not user or not organization:
             yield ToolEndEvent(
@@ -149,6 +159,14 @@ class NotifyTool(Tool):
         try:
             from app.services.notify_service import notify_service
 
+            extra = {}
+            if checkin is not None:
+                from app.models.notification import SOURCE_CHECKIN
+                extra = {
+                    "source": SOURCE_CHECKIN,
+                    "notification_type": "checkin_followup",
+                    "subject_extra": {"checkin_id": str(checkin.id)},
+                }
             result = await notify_service.notify(
                 db,
                 sender=user,
@@ -160,7 +178,14 @@ class NotifyTool(Tool):
                 attachment_specs=data.attachments,
                 recipient_emails=data.recipients,
                 system_completion=runtime_ctx.get("system_completion"),
+                **extra,
             )
+            if checkin is not None and result.get("success"):
+                from datetime import datetime as _dt
+                checkin.notified = True
+                checkin.notify_subject = (data.subject or "")[:280]
+                checkin.sent_at = _dt.utcnow()
+                await db.commit()
         except Exception as e:
             logger.exception("notify failed: %s", e)
             yield ToolErrorEvent(
@@ -192,3 +217,26 @@ class NotifyTool(Tool):
                 "observation": {"summary": summary, "success": result["success"], "artifacts": []},
             },
         )
+
+    @staticmethod
+    async def _checkin_guard(db, organization, report, data):
+        """Returns (refusal_payload | None, running AgentCheckin | None)."""
+        from app.services.checkin_policy import feature_enabled, load_org_settings
+        from app.services.checkin_service import checkin_service
+
+        if db is None or organization is None or report is None:
+            return {"error": "Check-in notifications need a report context.", "code": "CHECKIN_CONTEXT"}, None
+        settings_row = await load_org_settings(db, str(organization.id))
+        if not feature_enabled(settings_row):
+            return {"error": "Agent check-ins are turned off for this organization; nothing was sent.",
+                    "code": "CHECKIN_DISABLED"}, None
+        if data.recipients:
+            return {"error": "During a check-in you may only notify the user this follow-up is for. "
+                             "Leave recipients empty.", "code": "CHECKIN_SELF_ONLY"}, None
+        checkin = await checkin_service.running_checkin_for_report(db, str(report.id))
+        if checkin is None:
+            return {"error": "No running check-in found for this report.", "code": "CHECKIN_CONTEXT"}, None
+        if checkin.notified:
+            return {"error": "You already notified the user in this check-in. Only one notification is allowed.",
+                    "code": "CHECKIN_ALREADY_NOTIFIED"}, None
+        return None, checkin

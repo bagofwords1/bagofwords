@@ -107,6 +107,7 @@ from app.models.project import Project, project_data_source_association, project
 from app.models.agent_automation_run import AgentAutomationRun
 from app.models.review_item import ReviewItem
 from app.models.notification import Notification
+from app.models.agent_checkin import AgentCheckin
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,
