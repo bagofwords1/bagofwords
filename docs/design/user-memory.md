@@ -1,90 +1,97 @@
-# Per-user memory: entries, capture and a generated profile
+# Memory: user memory (v1) and project memory (v2)
 
 Status: **plan** (nothing implemented yet). Build it as a sandbox feedback loop
 (`.agents/skills/sandbox-feedback-loop/SKILL.md`). The loop report goes in
 `docs/feedback-loops/user-memory.md`.
 
-Related plan: `docs/design/agent-checkins.md`. Check-ins **read** memory, but
-memory does not depend on check-ins (see §11).
+Related plan: `docs/design/agent-checkins.md`. Check-ins **read** memory;
+memory never depends on check-ins (§13).
 
 ## 1. What we are building
 
-Today the agent keeps one free-text memory document per user per org. We are
-replacing it with:
+- **Memory entries.** One row per durable fact, with a section, tags, optional
+  dates, and provenance (the report, the turn, and a short quote).
+  - **v1: user scope.** Facts about the person. Private to that user.
+  - **v2: project scope.** Facts about the work in a project folder. Visible to
+    everyone who has access to the project. The table supports both scopes from
+    day one.
+- **Three agent tools**, named like the existing instruction and note tools:
+  `create_memory`, `edit_memory` and `search_memory`. The agent saves memory
+  **whenever it notices something durable**, not only when asked.
+- **A tiered memory context builder.** Budgets are fixed no matter how many
+  entries a user has. It has four parts:
+  - an **always** part: style, role, preferences and upcoming events
+  - a **matched** part: entries whose tags or aliases match the current prompt,
+    report, agents or data sources
+  - an **index line** summarizing the rest
+  - `search_memory` for everything else
+- **A nightly dream** for each user who was active that day. It **extracts** new
+  memories from the day's sessions, then **consolidates** them: merges
+  duplicates, replaces outdated facts, retags entries, and updates the user's
+  current focus.
+- **A memory UI in the user's profile.** The user can view, edit, add and delete
+  entries, see where each one came from, and forget everything.
+- **Org settings gate every step.**
 
-- **Memory entries.** One row per fact about the user. Each entry has a section,
-  optional dates, and a record of where it came from. Entries are private to the
-  user.
-- **A generated profile.** Code, not an LLM, turns the active entries into a
-  compact document of about 2,000 characters. The profile is injected into every
-  turn exactly where `<user_memory>` goes today.
-- **Two ways to write memory:**
-  1. The agent in the live turn, using an operations-based tool (add, update,
-     forget). It never rewrites the whole document.
-  2. A **silent capture pass after the turn** (small model, background). It picks
-     up things the user said or did that are worth remembering, without being
-     asked.
-- **A memory UI in the user's profile.** Entries are listed by section. The user
-  can edit, delete and add entries, see where each one came from, and forget
-  everything.
-- **Org settings gate everything.**
+### What goes into user memory
 
-**What memory is about.** Memory covers the person, not the data:
-
-| Section | What goes in it | Example |
+| Section | Content | Example |
 |---|---|---|
-| `style` | Writing and output style | "Prefers short answers with the number first, then one line of context"; "Writes to execs, likes bullet summaries"; "Amounts in €M, one decimal" |
+| `style` | Writing and output style | "Prefers the number first, then one line of context"; "Amounts in €M, one decimal"; "Writes for execs: bullet summaries" |
 | `role` | Role and work context | "Finance, owns EMEA revenue reporting; presents to the CFO monthly" |
 | `vocabulary` | Their own words for things | "'my region' = EMEA"; "'the board deck' = report *Q3 Board Pack*" |
-| `events` | Dated things in their work life: **meetings, deadlines, reviews, travel, time off** | "Board meeting Thu 2026-10-09"; "Out of office 2026-10-13 → 10-17"; "Quarterly business review 2026-10-20" |
-| `focus` | What they are working on right now | "Investigating Q3 churn (since 2026-09-20)" |
-| `preferences` | How they like to work with the agent | "Wants the SQL shown"; "Asks before running expensive queries"; "Prefers tables over charts" |
+| `events` | Dated items in their work life: meetings, deadlines, reviews, travel, time off | "Board meeting Thu 2026-10-09"; "Out of office 2026-10-13 → 10-17" |
+| `focus` | What they are working on now | "Investigating Q3 churn (since 2026-09-20)" |
+| `preferences` | How they like to work with the agent | "Wants the SQL shown"; "Asks before running expensive queries" |
 
 **Never stored:**
-- query results, numbers, counts or other data values (they go stale and then
-  read as fact)
+- query results or data values
 - secrets or credentials
 - facts about other people
-- org-wide definitions or business rules. Those belong in **instructions**; the
-  existing knowledge harness handles them.
+- health or other personal details (events are limited to work availability)
+- org-wide definitions or business rules. Those are **instructions**, and the
+  knowledge harness handles them.
 
-### Out of scope for v1
+### Out of scope
 
-- **Nightly consolidation.** No background LLM process that merges or rewrites
-  entries. v1 relies on dedupe when entries are written, expiry computed in code,
-  and a per-user cap (§6).
-- A calendar or email integration. Events come **only from conversations**.
-- Proposing org instructions based on patterns across users.
-- A recall or search tool. The profile is the only read path in v1.
+- A calendar or email integration. Events come only from conversations.
+- Proposing org instructions from patterns across users.
+- Admin access to user memory (by design, §11).
 
 ## 2. Current state (checked against the code)
 
 | What | Where |
 |---|---|
-| `Membership.memory` (text, one per user per org) | `backend/app/models/membership.py:17-25` |
-| Cap of 2,000 characters | `MEMBERSHIP_MEMORY_MAX_LENGTH`, `backend/app/schemas/organization_schema.py:15` |
-| `update_user_memory` tool: full rewrite, `allowed_modes=["chat"]` | `backend/app/ai/tools/implementations/update_user_memory.py`, schema in `backend/app/ai/tools/schemas/update_user_memory.py` |
-| Loading memory for a turn | `_resolve_user_profile()`, `backend/app/ai/agent_v2.py:979-1010` |
+| `Membership.memory` (one text field per user per org), 2,000-char cap | `backend/app/models/membership.py:17-25`; `MEMBERSHIP_MEMORY_MAX_LENGTH` in `backend/app/schemas/organization_schema.py:15` |
+| `update_user_memory` tool: rewrites the whole document, `allowed_modes=["chat"]` | `backend/app/ai/tools/implementations/update_user_memory.py`; schema in `backend/app/ai/tools/schemas/update_user_memory.py` |
+| Loading memory | `_resolve_user_profile()`, `backend/app/ai/agent_v2.py:979-1010` |
 | Injection as `<user_memory>` in the per-turn user message (outside the cached prefix) | `PromptBuilderV3._format_user_memory`, `backend/app/ai/agents/planner/prompt_builder_v3.py:594-607`, used at `:855` |
-| Prompt rule (declarative facts, org instructions win, nothing one-off or sensitive) | `prompt_builder_v3.py:429` |
-| Profile API: GET/PUT the memory text | `backend/app/routes/user_profile.py:38-100` |
-| Profile UI: one textarea | `frontend/components/UserProfileModal.vue:253-262, 743-766` |
+| Prompt rule for memory | `prompt_builder_v3.py:429` |
+| Profile API (GET/PUT the memory text) | `backend/app/routes/user_profile.py:38-100` |
+| Profile UI (one textarea) | `frontend/components/UserProfileModal.vue:253-262, 743-766` |
 | Tool card in the report timeline | `frontend/pages/reports/[id]/index.vue`, `frontend/pages/c/[token]/index.vue` |
-| Post-turn hook, also used by the check-ins plan | `backend/app/ai/agent_v2.py:6796-6818` |
-| Org settings pattern | `backend/app/schemas/organization_settings_schema.py:340-360` (e.g. `enable_agent_notes`); `locales/*.json` |
+| Tool naming convention to mirror | `ai/tools/implementations/{create,edit,search,read}_instruction.py`, `{create,edit}_note.py` |
+| Keyword matching to reuse (always vs intelligent, keyword extraction, relevance gate) | `backend/app/ai/context/builders/instruction_context_builder.py` (`_extract_keywords`, `search_instructions` `:377`, `build` `:481`) |
+| Project model (folder, access `private`/`org` plus `ResourceGrant` view/manage, human-written `instructions`) | `backend/app/models/project.py:28-60` |
+| Project context block `<project>` | `_build_project_context`, `backend/app/ai/agent_v2.py:892-957` |
+| Scheduler, leader-only jobs, exactly-once claim | `backend/main.py:470-611`; `claim_scheduled_run`, `backend/app/core/scheduler.py:109` |
+| Rolling session summary per report | `backend/app/models/report_context_state.py` (`summary_json`); `services/context_compaction_service.py` |
+| Org settings pattern | `backend/app/schemas/organization_settings_schema.py:340-360`; names and descriptions in `locales/*.json` |
 
-Problems with the current design:
+There is **no** DB-backed work queue (`skip_locked` isn't used anywhere). The
+dream uses leader-driven, bounded-concurrency processing with per-user claims
+(§8).
 
-- **Full rewrite loses data.** Two parallel sessions overwrite each other, and
-  the model silently drops lines when it prunes.
-- **Writes are explicit only.** Memory is saved only when the user asks, so style
-  and events the user never phrased as "remember this" are lost.
-- **No provenance and no dates.** There is no way to expire an event after it
-  happens, to let the user's focus move on, or to answer "why do you know this?".
+Problems with today's design:
+- The full rewrite loses data under parallel sessions, and the model drops lines
+  when it prunes.
+- Memory is saved only on explicit requests.
+- There's no provenance, no dates, and no expiry.
+- A single 2k document can't grow.
 
 ## 3. Settings (Phase 1)
 
-Add to `OrganizationSettingsConfig`:
+Add these fields to `OrganizationSettingsConfig`:
 
 ```python
 enable_user_memory: FeatureConfig = FeatureConfig(
@@ -93,341 +100,442 @@ enable_user_memory: FeatureConfig = FeatureConfig(
                 "writing style, role, their vocabulary, upcoming meetings and events, "
                 "current focus. Each user can see, edit and delete their memory.",
     is_lab=False, editable=True)
-enable_user_memory_capture: FeatureConfig = FeatureConfig(
-    value=False, name="Automatic memory capture",
-    description="After each conversation, quietly note things worth remembering "
-                "about the user (style, events, vocabulary) even if they didn't "
-                "ask. Requires User memory.",
+enable_memory_dreaming: FeatureConfig = FeatureConfig(
+    value=False, name="Nightly memory learning",
+    description="Each night, review the day's conversations of active users to "
+                "learn new memories and tidy existing ones (merge duplicates, "
+                "retire outdated facts). Requires User memory.",
+    is_lab=True, editable=True)
+# v2
+enable_project_memory: FeatureConfig = FeatureConfig(
+    value=False, name="Project memory",
+    description="Let the agent remember facts about the work in a project "
+                "(decisions, deadlines, project vocabulary), shared with everyone "
+                "who can access the project. Requires User memory.",
     is_lab=True, editable=True)
 ```
 
 - `enable_user_memory` defaults to **on**, because memory exists today. Turning it
   off does three things:
-  - hides the memory tool
-  - stops injecting the profile
-  - hides the memory section in the profile UI
+  - hides the tools
+  - stops injection
+  - hides the UI section and makes the API return 403 with a typed error code
 
-  It does **not** delete stored entries.
-- `enable_user_memory_capture` defaults to **off** while it is in lab. It only
-  takes effect when `enable_user_memory` is also on.
+  Entries are **kept**.
 - Add names and descriptions to **every** `locales/*.json` catalog. The catalogs
   must keep an identical shape. Hebrew follows the vocabulary rules in
   `AGENTS.md`.
 
 | Point | Gate |
 |---|---|
-| Injecting the profile into a turn | `enable_user_memory` |
-| Memory tool present in the catalog | `enable_user_memory` |
-| Dispatching the post-turn capture | `enable_user_memory` **and** `enable_user_memory_capture` |
-| Applying captured operations | Re-checked just before writing |
-| Memory API (read/write own entries) and profile UI section | `enable_user_memory`. When off, the API returns 403 with a typed error code and the UI hides the section |
-| Check-in planner and judge reading the profile | `enable_user_memory` |
+| Memory context injection | `enable_user_memory` |
+| `create_memory` / `edit_memory` / `search_memory` in the tool catalog | `enable_user_memory` |
+| Nightly dream: enqueueing orgs, then again per user before writing | `enable_user_memory` **and** `enable_memory_dreaming` |
+| Project scope in the tools, context and UI (v2) | also `enable_project_memory` |
+| User memory API and profile UI section | `enable_user_memory` |
+| Check-in planner and judge reading memory | `enable_user_memory` |
 
 ## 4. Data model (Phase 1)
 
-New table `user_memory_entries`. The model goes in
-`backend/app/models/user_memory_entry.py` with an Alembic migration in
-`backend/alembic/versions/`. It must work on both SQLite and Postgres.
+New table `memory_entries`. The model goes in `backend/app/models/memory_entry.py`
+with an Alembic migration in `backend/alembic/versions/`. It must work on both
+SQLite and Postgres.
 
 | Column | Type | Notes |
 |---|---|---|
 | `id` | str(36) pk | |
 | `organization_id` | FK, indexed | |
-| `user_id` | FK, indexed | Memory is per user **per org**, same as today |
-| `section` | str(16) | `style`, `role`, `vocabulary`, `events`, `focus`, `preferences` |
-| `text` | text, 280 chars max | One declarative fact ("Prefers…", "Board meeting…"). Never an imperative |
-| `aliases` | JSON list, nullable | Mainly for `vocabulary` and `focus`: other words the user uses for the same thing |
-| `event_start` | date or datetime, nullable | Required for `events` |
-| `event_end` | date or datetime, nullable | For ranges such as time off |
-| `expires_at` | datetime, nullable | Explicit expiry. When empty, the defaults in §6 apply |
-| `source` | str(16) | `user` (typed in the UI), `agent` (tool call in a turn), `capture` (post-turn pass), `migration` |
-| `evidence` | JSON, nullable | `{report_id, completion_id, quote}`. The quote is at most 200 chars of the user's own words |
-| `seen_count` | int, default 1 | Increased when the same fact is written again |
+| `scope` | str(8), indexed | `user` (v1) or `project` (v2) |
+| `user_id` | FK, indexed | For `user` scope, the owner. For `project` scope, the user whose session produced it |
+| `project_id` | FK projects, nullable, indexed | Required when `scope='project'` |
+| `handle` | str(12) | Stable short id, unique within (org, scope owner). `m1`, `m2`… for user scope; `p1`, `p2`… for project scope |
+| `section` | str(16) | `style`, `role`, `vocabulary`, `events`, `focus`, `preferences`, and for projects (v2) `decisions` |
+| `text` | text, at most 280 chars | One declarative fact, never an imperative |
+| `tags` | JSON list | 1–4 normalized slugs (§6) |
+| `aliases` | JSON list, nullable | Other words for the same thing (vocabulary, focus) |
+| `event_start` / `event_end` | datetime, nullable | `event_start` is required for `events` |
+| `expires_at` | datetime, nullable | When empty, the defaults in §7 apply |
+| `source` | str(12) | `user` (typed in the UI), `agent` (in-turn tool), `dream`, `migration` |
+| `evidence` | JSON, nullable | `{report_id, completion_id, quote}`. The quote is at most 200 chars of the user's own words and is filled by code, never by the model |
+| `seen_count` | int, default 1 | |
 | `last_seen_at` | datetime | |
-| `status` | str(16), indexed | `active`, `superseded`, `forgotten` (expiry is computed, not stored) |
+| `status` | str(12), indexed | `active`, `superseded`, `forgotten` |
 | `superseded_by_id` | str(36), nullable | |
 | `created_at` / `updated_at` | | From `BaseSchema` |
 
-Notes:
-- Each entry has a short display handle, `m` + a base36 sequence number per user,
-  shown in the profile so the tool can refer to it (`m7`). Either store it as a
-  `handle` column, or derive it from ordering. Pick one and keep it stable.
-- `forgotten` rows keep only their id, status and timestamps. Blank `text`,
-  `aliases` and `evidence` when an entry is forgotten, so forgetting really
-  removes the content.
-- When a membership is deleted, cascade the delete. Include entries in any user
-  data export.
+Rules:
+- **User-authored entries (`source='user'`) are changed only by the user.** The
+  tool and the dream may *read* them, and may *propose* in the trace that one
+  looks stale, but they never update, supersede or forget them.
+- `forgotten` blanks `text`, `aliases`, `tags` and `evidence`. Only the id, status
+  and timestamps are kept.
+- Deleting a membership deletes the user-scope entries. Deleting a project
+  deletes its project-scope entries. User data exports include user-scope
+  entries.
+- **Migration:** every non-empty `Membership.memory` becomes one entry per line
+  or bullet, with `section='preferences'`, `source='migration'` and no tags. The
+  first dream can retag them. The migration must be idempotent. Keep
+  `Membership.memory` read-only for one release so the change can be rolled back,
+  then drop it.
 
-**Migration of existing data.** For every non-empty `Membership.memory`, split
-the text into lines or bullets, one entry per line:
-- `section='preferences'`
-- `source='migration'`
-- `evidence` left empty
+## 5. Tools (Phase 2)
 
-Keep the `Membership.memory` column, read-only, for one release so the change can
-be rolled back, then drop it in a follow-up migration. The migration must be
-idempotent: running it twice must not create duplicates.
+These replace `update_user_memory`. Update the timeline tool card in both report
+pages accordingly. They are available on **human-initiated turns in every
+channel** (web, Slack, Teams, email). They are **not** available in training
+mode or in machine turns (`trigger_source` set).
 
-## 5. Writing memory
-
-### 5.1 In-turn tool (Phase 2)
-
-Replace the full-rewrite schema of `update_user_memory` with operations. Keep the
-tool name so the existing timeline card and prompt references don't break.
-
+### `create_memory`
 ```python
-class MemoryOp(BaseModel):
-    op: Literal["add", "update", "forget"]
-    handle: Optional[str]            # required for update/forget, e.g. "m7"
-    section: Optional[Literal["style","role","vocabulary","events","focus","preferences"]]
-    text: Optional[str]              # ≤280 chars, declarative
-    aliases: Optional[List[str]]
-    event_start: Optional[str]       # ISO date/datetime; required when section="events"
-    event_end: Optional[str]
-    expires_at: Optional[str]
+class CreateMemoryInput(BaseModel):
+    text: str                         # ≤280, declarative fact
+    section: Literal["style","role","vocabulary","events","focus","preferences","decisions"]
+    tags: List[str]                   # 1..4; reuse tags shown in <memory> index
+    aliases: Optional[List[str]] = None
+    event_start: Optional[str] = None # ISO; required for section="events"
+    event_end: Optional[str] = None
+    expires_at: Optional[str] = None
+    scope: Literal["user","project"] = "user"   # "project" only in v2
+    title: Optional[str] = None       # status line
+```
+- Validation:
+  - events require a date
+  - text is at most 280 chars
+  - tags are normalized, with 1–4 of them
+  - `decisions` is valid only for project scope (v2)
+  - `style` and `preferences` can never be project scope
+- **Dedupe (§7):** if the entry matches an existing one, the tool strengthens it
+  (`seen_count`, `last_seen_at`, merged aliases) and returns
+  `{"deduped_into": "m7"}`.
+- Evidence is filled automatically from the runtime context.
 
-class UpdateUserMemoryInput(BaseModel):
-    operations: List[MemoryOp]       # 1..5
-    title: Optional[str]
+### `edit_memory`
+```python
+class EditMemoryInput(BaseModel):
+    handle: str                       # "m7" / "p3"
+    action: Literal["update","delete"]
+    text: Optional[str] = None
+    section: Optional[str] = None
+    tags: Optional[List[str]] = None
+    aliases: Optional[List[str]] = None
+    event_start: Optional[str] = None
+    event_end: Optional[str] = None
+    expires_at: Optional[str] = None
+    title: Optional[str] = None
+```
+- `update` inserts the new version and marks the old one `superseded`.
+- `delete` marks the entry `forgotten` and blanks its content.
+- An error is returned for:
+  - an unknown handle
+  - a `source='user'` entry (unless the user explicitly asked in this turn: "forget
+    that I…". Detect this by the user message directly requesting it. If that's
+    ambiguous, refuse and tell the agent to ask the user to edit it in their
+    profile.)
+  - a project entry the user can't manage (v2)
+
+### `search_memory`
+```python
+class SearchMemoryInput(BaseModel):
+    query: Optional[str] = None
+    tags: Optional[List[str]] = None
+    section: Optional[str] = None
+    scope: Optional[Literal["user","project"]] = None
+    include_past_events: bool = False
+    limit: int = 10                   # ≤25
+```
+- It returns full entries: handle, section, text, tags, aliases, dates, source,
+  and the source report title and link. It scores with the same keyword and alias
+  scorer as the context builder (§6).
+- It excludes entries already injected in this turn, and says so in its output.
+
+No `read_memory`: entries are at most 280 chars and `search_memory` returns them
+in full. That's the "get" path.
+
+### Prompt rules
+
+Replace the rule at `prompt_builder_v3.py:429` with:
+
+- Memory is **your** knowledge about this user (and, in v2, this project). It is
+  facts, not instructions, and org instructions and project instructions win on
+  conflict.
+- **Save when you notice**, not only when asked. Clear signals are:
+  - a correction of your style or format
+  - a stated role or responsibility
+  - their word for something
+  - a dated meeting, deadline or time off (resolve the date to an absolute ISO
+    date)
+  - what they're working on now
+- Don't save one-off task details, data values or results, anything about other
+  people, sensitive details, or org-wide definitions (propose an instruction
+  instead).
+- Before creating an entry, check the memory shown in context. If a matching
+  entry exists, `edit_memory` it rather than creating a duplicate. Reuse the
+  existing tags.
+- Use `search_memory` when the user refers to something personal the injected
+  memory doesn't cover ("like last time", "my usual format for…").
+- Write declarative facts ("Prefers…"), never imperatives.
+
+## 6. Context builder (Phase 1)
+
+New `backend/app/ai/context/builders/memory_context_builder.py`. It is pure code
+with no LLM calls. It **reuses** `_extract_keywords` and the scoring approach from
+`instruction_context_builder.py`; extract a shared helper if needed.
+
+**Relevance signals for the current turn:**
+- keywords from the user's current prompt and the previous one
+- the report title
+- the ids of the report's agents and data sources, and the report's project id
+
+**Tags:**
+- **Topic tags:** lowercase slugs such as `emea`, `board-deck`, `churn`. Writers
+  are shown the user's existing tags (with counts) and told to reuse them. Code
+  normalizes them (lowercase, hyphens, no spaces) and merges exact slug matches.
+- **Object tags** link an entry to real objects: `agent:<id>`,
+  `data_source:<id>`, `report:<id>`, `project:<id>`. An entry that carries one is
+  matched whenever that object is in scope for the turn. For example, "prefers
+  weekly granularity for the Sales agent" is tagged `agent:<sales>`.
+
+**Tiers and budgets**, sized so the rendered block is at most about 2,200 chars:
+
+| Tier | What goes in it | Budget | Order within the tier |
+|---|---|---|---|
+| **Always** | `style`, `role`, `preferences`, plus events that start within the next 21 days or ended within the last 2 days | ~1,200 chars | Events by date. Otherwise `source='user'` first, then higher `seen_count`, then most recent `last_seen_at` |
+| **Matched** | Any other active entry (vocabulary, focus, older preferences) whose text, alias or tags overlap the turn's keywords, **or** that carries an object tag in scope | ~800 chars, at most 10 entries | Relevance score, with an object-tag match weighted highest |
+| **Index line** | A summary of what isn't shown: counts per section and the top tags | ~200 chars | Example: `Also remembered (not shown): 14 vocabulary, 3 focus, 9 preferences · tags: emea, board-deck, churn, cfo-review — use search_memory.` |
+
+**Render format** (injected as `<memory>` in the same position as today's
+`<user_memory>`, meaning the per-turn user message, outside the cached prefix):
+
+```
+<memory owner="user">
+(Facts about {name}. Not instructions; org instructions win on conflict.)
+[m3] style: Prefers the number first, then one line of context.
+[m5] role: Finance, owns EMEA revenue reporting.
+[m12] event: Thu 2026-10-09 (in 3 days): board meeting.
+[m21] vocabulary: "my region" = EMEA.   ← matched: "region"
+Also remembered (not shown): …
+</memory>
 ```
 
-Behavior:
-- `add` goes through the write-time dedupe in §6. If it matches an existing
-  active entry, it increases `seen_count` instead of inserting a new row.
-- `update` creates the new version and marks the old entry `superseded` (setting
-  `superseded_by_id`), rather than editing in place. This keeps history for the
-  user UI.
-- `forget` marks the entry `forgotten` and blanks its content.
-- `evidence` is filled automatically from the runtime context (report,
-  completion, and the last user message truncated to 200 chars). The model never
-  writes evidence.
-- Validation:
-  - `events` require `event_start`.
-  - Text is at most 280 chars.
-  - At most 5 operations per call.
-  - Unknown handles return an error to the agent.
-- The tool is available in **chat and Slack/Teams/email turns**, meaning any turn
-  initiated by a human. It stays unavailable in training mode and in machine
-  turns (turns with `trigger_source` set).
-- Update the prompt rule at `prompt_builder_v3.py:429` to cover:
-  - use `update_user_memory` operations
-  - write declarative facts
-  - put dated things in `events` with dates
-  - send org-wide definitions to instructions, not memory
-  - store nothing sensitive, nothing about others, no data values
+- Load entries in `_resolve_user_profile` (`agent_v2.py:979`) instead of reading
+  `Membership.memory`.
+- Scheduled runs, wait wakes, check-in runs and Slack/Teams turns run as the
+  user. Verify that all of them go through this path and see the memory.
+- **v2:** project entries are rendered the same way inside the existing
+  `<project>` block (`_build_project_context`, `agent_v2.py:892`), as
+  `<project_memory>` with its own budget of about 1,000 chars.
 
-### 5.2 Silent capture after the turn (Phase 3)
+## 7. Staying clean between dreams (Phase 1: pure code)
 
-**Where:** the `agent_v2.py` post-analysis block, next to the harness and the
-check-in planner. It runs as a background task with its own DB session. It emits
-**no SSE and no blocks**, so the user sees nothing.
+This lives in `backend/app/services/memory_service.py`, and all writers use it:
+the tools, the dream, the UI API, and the migration.
 
-**Eligibility.** This is code with no LLM call, and every item must hold:
-1. `enable_user_memory` and `enable_user_memory_capture` are both on.
-2. The turn is human-initiated: `trigger_source IS NULL` and `webhook_id IS NULL`.
-   Training mode is excluded, and so are errored turns.
-3. The turn contains user text of at least 20 characters. Skip "thanks" and "ok".
-4. The agent did **not** already call `update_user_memory` in this turn. That
-   avoids double writes; the agent already handled it.
+- **Dedupe on write:**
+  - Normalize the text (lowercase, collapsed whitespace, no punctuation).
+  - Same scope owner, same section and same normalized text: strengthen the
+    existing entry instead of inserting.
+  - `vocabulary` entries also merge when an alias matches.
+- **Computed expiry** (on read, no job):
 
-**The capture model** lives in `backend/app/ai/agents/user_memory/capture.py`. It
-is one structured call to the small model.
+  | Section | Default when `expires_at` is empty |
+  |---|---|
+  | `events` | 1 day after `event_end`, or after `event_start` if there is no end |
+  | `focus` | 30 days after `last_seen_at` |
+  | everything else | never |
 
-Input:
-- the user's messages in this turn (plus the previous user message, for context)
-- the final answer, truncated
-- the **current rendered profile, with handles**, so it can update instead of
-  duplicating
-- today's date and the timezone
+- **Cap:** at most 200 active entries per user per org. When full, evict the
+  non-user entry with the lowest `seen_count`, then the oldest `last_seen_at`.
+  User-authored entries are never evicted automatically.
+- **Sensitive-content filter:** reject text matching credential or secret
+  patterns (tokens, keys, passwords) before any write. Check whether the repo's
+  PII settings (`frontend/pages/settings/pii.vue`) have a reusable detector;
+  otherwise add a small regex set.
 
-Output: `{"operations": [MemoryOp, ...], "reason": "..."}` with **0 to 3
-operations**. An empty list is the expected answer for most turns.
+## 8. Nightly dream: extract and consolidate (Phase 3)
 
-The prompt should state these rules explicitly:
-- Capture only what is **about this person** and will matter in **future
-  sessions**:
-  - their writing and output style
-  - their role
-  - their words for things
-  - dated events (meetings, deadlines, reviews, travel, time off), with dates
-    resolved to absolute ISO dates
-  - their current focus
-  - how they like to work with the agent
-- **Corrections are the strongest signal.** "No, I meant net revenue", "shorter
-  please" and "don't use charts for this" are durable preferences when they are
-  about the person's style. They are *instructions*, and not to be captured here,
-  when they define a business term for everyone.
-- Don't capture:
-  - anything one-off or task-specific
-  - data values or results
-  - anything sensitive (health, personal life beyond work availability) or
-    credentials
-  - anything about other people
-  - anything already present in the profile. Use `update` with its handle instead.
-- Relative dates ("next Thursday", "after the offsite") must be resolved against
-  today's date. If a date can't be resolved, don't create the event.
+`backend/app/services/memory_dream_service.py` plus
+`backend/app/ai/agents/memory/dream.py`.
 
-Code then **applies** the operations through the same service as the tool:
-- source is `capture`
-- evidence is filled automatically
-- dedupe and caps apply (§6)
-- the settings are re-checked before writing
+**Scheduling:**
+- Register a leader-only cron job in `backend/main.py` (next to the other
+  leader-only jobs), running hourly as `memory_dream_sweep`.
+- On each tick, for each org with both settings on, if the local time in the org
+  timezone is between 01:00 and 05:00, pick the **due users**:
+  - memberships with human-initiated completions since the membership's
+    `memory_dreamed_at` watermark (new column on `Membership`)
+  - at most N per org per tick, default 100
+- Process them with bounded concurrency: a global semaphore of about 4, and at
+  most 2 at a time per org.
+- Each user is claimed with `claim_scheduled_run(f"memory_dream:{membership_id}:{local_date}")`,
+  so they're processed exactly once per night across workers.
+- Advance the watermark only after the write succeeds. A crash resumes the next
+  hour.
 
-LLM usage is recorded with the scope `user_memory_capture`, so its cost is
-visible separately.
+**Input for one user**, capped at about 15k tokens, trimmed oldest-first:
+- For each report the user worked in since the watermark (human-initiated turns
+  only; excludes check-in, wait, scheduled and webhook turns, training mode and
+  errored turns):
+  - the report title
+  - the **user's own messages** (truncated per message)
+  - the existing rolling summary (`report_context_state.summary_json`), rather
+    than full transcripts
+- Memory entries the agent created that day, flagged "already saved today".
+- All current active entries (handles, sections, tags, sources, seen counts),
+  plus the list of tags in use.
+- Today's date and timezone.
 
-### 5.3 User edits (Phase 2)
+**Output:** validated with pydantic. Invalid output means nothing is written for
+that user, and the watermark is not advanced.
 
-These are REST endpoints for the **current user only**. They replace the memory
-text field in `routes/user_profile.py`.
+```json
+{
+  "operations": [
+    {"op": "create", "section": "events", "text": "Quarterly business review",
+     "event_start": "2026-10-20", "tags": ["qbr"], "evidence_report_id": "…"},
+    {"op": "update", "handle": "m9", "text": "Investigating Q3 churn by plan (since 2026-09-20)", "tags": ["churn"]},
+    {"op": "merge", "handles": ["m14","m22"], "into_text": "Prefers tables over charts for breakdowns", "tags": ["format"]},
+    {"op": "forget", "handle": "m4", "reason": "focus superseded by m9"},
+    {"op": "retag", "handle": "m30", "tags": ["emea","revenue"]}
+  ],
+  "notes": "one line summary for the trace"
+}
+```
 
-- `GET /api/users/me/memory`: active entries grouped by section, plus handles,
-  evidence (report title and link) and the rendered profile preview.
-- `POST /api/users/me/memory`: add an entry (`source='user'`).
-- `PATCH /api/users/me/memory/{id}`: edit (supersede) an entry.
-- `DELETE /api/users/me/memory/{id}`: forget an entry.
-- `DELETE /api/users/me/memory`: forget everything, after a confirmation in the
-  UI.
+**Dream prompt rules:**
+- **Extract:** facts about the person that recur, or that are clearly durable:
+  - style corrections, especially repeated ones
+  - role
+  - their vocabulary
+  - dated work events, resolved to absolute dates
+  - current focus
 
-**Admins cannot read or write other users' memory. There is no admin endpoint.**
-Test this with both roles.
+  **Repetition across sessions is the strongest signal.** A single weak signal is
+  not enough unless it is explicit ("I'm off next week").
+- **Consolidate:**
+  - merge near-duplicates
+  - update entries that newer evidence contradicts
+  - retag untagged entries (for example, migrated ones)
+  - forget focus entries clearly superseded
+- **Never touch `source='user'` entries.** If one looks stale, emit
+  `{"op":"flag_stale","handle":…}`. It is only shown in the trace and the UI, and
+  never applied.
+- The same "never store" list as §1. Prefer 0–5 operations. Empty output is fine.
 
-## 6. Keeping it clean without consolidation (Phase 1: pure code, unit-tested)
+**Applying the operations:** everything goes through `MemoryService`, with
+`source='dream'`, dedupe, the cap and the sensitive-content filter. Evidence is
+built from `evidence_report_id` plus the matching user message quote, located by
+code. Both settings are re-checked before writing. LLM usage is recorded under
+the scope `memory_dream`.
 
-There is no background LLM clean-up in v1, so these rules do the work. They live
-in `backend/app/services/user_memory_service.py`.
+**Log:** add a `memory_dream_runs` table with `membership_id`, `run_at`,
+`status`, `ops_applied` (counts per op), `notes`, `tokens` and `cost`. It is used
+by the trace and UI (§10) and by the metrics.
 
-**Write-time dedupe.** On `add`:
-- Normalize the text: lowercase, collapse whitespace, strip punctuation.
-- If an active entry in the same section has the same normalized text, or the
-  same `vocabulary` alias key, increase `seen_count` and `last_seen_at` and merge
-  the aliases, instead of inserting.
-- Beyond that, the capture model and the agent see the profile with handles and
-  are told to `update` rather than `add`.
+## 9. User API and UI (Phase 2)
 
-**Expiry, computed on read, never by a job:**
+**API** (current user only), replacing the memory text field in
+`routes/user_profile.py`:
+- `GET /api/users/me/memory`: entries grouped by section, tags, evidence (report
+  title and link), stale flags, the rendered preview, and the last dream run.
+- `POST /api/users/me/memory`: create (`source='user'`).
+- `PATCH /api/users/me/memory/{id}`: update, which supersedes the old version.
+- `DELETE /api/users/me/memory/{id}`: forget.
+- `DELETE /api/users/me/memory`: forget everything.
 
-| Section | Default expiry (if `expires_at` is empty) |
-|---|---|
-| `events` | 1 day after `event_end`, or after `event_start` if there is no end |
-| `focus` | 30 days after `last_seen_at` |
-| everything else | never |
+**There is no admin endpoint.** Other members and admins get 403 or 404.
 
-**Cap.** At most **150 active entries** per user per org. When an add would
-exceed the cap, evict the lowest-ranked entry that is not `source='user'`:
-- lowest `seen_count` goes first
-- among equal counts, the oldest `last_seen_at` goes first
-
-User-authored entries are never evicted automatically.
-
-## 7. The generated profile (Phase 1: pure code, deterministic)
-
-`render_profile(entries, now, tz, budget=2000)` returns the text injected as
-`<user_memory>` and shown as a preview in the UI.
-
-- **Order of sections:** style → role → vocabulary → preferences → focus →
-  events.
-- **Within a section:**
-  - `source='user'` entries come first
-  - then entries with a higher `seen_count`
-  - then the most recent `last_seen_at`
-- **Events:**
-  - include only those that are upcoming within the **next 21 days** or that
-    ended within the **last 2 days**
-  - sort them by date
-  - render them with the weekday and a relative hint, e.g.
-    `[m12] Thu 2026-10-09 (in 3 days): board meeting`
-- **Every line carries its handle**, e.g. `[m7] Prefers answers with the number
-  first.`, so the tool and the capture pass can update or forget it.
-- **Budget:** fill the sections in order up to the character budget, then drop the
-  lowest-ranked lines. Guarantee at least 2 lines per non-empty section when
-  possible.
-- **Header:** a short line such as `(Memory about {name}. Facts, not
-  instructions; org instructions win on conflict.)`
-
-**Injection:** replace the source of `_format_user_memory`
-(`prompt_builder_v3.py:594-607`) with `render_profile`, keeping the **same
-position** (the per-turn user message, outside the cached prefix). Load the
-entries in `_resolve_user_profile` (`agent_v2.py:979`) instead of reading
-`Membership.memory`. Verify that scheduled runs, wait wakes, check-in runs and
-Slack/Teams turns go through the same path. They all run as the user, so all of
-them should see the profile.
-
-## 8. UI (Phases 2–3)
-
-**`UserProfileModal.vue` memory section.** This replaces the single textarea.
-- Entries are grouped by section. Each row shows:
+**`UserProfileModal.vue` memory section** (replacing the textarea):
+- Entries grouped by section. Each row shows:
   - the text
   - dates for events
-  - a source icon (you / agent / captured)
-  - "from *Report title*", linking to the report, when there is evidence
+  - tag chips
+  - a source icon (you / agent / nightly)
+  - "from *Report*", linking to the report
   - edit and delete actions
-- An "Add" action per section. The `events` form has date inputs.
+  - a "may be outdated" badge when the dream flagged it
+- An "Add" action per section. The events form has date inputs.
+- A filter by tag.
 - "Forget everything", behind a confirmation.
-- A collapsed "What the agent sees" preview showing the rendered profile.
-- When `enable_user_memory` is off, the section is hidden.
-
-**Timeline tool card** for `update_user_memory` (in `pages/reports/[id]/index.vue`
-and `pages/c/[token]/index.vue`): show a short summary of the operations ("Saved:
-prefers the number first · Event: board meeting Thu Oct 9"). The silent capture
-pass never renders anything in the report.
-
-**TraceModal** (`frontend/components/console/TraceModal.vue`, via
-`ConversationTraceResponse` in
-`backend/app/schemas/agent_execution_trace_schema.py:88`). This is for the user
-looking at their own trace, and for admins debugging. Show, per turn:
-- that a memory profile was injected, and how many characters. **Show the content
-  only when the viewer is the memory's owner.** This follows the admin privacy
-  rule.
-- the memory operations applied from this turn (tool or capture), again with
-  content only for the owner, and counts for everyone else.
+- A collapsed "What the agent sees" preview of the always tier and the index
+  line.
 
 Every string goes into all `locales/*.json`. Check the layout in RTL (`he`). Any
 UI change needs before/after evidence captured with the **ui-evidence** skill.
 
-## 9. Privacy and safety
+## 10. Trace visibility (Phase 3)
 
-- Memory is private to its user. There is no admin read path, including in the
-  TraceModal.
-- Anything injected is data, not instructions. Keep the header line, and keep the
-  rule that org instructions win.
-- Write a sensitive-content guard into the capture prompt. Also add a cheap code
-  filter that rejects entries matching credential or secret patterns (reuse any
-  existing PII or secret detection if the repo has it; check `settings/pii`).
-- Deleting a membership deletes its entries. User data exports include them.
+These go into `TraceModal` (`frontend/components/console/TraceModal.vue`), via
+`ConversationTraceResponse`
+(`backend/app/schemas/agent_execution_trace_schema.py:88`) and its builder in
+`console_service.py:2078-2356`.
 
-## 10. Phases and exit criteria
+- **Per turn:**
+  - which memory tier entries were injected (handles and tiers), with the
+    rendered size
+  - `create_memory`, `edit_memory` and `search_memory` calls. These show as
+    normal tool executions.
+- **Privacy:** the entry **text** is shown only when the viewer is the memory's
+  owner. Everyone else, admins included, sees handles, sections and counts only.
+- The **dream run log** for the report's owner: operations that came from this
+  report's sessions (matched by `evidence.report_id`), with the notes line.
+
+## 11. Privacy and safety
+
+- User memory is private, and there is no admin read path. If support needs
+  access later, add an explicit per-user "share my memory with admins" toggle.
+  Not in v1.
+- Memory is injected as data, never instructions, and org and project
+  instructions win.
+- The sensitive-content filter (§7) runs on every write, and the prompts exclude
+  personal details.
+- Deleting a membership deletes the memory. Exports include it.
+
+## 12. Project memory (v2)
+
+This is designed now and built after user memory has proven itself.
+
+- `scope='project'`, `project_id` set, handles `p1…`, and an extra section
+  `decisions`. Sections `events` (project deadlines and meetings), `vocabulary`,
+  `focus` and `decisions` are allowed. **`style` and `preferences` are never
+  project scope**, and code enforces it.
+- **Who can read:** anyone with access to the project (owner, a `ResourceGrant`
+  view or manage grant, or `access='org'`). **Who can edit in the UI:** the owner
+  or holders of a `manage` grant. **The agent** may create project entries only
+  when the report is in the project and the user can access it.
+- **Injection:** `<project_memory>` inside the `<project>` block, with the same
+  tiers and its own budget.
+- **Dream:** a per-project pass over the project's sessions since its own
+  watermark. It may quote only work content, never a person's personal remarks,
+  and evidence links must point to reports that project members can see.
+- **Relation to `projects.instructions`:** instructions are human-written
+  directives. Memory is learned facts. The project UI offers "promote to project
+  instructions" on a memory entry.
+- **Gated by** `enable_project_memory` (and `enable_user_memory`).
+
+## 13. Relationship to check-ins
+
+**The link is one-way: check-ins read memory.**
+
+- The check-in planner and judge get the rendered always tier, events in
+  particular. Follow-ups can land around the user's meetings and avoid their time
+  off. This is gated by `enable_user_memory` and is a small addition to
+  `agent-checkins.md` (§6 planner input, §9 judge input).
+- Check-in runs see memory automatically, because they run as the user.
+- **Check-ins never write memory.** Their turns are machine turns, so the tools
+  are unavailable and the dream skips them.
+- Not in scope: creating check-ins *from* memory events, such as a brief before a
+  board meeting.
+
+## 14. Phases and exit criteria
 
 | Phase | Scope | Exit criteria |
 |---|---|---|
-| 1 | Settings and locales; the `user_memory_entries` model and migration; the migration of existing memory text; `UserMemoryService` (dedupe, expiry, cap); `render_profile`; injection switched to the rendered profile | Unit tests pass on sqlite and postgres. Existing memory text shows up unchanged in meaning in the new profile. Turning the setting off stops injection |
-| 2 | Operations-based `update_user_memory`; REST endpoints; the new profile UI section; the tool card | A user can add, edit and forget entries in the UI and through the agent. Parallel writes don't lose entries. Admins get 403 on other users' memory |
-| 3 | Silent post-turn capture behind `enable_user_memory_capture`; TraceModal memory lines | With capture on and a stubbed model, eligible turns write entries with evidence. Machine turns, errored turns and training turns capture nothing |
-| 4 | Tuning from Loop B metrics; the link to check-ins (§11) | Capture precision meets the targets in §12 |
+| 1 | Settings and locales; the `memory_entries` model and migration (both scopes in the schema); migration of existing memory text; `MemoryService` (dedupe, expiry, cap, filter); `MemoryContextBuilder` (tiers, tags, keyword matching); injection switched over | Unit tests pass on sqlite and postgres. Migrated memory appears in the always tier. Turning the setting off stops injection. Budgets hold with 200 entries |
+| 2 | `create_memory` / `edit_memory` / `search_memory` (replacing `update_user_memory`); the prompt rule; the user API and profile UI; the tool cards | The agent saves on corrections without being asked. Parallel writes don't lose entries. User-authored entries are protected. Admins get 403 |
+| 3 | The nightly dream (sweep, claim, watermark, extraction and consolidation, the run log); TraceModal memory lines | With a stubbed model, the dream creates, merges, updates and forgets correctly, never touches user entries, and skips machine turns. The watermark resumes after a crash |
+| 4 (v2) | Project memory (§12) | Permission matrix tested for owner, view grant, manage grant and org-wide access |
 
-## 11. Relationship to check-ins
-
-**The link is one-way: check-ins read memory. Memory doesn't depend on
-check-ins.**
-
-- **Check-in planner and judge.** Add the rendered profile to their input,
-  gated by `enable_user_memory`. The value is mostly in the **events** section:
-  - a follow-up can land before or after a meeting the user mentioned
-  - a follow-up can avoid their time off
-  - the judge can skip when the user said the topic is closed
-
-  This is a small addition to `docs/design/agent-checkins.md` (§6 planner input,
-  §9 judge input). Do it after both features exist.
-- **Check-in runs** see the profile automatically, because they run as the user
-  through the same path (§7).
-- **Check-ins never write memory in v1.** Check-in runs are machine turns, and
-  capture and the tool are disabled for machine turns. Check-in engagement stays
-  in `agent_checkins`.
-- **Not in v1:** creating a check-in *because of* a memory event (for example,
-  preparing a brief the day before a board meeting). It's a good follow-up
-  feature once both are live.
-
-## 12. Feedback loop (to run in the new session)
+## 15. Feedback loop (to run in the new session)
 
 Follow `.agents/skills/sandbox-feedback-loop/SKILL.md`.
 
@@ -439,61 +547,78 @@ export PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 
 ### Loop A: deterministic (no real LLM)
 
-Stub only at the boundaries: the LLM (capture model and agent) and the clock.
-Seed data through `tests/fixtures/*`. Each test must first be watched failing
-(stash the implementation), per rule 6 in `backend/tests/AGENTS.md`.
+Stub only at the boundaries: the LLM (agent and dream) and the clock. Seed data
+through `tests/fixtures/*`. Each test must first be watched failing (stash the
+implementation), per rule 6 in `backend/tests/AGENTS.md`.
 
-Unit tests (`backend/tests/unit/test_user_memory_service.py`,
-`test_user_memory_render.py`):
-1. **Dedupe.** The same fact with different case, whitespace or punctuation
-   increases `seen_count` and doesn't insert. A different section inserts. An
-   alias match on `vocabulary` merges.
-2. **Expiry.**
-   - An event disappears from the profile 1 day after its end.
-   - A range event (time off) stays visible for its whole duration.
-   - Focus disappears 30 days after it was last seen, and reappears when it is
-     seen again.
-   - Vary the dates; don't hard-code a single scenario.
-3. **Cap.** The 151st add evicts the lowest-ranked non-user entry. User-authored
-   entries are never evicted, even when they rank lowest.
-4. **Render.**
-   - It respects the budget.
-   - Section order holds.
-   - Events outside the display window are excluded.
-   - The handles are present and stable across renders.
-   - At least 2 lines per non-empty section when the budget allows.
-5. **Operations validation.**
-   - An event without a date is rejected.
-   - An unknown handle is rejected.
-   - Text over 280 characters is rejected.
-   - More than 5 operations is rejected.
-6. **Migration.** Multi-line memory text becomes N entries. Running the migration
-   twice creates no duplicates. Empty memory creates nothing.
+Unit tests (`backend/tests/unit/test_memory_service.py`,
+`test_memory_context_builder.py`, `test_memory_dream_apply.py`):
 
-E2E tests (`backend/tests/e2e/test_user_memory.py`, run with both `--db=sqlite`
-and `--db=postgres`):
-7. **Setting off.**
-   - No profile is injected (check through the planner input in the context
-     snapshot).
-   - The tool is absent from the catalog.
-   - The API returns 403.
-   - The entries still exist after the setting is turned back on.
-8. **The API is scoped to the user's own memory.**
-   - A member can create, read, update and delete only their own entries.
-   - Another member, and **an org admin**, cannot read or change them (403/404).
-9. **Parallel writes.** Two concurrent `add` operations from different reports
-   both persist. This is the regression that motivates entries over the full
-   rewrite.
-10. **Capture on**, with a stubbed model that returns an `events` add and a
-    `style` add:
-    - both entries are stored with `source='capture'` and evidence pointing to the
-      turn
-    - the report timeline is **unchanged**
-11. **Capture skips.** With capture off, or for a machine turn (`trigger_source`
-    set), or an errored turn, or a turn where the agent already called the tool:
-    zero capture calls.
-12. **Forget through chat.** A stubbed tool call with `forget m3`: the entry is
-    `forgotten`, its content is blanked, and it is absent from the next profile.
+1. **Dedupe:**
+   - normalization variants strengthen the existing entry
+   - a different section inserts a new one
+   - a vocabulary alias match merges
+   - project and user scopes never dedupe into each other
+2. **Expiry:**
+   - an event is hidden 1 day after its end
+   - a range event stays visible for its whole duration
+   - focus expires 30 days after last seen, and comes back when seen again
+
+   Vary the dates.
+3. **Cap:** the 201st write evicts the lowest-ranked non-user entry. User entries
+   are never evicted.
+4. **Context builder:**
+   - Budgets hold with 0, 10 and 200 entries.
+   - The always tier includes style, role, preferences and events in the window
+     only.
+   - An alias match puts the vocabulary entry in the matched tier.
+   - An object tag (`agent:<id>`) matches when that agent is in the report.
+   - The index line counts what was left out.
+   - Handles are stable across renders.
+5. **Tag normalization** (`Board Deck`, `board_deck` → `board-deck`) and
+   exact-slug merging.
+6. **Tool validation:**
+   - an event without a date is rejected
+   - more than 4 tags is rejected
+   - text over 280 chars is rejected
+   - an unknown handle is rejected
+   - `style` with scope project is rejected
+   - `edit_memory` on a `source='user'` entry without an explicit request is
+     rejected
+7. **Dream apply:**
+   - each op type works
+   - a `flag_stale` on a user entry changes nothing
+   - an op targeting a user entry is rejected
+   - invalid JSON writes nothing and doesn't advance the watermark
+8. **Migration:** it is idempotent, and multi-line text becomes N entries.
+
+E2E tests (`backend/tests/e2e/test_memory.py`, run with both `--db=sqlite` and
+`--db=postgres`):
+
+9. **Setting off:**
+   - no `<memory>` in the planner input (checked through the context snapshot)
+   - the tools are absent from the catalog
+   - the API returns 403
+   - entries survive turning the setting back on
+10. **API is scoped to the user's own memory:**
+    - a member can create, read, update and delete their own entries
+    - **another member and an org admin** can't read or change them
+11. **Parallel writes:** two concurrent `create_memory` calls from different
+    reports both persist.
+12. **Agent saves on noticing:** a stubbed agent calls `create_memory` after a
+    style correction. The entry has `source='agent'` and evidence pointing to the
+    turn. The next turn's `<memory>` contains it.
+13. **`search_memory`** returns matching entries not already injected, with
+    handles and source links.
+14. **Dream sweep:**
+    - with both settings on and a stubbed dream, only memberships with new
+      human-initiated turns are processed
+    - the claim prevents double processing
+    - the watermark advances
+    - machine-turn-only activity is skipped
+    - `enable_memory_dreaming` off means no processing
+15. **Trace privacy:** an admin viewing a member's conversation trace sees
+    handles and counts, never the entry text.
 
 ### Loop B: live (real LLM, real stack)
 
@@ -502,49 +627,56 @@ tools/agent/boot_stack.sh
 cd backend && uv run python ../tools/agent/seed_org.py
 ```
 
-1. Turn on `enable_user_memory_capture`. Take a screenshot of AI settings.
-2. **Style.** Across 2–3 turns, correct the agent's style ("shorter, number
-   first", "use €M"). Check that the entries appear in the profile UI with
-   evidence links. In a **new report**, ask a fresh question and confirm the
-   answer follows the style.
-3. **Events.** Say "I have the board meeting next Thursday and I'm off the week
-   after". Confirm two `events` entries with correct absolute dates. Then move the
-   clock forward, or edit the dates to the past, and confirm they drop out of the
-   profile.
-4. **Vocabulary.** Say "when I say my region I mean EMEA". In a new report, ask
-   "revenue in my region" and confirm it filters to EMEA.
-5. **No-capture cases.** Run 10 varied one-off questions and record how many
-   entries get captured. The target is close to zero.
-6. **Forget.** "Forget that I'm off next week" removes the entry. Also test
-   "forget everything" in the UI.
-7. **Privacy.** Log in as an admin. There must be no access to the member's
-   entries in the UI or the API, and the TraceModal shows counts only.
-8. Take before/after UI screenshots (ui-evidence skill).
-9. Record in the loop doc: the final prompts; capture precision (what share of
-   captured entries a human would keep); the number of captures per 10 turns;
-   the cost per capture; and any wrong captures, with their traces.
+1. Turn on `enable_memory_dreaming`. Take a screenshot of AI settings.
+2. **Style.** Correct the agent twice ("shorter, number first", "use €M"). Confirm
+   `create_memory` fires without being asked, and the entries appear in the
+   profile UI with source links. In a **new report**, confirm the answers follow
+   the style.
+3. **Events.** "Board meeting next Thursday; I'm off the week after." Confirm two
+   `events` entries with absolute dates. Move the clock forward, or edit the
+   dates into the past, and confirm they leave the always tier.
+4. **Vocabulary and matching.** "When I say my region I mean EMEA." In a new
+   report, ask "revenue in my region". Confirm the entry is injected in the
+   matched tier (visible in the trace) and the query filters to EMEA.
+5. **Scale.** Seed 150 varied entries for one user. Confirm the injected block
+   stays within budget, the index line is present, and `search_memory` finds a
+   non-injected entry when the question needs it.
+6. **Dream.** Run the sweep manually for the test org, without waiting for the
+   night window (use a debug trigger or call the service). Confirm:
+   - extraction from the day's sessions
+   - a merge of two near-duplicates
+   - no changes to user-typed entries
+   - the run log appears in the trace
+7. **No over-capture.** Run 10 one-off questions. Count the entries created by the
+   agent and by the dream. The target is close to zero.
+8. **Privacy.** As an admin, confirm there's no access to the member's memory in
+   the API, the UI or the trace text.
+9. Take before/after screenshots (ui-evidence skill). Record in the loop doc:
+   - the final prompts
+   - precision: the share of agent- and dream-created entries a human would keep
+   - entries created per 10 turns
+   - dream ops per user, tokens and cost
+   - any wrong captures, with their traces
 
 ### Metrics
 
-- **Capture precision:** the share of captured entries kept or unedited after 7
-  days. Target ≥ 80%.
-- **User deletes of captured entries:** high means capture is too eager.
-- **Repeated corrections:** the same style correction made again after it was
-  captured should trend to 0.
-- **Profile budget usage:** p50 and p95 characters.
-- **Cost:** capture tokens per eligible turn.
+| Metric | Target |
+|---|---|
+| Precision: agent- and dream-created entries not deleted or edited by the user within 7 days | ≥ 80% |
+| Repeated corrections after capture | Trending toward 0 |
+| Injected memory size (p50 and p95) | Within budget |
+| Matched-tier hit rate: turns where a matched entry was injected and the answer used it (spot-check) | |
+| Dream cost per active user per night | |
 
-## 13. Risks and decisions
+## 16. Risks and decisions
 
-- **Default for capture:** off, while it is in lab. Revisit after the Loop B
-  precision numbers.
-- **Admin visibility:** none, by design. If support needs to debug, the user can
-  share a screenshot, or we add an explicit per-user "share memory with support"
-  toggle later.
-- **Without consolidation, entries can pile up.** The cap, expiry and dedupe
-  bound this. If Loop B shows near-duplicate entries piling up, schedule the
-  nightly consolidation as the next plan, rather than tightening capture until it
-  misses things.
-- **Personal content in events.** Keep to work availability (meetings,
-  deadlines, travel, time off). The capture prompt excludes reasons for time off
-  and personal details.
+- **Dream default:** off while in lab. Revisit after the Loop B precision numbers.
+- **Explicit user-authored edits through chat:** the plan allows `edit_memory` on
+  a user entry only when the user directly asks in that turn. Confirm the
+  detection approach during implementation. If it's unreliable, always route
+  users to the profile UI for their own entries.
+- **Keyword matching is lexical.** "My region" matches because of aliases; purely
+  semantic matches rely on `search_memory`. Consider embeddings only if Loop B
+  shows misses that aliases and tags can't fix.
+- **Project memory privacy** (v2) is the highest-risk part. It gets its own
+  permission matrix tests before release.
