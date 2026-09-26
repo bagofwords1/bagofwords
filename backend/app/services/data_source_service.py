@@ -3947,12 +3947,18 @@ class DataSourceService:
         current_user: User = None,
         exclude_file_source_types: bool = False,  # hide file-connection catalog rows (they're Files, not Tables)
         restrict_to_active: bool = False,  # caller may only see the agent's selected tables
+        # "All tables / My tables" toggle. None: the caller does not manage the
+        # agent, so no toggle. False: manager, default view. True: manager, all
+        # tables on every delegated connection that has an org catalog.
+        org_catalog_view: Optional[bool] = None,
     ):
         """
         Get paginated tables for a data source with filtering and sorting.
         Returns PaginatedTablesResponse with tables, counts, and metadata.
         """
-        from app.schemas.datasource_table_schema import PaginatedTablesResponse, DataSourceTableSchema, ConnectionInfo
+        from app.schemas.datasource_table_schema import (
+            PaginatedTablesResponse, DataSourceTableSchema, ConnectionInfo, CatalogViewInfo, CatalogViewConnection,
+        )
         from app.models.connection_table import ConnectionTable
         from app.models.connection import Connection
         from sqlalchemy import func, case, and_
@@ -4022,7 +4028,36 @@ class DataSourceService:
                 db, data_source, current_user, delegated_conns
             )
 
-        _scope = await self._resolve_catalog_scope(db, data_source, current_user)
+        # "All tables / My tables" toggle — display only. It widens THIS view's
+        # scope; `classify_connection_access` itself is untouched, so the agent's
+        # schema context and query execution keep the caller's own identity.
+        buckets = None
+        catalog_view_info = None
+        if org_catalog_view is not None and delegated_conns and current_user is not None:
+            buckets = await self.classify_connection_access(db, data_source, current_user)
+            applies, not_applicable, hidden_ids = await self._org_catalog_view_split(
+                db, data_source, current_user, buckets
+            )
+            # No toggle when the default view already shows every org catalog
+            # (e.g. an admin who has not connected a personal account).
+            if hidden_ids:
+                if org_catalog_view:
+                    open_ids, overlay_ids, denied_ids = buckets
+                    buckets = (
+                        open_ids + sorted(hidden_ids),
+                        [i for i in overlay_ids if i not in hidden_ids],
+                        [i for i in denied_ids if i not in hidden_ids],
+                    )
+                catalog_view_info = CatalogViewInfo(
+                    all_tables=bool(org_catalog_view),
+                    applies_to=[ConnectionInfo(id=str(c.id), name=c.name, type=c.type) for c in applies],
+                    not_applicable=[
+                        CatalogViewConnection(id=str(c.id), name=c.name, type=c.type, reason=reason)
+                        for c, reason in not_applicable
+                    ],
+                )
+
+        _scope = await self._resolve_catalog_scope(db, data_source, current_user, buckets=buckets)
 
         # Exclude file-source catalog rows from the Tables view: a file connection
         # (network_dir / s3 / SharePoint / OneDrive / Drive) is surfaced as Files,
@@ -4197,6 +4232,17 @@ class DataSourceService:
             )))
         )
         selected_count = selected_count_result.scalar() or 0
+
+        # "N selected tables you can't access": the agent's selected tables that
+        # the caller's own (default) view leaves out.
+        if catalog_view_info is not None and not catalog_view_info.all_tables:
+            all_selected = (await db.execute(
+                _excl(select(func.count(DataSourceTable.id)).where(
+                    DataSourceTable.datasource_id == data_source_id,
+                    DataSourceTable.is_active == True
+                ))
+            )).scalar() or 0
+            catalog_view_info.selected_inaccessible_count = max(0, all_selected - selected_count)
 
         # Get distinct connections for filter dropdown (exclude file sources when
         # they're hidden from the Tables view, so the dropdown matches the rows).
@@ -4385,7 +4431,49 @@ class DataSourceService:
             selected_count=selected_count,
             total_tables=total_tables,
             has_more=page < total_pages,
+            catalog_view=catalog_view_info,
         )
+
+    async def _org_catalog_view_split(self, db: AsyncSession, data_source: DataSource, current_user: User, buckets):
+        """Split an agent's delegated connections for the "all tables" toggle.
+
+        A connection opens only when it has an org catalog AND the caller may
+        manage that connection — checked per connection, so on a mixed agent
+        the toggle opens exactly the connections the caller manages.
+
+        Returns (applies, not_applicable, hidden_ids): the connections the
+        toggle opens, the rest as (connection, reason), and the ids of the
+        former that the caller's default view does not already show in full.
+        """
+        from app.core.permission_resolver import resolve_permissions
+        from app.services.connection_identity import has_org_catalog
+
+        resolved = await resolve_permissions(db, str(current_user.id), str(data_source.organization_id))
+        _open_ids, overlay_ids, denied_ids = buckets
+        applies, not_applicable = [], []
+        for conn in (data_source.connections or []):
+            if (getattr(conn, "auth_policy", None) or "system_only") != "user_required":
+                continue
+            if not has_org_catalog(conn):
+                not_applicable.append((conn, "no_org_credentials"))
+            elif not resolved.has_resource_permission("connection", str(conn.id), "manage_connection"):
+                not_applicable.append((conn, "no_permission"))
+            else:
+                applies.append(conn)
+        narrowed = set(overlay_ids) | set(denied_ids)
+        hidden_ids = {str(c.id) for c in applies} & narrowed
+        return applies, not_applicable, hidden_ids
+
+    async def org_catalog_connection_ids(
+        self, db: AsyncSession, data_source: DataSource, current_user: User
+    ) -> set[str]:
+        """Delegated connections the "all tables" toggle opens for this caller
+        (each one checked for `manage_connection`). The caller must already be
+        authorized to manage the agent."""
+        if current_user is None:
+            return set()
+        buckets = await self.classify_connection_access(db, data_source, current_user)
+        return (await self._org_catalog_view_split(db, data_source, current_user, buckets))[2]
 
     async def bulk_update_tables_status(
         self,
@@ -5711,6 +5799,7 @@ class DataSourceService:
 
     async def _refresh_shared_connections(
         self, shared_conns, current_user: User, caller_id: "str | None",
+        org_conn_ids: "set[str] | frozenset" = frozenset(),
     ) -> dict:
         """Refresh each shared connection's catalog, a few at a time.
 
@@ -5723,6 +5812,10 @@ class DataSourceService:
 
         Returns the per-connection prefetch map the overlay sync reuses, so a
         Reload still crawls each source only once.
+
+        Connections in `org_conn_ids` (the "all tables" view) are crawled with
+        no user in context, i.e. the org's own credentials: an authoritative
+        refresh of the shared catalog instead of the caller's add-only slice.
         """
         from app.dependencies import async_session_maker
         from app.models.connection import Connection
@@ -5741,7 +5834,7 @@ class DataSourceService:
                         return
                     user_in_session = (
                         await conn_db.get(User, str(current_user.id))
-                        if current_user is not None else None
+                        if current_user is not None and conn_id not in org_conn_ids else None
                     )
                     # Wait for any active indexing run before refreshing.
                     try:
@@ -5778,7 +5871,17 @@ class DataSourceService:
                 logger.warning(f"refresh_data_source_schema: connection refresh failed: {r}")
         return prefetched_by_conn
 
-    async def refresh_data_source_schema(self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User):
+    async def refresh_data_source_schema(
+        self, db: AsyncSession, data_source_id: str, organization: Organization, current_user: User,
+        org_catalog_view: bool = False,
+    ):
+        """Reload an agent's catalog from its sources.
+
+        `org_catalog_view` is the tables selector's "all tables" view. The route
+        only sets it for callers who manage the agent; of its delegated
+        connections, only those the caller also manages are refreshed with the
+        org's credentials — the rest keep the caller's own token.
+        """
         # Get the DataSource model instance with connections eagerly loaded
         result = await db.execute(
             select(DataSource)
@@ -5860,11 +5963,23 @@ class DataSourceService:
                 # list threw away the only thing that made it reusable — which
                 # connection each table came from — so it could not be handed to
                 # a per-connection overlay sync without cross-contaminating them.
+                org_conn_ids = (
+                    await self.org_catalog_connection_ids(db, data_source, current_user)
+                    if org_catalog_view else set()
+                )
                 prefetched_by_conn: dict[str, list] = await self._refresh_shared_connections(
                     shared_conns, current_user=current_user, caller_id=caller_id,
+                    org_conn_ids=org_conn_ids,
                 )
 
                 prefetched = prefetched_by_conn or None
+                # "All tables" Reload: when the org crawl covered every
+                # per-user connection, re-crawling each with the caller's token
+                # would only repeat the walk; their overlay warms lazily.
+                skip_overlay = bool(org_conn_ids) and all(
+                    str(c.id) in org_conn_ids
+                    for c in self._per_user_catalog_connections(data_source)
+                )
 
                 # Sync ConnectionTable -> DataSourceTable (linked). Reconciles/heals
                 # any legacy unlinked orphan rows; keep existing is_active state.
@@ -5874,7 +5989,8 @@ class DataSourceService:
                     )
                 if not per_user_conns:
                     return await self._reloaded_schema_for(
-                        db, data_source, organization, current_user, prefetched
+                        db, data_source, organization, current_user, prefetched,
+                        refresh_overlay=not skip_overlay,
                     )
 
             # Per-user catalogs (and mixed agents, whose shared side refreshed
@@ -5896,6 +6012,7 @@ class DataSourceService:
         organization: Organization,
         current_user: User,
         prefetched_tables=None,
+        refresh_overlay: bool = True,
     ):
         """The answer a Reload returns: every connection this caller may see.
 
@@ -5909,7 +6026,7 @@ class DataSourceService:
         Returning just one of those two is what made a multi-connection agent
         come back from a Reload looking single-connection.
         """
-        if current_user is not None and self._per_user_catalog_connections(data_source):
+        if refresh_overlay and current_user is not None and self._per_user_catalog_connections(data_source):
             try:
                 await self.get_user_data_source_schema(
                     db=db, data_source=data_source, user=current_user,

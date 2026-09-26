@@ -28,6 +28,13 @@
           class="text-[11px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 whitespace-nowrap">
           {{ t('tableErd.customQueriesOff') }}
         </NuxtLink>
+        <label v-if="showCatalogViewToggle" data-testid="catalog-view-toggle"
+          :title="t('tableErd.allTablesHint')"
+          class="inline-flex items-center gap-2 text-[11px] text-gray-600 dark:text-gray-300 cursor-pointer">
+          <UToggle :model-value="catalogViewAll" :disabled="loading || refreshing"
+            :aria-label="t('tableErd.allTables')" @update:model-value="setCatalogView" />
+          {{ t('tableErd.allTables') }}
+        </label>
         <button v-if="showRefresh" @click="onRefresh" :disabled="loading || refreshing"
           :aria-label="t('tableErd.reload')"
           class="inline-flex items-center gap-1.5 rounded-md border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-[11px] text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50">
@@ -36,6 +43,16 @@
           <span v-if="!refreshIconOnly">{{ t('tableErd.reload') }}</span>
         </button>
       </div>
+    </div>
+
+    <div v-if="showCatalogViewToggle && catalogViewInfo" class="shrink-0 -mt-1 mb-3 space-y-0.5 text-[11px] text-gray-500 dark:text-gray-400" data-testid="catalog-view-scope">
+      <template v-if="catalogViewInfo.not_applicable.length">
+        <p>{{ t('tableErd.allTablesAppliesTo', { connections: catalogViewInfo.applies_to.map(c => c.name).join(', ') }) }}</p>
+        <p>{{ t('tableErd.allTablesNotApplicable', { connections: catalogViewInfo.not_applicable.map(c => `${c.name} (${t(c.reason === 'no_permission' ? 'tableErd.reasonNoPermission' : 'tableErd.reasonNoOrgCredentials')})`).join(', ') }) }}</p>
+      </template>
+      <p v-if="!catalogViewAll && catalogViewInfo.selected_inaccessible_count > 0" class="text-amber-600 dark:text-amber-400" data-testid="selected-inaccessible">
+        {{ t('tableErd.selectedInaccessible', { count: catalogViewInfo.selected_inaccessible_count }, catalogViewInfo.selected_inaccessible_count) }}
+      </p>
     </div>
 
     <!-- Kept mounted rather than v-if'd on the connection: creating the
@@ -670,6 +687,17 @@ type PaginatedResponse = {
   selected_count: number;
   total_tables: number;
   has_more: boolean;
+  catalog_view?: CatalogViewInfo | null;
+}
+
+// "All tables / My tables" toggle metadata. Present only for agent managers
+// whose default view narrows a delegated connection to their own access.
+type CatalogViewInfo = {
+  all_tables: boolean;
+  applies_to: ConnectionInfo[];
+  // Delegated connections the toggle leaves in the caller's own view, and why.
+  not_applicable: (ConnectionInfo & { reason: 'no_permission' | 'no_org_credentials' })[];
+  selected_inaccessible_count: number;
 }
 
 const props = withDefaults(defineProps<{
@@ -791,6 +819,30 @@ const bulkUpdating = ref(false)
 // connections instead of an unexplained empty list.
 const authConnections = ref<any[]>([])
 const signingIn = ref(false)
+
+// "All tables / My tables": display only. Starts on the caller's usual view
+// every time the selector opens; the server decides where it applies.
+const catalogViewAll = ref(false)
+const catalogViewInfo = ref<CatalogViewInfo | null>(null)
+const showCatalogViewToggle = computed(() => props.schema === 'full' && props.canUpdate && !!catalogViewInfo.value)
+
+function applyCatalogView(info: CatalogViewInfo | null | undefined) {
+  catalogViewInfo.value = info || null
+  if (!info) catalogViewAll.value = false
+}
+
+function withCatalogView(params: URLSearchParams) {
+  if (catalogViewAll.value) params.set('catalog_view', 'all')
+  return params
+}
+
+async function setCatalogView(all: boolean) {
+  if (catalogViewAll.value === all || loading.value || refreshing.value) return
+  catalogViewAll.value = all
+  page.value = 1
+  // Unsaved selections survive: registerTables keeps dirty rows.
+  await reloadKnownCatalog()
+}
 
 const connectRequiredConn = computed(() => {
   return authConnections.value.find((c: any) =>
@@ -1069,7 +1121,7 @@ async function loadCatalog(): Promise<boolean> {
       let nextPage = 1
       let more = true
       while (more) {
-        const params = new URLSearchParams({ page: String(nextPage), page_size: '500', sort_by: 'name', sort_dir: 'asc' })
+        const params = withCatalogView(new URLSearchParams({ page: String(nextPage), page_size: '500', sort_by: 'name', sort_dir: 'asc' }))
         if (props.connectionFilter) params.set('connection_filter', props.connectionFilter)
         if (props.showStats) params.set('with_stats', 'true')
         const res: any = await useMyFetch(`/data_sources/${dsId}/${endpoint}?${params}`, { method: 'GET' })
@@ -1081,6 +1133,7 @@ async function loadCatalog(): Promise<boolean> {
         more = !Array.isArray(data) && data.has_more
         if (more && !batch.length) throw new Error('empty catalog page')
         if (!Array.isArray(data)) {
+          applyCatalogView(data.catalog_view)
           availableSchemas.value = data.schemas
           availableConnections.value = data.connections.filter((connection: { id: string }) => !props.connectionFilter || props.connectionFilter.split(',').includes(connection.id))
         }
@@ -1332,6 +1385,7 @@ async function fetchTables() {
       if (props.showStats) {
         params.set('with_stats', 'true')
       }
+      withCatalogView(params)
 
       const res = await useMyFetch(`/data_sources/${props.dsId}/${endpoint}?${params.toString()}`, { method: 'GET' })
       
@@ -1342,6 +1396,7 @@ async function fetchTables() {
         // Check if paginated response
         if (data && typeof data === 'object' && 'tables' in data) {
           const paginatedData = data as PaginatedResponse
+          applyCatalogView(paginatedData.catalog_view)
           isPaginated.value = true
           tables.value = paginatedData.tables
           totalMatching.value = paginatedData.total
@@ -1511,7 +1566,9 @@ async function onRefresh() {
 
   try {
     if (endpointForSchema() === 'full_schema') {
-      const res = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema`, { method: 'GET' })
+      // "All tables" reloads with the organization's credentials.
+      const query = catalogViewAll.value ? '?catalog_view=all' : ''
+      const res = await useMyFetch(`/data_sources/${props.dsId}/refresh_schema${query}`, { method: 'GET' })
       if (res.error?.value) {
         // Surface the real reason (e.g. 403 "Connect required: this connection
         // runs queries with your own credentials…") — a silent no-op here left
