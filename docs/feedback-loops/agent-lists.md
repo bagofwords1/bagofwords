@@ -34,7 +34,7 @@ registration, validation, quote verification, upsert, the Knowledge Explorer "Li
 **Also in P0:**
 
 - **Row edit/update by humans and by the agent**, with field locks and revision history (S6).
-- **Lists as `bow.lists.<slug>` tables for `create_data`**, next to `bow.runs` (S7).
+- **Lists as `bow.<agent>.lists.<list>` tables for `create_data`**, next to `bow.runs` (S7).
 - **CSV export** from the UI (S8).
 
 **Out (P1+):**
@@ -298,7 +298,7 @@ Full stack, used for Loops A5, B and UI evidence:
 - **Locked fields are never overwritten by the agent.** The executor skips them and returns
   `locked_fields_skipped: [...]` in the observation, so the agent knows. That makes human
   corrections durable across scheduled reruns.
-- The agent learns row ids through S7: `bow.lists.<slug>` exposes `_row_id`. It can then
+- The agent learns row ids through S7: `bow.<agent>.lists.<list>` exposes `_row_id`. It can then
   follow the "read the list, decide what changed, submit updates" flow.
 - **Concurrency:** two runs upserting the same key are serialized by the unique constraint.
   On an insert conflict, retry once as an update.
@@ -319,7 +319,7 @@ Full stack, used for Loops A5, B and UI evidence:
 - [ ] Revert restores the previous values and writes its own revision.
 - [ ] Mutation check: remove the lock check, and the locked-field test must fail.
 
-### S7: Lists as `bow.lists.<slug>` tables for analysis (`create_data`)
+### S7: Lists as `bow.<agent>.lists.<list>` tables for analysis (`create_data`)
 
 The same pattern as `bow.runs`, which is already built:
 
@@ -330,8 +330,23 @@ The same pattern as `bow.runs`, which is already built:
 
 **Build**
 
-- **Query shape:** `BowQuery.dataset` gains `"list"` plus `list: <slug>` (for example
-  `{"dataset":"list","list":"contracts","columns":[...],"query":"status:found"}`).
+- **Naming:** tables are advertised as **`bow.<agent_slug>.lists.<list_slug>`**, for example
+  `bow.sales_ops.lists.contracts`.
+  - This scopes each list under its owning agent, so there are no cross-agent collisions.
+  - `agent_slug` is derived at render time from `DataSource.name`: lowercased, with
+    non-`[a-z0-9_]` characters replaced by `_`. Non-Latin names (Hebrew) fall back to
+    `agent_<first 8 of id>`, and duplicates get a short id suffix.
+  - Agents have no stored slug (`models/data_source.py:20`), and names change. So **the
+    name is for discovery and display only.**
+- **Query shape (rename-safe):** `BowQuery.dataset` gains `"list"` plus `list_id: <uuid>`, for
+  example `{"dataset":"list","list_id":"…","columns":[...],"query":"status:found"}`.
+  - The schema context prints each table's `list_id` next to its name, and the BOW client
+    description tells the coder to query by `list_id`.
+  - Saved queries replay the literal code on refresh, so an agent or list rename never
+    breaks a saved step or dashboard.
+  - A `list: "bow.<agent>.lists.<list>"` name form is accepted as a fallback and resolved at
+    execution time. It fails clearly with a "renamed; use list_id" message if it no longer
+    resolves.
   `group_by`, `metrics` and `sort` work as they do for runs.
 - **Flattened columns per list:**
   - One typed column per field (`value`), typed from the list schema through `column_type`.
@@ -342,7 +357,7 @@ The same pattern as `bow.runs`, which is already built:
     they are asked for in `columns`.
 - **Discovery:** `catalog()` becomes access-aware.
   - `bow.runs` and `bow.tool_calls` keep their gate: training mode plus console scope.
-  - `bow.lists.<slug>` tables are advertised **in every mode** for lists on the report's
+  - `bow.<agent>.lists.<list>` tables are advertised **in every mode** for lists on the report's
     agents that the user can **view**. The access rule is agent view, not console scope.
 - **Install:** `install_bow_client` (`bow_client.py:110`) currently returns unless the
   report is in training mode or has saved BOW access.
@@ -350,14 +365,14 @@ The same pattern as `bow.runs`, which is already built:
   - The client refuses `runs` and `tool_calls` outside their gate.
   - `BowSourceService.query` re-checks agent view on every execution, including saved-query
     refresh (`query_service.py:640`). Access is never cached.
-- **Result:** `create_data` over `bow.lists.contracts` becomes a normal Step. It can be
+- **Result:** `create_data` over `bow.<agent>.lists.contracts` becomes a normal Step. It can be
   charted, put on a dashboard, joined with SQL sources through `load_step`, and refreshed on
   a schedule. Refresh re-reads the **current** rows.
 
 **DoD**
 
 - [ ] Unit tests: `catalog()` for a chat-mode user who can view an agent with 2 lists
-      advertises exactly those 2 `bow.lists.*` tables and **no** `bow.runs`. In training
+      advertises exactly those 2 `bow.<agent>.lists.*` tables and **no** `bow.runs`. In training
       mode with console scope, it advertises runs, tool_calls and lists.
 - [ ] e2e tests: a `BowQuery` over a list returns one row per list row with the typed
       columns. A user without agent view gets a permission error from the service, and
@@ -365,6 +380,10 @@ The same pattern as `bow.runs`, which is already built:
 - [ ] `group_by` plus `metrics` over a list field (for example `sum(annual_value)` by
       `currency`) matches a hand-computed value from the seeded rows.
 - [ ] A saved-query refresh after an S6 edit returns the edited value.
+- [ ] **Rename safety:** create a saved step over a list, rename both the agent and the list,
+      and refresh. The step still returns the rows, because the query used `list_id`.
+- [ ] Two agents each with a `contracts` list get distinct table names, and a Hebrew-named
+      agent gets a valid ASCII table name.
 
 ### S8: CSV export (UI)
 
@@ -464,7 +483,7 @@ node ../tools/agent/verify_agent_lists.mjs     # new Playwright driver
       incremented, `locked_fields` containing the field, and 1 revision.
 - [ ] **Agent rerun:** a second stubbed run submits `annual_value: 999` for the same key. The
       value stays 130000 and the SSE observation lists `locked_fields_skipped`.
-- [ ] **Analysis:** a third stubbed turn calls `create_data` over `bow.lists.contracts`. The
+- [ ] **Analysis:** a third stubbed turn calls `create_data` over `bow.<agent>.lists.contracts`. The
       Step renders 1 row with `annual_value == 130000`.
 - [ ] **CSV:** clicking Export CSV fires a download whose file has a BOM, a header in field
       order, and 1 data row.
@@ -506,10 +525,10 @@ These are the premises only a real model can confirm: that it naturally ends wit
       (log a hash of the tools array per iteration and check that they are all identical).
 - [ ] Follow-up analysis in chat mode, not training: *"Chart total annual value by
       currency from the Contracts list."* The agent uses `create_data` on
-      `bow.lists.contracts` without being told the table name. `bow.runs` is **not**
+      `bow.<agent>.lists.contracts` without being told the table name. `bow.runs` is **not**
       offered in chat mode.
 - [ ] Update flow: *"Contract X was renewed until 2027-12-31; update the list."* The agent
-      reads `_row_id` from `bow.lists` and submits an update with only `renewal_date` set.
+      reads `_row_id` from `bow.<agent>.lists.contracts` and submits an update with only `renewal_date` set.
       Other fields are unchanged, and one revision has `actor_type=agent`.
 - [ ] Hebrew: one Hebrew contract fixture extracts with verified quotes. This covers the RTL
       text path.

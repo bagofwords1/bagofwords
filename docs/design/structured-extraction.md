@@ -395,7 +395,7 @@ scheduled runs.
 - **Edits:** humans edit rows inline. Edited fields are locked against agent overwrite and get
   a revision history. The agent updates rows through the same `submit_<slug>` tool, using a
   `row_id` or key match and partial fields.
-- **Analysis:** lists are exposed to `create_data` as `bow.lists.<slug>`, extending the
+- **Analysis:** lists are exposed to `create_data` as `bow.<agent>.lists.<list>` (queried by `list_id`, so renames are safe), extending the
   existing `bow.runs` BOW source. They are gated by agent view rather than by training mode.
 - **CSV export** from the rows panel and from the chat card.
 
