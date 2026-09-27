@@ -5327,7 +5327,8 @@
       "breakingSaved": "Saved as version {v}. Existing rows are marked outdated until re-extracted.",
       "saved": "List saved",
       "created": "List created",
-      "saveFailed": "Couldn't save the list"
+      "saveFailed": "Couldn't save the list",
+      "allowViewerSubmissions": "Anyone who can use this agent can save rows from chat (otherwise only agent managers)"
     },
     "row": {
       "status": {

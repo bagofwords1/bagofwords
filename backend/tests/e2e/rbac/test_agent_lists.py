@@ -626,6 +626,9 @@ def test_schema_context_advertises_list_tables_in_chat_mode_without_run_history(
     assert names == [world["list"]["table_name"]]
     assert not any(n in ("bow.runs", "bow.tool_calls") for n in names)
     assert world["list"]["id"] in sections[0].tables[0].description
+    # The viewer can read the list but not write it: the description says so,
+    # so the agent explains instead of hunting for a save tool it doesn't have.
+    assert "READ-ONLY" in sections[0].tables[0].description
 
 
 def test_bow_client_refuses_run_history_outside_training(world):
@@ -696,3 +699,43 @@ def test_concurrent_submissions_of_the_same_new_key_yield_one_row(test_client, w
     rows = _rows(test_client, world)["rows"]
     assert len(rows) == 1
     assert sorted(r["inserted"] + r["updated"] + r["unchanged"] for r in results) == [1, 1]
+
+
+# ── Who may write through the agent ────────────────────────────────────────
+
+def test_agent_submissions_follow_the_edit_rule_unless_the_list_opts_in(test_client, world, create_report):
+    """Saving rows through the agent is an edit: only agent managers get the
+    submit tool — unless the list opts in to submissions from anyone who can
+    use (view) the agent."""
+    for actor in ("viewer", "manager"):
+        world[f"{actor}_report"] = create_report(title=f"{actor} chat", user_token=world[actor]["token"],
+                                                 org_id=world["org_id"], data_sources=[world["agent"]["id"]])
+
+    assert _build(world, actor="viewer", report_key="viewer_report")[0] == []
+    assert [d["name"] for d in _build(world, actor="manager", report_key="manager_report")[0]] == ["submit_contracts"]
+    out = submit(world, [_record()], actor="viewer", report_key="viewer_report")
+    assert out["output"]["success"] is False and _rows_count_via_db(world) == 0
+    assert submit(world, [_record()], actor="manager", report_key="manager_report")["output"]["success"] is True
+
+    h = _h(world["admin"]["token"], world["org_id"])
+    body = {"name": "Contracts", "description": "Customer contracts", "fields": world["list"]["fields"],
+            "key_field": "counterparty", "allow_viewer_submissions": True}
+    updated = test_client.put(_url(world, f"/{world['list']['id']}"), json=body, headers=h).json()
+    assert updated["allow_viewer_submissions"] is True and updated["version"] == 1
+    assert [d["name"] for d in _build(world, actor="viewer", report_key="viewer_report")[0]] == ["submit_contracts"]
+    assert submit(world, [_record(cp="Viewer Co")], actor="viewer", report_key="viewer_report")["output"]["success"] is True
+
+
+def test_shared_artifact_chat_never_writes_to_lists(world):
+    from sqlalchemy import update
+    from app.models.report import Report
+
+    # Direct write: artifact_chat reports are created by ArtifactChatService from
+    # a published artifact; only the report_type matters to this contract.
+    async def _fn(db, maker):
+        await db.execute(update(Report).where(Report.id == world["report"]["id"]).values(report_type="artifact_chat"))
+        await db.commit()
+    run_async(_fn)
+    assert _build(world)[0] == []
+    out = submit(world, [_record()])
+    assert out["output"]["success"] is False and _rows_count_via_db(world) == 0

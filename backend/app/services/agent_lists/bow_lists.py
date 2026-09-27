@@ -16,7 +16,7 @@ from sqlalchemy import select
 
 from app.models.agent_list import AgentList, AgentListRow
 from app.models.data_source import DataSource
-from app.services.agent_lists.access import can_access_agent, viewable_agent_ids
+from app.services.agent_lists.access import can_access_agent, can_submit_to_list, viewable_agent_ids
 from app.services.agent_lists.naming import table_name_for
 
 META_COLUMNS = ["_row_id", "_key", "_schema_version", "_report_id", "_created_at", "_updated_at", "_edited_by_human"]
@@ -55,6 +55,7 @@ async def list_tables(db, user, organization, data_source_ids) -> List[Dict[str,
             "list": lst,
             "agent": ds,
             "columns": list_columns(lst),
+            "writable": await can_submit_to_list(db, user, organization, ds, lst),
         })
     return out
 
@@ -75,6 +76,9 @@ def describe_table(entry: Dict[str, Any]) -> str:
         "\"sort\" [{\"field\":...,\"direction\":\"desc\"}], \"limit\". Add evidence columns "
         "(<field>__quote/__page/__verified) by naming them in columns. _row_id identifies a row "
         "(pass it as row_id to the list's submit tool to update it)."
+        + ("" if entry.get("writable", True) else
+           " READ-ONLY for this user: only people who manage this agent can save rows to this list, so "
+           "there is no submit tool for it here — if asked to save, say so and show the values instead.")
     )
 
 

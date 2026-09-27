@@ -85,6 +85,7 @@ def serialize_list(lst: AgentList, ds: DataSource, *, row_count: int = 0, can_ma
         key_field_id=lst.key_field_id,
         key_field=_key_name(lst),
         require_evidence=bool(lst.require_evidence),
+        allow_viewer_submissions=bool(lst.allow_viewer_submissions),
         version=int(lst.version or 1),
         row_count=row_count,
         tool_name=tool_name_for(lst.slug, list_id=str(lst.id)),
@@ -125,6 +126,7 @@ async def create_list(db, organization, ds: DataSource, payload: ListSchemaIn, u
         fields=fields,
         key_field_id=_key_id(payload, fields),
         require_evidence=payload.require_evidence,
+        allow_viewer_submissions=payload.allow_viewer_submissions,
         version=1,
     )
     db.add(lst)
@@ -141,13 +143,15 @@ async def update_list(db, ds: DataSource, lst: AgentList, payload: ListSchemaIn)
     key_id = _key_id(payload, fields)
     change = classify_schema_change(lst.fields or [], lst.key_field_id, fields, key_id)
     if change == "none" and (lst.name != payload.name or (lst.description or "") != (payload.description or "")
-                             or bool(lst.require_evidence) != payload.require_evidence):
+                             or bool(lst.require_evidence) != payload.require_evidence
+                             or bool(lst.allow_viewer_submissions) != payload.allow_viewer_submissions):
         change = "additive"
     lst.name = payload.name
     lst.description = payload.description or ""
     lst.fields = fields
     lst.key_field_id = key_id
     lst.require_evidence = payload.require_evidence
+    lst.allow_viewer_submissions = payload.allow_viewer_submissions
     if change == "breaking":
         lst.version = int(lst.version or 1) + 1
     lst.updated_at = datetime.utcnow()

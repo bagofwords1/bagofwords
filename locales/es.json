@@ -5298,7 +5298,8 @@
       "breakingSaved": "Guardado como versión {v}. Las filas existentes quedan desactualizadas hasta volver a extraerlas.",
       "saved": "Lista guardada",
       "created": "Lista creada",
-      "saveFailed": "No se pudo guardar la lista"
+      "saveFailed": "No se pudo guardar la lista",
+      "allowViewerSubmissions": "Cualquiera que pueda usar este agente puede guardar filas desde el chat (si no, solo quienes lo administran)"
     },
     "row": {
       "status": {

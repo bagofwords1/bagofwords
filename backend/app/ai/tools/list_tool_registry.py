@@ -27,6 +27,9 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
 
     if report is None or user is None or organization is None:
         return [], {}
+    # Shared-artifact viewer chat is read-only by contract (ArtifactChatService).
+    if getattr(report, "report_type", "regular") == "artifact_chat":
+        return [], {}
     ds_ids = [str(r[0]) for r in (await db.execute(
         select(report_data_source_association.c.data_source_id)
         .where(report_data_source_association.c.report_id == str(report.id))
@@ -40,6 +43,11 @@ async def build_list_tools(db, report, user, organization) -> Tuple[List[Dict[st
     agents = {str(d.id): d for d in (await db.execute(
         select(DataSource).where(DataSource.id.in_(list(allowed)))
     )).scalars().all()}
+    from app.services.agent_lists.access import can_submit_to_list
+    lists = [l for l in lists
+             if await can_submit_to_list(db, user, organization, agents.get(str(l.data_source_id)), l)]
+    if not lists:
+        return [], {}
 
     lists.sort(key=lambda l: (str(l.data_source_id), l.slug))
     slug_counts: Dict[str, int] = {}

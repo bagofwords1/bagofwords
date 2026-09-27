@@ -62,6 +62,7 @@ class ListSchemaIn(BaseModel):
         default=None, description="Name (or id) of the field used to match/update existing rows."
     )
     require_evidence: bool = False
+    allow_viewer_submissions: bool = False
 
     @field_validator("name")
     @classmethod
@@ -112,6 +113,7 @@ class AgentListOut(BaseModel):
     key_field_id: Optional[str] = None
     key_field: Optional[str] = None
     require_evidence: bool = False
+    allow_viewer_submissions: bool = False
     version: int = 1
     row_count: int = 0
     tool_name: str

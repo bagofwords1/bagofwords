@@ -40,6 +40,16 @@ async def can_access_agent(db, user, organization, ds: DataSource, permission: s
     return _allowed(await _resolved(db, user, organization), ds, permission)
 
 
+async def can_submit_to_list(db, user, organization, ds: DataSource, agent_list) -> bool:
+    """Agent submissions follow the edit rule (MANAGE on the agent) unless the
+    list opts in to submissions from anyone who can use (VIEW) the agent."""
+    if await can_access_agent(db, user, organization, ds, "manage"):
+        return True
+    return bool(getattr(agent_list, "allow_viewer_submissions", False)) and await can_access_agent(
+        db, user, organization, ds, "view"
+    )
+
+
 async def viewable_agent_ids(db, user, organization, data_source_ids: Iterable[str]) -> Set[str]:
     """Subset of ``data_source_ids`` the user may view (org-scoped)."""
     ids: List[str] = [str(i) for i in data_source_ids if i]

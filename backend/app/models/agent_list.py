@@ -32,6 +32,10 @@ class AgentList(BaseSchema):
     fields = Column(JSON, nullable=False, default=list)
     key_field_id = Column(String(64), nullable=True)
     require_evidence = Column(Boolean, nullable=False, default=False)
+    # Who may save rows through the agent's submit_<list> tool. Off: only users
+    # who can MANAGE the agent (the same bar as editing rows by hand). On:
+    # anyone who can use (view) the agent — crowd-sourced extraction.
+    allow_viewer_submissions = Column(Boolean, nullable=False, default=False)
     # Bumped on breaking schema changes only (see classify_schema_change).
     version = Column(Integer, nullable=False, default=1)
 

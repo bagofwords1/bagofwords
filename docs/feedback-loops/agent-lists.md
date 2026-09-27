@@ -28,7 +28,8 @@ schema of fields. From then on, every report that uses that agent does the follo
    upserted on the list's key field, and carry provenance (report, tool execution, schema
    version) and per-field evidence.
 5. Rows are visible in the Knowledge Explorer to anyone who can view the agent. Editing the
-   list requires manage permission on the agent.
+   list or its rows requires manage permission on the agent. That includes saving rows
+   through the agent, unless the list opts in to submissions from viewers.
 
 ## Scope
 
@@ -471,7 +472,7 @@ The test files are:
   S1, S3 and S5–S8.
 
 ```
-SQLite    unit + e2e (compiler, schema-change, verify, agent_lists) : 102 passed
+SQLite    unit + e2e (compiler, schema-change, verify, agent_lists) : 104 passed
 Postgres  (--db=external, local PG 16) compiler + schema-change + e2e:  87 passed
 Regression (bow_source, diagnosis + console scope, console metrics, agent notes,
   schema-context multi-connection, bow contract, tool-registry cache,
@@ -721,6 +722,20 @@ Anthropic's explicit breakpoints.
   punctuation-insensitive pass, because RTL PDF text layers mirror brackets and move periods.
 - **Revisions:** only a change in **value or status** writes a revision. Re-extraction that
   only re-words the quote or note refreshes the evidence in place.
+- **Who can write through the agent:** saving rows through `submit_<list>` is an **edit**.
+  Following the rule "view: anyone with view on the agent; edit: agent managers or the owner",
+  the tool is registered only for users who can **manage** the agent. A per-list opt-in, **"Anyone who
+  can use this agent can save rows from chat"** (`allow_viewer_submissions`, default off),
+  extends that to viewers for crowd-sourced extraction.
+  - The executor re-checks the rule on every call.
+  - Shared-artifact viewer chats (`report_type=artifact_chat`, read-only by contract) never get
+    the tool, and the executor refuses them.
+  - For a viewer, the list's `bow` table description says it is read-only for them.
+  - Live check: a view-only member asked the agent to "extract the Acme contract into the
+    Contracts list". No list tool was registered, nothing was written, and the agent answered
+    from the document instead.
+  - Covered by `test_agent_submissions_follow_the_edit_rule_unless_the_list_opts_in` and
+    `test_shared_artifact_chat_never_writes_to_lists`.
 - **Counts endpoint:** `GET /api/agent_lists/counts` was added for the tree badge.
 - **Row delete** is a hard delete (with its revisions). Deleting a list is a soft delete.
 - **Pre-existing and not changed:**

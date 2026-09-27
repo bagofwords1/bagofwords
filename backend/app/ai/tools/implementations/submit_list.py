@@ -58,7 +58,7 @@ class SubmitListTool(Tool):
         from app.models.agent_list import AgentList
         from app.models.data_source import DataSource
         from app.models.report_data_source_association import report_data_source_association
-        from app.services.agent_lists.access import can_access_agent
+        from app.services.agent_lists.access import can_submit_to_list
         from app.services.agent_lists.records import ListValidationError, apply_submission_with_retry
         from app.services.agent_lists.verify import collect_report_texts
 
@@ -98,7 +98,9 @@ class SubmitListTool(Tool):
                     select(report_data_source_association.c.data_source_id)
                     .where(report_data_source_association.c.report_id == report_id)
                 )).all()}
-            if str(lst.data_source_id) not in attached or not await can_access_agent(db, user, organization, ds, "view"):
+            read_only_chat = getattr(report, "report_type", "regular") == "artifact_chat"
+            if (read_only_chat or str(lst.data_source_id) not in attached
+                    or not await can_submit_to_list(db, user, organization, ds, lst)):
                 yield self._fail(lst.id, lst.name, str(lst.data_source_id),
                                  [f"list '{lst.name}' is not available in this conversation"])
                 return
