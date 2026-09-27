@@ -2,6 +2,8 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from typing import Optional, List, Literal
 from datetime import datetime
 
+from app.schemas.app_storage import parse_storage_declaration
+
 
 class SlideContent(BaseModel):
     """Content for a single slide in slides mode."""
@@ -32,12 +34,25 @@ class ArtifactBase(BaseModel):
     mode: Literal["page", "slides", "doc"] = "page"
 
 
+def _validate_content_storage(content: Optional[dict]) -> Optional[dict]:
+    """A record-storage declaration in content must be valid (it governs
+    who may read and write user data)."""
+    if content is not None and content.get("storage") is not None:
+        parse_storage_declaration(content["storage"])
+    return content
+
+
 class ArtifactCreate(ArtifactBase):
     """Schema for creating a new artifact."""
     report_id: str
     content: dict  # Either ArtifactContentPage or ArtifactContentSlides
     generation_prompt: Optional[str] = None
     completion_id: Optional[str] = None
+
+    @field_validator("content")
+    @classmethod
+    def _storage_is_valid(cls, v: dict) -> dict:
+        return _validate_content_storage(v)
 
 
 class ArtifactUpdate(BaseModel):
@@ -60,6 +75,11 @@ class ArtifactUpdate(BaseModel):
         if not v:
             raise ValueError("title must not be blank")
         return v
+
+    @field_validator("content")
+    @classmethod
+    def _storage_is_valid(cls, v: Optional[dict]) -> Optional[dict]:
+        return _validate_content_storage(v)
 
 
 class ArtifactSchema(ArtifactBase):

@@ -1052,6 +1052,23 @@
       "create": "Créer un tableau de bord",
       "failed": "Échec de la création du tableau de bord"
     },
+    "storageChange": {
+      "title": "Cette modification touche des données enregistrées de l'app",
+      "collectionRemoved": "Supprimer la collection {collection}",
+      "collectionReadded": "Déclarer de nouveau {collection} en {after} : les enregistrements conservés d'une version précédente deviennent visibles selon ces règles",
+      "fieldRemoved": "Supprimer le champ {field} de {collection} (les valeurs enregistrées sont conservées mais masquées)",
+      "fieldTypeChanged": "Changer le champ {field} de {collection} de {before} à {after}",
+      "scopeChanged": "Changer qui voit {collection} de {before} à {after}",
+      "createChanged": "Changer qui peut ajouter à {collection} de {before} à {after}",
+      "fieldMadeRequired": "Rendre le champ {field} de {collection} obligatoire (les anciens enregistrements sans ce champ ne pourront plus être modifiés)",
+      "impact": "Concerne {records} enregistrement(s) de {users} utilisateur(s)",
+      "allow": "Autoriser",
+      "deny": "Refuser",
+      "approved": "Modification approuvée",
+      "declined": "Modification refusée",
+      "failed": "Impossible d'envoyer votre réponse. Réessayez.",
+      "expired": "Cette demande d'approbation a expiré. Rien n'a été modifié."
+    },
     "editArtifact": {
       "editing": "Modification du tableau de bord",
       "edited": "Tableau de bord modifié",

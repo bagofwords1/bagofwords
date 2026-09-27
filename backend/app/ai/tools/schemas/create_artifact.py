@@ -68,6 +68,15 @@ class CreateArtifactInput(BaseModel):
         "Every viz in this list must be able to participate in any cross-viz contract your prompt declares (filter/compare/slice/rank/drill) — if it can't, rebuild its data via `create_data` first and swap in the new viz_id, or drop it."
     ))
 
+    storage: Optional[Dict[str, Any]] = Field(default=None, description=(
+        "Optional record storage for a page app: {\"collections\": {<name>: {scope, create, modify, fields}}} "
+        "(see STORAGE AUTHORING). Required for every useCollection(\"<name>\") call in `code`. Records belong "
+        "to the artifact: rebuilding an app that has records MUST pass replaces_artifact_id, otherwise the new "
+        "artifact starts with an EMPTY store. On such a rebuild omitting `storage` keeps the current declaration; "
+        "pass {\"collections\": {}} to remove storage. Changes that can hide or expose stored records need the "
+        "user's approval; if not approved nothing is applied."
+    ))
+
 
 class CreateArtifactOutput(BaseModel):
     """Output from create_artifact tool.

@@ -1139,6 +1139,23 @@
       "create": "Create Dashboard",
       "failed": "Failed to Create Dashboard"
     },
+    "storageChange": {
+      "title": "This change affects stored app data",
+      "collectionRemoved": "Remove collection {collection}",
+      "collectionReadded": "Declare {collection} again as {after}: records kept from an earlier version become visible under these rules",
+      "fieldRemoved": "Remove field {field} from {collection} (stored values are kept but hidden)",
+      "fieldTypeChanged": "Change field {field} in {collection} from {before} to {after}",
+      "scopeChanged": "Change who sees {collection} from {before} to {after}",
+      "createChanged": "Change who can add to {collection} from {before} to {after}",
+      "fieldMadeRequired": "Make field {field} in {collection} required (older records without it can no longer be updated)",
+      "impact": "Affects {records} record(s) from {users} user(s)",
+      "allow": "Allow",
+      "deny": "Deny",
+      "approved": "Change approved",
+      "declined": "Change declined",
+      "failed": "Couldn't send your answer. Try again.",
+      "expired": "This approval request expired. Nothing was changed."
+    },
     "editArtifact": {
       "editing": "Editing Dashboard",
       "edited": "Dashboard Edited",

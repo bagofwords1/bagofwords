@@ -858,6 +858,25 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         existing_code = content.get("code", "")
         existing_viz_ids = content.get("visualization_ids", [])
 
+        # This path carries the edited version's storage declaration as-is and
+        # cannot ask for approval: editing an older or failed version must not
+        # change the artifact's effective declaration (fail closed).
+        from app.ai.tools.implementations._artifact_storage import non_interactive_storage_guard
+        storage_block = await non_interactive_storage_guard(db, artifact, content.get("storage"))
+        if storage_block:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {"success": False, "artifact_id": str(artifact.id), "error": storage_block},
+                    "observation": {
+                        "summary": f"edit_artifact rejected for '{artifact.title or 'artifact'}': {storage_block}",
+                        "error": {"type": "storage_change_not_confirmed", "reason": "non_interactive", "message": storage_block},
+                        "artifact_id": str(artifact.id),
+                    },
+                },
+            )
+            return
+
         # Legacy upgrade (lazy, deterministic, no LLM): positional viz[N]
         # references are rewritten to id-keyed vizById("<uuid>") against the
         # STORED visualization_ids order — the order those indexes were
@@ -1542,16 +1561,20 @@ Re-emit corrected SEARCH/REPLACE blocks for the SAME edit. Copy SEARCH text exac
         # Accumulate generation_prompt: merge previous spec with current edit
         prev_spec = artifact.generation_prompt or ""
 
+        new_content: Dict[str, Any] = (
+            {"code": new_code, "visualization_ids": included_viz_ids, "files": merged_files}
+            if merged_files
+            else {"code": new_code, "visualization_ids": included_viz_ids}
+        )
+        # The record-storage declaration is never silently dropped by an edit.
+        if content.get("storage") is not None:
+            new_content["storage"] = content.get("storage")
         new_artifact = await new_version(
             db,
             artifact,
             user_id=str(user.id) if user else None,
             title=new_title,
-            content=(
-                {"code": new_code, "visualization_ids": included_viz_ids, "files": merged_files}
-                if merged_files
-                else {"code": new_code, "visualization_ids": included_viz_ids}
-            ),
+            content=new_content,
         )
         # The accumulated spec names the version that was actually minted —
         # the factory owns the number, so it is read back, never predicted.

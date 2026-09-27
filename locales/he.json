@@ -1066,6 +1066,23 @@
       "create": "יצירת דשבורד",
       "failed": "יצירת הדשבורד נכשלה"
     },
+    "storageChange": {
+      "title": "השינוי הזה משפיע על נתוני אפליקציה שמורים",
+      "collectionRemoved": "הסרת האוסף {collection}",
+      "collectionReadded": "הגדרת האוסף {collection} מחדש כ-{after}: רשומות שנשמרו מגרסה קודמת יהיו גלויות לפי הכללים האלה",
+      "fieldRemoved": "הסרת השדה {field} מהאוסף {collection} (הערכים השמורים נשמרים אך מוסתרים)",
+      "fieldTypeChanged": "שינוי השדה {field} באוסף {collection} מ-{before} ל-{after}",
+      "scopeChanged": "שינוי מי רואה את {collection} מ-{before} ל-{after}",
+      "createChanged": "שינוי מי יכול להוסיף ל-{collection} מ-{before} ל-{after}",
+      "fieldMadeRequired": "הפיכת השדה {field} באוסף {collection} לחובה (רשומות ישנות בלעדיו לא יוכלו להתעדכן)",
+      "impact": "משפיע על {records} רשומות של {users} משתמשים",
+      "allow": "אפשר",
+      "deny": "דחה",
+      "approved": "השינוי אושר",
+      "declined": "השינוי נדחה",
+      "failed": "לא ניתן היה לשלוח את התשובה שלך. נסה שוב.",
+      "expired": "בקשת האישור הזו פגה. דבר לא שונה."
+    },
     "editArtifact": {
       "editing": "עורך דשבורד",
       "edited": "דשבורד עודכן",

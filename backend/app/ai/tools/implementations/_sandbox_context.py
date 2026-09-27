@@ -86,6 +86,19 @@ VIEWER IDENTITY: useCurrentUser() → { id, name, email, image_url, role, profil
   NEVER hardcode a specific person's name/email anywhere (titles, greetings, filenames), even when the report title carries one — bind to current_user with a neutral fallback.
   RULES OF HOOKS: call every hook (useState, useMemo, useTheme, useFilters, useParams, useCurrentUser …) unconditionally at the top of the component, BEFORE any early return.
 
+APP DATA (records the app saves; only for collections declared in create/edit_artifact `storage` — see STORAGE AUTHORING):
+  const notes = useCollection("notes");  // name MUST be a string literal of a declared collection; a hook: top of component, never in loops/conditions
+    → { items, loading, error, add(data), update(id, patch), remove(id), refresh() }
+  items: [{ id, data, user: {id,name}|null, version, created_at, updated_at, mine }] oldest first; `data` holds declared fields only, missing ones filled from defaults.
+  loading is true until the first list arrives and while a write is in flight. error is null or { code, message }; it is set by the failed
+    list/write and cleared by the next success — ALWAYS render it (e.g. <p className="text-negative">{error.message}</p>).
+  add/update/remove return Promises that REJECT with an AppDataError (err.code) — ALWAYS handle them: `.catch(() => {})` or try/await/catch
+    (error already shows the failure). update is a shallow PATCH and uses the item's version: `conflict` (someone else changed it) and `not_found`
+    re-read the list automatically; show error and let the user retry. Codes: validation (also raised locally for NaN/Infinity/undefined/functions),
+    forbidden, unauthenticated, conflict, not_found, collection_not_declared, too_large, limit_reached, timeout, unavailable, network, error.
+  Only offer controls the viewer can use: anonymous viewers never write (hide forms when !useCurrentUser()), and `mine` marks own records.
+  Validation/preview renders start with EMPTY in-memory collections and some hosts (offline export) answer `unavailable` — render the empty state.
+
 FILES: <BowFile id="<file_id>" fit="contain|cover" className="" /> renders an embedded image or PDF by id (ids are listed in the prompt when present).
   Absolutely-positioned children become annotations over the file. Never use a raw <img src> or inline base64.
 
@@ -146,6 +159,8 @@ SANDBOX_RUNTIME_OBSERVATION = (
     "data source and fresh rows arrive via useArtifactData; identity-source params are locked to "
     "the viewer, render a 'scoped to you' badge, never an input), "
     "useParamOptions(name) hook (stable [{value,label}] choices for a declared param), "
+    "useCollection(\"<declared name>\") hook (app records declared in the artifact's `storage`: { items, loading, "
+    "error, add, update, remove, refresh } — writes reject with AppDataError and must be caught; render `error`), "
     "useFilters() hook (returns { filters, setFilter, resetFilters, filterRows } for client-side cross-visualization "
     "filtering; filterRows(rows, fieldMap?) remaps column names), "
     "<EChart option=... height=N viz=... /> (themed ECharts wrapper — all chart types), "

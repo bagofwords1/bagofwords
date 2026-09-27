@@ -1,4 +1,4 @@
-from typing import Optional, List
+from typing import Any, Dict, Optional, List
 from pydantic import BaseModel, Field
 
 
@@ -107,4 +107,5 @@ class ReadArtifactOutput(BaseModel):
     matches: Optional[List[ArtifactGrepMatch]] = Field(default=None, description="GREP READ: matching lines with context.")
     grep_total_matches: Optional[int] = Field(default=None, description="GREP READ: total matches found (may exceed len(matches)).")
     grep_truncated: Optional[bool] = Field(default=None, description="GREP READ: true when matches were dropped due to max_matches.")
+    storage: Optional[Dict[str, Any]] = Field(default=None, description="The artifact's record-storage declaration (content.storage), or null when it has none. edit_artifact carries it forward unless you pass a replacement `storage`.")
     outline: Optional[str] = Field(default=None, description="OUTLINE: structural map of the code with line numbers (returned for long artifacts on a full read, or as a navigation aid when grep found no matches).")

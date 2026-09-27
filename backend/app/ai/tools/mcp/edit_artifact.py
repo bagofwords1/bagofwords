@@ -113,6 +113,19 @@ class EditArtifactMCPTool(MCPTool):
                 error_message="Artifact has no code to edit.",
             ).model_dump()
 
+        # The new version carries this version's storage declaration and MCP
+        # cannot ask the user to approve a change: editing an older or failed
+        # version must not change the effective declaration (fail closed).
+        from app.ai.tools.implementations._artifact_storage import non_interactive_storage_guard
+        storage_block = await non_interactive_storage_guard(db, artifact, content.get("storage"))
+        if storage_block:
+            return MCPEditArtifactOutput(
+                report_id=input_data.report_id,
+                artifact_id=str(artifact.id),
+                success=False,
+                error_message=storage_block,
+            ).model_dump()
+
         # Create tracking context
         tracking = await self._create_tracking_context(
             db, user, organization, report, self.name, args

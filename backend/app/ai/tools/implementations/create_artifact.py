@@ -932,10 +932,53 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         return profile
 
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
+        # Once the pending row exists, any exception or cancellation (runner
+        # timeout, Stop, a crash in the storage step) must settle it: a row
+        # left 'pending' shows as generating forever.
+        pending: Dict[str, str] = {}
+        try:
+            async for event in self._run_stream(tool_input, runtime_ctx, pending):
+                yield event
+        except BaseException:
+            if pending.get("artifact_id"):
+                await self._settle_pending_row(pending["artifact_id"], runtime_ctx)
+            raise
+
+    @staticmethod
+    async def _settle_pending_row(artifact_id: str, runtime_ctx: Dict[str, Any]) -> None:
+        """Mark a still-pending row failed ('stopped' after Stop), on a fresh
+        session: the run's session may be mid-operation or rolled back."""
+        from sqlalchemy import update
+
+        sigkill_event = runtime_ctx.get("sigkill_event")
+        status = "stopped" if sigkill_event is not None and sigkill_event.is_set() else "failed"
+        db = runtime_ctx.get("db")
+        if db is not None:
+            try:
+                # Release anything this call left uncommitted (SQLite: the
+                # writer lock) before the fresh session writes.
+                await db.rollback()
+            except BaseException:
+                logger.warning("create_artifact: rollback before settling the pending row failed", exc_info=True)
+        try:
+            async with async_session_maker() as fresh:
+                await fresh.execute(
+                    update(ArtifactVersion)
+                    .where(ArtifactVersion.id == str(artifact_id), ArtifactVersion.status == "pending")
+                    .values(status=status)
+                )
+                await fresh.commit()
+        except Exception:
+            logger.exception("create_artifact: could not settle pending artifact row %s", artifact_id)
+
+    async def _run_stream(
+        self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any], pending: Dict[str, str],
+    ) -> AsyncIterator[ToolEvent]:
         data = CreateArtifactInput(**tool_input)
         # Repair budget: leave headroom under the runner's 300s hard timeout
         # for the final persist + observation after the last repair round.
-        _repair_deadline = time.monotonic() + 210
+        _started = time.monotonic()
+        _repair_deadline = _started + 210
 
         # Early validation: require at least one visualization OR at least one file
         # (an image/PDF-only artifact is allowed when file_ids are provided).
@@ -1246,6 +1289,35 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                     "report and mode, so a NEW artifact was created instead."
                 )
 
+        # Storage gates run BEFORE the pending row: a rejected declaration or
+        # an unbacked useCollection call must leave nothing behind (PP10).
+        storage_to_persist, storage_errors, storage_error_type, storage_note = await self._resolve_storage(
+            db, data, report, replace_source,
+        )
+        if storage_errors:
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {"success": False, "error": storage_errors[0]},
+                    "observation": {
+                        "summary": (
+                            f"Artifact '{data.title or 'Untitled'}' was rejected by the storage gate "
+                            f"({len(storage_errors)} error(s)); nothing was persisted. First: {storage_errors[0]}"
+                        ),
+                        "error": {
+                            "type": storage_error_type,
+                            "message": storage_errors[0],
+                            "errors": storage_errors,
+                            "remediation": (
+                                "Fix the `storage` declaration and/or the useCollection calls and call "
+                                "create_artifact again."
+                            ),
+                        },
+                    },
+                },
+            )
+            return
+
         # Create artifact early with pending status so frontend can show it
         if replace_source is not None:
             artifact = await new_version(
@@ -1270,6 +1342,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 status="pending",
             )
         await db.commit()
+        pending["artifact_id"] = str(artifact.id)
 
         # Notify frontend that artifact is created (pending)
         yield ToolProgressEvent(
@@ -1569,6 +1642,72 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 logger.warning(f"Thumbnail HTML build failed: {e}")
                 thumbnail_html = None
 
+        # The final code (generated by the inner model on the non-planner
+        # path, or repaired) must pass the same reference gate as authored
+        # code before anything is confirmed or persisted.
+        if data.mode == "page" and render_clean:
+            from app.ai.tools.implementations._artifact_storage import storage_reference_errors
+            from app.schemas.app_storage import parse_storage_declaration
+            final_storage_errors = storage_reference_errors(code, parse_storage_declaration(storage_to_persist))
+            if final_storage_errors:
+                artifact.content = {
+                    "code": code,
+                    "visualization_ids": included_viz_ids,
+                    "runtime_version": ARTIFACT_RUNTIME_VERSION,
+                }
+                artifact.status = "failed"
+                await db.commit()
+                yield ToolEndEvent(
+                    type="tool.end",
+                    payload={
+                        "output": {"success": False, "artifact_id": str(artifact.id), "error": final_storage_errors[0]},
+                        "observation": {
+                            "summary": (
+                                f"Artifact '{data.title or 'Untitled'}' was rejected by the storage gate "
+                                f"({len(final_storage_errors)} error(s)); the new version is marked failed. "
+                                f"First: {final_storage_errors[0]}"
+                            ),
+                            "error": {
+                                "type": "storage_errors",
+                                "message": final_storage_errors[0],
+                                "errors": final_storage_errors,
+                                "remediation": (
+                                    "Author the code yourself (pass `code`) so every useCollection call names a "
+                                    "declared collection, or pass a `storage` declaration that backs it."
+                                ),
+                            },
+                            "artifact_id": str(artifact.id),
+                            "mode": data.mode,
+                        },
+                    },
+                )
+                return
+
+        # Rebuild: destructive storage changes vs the replaced artifact's
+        # effective declaration need the user's approval (asked after render
+        # validation so only the persist follows). Not approved -> the row
+        # ends `failed`, so the effective declaration is unchanged.
+        storage_changes: List[Any] = []
+        storage_decision: Dict[str, Any] = {"approved": True, "reason": None}
+        if data.mode == "page" and render_clean and replace_source is not None:
+            from app.ai.tools.implementations._artifact_storage import (
+                confirm_storage_changes,
+                destructive_storage_changes,
+            )
+            storage_changes = await destructive_storage_changes(
+                db, str(replace_source.artifact_id), storage_to_persist,
+            )
+            if storage_changes:
+                storage_decision = {"approved": False, "reason": None}
+                async for _item in confirm_storage_changes(
+                    runtime_ctx, tool_name="create_artifact", changes=storage_changes, started_monotonic=_started,
+                ):
+                    if isinstance(_item, dict):
+                        storage_decision = _item
+                    else:
+                        yield _item
+        storage_approved = bool(storage_decision.get("approved"))
+
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
 
         # Build content object (code is final — post-repair when repair ran)
@@ -1586,6 +1725,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if included_files:
             content["files"] = included_files
 
+        # Record-storage declaration (validated by the gates above); omitted
+        # when the artifact has none, so legacy content stays unchanged.
+        if storage_to_persist is not None:
+            content["storage"] = storage_to_persist
+
         # Add slides-specific content
         if data.mode == "slides" and preview_images:
             content["preview_images"] = preview_images
@@ -1598,7 +1742,10 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             if pptx_error:
                 artifact.render_errors = [pptx_error]
         else:
-            artifact.status = "completed" if render_clean else "failed"
+            if render_clean and not storage_approved and storage_decision.get("reason") == "stopped":
+                artifact.status = "stopped"
+            else:
+                artifact.status = "completed" if render_clean and storage_approved else "failed"
 
         # Set pptx_path for slides mode
         if pptx_path:
@@ -1612,7 +1759,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         await db.commit()
         await db.refresh(artifact)
 
-        if data.mode == "page" and thumbnail_html is not None and render_clean:
+        if data.mode == "page" and thumbnail_html is not None and render_clean and storage_approved:
             # Generate thumbnail in background (for stored thumbnail, non-blocking)
             asyncio.create_task(
                 self._generate_thumbnail_background(
@@ -1742,6 +1889,35 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             )
             return
 
+        if not storage_approved:
+            from app.ai.tools.implementations._artifact_storage import storage_confirmation_failure
+            _message = storage_confirmation_failure(storage_decision.get("reason"), storage_changes)
+            yield ToolEndEvent(
+                type="tool.end",
+                payload={
+                    "output": {
+                        "success": False,
+                        "artifact_id": str(artifact.id),
+                        "error": _message,
+                    },
+                    "observation": {
+                        "summary": (
+                            f"Artifact '{data.title or 'Untitled'}' was NOT rebuilt (the new version is marked "
+                            f"{artifact.status}; the current version stays in effect). {_message}"
+                        ),
+                        "error": {
+                            "type": "storage_change_not_confirmed",
+                            "reason": storage_decision.get("reason"),
+                            "message": _message,
+                            "storage_changes": [c.model_dump(mode="json") for c in storage_changes],
+                        },
+                        "artifact_id": str(artifact.id),
+                        "mode": data.mode,
+                    },
+                },
+            )
+            return
+
         output = CreateArtifactOutput(
             artifact_id=str(artifact.id),
             code=code,
@@ -1789,6 +1965,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         else:
             summary_msg = f"Created artifact '{data.title or 'Untitled'}' with {len(code)} characters of code"
         summary_msg += replace_fallback_note
+        summary_msg += storage_note
         if data.mode == "slides":
             if pptx_repair_attempts:
                 summary_msg += f". PPTX execution passed after {pptx_repair_attempts} in-tool repair attempt(s)."
@@ -1885,6 +2062,87 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
                 "observation": observation,
             }
         )
+
+    async def _resolve_storage(self, db, data: CreateArtifactInput, report, replace_source):
+        """Storage gates + the declaration to persist, all before any row exists.
+
+        Returns (storage_to_persist, errors, error_type, observation_note).
+        A rebuild without `storage` carries the replaced artifact's effective
+        declaration forward (RD7). Only artifact_versions is read here; the
+        app_records table is never touched (RD12).
+        """
+        from app.ai.tools.implementations._artifact_storage import (
+            effective_declaration_strict,
+            storage_declaration_errors,
+            storage_reference_errors,
+        )
+        from app.schemas.app_storage import parse_storage_declaration
+
+        planner_code = (data.code or "").strip()
+        if data.storage is not None and (data.mode != "page" or not planner_code):
+            return None, [
+                "[storage] `storage` is only supported for mode='page' artifacts whose `code` you author."
+            ], "storage_unsupported", ""
+        if data.mode != "page":
+            return None, [], "", ""
+
+        previous = None
+        if replace_source is not None:
+            previous, invalid = await effective_declaration_strict(db, str(replace_source.artifact_id))
+            if invalid and data.storage is None:
+                # Carrying "nothing" would silently drop the app's storage.
+                return None, [
+                    "[storage] the replaced artifact's current storage declaration is invalid, so it cannot be "
+                    "carried forward; pass `storage` with the declaration the rebuilt app should use."
+                ], "storage_errors", ""
+
+        if data.storage is not None:
+            errors = storage_declaration_errors(data.storage, previous)
+            if errors:
+                return None, errors, "storage_errors", ""
+            declaration = parse_storage_declaration(data.storage)
+        else:
+            declaration = previous
+
+        if planner_code:
+            code = self._extract_code(planner_code, mode=data.mode) or planner_code
+            errors = storage_reference_errors(code, declaration)
+            if errors:
+                return None, errors, "storage_errors", ""
+
+        note = ""
+        if data.storage is not None and replace_source is None and report is not None:
+            others = await self._storage_artifacts_in_report(db, str(report.id))
+            if others:
+                note = (
+                    " NOTE: this is a NEW artifact with its own empty record store. Records saved by this "
+                    f"report's other storage-backed artifact(s) ({', '.join(others)}) stay with that artifact and "
+                    "are NOT carried over. To keep them, rebuild with replaces_artifact_id=<that artifact_id>."
+                )
+        stored = declaration.model_dump(mode="json", exclude_unset=True) if declaration is not None else None
+        return stored, [], "", note
+
+    @staticmethod
+    async def _storage_artifacts_in_report(db, report_id: str) -> List[str]:
+        """Latest completed version ids of the report's artifacts that declare storage."""
+        rows = await db.execute(
+            select(ArtifactVersion.id, ArtifactVersion.artifact_id, ArtifactVersion.content)
+            .where(
+                ArtifactVersion.report_id == report_id,
+                ArtifactVersion.status == "completed",
+                ArtifactVersion.deleted_at.is_(None),
+            )
+            .order_by(ArtifactVersion.version.desc())
+        )
+        seen: set = set()
+        found: List[str] = []
+        for version_id, artifact_id, content in rows.all():
+            if artifact_id in seen:
+                continue
+            seen.add(artifact_id)
+            if isinstance(content, dict) and isinstance(content.get("storage"), dict) and content["storage"].get("collections"):
+                found.append(str(version_id))
+        return found
 
     def _trim_none(self, obj: Any) -> Any:
         """Remove None values and empty collections from nested structures."""

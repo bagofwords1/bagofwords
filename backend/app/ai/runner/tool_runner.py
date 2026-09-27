@@ -230,6 +230,11 @@ class ToolRunner:
             self.timeout.start_timeout_s + self.timeout.idle_timeout_s,
         )
         _hard_deadline = _run_start + _hard_timeout_s
+        # One absolute deadline for every attempt: a tool that budgets a wait
+        # (e.g. a user approval) must see what is really left, not a fresh
+        # per-attempt budget.
+        if isinstance(runtime_ctx, dict):
+            runtime_ctx["tool_deadline_monotonic"] = _hard_deadline
 
         while True:
             attempt += 1

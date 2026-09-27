@@ -1,4 +1,4 @@
-from typing import Any, List, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -26,10 +26,16 @@ class EditArtifactInput(BaseModel):
         default="requested_change",
         description="Use visual_refinement for an optional screenshot-driven aesthetic edit after success (at most one per user request). Requested edits and functional repairs use requested_change.",
     )
-    edits: List[ArtifactEditOp] = Field(..., min_length=1, description="Ordered find/replace operations, applied atomically (all or none).")
+    edits: List[ArtifactEditOp] = Field(default_factory=list, description="Ordered find/replace operations, applied atomically (all or none). May be empty only when `storage` is given.")
     visualization_ids: Optional[List[str]] = Field(default=None, description="NEW visualization ids to add to the artifact's data payload (existing ones are kept automatically). Your edits must add code sections rendering them via vizById(\"<uuid>\").")
     remove_visualization_ids: Optional[List[str]] = Field(default=None, description="Visualization ids to REMOVE from the payload. Your edits must delete every code section referencing them.")
     title: Optional[str] = Field(default=None, description="Updated artifact title (kept if omitted).")
+    storage: Optional[Dict[str, Any]] = Field(default=None, description=(
+        "Replacement record-storage declaration ({\"collections\": {...}}, see STORAGE AUTHORING). Omit to keep "
+        "the current one unchanged; when given it replaces the whole declaration, so repeat every collection you "
+        "keep. May be sent with empty `edits` (storage-only edit). Changes that can hide or expose stored records "
+        "need the user's approval; if not approved nothing is applied."
+    ))
 
     @model_validator(mode="before")
     @classmethod
@@ -45,6 +51,12 @@ class EditArtifactInput(BaseModel):
                 "Call read_artifact first if the code is not in your context."
             )
         return data
+
+    @model_validator(mode="after")
+    def _edits_or_storage(self) -> "EditArtifactInput":
+        if not self.edits and self.storage is None:
+            raise ValueError("edits must contain at least one find/replace op unless `storage` is given")
+        return self
 
 
 class EditArtifactOutput(BaseModel):

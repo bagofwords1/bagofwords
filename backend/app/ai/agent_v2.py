@@ -1457,6 +1457,9 @@ class AgentV2:
                 # IS the working context. Rendering caps it; oversize falls
                 # back to read_artifact.
                 "code": (artifact.content.get("code") if isinstance(artifact.content, dict) else None),
+                # Record-storage declaration: the planner edits it (edit_artifact
+                # carries it forward unless replaced), so it must see it.
+                "storage": (artifact.content.get("storage") if isinstance(artifact.content, dict) else None),
             }
         except Exception:
             logger.exception("_get_active_artifact failed")

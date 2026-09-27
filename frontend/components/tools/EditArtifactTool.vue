@@ -38,6 +38,15 @@
       <span v-if="formatDuration" class="ms-1.5 text-gray-400 dark:text-gray-500">{{ formatDuration }}</span>
     </div>
 
+    <!-- Storage-change approval: outside the collapsible block so a pending
+         approval is visible even when the card is collapsed. -->
+    <StorageChangeApproval
+      v-if="storageConfirmation && status === 'running'"
+      :confirmation="storageConfirmation"
+      :system-completion-id="systemCompletionId"
+      :active="awaitingApproval"
+    />
+
     <!-- Expanded content -->
     <template v-if="!isCollapsed">
       <!-- Plan prompt -->
@@ -54,7 +63,7 @@
       </div>
 
       <!-- Resolved viz badges -->
-      <div v-if="resolvedVisualizations.length > 0 && progressStage !== 'awaiting_confirmation'" class="mt-1 ms-[18px] flex flex-wrap gap-1">
+      <div v-if="resolvedVisualizations.length > 0 && !awaitingApproval" class="mt-1 ms-[18px] flex flex-wrap gap-1">
         <span
           v-for="viz in resolvedVisualizations"
           :key="viz.id"
@@ -71,7 +80,7 @@
       </div>
 
       <!-- Progress stages -->
-      <div v-if="status === 'running' && progressStage !== 'awaiting_confirmation'" class="mt-1 ms-[18px] text-xs text-gray-400 dark:text-gray-500">
+      <div v-if="status === 'running' && !awaitingApproval" class="mt-1 ms-[18px] text-xs text-gray-400 dark:text-gray-500">
         <div v-if="progressStage === 'loading_artifact'"><span>{{ $t('tools.editArtifact.loadingArtifact') }}</span></div>
         <div v-else-if="progressStage === 'loading_visualizations'"><span>{{ $t('tools.editArtifact.loadingVisualizations') }}</span></div>
         <div v-else-if="progressStage === 'generating_edit' || progressStage === 'generating'">
@@ -84,12 +93,12 @@
         <div v-else><span>{{ $t('tools.editArtifact.processing') }}</span></div>
       </div>
 
-      <!-- Confirmation card -->
-      <div v-if="confirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 p-2.5 space-y-2">
+      <!-- Legacy confirmation card (in-memory /api/artifacts/confirm): legacy payloads only -->
+      <div v-if="legacyConfirmation && progressStage === 'awaiting_confirmation'" class="mt-2 ms-[18px] rounded-md border border-amber-200 bg-amber-50 dark:bg-amber-950 p-2.5 space-y-2">
         <div class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ $t('tools.editArtifact.confirm') }}</div>
-        <div v-if="confirmation.visualizations?.length" class="flex flex-wrap gap-1">
+        <div v-if="legacyConfirmation.visualizations?.length" class="flex flex-wrap gap-1">
           <span
-            v-for="viz in confirmation.visualizations"
+            v-for="viz in legacyConfirmation.visualizations"
             :key="viz.id"
             class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-white dark:bg-gray-900 border border-amber-200 text-gray-600 dark:text-gray-400"
           >
@@ -157,6 +166,8 @@ import { computed, ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Spinner from '~/components/Spinner.vue'
 import { toolErrorText } from '~/utils/toolError'
+import { isAwaitingApprovalStage, isLegacyArtifactConfirmation, isStorageChangeConfirmation } from '~/utils/toolConfirmation'
+import StorageChangeApproval from '~/components/tools/StorageChangeApproval.vue'
 
 const { t } = useI18n()
 
@@ -186,6 +197,7 @@ interface Props {
     progress_payload?: any
   }
   readonly?: boolean
+  systemCompletionId?: string
 }
 
 const props = defineProps<Props>()
@@ -240,12 +252,18 @@ const editInstruction = computed(() => {
 
 // Confirmation state
 const confirmation = computed(() => (props.toolExecution as any).confirmation || null)
+// The host stores ANY tool.confirmation here: the legacy card (and its
+// countdown) is for legacy payloads only; a durable storage-change
+// confirmation gets the approval card.
+const legacyConfirmation = computed(() => (isLegacyArtifactConfirmation(confirmation.value) ? confirmation.value : null))
+const storageConfirmation = computed(() => (isStorageChangeConfirmation(confirmation.value) ? confirmation.value : null))
+const awaitingApproval = computed(() => isAwaitingApprovalStage(progressStage.value))
 const resolvedVisualizations = computed(() => (props.toolExecution as any).progress_visualizations || [])
 const editableTitle = ref('')
 const confirmationCountdown = ref(5)
 let countdownInterval: ReturnType<typeof setInterval> | null = null
 
-watch(confirmation, (val) => {
+watch(legacyConfirmation, (val) => {
   if (val) {
     editableTitle.value = val.title || ''
     confirmationCountdown.value = 5
@@ -265,10 +283,10 @@ onUnmounted(() => {
 })
 
 async function approveConfirmation() {
-  if (!confirmation.value?.confirmation_id) return
+  if (!legacyConfirmation.value?.confirmation_id) return
   if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
   try {
-    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
+    await $fetch(`/api/artifacts/confirm/${legacyConfirmation.value.confirmation_id}`, {
       method: 'POST',
       body: { approved: true, title: editableTitle.value || null },
     })
@@ -276,10 +294,10 @@ async function approveConfirmation() {
 }
 
 async function rejectConfirmation() {
-  if (!confirmation.value?.confirmation_id) return
+  if (!legacyConfirmation.value?.confirmation_id) return
   if (countdownInterval) { clearInterval(countdownInterval); countdownInterval = null }
   try {
-    await $fetch(`/api/artifacts/confirm/${confirmation.value.confirmation_id}`, {
+    await $fetch(`/api/artifacts/confirm/${legacyConfirmation.value.confirmation_id}`, {
       method: 'POST',
       body: { approved: false },
     })

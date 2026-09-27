@@ -9,6 +9,7 @@ planner can correct in its own loop — the planner IS the repair loop here.
 """
 
 import logging
+import time
 from types import SimpleNamespace
 from typing import Any, AsyncIterator, Dict, List, Optional, Type
 
@@ -95,8 +96,51 @@ class EditArtifactTool(Tool):
             },
         )
 
+    @staticmethod
+    async def _storage_gate(db, artifact, content: Dict[str, Any], data: EditArtifactInput, new_code: str):
+        """Storage contract for a page edit: (errors, declaration to persist).
+
+        Without `storage` the edited version's declaration is carried as-is;
+        with it, the replacement is validated against the artifact's
+        effective declaration (looked up here only in that case). Every page
+        edit later reads the effective declaration anyway (artifact_versions
+        only) in destructive_storage_changes, which protects edits of an older
+        version; app_records is queried there only through collection_stats,
+        when a declaration is involved and a change or a newly declared
+        collection needs record counts (RD12).
+        """
+        from pydantic import ValidationError
+        from app.ai.tools.implementations._artifact_storage import (
+            storage_declaration_errors,
+            storage_reference_errors,
+        )
+        from app.schemas.app_storage import parse_storage_declaration
+
+        carried = content.get("storage")
+        if data.storage is None:
+            try:
+                declaration = parse_storage_declaration(carried)
+            except ValidationError:
+                return [
+                    "[storage] the artifact's current storage declaration is invalid; pass `storage` to replace it."
+                ], carried
+            return storage_reference_errors(new_code, declaration), carried
+
+        from app.services.app_data_service import app_data_service
+        previous = await app_data_service.effective_declaration(db, str(artifact.artifact_id))
+        errors = storage_declaration_errors(data.storage, previous)
+        if errors:
+            return errors, None
+        declaration = parse_storage_declaration(data.storage)
+        return (
+            storage_reference_errors(new_code, declaration),
+            declaration.model_dump(mode="json", exclude_unset=True),
+        )
+
     async def run_stream(self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]) -> AsyncIterator[ToolEvent]:
         data = EditArtifactInput(**tool_input)
+        # Start of this tool call: caps any approval wait under the runner budget.
+        _started = time.monotonic()
         yield ToolStartEvent(type="tool.start", payload={"title": "Apply artifact edit"})
 
         db = runtime_ctx.get("db")
@@ -120,6 +164,10 @@ class EditArtifactTool(Tool):
             return
         if artifact.mode not in ("page", "slides"):
             yield self._fail(artifact, "wrong_mode", f"edit_artifact supports page and slides artifacts (this one is '{artifact.mode}') — use edit_doc for documents.")
+            return
+
+        if data.storage is not None and artifact.mode != "page":
+            yield self._fail(artifact, "storage_unsupported", "`storage` is only supported for page artifacts.")
             return
 
         content = artifact.content or {}
@@ -208,6 +256,8 @@ class EditArtifactTool(Tool):
         screenshot_b64: Optional[str] = None
         render_errors: List[str] = []
         _pptx_tmp = None
+        # Carried forward unless replaced by the page gate below (G3).
+        storage_to_persist = content.get("storage")
 
         if artifact.mode == "slides":
             # Mechanical validation for slides: the edited script must execute
@@ -266,6 +316,8 @@ class EditArtifactTool(Tool):
             gate_errors: List[str] = viz_reference_errors(new_code, artifact_data)
             gate_errors += self._create_tool.params_wiring_errors(new_code, artifact_data, previous_code=code, previous_visualization_ids=existing_viz_ids)
             gate_errors += design_errors(new_code, artifact_data)
+            storage_errors, storage_to_persist = await self._storage_gate(db, artifact, content, data, new_code)
+            gate_errors += storage_errors
             if gate_errors:
                 yield self._fail(
                     artifact, "contract_errors",
@@ -289,11 +341,42 @@ class EditArtifactTool(Tool):
             except Exception as e:
                 logger.warning(f"edit_artifact: render validation unavailable, persisting unvalidated: {e}")
 
+            # Destructive storage changes vs the EFFECTIVE declaration (also
+            # when editing an older version) need the user's approval; asked
+            # last so only the persist follows. Not approved -> nothing persisted.
+            from app.ai.tools.implementations._artifact_storage import (
+                confirm_storage_changes,
+                destructive_storage_changes,
+                storage_confirmation_failure,
+            )
+            storage_changes = await destructive_storage_changes(db, str(artifact.artifact_id), storage_to_persist)
+            if storage_changes:
+                decision: Dict[str, Any] = {"approved": False, "reason": None}
+                async for _item in confirm_storage_changes(
+                    runtime_ctx, tool_name="edit_artifact", changes=storage_changes, started_monotonic=_started,
+                ):
+                    if isinstance(_item, dict):
+                        decision = _item
+                    else:
+                        yield _item
+                if not decision.get("approved"):
+                    yield self._fail(
+                        artifact, "storage_change_not_confirmed",
+                        storage_confirmation_failure(decision.get("reason"), storage_changes),
+                        {
+                            "reason": decision.get("reason"),
+                            "storage_changes": [c.model_dump(mode="json") for c in storage_changes],
+                        },
+                    )
+                    return
+
         # Persist as the next version (stored rows are never rewritten).
         yield ToolProgressEvent(type="tool.progress", payload={"stage": "saving_artifact"})
         ops_summary = "; ".join(
             (op.find[:60].replace("\n", " ") + " → " + op.replace[:60].replace("\n", " ")) for op in data.edits[:5]
         )
+        if data.storage is not None:
+            ops_summary = (ops_summary + "; " if ops_summary else "") + "storage declaration replaced"
         prev_spec = artifact.generation_prompt or ""
         new_content: Dict[str, Any] = {"code": new_code, "visualization_ids": merged_viz_ids}
         if content.get("files"):
@@ -303,6 +386,8 @@ class EditArtifactTool(Tool):
         # one stays themed.
         if content.get("runtime_version"):
             new_content["runtime_version"] = content.get("runtime_version")
+        if storage_to_persist is not None:
+            new_content["storage"] = storage_to_persist
         new_artifact = await new_version(
             db,
             artifact,
@@ -387,6 +472,7 @@ class EditArtifactTool(Tool):
                     "summary": (
                         f"Applied {len(data.edits)} mechanical edit(s) to artifact '{new_artifact.title}' — now v{version_number}. "
                         "Contracts verified. "
+                        + ("Storage declaration replaced. " if data.storage is not None else "")
                         + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
                     ),

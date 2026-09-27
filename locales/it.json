@@ -1052,6 +1052,23 @@
       "create": "Crea dashboard",
       "failed": "Impossibile creare la dashboard"
     },
+    "storageChange": {
+      "title": "Questa modifica riguarda dati salvati dell'app",
+      "collectionRemoved": "Rimuovi la raccolta {collection}",
+      "collectionReadded": "Dichiara di nuovo {collection} come {after}: i record conservati da una versione precedente diventano visibili con queste regole",
+      "fieldRemoved": "Rimuovi il campo {field} da {collection} (i valori salvati restano ma vengono nascosti)",
+      "fieldTypeChanged": "Cambia il campo {field} in {collection} da {before} a {after}",
+      "scopeChanged": "Cambia chi vede {collection} da {before} a {after}",
+      "createChanged": "Cambia chi può aggiungere a {collection} da {before} a {after}",
+      "fieldMadeRequired": "Rendi obbligatorio il campo {field} in {collection} (i record precedenti senza di esso non potranno più essere aggiornati)",
+      "impact": "Riguarda {records} record di {users} utente/i",
+      "allow": "Consenti",
+      "deny": "Nega",
+      "approved": "Modifica approvata",
+      "declined": "Modifica rifiutata",
+      "failed": "Impossibile inviare la tua risposta. Riprova.",
+      "expired": "Questa richiesta di approvazione è scaduta. Non è stato modificato nulla."
+    },
     "editArtifact": {
       "editing": "Modifica della dashboard",
       "edited": "Dashboard modificata",

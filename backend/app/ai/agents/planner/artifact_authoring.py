@@ -12,6 +12,100 @@ from functools import lru_cache
 from app.ai.tools.artifact_verification import ARTIFACT_VERIFICATION_POLICY
 
 
+# Record storage for page apps (declaration, rules, gates, rebuild identity).
+# The runtime API itself (useCollection) is in SANDBOX_RUNTIME_PROMPT "APP DATA".
+# Every EXAMPLE's `storage = {...}` line and code must pass the storage gates
+# (tests/unit/test_artifact_storage_authoring.py).
+_STORAGE_CONTRACT = """
+═══════════════════════════════════════════════════════════════════════════════
+STORAGE AUTHORING (mode='page') — apps that save records via useCollection
+═══════════════════════════════════════════════════════════════════════════════
+Only when the user wants the app to remember or collect input. Declare every collection the code uses in `storage`:
+  {"collections": {"<name>": {"scope": "shared"|"per_user", "create": "members"|"owner", "modify": "author"|"owner",
+                              "fields": {"<field>": {"type": "...", "required": false, "default": <value>, "max_length": N}}}}}
+- Names: collection ^[a-z][a-z0-9_]{0,63}$ (max 20), field ^[A-Za-z_][A-Za-z0-9_]{0,63}$ (1-50 per collection); unknown keys are rejected.
+- Field types: `string` (the only type with max_length), `number` (finite), `boolean`, `date` (ISO 8601 date or datetime
+  string, e.g. "2026-09-27"), `json` (any JSON value). Writes may only use declared fields; null clears an optional field.
+- required: writes may omit it only when it has a default, and null is never accepted; "required": true with "default": null is rejected.
+  A default must match the type and is applied at READ time (stored records are not rewritten).
+- Limits: 64 KB per record (json fields up to 256 KB each, 256 KB total); 10,000 records per collection.
+RULES (the artifact's normal visibility/sharing always applies first):
+- "per_user": every signed-in user reads and writes only their OWN records (create/modify are not needed). Preferences, drafts.
+- "shared": everyone who can use the app reads all records; "create" and "modify" are REQUIRED.
+  create "members" = org members and share recipients add records; "owner" = only the report owner adds.
+  modify "author" = authors edit/delete their own records; "owner" = only the owner. The owner may edit any shared record.
+  Members never edit or delete in a create "owner" collection, not even rows they wrote earlier.
+- Anonymous viewers and signed-in outsiders (e.g. public-link visitors) READ only shared collections with create "owner" and
+  never write; other collections answer them `unauthenticated`/`forbidden` — render that error and keep the rest of the page.
+- The code cannot tell who the owner is: show owner-only forms to signed-in viewers and let `forbidden` explain a refusal.
+GATES (nothing persists when one fails; the error says what to fix):
+- Call useCollection("<name>") directly with a string literal naming a declared collection (no variables, template
+  interpolation, aliases, `?.` calls or window["useCollection"]). Mentions in comments and strings are ignored.
+- A field added to an EXISTING collection must be optional or have a default (existing records do not have it).
+- Changes that can hide or expose stored records ask the user to approve (records/users affected are shown): collection_removed,
+  field_removed, field_type_changed (also a removed field re-added with another type), scope_changed, create_changed,
+  field_made_required, collection_readded (a collection declared again while records from an earlier declaration remain).
+  Adding new collections or optional fields and changing "modify" need no approval. Declined, unanswered, stopped or
+  non-interactive runs apply NOTHING (error type storage_change_not_confirmed): keep the existing declaration unless the user
+  explicitly asked for that change.
+EDITS AND REBUILDS (records belong to the artifact, not the report):
+- edit_artifact: omit `storage` to keep the declaration; when given it REPLACES the whole declaration (repeat every collection
+  you keep). A storage-only edit (edits: [] plus storage) is allowed.
+- A rebuild of an app that has records MUST pass replaces_artifact_id=<its artifact_id>; omitting `storage` then carries the
+  declaration forward. Without replaces_artifact_id the new artifact starts with an EMPTY store and the old records stay with
+  the old artifact. {"collections": {}} removes storage (asks for approval when collections existed).
+- Never hardcode seed records in code; the validation preview renders with empty collections.
+
+EXAMPLE notes — shared, members add, authors edit their own
+storage = {"collections": {"notes": {"scope": "shared", "create": "members", "modify": "author", "fields": {"text": {"type": "string", "required": true, "max_length": 2000}, "pinned": {"type": "boolean", "default": false}}}}}
+function Notes() {
+  const u = useCurrentUser();
+  const { items, loading, error, add, update, remove } = useCollection("notes");
+  const [text, setText] = useState('');
+  const save = () => add({ text }).then(() => setText('')).catch(() => {});
+  return (<SectionCard title="Notes">
+    {error && <p className="text-negative text-sm">{error.message}</p>}
+    {loading && !items.length ? <LoadingSpinner/> : items.map(n => <div key={n.id} className="flex gap-2">
+      <span className="flex-1">{n.data.pinned ? '* ' : ''}{n.data.text} · {n.user?.name ?? 'Someone'}</span>
+      {n.mine && <button onClick={() => update(n.id, { pinned: !n.data.pinned }).catch(() => {})}>Pin</button>}
+      {n.mine && <button onClick={() => remove(n.id).catch(() => {})}>Delete</button>}</div>)}
+    {u && <div className="flex gap-2"><input value={text} onChange={e => setText(e.target.value)}/>
+      <button disabled={loading || !text.trim()} onClick={save}>Add</button></div>}
+  </SectionCard>);
+}
+
+EXAMPLE remembered_form — per_user, one record per viewer
+storage = {"collections": {"prefs": {"scope": "per_user", "fields": {"region": {"type": "string", "default": "All"}, "since": {"type": "date"}}}}}
+function Prefs() {
+  const { items, loading, error, add, update } = useCollection("prefs");
+  const mine = items[0];
+  const save = async (patch) => {
+    try { if (mine) await update(mine.id, patch); else await add(patch); } catch (e) { /* shown via error */ }
+  };
+  if (loading && !mine) return <LoadingSpinner/>;
+  return (<div>{error && <p className="text-negative text-sm">{error.message}</p>}
+    <select value={mine?.data.region ?? 'All'} onChange={e => save({ region: e.target.value })}>
+      {['All', 'EMEA', 'APAC'].map(r => <option key={r}>{r}</option>)}</select></div>);
+}
+
+EXAMPLE blog — posts shared by the owner; comments shared, members add, authors edit their own
+storage = {"collections": {"posts": {"scope": "shared", "create": "owner", "modify": "owner", "fields": {"title": {"type": "string", "required": true, "max_length": 200}, "published": {"type": "date"}}}, "comments": {"scope": "shared", "create": "members", "modify": "author", "fields": {"post_id": {"type": "string", "required": true}, "text": {"type": "string", "required": true, "max_length": 1000}}}}}
+function Blog() {
+  const u = useCurrentUser();
+  const posts = useCollection("posts");
+  const comments = useCollection("comments");
+  const [draft, setDraft] = useState('');
+  const publish = () => posts.add({ title: draft, published: new Date().toISOString().slice(0, 10) }).then(() => setDraft('')).catch(() => {});
+  const reply = (post_id) => comments.add({ post_id, text: 'Thanks!' }).catch(() => {});
+  if (posts.loading && !posts.items.length) return <LoadingSpinner/>;
+  return (<div>{[posts.error, comments.error].filter(Boolean).map((e, i) => <p key={i} className="text-negative text-sm">{e.message}</p>)}
+    {u && <div><input value={draft} onChange={e => setDraft(e.target.value)}/><button onClick={publish}>Publish</button></div>}
+    {posts.items.map(p => <article key={p.id}><h3>{p.data.title}</h3>
+      {comments.items.filter(c => c.data.post_id === p.id).map(c => <p key={c.id}>{c.user?.name ?? 'Someone'}: {c.data.text}</p>)}
+      {u && <button onClick={() => reply(p.id)}>Reply</button>}</article>)}</div>);
+}
+"""
+
 _SLIDES_CONTRACT = """
 ═══════════════════════════════════════════════════════════════════════════════
 SLIDES AUTHORING (mode='slides') — python-pptx script contract
@@ -103,6 +197,7 @@ def build_artifact_authoring_reference() -> str:
         + VISUAL_REVIEW_POLICY + "\n\n" + ARTIFACT_VERIFICATION_POLICY + "\n\n"
         + page_reference
         + _SLIDES_CONTRACT
+        + _STORAGE_CONTRACT
     )
 
 

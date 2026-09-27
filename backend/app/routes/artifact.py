@@ -964,8 +964,13 @@ class ConfirmationBody(PydanticBaseModel):
 
 @router.post("/confirm/{confirmation_id}")
 async def confirm_artifact(confirmation_id: str, body: ConfirmationBody):
-    from app.ai.tools.confirmation import resolve_confirmation
+    from app.ai.tools.confirmation import get_confirmation_meta, resolve_confirmation
 
+    # Durable confirmations (they carry meta: kind, the run's user) are
+    # answered only through the authenticated completion route, which checks
+    # who answers. This unauthenticated route must never resolve them.
+    if get_confirmation_meta(confirmation_id) is not None:
+        raise HTTPException(status_code=404, detail="Confirmation not found or expired")
     resolved = resolve_confirmation(confirmation_id, body.model_dump())
     if not resolved:
         raise HTTPException(status_code=404, detail="Confirmation not found or expired")

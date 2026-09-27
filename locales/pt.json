@@ -1052,6 +1052,23 @@
       "create": "Criar painel",
       "failed": "Falha ao criar painel"
     },
+    "storageChange": {
+      "title": "Esta alteração afeta dados guardados da app",
+      "collectionRemoved": "Remover a coleção {collection}",
+      "collectionReadded": "Declarar novamente {collection} como {after}: os registos mantidos de uma versão anterior ficam visíveis com estas regras",
+      "fieldRemoved": "Remover o campo {field} de {collection} (os valores guardados são mantidos, mas ocultados)",
+      "fieldTypeChanged": "Alterar o campo {field} em {collection} de {before} para {after}",
+      "scopeChanged": "Alterar quem vê {collection} de {before} para {after}",
+      "createChanged": "Alterar quem pode adicionar a {collection} de {before} para {after}",
+      "fieldMadeRequired": "Tornar obrigatório o campo {field} em {collection} (registos antigos sem ele deixam de poder ser atualizados)",
+      "impact": "Afeta {records} registo(s) de {users} utilizador(es)",
+      "allow": "Permitir",
+      "deny": "Negar",
+      "approved": "Alteração aprovada",
+      "declined": "Alteração recusada",
+      "failed": "Não foi possível enviar a sua resposta. Tente novamente.",
+      "expired": "Este pedido de aprovação expirou. Nada foi alterado."
+    },
     "editArtifact": {
       "editing": "Editando painel",
       "edited": "Painel editado",

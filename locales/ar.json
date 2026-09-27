@@ -1052,6 +1052,23 @@
       "create": "إنشاء لوحة تحكم",
       "failed": "تعذّر إنشاء لوحة التحكم"
     },
+    "storageChange": {
+      "title": "يؤثر هذا التغيير على بيانات التطبيق المحفوظة",
+      "collectionRemoved": "إزالة المجموعة {collection}",
+      "collectionReadded": "إعادة تعريف المجموعة {collection} بصفة {after}: تصبح السجلات المحفوظة من إصدار سابق مرئية وفق هذه القواعد",
+      "fieldRemoved": "إزالة الحقل {field} من {collection} (تبقى القيم المحفوظة لكنها تُخفى)",
+      "fieldTypeChanged": "تغيير الحقل {field} في {collection} من {before} إلى {after}",
+      "scopeChanged": "تغيير من يرى {collection} من {before} إلى {after}",
+      "createChanged": "تغيير من يمكنه الإضافة إلى {collection} من {before} إلى {after}",
+      "fieldMadeRequired": "جعل الحقل {field} في {collection} إلزاميًا (لن يمكن تحديث السجلات القديمة التي لا تحتويه)",
+      "impact": "يؤثر على {records} سجل من {users} مستخدم",
+      "allow": "السماح",
+      "deny": "رفض",
+      "approved": "تمت الموافقة على التغيير",
+      "declined": "تم رفض التغيير",
+      "failed": "تعذّر إرسال إجابتك. حاول مرة أخرى.",
+      "expired": "انتهت صلاحية طلب الموافقة هذا. لم يتم تغيير أي شيء."
+    },
     "editArtifact": {
       "editing": "جارٍ تعديل لوحة التحكم",
       "edited": "تم تعديل لوحة التحكم",

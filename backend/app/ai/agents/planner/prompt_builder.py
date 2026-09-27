@@ -563,6 +563,10 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
         else:
             lines.append("  <visualizations>(none)</visualizations>")
 
+        storage = artifact.get("storage")
+        if storage is not None:
+            lines.append(f"  <storage>{_esc(json.dumps(storage, separators=(',', ':')))}</storage>")
+
         code = artifact.get("code")
         if code:
             code_str = str(code)

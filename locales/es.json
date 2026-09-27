@@ -1066,6 +1066,23 @@
       "create": "Crear panel",
       "failed": "Error al crear el panel"
     },
+    "storageChange": {
+      "title": "Este cambio afecta a datos guardados de la app",
+      "collectionRemoved": "Eliminar la colección {collection}",
+      "collectionReadded": "Declarar de nuevo {collection} como {after}: los registros conservados de una versión anterior pasan a ser visibles con estas reglas",
+      "fieldRemoved": "Eliminar el campo {field} de {collection} (los valores guardados se conservan pero se ocultan)",
+      "fieldTypeChanged": "Cambiar el campo {field} de {collection} de {before} a {after}",
+      "scopeChanged": "Cambiar quién ve {collection} de {before} a {after}",
+      "createChanged": "Cambiar quién puede añadir a {collection} de {before} a {after}",
+      "fieldMadeRequired": "Hacer obligatorio el campo {field} de {collection} (los registros antiguos sin él ya no se podrán actualizar)",
+      "impact": "Afecta a {records} registro(s) de {users} usuario(s)",
+      "allow": "Permitir",
+      "deny": "Denegar",
+      "approved": "Cambio aprobado",
+      "declined": "Cambio rechazado",
+      "failed": "No se pudo enviar tu respuesta. Inténtalo de nuevo.",
+      "expired": "Esta solicitud de aprobación caducó. No se cambió nada."
+    },
     "editArtifact": {
       "editing": "Editando panel",
       "edited": "Panel editado",

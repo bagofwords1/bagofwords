@@ -1052,6 +1052,23 @@
       "create": "Skapa instrumentpanel",
       "failed": "Det gick inte att skapa instrumentpanelen"
     },
+    "storageChange": {
+      "title": "Den här ändringen påverkar sparad appdata",
+      "collectionRemoved": "Ta bort samlingen {collection}",
+      "collectionReadded": "Deklarera {collection} igen som {after}: poster som finns kvar från en tidigare version blir synliga enligt dessa regler",
+      "fieldRemoved": "Ta bort fältet {field} från {collection} (sparade värden behålls men döljs)",
+      "fieldTypeChanged": "Ändra fältet {field} i {collection} från {before} till {after}",
+      "scopeChanged": "Ändra vem som ser {collection} från {before} till {after}",
+      "createChanged": "Ändra vem som kan lägga till i {collection} från {before} till {after}",
+      "fieldMadeRequired": "Gör fältet {field} i {collection} obligatoriskt (äldre poster utan det kan inte längre uppdateras)",
+      "impact": "Påverkar {records} post(er) från {users} användare",
+      "allow": "Tillåt",
+      "deny": "Neka",
+      "approved": "Ändringen godkändes",
+      "declined": "Ändringen avböjdes",
+      "failed": "Det gick inte att skicka ditt svar. Försök igen.",
+      "expired": "Den här godkännandebegäran har gått ut. Inget ändrades."
+    },
     "editArtifact": {
       "editing": "Redigerar instrumentpanel",
       "edited": "Instrumentpanel redigerad",

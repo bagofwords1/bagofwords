@@ -476,6 +476,7 @@ class ReadArtifactTool(Tool):
             grep_total_matches=grep_total,
             grep_truncated=grep_truncated,
             outline=outline,
+            storage=content.get("storage"),
         ).model_dump()
 
         # Add UI preview fields (similar to describe_tables top_tables)
@@ -539,6 +540,8 @@ class ReadArtifactTool(Tool):
             observation["grep_truncated"] = grep_truncated
         if outline is not None:
             observation["outline"] = outline
+        if content.get("storage") is not None:
+            observation["storage"] = content.get("storage")
 
         # Include stored screenshot if requested, gated by privacy and vision support
         if data.load_screenshot:

@@ -1052,6 +1052,23 @@
       "create": "Dashboard erstellen",
       "failed": "Dashboard konnte nicht erstellt werden"
     },
+    "storageChange": {
+      "title": "Diese Änderung betrifft gespeicherte App-Daten",
+      "collectionRemoved": "Sammlung {collection} entfernen",
+      "collectionReadded": "{collection} erneut als {after} deklarieren: aus einer früheren Version erhaltene Datensätze werden nach diesen Regeln sichtbar",
+      "fieldRemoved": "Feld {field} aus {collection} entfernen (gespeicherte Werte bleiben erhalten, werden aber ausgeblendet)",
+      "fieldTypeChanged": "Feld {field} in {collection} von {before} zu {after} ändern",
+      "scopeChanged": "Ändern, wer {collection} sieht: von {before} zu {after}",
+      "createChanged": "Ändern, wer zu {collection} hinzufügen darf: von {before} zu {after}",
+      "fieldMadeRequired": "Feld {field} in {collection} zur Pflicht machen (ältere Einträge ohne dieses Feld können nicht mehr aktualisiert werden)",
+      "impact": "Betrifft {records} Eintrag/Einträge von {users} Nutzer(n)",
+      "allow": "Erlauben",
+      "deny": "Ablehnen",
+      "approved": "Änderung genehmigt",
+      "declined": "Änderung abgelehnt",
+      "failed": "Deine Antwort konnte nicht gesendet werden. Versuche es erneut.",
+      "expired": "Diese Genehmigungsanfrage ist abgelaufen. Es wurde nichts geändert."
+    },
     "editArtifact": {
       "editing": "Dashboard wird bearbeitet",
       "edited": "Dashboard bearbeitet",
