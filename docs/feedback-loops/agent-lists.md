@@ -39,7 +39,7 @@ registration, validation, quote verification, upsert, the Knowledge Explorer "Li
 
 **Out (P1+):**
 
-- Exposing the list as a `::fast` DuckDB table. S7 covers analysis through `bow.lists` first.
+- Exposing the list as a `::fast` DuckDB table. S7 covers analysis through `bow.<agent>.lists.<list>` first.
 - Deletion of rows by the agent. P1, behind `ToolConfirmationEvent`.
 - Batch fan-out, forced `tool_choice`, and the review queue.
 - Etag-aware scheduled reruns.
