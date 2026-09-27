@@ -108,15 +108,16 @@ later hardening step, not a prerequisite.
 ## 4. Concepts
 
 ```
-ExtractionSchema (versioned, org-scoped, attached to one or more agents)
+extract_data tool call (per agent, like create_data; see §7)
  └─ fields[]: {id, name, type, description, method, required, enum?, items?, rules?}
+    (written by the agent from the ask + instructions, or copied from a skill)
+ └─ pinned on the resulting Step, like Step.code, and reused on scheduled reruns
 
-ExtractionJob   = schema@version + agent(s) + subjects + trigger
  subjects:  "this conversation"        → 1 record   (chat / analysis step)
             "each file in <folder>"    → N records  (batch)
             "each row of <query>"      → N records  (e.g. per customer: pull docs + data)
 
-ExtractionRecord (one per subject per run)
+record = one Step row per subject per run
  └─ values: {field_id: {value, status, evidence[], note}}
     status ∈ found | not_found | ambiguous | inferred | invalid
     evidence: {kind: file|query|web, ref, page?, quote?, step_id?, verified: bool}
@@ -195,7 +196,7 @@ The wrapper is intentionally uniform: `value`, `status`, `evidence`, `note`.
       tolerant of whitespace, RTL text and hyphenation.
    3. Run the field rules.
    4. Compute `review_state`.
-   5. Persist an `ExtractionRecord`.
+   5. Persist the record as a row of the extraction Step.
    6. Return a compact observation, for example "4/5 fields found, 1 quote unverified on
       renewal_date". The agent may fix the record once.
 5. The completion ends with a record card in chat: fields in a grid, and clicking a value opens
@@ -294,67 +295,93 @@ Three things a pure IDP pipeline can't do and BOW can:
 
 The cost of an agent is latency and money. That is why the batch path is two-tier (§5.2).
 
-## 7. Phasing
+## 7. Scoping decision (revised): a per-agent tool, like `create_data`
 
-**P0: "structured output of an analysis"** (smallest useful slice, chat only)
+The first draft (a new org-level `ExtractionSchema` entity attached to agents) was the IDP
+vendors' shape. It was the wrong starting point for BOW. `create_data` shows the native shape:
 
-- `ExtractionSchema` model: versioned JSON, attached to agents or supplied inline for a turn.
-- A dynamic `submit_record` catalog entry, compiled from the schema, with server-side
-  validation, quote verification and rules.
-- `ExtractionRecord` persistence, a record card in chat, and CSV export.
-- An eval `FieldRule` target on `tool:submit_record`.
-- Nothing new in the LLM layer.
+| | `create_data` today | `extract_data` (proposed) |
+|---|---|---|
+| Availability | A tool in the agent's catalog | Same: a tool, enabled per agent through the existing per-agent tools overlay |
+| Who defines the shape | The agent writes code from the user's ask plus the agent's instructions | The agent writes the **field schema** from the user's ask plus the agent's instructions and skills |
+| What's pinned | `Step.code` | The schema and subjects spec, pinned on the Step, in the same role as `code` |
+| Output | A tracked Step (grid, charts, dashboards, `load_step`) | A tracked Step whose rows are records, plus the §4.2 evidence and status alongside each value |
+| Rerun and schedule | Report cron re-executes `code` | Report cron re-runs extraction with the **pinned** schema over the (possibly new) subjects |
+| Reuse elsewhere | Publish as an Entity | Publish as an Entity (a catalog "Contracts extracted" table) |
 
-**P1: batch + automation**
+Why this is better:
 
-- Forced `tool_choice` (and `strict` where available) in `openai_client`, `anthropic_client`,
-  `azure_client`, `google_client` and `bedrock_client`, for the fast path.
-- Jobs: folder or query subjects, the two-tier runner, concurrency and idempotency, and a
-  schedule trigger (reuse the APScheduler / `ScheduledPrompt` plumbing).
-- Run grid UI (rows are documents, columns are fields, click through to evidence), the review
-  queue, and "test on 5 files" before saving.
-- A `ConnectionTable(kind='extraction')` exposed on `::fast`.
+- **There is no new noun.** Users already understand "ask the agent, get a tracked table, then
+  schedule or publish it". Extraction becomes one more tool.
+- **The schema comes from where the knowledge lives.** A field such as "annual value" is defined
+  in the agent's instructions, so the agent that knows the domain writes the schema.
+- **Everything around the Step is free:** dashboards, `load_step` joins with SQL steps, report
+  rerun, entities, evals on `tool:extract_data`, audit via `ToolExecution`.
+- **"Structured output of an analysis step" is literally this:** a step whose output is typed
+  records instead of a DataFrame.
+
+**Where a saved schema still comes in, without a new entity:**
+
+- **Standard extractors** ("our contract fields") become an agent **skill** (`Instruction`
+  with `kind='skill'`, holding the field list in `structured_data`; `models/instruction.py:31,88`).
+  - The skill is loaded when relevant, and the agent passes its fields to `extract_data`
+    verbatim.
+  - Skills already have versioning, review and Git sync.
+  - This is the "per agent" home for the schema.
+- **Stability for automations** comes from pinning on the Step, not from a registry. The
+  scheduled run uses the Step's pinned schema. Changing the fields is an explicit edit, which
+  creates a new Step version, just like editing code.
+
+**What we give up, and when to add it back:**
+
+- **Sharing one schema across agents.** Copy the skill for now. Add a shared schema entity only
+  if customers really need one contract across several agents.
+- **Review queue and version-to-version eval comparison.** These hang off the Step and its
+  `ToolExecution` for now.
+- **Step caps:** about 1000 rows, and values stored as strings. This is fine for the first
+  phase. Batch-scale jobs (thousands of documents) should materialize into
+  `ConnectionTable(kind='extraction')` on `::fast` (phase 2).
+
+**Rejected:**
+
+- **Report-owned schema:** it can't be reused, and it isn't how BOW models outputs.
+- **An org-level `ExtractionSchema` entity:** see above. Keep it as a later escalation, not the
+  starting point.
+
+## 8. Phasing (revised)
+
+**P0: the `extract_data` tool (chat and analysis)**
+
+- A tool enabled per agent. Its input is `{fields[], subjects[] | "context", instructions?}`.
+- The runner does the following:
+  1. Compile the fields into a run-scoped `submit_record` schema (§4.2).
+  2. For each subject, run a forced tool-call pass. A subject is either the documents or data
+     the agent has already gathered, or files listed from a connection.
+  3. Validate, verify quotes and apply rules.
+  4. Persist a **Step** with typed records and evidence, with the schema and subjects pinned.
+- The tool card is a record grid; clicking a cell opens the file at the cited page. Add CSV
+  export.
+- New LLM plumbing: forced `tool_choice` per provider, used only inside the tool.
+- Skills can carry standard field lists.
+
+**P1: automation and trust**
+
+- Scheduled rerun of an extraction Step, for folders: only new or changed files, keyed by etag.
+- Escalation of hard subjects to a scoped agent turn (the two-tier path, §5.2).
+- A review state on records, a review queue, and corrections becoming eval cases.
+- `ConnectionTable(kind='extraction')` for jobs larger than a Step can hold.
 
 **P2: polish and moat**
 
-- A "new or changed file in folder" trigger that polls `LIST_FILES` with an etag cursor, plus
-  webhooks.
-- Suggest a schema from sample files, and derive schemas from a description in plain language.
-- An optimizer loop over schema versions, and reviewer corrections feeding evals.
-- A SharePoint column write-back, bounding boxes and highlight overlays, and an optional
-  self-consistency confidence toggle.
-
-## 8. Scoping decision: org-owned, agent-attached, report-run
-
-Three separate questions are involved:
-
-| | Answer | Why |
-|---|---|---|
-| **Who owns the schema** | The org. `ExtractionSchema` is its own first-class, versioned row (`organization_id`) | It is an *output contract*, not agent context. The same "Contract fields v3" is run by a legal agent reading SharePoint and by a finance agent reconciling against the ERP. Ownership by one agent would force copies that drift apart. |
-| **Where it is attached** | Agents, M2M, with `scope ∈ agent / global / private`, exactly like `Prompt` (`models/prompt.py:7-20`) | This lets an agent advertise its extractors (they surface like starters). Visibility follows the existing rule: you can use it only if you can access all of its active agents. It also gives us permissions and the table-access rule of §5.6 for free, because the agents' connections gate the extracted table. |
-| **Where it runs** | A report. Every run is a session, which provides provenance, the audit trail and the "why is this value X" conversation | A report is a *container for runs*, not a home for the schema. An inline, ad-hoc schema typed into a chat lives on that turn only, and can later be **promoted** to a saved schema (the fork/promote pattern). |
-
-So the answer to "agent, report or none" is: **none owns it, agents expose it, reports execute
-it.**
-
-- Records and the extracted table belong to the **job** (schema version plus subjects plus
-  trigger), not to any single report.
-- A scheduled batch spawns a new report per run, the same way spawn-mode webhooks and
-  `ScheduledPrompt(spawn_new_report)` do. All of those runs append to one table.
-
-**Rejected alternatives:**
-
-- **Agent-owned:** the same schema would be duplicated per agent. It also mixes "what the agent
-  knows" (context) with "what shape the output takes" (contract).
-- **Report-owned:** it can't be reused, and records would be buried in a conversation. It breaks
-  the documents → table → dashboard flywheel.
-- **`Instruction.structured_data`:** we'd get review and Git sync, but it would overload the
-  meaning of an instruction. It would also be loaded into prompts by the instruction builder,
-  which is the wrong lifecycle.
+- A "new file in folder" trigger, suggesting fields from sample files, and an optimizer loop
+  over skill versions.
+- Write-back to SharePoint columns, bounding-box highlights, and a self-consistency confidence
+  toggle.
+- A shared cross-agent schema entity, only if demand shows up.
 
 ## 9. Open questions
 
-1. ~~Home of the schema~~: decided in §8.
+1. ~~Home of the schema~~: decided in §7 (a per-agent tool, with the schema pinned on the Step and standard lists as skills).
 2. **Is it a Prompt?** An extraction job looks very close to `Prompt` + schema + subjects.
    Extending `Prompt` avoids a parallel automation surface.
 3. **Where does `submit_record` end the run?** In Mode A, should calling it end the turn
