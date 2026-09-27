@@ -324,12 +324,37 @@ The cost of an agent is latency and money. That is why the batch path is two-tie
 - A SharePoint column write-back, bounding boxes and highlight overlays, and an optional
   self-consistency confidence toggle.
 
-## 8. Open questions
+## 8. Scoping decision: org-owned, agent-attached, report-run
 
-1. **Home of the schema:** is it a new first-class entity (recommended, because it needs
-   versions, pinning and a UI), or `Instruction.structured_data` (`models/instruction.py:88`)?
-   The instruction route gets review and Git sync for free, but it would overload what an
-   instruction means.
+Three separate questions are involved:
+
+| | Answer | Why |
+|---|---|---|
+| **Who owns the schema** | The org. `ExtractionSchema` is its own first-class, versioned row (`organization_id`) | It is an *output contract*, not agent context. The same "Contract fields v3" is run by a legal agent reading SharePoint and by a finance agent reconciling against the ERP. Ownership by one agent would force copies that drift apart. |
+| **Where it is attached** | Agents, M2M, with `scope ∈ agent / global / private`, exactly like `Prompt` (`models/prompt.py:7-20`) | This lets an agent advertise its extractors (they surface like starters). Visibility follows the existing rule: you can use it only if you can access all of its active agents. It also gives us permissions and the table-access rule of §5.6 for free, because the agents' connections gate the extracted table. |
+| **Where it runs** | A report. Every run is a session, which provides provenance, the audit trail and the "why is this value X" conversation | A report is a *container for runs*, not a home for the schema. An inline, ad-hoc schema typed into a chat lives on that turn only, and can later be **promoted** to a saved schema (the fork/promote pattern). |
+
+So the answer to "agent, report or none" is: **none owns it, agents expose it, reports execute
+it.**
+
+- Records and the extracted table belong to the **job** (schema version plus subjects plus
+  trigger), not to any single report.
+- A scheduled batch spawns a new report per run, the same way spawn-mode webhooks and
+  `ScheduledPrompt(spawn_new_report)` do. All of those runs append to one table.
+
+**Rejected alternatives:**
+
+- **Agent-owned:** the same schema would be duplicated per agent. It also mixes "what the agent
+  knows" (context) with "what shape the output takes" (contract).
+- **Report-owned:** it can't be reused, and records would be buried in a conversation. It breaks
+  the documents → table → dashboard flywheel.
+- **`Instruction.structured_data`:** we'd get review and Git sync, but it would overload the
+  meaning of an instruction. It would also be loaded into prompts by the instruction builder,
+  which is the wrong lifecycle.
+
+## 9. Open questions
+
+1. ~~Home of the schema~~: decided in §8.
 2. **Is it a Prompt?** An extraction job looks very close to `Prompt` + schema + subjects.
    Extending `Prompt` avoids a parallel automation surface.
 3. **Where does `submit_record` end the run?** In Mode A, should calling it end the turn
