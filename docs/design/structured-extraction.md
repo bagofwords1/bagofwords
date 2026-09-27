@@ -108,7 +108,7 @@ later hardening step, not a prerequisite.
 ## 4. Concepts
 
 ```
-extract_data tool call (per agent, like create_data; see §7)
+submit tool (the sink at the end of today's agent loop; see §7)
  └─ fields[]: {id, name, type, description, method, required, enum?, items?, rules?}
     (written by the agent from the ask + instructions, or copied from a skill)
  └─ pinned on the resulting Step, like Step.code, and reused on scheduled reruns
@@ -149,7 +149,7 @@ record = one Step row per subject per run
 
 ### 4.2 What the model is asked to emit (compiled schema)
 
-From the user's fields we compile one tool, `submit_record`, whose input is:
+From the user's fields we compile one tool, `submit`, whose input is:
 
 ```json
 {
@@ -185,18 +185,18 @@ The wrapper is intentionally uniform: `value`, `status`, `evidence`, `note`.
 
 1. The user attaches a schema to a turn ("Extract: Contract fields v3"), or the schema is part of
    a saved `Prompt`.
-2. The agent loop gets an extra catalog entry, `submit_record`, plus a short prompt block: "Your
-   final output is one or more `submit_record` calls. Reason and gather evidence first. Use
+2. The agent loop gets an extra catalog entry, `submit`, plus a short prompt block: "Your
+   final output is one or more `submit` calls. Reason and gather evidence first. Use
    `not_found` rather than guessing."
 3. The agent uses its normal tools (`search_files`, `read_file`, `create_data`, `run_query`) and
    applies the agent's instructions.
-4. `submit_record` runs:
+4. `submit` runs:
    1. Validate against the full schema.
    2. Verify quotes against the cached page text of the cited file, using a fuzzy match that is
       tolerant of whitespace, RTL text and hyphenation.
    3. Run the field rules.
    4. Compute `review_state`.
-   5. Persist the record as a row of the extraction Step.
+   5. Upsert the record as a row of the collection's Step.
    6. Return a compact observation, for example "4/5 fields found, 1 quote unverified on
       renewal_date". The agent may fix the record once.
 5. The completion ends with a record card in chat: fields in a grid, and clicking a value opens
@@ -211,7 +211,7 @@ no batch machinery and already delivers value in chat.
 subjects = list_files(folder, filter)             # connector LIST_FILES / SEARCH_FILES
 for each subject (bounded concurrency, idempotent on (schema_ver, ref, etag)):
     fast path: one LLM call = [field block + instructions + parsed doc text/pages]
-               → submit_record (forced)            # ~1 call per doc, cheap
+               → submit (forced)            # ~1 call per doc, cheap
     if any required field ∉ {found} or a quote/rule fails:
         escalate: full agent turn scoped to that doc (can read more pages,
                   cross-check a query, open related files)
@@ -220,7 +220,7 @@ for each subject (bounded concurrency, idempotent on (schema_ver, ref, etag)):
 
 - The two-tier path (a cheap single call, escalating to an agent turn) is the cost answer. In
   most real document sets, most documents are easy.
-- The fast path is where we add the new LLM capability: `LLM.inference(..., tools=[submit_record], tool_choice={"name": "submit_record"})`,
+- The fast path is where we add the new LLM capability: `LLM.inference(..., tools=[submit], tool_choice={"name": "submit"})`,
   with forced tool choice per provider. This is a small addition to `clients/*`. Use `strict`
   where the provider supports it.
 - For long documents (over roughly 60 pages), use Sensible-style grouping. Pages are selected by
@@ -252,7 +252,7 @@ for each subject (bounded concurrency, idempotent on (schema_ver, ref, etag)):
 - The review queue is a grid of records needing review. The reviewer sees the value, a
   highlighted quote and the file page, and can accept or correct.
 - **Corrections become eval cases automatically** (`TestCase` with `FieldRule` on
-  `tool:submit_record`), as Extend does. Auto-approved records are **never** used this way.
+  `tool:submit`), as Extend does. Auto-approved records are **never** used this way.
 - A numeric confidence score, via self-consistency (sampling twice and comparing, as Box and
   Unstract do), is an opt-in "high-assurance" toggle per job. It doubles the cost, so it is not
   the default.
@@ -295,96 +295,90 @@ Three things a pure IDP pipeline can't do and BOW can:
 
 The cost of an agent is latency and money. That is why the batch path is two-tier (§5.2).
 
-## 7. Scoping decision (revised): a per-agent tool, like `create_data`
+## 7. Scoping decision (final): keep extraction as today, add one `submit` tool
 
-The first draft (a new org-level `ExtractionSchema` entity attached to agents) was the IDP
-vendors' shape. It was the wrong starting point for BOW. `create_data` shows the native shape:
+The agent **already extracts**. It reads SharePoint files with `read_file`, runs SQL with
+`create_data`, and reasons with the agent's instructions. The only missing piece is a
+**structured sink** at the end. So we don't build an extraction runner at all:
 
-| | `create_data` today | `extract_data` (proposed) |
-|---|---|---|
-| Availability | A tool in the agent's catalog | Same: a tool, enabled per agent through the existing per-agent tools overlay |
-| Who defines the shape | The agent writes code from the user's ask plus the agent's instructions | The agent writes the **field schema** from the user's ask plus the agent's instructions and skills |
-| What's pinned | `Step.code` | The schema and subjects spec, pinned on the Step, in the same role as `code` |
-| Output | A tracked Step (grid, charts, dashboards, `load_step`) | A tracked Step whose rows are records, plus the §4.2 evidence and status alongside each value |
-| Rerun and schedule | Report cron re-executes `code` | Report cron re-runs extraction with the **pinned** schema over the (possibly new) subjects |
-| Reuse elsewhere | Publish as an Entity | Publish as an Entity (a catalog "Contracts extracted" table) |
+```
+today:     agent loop (search_files, read_file, create_data, …) → free-text answer
+proposed:  agent loop (unchanged)                                → submit(record) → typed rows
+```
 
-Why this is better:
+`submit` is one new tool. Nothing else in the loop changes.
 
-- **There is no new noun.** Users already understand "ask the agent, get a tracked table, then
-  schedule or publish it". Extraction becomes one more tool.
-- **The schema comes from where the knowledge lives.** A field such as "annual value" is defined
-  in the agent's instructions, so the agent that knows the domain writes the schema.
-- **Everything around the Step is free:** dashboards, `load_step` joins with SQL steps, report
-  rerun, entities, evals on `tool:extract_data`, audit via `ToolExecution`.
-- **"Structured output of an analysis step" is literally this:** a step whose output is typed
-  records instead of a DataFrame.
+- **Input:** `{collection, records: [{fields: {name: {value, status, evidence[], note}}}]}`,
+  with the §4.2 wrapper for each field.
+- **Where the schema comes from, in priority order:**
+  1. The fields are given by a **skill**, a **saved Prompt** or the user's message. The tool is
+     then rendered with the **concrete schema as its `input_schema`** (a run-scoped catalog
+     entry, §3). The provider validates it natively and `ToolRunner` retries on errors.
+  2. Otherwise the **first `submit` into a collection declares the fields**, and later submits
+     must match. This is the chat "just extract these for me" case.
+- **What it does:**
+  1. Validate the full schema server-side.
+  2. Verify quotes against the cached page text of the cited file.
+  3. Run field rules.
+  4. Upsert the rows into a tracked **Step** for the collection, with the schema pinned. Step,
+     dashboard, `load_step`, Entity and evals all come for free.
+- **Automation needs no new machinery.** A `ScheduledPrompt`, spawn-mode webhook or saved
+  Prompt re-runs the same ask. The pinned schema keeps the columns stable, and `submit` upserts
+  by `subject_ref` (and `etag`), so reruns update rows instead of duplicating them.
+- **This is exactly "structured output as the output of an analysis step".** The reasoning
+  happens freely in the loop, and only the last call is strict, which is the pattern the
+  research favours (§2, pitfall 2).
 
-**Where a saved schema still comes in, without a new entity:**
+**What it doesn't solve: scale.** One agent loop is capped at `step_limit` (default 100, max
+500; `ai/agent_v2.py:4502`). Each document costs at least a `read_file` and a `submit`
+(parallel calls help), and the context grows with every document read. In practice that means
+**tens of documents per run, not thousands**. That covers chat, "this deal's documents" and a
+weekly folder with a handful of new files.
 
-- **Standard extractors** ("our contract fields") become an agent **skill** (`Instruction`
-  with `kind='skill'`, holding the field list in `structured_data`; `models/instruction.py:31,88`).
-  - The skill is loaded when relevant, and the agent passes its fields to `extract_data`
-    verbatim.
-  - Skills already have versioning, review and Git sync.
-  - This is the "per agent" home for the schema.
-- **Stability for automations** comes from pinning on the Step, not from a registry. The
-  scheduled run uses the Step's pinned schema. Changing the fields is an explicit edit, which
-  creates a new Step version, just like editing code.
+**Add only when a customer hits that ceiling (P1):**
 
-**What we give up, and when to add it back:**
+- A fan-out for batches: one small scoped turn per document, run as the §5.2 fast path, all
+  calling the same `submit` into the same collection.
+- `submit` stays the single sink either way, so this is purely an execution optimization.
 
-- **Sharing one schema across agents.** Copy the skill for now. Add a shared schema entity only
-  if customers really need one contract across several agents.
-- **Review queue and version-to-version eval comparison.** These hang off the Step and its
-  `ToolExecution` for now.
-- **Step caps:** about 1000 rows, and values stored as strings. This is fine for the first
-  phase. Batch-scale jobs (thousands of documents) should materialize into
-  `ConnectionTable(kind='extraction')` on `::fast` (phase 2).
+**Rejected, in order of how heavy they are:**
 
-**Rejected:**
+- An org-level `ExtractionSchema` entity: a new noun, built before there's demand.
+- A dedicated `extract_data` runner tool: it duplicates what the loop already does, and is only
+  justified for batch scale, which is the fan-out above.
+- A report-owned schema: it can't be reused.
 
-- **Report-owned schema:** it can't be reused, and it isn't how BOW models outputs.
-- **An org-level `ExtractionSchema` entity:** see above. Keep it as a later escalation, not the
-  starting point.
+## 8. Phasing (final)
 
-## 8. Phasing (revised)
+**P0: `submit` (about 1–2 weeks)**
 
-**P0: the `extract_data` tool (chat and analysis)**
+- The `submit` tool, which works in two ways:
+  - A concrete `input_schema` when the fields come from a skill or Prompt.
+  - First-call-declares otherwise.
+- Server-side validation, quote verification and rules, then upsert into a tracked Step with
+  the schema pinned.
+- A record-grid tool card whose cells open the cited file page, plus CSV export.
+- A prompt block: "when a schema is active, finish by calling `submit`; use `not_found` rather
+  than guess".
+- Eval `FieldRule` on `tool:submit`.
+- **No LLM-layer changes.** The planner already uses native `tool_use`.
 
-- A tool enabled per agent. Its input is `{fields[], subjects[] | "context", instructions?}`.
-- The runner does the following:
-  1. Compile the fields into a run-scoped `submit_record` schema (§4.2).
-  2. For each subject, run a forced tool-call pass. A subject is either the documents or data
-     the agent has already gathered, or files listed from a connection.
-  3. Validate, verify quotes and apply rules.
-  4. Persist a **Step** with typed records and evidence, with the schema and subjects pinned.
-- The tool card is a record grid; clicking a cell opens the file at the cited page. Add CSV
-  export.
-- New LLM plumbing: forced `tool_choice` per provider, used only inside the tool.
-- Skills can carry standard field lists.
+**P1: trust and scale**
 
-**P1: automation and trust**
+- A review state, a review queue, and corrections becoming eval cases.
+- Etag-aware "only new or changed files" on scheduled reruns.
+- A batch fan-out plus forced `tool_choice` per provider for the per-document fast path.
+- `ConnectionTable(kind='extraction')` when a collection outgrows a Step (about 1000 rows).
 
-- Scheduled rerun of an extraction Step, for folders: only new or changed files, keyed by etag.
-- Escalation of hard subjects to a scoped agent turn (the two-tier path, §5.2).
-- A review state on records, a review queue, and corrections becoming eval cases.
-- `ConnectionTable(kind='extraction')` for jobs larger than a Step can hold.
-
-**P2: polish and moat**
-
-- A "new file in folder" trigger, suggesting fields from sample files, and an optimizer loop
-  over skill versions.
-- Write-back to SharePoint columns, bounding-box highlights, and a self-consistency confidence
-  toggle.
-- A shared cross-agent schema entity, only if demand shows up.
+**P2:** a "new file in folder" trigger, suggesting fields from sample files, an optimizer loop
+over skill versions, write-back to SharePoint columns, and bounding-box highlights.
 
 ## 9. Open questions
 
-1. ~~Home of the schema~~: decided in §7 (a per-agent tool, with the schema pinned on the Step and standard lists as skills).
+1. ~~Home of the schema~~: decided in §7: extraction stays in today's agent loop, a new `submit` tool is the sink, the schema is pinned on the Step, and standard field lists live in skills or Prompts.
 2. **Is it a Prompt?** An extraction job looks very close to `Prompt` + schema + subjects.
    Extending `Prompt` avoids a parallel automation surface.
-3. **Where does `submit_record` end the run?** In Mode A, should calling it end the turn
+3. **Where does `submit` end the run?** In Mode A, should calling it end the turn
    (`analysis_complete`), or may the agent continue and add prose? The recommendation: allow
    prose after it, and treat the record as the canonical output.
 4. **Record granularity for multi-record chats**, for example "extract all 12 invoices mentioned
