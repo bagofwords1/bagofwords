@@ -41,7 +41,7 @@ class TurnMemoryItemSchema(BaseModel):
     handle: Optional[str] = None
     dated: Optional[bool] = None
     tier: Optional[str] = None  # always | matched (injected entries)
-    tool: Optional[str] = None  # create_memory | edit_memory | search_memory | suggest_personal_instruction
+    tool: Optional[str] = None  # create_memory | edit_memory | search_memory
     action: Optional[str] = None
     code: Optional[str] = None  # refusal code
     success: Optional[bool] = None

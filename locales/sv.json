@@ -1512,16 +1512,6 @@
       "updated": "Minnet uppdaterat",
       "checked": "Kollade minnet"
     },
-    "suggestInstruction": {
-      "running": "Föreslår en instruktion…",
-      "label": "Spara som din instruktion?",
-      "accept": "Lägg till i mina instruktioner",
-      "dismiss": "Inte nu",
-      "dismissed": "Inte sparat",
-      "saved": "Tillagt i dina anpassade instruktioner",
-      "failed": "Kunde inte föreslå en instruktion",
-      "failedSave": "Kunde inte lägga till i dina instruktioner"
-    },
     "routeModel": {
       "routedTo": "Routad till",
       "choosing": "Väljer modell…",
@@ -2560,7 +2550,7 @@
         },
         "enable_user_memory": {
           "name": "Användarminne",
-          "description": "Låt agenten minnas fakta om varje användare mellan sessioner – deras arbete, projekt, deadlines och händelser, vad de följer och deras egna förkortningar. Regler för hur agenten ska svara ligger kvar i instruktionerna (organisationens eller varje användares anpassade instruktioner). Varje användare kan se, redigera och radera sitt minne."
+          "description": "Låt agenten minnas fakta om varje användare mellan sessioner – deras arbete, projekt, deadlines och händelser, vad de följer och deras egna förkortningar. Regler för hur agenten ska svara ligger kvar i instruktionerna. Varje användare kan se, redigera och radera sitt minne."
         },
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
@@ -3396,8 +3386,7 @@
     "memory.sensitive": "Minnet kan inte innehålla hemligheter, lösenord eller känsliga personuppgifter.",
     "memory.looks_like_rule": "Det är en regel för hur AI:n ska svara – lägg till den i dina anpassade instruktioner. Minnet sparar fakta om dig.",
     "memory.full": "Minnet är fullt. Radera några poster först.",
-    "memory.not_active": "Den posten har redan ändrats eller glömts.",
-    "profile.instructions_full": "Dina anpassade instruktioner är fulla. Redigera dem i din profil för att få plats."
+    "memory.not_active": "Den posten har redan ändrats eller glömts."
   },
   "email": {
     "dashboardShare": {
@@ -4651,8 +4640,7 @@
       "forgotAll": "Allt glömt",
       "source": {
         "user": "Tillagt av dig",
-        "agent": "Sparat av AI:n",
-        "migration": "Importerat från ditt tidigare minne"
+        "agent": "Sparat av AI:n"
       },
       "form": {
         "placeholder": "Ett faktum om dig, t.ex. Leder Q3-projektet om kundbortfall",

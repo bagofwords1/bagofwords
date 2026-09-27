@@ -1,5 +1,4 @@
-"""Input/output schemas for the user-memory tools (create/edit/search_memory)
-and suggest_personal_instruction."""
+"""Input/output schemas for the user-memory tools (create/edit/search_memory)."""
 from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -75,21 +74,4 @@ class SearchMemoryInput(BaseModel):
 class SearchMemoryOutput(BaseModel):
     success: bool
     count: int = 0
-    error: Optional[str] = None
-
-
-class SuggestPersonalInstructionInput(BaseModel):
-    text: str = Field(..., description=(
-        "The user's own lasting rule for how you should answer them, written as an instruction "
-        "(≤200 chars), e.g. \"Lead with the number, then one line of context.\" or \"Show money in "
-        "thousands with one decimal ($2.3K).\" Only rules that are personal to this user — never "
-        "business definitions or rules that hold for everyone."
-    ))
-    title: Optional[str] = Field(default=None, description=_TITLE_DESC)
-
-
-class SuggestPersonalInstructionOutput(BaseModel):
-    success: bool
-    text: Optional[str] = None
-    already_saved: bool = False
     error: Optional[str] = None

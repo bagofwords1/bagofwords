@@ -11,9 +11,9 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory", "update_user_memory"})
+MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory"})
 
-_SAFE_OBS_KEYS = ("handle", "previous_handle", "action", "deduped_into", "excluded_injected")
+_SAFE_OBS_KEYS = ("handle", "action", "deduped_into", "excluded_injected")
 
 
 def scrub_tool_observation(item: Dict[str, Any]) -> Dict[str, Any]:

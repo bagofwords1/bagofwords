@@ -1,13 +1,11 @@
-"""create_memory / edit_memory / search_memory / suggest_personal_instruction
-through their public run_stream.
+"""create_memory / edit_memory / search_memory through their public run_stream.
 
 Contracts: validation errors come back as a failed tool.end (the agent handles
 them); rules — definitions or how-to-answer preferences — are refused by
 memory with a pointer to instructions and the refusal is recorded for the
 trace; evidence is filled by code; entries the user typed are protected unless
 the user's message directly asks for the change; search_memory excludes
-entries already injected this turn; suggest_personal_instruction saves
-nothing and reports when the user's Custom instructions already hold the rule.
+entries already injected this turn.
 """
 import asyncio
 from types import SimpleNamespace
@@ -17,7 +15,6 @@ import pytest
 from app.ai.tools.implementations.create_memory import CreateMemoryTool
 from app.ai.tools.implementations.edit_memory import EditMemoryTool
 from app.ai.tools.implementations.search_memory import SearchMemoryTool
-from app.ai.tools.implementations.suggest_personal_instruction import SuggestPersonalInstructionTool
 from app.dependencies import async_session_maker
 from app.models.organization import Organization
 from app.models.user import User
@@ -155,7 +152,7 @@ def test_edit_memory_allows_user_entry_change_on_direct_request(owner):
     h = _seed_user_entry(uid, org)
     end = _ok(_run(_call(EditMemoryTool(), {"handle": h, "action": "update", "text": "Reports to the board in USD"},
                          uid, org, message="Please change it: I report to the board in USD now, not €M")))
-    assert end["output"]["handle"] != h
+    assert end["output"]["handle"] == h  # edited in place
 
 
 def test_search_memory_excludes_injected_and_says_so(owner):
@@ -197,45 +194,3 @@ def test_edit_memory_refuses_appending_a_different_fact(owner):
     # A real change of the same fact is still an edit.
     _ok(_run(_call(EditMemoryTool(), {"handle": h, "action": "update", "text": "Leads the Q4 churn project"},
                    uid, org)))
-
-
-
-def _set_note(uid, org, note):
-    from sqlalchemy import update
-    from app.models.membership import Membership
-
-    async def go():
-        async with async_session_maker() as db:
-            await db.execute(update(Membership).where(Membership.user_id == uid, Membership.organization_id == org)
-                             .values(note=note))
-            await db.commit()
-    _run(go())
-
-
-def test_suggest_personal_instruction_saves_nothing_and_knows_what_is_already_there(owner):
-    uid, org = owner
-    rule = "Lead with the number, then one line of context."
-    end = _ok(_run(_call(SuggestPersonalInstructionTool(), {"text": rule}, uid, org)))
-    assert end["output"]["already_saved"] is False and end["output"]["text"] == rule
-
-    async def memory_count():
-        async with async_session_maker() as db:
-            return len(await memory_service.list_entries(db, org, uid))
-    assert _run(memory_count()) == 0  # a rule never becomes memory
-
-    _set_note(uid, org, "I'm the CFO.\n- lead with the number, then one line of context")
-    end = _ok(_run(_call(SuggestPersonalInstructionTool(), {"text": rule}, uid, org)))
-    assert end["output"]["already_saved"] is True
-
-
-@pytest.mark.parametrize("bad", ["", "x" * 201, "my password: hunter22"])
-def test_suggest_personal_instruction_validation(owner, bad):
-    uid, org = owner
-    _err(_run(_call(SuggestPersonalInstructionTool(), {"text": bad}, uid, org)))
-
-
-def test_suggest_personal_instruction_unavailable_on_machine_turns(owner):
-    uid, org = owner
-    err = _err(_run(_call(SuggestPersonalInstructionTool(), {"text": "Lead with the number"}, uid, org,
-                          trigger_source="schedule")))
-    assert err["type"] == "unavailable"

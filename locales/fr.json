@@ -1512,16 +1512,6 @@
       "updated": "Mémoire mise à jour",
       "checked": "Mémoire consultée"
     },
-    "suggestInstruction": {
-      "running": "Suggestion d'une instruction…",
-      "label": "L'enregistrer comme instruction ?",
-      "accept": "Ajouter à mes instructions",
-      "dismiss": "Pas maintenant",
-      "dismissed": "Non enregistré",
-      "saved": "Ajouté à vos instructions personnalisées",
-      "failed": "Impossible de suggérer une instruction",
-      "failedSave": "Impossible de l'ajouter à vos instructions"
-    },
     "routeModel": {
       "routedTo": "Acheminé vers",
       "choosing": "Choix du modèle…",
@@ -2560,7 +2550,7 @@
         },
         "enable_user_memory": {
           "name": "Mémoire utilisateur",
-          "description": "Permet à l'agent de retenir des faits sur chaque utilisateur d'une session à l'autre : son travail, ses projets, ses échéances et événements, ce qu'il suit et ses propres raccourcis. Les règles sur la façon de répondre restent dans les instructions (de l'organisation ou les instructions personnalisées de chacun). Chaque utilisateur peut consulter, modifier et supprimer sa mémoire."
+          "description": "Permet à l'agent de retenir des faits sur chaque utilisateur d'une session à l'autre : son travail, ses projets, ses échéances et événements, ce qu'il suit et ses propres raccourcis. Les règles sur la façon de répondre restent dans les instructions. Chaque utilisateur peut consulter, modifier et supprimer sa mémoire."
         },
         "max_instructions_in_context": {
           "name": "Nombre maximal d'instructions dans le contexte",
@@ -3396,8 +3386,7 @@
     "memory.sensitive": "La mémoire ne peut pas contenir de secrets, de mots de passe ni de données personnelles sensibles.",
     "memory.looks_like_rule": "C'est une règle sur la façon de répondre : ajoutez-la à vos instructions personnalisées. La mémoire garde des faits vous concernant.",
     "memory.full": "La mémoire est pleine. Supprimez d'abord des entrées.",
-    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée.",
-    "profile.instructions_full": "Vos instructions personnalisées sont pleines. Modifiez-les dans votre profil pour faire de la place."
+    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée."
   },
   "email": {
     "dashboardShare": {
@@ -4651,8 +4640,7 @@
       "forgotAll": "Tout a été oublié",
       "source": {
         "user": "Ajouté par vous",
-        "agent": "Enregistré par l'IA",
-        "migration": "Importé de votre ancienne mémoire"
+        "agent": "Enregistré par l'IA"
       },
       "form": {
         "placeholder": "Un fait vous concernant, ex. Pilote le projet d'attrition du T3",

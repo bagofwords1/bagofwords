@@ -1512,16 +1512,6 @@
       "updated": "Memoria aggiornata",
       "checked": "Memoria consultata"
     },
-    "suggestInstruction": {
-      "running": "Suggerimento di un'istruzione…",
-      "label": "Salvarla come tua istruzione?",
-      "accept": "Aggiungi alle mie istruzioni",
-      "dismiss": "Non ora",
-      "dismissed": "Non salvato",
-      "saved": "Aggiunto alle tue istruzioni personalizzate",
-      "failed": "Impossibile suggerire un'istruzione",
-      "failedSave": "Impossibile aggiungerla alle tue istruzioni"
-    },
     "routeModel": {
       "routedTo": "Instradato a",
       "choosing": "Scelta del modello…",
@@ -2560,7 +2550,7 @@
         },
         "enable_user_memory": {
           "name": "Memoria utente",
-          "description": "Consente all'agente di ricordare fatti su ogni utente tra le sessioni: il suo lavoro, i progetti, le scadenze e gli eventi, ciò che segue e le sue abbreviazioni. Le regole su come rispondere restano nelle istruzioni (dell'organizzazione o le istruzioni personalizzate di ciascun utente). Ogni utente può vedere, modificare ed eliminare la propria memoria."
+          "description": "Consente all'agente di ricordare fatti su ogni utente tra le sessioni: il suo lavoro, i progetti, le scadenze e gli eventi, ciò che segue e le sue abbreviazioni. Le regole su come rispondere restano nelle istruzioni. Ogni utente può vedere, modificare ed eliminare la propria memoria."
         },
         "max_instructions_in_context": {
           "name": "Numero massimo di istruzioni nel contesto",
@@ -3396,8 +3386,7 @@
     "memory.sensitive": "La memoria non può contenere segreti, password o dati personali sensibili.",
     "memory.looks_like_rule": "Questa è una regola su come rispondere: aggiungila alle tue istruzioni personalizzate. La memoria conserva fatti su di te.",
     "memory.full": "La memoria è piena. Elimina prima alcune voci.",
-    "memory.not_active": "Questa voce è già stata modificata o dimenticata.",
-    "profile.instructions_full": "Le tue istruzioni personalizzate sono piene. Modificale nel profilo per fare spazio."
+    "memory.not_active": "Questa voce è già stata modificata o dimenticata."
   },
   "email": {
     "dashboardShare": {
@@ -4651,8 +4640,7 @@
       "forgotAll": "Tutto dimenticato",
       "source": {
         "user": "Aggiunto da te",
-        "agent": "Salvato dall'IA",
-        "migration": "Importato dalla tua memoria precedente"
+        "agent": "Salvato dall'IA"
       },
       "form": {
         "placeholder": "Un fatto su di te, es. Guido il progetto sul churn del terzo trimestre",

@@ -19,7 +19,6 @@ from app.schemas.user_profile_schema import UserProfileSchema
 from app.schemas.organization_schema import (
     OrganizationAndRoleSchema,
     MEMBERSHIP_NOTE_MAX_LENGTH,
-    MEMBERSHIP_MEMORY_MAX_LENGTH,
 )
 from app.services.organization_service import OrganizationService
 from app.services.llm_service import LLMService
@@ -35,10 +34,6 @@ class UserInstructionsSchema(BaseModel):
     # The current user's per-organization note (membership.note). Surfaced to
     # the AI planner, so we reuse the same length cap as the members admin UI.
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
-    # Legacy per-org memory document (membership.memory). Read-only for one
-    # release after the move to memory entries (/users/me/memory) so the change
-    # can be rolled back; it is no longer written.
-    memory: Optional[str] = Field(default=None, max_length=MEMBERSHIP_MEMORY_MAX_LENGTH)
     # Read-only: job info synced from the org's identity provider (Entra ID).
     # Shown to the user so they can see what the agent knows about them. Written
     # only by the login-time sync, never editable here.
@@ -82,11 +77,10 @@ async def get_my_instructions(
     db: AsyncSession = Depends(get_async_db),
 ):
     """Return the current user's custom instructions (their membership note)
-    and agent memory for the active organization."""
+    for the active organization. Memory lives at /users/me/memory."""
     membership = await _get_current_membership(db, current_user, organization)
     return UserInstructionsSchema(
         note=membership.note if membership else None,
-        memory=membership.memory if membership else None,
         profile_attributes=(membership.profile_attributes if membership else None) or None,
     )
 
@@ -100,47 +94,13 @@ async def update_my_instructions(
 ):
     """Update the current user's custom instructions for the active
     organization. Self-service: a user can always edit their own note
-    regardless of role; an empty value clears it. ``memory`` is ignored —
-    memory is managed as entries via /users/me/memory."""
+    regardless of role; an empty value clears it."""
     membership = await _get_current_membership(db, current_user, organization)
     if not membership:
         raise HTTPException(status_code=404, detail="Membership not found")
 
     note = (payload.note or "").strip()
     membership.note = note or None
-    await db.commit()
-    return UserInstructionsSchema(note=membership.note, memory=membership.memory)
-
-
-class AddPersonalRuleSchema(BaseModel):
-    text: str = Field(..., min_length=1, max_length=200)
-
-
-@router.post("/users/me/instructions/rules", response_model=UserInstructionsSchema)
-async def add_my_instruction_rule(
-    payload: AddPersonalRuleSchema,
-    current_user: User = Depends(current_user),
-    organization: Organization = Depends(get_current_organization),
-    db: AsyncSession = Depends(get_async_db),
-):
-    """Append one rule to the current user's Custom instructions — the
-    one-click accept on the agent's suggest_personal_instruction card. A rule
-    already there is a no-op; one that doesn't fit the cap is a typed 400."""
-    from app.errors import AppError, ErrorCode
-    from app.services.memory_rules import append_rule_to_note, contains_secret
-
-    membership = await _get_current_membership(db, current_user, organization)
-    if not membership:
-        raise HTTPException(status_code=404, detail="Membership not found")
-    if contains_secret(payload.text):
-        raise AppError.bad_request(ErrorCode.MEMORY_SENSITIVE, "Secrets can't be saved.")
-    updated = append_rule_to_note(membership.note, payload.text, MEMBERSHIP_NOTE_MAX_LENGTH)
-    if updated is None:
-        raise AppError.bad_request(
-            ErrorCode.PERSONAL_INSTRUCTIONS_FULL,
-            "Your custom instructions are full. Edit them in your profile to make room.",
-        )
-    membership.note = updated or None
     await db.commit()
     return UserInstructionsSchema(note=membership.note)
 

@@ -1,10 +1,10 @@
 <template>
   <!-- A refused or failed memory call is the agent's business (it handles the
-       error itself, e.g. a rule sent to instructions instead) — the report
+       error itself, e.g. a rule it applies instead of saving) — the report
        shows nothing for it; the trace keeps it. -->
   <div v-if="status === 'running' || isSuccess" class="mt-1">
     <!-- Single-line, non-expandable status for create_memory / edit_memory /
-         search_memory (and legacy update_user_memory). Memory is private: we
+         search_memory. Memory is private: we
          show only that it happened plus the agent's short title — never entry
          text, handles, tags or search results. Details live in the profile. -->
     <div class="flex items-center text-xs text-gray-500 dark:text-gray-400" data-testid="memory-tool">

@@ -172,17 +172,7 @@ def test_parse_when_rejects_non_iso():
     assert R.parse_when("2026-10-09T10:00:00Z") == datetime(2026, 10, 9, 10, 0)
 
 
-# --- legacy split / quotes / direct edit --------------------------------------
-
-def test_legacy_lines_split_bullets_and_drop_headings_and_dupes():
-    doc = "# About Dana\n- Prefers USD\n* Concise answers\n\n1. Likes cohort charts\n- prefers usd\n"
-    assert R.legacy_lines(doc) == ["Prefers USD", "Concise answers", "Likes cohort charts"]
-
-
-def test_legacy_lines_truncates_to_cap():
-    [line] = R.legacy_lines("x" * 400)
-    assert len(line) <= R.MAX_TEXT_CHARS
-
+# --- quotes / direct edit --------------------------------------
 
 def test_best_quote_is_users_sentence_and_bounded():
     msg = "Thanks. Please keep it shorter and put the number first. Also check Q3." + " pad" * 100
@@ -231,14 +221,6 @@ def test_rule_signals_detected_and_not_counted_as_facts(msg):
 ])
 def test_no_signals_in_ordinary_questions(msg):
     assert R.fact_signals(msg) == [] and R.rule_signals(msg) == []
-
-
-def test_personal_rules_append_to_note_once_and_respect_the_cap():
-    note = R.append_rule_to_note("I'm the CFO.", "Lead with the number", 500)
-    assert note == "I'm the CFO.\n- Lead with the number"
-    assert R.append_rule_to_note(note, "lead with the number!", 500) == note  # already there
-    assert R.note_has_rule(note, "Lead with the number")
-    assert R.append_rule_to_note("x" * 495, "Lead with the number", 500) is None
 
 
 @pytest.mark.parametrize("old,new,expected", [

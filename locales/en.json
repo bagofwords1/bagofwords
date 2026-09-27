@@ -1617,16 +1617,6 @@
       "updated": "Memory updated",
       "checked": "Checked memory"
     },
-    "suggestInstruction": {
-      "running": "Suggesting an instruction…",
-      "label": "Save as your instruction?",
-      "accept": "Add to my instructions",
-      "dismiss": "Not now",
-      "dismissed": "Not saved",
-      "saved": "Added to your custom instructions",
-      "failed": "Couldn't suggest an instruction",
-      "failedSave": "Couldn't add it to your instructions"
-    },
     "routeModel": {
       "routedTo": "Routed to",
       "choosing": "Choosing model…",
@@ -2732,7 +2722,7 @@
         },
         "enable_user_memory": {
           "name": "User memory",
-          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions (org-wide, or each user's custom instructions). Each user can see, edit and delete their memory."
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions. Each user can see, edit and delete their memory."
         },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
@@ -3546,8 +3536,7 @@
     "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
     "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
     "memory.full": "Memory is full. Delete some entries first.",
-    "memory.not_active": "That entry was already changed or forgotten.",
-    "profile.instructions_full": "Your custom instructions are full. Edit them in your profile to make room."
+    "memory.not_active": "That entry was already changed or forgotten."
   },
   "email": {
     "dashboardShare": {
@@ -4841,8 +4830,7 @@
       "forgotAll": "Everything forgotten",
       "source": {
         "user": "Added by you",
-        "agent": "Saved by the AI",
-        "migration": "Imported from your previous memory"
+        "agent": "Saved by the AI"
       },
       "form": {
         "placeholder": "A fact about you, e.g. Leading the Q3 churn project",

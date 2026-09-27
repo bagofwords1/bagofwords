@@ -229,10 +229,10 @@ async def update_my_memory(
         if k in changes and changes[k] in ("", None):
             changes[k] = None
     try:
-        new = await memory_service.update(db, entry, changes=changes, source="user")
+        entry = await memory_service.update(db, entry, changes=changes, source="user")
     except MemoryValidationError as e:
         _raise_validation(e)
-    return (await _serialize(db, organization, [new], datetime.utcnow()))[0]
+    return (await _serialize(db, organization, [entry], datetime.utcnow()))[0]
 
 
 @router.delete("/users/me/memory/{entry_id}", response_model=MemoryEntrySchema)

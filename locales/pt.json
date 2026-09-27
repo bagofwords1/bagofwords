@@ -1512,16 +1512,6 @@
       "updated": "Memória atualizada",
       "checked": "Memória consultada"
     },
-    "suggestInstruction": {
-      "running": "Sugerindo uma instrução…",
-      "label": "Salvar como sua instrução?",
-      "accept": "Adicionar às minhas instruções",
-      "dismiss": "Agora não",
-      "dismissed": "Não salvo",
-      "saved": "Adicionado às suas instruções personalizadas",
-      "failed": "Não foi possível sugerir uma instrução",
-      "failedSave": "Não foi possível adicionar às suas instruções"
-    },
     "routeModel": {
       "routedTo": "Roteado para",
       "choosing": "Escolhendo modelo…",
@@ -2560,7 +2550,7 @@
         },
         "enable_user_memory": {
           "name": "Memória do usuário",
-          "description": "Permite que o agente lembre fatos sobre cada usuário entre sessões — seu trabalho, projetos, prazos e eventos, o que acompanha e suas próprias abreviações. Regras sobre como responder continuam nas instruções (da organização ou as instruções personalizadas de cada usuário). Cada usuário pode ver, editar e excluir sua memória."
+          "description": "Permite que o agente lembre fatos sobre cada usuário entre sessões — seu trabalho, projetos, prazos e eventos, o que acompanha e suas próprias abreviações. Regras sobre como responder continuam nas instruções. Cada usuário pode ver, editar e excluir sua memória."
         },
         "max_instructions_in_context": {
           "name": "Máximo de instruções no contexto",
@@ -3396,8 +3386,7 @@
     "memory.sensitive": "A memória não pode guardar segredos, senhas ou dados pessoais sensíveis.",
     "memory.looks_like_rule": "Isso é uma regra de como responder — adicione às suas instruções personalizadas. A memória guarda fatos sobre você.",
     "memory.full": "A memória está cheia. Exclua algumas entradas primeiro.",
-    "memory.not_active": "Essa entrada já foi alterada ou esquecida.",
-    "profile.instructions_full": "Suas instruções personalizadas estão cheias. Edite-as no seu perfil para abrir espaço."
+    "memory.not_active": "Essa entrada já foi alterada ou esquecida."
   },
   "email": {
     "dashboardShare": {
@@ -4651,8 +4640,7 @@
       "forgotAll": "Tudo esquecido",
       "source": {
         "user": "Adicionado por você",
-        "agent": "Salvo pela IA",
-        "migration": "Importado da sua memória anterior"
+        "agent": "Salvo pela IA"
       },
       "form": {
         "placeholder": "Um fato sobre você, ex.: Lidero o projeto de churn do 3º trimestre",

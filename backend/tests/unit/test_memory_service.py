@@ -2,8 +2,8 @@
 
 Contracts: memory takes facts and refuses rules (on every write), dedupe
 strengthens instead of duplicating (normalization variants, shared aliases),
-a date merges into the existing fact, supersede keeps
-history, forget blanks content, expiry is computed on read with a clock we
+a date merges into the existing fact, an edit changes the row in place,
+forget blanks content, expiry is computed on read with a clock we
 pass in, the cap evicts the weakest non-user entry and never a user-authored
 one, and concurrent writers never lose an entry.
 """
@@ -90,23 +90,37 @@ def test_shared_alias_merges(owner):
     assert {a.lower() for a in e.aliases} == {"my region", "my patch"}
 
 
-def test_update_supersedes_and_old_handle_follows_to_new_version(owner):
+def test_update_edits_in_place_and_keeps_the_handle(owner):
     uid, org = owner
 
     async def go():
         async with async_session_maker() as db:
             r = await memory_service.create(db, organization_id=org, user_id=uid, text="Leads the Q3 churn project", tags=["churn"], source="agent", now=NOW)
-            new = await memory_service.update(db, r.entry, changes={"text": "Leads the Q4 churn project"}, source="agent")
-            resolved = await memory_service.resolve_handle(db, org, uid, r.entry.handle)
-            all_rows = await memory_service.list_entries(db, org, uid, statuses=("active", "superseded"))
-            return r.entry.handle, new.handle, resolved.handle, [(x.handle, x.status) for x in all_rows]
+            handle, eid = r.entry.handle, str(r.entry.id)
+            await memory_service.update(db, r.entry, changes={"text": "Leads the Q4 churn project", "event_start": "2026-12-01"}, source="user")
+            resolved = await memory_service.resolve_handle(db, org, uid, handle)
+            all_rows = await memory_service.list_entries(db, org, uid, statuses=("active", "forgotten"))
+            return handle, eid, resolved, all_rows
 
-    old, new, resolved, rows = _run(go())
-    assert new != old and resolved == new
-    assert (old, "superseded") in rows and (new, "active") in rows
+    handle, eid, resolved, rows = _run(go())
+    assert [str(r.id) for r in rows] == [eid]  # no second row
+    assert resolved.handle == handle and resolved.text == "Leads the Q4 churn project"
+    assert resolved.event_start == datetime(2026, 12, 1)
+    assert resolved.source == "user"  # a user edit confirms the fact
 
 
-def test_forget_blanks_content_and_forget_all_covers_old_versions(owner):
+def test_update_can_clear_a_date(owner):
+    uid, org = owner
+
+    async def go():
+        async with async_session_maker() as db:
+            r = await memory_service.create(db, organization_id=org, user_id=uid, text="Board meeting", tags=["board"], source="user", event_start="2026-10-09", now=NOW)
+            return (await memory_service.update(db, r.entry, changes={"event_start": None}, source="user")).event_start
+
+    assert _run(go()) is None
+
+
+def test_forget_blanks_content_and_forget_all(owner):
     uid, org = owner
 
     async def go():
@@ -114,7 +128,7 @@ def test_forget_blanks_content_and_forget_all_covers_old_versions(owner):
             a = (await memory_service.create(db, organization_id=org, user_id=uid, text="Owns the cohort reporting", tags=["charts"], source="user", now=NOW)).entry
             await memory_service.update(db, a, changes={"text": "Owns the cohort and retention reporting"}, source="user")
             n = await memory_service.forget_all(db, org, uid)
-            rows = await memory_service.list_entries(db, org, uid, statuses=("active", "superseded", "forgotten"))
+            rows = await memory_service.list_entries(db, org, uid, statuses=("active", "forgotten"))
             return n, rows
 
     n, rows = _run(go())

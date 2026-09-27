@@ -2,10 +2,9 @@
 
 Memory holds FACTS about the user (their work, schedule, projects, the things
 they follow, their own shorthand). Rules about how to answer or compute are
-instructions — org instructions when they hold for everyone, the user's
-personal (custom) instructions otherwise — and never memory.
+instructions, which people write, and never memory.
 
-Shared by every writer (the agent tools, the user API, the migration) and by
+Shared by every writer (the agent tools, the user API) and by
 the context builder, so the same text normalizes, dedupes, expires and gets
 refused the same way wherever it comes from.
 """
@@ -16,8 +15,8 @@ import unicodedata
 from datetime import datetime, timedelta
 from typing import Iterable, List, Optional, Sequence
 
-SOURCES: tuple[str, ...] = ("user", "agent", "migration")
-STATUSES: tuple[str, ...] = ("active", "superseded", "forgotten")
+SOURCES: tuple[str, ...] = ("user", "agent")
+STATUSES: tuple[str, ...] = ("active", "forgotten")
 
 MAX_TEXT_CHARS = 280
 MAX_QUOTE_CHARS = 200
@@ -300,29 +299,6 @@ def looks_like_rule(text: str) -> Optional[str]:
 # Legacy migration helpers
 # ---------------------------------------------------------------------------
 
-_BULLET = re.compile(r"^\s*(?:[-*•·]|\d+[.)])\s+")
-
-
-def legacy_lines(memory_text: Optional[str]) -> List[str]:
-    """Split a legacy ``Membership.memory`` document into one fact per line
-    or bullet. Headings (``#``) and blanks are dropped; each fact is trimmed
-    to the entry cap."""
-    out: List[str] = []
-    for raw in (memory_text or "").splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        line = _BULLET.sub("", line).strip()
-        line = clean_text(line)
-        if not line:
-            continue
-        if len(line) > MAX_TEXT_CHARS:
-            line = line[: MAX_TEXT_CHARS - 1].rstrip() + "…"
-        if normalize_text(line) not in {normalize_text(x) for x in out}:
-            out.append(line)
-    return out
-
-
 def best_quote(message: Optional[str], text: str, keywords_fn=None) -> Optional[str]:
     """Pick the user's own sentence that best supports ``text`` (≤200 chars).
 
@@ -438,24 +414,3 @@ def appends_new_fact(old_text: str, new_text: str) -> bool:
     if not old or not new or old == new or not new.startswith(old):
         return False
     return len(new.split()) - len(old.split()) >= 3
-
-
-def note_rules(note: Optional[str]) -> List[str]:
-    """The lines of a user's Custom instructions, without bullet markers."""
-    return [_BULLET.sub("", l).strip() for l in (note or "").splitlines() if l.strip()]
-
-
-def note_has_rule(note: Optional[str], rule: str) -> bool:
-    key = normalize_text(rule)
-    return bool(key) and any(normalize_text(l) == key for l in note_rules(note))
-
-
-def append_rule_to_note(note: Optional[str], rule: str, max_chars: int) -> Optional[str]:
-    """``note`` with ``rule`` appended as a bullet, unchanged if already there,
-    or None when it would not fit ``max_chars``."""
-    current = (note or "").strip()
-    if note_has_rule(current, rule):
-        return current
-    candidate = f"{current}\n- {clean_text(rule)}" if current else f"- {clean_text(rule)}"
-    return candidate if len(candidate) <= max_chars else None
-

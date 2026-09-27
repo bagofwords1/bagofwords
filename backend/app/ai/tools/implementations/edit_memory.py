@@ -97,7 +97,7 @@ class EditMemoryTool(Tool):
                         code="memory.user_authored",
                     )
                     return
-                old_handle = entry.handle
+                handle = entry.handle
                 if data.action == "update" and data.text and appends_new_fact(entry.text, data.text):
                     record(runtime_ctx, "refusals", {
                         "tool": "edit_memory", "code": "memory.one_fact_per_entry", "handle": entry.handle,
@@ -112,15 +112,14 @@ class EditMemoryTool(Tool):
                     return
                 if data.action == "delete":
                     await memory_service.forget(db, entry)
-                    new_handle, summary = old_handle, f"Forgot [{old_handle}]."
-                    new_id = str(entry.id)
+                    summary = f"Forgot [{handle}]."
                 else:
-                    new = await memory_service.update(
+                    await memory_service.update(
                         db, entry, changes=changes, source="agent",
                         evidence=evidence_for(runtime_ctx, changes.get("text") or entry.text),
                     )
-                    new_handle, new_id = new.handle, str(new.id)
-                    summary = f"Updated [{old_handle}] → now [{new_handle}]."
+                    summary = f"Updated [{handle}]."
+                entry_id = str(entry.id)
         except MemoryValidationError as e:
             record(runtime_ctx, "refusals", {
                 "tool": "edit_memory", "code": e.code, "handle": data.handle, "text": (data.text or "")[:400],
@@ -133,9 +132,8 @@ class EditMemoryTool(Tool):
             return
 
         record(runtime_ctx, "writes", {
-            "tool": "edit_memory", "action": data.action, "id": new_id, "handle": new_handle,
-            "previous_handle": old_handle,
+            "tool": "edit_memory", "action": data.action, "id": entry_id, "handle": handle,
         })
-        output = {"success": True, "handle": new_handle}
-        observation = {"summary": summary, "handle": new_handle, "previous_handle": old_handle, "action": data.action}
+        output = {"success": True, "handle": handle}
+        observation = {"summary": summary, "handle": handle, "action": data.action}
         yield ToolEndEvent(type="tool.end", payload={"output": output, "observation": observation})

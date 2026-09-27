@@ -157,7 +157,7 @@ interface MemoryEntry {
   date?: string | null
   end_date?: string | null
   expired: boolean
-  source: 'user' | 'agent' | 'migration'
+  source: 'user' | 'agent'
   evidence?: { report_id?: string; report_title?: string; report_link?: string; quote?: string } | null
 }
 
@@ -193,7 +193,7 @@ function displayTags(e: MemoryEntry): string[] {
 }
 
 function sourceLabel(source: string) {
-  return t(`profile.memory.source.${source === 'user' || source === 'migration' ? source : 'agent'}`)
+  return t(`profile.memory.source.${source === 'user' ? 'user' : 'agent'}`)
 }
 
 function fmtDay(iso: string) {

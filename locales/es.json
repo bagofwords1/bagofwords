@@ -1530,16 +1530,6 @@
       "updated": "Memoria actualizada",
       "checked": "Memoria consultada"
     },
-    "suggestInstruction": {
-      "running": "Sugiriendo una instrucción…",
-      "label": "¿Guardar como tu instrucción?",
-      "accept": "Añadir a mis instrucciones",
-      "dismiss": "Ahora no",
-      "dismissed": "No guardado",
-      "saved": "Añadido a tus instrucciones personalizadas",
-      "failed": "No se pudo sugerir una instrucción",
-      "failedSave": "No se pudo añadir a tus instrucciones"
-    },
     "routeModel": {
       "routedTo": "Enrutado a",
       "choosing": "Eligiendo modelo…",
@@ -2652,7 +2642,7 @@
         },
         "enable_user_memory": {
           "name": "Memoria del usuario",
-          "description": "Permite que el agente recuerde hechos sobre cada usuario entre sesiones: su trabajo, proyectos, plazos y eventos, lo que sigue y sus propias abreviaturas. Las reglas sobre cómo responder siguen en las instrucciones (de la organización o las instrucciones personalizadas de cada usuario). Cada usuario puede ver, editar y borrar su memoria."
+          "description": "Permite que el agente recuerde hechos sobre cada usuario entre sesiones: su trabajo, proyectos, plazos y eventos, lo que sigue y sus propias abreviaturas. Las reglas sobre cómo responder siguen en las instrucciones. Cada usuario puede ver, editar y borrar su memoria."
         },
         "max_instructions_in_context": {
           "name": "Máximo de instrucciones en el contexto",
@@ -3486,8 +3476,7 @@
     "memory.sensitive": "La memoria no puede guardar secretos, contraseñas ni datos personales sensibles.",
     "memory.looks_like_rule": "Eso es una regla sobre cómo responder: añádela a tus instrucciones personalizadas. La memoria guarda hechos sobre ti.",
     "memory.full": "La memoria está llena. Borra algunas entradas primero.",
-    "memory.not_active": "Esa entrada ya se cambió o se olvidó.",
-    "profile.instructions_full": "Tus instrucciones personalizadas están llenas. Edítalas en tu perfil para hacer espacio."
+    "memory.not_active": "Esa entrada ya se cambió o se olvidó."
   },
   "email": {
     "dashboardShare": {
@@ -4765,8 +4754,7 @@
       "forgotAll": "Todo olvidado",
       "source": {
         "user": "Añadido por ti",
-        "agent": "Guardado por la IA",
-        "migration": "Importado de tu memoria anterior"
+        "agent": "Guardado por la IA"
       },
       "form": {
         "placeholder": "Un hecho sobre ti, p. ej. Lidero el proyecto de pérdida de clientes del T3",

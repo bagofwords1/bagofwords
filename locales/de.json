@@ -1512,16 +1512,6 @@
       "updated": "Gedächtnis aktualisiert",
       "checked": "Gedächtnis durchsucht"
     },
-    "suggestInstruction": {
-      "running": "Anweisung wird vorgeschlagen…",
-      "label": "Als deine Anweisung speichern?",
-      "accept": "Zu meinen Anweisungen hinzufügen",
-      "dismiss": "Nicht jetzt",
-      "dismissed": "Nicht gespeichert",
-      "saved": "Zu deinen benutzerdefinierten Anweisungen hinzugefügt",
-      "failed": "Anweisung konnte nicht vorgeschlagen werden",
-      "failedSave": "Konnte nicht zu deinen Anweisungen hinzugefügt werden"
-    },
     "routeModel": {
       "routedTo": "Geroutet an",
       "choosing": "Modell wird gewählt…",
@@ -2560,7 +2550,7 @@
         },
         "enable_user_memory": {
           "name": "Benutzergedächtnis",
-          "description": "Der Agent merkt sich sitzungsübergreifend Fakten zu jedem Benutzer – seine Arbeit, Projekte, Fristen und Termine, was er verfolgt und seine eigenen Kürzel. Regeln dazu, wie geantwortet wird, bleiben in den Anweisungen (der Organisation oder den benutzerdefinierten Anweisungen jedes Benutzers). Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
+          "description": "Der Agent merkt sich sitzungsübergreifend Fakten zu jedem Benutzer – seine Arbeit, Projekte, Fristen und Termine, was er verfolgt und seine eigenen Kürzel. Regeln dazu, wie geantwortet wird, bleiben in den Anweisungen. Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
         },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
@@ -3396,8 +3386,7 @@
     "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
     "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
     "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
-    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen.",
-    "profile.instructions_full": "Deine benutzerdefinierten Anweisungen sind voll. Bearbeite sie in deinem Profil, um Platz zu schaffen."
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
   },
   "email": {
     "dashboardShare": {
@@ -4651,8 +4640,7 @@
       "forgotAll": "Alles vergessen",
       "source": {
         "user": "Von dir hinzugefügt",
-        "agent": "Von der KI gespeichert",
-        "migration": "Aus deinem früheren Gedächtnis importiert"
+        "agent": "Von der KI gespeichert"
       },
       "form": {
         "placeholder": "Ein Fakt über dich, z. B. Leite das Q3-Abwanderungsprojekt",

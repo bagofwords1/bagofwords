@@ -60,7 +60,6 @@ class ErrorCode(str, Enum):
     MEMORY_LOOKS_LIKE_RULE = "memory.looks_like_rule"
     MEMORY_FULL = "memory.full"
     MEMORY_NOT_ACTIVE = "memory.not_active"
-    PERSONAL_INSTRUCTIONS_FULL = "profile.instructions_full"
 
     # Conflicts
     RESOURCE_CONFLICT = "resource.conflict"

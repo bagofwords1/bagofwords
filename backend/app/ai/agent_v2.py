@@ -84,7 +84,7 @@ def capabilities_for_report_files(has_files: bool) -> set:
 # nothing the planner needs next turn (an ack + an id). They render as one-line
 # acks inside a batch aggregate, and a bookkeeping-only step must never evict
 # the previous substantive observation (see _carry_substantive_observation).
-_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory", "suggest_personal_instruction"})
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory"})
 MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory"})
 
 
@@ -815,9 +815,6 @@ class AgentV2:
             or getattr(self, "is_eval_run", False)
         ):
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in MEMORY_TOOL_NAMES]
-        # Offering the user a personal instruction needs the user in the turn.
-        if _mem_user is None or _is_machine_turn(self.head_completion) or getattr(self, "is_eval_run", False):
-            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'suggest_personal_instruction']
 
         # Shared-artifact viewer chat runs read/query-only: no artifact or
         # dashboard mutations, no comms, no automation, no agent-scope tools
@@ -1103,16 +1100,16 @@ class AgentV2:
 
     def _memory_hint(self) -> Optional[str]:
         """One line next to the ask when the user's own message carries a fact
-        about them (→ memory) or a lasting rule for how to answer them (→
-        offer a personal instruction). Pure code: the model still decides
-        whether anything is worth keeping."""
+        about them (→ memory) or a rule for how to answer them (→ apply it in
+        this conversation; rules are never memory). Pure code: the model still
+        decides whether anything is worth keeping."""
         try:
             names = {getattr(t, "name", None) for t in (self.planner.tool_catalog or [])}
             prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
             message = prompt.get("content", "") if isinstance(prompt, dict) else ""
             from app.services.memory_rules import fact_signals, rule_signals
             facts = fact_signals(message) if "create_memory" in names else []
-            rules = rule_signals(message) if "suggest_personal_instruction" in names else []
+            rules = rule_signals(message) if "create_memory" in names else []
         except Exception:
             return None
         parts: list[str] = []
@@ -1124,10 +1121,10 @@ class AgentV2:
             )
         if rules:
             parts.append(
-                "This message tells you how the user wants answers. Apply it now — if it corrects your last "
-                "answer, rewrite that answer in the new way from data you already have, never just "
-                "acknowledge. If it sounds lasting, offer it once with suggest_personal_instruction. It is "
-                "a rule, so never save it to memory."
+                "This message tells you how the user wants answers. Apply it now and for the rest of this "
+                "conversation — if it corrects your last answer, rewrite that answer in the new way from "
+                "data you already have, never just acknowledge. It is a rule, not a fact about the user, "
+                "so never save it to memory."
             )
         if not parts:
             return None

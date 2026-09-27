@@ -2076,7 +2076,7 @@ class ConsoleService:
         from app.models.memory_entry import MemoryEntry
         from app.schemas.agent_execution_trace_schema import TurnMemorySchema, TurnMemoryItemSchema
 
-        memory_tools = ("create_memory", "edit_memory", "search_memory", "suggest_personal_instruction")
+        memory_tools = ("create_memory", "edit_memory", "search_memory")
         tool_rows: dict[str, list] = {}
         if ae_ids:
             q = (

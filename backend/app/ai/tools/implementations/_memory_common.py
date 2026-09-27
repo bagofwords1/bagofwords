@@ -13,7 +13,7 @@ from app.services.memory_service import is_memory_enabled
 # right system.
 BOUNDARY = (
     "Test: is it a rule for how to answer or compute, or a fact about the user? Rules are "
-    "instructions (org-wide, or this user's personal instructions); only facts are memory."
+    "instructions, never memory; only facts are memory."
 )
 
 

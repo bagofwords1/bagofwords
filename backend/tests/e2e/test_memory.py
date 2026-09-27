@@ -100,11 +100,10 @@ def test_member_crud_on_own_memory(test_client, org):
     p = test_client.patch(f"/api/users/me/memory/{entry['id']}", json={"text": "Leads the Q4 churn project"},
                           headers=_h(t, o))
     assert p.status_code == 200, p.json()
-    new_id = p.json()["id"]
-    assert new_id != entry["id"]
-    assert [e["id"] for e in _entries(test_client, t, o) if "churn" in e["text"]] == [new_id]
+    assert p.json()["id"] == entry["id"]  # edited in place
+    assert [e["text"] for e in _entries(test_client, t, o) if "churn" in e["text"]] == ["Leads the Q4 churn project"]
 
-    d = test_client.delete(f"/api/users/me/memory/{new_id}", headers=_h(t, o))
+    d = test_client.delete(f"/api/users/me/memory/{entry['id']}", headers=_h(t, o))
     assert d.status_code == 200
     assert [e["text"] for e in _entries(test_client, t, o)] == ["Board meeting"]
 
@@ -145,25 +144,17 @@ def test_other_member_and_admin_cannot_read_or_change_someone_elses_memory(test_
 
 
 @pytest.mark.e2e
-def test_accepting_a_suggested_rule_adds_it_to_custom_instructions_once(test_client, org):
+def test_user_edit_changes_the_entry_in_place(test_client, org):
     t, o = org["member"], org["id"]
-    put = test_client.put("/api/users/me/instructions", json={"note": "I'm the CFO."}, headers=_h(t, o))
-    assert put.status_code == 200
-    rule = "Lead with the number, then one line of context."
-    for _ in range(2):  # a second click is a no-op
-        r = test_client.post("/api/users/me/instructions/rules", json={"text": rule}, headers=_h(t, o))
-        assert r.status_code == 200, r.json()
-    note = test_client.get("/api/users/me/instructions", headers=_h(t, o)).json()["note"]
-    assert note == f"I'm the CFO.\n- {rule}"
-    assert _entries(test_client, t, o) == []  # a rule never becomes memory
-
-    # Only the caller's own instructions change.
-    admin_note = test_client.get("/api/users/me/instructions", headers=_h(org["admin"], o)).json()["note"]
-    assert not admin_note or rule not in admin_note
-
-    test_client.put("/api/users/me/instructions", json={"note": "x" * 490}, headers=_h(t, o))
-    full = test_client.post("/api/users/me/instructions/rules", json={"text": rule}, headers=_h(t, o))
-    assert full.status_code == 400 and full.json()["error_code"] == "profile.instructions_full"
+    made = _add(test_client, t, o, text="Board meeting", date="2026-10-09").json()
+    r = test_client.patch(f"/api/users/me/memory/{made['id']}", json={"text": "Board offsite", "date": ""},
+                          headers=_h(t, o))
+    assert r.status_code == 200, r.json()
+    [entry] = _entries(test_client, t, o)
+    assert (entry["id"], entry["handle"]) == (made["id"], made["handle"])
+    assert entry["text"] == "Board offsite" and entry["date"] is None
+    # Custom instructions are the user's own and untouched by memory.
+    assert "memory" not in test_client.get("/api/users/me/instructions", headers=_h(t, o)).json()
 
 
 @pytest.mark.e2e
@@ -331,7 +322,7 @@ def test_agent_saves_a_fact_with_evidence_and_next_turn_sees_it(
 
 
 @pytest.mark.e2e
-def test_style_correction_points_to_personal_instructions_not_memory(
+def test_style_correction_is_applied_not_saved(
     monkeypatch, test_client, create_report, org,
 ):
     t, o = org["member"], org["id"]
@@ -340,8 +331,8 @@ def test_style_correction_points_to_personal_instructions_not_memory(
     report = _new_report(create_report, t, o)
     _ask(test_client, report["id"], t, o, "Too long. Shorter please, and show money in thousands with one decimal.")
     hint = captured[-1]["hint"]
-    assert "suggest_personal_instruction" in hint and "never save it to memory" in hint
-    assert "suggest_personal_instruction" in captured[-1]["tools"]
+    assert "rest of this conversation" in hint and "never save it to memory" in hint
+    assert "suggest_personal_instruction" not in hint
 
 
 @pytest.mark.e2e

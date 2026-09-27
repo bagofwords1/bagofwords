@@ -1,15 +1,12 @@
-"""add memory_entries (per-user memory) + agent_executions.memory_context_json
+"""add memory_entries + agent_executions.memory_context_json, drop memberships.memory
 
 Revision ID: usrmem01
 Revises: artchatmodel01
 Create Date: 2026-09-26 00:00:00.000000
 
-Replaces the single ``memberships.memory`` document with one row per fact
-about the user. Existing memory text is split line-by-line (idempotent; see
-app/services/memory_migration.py): facts become entries, lines that are rules
-about how to answer move to the user's personal (custom) instructions.
-``memberships.memory`` is kept, read-only, for one release so the change can
-be rolled back.
+Replaces the single ``memberships.memory`` document (never released) with one
+row per fact about the user. The old column is dropped without carrying its
+text over.
 """
 from typing import Sequence, Union
 
@@ -41,7 +38,6 @@ def upgrade() -> None:
         sa.Column('seen_count', sa.Integer(), nullable=False, server_default='1'),
         sa.Column('last_seen_at', sa.DateTime(), nullable=True),
         sa.Column('status', sa.String(length=12), nullable=False, server_default='active'),
-        sa.Column('superseded_by_id', sa.String(length=36), nullable=True),
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
         sa.Column('deleted_at', sa.DateTime(), nullable=True),
@@ -60,11 +56,13 @@ def upgrade() -> None:
     # refusals). Never read by anyone but the memory's owner in full.
     op.add_column('agent_executions', sa.Column('memory_context_json', sa.JSON(), nullable=True))
 
-    from app.services.memory_migration import migrate_legacy_memory
-    migrate_legacy_memory(op.get_bind())
+    with op.batch_alter_table('memberships') as batch_op:
+        batch_op.drop_column('memory')
 
 
 def downgrade() -> None:
+    with op.batch_alter_table('memberships') as batch_op:
+        batch_op.add_column(sa.Column('memory', sa.String(), nullable=True))
     op.drop_column('agent_executions', 'memory_context_json')
     op.drop_index('ix_memory_entries_org_user_status', table_name='memory_entries')
     op.drop_index('ix_memory_entries_status', table_name='memory_entries')

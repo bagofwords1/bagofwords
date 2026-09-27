@@ -6,16 +6,13 @@ from app.models.base import BaseSchema
 class MemoryEntry(BaseSchema):
     """One fact about a user that the agent remembers across sessions.
 
-    Scope is (organization, user) — the same scope as the legacy
-    ``Membership.memory`` document this replaces. Entries are private to that
-    user: there is no admin read path. Memory holds facts (their work,
-    projects, deadlines, what they follow, their own shorthand), never rules:
-    how to answer or compute lives in instructions (org-wide, or the user's
-    personal custom instructions).
+    Scope is (organization, user). Entries are private to that user: there is
+    no admin read path. Memory holds facts (their work, projects, deadlines,
+    what they follow, their own shorthand), never rules: how to answer or
+    compute lives in instructions.
 
-    Versioning: an update inserts a new row (new handle) and marks the old one
-    ``superseded`` with ``superseded_by_id`` pointing at the replacement.
-    Forgetting blanks the content and keeps only id/status/timestamps.
+    An edit updates the row in place (the handle stays the same). Forgetting
+    blanks the content and keeps only id/status/timestamps.
     """
     __tablename__ = 'memory_entries'
     __table_args__ = (
@@ -44,7 +41,7 @@ class MemoryEntry(BaseSchema):
     # Explicit expiry; when empty the computed default applies (memory_rules.effective_expiry).
     expires_at = Column(DateTime, nullable=True)
 
-    # user | agent | migration
+    # user | agent
     source = Column(String(12), nullable=False, default="agent")
     # {report_id, completion_id, quote}; quote is the user's own words (≤200).
     evidence = Column(JSON, nullable=True)
@@ -52,6 +49,5 @@ class MemoryEntry(BaseSchema):
     seen_count = Column(Integer, nullable=False, default=1)
     last_seen_at = Column(DateTime, nullable=True)
 
-    # active | superseded | forgotten
+    # active | forgotten
     status = Column(String(12), nullable=False, default="active", index=True)
-    superseded_by_id = Column(String(36), nullable=True)

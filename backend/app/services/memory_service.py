@@ -1,12 +1,11 @@
 """MemoryService — the one write/read path for user memory entries.
 
-Every writer goes through here: the agent tools (create_memory / edit_memory),
-the self-service user API, and the legacy migration. That is what keeps the
-invariants in one place:
+Every writer goes through here: the agent tools (create_memory / edit_memory)
+and the self-service user API. That is what keeps the invariants in one place:
 
 - dedupe on write (the same normalized text strengthens the existing entry;
   a shared alias of the user's shorthand merges too),
-- supersede-on-update (a new row, the old one marked ``superseded``),
+- edits update the row in place (the handle stays the same),
 - forget blanks content (only id/status/timestamps survive),
 - computed expiry on read (no background job),
 - a per-user cap with eviction of the weakest non-user entry,
@@ -14,7 +13,7 @@ invariants in one place:
   refused on every write (it belongs in instructions), plus the secret
   filter on every write.
 
-Pure rules live in ``memory_rules`` so tests and the migration share them.
+Pure rules live in ``memory_rules`` so they can be tested without a DB.
 """
 from __future__ import annotations
 
@@ -120,9 +119,7 @@ class MemoryService:
     async def resolve_handle(
         self, db: AsyncSession, organization_id: str, user_id: str, handle: str
     ) -> Optional[MemoryEntry]:
-        """The ACTIVE entry a handle refers to. A superseded handle follows
-        ``superseded_by_id`` to its current version, so an agent holding an
-        old handle from earlier in the turn still edits the right entry."""
+        """The active entry a handle ("m7") refers to, or None."""
         h = (handle or "").strip().lower().lstrip("[").rstrip("]")
         if not h:
             return None
@@ -131,16 +128,10 @@ class MemoryService:
                 MemoryEntry.organization_id == str(organization_id),
                 MemoryEntry.user_id == str(user_id),
                 MemoryEntry.handle == h,
+                MemoryEntry.status == "active",
             )
         )
-        entry = row.scalar_one_or_none()
-        hops = 0
-        while entry is not None and entry.status == "superseded" and entry.superseded_by_id and hops < 50:
-            entry = await db.get(MemoryEntry, entry.superseded_by_id)
-            hops += 1
-        if entry is None or entry.status != "active":
-            return None
-        return entry
+        return row.scalar_one_or_none()
 
     # ------------------------------------------------------------ validation
 
@@ -205,11 +196,10 @@ class MemoryService:
                 "memory.looks_like_rule",
                 (
                     f"This is a rule about how to answer or compute (matched: \"{hit}\"), not a fact about "
-                    "the user. Rules are instructions, never memory: apply it to the current answer; if it "
-                    "is this user's own lasting preference, offer it with suggest_personal_instruction; if "
-                    "it holds for everyone (a definition, metric logic, a required filter), it belongs in "
-                    "org instructions. Memory is only for facts: their work, projects, dates, what they "
-                    "follow, their own shorthand."
+                    "the user. Rules are never memory: apply it for the rest of this conversation, starting "
+                    "with the current answer. Lasting rules live in instructions, which people write. "
+                    "Memory is only for facts: their work, projects, dates, what they follow, their own "
+                    "shorthand."
                 ) if agent_write else (
                     "That reads like a rule for how to answer. Rules go in your Custom instructions; "
                     "memory keeps facts about you."
@@ -342,7 +332,7 @@ class MemoryService:
         evidence: Optional[Dict[str, Any]] = None,
         now: Optional[datetime] = None,
     ) -> MemoryEntry:
-        """Insert the new version and mark ``entry`` superseded."""
+        """Apply ``changes`` to ``entry`` in place (same row, same handle)."""
         if entry.status != "active":
             raise MemoryValidationError("memory.not_active", "That memory entry is no longer active.")
         now = now or _utcnow()
@@ -356,33 +346,28 @@ class MemoryService:
             tags=pick("tags", entry.tags or []),
             aliases=pick("aliases", entry.aliases or []),
             event_start=changes["event_start"] if "event_start" in changes else entry.event_start,
-            event_end=changes.get("event_end", entry.event_end) if "event_end" in changes else entry.event_end,
-            expires_at=changes.get("expires_at", entry.expires_at) if "expires_at" in changes else entry.expires_at,
+            event_end=changes["event_end"] if "event_end" in changes else entry.event_end,
+            expires_at=changes["expires_at"] if "expires_at" in changes else entry.expires_at,
             require_tags=False,
             agent_write=agent_write,
         )
-        new = await self._insert(
-            db, str(entry.organization_id), str(entry.user_id),
-            text=payload.text,
-            tags=payload.tags,
-            aliases=payload.aliases or None,
-            event_start=payload.event_start,
-            event_end=payload.event_end,
-            expires_at=payload.expires_at,
-            # A user edit makes the entry theirs; an agent edit of a
-            # user-authored entry (only on a direct request) keeps it theirs.
-            source="user" if (source == "user" or entry.source == "user") else source,
-            evidence=evidence or entry.evidence,
-            seen_count=int(entry.seen_count or 1),
-            last_seen_at=now,
-            status="active",
-        )
-        entry.status = "superseded"
-        entry.superseded_by_id = str(new.id)
+        entry.text = payload.text
+        entry.tags = payload.tags
+        entry.aliases = payload.aliases or None
+        entry.event_start = payload.event_start
+        entry.event_end = payload.event_end
+        entry.expires_at = payload.expires_at
+        # A user edit makes the entry theirs; an agent edit of a user-authored
+        # entry (only on a direct request) keeps it theirs.
+        if source == "user":
+            entry.source = "user"
+        if evidence:
+            entry.evidence = evidence
+        entry.last_seen_at = now
         db.add(entry)
         await db.commit()
-        await db.refresh(new)
-        return new
+        await db.refresh(entry)
+        return entry
 
     @staticmethod
     def _blank(entry: MemoryEntry) -> None:
@@ -400,15 +385,13 @@ class MemoryService:
         return entry
 
     async def forget_all(self, db: AsyncSession, organization_id: str, user_id: str) -> int:
-        """Forget every entry — active AND superseded versions, so no old
-        wording survives. Returns how many active entries were forgotten."""
-        entries = await self.list_entries(db, organization_id, user_id, statuses=("active", "superseded"))
-        active = sum(1 for e in entries if e.status == "active")
+        """Forget every active entry. Returns how many were forgotten."""
+        entries = await self.list_entries(db, organization_id, user_id)
         for e in entries:
             self._blank(e)
             db.add(e)
         await db.commit()
-        return active
+        return len(entries)
 
     async def delete_for_membership(self, db: AsyncSession, organization_id: str, user_id: str) -> None:
         """Hard-delete a user's entries in an org (membership removed). No

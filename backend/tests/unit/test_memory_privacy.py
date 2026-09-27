@@ -27,13 +27,13 @@ def _snapshot(tool_name, tool_input, observation):
 
 
 @pytest.mark.parametrize("tool_name,tool_input,observation", [
-    ("create_memory", {"text": SECRET, "section": "style", "tags": ["currency"], "title": "Noting your format"},
-     {"summary": f"Saved to memory as [m3] (style).", "handle": "m3", "section": "style", "text": SECRET}),
+    ("create_memory", {"text": SECRET, "tags": ["q3-churn"], "title": "Noting your project"},
+     {"summary": "Saved to memory as [m3].", "handle": "m3", "text": SECRET}),
     ("edit_memory", {"handle": "m3", "action": "update", "text": SECRET},
-     {"summary": "Updated [m3] → now [m4].", "handle": "m4", "previous_handle": "m3"}),
-    ("search_memory", {"query": "currency"},
+     {"summary": "Updated [m3].", "handle": "m3"}),
+    ("search_memory", {"query": "churn"},
      {"summary": "Found 1 memory entry.", "entries": [{"handle": "m4", "text": SECRET}], "excluded_injected": 2}),
-    ("create_memory", {"text": SECRET, "section": "vocabulary", "tags": ["x"]},
+    ("create_memory", {"text": SECRET, "tags": ["x"]},
      {"summary": f"Memory not saved: This reads like a rule (matched: \"{SECRET}\")",
       "error": {"type": "memory.looks_like_rule", "message": SECRET}}),
 ])
