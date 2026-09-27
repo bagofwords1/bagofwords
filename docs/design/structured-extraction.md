@@ -1,6 +1,7 @@
 # Structured Extraction: typed, grounded fields as the output of an agent run
 
-Status: **brainstorm / proposal**. Nothing is implemented. The code references below describe
+Status: **proposal**. Nothing is implemented. Build plan and definition of done:
+`docs/feedback-loops/agent-lists.md`. The code references below describe
 today's code that this design reuses.
 
 ## 1. The pitch
@@ -196,7 +197,7 @@ The wrapper is intentionally uniform: `value`, `status`, `evidence`, `note`.
       tolerant of whitespace, RTL text and hyphenation.
    3. Run the field rules.
    4. Compute `review_state`.
-   5. Upsert the record as a row of the collection's Step.
+   5. Upsert the record as a row of the list's Step.
    6. Return a compact observation, for example "4/5 fields found, 1 quote unverified on
       renewal_date". The agent may fix the record once.
 5. The completion ends with a record card in chat: fields in a grid, and clicking a value opens
@@ -308,19 +309,19 @@ proposed:  agent loop (unchanged)                                → submit(reco
 
 `submit` is one new tool. Nothing else in the loop changes.
 
-- **Input:** `{collection, records: [{fields: {name: {value, status, evidence[], note}}}]}`,
+- **Input:** `{list, records: [{fields: {name: {value, status, evidence[], note}}}]}`,
   with the §4.2 wrapper for each field.
 - **Where the schema comes from, in priority order:**
   1. The fields are given by a **skill**, a **saved Prompt** or the user's message. The tool is
      then rendered with the **concrete schema as its `input_schema`** (a run-scoped catalog
      entry, §3). The provider validates it natively and `ToolRunner` retries on errors.
-  2. Otherwise the **first `submit` into a collection declares the fields**, and later submits
+  2. Otherwise the **first `submit` into a list declares the fields**, and later submits
      must match. This is the chat "just extract these for me" case.
 - **What it does:**
   1. Validate the full schema server-side.
   2. Verify quotes against the cached page text of the cited file.
   3. Run field rules.
-  4. Upsert the rows into a tracked **Step** for the collection, with the schema pinned. Step,
+  4. Upsert the rows into a tracked **Step** for the list, with the schema pinned. Step,
      dashboard, `load_step`, Entity and evals all come for free.
 - **Automation needs no new machinery.** A `ScheduledPrompt`, spawn-mode webhook or saved
   Prompt re-runs the same ask. The pinned schema keeps the columns stable, and `submit` upserts
@@ -338,7 +339,7 @@ weekly folder with a handful of new files.
 **Add only when a customer hits that ceiling (P1):**
 
 - A fan-out for batches: one small scoped turn per document, run as the §5.2 fast path, all
-  calling the same `submit` into the same collection.
+  calling the same `submit` into the same list.
 - `submit` stays the single sink either way, so this is purely an execution optimization.
 
 **Rejected, in order of how heavy they are:**
@@ -348,21 +349,21 @@ weekly folder with a handful of new files.
   justified for batch scale, which is the fan-out above.
 - A report-owned schema: it can't be reused.
 
-### 7.1 Where the schema lives: a per-agent "Collections" group in the Knowledge Explorer
+### 7.1 Where the schema lives: a per-agent "Lists" group in the Knowledge Explorer
 
 Decision: the schema is defined **per agent**, as a new tree group in
 `frontend/components/KnowledgeExplorer.vue`. It sits next to Tables, Tools, Files,
 Instructions, Queries and Evals (the agent subtree starts around `:212`).
 
-- **Name: "Collections", not "Lists".** "Lists" collides with SharePoint Lists, which is
-  already a connector (`graph_list_client.py`). A collection is a schema plus the rows that
+- **Name: "Lists"** (product decision; the overlap with the SharePoint Lists connector was
+  judged acceptable). A list is a schema plus the rows that
   accumulate in it.
 - **Editor:** a field table with name, type, description (the prompt), required, enum/items,
   an optional key field for upserts, and an "evidence required" toggle. Editing requires
   manage-agent permission, like the other agent groups.
 
-**Runtime:** for each collection on the report's agents, register a native tool
-`submit_<collection_slug>` whose `input_schema` is the compiled collection schema (§4.2
+**Runtime:** for each list on the report's agents, register a native tool
+`submit_<list_slug>` whose `input_schema` is the compiled list schema (§4.2
 wrapper). This follows the exact precedent of native MCP tools:
 
 - `build_native_mcp_tools` (`ai/tools/mcp_tool_registry.py:193`) appends per-report
@@ -370,15 +371,15 @@ wrapper). This follows the exact precedent of native MCP tools:
 - Server-side validation reuses `validate_arguments` (`ai/tools/mcp_schema.py:150`,
   Draft 2020-12, path-qualified errors), feeding the existing `ToolRunner` retry loop.
 - The catalog-bloat guard mirrors `native_tools_enabled(tool_count)`. Past a threshold,
-  collections are listed in a `<collections>` prompt block and the agent calls a generic
-  `submit(collection, records)` that validates against the named schema.
+  lists are listed in a `<lists>` prompt block and the agent calls a generic
+  `submit(list, records)` that validates against the named schema.
 
-**Rows:** rows belong to the **collection**, not to a report, and accumulate across chats and
+**Rows:** rows belong to the **list**, not to a report, and accumulate across chats and
 scheduled runs.
 
 - Each row carries provenance (`report_id`, `tool_execution_id`, schema version) and is
   upserted on the key field.
-- The collection is exposed back to the agent as a queryable table under the agent's Tables
+- The list is exposed back to the agent as a queryable table under the agent's Tables
   (the `::fast` DuckDB path). The agent can then answer "average contract value by region"
   over what it has extracted, or join it with SQL sources.
 - Viewing rows requires access to the agent.
@@ -389,7 +390,7 @@ scheduled runs.
 - Breaking edits (type change, removed field, new required field) bump the version. Old rows
   keep their version and show as "stale" until re-extracted.
 
-This supersedes the "schema pinned on a Step" idea above. The Step remains how a collection
+This supersedes the "schema pinned on a Step" idea above. The Step remains how a list
 is charted or put on a dashboard, through the queryable table.
 
 ### 7.2 Prompt caching
@@ -408,24 +409,24 @@ and mode gating all mean each report has its own tools prefix and its own cache 
 Caching pays off *within* a run (up to `step_limit` iterations) and across turns of the same
 report. `submit_<slug>` tools don't change that, provided they follow these rules:
 
-1. **Register once, at run start, and never mutate mid-run.** No "activate the collection
+1. **Register once, at run start, and never mutate mid-run.** No "activate the list
    when it's mentioned". Swapping a tool in mid-loop re-prefills the whole context on the
    next call. `_refresh_browser_tool_catalog` (`agent_v2.py:7618`) already pays this cost;
    don't copy it.
 2. **Keep the order deterministic.** Append after the static tools and the MCP tools, sorted
-   by `(agent_id, collection slug)`. Serialize schemas with sorted keys. Otherwise identical
+   by `(agent_id, list slug)`. Serialize schemas with sorted keys. Otherwise identical
    requests stop being byte-identical and miss the cache.
 3. **Don't force `tool_choice` in the main loop.** Changing `tool_choice` invalidates the
    message-level cache. Keep `auto`, and use the prompt ("finish with `submit_*`") plus a
-   check at end of turn: if a collection is active and nothing was submitted, add one nudge
+   check at end of turn: if a list is active and nothing was submitted, add one nudge
    turn. Forced tool choice belongs only in separate single-call fast-path requests (§5.2).
 4. **Schema edits bust the cache for that agent's reports.** That happens once per edit and
    is acceptable. It is one more reason why breaking edits bump the version instead of
    changing silently.
-5. **Name tools per agent** (`submit_<agentslug>_<collectionslug>`, ≤64 chars, hash suffix if
-   needed). Two agents on the same report may both have a "contracts" collection.
+5. **Name tools per agent** (`submit_<agentslug>_<listslug>`, ≤64 chars, hash suffix if
+   needed). Two agents on the same report may both have a "contracts" list.
 
-**Alternative when there are many collections: one static generic `submit(collection, records)`.**
+**Alternative when there are many lists: one static generic `submit(list, records)`.**
 
 - *Pros:*
   - The tools prefix is identical across every agent and report.
@@ -434,9 +435,9 @@ report. `submit_<slug>` tools don't change that, provided they follow these rule
   - No enforcement by the provider; the schema is only validated server-side and retried.
   - Schemas in prose are followed less reliably than schemas given as tool input.
 - *Rule:*
-  - Use native per-collection tools up to a threshold (mirroring `native_tools_enabled`),
+  - Use native per-list tools up to a threshold (mirroring `native_tools_enabled`),
     and the generic `submit` above it.
-  - Hybrid option: native tools for collections marked "primary", generic for the rest.
+  - Hybrid option: native tools for lists marked "primary", generic for the rest.
 
 **Optional cross-agent win:** Anthropic allows 4 breakpoints and we use 3.
 
@@ -450,11 +451,11 @@ report. `submit_<slug>` tools don't change that, provided they follow these rule
 
 **P0: `submit` (about 1–2 weeks)**
 
-- A Collections group in the Knowledge Explorer, with a field editor and a rows viewer.
-- A per-collection native `submit_<slug>` tool (following the MCP native-tool precedent),
+- A Lists group in the Knowledge Explorer, with a field editor and a rows viewer.
+- A per-list native `submit_<slug>` tool (following the MCP native-tool precedent),
   validated with `validate_arguments`.
-- Quote verification and rules, then an upsert into the collection's rows.
-- The collection exposed as a queryable table.
+- Quote verification and rules, then an upsert into the list's rows.
+- The list exposed as a queryable table.
 - A record-grid tool card whose cells open the cited file page, plus CSV export.
 - A prompt block: "when a schema is active, finish by calling `submit`; use `not_found` rather
   than guess".
@@ -466,7 +467,7 @@ report. `submit_<slug>` tools don't change that, provided they follow these rule
 - A review state, a review queue, and corrections becoming eval cases.
 - Etag-aware "only new or changed files" on scheduled reruns.
 - A batch fan-out plus forced `tool_choice` per provider for the per-document fast path.
-- `ConnectionTable(kind='extraction')` when a collection outgrows a Step (about 1000 rows).
+- `ConnectionTable(kind='extraction')` when a list outgrows a Step (about 1000 rows).
 
 **P2:** a "new file in folder" trigger, suggesting fields from sample files, an optimizer loop
 over skill versions, write-back to SharePoint columns, and bounding-box highlights.
