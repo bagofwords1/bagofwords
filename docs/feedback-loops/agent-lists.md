@@ -31,9 +31,16 @@ schema of fields. From then on, every report that uses that agent does the follo
 registration, validation, quote verification, upsert, the Knowledge Explorer "Lists" group
 (field editor and rows viewer), the chat tool card, i18n (en/es/he), and eval targeting.
 
+**Also in P0:**
+
+- **Row edit/update by humans and by the agent**, with field locks and revision history (S6).
+- **Lists as `bow.lists.<slug>` tables for `create_data`**, next to `bow.runs` (S7).
+- **CSV export** from the UI (S8).
+
 **Out (P1+):**
 
-- Exposing the list as a queryable `::fast` table.
+- Exposing the list as a `::fast` DuckDB table. S7 covers analysis through `bow.lists` first.
+- Deletion of rows by the agent. P1, behind `ToolConfirmationEvent`.
 - Batch fan-out, forced `tool_choice`, and the review queue.
 - Etag-aware scheduled reruns.
 - A generic `submit(list, records)` fallback above the tool-count threshold. P0 caps the
@@ -84,6 +91,14 @@ Full stack, used for Loops A5, B and UI evidence:
     - `id`, `list_id`, `key_value` (indexed, nullable), `values` (EncryptedJSON)
     - `schema_version`, `report_id`, `completion_id`, `tool_execution_id`, `created_by_user_id`
     - `created_at`, `updated_at`
+    - `row_version` (int, for optimistic concurrency)
+    - `locked_fields` (JSON list of field ids edited by a human; see S6)
+  - A unique constraint on `(list_id, key_value)` where `key_value` is non-null.
+  - `AgentListRowRevision`, the audit and undo record:
+    - `row_id`
+    - `actor_type ∈ agent | user`, `actor_user_id`, `tool_execution_id`, `report_id`
+    - `changed` (JSON `{field_id: {before, after}}`)
+    - `created_at`
 - An Alembic migration, which must pass on sqlite and postgres.
 - `backend/app/schemas/agent_list.py`:
   - Field definition: `{id, name, type, description, required, enum?, items?, unit?, method, rules?}`.
@@ -123,7 +138,8 @@ Full stack, used for Loops A5, B and UI evidence:
 `compile_list_schema(agent_list) -> dict`.
 
 - The root is `{records: array(minItems 1) of Record}`.
-- A record is `{fields: {<name>: FieldEnvelope}}`.
+- A record is `{row_id: string|null, fields: {<name>: FieldEnvelope|null}}`. `row_id` and
+  the nullable envelopes support updates (S6).
 - A field envelope is `{value: <typed, nullable if !required>, status: enum[found, not_found,
   ambiguous, inferred], evidence: array of {kind: file|query|web, ref, page: int|null,
   quote: string|null}, note: string|null}`.
@@ -224,7 +240,8 @@ Full stack, used for Loops A5, B and UI evidence:
   API.
 - `frontend/components/lists/ListRowsPanel.vue`: an AgGrid with one column per field, plus
   status icons and source and report links. Clicking a cell opens an evidence popover (quote,
-  page, verified badge, "open file at page"). Delete-row is available to managers.
+  page, verified badge, "open file at page"). Managers can edit cells inline, view row history and revert (S6), and delete rows. There is
+  an Export CSV button (S8).
 - `frontend/components/tools/SubmitListTool.vue`, the chat tool card: "Saved 3 · Updated 1 ·
   Rejected 0 to *Contracts*", a mini grid, and unverified quotes highlighted.
 - i18n keys in `locales/en.json`, `es.json` and `he.json` with identical shape. The Hebrew
@@ -249,6 +266,140 @@ Full stack, used for Loops A5, B and UI evidence:
 - [ ] If the dynamic tool name is not reachable by `TargetRef`, fix that in this slice. Do not
       work around it.
 
+### S6: Edit and update (humans and the agent)
+
+**Human edits (UI):**
+
+- Rows can be edited inline in the rows grid by users with `('data_source','manage')`.
+  Viewers see a read-only grid.
+- `PATCH /data_sources/{id}/lists/{list_id}/rows/{row_id}` with `{row_version, fields:
+  {field_id: value}}`.
+  - It validates the partial update against the field types and rules.
+  - A stale `row_version` returns **409**, and the UI reloads the row. This is optimistic
+    concurrency.
+  - An edited field gets `status: found`, a `source: human` marker and `edited_by`/`edited_at`.
+    Its evidence is kept but shown as "superseded by edit".
+  - **The field is added to `locked_fields`.**
+- A human can **unlock** a field from the evidence popover, which lets the agent overwrite it
+  again.
+- Every change writes an `AgentListRowRevision`. The row's history drawer lists the
+  revisions and offers **Revert** on each (a manage action, which itself writes a revision).
+
+**Agent updates (same `submit_<slug>` tool, no new tool):**
+
+- The record envelope gains `row_id: string|null`. It is required-nullable, so the strict
+  subset is unchanged.
+- **Matching:** `row_id` wins, then the key field, then a new insert.
+  - A `row_id` that doesn't belong to this list is rejected.
+- **Partial updates:** field entries are nullable.
+  - On **update**, `null` means "unchanged".
+  - On **insert**, required fields must be non-null. This is enforced server-side, since it
+    can't be expressed in the strict subset.
+- **Locked fields are never overwritten by the agent.** The executor skips them and returns
+  `locked_fields_skipped: [...]` in the observation, so the agent knows. That makes human
+  corrections durable across scheduled reruns.
+- The agent learns row ids through S7: `bow.lists.<slug>` exposes `_row_id`. It can then
+  follow the "read the list, decide what changed, submit updates" flow.
+- **Concurrency:** two runs upserting the same key are serialized by the unique constraint.
+  On an insert conflict, retry once as an update.
+
+**DoD**
+
+- [ ] `PATCH` tests:
+  - [ ] Stale `row_version` → 409, and the row is unchanged.
+  - [ ] A type-invalid value → 422 with the field path.
+  - [ ] A viewer → 403, and a manager → 200.
+  - [ ] Each successful edit writes exactly one revision, and the field is locked.
+- [ ] Agent-update tests:
+  - [ ] Updating by `row_id` changes only the non-null fields.
+  - [ ] A locked field survives an agent update, and the observation lists it as skipped.
+  - [ ] A `row_id` from another list → `success:false`.
+  - [ ] Two concurrent upserts of the same new key → 1 row and 2 revisions (on sqlite and
+        postgres).
+- [ ] Revert restores the previous values and writes its own revision.
+- [ ] Mutation check: remove the lock check, and the locked-field test must fail.
+
+### S7: Lists as `bow.lists.<slug>` tables for analysis (`create_data`)
+
+The same pattern as `bow.runs`, which is already built:
+
+- `BowClient` (`backend/app/data_sources/clients/bow_client.py`)
+- `BowQuery.dataset` (`backend/app/schemas/bow_source_schema.py:45`)
+- `catalog()` / `column_type()` (`backend/app/services/bow_source_service.py:51-69`)
+- Advertised to the planner in `schema_context_builder.py:885-905`
+
+**Build**
+
+- **Query shape:** `BowQuery.dataset` gains `"list"` plus `list: <slug>` (for example
+  `{"dataset":"list","list":"contracts","columns":[...],"query":"status:found"}`).
+  `group_by`, `metrics` and `sort` work as they do for runs.
+- **Flattened columns per list:**
+  - One typed column per field (`value`), typed from the list schema through `column_type`.
+  - `<field>__status` for each field.
+  - Row metadata: `_row_id`, `_key`, `_schema_version`, `_report_id`, `_updated_at`,
+    `_edited_by_human`.
+  - Evidence columns (`<field>__quote`, `<field>__page`, `<field>__verified`) only when
+    they are asked for in `columns`.
+- **Discovery:** `catalog()` becomes access-aware.
+  - `bow.runs` and `bow.tool_calls` keep their gate: training mode plus console scope.
+  - `bow.lists.<slug>` tables are advertised **in every mode** for lists on the report's
+    agents that the user can **view**. The access rule is agent view, not console scope.
+- **Install:** `install_bow_client` (`bow_client.py:110`) currently returns unless the
+  report is in training mode or has saved BOW access.
+  - Extend it to also install when the report's agents have lists.
+  - The client refuses `runs` and `tool_calls` outside their gate.
+  - `BowSourceService.query` re-checks agent view on every execution, including saved-query
+    refresh (`query_service.py:640`). Access is never cached.
+- **Result:** `create_data` over `bow.lists.contracts` becomes a normal Step. It can be
+  charted, put on a dashboard, joined with SQL sources through `load_step`, and refreshed on
+  a schedule. Refresh re-reads the **current** rows.
+
+**DoD**
+
+- [ ] Unit tests: `catalog()` for a chat-mode user who can view an agent with 2 lists
+      advertises exactly those 2 `bow.lists.*` tables and **no** `bow.runs`. In training
+      mode with console scope, it advertises runs, tool_calls and lists.
+- [ ] e2e tests: a `BowQuery` over a list returns one row per list row with the typed
+      columns. A user without agent view gets a permission error from the service, and
+      that holds even when the code is replayed through a saved query.
+- [ ] `group_by` plus `metrics` over a list field (for example `sum(annual_value)` by
+      `currency`) matches a hand-computed value from the seeded rows.
+- [ ] A saved-query refresh after an S6 edit returns the edited value.
+
+### S8: CSV export (UI)
+
+**Build**
+
+- `GET /data_sources/{id}/lists/{list_id}/rows.csv`, requiring view permission.
+  - It **streams all rows**, not the loaded grid page.
+  - Query params: `include=status,evidence,provenance` and the same filters as the grid
+    (`report_id`, `status`, `updated_since`).
+- Format:
+  - **UTF-8 with BOM**, so Excel opens Hebrew and Spanish text correctly.
+  - Columns follow the list's field order and use field names as headers.
+  - Dates are ISO. `array<object>` fields are exported as JSON strings.
+  - Filename: `<agent>-<list>-<YYYY-MM-DD>.csv`.
+- **CSV/formula injection guard:** values come from untrusted documents, so any cell
+  starting with `= + - @ \t \r` is prefixed with `'`.
+- UI:
+  - An **Export CSV** button in the `ListRowsPanel` toolbar, with a menu to include status,
+    evidence or provenance.
+  - A **Download CSV** link on the `SubmitListTool` chat card, filtered to
+    `report_id` = this report (the rows from this run).
+
+**DoD**
+
+- [ ] e2e tests:
+  - [ ] Exporting a list with more rows than one grid page returns all of them.
+  - [ ] The header matches the field order.
+  - [ ] The first bytes are the UTF-8 BOM.
+  - [ ] A Hebrew value round-trips.
+  - [ ] A value `=HYPERLINK(...)` is exported neutralized.
+  - [ ] A user without view → 403 or 404.
+  - [ ] The `report_id` filter returns only that run's rows.
+- [ ] UI evidence: the Export menu and a downloaded file opened in the Loop A5 Playwright
+      run (assert the download event and the row count).
+
 ---
 
 ## Loop A: deterministic (no external services)
@@ -260,10 +411,14 @@ uv run pytest tests/unit/test_agent_list_compiler.py \
               tests/unit/test_agent_list_schema_change.py \
               tests/unit/test_list_tool_registry.py -v
 uv run pytest -m e2e --db=sqlite tests/e2e/test_agent_lists_api.py \
-                                 tests/e2e/test_agent_list_submit.py -v
+                                 tests/e2e/test_agent_list_submit.py \
+                                 tests/e2e/test_agent_list_edits.py \
+                                 tests/e2e/test_bow_lists_source.py \
+                                 tests/e2e/test_agent_list_csv.py -v
 uv run pytest -m e2e --db=postgres tests/e2e/test_agent_lists_api.py   # CI leg (or --db=external)
 # Regression: the precedents we reuse must stay green
-uv run pytest tests/unit -k "mcp_schema or tool_runner or native_mcp" -q
+uv run pytest tests/unit -k "mcp_schema or tool_runner or native_mcp or bow_source" -q
+uv run pytest -m e2e --db=sqlite -k "bow" -q     # bow.runs must stay training-gated
 ```
 
 **Expected before implementation:** collection errors, because the modules don't exist yet.
@@ -305,6 +460,14 @@ node ../tools/agent/verify_agent_lists.mjs     # new Playwright driver
       Contracts, shows 1 row, and clicking the cell shows the quote with the verified badge.
 - [ ] **Backend log:** no exceptions, and a single catalog registration log line for the run
       (no mid-run re-registration).
+- [ ] **Edit:** in the rows grid, edit `annual_value` → 130000. The DB shows `row_version`
+      incremented, `locked_fields` containing the field, and 1 revision.
+- [ ] **Agent rerun:** a second stubbed run submits `annual_value: 999` for the same key. The
+      value stays 130000 and the SSE observation lists `locked_fields_skipped`.
+- [ ] **Analysis:** a third stubbed turn calls `create_data` over `bow.lists.contracts`. The
+      Step renders 1 row with `annual_value == 130000`.
+- [ ] **CSV:** clicking Export CSV fires a download whose file has a BOM, a header in field
+      order, and 1 data row.
 
 **Observed:** _fill in._
 
@@ -341,6 +504,13 @@ These are the premises only a real model can confirm: that it naturally ends wit
 - [ ] **Caching (§7.2):** on the Anthropic run, the usage for iteration 2 onwards shows
       `cache_read_input_tokens > 0`, and the tools block is byte-stable across iterations
       (log a hash of the tools array per iteration and check that they are all identical).
+- [ ] Follow-up analysis in chat mode, not training: *"Chart total annual value by
+      currency from the Contracts list."* The agent uses `create_data` on
+      `bow.lists.contracts` without being told the table name. `bow.runs` is **not**
+      offered in chat mode.
+- [ ] Update flow: *"Contract X was renewed until 2027-12-31; update the list."* The agent
+      reads `_row_id` from `bow.lists` and submits an update with only `renewal_date` set.
+      Other fields are unchanged, and one revision has `actor_type=agent`.
 - [ ] Hebrew: one Hebrew contract fixture extracts with verified quotes. This covers the RTL
       text path.
 
@@ -350,7 +520,7 @@ These are the premises only a real model can confirm: that it naturally ends wit
 
 ## Definition of done (whole P0)
 
-- [ ] S1–S5 DoD boxes are all checked, with the observed output pasted above.
+- [ ] S1–S8 DoD boxes are all checked, with the observed output pasted above.
 - [ ] Loop A is green on sqlite and postgres. Loop A5 is green. Loop B is observed on
       Anthropic **and** OpenAI.
 - [ ] No regression in the existing suites that touch the agent loop (tool runner, native MCP,
@@ -366,6 +536,9 @@ These are the premises only a real model can confirm: that it naturally ends wit
   - The limit of 10 lists per agent is enforced.
   - Rows are invisible to users without agent access.
   - No numeric confidence is shown anywhere in the UI.
+  - `bow.runs` is still training- and console-scope-gated (no widening through S7).
+  - Human-locked fields are never overwritten by the agent.
+  - CSV export is formula-injection safe.
 
 ## What this will prove / risks to watch
 

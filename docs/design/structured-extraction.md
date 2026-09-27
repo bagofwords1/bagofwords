@@ -390,6 +390,15 @@ scheduled runs.
 - Breaking edits (type change, removed field, new required field) bump the version. Old rows
   keep their version and show as "stale" until re-extracted.
 
+**Additions (see `docs/feedback-loops/agent-lists.md` S6–S8):**
+
+- **Edits:** humans edit rows inline. Edited fields are locked against agent overwrite and get
+  a revision history. The agent updates rows through the same `submit_<slug>` tool, using a
+  `row_id` or key match and partial fields.
+- **Analysis:** lists are exposed to `create_data` as `bow.lists.<slug>`, extending the
+  existing `bow.runs` BOW source. They are gated by agent view rather than by training mode.
+- **CSV export** from the rows panel and from the chat card.
+
 This supersedes the "schema pinned on a Step" idea above. The Step remains how a list
 is charted or put on a dashboard, through the queryable table.
 
