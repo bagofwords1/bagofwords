@@ -129,6 +129,10 @@ class ToolRegistry:
             # Skip inactive tools from catalog
             if hasattr(metadata, "is_active") and metadata.is_active is False:
                 continue
+            # Gateway-only tools (e.g. submit_list) are executable but never
+            # advertised: the planner sees their native per-resource aliases.
+            if "catalog_hidden" in (metadata.tags or []):
+                continue
             catalog.append({
                 "name": metadata.name,
                 "description": metadata.description,

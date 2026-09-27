@@ -108,6 +108,7 @@ from app.routes import (
     agent_yaml,
     eval_yaml,
     data_source_tools,
+    agent_lists,
     changelog,
 )
 from app.routes.oidc_auth import router as oidc_auth_router
@@ -304,6 +305,7 @@ app.include_router(oauth_server.well_known_router)  # /.well-known/* at root
 app.include_router(oauth_server.router, prefix="/api")  # /api/oauth/*
 app.include_router(connection.router, prefix="/api")
 app.include_router(data_source_tools.router, prefix="/api")
+app.include_router(agent_lists.router, prefix="/api")
 app.include_router(agent_yaml.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
