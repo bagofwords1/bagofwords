@@ -348,15 +348,59 @@ weekly folder with a handful of new files.
   justified for batch scale, which is the fan-out above.
 - A report-owned schema: it can't be reused.
 
+### 7.1 Where the schema lives: a per-agent "Collections" group in the Knowledge Explorer
+
+Decision: the schema is defined **per agent**, as a new tree group in
+`frontend/components/KnowledgeExplorer.vue`. It sits next to Tables, Tools, Files,
+Instructions, Queries and Evals (the agent subtree starts around `:212`).
+
+- **Name: "Collections", not "Lists".** "Lists" collides with SharePoint Lists, which is
+  already a connector (`graph_list_client.py`). A collection is a schema plus the rows that
+  accumulate in it.
+- **Editor:** a field table with name, type, description (the prompt), required, enum/items,
+  an optional key field for upserts, and an "evidence required" toggle. Editing requires
+  manage-agent permission, like the other agent groups.
+
+**Runtime:** for each collection on the report's agents, register a native tool
+`submit_<collection_slug>` whose `input_schema` is the compiled collection schema (§4.2
+wrapper). This follows the exact precedent of native MCP tools:
+
+- `build_native_mcp_tools` (`ai/tools/mcp_tool_registry.py:193`) appends per-report
+  `ToolDescriptor`s to the planner catalog, with routing (`ai/agent_v2.py:7596-7612`).
+- Server-side validation reuses `validate_arguments` (`ai/tools/mcp_schema.py:150`,
+  Draft 2020-12, path-qualified errors), feeding the existing `ToolRunner` retry loop.
+- The catalog-bloat guard mirrors `native_tools_enabled(tool_count)`. Past a threshold,
+  collections are listed in a `<collections>` prompt block and the agent calls a generic
+  `submit(collection, records)` that validates against the named schema.
+
+**Rows:** rows belong to the **collection**, not to a report, and accumulate across chats and
+scheduled runs.
+
+- Each row carries provenance (`report_id`, `tool_execution_id`, schema version) and is
+  upserted on the key field.
+- The collection is exposed back to the agent as a queryable table under the agent's Tables
+  (the `::fast` DuckDB path). The agent can then answer "average contract value by region"
+  over what it has extracted, or join it with SQL sources.
+- Viewing rows requires access to the agent.
+
+**Schema changes:**
+
+- Additive edits (new optional field, description tweak) are free.
+- Breaking edits (type change, removed field, new required field) bump the version. Old rows
+  keep their version and show as "stale" until re-extracted.
+
+This supersedes the "schema pinned on a Step" idea above. The Step remains how a collection
+is charted or put on a dashboard, through the queryable table.
+
 ## 8. Phasing (final)
 
 **P0: `submit` (about 1–2 weeks)**
 
-- The `submit` tool, which works in two ways:
-  - A concrete `input_schema` when the fields come from a skill or Prompt.
-  - First-call-declares otherwise.
-- Server-side validation, quote verification and rules, then upsert into a tracked Step with
-  the schema pinned.
+- A Collections group in the Knowledge Explorer, with a field editor and a rows viewer.
+- A per-collection native `submit_<slug>` tool (following the MCP native-tool precedent),
+  validated with `validate_arguments`.
+- Quote verification and rules, then an upsert into the collection's rows.
+- The collection exposed as a queryable table.
 - A record-grid tool card whose cells open the cited file page, plus CSV export.
 - A prompt block: "when a schema is active, finish by calling `submit`; use `not_found` rather
   than guess".
