@@ -187,6 +187,17 @@ class ArtifactPreviewService:
                     self.file_urls.add(urljoin(self.origin, result["url"]))
             if result is not None:
                 return await route.fulfill(json=result)
+            # App data (useCollection) of THIS artifact is keyed by the parent
+            # artifact id. Reads run under the previewing user's normal policy
+            # and pass through as-is; every app-data write falls through to
+            # `blocked` below because the preview is read-only.
+            parent_id = self.artifact.get("artifact_id")
+            data_match = parent_id and re.fullmatch(
+                rf"/api/artifacts/{re.escape(str(parent_id))}/data/([a-z][a-z0-9_]{{0,63}})", path)
+            if data_match:
+                response = await self.client.get(path)
+                self.record("app_data", collection=data_match[1], http_status=response.status_code)
+                return await route.fulfill(status=response.status_code, json=response.json())
         match = re.fullmatch(r"/api/queries/([^/]+)/run", path)
         if req.method == "POST" and match and match[1] in self.query_ids:
             body = req.post_data_json or {}

@@ -99,6 +99,7 @@ from app.routes import (
     connection,
     connection_oauth,
     artifact,
+    app_data,
     oauth_server,
     rbac,
     usage_limits,
@@ -308,6 +309,7 @@ app.include_router(agent_yaml.router, prefix="/api")
 app.include_router(eval_yaml.router, prefix="/api")
 app.include_router(connection_oauth.router, prefix="/api")
 app.include_router(artifact.router, prefix="/api")
+app.include_router(app_data.router, prefix="/api")
 app.include_router(excel.router, prefix="/api")
 app.include_router(enterprise_router, prefix="/api")
 

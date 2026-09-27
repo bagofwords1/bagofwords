@@ -519,6 +519,7 @@
             <!-- Other artifacts use iframe -->
             <iframe
               v-else-if="isFullscreenOpen && iframeSrcdoc"
+              ref="fullscreenIframeRef"
               :srcdoc="iframeSrcdoc"
               sandbox="allow-scripts allow-same-origin allow-downloads"
               class="absolute inset-0 w-full h-full border-0"
@@ -543,9 +544,11 @@ import DocViewer from './DocViewer.vue';
 import DocEditor from './DocEditor.vue';
 import ViewerRunGate from './ViewerRunGate.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { isAppDataRequest, performAppDataRequest, type AppDataResult } from '~/utils/artifactAppData';
 import { polishPromptPosition as computePolishPromptPosition } from '~/utils/polishPrompt';
 
 const { t } = useI18n();
+const { getErrorMessage } = useErrorMessage();
 const toast = useToast();
 const config = useRuntimeConfig();
 const { token } = useAuth();
@@ -1018,6 +1021,9 @@ async function fetchViewerContext() {
 }
 
 const iframeRef = ref<HTMLIFrameElement | null>(null);
+// The fullscreen modal renders the same artifact in a second iframe; its
+// app-data requests are answered too (and only from these two windows).
+const fullscreenIframeRef = ref<HTMLIFrameElement | null>(null);
 const isLoading = ref(true);
 
 // App color mode, forwarded into the artifact iframe (initial srcdoc + live
@@ -2123,6 +2129,10 @@ onUnmounted(() => {
 // Handle messages from iframe
 function handleIframeMessage(event: MessageEvent) {
   if (props.verificationPreview && event.source !== iframeRef.value?.contentWindow) return;
+  if (event.data?.type === 'APP_DATA_REQUEST') {
+    handleAppDataRequest(event);
+    return;
+  }
   if (event.data?.type === 'ARTIFACT_DATA_RECEIVED') {
     verificationEvent('data_received', { data_revision: event.data.revision });
     return;
@@ -2153,6 +2163,31 @@ function handleIframeMessage(event: MessageEvent) {
       runParamQueries(null, event.data.targets || null, { force: true });
     }
   }
+}
+
+// useCollection bridge: answer the artifact's app-data requests with this
+// page's own session. The iframe never receives a credential; only the
+// artifact's own iframe windows are answered, on the window that asked. Every
+// request with a rid gets an answer (the runtime's promise must settle).
+async function handleAppDataRequest(event: MessageEvent) {
+  const source = event.source as Window | null;
+  const frames = [iframeRef.value?.contentWindow, fullscreenIframeRef.value?.contentWindow];
+  if (!source || !frames.includes(source)) return;
+  const rid = event.data?.rid;
+  if (typeof rid !== 'string') return;
+  let result: AppDataResult;
+  try {
+    result = isAppDataRequest(event.data)
+      ? await performAppDataRequest(event.data, {
+        artifactId: srcdocArtifact.id,
+        fetch: (path, init) => useMyFetch(path, init as any) as any,
+        message: (err) => getErrorMessage(err),
+      })
+      : { type: 'APP_DATA_RESULT', rid, ok: false, error: { code: 'validation', message: 'Invalid app data request' } };
+  } catch {
+    result = { type: 'APP_DATA_RESULT', rid, ok: false, error: { code: 'error', message: 'App data request failed' } };
+  }
+  source.postMessage(result, window.location.origin);
 }
 
 // Send data to iframe via postMessage
@@ -2709,7 +2744,7 @@ ${SC}
 
 // Build the full iframe srcdoc with embedded data
 // Guard: only compute once ALL data is ready to prevent iframe loading with empty data
-const iframeSrcdoc = computed(() => {
+function buildIframeSrcdoc(): string | undefined {
   // Docs render in DocViewer, never in the sandbox iframe
   if (isDocMode.value) return undefined;
 
@@ -2755,6 +2790,17 @@ const iframeSrcdoc = computed(() => {
     reactBuild: 'development',
     colorMode: artifactColorMode,
   });
+}
+
+// Parent artifact id of the document the iframes were given, captured when
+// that document is built. App-data requests use THIS id, never the live
+// selection: after a switch the old document keeps running until its srcdoc is
+// replaced, and must not reach the newly selected artifact's collections.
+const srcdocArtifact: { id: string | null } = { id: null };
+const iframeSrcdoc = computed(() => {
+  const html = buildIframeSrcdoc();
+  srcdocArtifact.id = html ? (selectedArtifact.value?.artifact_id ?? null) : null;
+  return html;
 });
 
 // Re-send data when it changes

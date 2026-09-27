@@ -260,7 +260,7 @@ function polishScript(): string {
 `;
 }
 
-function errorBoundaryScript(): string {
+export function errorBoundaryScript(): string {
   return `
     // Error reporting: forward compile/runtime errors to the parent.
     window.__artifactErrorSent = false;
@@ -276,6 +276,8 @@ function errorBoundaryScript(): string {
       reportArtifactError(message);
     };
     window.addEventListener('unhandledrejection', function(e) {
+      // useCollection write failures are expected, rendered via collection.error.
+      if (e.reason && e.reason.__bowAppDataError) return;
       reportArtifactError(e.reason && e.reason.message ? e.reason.message : String(e.reason));
     });
 

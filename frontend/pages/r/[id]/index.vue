@@ -286,10 +286,12 @@ import DocViewer from '~/components/dashboard/DocViewer.vue';
 import ViewerRunGate from '~/components/dashboard/ViewerRunGate.vue';
 import ArtifactChatBubble from '~/components/report/ArtifactChatBubble.vue';
 import { buildArtifactIframeHtml, isHtmlSlidesCode } from '~/utils/artifactIframe';
+import { isAppDataRequest, performAppDataRequest, type AppDataResult } from '~/utils/artifactAppData';
 
 const route = useRoute();
 const report_id = route.params.id;
 const { data: currentUser } = useAuth();
+const { getErrorMessage } = useErrorMessage();
 
 const report = ref<any>({
     title: '',
@@ -1209,7 +1211,33 @@ function handleArtifactParamsMessage(event: MessageEvent) {
         runParamQueries(event.data.changes || {}, event.data.targets || null, {});
     } else if (event.data.type === 'ARTIFACT_REFRESH_PARAMS') {
         runParamQueries(null, event.data.targets || null, { force: true });
+    } else if (event.data.type === 'APP_DATA_REQUEST') {
+        handleAppDataRequest(event);
     }
+}
+
+// useCollection bridge: the source was checked above; answer with this page's
+// own session (anonymous here is fine: the server decides), never passing a
+// credential into the iframe, and reply to the window that asked. Every
+// request with a rid gets an answer (the runtime's promise must settle).
+async function handleAppDataRequest(event: MessageEvent) {
+    const source = event.source as Window | null;
+    if (!source) return;
+    const rid = event.data?.rid;
+    if (typeof rid !== 'string') return;
+    let result: AppDataResult;
+    try {
+        result = isAppDataRequest(event.data)
+            ? await performAppDataRequest(event.data, {
+                artifactId: artifact.value?.artifact_id,
+                fetch: (path, init) => useMyFetch(path, init as any) as any,
+                message: (err) => getErrorMessage(err),
+            })
+            : { type: 'APP_DATA_RESULT', rid, ok: false, error: { code: 'validation', message: 'Invalid app data request' } };
+    } catch {
+        result = { type: 'APP_DATA_RESULT', rid, ok: false, error: { code: 'error', message: 'App data request failed' } };
+    }
+    source.postMessage(result, window.location.origin);
 }
 
 // Build the iframe srcdoc - only compute once all data is ready
