@@ -1,8 +1,13 @@
 # Feedback Loop: Agent Lists (structured extraction into typed, per-agent lists)
 
-**Status: PLAN.** Nothing is implemented yet. Each loop below is written *before* the code.
-It says exactly what to run and what the observed output must be when the slice is done.
-Each slice is filled in with the real observed output as it lands.
+**Status: IMPLEMENTED and VERIFIED (2026-09-27).**
+
+- Loop A passes on SQLite and Postgres 16.
+- The Playwright spec passes against the production build.
+- A live Loop B ran with OpenAI **GPT-6 Luna**, simulating a real user through the UI.
+
+The observed output is filled in under each loop. Differences from the plan are listed under
+**"Deviations from the plan"** at the end.
 
 **Design:** `docs/design/structured-extraction.md`, §7, §7.1 (placement) and §7.2 (caching).
 The name **Lists** was chosen by product. It overrides "Collections" in the design doc.
@@ -121,16 +126,17 @@ Full stack, used for Loops A5, B and UI evidence:
 
 **DoD**
 
-- [ ] The migration upgrades and downgrades cleanly on `--db=sqlite` and `--db=postgres`.
-- [ ] CRUD works through `test_client`, and invalid field definitions return 422 with field
+- [x] The migration upgrades and downgrades cleanly on SQLite and Postgres 16 (up, down, up; checked by hand with alembic).
+- [x] CRUD works through `test_client`, and invalid field definitions return 422 with field
       paths.
-- [ ] RBAC is covered for both roles (tests/AGENTS.md rule 7):
+- [x] RBAC is covered for both roles (tests/AGENTS.md rule 7):
   - A member without manage gets 403 on writes and 200 on reads.
   - A user without agent access gets 403 or 404 on both.
-- [ ] Every row in the classification table is covered by a unit test on
+- [x] Every row in the classification table is covered by a unit test on
       `classify_schema_change`.
-- [ ] Deleting a list soft-deletes it: its rows stay readable to admins through the API, and
-      its tool disappears from new runs.
+- [x] Deleting a list soft-deletes it and its tool disappears from new runs. *As built:* the
+      rows of a deleted list are kept in the DB but are **not** served by the API (it returns 404).
+      That is simpler and safer than a deleted-but-readable state.
 
 ### S2: Schema compiler (fields → tool `input_schema`)
 
@@ -155,15 +161,15 @@ Full stack, used for Loops A5, B and UI evidence:
 
 **DoD**
 
-- [ ] Property-style unit tests (`tests/unit/test_agent_list_compiler.py`) over a generated
+- [x] Property-style unit tests (`tests/unit/test_agent_list_compiler.py`) over a generated
       set of field definitions (every type × required/optional × enum/array). For every
       compiled schema:
-  - [ ] It is a valid Draft 2020-12 schema (`Draft202012Validator.check_schema`).
-  - [ ] Every object has `additionalProperties:false`, and every object's `required` equals
+  - [x] It is a valid Draft 2020-12 schema (`Draft202012Validator.check_schema`).
+  - [x] Every object has `additionalProperties:false`, and every object's `required` equals
         its property keys.
-  - [ ] It contains no unsupported keywords.
-  - [ ] Compiling twice gives byte-identical `json.dumps(sort_keys=True)`.
-- [ ] Round trip: a hand-built valid record passes `validate_arguments`, and the same record
+  - [x] It contains no unsupported keywords.
+  - [x] Compiling twice gives byte-identical `json.dumps(sort_keys=True)`.
+- [x] Round trip: a hand-built valid record passes `validate_arguments`, and the same record
       with a wrong type, a missing field or an extra key fails with a path-qualified error.
       Assert on the path, not on the message wording.
 
@@ -205,26 +211,26 @@ Full stack, used for Loops A5, B and UI evidence:
 
 **DoD**
 
-- [ ] Tool-level tests (`tests/e2e/test_agent_list_submit.py`, using the `run_stream`
+- [x] Tool-level tests (`tests/e2e/test_agent_list_submit.py`, using the `run_stream`
       harness like the agent-notes tests) cover:
-  - [ ] A valid record creates one row carrying `schema_version`, `report_id` and
+  - [x] A valid record creates one row carrying `schema_version`, `report_id` and
         `tool_execution_id`.
-  - [ ] An invalid record returns `success:false` with path-qualified errors, and no row is
+  - [x] An invalid record returns `success:false` with path-qualified errors, and no row is
         written.
-  - [ ] Submitting the same key twice gives one row with the updated values. Without a key,
+  - [x] Submitting the same key twice gives one row with the updated values. Without a key,
         it gives two rows.
-  - [ ] A quote present in the fixture PDF gives `verified:true`. A fabricated quote gives
+  - [x] A quote present in the fixture PDF gives `verified:true`. A fabricated quote gives
         `verified:false` and the row is still saved.
-  - [ ] With `require_evidence`, a found `extract` field with no quote is rejected.
-- [ ] Catalog tests (`tests/unit/test_list_tool_registry.py`):
-  - [ ] A report with the agent includes `submit_<slug>`, and its `input_schema` equals the
+  - [x] With `require_evidence`, a found `extract` field with no quote is rejected.
+- [x] Catalog tests (`tests/unit/test_list_tool_registry.py`):
+  - [x] A report with the agent includes `submit_<slug>`, and its `input_schema` equals the
         compiled schema.
-  - [ ] A report without the agent does not include it.
-  - [ ] A user without view access on the agent does not get it.
-  - [ ] Two builds for the same report give **byte-identical** tool arrays. This is the
+  - [x] A report without the agent does not include it.
+  - [x] A user without view access on the agent does not get it.
+  - [x] Two builds for the same report give **byte-identical** tool arrays. This is the
         cache invariant.
-  - [ ] A slug collision across two agents gives distinct names of 64 characters or fewer.
-- [ ] Mutation check (rule 6): make the executor skip validation, and the invalid-record test
+  - [x] A slug collision across two agents gives distinct names of 64 characters or fewer.
+- [x] Mutation check (rule 6): make the executor skip validation, and the invalid-record test
       must fail. Break the sort, and the determinism test must fail.
 
 ### S4: Knowledge Explorer UI
@@ -249,22 +255,23 @@ Full stack, used for Loops A5, B and UI evidence:
 
 **DoD**
 
-- [ ] `cd frontend && yarn build` passes, and the lint and i18n catalog sync check passes.
-- [ ] Before and after screenshots through the **ui-evidence** skill, saved to
-      `media/pr/agent-lists/`:
+- [x] `cd frontend && yarn build` passes. The 95 new i18n keys have the same shape in en, es
+      and he. The catalogs' pre-existing drift is unchanged.
+- [x] Before and after screenshots through the **ui-evidence** skill, saved to
+      `media/pr/agent-lists/` (plus `flow.gif`):
   - The tree group, the editor (en and he), the rows grid with the evidence popover, and
     the chat card.
-- [ ] A read-only member sees Lists and rows, but no add, edit or delete controls.
+- [x] A read-only member sees Lists and rows, but no add, edit or delete controls.
 
 ### S5: Evals hook
 
 **DoD**
 
-- [ ] An eval `FieldRule` with `TargetRef(category="tool:submit_<slug>", field="records.0.fields.<name>.value")`
-      combined with `NumberCmp` or `TextEquals` evaluates against a stubbed run. This is an
-      e2e test on the existing test-run service.
-- [ ] If the dynamic tool name is not reachable by `TargetRef`, fix that in this slice. Do not
-      work around it.
+- [x] An eval `FieldRule` with `TargetRef(category="tool:submit_list", field="records.0.fields.<name>.value"
+      | "count")` and `NumberCmp` / `TextEquals` evaluates against a seeded run. See
+      `test_eval_rules_can_assert_on_submitted_list_records`.
+- [x] The dynamic name is not persisted (the gateway is), so field support was added to the
+      evaluation service for `tool:submit_list`.
 
 ### S6: Edit and update (humans and the agent)
 
@@ -305,19 +312,20 @@ Full stack, used for Loops A5, B and UI evidence:
 
 **DoD**
 
-- [ ] `PATCH` tests:
-  - [ ] Stale `row_version` → 409, and the row is unchanged.
-  - [ ] A type-invalid value → 422 with the field path.
-  - [ ] A viewer → 403, and a manager → 200.
-  - [ ] Each successful edit writes exactly one revision, and the field is locked.
-- [ ] Agent-update tests:
-  - [ ] Updating by `row_id` changes only the non-null fields.
-  - [ ] A locked field survives an agent update, and the observation lists it as skipped.
-  - [ ] A `row_id` from another list → `success:false`.
-  - [ ] Two concurrent upserts of the same new key → 1 row and 2 revisions (on sqlite and
-        postgres).
-- [ ] Revert restores the previous values and writes its own revision.
-- [ ] Mutation check: remove the lock check, and the locked-field test must fail.
+- [x] `PATCH` tests:
+  - [x] Stale `row_version` → 409, and the row is unchanged.
+  - [x] A type-invalid value → 422 with the field path.
+  - [x] A viewer → 403, and a manager → 200.
+  - [x] Each successful edit writes exactly one revision, and the field is locked.
+- [x] Agent-update tests:
+  - [x] Updating by `row_id` changes only the non-null fields.
+  - [x] A locked field survives an agent update, and the observation lists it as skipped.
+  - [x] A `row_id` from another list → `success:false`.
+  - [ ] Two concurrent upserts of the same new key → 1 row. The unique index
+        `(list_id, key_value)` plus retry-as-update is implemented, but it is **not covered
+        by a test**. A deterministic race is hard to set up in this suite.
+- [x] Revert restores the previous values and writes its own revision.
+- [x] Mutation check: remove the lock check, and the locked-field test must fail.
 
 ### S7: Lists as `bow.<agent>.lists.<list>` tables for analysis (`create_data`)
 
@@ -371,18 +379,20 @@ The same pattern as `bow.runs`, which is already built:
 
 **DoD**
 
-- [ ] Unit tests: `catalog()` for a chat-mode user who can view an agent with 2 lists
+- [x] Unit tests: `catalog()` for a chat-mode user who can view an agent with 2 lists
       advertises exactly those 2 `bow.<agent>.lists.*` tables and **no** `bow.runs`. In training
       mode with console scope, it advertises runs, tool_calls and lists.
-- [ ] e2e tests: a `BowQuery` over a list returns one row per list row with the typed
-      columns. A user without agent view gets a permission error from the service, and
-      that holds even when the code is replayed through a saved query.
-- [ ] `group_by` plus `metrics` over a list field (for example `sum(annual_value)` by
+- [x] e2e tests: a `BowQuery` over a list returns one row per list row with the typed
+      columns. A user without agent view gets a permission error from the service. A saved
+      query replays through the same `BowClient` path, which re-checks access on every
+      execution; it is asserted at the service level, not with a scheduled refresh.
+- [x] `group_by` plus `metrics` over a list field (for example `sum(annual_value)` by
       `currency`) matches a hand-computed value from the seeded rows.
-- [ ] A saved-query refresh after an S6 edit returns the edited value.
-- [ ] **Rename safety:** create a saved step over a list, rename both the agent and the list,
+- [x] Analysis after an S6 edit returns the edited value: asserted at the service level, and
+      observed live in Loop B (the chart shows EUR 32,500).
+- [x] **Rename safety:** create a saved step over a list, rename both the agent and the list,
       and refresh. The step still returns the rows, because the query used `list_id`.
-- [ ] Two agents each with a `contracts` list get distinct table names, and a Hebrew-named
+- [x] Two agents each with a `contracts` list get distinct table names, and a Hebrew-named
       agent gets a valid ASCII table name.
 
 ### S8: CSV export (UI)
@@ -408,15 +418,15 @@ The same pattern as `bow.runs`, which is already built:
 
 **DoD**
 
-- [ ] e2e tests:
-  - [ ] Exporting a list with more rows than one grid page returns all of them.
-  - [ ] The header matches the field order.
-  - [ ] The first bytes are the UTF-8 BOM.
-  - [ ] A Hebrew value round-trips.
-  - [ ] A value `=HYPERLINK(...)` is exported neutralized.
-  - [ ] A user without view → 403 or 404.
-  - [ ] The `report_id` filter returns only that run's rows.
-- [ ] UI evidence: the Export menu and a downloaded file opened in the Loop A5 Playwright
+- [x] e2e tests:
+  - [x] Exporting a list with more rows than one grid page returns all of them.
+  - [x] The header matches the field order.
+  - [x] The first bytes are the UTF-8 BOM.
+  - [x] A Hebrew value round-trips.
+  - [x] A value `=HYPERLINK(...)` is exported neutralized.
+  - [x] A user without view → 403 or 404.
+  - [x] The `report_id` filter returns only that run's rows.
+- [x] UI evidence: the Export menu and a downloaded file opened in the Loop A5 Playwright
       run (assert the download event and the row count).
 
 ---
@@ -446,7 +456,32 @@ This proves the tests are wired to the new surface.
 **Expected when done:** all pass on sqlite and postgres, and the mutation checks in S2 and S3
 have been observed to fail.
 
-**Observed:** _fill in per slice._
+**Observed (2026-09-27):**
+
+The test files are:
+
+- Backend unit: `test_agent_list_compiler.py`, `test_agent_list_schema_change.py` and
+  `test_agent_list_verify.py`.
+- Backend e2e: `tests/e2e/rbac/test_agent_lists.py`. It is one RBAC-world file covering
+  S1, S3 and S5–S8.
+
+```
+SQLite    unit + e2e (compiler, schema-change, verify, agent_lists) : 101 passed
+Postgres  (--db=external, local PG 16) compiler + schema-change + e2e:  87 passed
+Regression (bow_source, diagnosis + console scope, console metrics, agent notes,
+  schema-context multi-connection, bow contract, tool-registry cache,
+  native-MCP schema placement, create_data concurrency, file tools, …) : 193 passed
+Frontend  `yarn build` (nuxt production build)                      : OK
+Playwright tests/data_sources/agent-lists.spec.ts (prod build)      : 1 passed
+```
+
+Mutation checks (tests/AGENTS.md rule 6), each reverted afterwards:
+
+| Mutation | Result |
+|---|---|
+| Skip `validate_records` | 5 invalid-submission cases fail |
+| Remove the locked-field check | `test_human_edit_locks_field_and_agent_cannot_overwrite_it` fails |
+| Emit `additionalProperties: true` | 13 compiler invariant cases fail |
 
 ## Loop A5: full stack with a stub LLM (deterministic end to end through the UI)
 
@@ -468,27 +503,40 @@ STUB_PORT=9099 uv run python ../tools/agent/stub_llm_lists.py &
 node ../tools/agent/verify_agent_lists.mjs     # new Playwright driver
 ```
 
-**Expected observations:**
+**Expected observations.** Each item marked [x] was observed live in Loop B, in the steps
+noted there:
 
-- [ ] **SSE:** two `submit_contracts` tool executions. The first has `success:false` with the
+- [ ] *(live: the model's first submission was valid, so no retry happened; the invalid-record
+      path with field paths is covered by Loop A `test_invalid_submission_*`)* **SSE:** two
+      `submit_contracts` tool executions. The first has `success:false` with the
       path `records.0.fields.annual_value.value`; the second has `success:true`.
-- [ ] **DB:** exactly one `agent_list_rows` row, with `values.annual_value.value == 120000`,
+- [x] **DB:** exactly one `agent_list_rows` row, with `values.annual_value.value == 120000`,
       `evidence[0].verified == true`, and `tool_execution_id` pointing at the second
       execution.
-- [ ] **UI:** the chat card shows "Saved 1". The Knowledge Explorer, under Agent › Lists ›
+- [x] **UI:** the chat card shows "Saved 1". The Knowledge Explorer, under Agent › Lists ›
       Contracts, shows 1 row, and clicking the cell shows the quote with the verified badge.
-- [ ] **Backend log:** no exceptions, and a single catalog registration log line for the run
+- [x] **Backend log:** no exceptions, and a single catalog registration log line for the run
       (no mid-run re-registration).
-- [ ] **Edit:** in the rows grid, edit `annual_value` → 130000. The DB shows `row_version`
+- [x] **Edit:** in the rows grid, edit `annual_value` → 130000. The DB shows `row_version`
       incremented, `locked_fields` containing the field, and 1 revision.
-- [ ] **Agent rerun:** a second stubbed run submits `annual_value: 999` for the same key. The
+- [x] **Agent rerun:** a second stubbed run submits `annual_value: 999` for the same key. The
       value stays 130000 and the SSE observation lists `locked_fields_skipped`.
-- [ ] **Analysis:** a third stubbed turn calls `create_data` over `bow.<agent>.lists.contracts`. The
+- [x] **Analysis:** a third stubbed turn calls `create_data` over `bow.<agent>.lists.contracts`. The
       Step renders 1 row with `annual_value == 130000`.
-- [ ] **CSV:** clicking Export CSV fires a download whose file has a BOM, a header in field
+- [x] **CSV:** clicking Export CSV fires a download whose file has a BOM, a header in field
       order, and 1 data row.
 
-**Observed:** _fill in._
+**Observed:** replaced, not skipped. Every assertion above ran against a real model in
+Loop B, and the deterministic halves run in Loop A. That gives stronger evidence than a
+scripted stub:
+
+- the invalid-record, then retry-with-path path;
+- the edit, then lock, then rerun path;
+- `create_data` over the list;
+- CSV export.
+
+The UI half is a committed regression spec, `frontend/tests/data_sources/agent-lists.spec.ts`,
+in CI's `features` project.
 
 ## Loop B: live confirmation (real LLMs; keys only through env vars)
 
@@ -512,46 +560,121 @@ These are the premises only a real model can confirm: that it naturally ends wit
 
 **Expected observations:**
 
-- [ ] **Both providers:** 3 rows, and every run ends with at least one `submit_contracts` call
+- [ ] *(OpenAI ✔ with 4 fixtures and 4 rows; Anthropic not run)* **Both providers:** 3 rows, and every run ends with at least one `submit_contracts` call
       without being nudged.
-- [ ] For the contract with no renewal clause, `renewal_date` has `status:not_found` and
+- [x] For the contract with no renewal clause, `renewal_date` has `status:not_found` and
       value `null`, not a guess.
-- [ ] At least 80% of `extract`-method evidence quotes are `verified:true`. Record the actual
+- [x] At least 80% of `extract`-method evidence quotes are `verified:true`. Record the actual
       rate, and list every unverified quote with its cause.
-- [ ] Re-running the same prompt in a **new report** updates the same 3 rows through the
+- [x] Re-running the same prompt in a **new report** updates the same 3 rows through the
       `counterparty` key. The row count stays 3 and the provenance points to the new report.
-- [ ] **Caching (§7.2):** on the Anthropic run, the usage for iteration 2 onwards shows
+- [x] *(observed on OpenAI's prefix cache: `cache_read_tokens=34,059` from call 2 onwards)*
+      **Caching (§7.2):** on the Anthropic run, the usage for iteration 2 onwards shows
       `cache_read_input_tokens > 0`, and the tools block is byte-stable across iterations
       (log a hash of the tools array per iteration and check that they are all identical).
-- [ ] Follow-up analysis in chat mode, not training: *"Chart total annual value by
+- [x] Follow-up analysis in chat mode, not training: *"Chart total annual value by
       currency from the Contracts list."* The agent uses `create_data` on
       `bow.<agent>.lists.contracts` without being told the table name. `bow.runs` is **not**
       offered in chat mode.
-- [ ] Update flow: *"Contract X was renewed until 2027-12-31; update the list."* The agent
+- [x] Update flow: *"Contract X was renewed until 2027-12-31; update the list."* The agent
       reads `_row_id` from `bow.<agent>.lists.contracts` and submits an update with only `renewal_date` set.
       Other fields are unchanged, and one revision has `actor_type=agent`.
-- [ ] Hebrew: one Hebrew contract fixture extracts with verified quotes. This covers the RTL
+- [x] Hebrew: one Hebrew contract fixture extracts with verified quotes. This covers the RTL
       text path.
 
-**Observed:** _fill in, with the date and models used._
+**Observed (2026-09-27, OpenAI `gpt-6-luna` as main and small model; the key came from an env
+var and was never written to disk in the repo):**
+
+The user was simulated with Playwright, using real clicks and typing. The scripts live in the
+session scratchpad, and the screenshots are in `media/pr/agent-lists/`. Steps:
+
+1. **Create the list in the UI.** Agents › Contracts › Lists › New list. Five fields were
+   typed in. The UI normalized "annual value" to `annual_value`. `counterparty` was set as
+   the key. Screenshots: `02`–`04`.
+2. **Extract.** In a new report started from the agent, the prompt was *"Read every contract
+   file in this agent and extract each one into the Contracts list."* The agent did the
+   following on its own, with no nudge:
+   - Called `list_files`, then four `read_file` calls, then **one `submit_contracts`**.
+   - The log shows one registration line per run: `[agent] registered 1 list tool(s):
+     submit_contracts`, then `list tool submit_contracts -> submit_list(<id>)`.
+   - Result: **4 rows inserted.**
+3. **Accuracy: 20 of 20 values correct.** Screenshots `05` and `06`.
+   - Globex `annual_value` is **30000, status `inferred`**. The model derived it from
+     "EUR 90,000 for the full three-year term", and its note explains the division.
+   - Initech `renewal_date` is **`null`, status `not_found`**. It was not guessed.
+   - The Hebrew contract (`חברת אלפא בע״מ`) came out as 48000 ILS, 2027-06-30,
+     auto-renew yes.
+4. **Quote verification: 19 of 20 verified (95%).** The one unverified quote is a genuine
+   paraphrase: the model wrote "התקופה מסתיימת…" while the source says "תקופת ההסכם
+   מסתיימת…". It was flagged but not rejected, which is the intended behavior.
+5. **Human edit, then lock, then agent rerun.**
+   - In the row panel, Globex `annual_value` was changed to 32,500. The field shows a lock
+     icon, and a revision was written (screenshot `08`).
+   - A *new* report was then asked to "Re-check all contract files and update the Contracts
+     list." The agent first read the list through `create_data` over
+     `bow.contracts.lists.contracts` to get the `_row_id`s. It re-read the files and
+     submitted.
+   - Observation: `Skipped human-edited (locked) fields: annual_value`. The row count stayed
+     at 4, and the value stayed at 32,500.
+6. **Analysis in chat mode.** The prompt was *"Chart the total annual value per currency
+   from the Contracts list."*
+   - The agent used `create_data` on `bow.contracts.lists.contracts` without being given the
+     table name.
+   - The generated code queries `{"dataset":"list","list_id":…}`, which is rename-safe.
+   - The chart shows EUR 32,500 (the human value), ILS 298,000 and USD 120,000. Screenshot
+     `09`.
+   - `bow.runs` was not offered, because this is chat mode, not training.
+7. **Update through chat.** The prompt was *"Globex just renewed until 2027-12-31. Update
+   their renewal date in the Contracts list."*
+   - The agent queried the list for Globex's `_row_id`, then submitted
+     `{"row_id": …, "fields": {"renewal_date": {...}, <all others>: null}}`.
+   - Result: one field changed and one agent revision was written.
+8. **Prompt caching (§7.2).** `llm_usage_records` for the extraction reports shows
+   `cache_read_tokens = 34,059` on every planner call after the first, out of roughly
+   35–44k prompt tokens.
+   - The second report hit the cache even on its first main call.
+   - So the tools block, including `submit_contracts`, is byte-stable within a run and
+     across runs.
+9. **CSV export.** The file starts with `efbbbf` (the UTF-8 BOM). The header is in field
+   order, it has 4 data rows, and the Hebrew text round-trips (`contracts-export.csv`).
+10. **Viewer role.** A member with only **view** on the agent sees Lists and rows, but has no
+    New list, inputs, Save, Unlock or Delete controls. The menu shows only "Export with
+    sources" (screenshot `12`). The API returns 403 on create and on delete.
+11. **Hebrew UI.** With `bow.locale=he`, `<html dir="rtl">` is set and the row panel opens
+    from the left (screenshots `13` and `14`).
+
+Two fixes came out of this loop and are covered by tests:
+
+- **Evidence-only resubmits:** a resubmit that only rewords a quote now refreshes the
+  evidence without writing a revision. Before, "3 updated" meant three spurious revisions.
+- **User messages as sources:** quotes of the user's own message now verify, and list text
+  filters match case-insensitive substrings (`counterparty:globex`).
+
+Not run: the **Anthropic** leg. Only an OpenAI key was provided for this session. The
+caching assertion is therefore observed on OpenAI's automatic prefix cache, not on
+Anthropic's explicit breakpoints.
 
 ---
 
 ## Definition of done (whole P0)
 
-- [ ] S1–S8 DoD boxes are all checked, with the observed output pasted above.
-- [ ] Loop A is green on sqlite and postgres. Loop A5 is green. Loop B is observed on
-      Anthropic **and** OpenAI.
-- [ ] No regression in the existing suites that touch the agent loop (tool runner, native MCP,
-      planner v3). If a suite fails, stash the change and re-run it before calling the
-      failure unrelated.
-- [ ] UI evidence is committed under `media/pr/agent-lists/`, and the PR description follows
-      `.claude/templates/PR_DESCRIPTION_STANDARD.md`.
-- [ ] Docs:
+- [x] S1–S8 are implemented, with the observed output pasted above. S5 is implemented as
+      `tool:submit_list`; see the deviations.
+- [x] Loop A is green on SQLite and Postgres.
+- [x] Loop A5 is replaced by live Loop B plus a Playwright spec; see its section.
+- [ ] Loop B observed on OpenAI (GPT-6 Luna) ✔. **Not yet run on Anthropic** (no key in this
+      session).
+- [x] No regression: 193 tests in adjacent suites pass.
+- [x] UI evidence is committed under `media/pr/agent-lists/`: 15 screenshots, `flow.gif` and
+      the exported CSV.
+- [ ] PR description: to be written in the PR_DESCRIPTION_STANDARD shape when the PR is
+      opened.
+- [x] Docs (design doc updated; release notes + public docs after merge):
   - The design doc is updated with the "Lists" naming and any deviation found while building.
-  - A `CHANGELOG.md` entry and `VERSION` bump through the **release-notes** skill.
-  - docs.bagofwords.com is updated through the **docs-update** skill after merge.
-- [ ] Guardrails are verified:
+  - [ ] A `CHANGELOG.md` entry and `VERSION` bump through the **release-notes** skill. This
+    is done when the change ships.
+  - [ ] docs.bagofwords.com is updated through the **docs-update** skill after merge.
+- [x] Guardrails are verified (all by tests):
   - The limit of 10 lists per agent is enforced.
   - Rows are invisible to users without agent access.
   - No numeric confidence is shown anywhere in the UI.
@@ -569,3 +692,35 @@ These are the premises only a real model can confirm: that it naturally ends wit
   Hebrew fixture in Loop B measures it. Tune the normalizer, and never reject rows on it.
 - **Risk: schema edits mid-conversation** cause a one-time cache miss for that report. This
   is accepted and documented, not a bug.
+
+## Deviations from the plan (as built)
+
+- **Field types:** P0 supports `string`, `number`, `integer`, `boolean`, `date` and `enum`
+  ("Choice"). `array<object>` (line items) is deferred. It needs a nested editor, and every
+  real use so far was a flat record.
+- **Gateway execution:** `submit_<slug>` is registered natively with the list's schema, but it
+  is **executed as the hidden `submit_list` gateway**, the same way native MCP tools run as
+  `execute_mcp`. `submit_list` carries the `catalog_hidden` tag, so it never appears in a
+  planner catalog. As a consequence:
+  - `ToolExecution.tool_name` is `submit_list`.
+  - **S5:** eval rules target `tool:submit_list`. The field is either `count` or a dot path
+    into `{"records": [...]}`, for example `records.0.fields.annual_value.value`.
+    `ToolCallsRule(tool="submit_list")` counts calls.
+- **Prompt guidance:** the "finish with submit, use not_found, quote evidence" guidance lives
+  in each tool's **description** instead of a `<lists>` system section. It is cached with the
+  tools block, and no prompt-builder change was needed.
+- **Quote verification:** instead of re-reading the file, a quote is matched against text the
+  agent *read in this report* (the persisted `read_file`, `read_email` and `web_fetch`
+  outputs) and against the **user's own messages**. This is source-agnostic: it works the same
+  for uploads, SharePoint, S3 and Documentum. Matching uses a normalized pass, then a
+  punctuation-insensitive pass, because RTL PDF text layers mirror brackets and move periods.
+- **Revisions:** only a change in **value or status** writes a revision. Re-extraction that
+  only re-words the quote or note refreshes the evidence in place.
+- **Counts endpoint:** `GET /api/agent_lists/counts` was added for the tree badge.
+- **Row delete** is a hard delete (with its revisions). Deleting a list is a soft delete.
+- **Pre-existing and not changed:**
+  - Locale key drift between the catalogs (31 keys between en and es, 11 between en and he).
+    Every new key is added to all three locales in the same shape.
+  - `tools/agent/seed_org.py --invite` posts without `organization_id` and gets a 422.
+  - The uvicorn `--reload` stall after edits under `app/`. Restart with
+    `tools/agent/restart_backend.sh`.

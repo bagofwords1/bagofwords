@@ -1,8 +1,17 @@
 # Structured Extraction: typed, grounded fields as the output of an agent run
 
-Status: **proposal**. Nothing is implemented. Build plan and definition of done:
-`docs/feedback-loops/agent-lists.md`. The code references below describe
-today's code that this design reuses.
+Status: **P0 implemented as "Lists"** (2026-09-27). The build plan, observed verification
+and deviations are in `docs/feedback-loops/agent-lists.md`. The main as-built choices are:
+
+- Each list is a native `submit_<slug>` tool, executed as the hidden `submit_list` gateway.
+  This mirrors how native MCP tools run as `execute_mcp`.
+- Quotes are verified against text the agent read in the report and against the user's
+  messages.
+- The field types are string, number, integer, boolean, date and enum. `array<object>` is
+  deferred.
+- Evals target `tool:submit_list`.
+
+The code references below describe the code this design builds on.
 
 ## 1. The pitch
 

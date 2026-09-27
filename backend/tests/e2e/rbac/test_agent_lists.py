@@ -566,6 +566,8 @@ def test_bow_list_text_filters_match_substrings_case_insensitively(world):
 def test_quotes_of_the_users_own_message_verify(test_client, world):
     from app.models.completion import Completion
 
+    # Direct write: the only API that stores a user message also starts an
+    # agent run (needs an LLM). The message row itself is all this checks.
     async def _fn(db, maker):
         db.add(Completion(report_id=world["report"]["id"], role="user", message_type="table",
                           prompt={"content": "Acme renewed until 2029-01-31, update the list"}, completion={},
@@ -639,3 +641,37 @@ def test_bow_client_refuses_run_history_outside_training(world):
         df = await client._execute(BowQuery.model_validate({"dataset": "list", "list_id": world["list"]["id"]}))
         return len(df)
     assert run_async(_fn) == 0
+
+
+# ── S5: evals ──────────────────────────────────────────────────────────────
+
+def test_eval_rules_can_assert_on_submitted_list_records(world, seed_agent_executions):
+    from app.schemas.test_expectations import ExpectationsSpec
+    from app.services.test_evaluation_service import TestEvaluationService
+
+    args = {"list_id": world["list"]["id"], "records": [_record(value=120000, currency="USD")]}
+    seed_agent_executions(world["org_id"], world["report"]["id"], [{
+        "user_id": world["admin"]["user_id"], "prompt": "extract", "status": "success",
+        "tools": [{"name": "submit_list", "status": "success", "arguments": args}],
+    }])
+
+    def rule(field, matcher):
+        return {"type": "field", "target": {"category": "tool:submit_list", "field": field}, "matcher": matcher}
+
+    spec = ExpectationsSpec.model_validate({"rules": [
+        rule("records.0.fields.annual_value.value", {"type": "number.cmp", "op": "eq", "value": 120000}),
+        rule("records.0.fields.currency.value", {"type": "text.equals", "value": "USD"}),
+        rule("count", {"type": "number.cmp", "op": "eq", "value": 1}),
+        rule("records.0.fields.annual_value.value", {"type": "number.cmp", "op": "eq", "value": 999}),
+        rule("records.3.fields.currency.value", {"type": "text.equals", "value": "USD"}),
+        {"type": "tool.calls", "tool": "submit_list", "min_calls": 1},
+    ]})
+
+    async def _fn(db, maker):
+        svc = TestEvaluationService()
+        snap = await svc.build_final_snapshot(db, world["report"]["id"])
+        return await svc.evaluate_final(db, spec, snap, world["report"]["id"], "extract")
+    status, result = run_async(_fn)
+    outcomes = ["skipped" if r.status == "skipped" else ("pass" if r.ok else "fail") for r in result.rule_results]
+    assert outcomes == ["pass", "pass", "pass", "fail", "fail", "pass"], outcomes
+    assert status == "fail"
