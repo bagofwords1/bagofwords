@@ -321,9 +321,14 @@ Full stack, used for Loops A5, B and UI evidence:
   - [x] Updating by `row_id` changes only the non-null fields.
   - [x] A locked field survives an agent update, and the observation lists it as skipped.
   - [x] A `row_id` from another list → `success:false`.
-  - [ ] Two concurrent upserts of the same new key → 1 row. The unique index
-        `(list_id, key_value)` plus retry-as-update is implemented, but it is **not covered
-        by a test**. A deterministic race is hard to set up in this suite.
+  - [x] Two concurrent upserts of the same new key → 1 row, on SQLite and Postgres
+        (`test_concurrent_submissions_of_the_same_new_key_yield_one_row`).
+        - The test found a real bug in the retry path: it read `agent_list.id` on a session
+          already poisoned by the failed flush (`PendingRollbackError`).
+        - After that, the rolled-back instance was lazy-loaded outside the greenlet
+          (`MissingGreenlet`).
+        - Both are fixed: the id is read before the attempt, and the list is refreshed after
+          the rollback.
 - [x] Revert restores the previous values and writes its own revision.
 - [x] Mutation check: remove the lock check, and the locked-field test must fail.
 
@@ -466,7 +471,7 @@ The test files are:
   S1, S3 and S5–S8.
 
 ```
-SQLite    unit + e2e (compiler, schema-change, verify, agent_lists) : 101 passed
+SQLite    unit + e2e (compiler, schema-change, verify, agent_lists) : 102 passed
 Postgres  (--db=external, local PG 16) compiler + schema-change + e2e:  87 passed
 Regression (bow_source, diagnosis + console scope, console metrics, agent notes,
   schema-context multi-connection, bow contract, tool-registry cache,

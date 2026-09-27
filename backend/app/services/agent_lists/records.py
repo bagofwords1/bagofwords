@@ -369,11 +369,15 @@ async def apply_submission(
 
 async def apply_submission_with_retry(db, agent_list: AgentList, records, **kw) -> Dict[str, Any]:
     """Two concurrent runs inserting the same new key: the loser retries as an update."""
+    list_id = agent_list.id  # read before any failed flush poisons the session
     try:
         return await apply_submission(db, agent_list, records, **kw)
     except IntegrityError:
         await db.rollback()
-        logger.info("agent list %s: key conflict on insert, retrying as update", agent_list.id)
+        # Rollback expires every loaded instance; reload the list explicitly —
+        # a lazy attribute load here would run outside the async greenlet.
+        await db.refresh(agent_list)
+        logger.info("agent list %s: key conflict on insert, retrying as update", list_id)
         return await apply_submission(db, agent_list, records, **kw)
 
 

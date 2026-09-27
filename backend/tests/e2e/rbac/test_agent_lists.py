@@ -675,3 +675,24 @@ def test_eval_rules_can_assert_on_submitted_list_records(world, seed_agent_execu
     outcomes = ["skipped" if r.status == "skipped" else ("pass" if r.ok else "fail") for r in result.rule_results]
     assert outcomes == ["pass", "pass", "pass", "fail", "fail", "pass"], outcomes
     assert status == "fail"
+
+
+def test_concurrent_submissions_of_the_same_new_key_yield_one_row(test_client, world):
+    """Two runs racing to insert the same key: the unique (list_id, key_value)
+    index rejects the loser, which retries as an update — never two rows."""
+    from app.models.agent_list import AgentList
+    from app.services.agent_lists.records import apply_submission_with_retry
+
+    async def _fn(db, maker):
+        async def one(value):
+            async with maker() as s:
+                lst = await s.get(AgentList, world["list"]["id"])
+                return await apply_submission_with_retry(
+                    s, lst, [_record(cp="Race Co", value=value)],
+                    report_id=world["report"]["id"], tool_execution_id=None, user_id=None, sources=[])
+        return await asyncio.gather(one(1), one(2), return_exceptions=True)
+    results = run_async(_fn)
+    assert not any(isinstance(r, Exception) for r in results), results
+    rows = _rows(test_client, world)["rows"]
+    assert len(rows) == 1
+    assert sorted(r["inserted"] + r["updated"] + r["unchanged"] for r in results) == [1, 1]
