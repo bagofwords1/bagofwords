@@ -211,3 +211,14 @@ def test_personal_signals_detected(msg, kind):
 ])
 def test_no_personal_signals_in_ordinary_questions_or_definitions(msg):
     assert R.personal_signals(msg) == []
+
+
+@pytest.mark.parametrize("old,new,expected", [
+    ("Prefers the number first", "Prefers the number first; formats money in $K with one decimal", True),
+    ("Prefers the number first.", "prefers the number first, then one line of context and a chart", True),
+    ("Prefers amounts in €M", "Prefers amounts in $K", False),                 # a change, not an append
+    ("Prefers the number first", "Prefers the number first, always", False),    # too small to be a new fact
+    ("Board meeting", "Board meeting", False),
+])
+def test_appends_new_fact(old, new, expected):
+    assert R.appends_new_fact(old, new) is expected

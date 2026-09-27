@@ -179,6 +179,7 @@ def _stub_agent(monkeypatch, captured: list, act=None):
             "tools": {t.name for t in self.planner.tool_catalog},
             "user_turn": built.messages[0]["content"],
             "injected_ids": list(self._memory_injected_ids),
+            "hint": self._memory_hint() or "",
         }
         if act is not None:
             seen["act"] = await act(self)
@@ -296,6 +297,8 @@ def test_agent_saves_style_correction_with_evidence_and_next_turn_sees_it(
     _ask(test_client, other["id"], t, o, "revenue by month")
     assert "Prefers short answers with the number first" in captured[-1]["user_turn"]
     assert f"[{entry['handle']}] style:" in captured[-1]["user_turn"]
+    # The injected style entry is named next to the ask so the answer applies it.
+    assert "<memory_apply>" in captured[-1]["hint"] and f"[{entry['handle']}]" in captured[-1]["hint"]
 
     # The report timeline never exposes the entry text — only the status line.
     comps = test_client.get(f"/api/reports/{report['id']}/completions", headers=_h(t, o)).text

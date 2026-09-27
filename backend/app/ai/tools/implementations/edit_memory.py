@@ -11,7 +11,7 @@ from app.ai.tools.implementations._memory_common import (
 from app.ai.tools.metadata import ToolMetadata
 from app.ai.tools.schemas.events import ToolEndEvent, ToolEvent, ToolStartEvent
 from app.ai.tools.schemas.memory import EditMemoryInput, EditMemoryOutput
-from app.services.memory_rules import MemoryValidationError, is_direct_edit_request
+from app.services.memory_rules import MemoryValidationError, appends_new_fact, is_direct_edit_request
 from app.services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
@@ -96,6 +96,18 @@ class EditMemoryTool(Tool):
                     )
                     return
                 old_handle = entry.handle
+                if data.action == "update" and data.text and appends_new_fact(entry.text, data.text):
+                    record(runtime_ctx, "refusals", {
+                        "tool": "edit_memory", "code": "memory.one_fact_per_entry", "handle": entry.handle,
+                        "text": data.text[:400],
+                    })
+                    yield fail(
+                        "Memory not changed",
+                        f"[{entry.handle}] already says that; the extra part is a different fact. Keep "
+                        f"[{entry.handle}] as it is and save the new fact with create_memory (one fact per entry).",
+                        code="memory.one_fact_per_entry",
+                    )
+                    return
                 if data.action == "delete":
                     await memory_service.forget(db, entry)
                     new_handle, summary = old_handle, f"Forgot [{old_handle}]."

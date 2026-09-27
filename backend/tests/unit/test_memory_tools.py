@@ -178,3 +178,19 @@ def test_memory_tools_refuse_machine_turns_and_training(owner, tool, args):
     uid, org = owner
     assert _err(_run(_call(tool, args, uid, org, trigger_source="wait")))["type"] == "unavailable"
     assert _err(_run(_call(tool, args, uid, org, mode="training")))["type"] == "unavailable"
+
+
+def test_edit_memory_refuses_appending_a_different_fact(owner):
+    uid, org = owner
+    created = _ok(_run(_call(CreateMemoryTool(), {"text": "Prefers the number first", "section": "style",
+                                                   "tags": ["format"]}, uid, org)))
+    h = created["output"]["handle"]
+    trace: dict = {}
+    err = _err(_run(_call(EditMemoryTool(), {
+        "handle": h, "action": "update",
+        "text": "Prefers the number first; formats money in thousands with one decimal"}, uid, org, trace=trace)))
+    assert err["type"] == "memory.one_fact_per_entry" and "create_memory" in err["message"]
+    assert trace["refusals"][0]["code"] == "memory.one_fact_per_entry"
+    # A real change of the same fact is still an edit.
+    _ok(_run(_call(EditMemoryTool(), {"handle": h, "action": "update", "text": "Prefers a short summary first"},
+                   uid, org)))

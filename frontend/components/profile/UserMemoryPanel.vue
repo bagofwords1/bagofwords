@@ -33,7 +33,7 @@
             ]"
             @click="activeTag = activeTag === tg.tag ? null : tg.tag"
           >
-            #{{ tg.tag }} <span class="text-gray-400">{{ tg.count }}</span>
+            <bdi dir="ltr">#{{ tg.tag }}</bdi> <span class="text-gray-400">{{ tg.count }}</span>
           </button>
           <button v-if="activeTag" type="button" class="text-[11px] text-gray-400 hover:text-gray-600 ms-1" @click="activeTag = null">
             {{ $t('profile.memory.clearFilter') }}
@@ -118,8 +118,10 @@
                   <UIcon :name="sourceIcon(e.source)" class="w-3.5 h-3.5 mt-0.5 shrink-0" :class="e.source === 'user' ? 'text-gray-500' : 'text-blue-500'" />
                 </UTooltip>
                 <div class="flex-1 min-w-0">
-                  <div class="text-[13px] text-gray-800 dark:text-gray-200 break-words" dir="auto" data-testid="memory-entry-text">
-                    <span v-if="sec === 'events' && e.event_start" class="font-medium text-gray-900 dark:text-gray-100 me-1" dir="ltr">{{ formatEventDates(e) }}</span>{{ e.text }}
+                  <div class="text-[13px] text-gray-800 dark:text-gray-200 break-words" data-testid="memory-entry-text">
+                    <template v-if="sec === 'events' && e.event_start">
+                      <bdi class="font-medium text-gray-900 dark:text-gray-100">{{ formatEventDates(e) }}</bdi><span class="mx-1.5 text-gray-300 dark:text-gray-600">·</span>
+                    </template><bdi>{{ e.text }}</bdi>
                   </div>
                   <div class="flex items-center gap-1.5 flex-wrap mt-1">
                     <span v-if="e.expired" class="text-[10px] px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-500">{{ $t('profile.memory.past') }}</span>
@@ -250,8 +252,8 @@ function fmtDay(iso: string) {
 function formatEventDates(e: MemoryEntry) {
   if (!e.event_start) return ''
   const start = fmtDay(e.event_start)
-  if (e.event_end && e.event_end.slice(0, 10) !== e.event_start.slice(0, 10)) return `${start} → ${fmtDay(e.event_end)} ·`
-  return `${start} ·`
+  if (e.event_end && e.event_end.slice(0, 10) !== e.event_start.slice(0, 10)) return `${start} – ${fmtDay(e.event_end)}`
+  return start
 }
 
 async function load() {

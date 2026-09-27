@@ -412,3 +412,13 @@ def personal_signals(message: Optional[str]) -> List[str]:
     """Kinds of durable personal context a user message may carry."""
     msg = message or ""
     return [kind for kind, pat in _SIGNALS if pat.search(msg)]
+
+
+def appends_new_fact(old_text: str, new_text: str) -> bool:
+    """True when an update keeps the old fact verbatim and bolts another one
+    on ("Prefers X" → "Prefers X; formats money as $K"). One fact per entry:
+    the addition should be its own entry."""
+    old, new = normalize_text(old_text), normalize_text(new_text)
+    if not old or not new or old == new or not new.startswith(old):
+        return False
+    return len(new.split()) - len(old.split()) >= 3

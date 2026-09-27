@@ -1098,13 +1098,29 @@ class AgentV2:
         self._memory_trace["injection"] = ctx.trace()
         return ctx.body or None
 
+    def _memory_apply_hint(self) -> Optional[str]:
+        """One line next to the ask naming the injected style/preference
+        entries, so the answer applies them. Handles only — the facts
+        themselves are in <memory>."""
+        handles = [
+            i.get("handle") for i in ((getattr(self, "_memory_trace", {}) or {}).get("injection") or {}).get("injected", [])
+            if i.get("section") in ("style", "preferences") and i.get("handle")
+        ]
+        if not handles:
+            return None
+        return (
+            f"<memory_apply>Shape your final answer to the user's style and preferences in <memory> "
+            f"({', '.join('[' + h + ']' for h in handles[:8])}) unless this message asks otherwise.</memory_apply>"
+        )
+
     def _memory_hint(self) -> Optional[str]:
-        """<memory_hint> for this turn when the user's own message carries
-        durable personal signals and the memory tools are offered. Pure code:
-        the model still decides whether anything is worth saving."""
+        """Lines placed next to the ask: <memory_apply> when style/preference
+        entries are injected, plus <memory_hint> when the user's own message
+        carries durable personal signals and the memory tools are offered.
+        Pure code: the model still decides whether anything is worth saving."""
         try:
             if not any(getattr(t, "name", None) == "create_memory" for t in (self.planner.tool_catalog or [])):
-                return None
+                return self._memory_apply_hint()
             prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
             message = prompt.get("content", "") if isinstance(prompt, dict) else ""
             from app.services.memory_rules import personal_signals
@@ -1112,8 +1128,9 @@ class AgentV2:
         except Exception:
             return None
         if not kinds:
-            return None
-        return (
+            return self._memory_apply_hint()
+        apply = self._memory_apply_hint()
+        return (("" if not apply else apply + "\n") +
             f"<memory_hint>This message may carry durable personal context ({', '.join(kinds)}). If it "
             "does and <memory> doesn't already hold it, save it in THIS response with create_memory (one "
             "fact per entry; edit_memory only the entry saying the same thing) alongside your other tool "
@@ -1124,23 +1141,17 @@ class AgentV2:
         )
 
     async def _stamp_memory_trace(self) -> None:
-        """Persist this run's memory metadata on the agent execution (own
-        session, targeted UPDATE — never fails the turn)."""
+        """Put this run's memory metadata on the agent execution. Set on the
+        run's own execution object so finish_agent_execution commits it in
+        the same transaction — a second session writing that row here would
+        wait on the run's own open transaction (SQLite write lock / Postgres
+        row lock) and stall the turn."""
         trace = getattr(self, "_memory_trace", None)
         execution = getattr(self, "current_execution", None)
         if not trace or execution is None:
             return
-        if getattr(self, "_session_maker", None) is None:
-            execution.memory_context_json = dict(trace)  # committed by finish_agent_execution
-            return
         try:
-            from sqlalchemy import update as _upd
-            from app.models.agent_execution import AgentExecution as _AE
-            async with self._session_maker() as _s:
-                await _s.execute(
-                    _upd(_AE).where(_AE.id == str(execution.id)).values(memory_context_json=dict(trace))
-                )
-                await _s.commit()
+            execution.memory_context_json = dict(trace)
         except Exception:
             logger.debug("memory trace stamp failed", exc_info=True)
 
