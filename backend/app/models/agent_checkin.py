@@ -36,6 +36,8 @@ REASON_JUDGE_SKIP = "judge_skip"
 REASON_RUN_FAILED = "run_failed"
 REASON_INVALID_JUDGE_OUTPUT = "invalid_judge_output"
 REASON_OPTED_OUT = "opted_out"
+REASON_FIRE_ERROR = "fire_error"          # an exception before/around the run (guardrails, judge)
+REASON_STALE_RUNNING = "stale_running"    # left in 'running' (e.g. a restart mid-run); swept
 
 
 class AgentCheckin(BaseSchema):

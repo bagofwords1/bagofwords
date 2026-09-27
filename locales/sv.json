@@ -447,6 +447,11 @@
         "title": "⚡ \"{name}\" utlöstes — {summary}",
         "body": "Utredningen är klar — öppna sessionen för att se resultaten."
       }
+    },
+    "checkin": {
+      "badge": "Uppföljning",
+      "openReport": "Öppna rapport",
+      "assistantFallback": "AI-analytiker"
     }
   },
   "auth": {
@@ -934,7 +939,63 @@
     "stepTotal": "Steg totalt",
     "firstToken": "Tid till första token",
     "thinking": "Tänkande",
-    "tool": "Verktyg"
+    "tool": "Verktyg",
+    "machineTurn": "Automatisk tur ({source})",
+    "checkin": {
+      "title": "Agentens uppföljning",
+      "runTurn": "Uppföljningskörning (agentens uppföljning)",
+      "noFollowUp": "Ingen uppföljning planerad",
+      "noReason": "Planeraren angav ingen anledning.",
+      "due": "förfaller {when}",
+      "note": "Anteckning till mig själv",
+      "planReason": "Varför följa upp",
+      "judge": "Domare",
+      "focus": "Fokus",
+      "whyRun": "Varför domaren körde den här uppföljningen",
+      "plannerUsage": "Planerare",
+      "judgeUsage": "Domare",
+      "status": {
+        "not_proposed": "inte föreslagen",
+        "rejected": "avvisad",
+        "planned": "planerad",
+        "cancelled": "avbruten",
+        "skipped": "hoppades över",
+        "running": "körs",
+        "ran_quiet": "kördes tyst",
+        "sent": "aviserad",
+        "failed": "misslyckades"
+      },
+      "decision": {
+        "run": "kör",
+        "skip": "hoppa över"
+      },
+      "reason": {
+        "disabled": "inställningen av",
+        "pending_exists_user": "användaren har redan en väntande",
+        "pending_exists_report": "rapporten har redan en väntande",
+        "weekly_cap": "veckogräns nådd",
+        "org_daily_cap": "organisationens dagsgräns nådd",
+        "report_deleted": "rapporten borttagen",
+        "access_lost": "åtkomst förlorad",
+        "judge_skip": "domaren hoppade över",
+        "run_failed": "körningen misslyckades",
+        "invalid_judge_output": "ogiltigt svar från domaren",
+        "opted_out": "användaren avregistrerad",
+        "fire_error": "fel under kontrollen",
+        "stale_running": "lämnades körande (omstart)"
+      },
+      "outcome": {
+        "sent": "Användaren aviserad",
+        "sentWithSubject": "Användaren aviserad: {subject}",
+        "ran_quiet": "Kördes tyst — inget att meddela",
+        "planned": "Väntar på sin tidpunkt",
+        "running": "Körs nu",
+        "skipped": "Domaren hoppade över — inget kördes",
+        "failed": "Uppföljningskörningen misslyckades — inget skickades",
+        "rejected": "Inte schemalagd: {reason}",
+        "cancelled": "Avbruten: {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chatt",
@@ -2568,6 +2629,18 @@
         "llm_fallback": {
           "name": "LLM-reserv",
           "description": "Enterprise. När den aktiva modellen misslyckas på grund av en hastighetsgräns, överbelastning hos leverantören eller ett nätverksfel görs förfrågan automatiskt om på nästa modell i reservordningen (konfigurerad på LLM-sidan) under resten av körningen. Bytet redovisas alltid i chatten. Avstängt som standard; aktivering kräver en enterprise-licens."
+        },
+        "enable_agent_checkins": {
+          "name": "Agentens uppföljningar",
+          "description": "Låter agenten följa upp på egen hand efter en konversation när något är värt att titta på igen (t.ex. efter en datauppdatering). Uppföljningar körs som användaren i samma rapport och aviserar bara när något väsentligt har ändrats."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Uppföljningar per användare och vecka",
+          "description": "Maximalt antal uppföljningar en användare kan få på 7 dagar."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Uppföljningar per dag",
+          "description": "Övre gräns för uppföljningar i hela organisationen per dag (kostnadstak)."
         }
       }
     },
@@ -4541,7 +4614,11 @@
       "defaultModelSaved": "Standardmodellen har uppdaterats",
       "defaultModelFailed": "Det gick inte att uppdatera standardmodellen",
       "directorySubtitle": "Jobbinformation synkad från organisationens identitetsleverantör. Synlig för AI:n som kontext.",
-      "directoryTitle": "Katalogprofil"
+      "directoryTitle": "Katalogprofil",
+      "checkinsTitle": "Agentens uppföljningar",
+      "checkinsSubtitle": "Låter agenten återkomma på egen hand efter en konversation när något är värt att titta på igen (till exempel efter en datauppdatering). Den aviserar dig bara när något väsentligt har ändrats.",
+      "checkinsSaved": "Uppföljningsinställningen sparades",
+      "checkinsFailed": "Det gick inte att spara din uppföljningsinställning"
     },
     "instructions": {
       "title": "Anpassade instruktioner",
@@ -4859,7 +4936,15 @@
   },
   "events": {
     "evalRunFinished": "Utvärderingskörningen '{title}' avslutades — {passed}/{total} godkända ({status})",
-    "waitResumed": "Väntan förfluten — återupptar: {reason}"
+    "waitResumed": "Väntan förfluten — återupptar: {reason}",
+    "checkin": {
+      "label": "Uppföljning",
+      "running": "Följer upp den här konversationen…",
+      "sent": "Uppföljning — du har aviserats",
+      "sentWithSubject": "Uppföljning — du har aviserats: {subject}",
+      "quiet": "Kontrollerat igen: inget nytt",
+      "failed": "Uppföljningen misslyckades"
+    }
   },
   "chatSummary": {
     "empty": "Inga objekt ännu",

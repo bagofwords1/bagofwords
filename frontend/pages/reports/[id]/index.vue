@@ -1892,8 +1892,39 @@ const expandedCheckinIds = ref<Set<string>>(new Set())
 function checkinMeta(m: any): any {
 	return (m as any)?.trigger_source === 'checkin' ? (m?.prompt?.meta || {}) : null
 }
+// The run's reply for a strip: linked by meta once stamped, else the next
+// check-in system message after the strip.
+function checkinReply(strip: any): any {
+	const id = checkinMeta(strip)?.run_completion_id
+	if (id) return messages.value.find((x: any) => x.id === id) || null
+	const i = messages.value.indexOf(strip)
+	for (let j = i + 1; j < messages.value.length; j++) {
+		const x: any = messages.value[j]
+		if (x.role === 'external') break
+		if (x.role === 'system' && x.trigger_source === 'checkin') return x
+	}
+	return null
+}
+// Outcome of a check-in strip. The server stamps meta.outcome just after the
+// run ends — which can land after the page's end-of-run refresh — so derive it
+// from the reply itself until then (a successful notify call ⇒ sent).
+function checkinOutcome(strip: any): string {
+	const meta = checkinMeta(strip) || {}
+	if (meta.outcome) return meta.outcome
+	if (strip?.status === 'in_progress') return 'running'
+	const reply = checkinReply(strip)
+	if (!reply || reply.status === 'in_progress') return strip?.status === 'error' ? 'failed' : 'running'
+	const notified = (reply.completion_blocks || []).some((b: any) => {
+		const te = b?.tool_execution
+		if (!te || te.tool_name !== 'notify') return false
+		return te.status ? te.status === 'success' : te.success !== false
+	})
+	if (notified) return 'sent'
+	if (reply.status === 'error' || strip?.status === 'error') return 'failed'
+	return 'ran_quiet'
+}
 function isQuietCheckinStrip(m: any): boolean {
-	return m?.role === 'external' && checkinMeta(m)?.outcome === 'ran_quiet'
+	return m?.role === 'external' && (m as any)?.trigger_source === 'checkin' && checkinOutcome(m) === 'ran_quiet'
 }
 function toggleCheckinExpand(id: string) {
 	const next = new Set(expandedCheckinIds.value)
@@ -1903,8 +1934,8 @@ function toggleCheckinExpand(id: string) {
 }
 function isQuietCheckinReplyCollapsed(msg: any): boolean {
 	const strip = messages.value.find((x: any) =>
-		x.role === 'external' && checkinMeta(x)?.run_completion_id === msg.id)
-	if (!strip || checkinMeta(strip)?.outcome !== 'ran_quiet') return false
+		x.role === 'external' && (x as any).trigger_source === 'checkin' && checkinReply(x)?.id === msg.id)
+	if (!strip || checkinOutcome(strip) !== 'ran_quiet') return false
 	return !expandedCheckinIds.value.has(strip.id)
 }
 
@@ -2007,9 +2038,9 @@ function machineEventLabel(m: any): string {
 		return t('events.waitResumed', { reason: meta.reason || '' })
 	}
 	if (src === 'checkin') {
-		const outcome = meta?.outcome
-		if (m.status === 'in_progress') return t('events.checkin.running')
-		if (m.status === 'error' || outcome === 'failed') return t('events.checkin.failed')
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return t('events.checkin.running')
+		if (outcome === 'failed') return t('events.checkin.failed')
 		if (outcome === 'sent') {
 			return meta?.notify_subject
 				? t('events.checkin.sentWithSubject', { subject: meta.notify_subject })
@@ -2059,9 +2090,10 @@ function machineEventIcon(m: any): string {
 	if (src === 'eval_run') return evalEventPassed(m) ? 'heroicons-check-circle' : 'heroicons-x-circle'
 	if (src === 'wait') return 'heroicons-clock'
 	if (src === 'checkin') {
-		if (m.status === 'in_progress') return 'heroicons-arrow-path'
-		if (m.status === 'error' || m?.prompt?.meta?.outcome === 'failed') return 'heroicons-x-circle'
-		return m?.prompt?.meta?.outcome === 'sent' ? 'heroicons-bell-alert' : 'heroicons-arrow-path-rounded-square'
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'heroicons-arrow-path'
+		if (outcome === 'failed') return 'heroicons-x-circle'
+		return outcome === 'sent' ? 'heroicons-bell-alert' : 'heroicons-arrow-path-rounded-square'
 	}
 	return m.status === 'error' ? 'heroicons-x-circle' : 'heroicons-check-circle'
 }
@@ -2069,9 +2101,10 @@ function machineEventIconClass(m: any): string {
 	const src = (m as any)?.trigger_source
 	if (src === 'eval_run') return evalEventPassed(m) ? 'text-green-500' : 'text-red-400'
 	if (src === 'checkin') {
-		if (m.status === 'in_progress') return 'text-blue-400 animate-spin'
-		if (m.status === 'error' || m?.prompt?.meta?.outcome === 'failed') return 'text-red-400'
-		if (m?.prompt?.meta?.outcome === 'sent') return 'text-blue-500'
+		const outcome = checkinOutcome(m)
+		if (outcome === 'running') return 'text-blue-400 animate-spin'
+		if (outcome === 'failed') return 'text-red-400'
+		if (outcome === 'sent') return 'text-blue-500'
 	}
 	return 'text-gray-400 dark:text-gray-500'
 }

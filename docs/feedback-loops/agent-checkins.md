@@ -45,10 +45,10 @@ else — routes, services, DB, completion pipeline, `run_machine_turn`,
 cd backend && uv sync --frozen --extra dev
 export TESTING=true BOW_DATABASE_URL="sqlite:///db/app.db"
 uv run pytest tests/unit/test_checkin_policy.py tests/unit/test_checkin_service.py      # 63 passed
-uv run pytest tests/e2e/test_agent_checkins.py --db=sqlite                              # 39 passed
+uv run pytest tests/e2e/test_agent_checkins.py --db=sqlite                              # 51 passed
 # Postgres leg (no Docker in this sandbox → a local PG 16 via --db=external)
 TEST_DATABASE_URL=postgresql://postgres@127.0.0.1:55432/bow_test \
-  uv run pytest tests/e2e/test_agent_checkins.py --db=external                          # 39 passed
+  uv run pytest tests/e2e/test_agent_checkins.py --db=external                          # 51 passed
 ```
 
 Scenarios covered (e2e): setting off → 0 rows / 0 planner calls; planner
@@ -85,6 +85,12 @@ out cancels pending, respected at fire.
 | drop the `send_email` refusal | 1 failed |
 | drop plan-time / fire-time opt-out | 1 failed each |
 | drop the usage-loop bind (see bug 3) | 1 failed (unit) |
+| drop the agent_v2 post-analysis hook / its setting gate | 2 failed / 1 failed |
+| no failure path around a claimed fire | 2 failed |
+| `failed` wins over `notified` | 1 failed |
+| no owner check before planning | 1 failed |
+| stale sweep a no-op | 2 failed |
+| keep the read transaction open during the planner / judge call | 1 failed each |
 
 Adjacent suites re-run green: console metrics, org settings, report
 notifications, archive guard, conversation access, diagnosis explorer, agent
@@ -180,6 +186,44 @@ http://localhost:3000/reports/8c3bb028-…
    `due_at` by default (`--now` keeps the old behaviour).
 6. **UI — dependent settings overhung the parent column by 24 px.** Fixed
    (padding instead of margin); re-shot.
+
+## Review fixes (second pass)
+
+A review of the first version found six issues; each is fixed, covered by a
+test that fails without the fix, and the live ones were re-checked on the stack.
+
+1. **A check-in could stay `running` forever.** `fire()` claims the row
+   (`planned → running`) before the guardrails and the judge, none of which
+   were guarded, and a restart mid-run left the row as it was. Now everything
+   after the claim runs inside a failure path that records
+   `failed:fire_error` (or `sent:fire_error` if the user was already
+   notified), and an hourly leader-only job (`checkin_stale_sweep` →
+   `sweep_stale_running`) fails rows still `running` after 3 h as
+   `stale_running` and closes their open strip.
+2. **`notify` succeeded, then the turn errored → `failed`.** A notified run is
+   now always `sent` (with `status_reason=run_failed` when the turn errored),
+   so it counts toward the caps and the trace no longer claims "nothing was
+   sent".
+3. **The quiet collapse needed a reload** when the report was open during the
+   run (the outcome is stamped after the page's end-of-run refresh). The strip
+   now derives the outcome from the reply itself until the stamp lands (a
+   successful `notify` call ⇒ sent, else quiet). Live: a check-in fired while
+   the report was open collapsed to "Checked back: nothing new" with no reload
+   (a `window` marker survived) — `80_live_quiet_collapsed_no_reload.png`.
+4. **The planner/judge LLM calls held a pooled DB connection.** The read
+   transaction is committed before each call (`expire_on_commit=False`).
+   Measured with pool checkout/checkin events: 1 connection held during the
+   planner call before, 0 after; now a permanent test for both calls.
+5. **A turn by someone other than the report owner paid for a planner call
+   that could never run.** Planning now requires the asker to own the report
+   (the same owner-only gate the fire-time access check applies).
+6. **7 of the 10 locale catalogs lacked the new keys.** ar, de, fr, it, pt,
+   ru and sv now carry all of them (placeholders checked against `en`).
+
+Also: the e2e suite now runs the **real `AgentV2` loop** (only the planner's
+LLM stream and sync `LLM.inference` stubbed) to exercise the post-analysis hook,
+its setting gate and the ids it dispatches, including a machine turn that the
+hook dispatches and eligibility then rejects.
 
 ## Final prompts
 

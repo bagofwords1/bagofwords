@@ -92,6 +92,7 @@ class _ScriptedAgent:
 
     notify_calls: list = []
     before_tools = None  # optional async callable(db) run before tool calls
+    raise_after_tools = False  # simulate the turn erroring after its tool calls
     tool_results: list = []
     answer = "Churn for September is 3.8% overall; Enterprise 2.1%."
 
@@ -122,6 +123,8 @@ class _ScriptedAgent:
                 events = [e async for e in NotifyTool().run_stream(spec, ctx)]
                 last = events[-1]
                 _ScriptedAgent.tool_results.append((last.type, last.payload))
+            if _ScriptedAgent.raise_after_tools:
+                raise RuntimeError("scripted agent failure after its tool calls")
         system.completion = {"content": _ScriptedAgent.answer}
         system.status = "success"
         await db.commit()
@@ -142,6 +145,7 @@ def env(test_client, create_user, login_user, whoami, create_report, update_orga
     monkeypatch.setattr(completion_mod, "AgentV2", _ScriptedAgent)
     _ScriptedAgent.notify_calls = []
     _ScriptedAgent.before_tools = None
+    _ScriptedAgent.raise_after_tools = False
     _ScriptedAgent.tool_results = []
 
     email = f"checkin_{uuid.uuid4().hex[:8]}@test.com"
@@ -806,3 +810,245 @@ def test_opt_out_is_respected_at_fire_time(env):
     [r] = _rows(rid)
     assert (r.status, r.status_reason) == ("cancelled", "opted_out")
     assert "checkin_judge" not in env.llm.calls
+
+
+# ── the real agent_v2 post-analysis hook ────────────────────────────────────
+#
+# The tests above drive turns with a scripted agent and call
+# dispatch_after_turn directly. These run the REAL AgentV2 loop — only the
+# planner's LLM stream (PlannerV3.execute) and sync LLM.inference (title /
+# follow-ups) are stubbed — so the post-analysis hook, its setting gate and the
+# ids it hands to the dispatcher are exercised. The spawned dispatch coroutine
+# is recorded (not awaited in the background, to avoid sleep-based sync) and
+# then run through the real dispatcher.
+
+@pytest.fixture
+def real_agent(env, monkeypatch):
+    import app.services.completion_service as completion_mod
+    from app.ai.agent_v2 import AgentV2
+    from app.ai.agents.planner.planner_v3 import PlannerV3
+    from app.ai.llm.llm import LLM
+    from app.schemas.ai.planner import PlannerDecision
+    from app.schemas.ai.planner_events import PlannerDecisionEvent
+
+    monkeypatch.setattr(completion_mod, "AgentV2", AgentV2)
+
+    async def _final_answer(self, planner_input, sigkill_event, thinking=None):
+        yield PlannerDecisionEvent(type="planner.decision.final", data=PlannerDecision(
+            analysis_complete=True, plan_type="action",
+            final_answer="September churn was 3.8% overall; Enterprise 2.1%.",
+        ))
+    monkeypatch.setattr(PlannerV3, "execute", _final_answer)
+    monkeypatch.setattr(LLM, "inference", lambda self, prompt, **kw: "Churn review")
+
+    dispatched: list = []
+
+    async def _record(**kwargs):
+        dispatched.append(kwargs)
+    monkeypatch.setattr(cs.checkin_service, "dispatch_after_turn", _record)
+    env.dispatched = dispatched
+
+    def run_dispatch(kw):
+        real = cs.CheckinService.dispatch_after_turn  # the class method, not the recorder
+        return _run(real(cs.checkin_service, **{**kw, "now": FIXED_NOW, "wait_for_finalize": False}))
+    env.run_dispatch = run_dispatch
+    return env
+
+
+@pytest.mark.e2e
+def test_real_turn_hook_dispatches_with_the_turns_ids(real_agent):
+    env = real_agent
+    env.set_settings(enable_agent_checkins=True)
+    rid = env.new_report()
+    head_id, system_id = env.human_turn(rid)
+
+    assert len(env.dispatched) == 1
+    kw = env.dispatched[0]
+    assert kw["report_id"] == rid and kw["user_id"] == env.user_id
+    assert kw["head_completion_id"] == head_id and kw["system_completion_id"] == system_id
+    assert kw["small_model_id"] == env.model_id
+
+    row = env.run_dispatch(kw)
+    assert row is not None and row.status == "planned"
+    assert env.llm.calls == ["checkin_planner"]
+
+
+@pytest.mark.e2e
+def test_real_turn_hook_does_nothing_when_setting_off(real_agent):
+    env = real_agent
+    rid = env.new_report()
+    env.human_turn(rid)
+    assert env.dispatched == []
+    assert _rows(rid) == [] and env.llm.calls == []
+
+
+@pytest.mark.e2e
+def test_real_machine_turn_is_rejected_by_eligibility(real_agent):
+    from app.services.machine_turn import run_machine_turn
+    from app.models.organization import Organization
+    from app.models.report import Report
+    from app.models.user import User
+
+    env = real_agent
+    env.set_settings(enable_agent_checkins=True)
+    rid = env.new_report()
+
+    async def _machine():
+        async with async_session_maker() as db:
+            await run_machine_turn(
+                db, report=await db.get(Report, rid), user=await db.get(User, env.user_id),
+                organization=await db.get(Organization, env.org_id), summary="wait elapsed",
+                trigger_source="wait", message_type="wait_resume_event", instruction="resume",
+            )
+    _run(_machine())
+    assert len(env.dispatched) == 1  # the hook fires for every completed turn…
+    assert env.run_dispatch(env.dispatched[0]) is None  # …and eligibility stops it
+    assert _rows(rid) == [] and env.llm.calls == []
+
+
+
+# ── failure paths never leave a row 'running' ───────────────────────────────
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("where", ["access", "judge_context"])
+def test_exception_during_fire_marks_failed_not_running(env, monkeypatch, where):
+    rid, row = _planned(env)
+
+    async def _boom(*a, **k):
+        raise RuntimeError("boom")
+    if where == "access":
+        monkeypatch.setattr(cs.policy, "check_access", _boom)
+    else:
+        monkeypatch.setattr(cs.CheckinService, "_judge_context", _boom)
+    env.fire(row.id)
+    [r] = _rows(rid)
+    assert (r.status, r.status_reason) == ("failed", "fire_error")
+
+
+@pytest.mark.e2e
+def test_notify_then_turn_error_is_sent_and_counts_toward_caps(env):
+    rid, row = _planned(env)
+    _ScriptedAgent.notify_calls = [dict(NOTIFY_OK)]
+    _ScriptedAgent.raise_after_tools = True
+    env.fire(row.id)
+    [r] = _rows(rid)
+    assert (r.status, r.status_reason) == ("sent", "run_failed")
+    assert r.notified is True
+    assert len(env.notifications(source="checkin")) == 1
+    # it is a delivered run: with a weekly cap of 1 the next plan is rejected
+    env.set_settings(checkins_max_per_user_per_week=1)
+    rid2 = env.new_report("next")
+    row2 = env.plan(rid2, env.human_turn(rid2))
+    assert (row2.status, row2.status_reason) == ("rejected", "weekly_cap")
+
+
+@pytest.mark.e2e
+def test_turn_error_without_notify_is_failed(env):
+    rid, row = _planned(env)
+    _ScriptedAgent.raise_after_tools = True
+    env.fire(row.id)
+    [r] = _rows(rid)
+    assert (r.status, r.status_reason) == ("failed", "run_failed")
+    assert env.notifications(source="checkin") == []
+
+
+def _force_running(checkin_id, age, notified=False):
+    """Direct write: a row a crashed/restarted worker left in 'running' — no
+    API path can produce that state on purpose."""
+    async def _w():
+        async with async_session_maker() as db:
+            r = await db.get(AgentCheckin, checkin_id)
+            r.status = "running"
+            r.notified = notified
+            r.judged_at = FIXED_NOW - age
+            await db.commit()
+            from sqlalchemy import update as _upd
+            await db.execute(_upd(AgentCheckin).where(AgentCheckin.id == checkin_id)
+                             .values(updated_at=FIXED_NOW - age))
+            await db.commit()
+    _run(_w())
+
+
+def _sweep():
+    async def _s():
+        async with async_session_maker() as db:
+            return await cs.checkin_service.sweep_stale_running(db, now=FIXED_NOW)
+    return _run(_s())
+
+
+@pytest.mark.e2e
+@pytest.mark.parametrize("notified,expected", [(False, "failed"), (True, "sent")])
+def test_sweep_fails_rows_stuck_running(env, notified, expected):
+    rid, row = _planned(env)
+    _force_running(row.id, cs.STALE_RUNNING_AFTER + timedelta(minutes=1), notified=notified)
+    assert _sweep() == 1
+    [r] = _rows(rid)
+    assert (r.status, r.status_reason) == (expected, "stale_running")
+    assert env.trace(rid).json()["checkins"][0]["status"] == expected
+
+
+@pytest.mark.e2e
+def test_sweep_leaves_recent_running_rows_alone(env):
+    rid, row = _planned(env)
+    _force_running(row.id, cs.STALE_RUNNING_AFTER - timedelta(minutes=5))
+    assert _sweep() == 0
+    assert _rows(rid)[0].status == "running"
+
+
+# ── planning only for the report owner ──────────────────────────────────────
+
+@pytest.mark.e2e
+def test_turn_by_non_owner_is_not_planned(env, create_user, login_user, whoami):
+    member_email = f"checkin_other_{uuid.uuid4().hex[:6]}@test.com"
+    env.client.post(f"/api/organizations/{env.org_id}/members", headers=env.headers,
+                    json={"organization_id": env.org_id, "email": member_email, "role": "member"})
+    create_user(email=member_email, password="test123")
+    other_id = whoami(login_user(member_email, "test123"))["id"]
+
+    rid = env.new_report()
+    pair = env.human_turn(rid)
+    env.set_settings(enable_agent_checkins=True)
+    assert env.plan(rid, pair, user_id=other_id) is None
+    assert _rows(rid) == [] and env.llm.calls == []
+
+
+# ── no pooled DB connection is held during the small-model calls ────────────
+
+@pytest.fixture
+def held_connections():
+    """Live count of pooled connections checked out (pool events fire for any
+    pool class, NullPool included)."""
+    from sqlalchemy import event
+    pool = async_session_maker.kw["bind"].sync_engine.pool
+    state = {"n": 0}
+    on_out = lambda *a: state.__setitem__("n", state["n"] + 1)  # noqa: E731
+    on_in = lambda *a: state.__setitem__("n", state["n"] - 1)  # noqa: E731
+    event.listen(pool, "checkout", on_out)
+    event.listen(pool, "checkin", on_in)
+    yield state
+    event.remove(pool, "checkout", on_out)
+    event.remove(pool, "checkin", on_in)
+
+
+@pytest.mark.e2e
+def test_planner_and_judge_calls_hold_no_db_connection(env, held_connections, monkeypatch):
+    seen = {}
+    script = env.llm
+
+    async def _probe(model, **kw):
+        seen[kw["usage_scope"]] = held_connections["n"]
+        return await script(model, **kw)
+
+    import app.ai.agents.checkins.judge as judge_mod
+    import app.ai.agents.checkins.planner as planner_mod
+    monkeypatch.setattr(planner_mod, "call_small_model", _probe)
+    monkeypatch.setattr(judge_mod, "call_small_model", _probe)
+
+    rid = env.new_report()
+    pair = env.human_turn(rid)
+    env.set_settings(enable_agent_checkins=True)
+    held_connections["n"] = 0
+    row = env.plan(rid, pair)
+    held_connections["n"] = 0
+    env.fire(row.id)
+    assert seen == {"checkin_planner": 0, "checkin_judge": 0}

@@ -447,6 +447,11 @@
         "title": "⚡ \"{name}\" wurde ausgelöst — {summary}",
         "body": "Die Untersuchung ist abgeschlossen — öffnen Sie die Sitzung für die Ergebnisse."
       }
+    },
+    "checkin": {
+      "badge": "Nachfassen",
+      "openReport": "Bericht öffnen",
+      "assistantFallback": "KI-Analyst"
     }
   },
   "auth": {
@@ -934,7 +939,63 @@
     "stepTotal": "Schritt gesamt",
     "firstToken": "Zeit bis zum ersten Token",
     "thinking": "Denken",
-    "tool": "Tool"
+    "tool": "Tool",
+    "machineTurn": "Maschinenzug ({source})",
+    "checkin": {
+      "title": "Agenten-Check-in",
+      "runTurn": "Nachfass-Lauf (Agenten-Check-in)",
+      "noFollowUp": "Kein Nachfassen geplant",
+      "noReason": "Der Planer hat keinen Grund angegeben.",
+      "due": "fällig {when}",
+      "note": "Notiz an sich selbst",
+      "planReason": "Warum nachfassen",
+      "judge": "Richter",
+      "focus": "Fokus",
+      "whyRun": "Warum der Richter dieses Nachfassen ausgeführt hat",
+      "plannerUsage": "Planer",
+      "judgeUsage": "Richter",
+      "status": {
+        "not_proposed": "nicht vorgeschlagen",
+        "rejected": "abgelehnt",
+        "planned": "geplant",
+        "cancelled": "abgebrochen",
+        "skipped": "übersprungen",
+        "running": "läuft",
+        "ran_quiet": "still gelaufen",
+        "sent": "benachrichtigt",
+        "failed": "fehlgeschlagen"
+      },
+      "decision": {
+        "run": "ausführen",
+        "skip": "überspringen"
+      },
+      "reason": {
+        "disabled": "Einstellung aus",
+        "pending_exists_user": "Nutzer hat bereits eines ausstehend",
+        "pending_exists_report": "Bericht hat bereits eines ausstehend",
+        "weekly_cap": "Wochenlimit erreicht",
+        "org_daily_cap": "Tageslimit der Organisation erreicht",
+        "report_deleted": "Bericht gelöscht",
+        "access_lost": "Zugriff verloren",
+        "judge_skip": "vom Richter übersprungen",
+        "run_failed": "Lauf fehlgeschlagen",
+        "invalid_judge_output": "ungültige Richterantwort",
+        "opted_out": "abgemeldet",
+        "fire_error": "Fehler bei der Prüfung",
+        "stale_running": "blieb laufend (Neustart)"
+      },
+      "outcome": {
+        "sent": "Nutzer benachrichtigt",
+        "sentWithSubject": "Nutzer benachrichtigt: {subject}",
+        "ran_quiet": "Still gelaufen — nichts Meldenswertes",
+        "planned": "Wartet auf den Fälligkeitszeitpunkt",
+        "running": "Läuft gerade",
+        "skipped": "Vom Richter übersprungen — nichts ausgeführt",
+        "failed": "Der Nachfass-Lauf ist fehlgeschlagen — nichts gesendet",
+        "rejected": "Nicht geplant: {reason}",
+        "cancelled": "Abgebrochen: {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -2568,6 +2629,18 @@
         "llm_fallback": {
           "name": "LLM-Fallback",
           "description": "Enterprise. Schlägt das aktive Modell wegen eines Ratenlimits, einer Überlastung beim Anbieter oder eines Netzwerkfehlers fehl, wird die Anfrage für den Rest des Laufs automatisch auf dem nächsten Modell der Fallback-Reihenfolge (auf der LLM-Seite konfiguriert) wiederholt. Die Ersetzung wird im Chat immer offengelegt. Standardmäßig aus; die Aktivierung erfordert eine Enterprise-Lizenz."
+        },
+        "enable_agent_checkins": {
+          "name": "Agenten-Check-ins",
+          "description": "Lässt den Agenten nach einem Gespräch selbstständig nachfassen, wenn sich ein erneuter Blick lohnt (z. B. nach einer Datenaktualisierung). Das Nachfassen läuft als der Nutzer im selben Bericht und benachrichtigt ihn nur, wenn sich etwas Wesentliches geändert hat."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Check-ins pro Nutzer und Woche",
+          "description": "Maximale Anzahl an Nachfass-Läufen, die ein Nutzer in 7 Tagen erhalten kann."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Check-in-Läufe pro Tag",
+          "description": "Obergrenze für Nachfass-Läufe in der gesamten Organisation pro Tag (Kostenlimit)."
         }
       }
     },
@@ -4541,7 +4614,11 @@
       "defaultModelSaved": "Standardmodell aktualisiert",
       "defaultModelFailed": "Standardmodell konnte nicht aktualisiert werden",
       "directorySubtitle": "Berufliche Angaben, synchronisiert vom Identitätsanbieter deiner Organisation. Für die KI als Kontext sichtbar.",
-      "directoryTitle": "Verzeichnisprofil"
+      "directoryTitle": "Verzeichnisprofil",
+      "checkinsTitle": "Nachfassen des Agenten",
+      "checkinsSubtitle": "Lässt den Agenten nach einem Gespräch selbstständig nachsehen, wenn sich ein erneuter Blick lohnt (zum Beispiel nach einer Datenaktualisierung). Er benachrichtigt dich nur, wenn sich etwas Wesentliches geändert hat.",
+      "checkinsSaved": "Nachfass-Einstellung gespeichert",
+      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden"
     },
     "instructions": {
       "title": "Benutzerdefinierte Anweisungen",
@@ -4859,7 +4936,15 @@
   },
   "events": {
     "evalRunFinished": "Evaluierungslauf '{title}' beendet — {passed}/{total} bestanden ({status})",
-    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}"
+    "waitResumed": "Wartezeit abgelaufen — Fortsetzung: {reason}",
+    "checkin": {
+      "label": "Nachfassen",
+      "running": "Fasst bei diesem Gespräch nach…",
+      "sent": "Nachfassen — du wurdest benachrichtigt",
+      "sentWithSubject": "Nachfassen — du wurdest benachrichtigt: {subject}",
+      "quiet": "Erneut geprüft: nichts Neues",
+      "failed": "Nachfassen fehlgeschlagen"
+    }
   },
   "chatSummary": {
     "empty": "Noch keine Einträge",

@@ -994,7 +994,9 @@
         "judge_skip": "omitido por el juez",
         "run_failed": "la ejecución falló",
         "invalid_judge_output": "respuesta del juez no válida",
-        "opted_out": "el usuario se excluyó"
+        "opted_out": "el usuario se excluyó",
+        "fire_error": "error durante la comprobación",
+        "stale_running": "quedó en ejecución (reinicio)"
       },
       "outcome": {
         "sent": "Se notificó al usuario",

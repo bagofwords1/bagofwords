@@ -49,11 +49,13 @@ from app.models.agent_checkin import (
     STATUS_SENT,
     STATUS_SKIPPED,
     REASON_DISABLED,
+    REASON_FIRE_ERROR,
     REASON_INVALID_JUDGE_OUTPUT,
     REASON_JUDGE_SKIP,
     REASON_OPTED_OUT,
     REASON_REPORT_DELETED,
     REASON_RUN_FAILED,
+    REASON_STALE_RUNNING,
 )
 from app.services import checkin_policy as policy
 
@@ -63,6 +65,11 @@ JOB_PREFIX = "checkin:"
 TRIGGER_SOURCE = "checkin"
 MESSAGE_TYPE = "checkin_event"
 MISFIRE_GRACE_SECONDS = 6 * 3600
+
+# A row still 'running' this long after it was claimed is considered dead (a
+# restart or crash mid-run) and swept to failed:stale_running. Generous: a
+# check-in run is a normal agent turn (minutes), never hours.
+STALE_RUNNING_AFTER = timedelta(hours=3)
 
 # How long the planner waits for the source turn to be finalized in the DB
 # (the post-analysis hook runs just before the completion is closed out).
@@ -132,6 +139,17 @@ async def run_checkin_wake(checkin_id: str) -> None:
             await checkin_service.fire(db, checkin_id)
         except Exception:
             logger.exception("checkin wake %s failed", checkin_id)
+
+
+async def sweep_stale_checkins() -> None:
+    """Scheduler job (hourly): fail check-ins stuck in 'running'."""
+    from app.dependencies import async_session_maker
+
+    async with async_session_maker() as db:
+        try:
+            await checkin_service.sweep_stale_running(db)
+        except Exception:
+            logger.exception("checkin stale sweep failed")
 
 
 class CheckinService:
@@ -275,6 +293,11 @@ class CheckinService:
             ).scalar_one_or_none()
             if report is None or getattr(report, "report_type", "regular") != "regular":
                 return None
+            # The fire-time access check requires the asker to own the report
+            # (the completion route's owner-only gate); a turn by anyone else
+            # could never run, so don't pay for a planner call on it.
+            if str(report.user_id) != str(user_id):
+                return None
 
             # Let the turn finish closing out so the planner sees the answer.
             system = None
@@ -326,6 +349,9 @@ class CheckinService:
 
             if planner is None:
                 from app.ai.agents.checkins.planner import run_planner as planner  # noqa: N806
+            # End the read transaction so no pooled connection is held for the
+            # seconds the LLM call takes (expire_on_commit=False: objects stay usable).
+            await db.commit()
             out = await planner(model, ctx, checkin_id=checkin_id)
             if out is None:
                 return None  # invalid planner output: no check-in, no row
@@ -463,6 +489,27 @@ class CheckinService:
             logger.info("checkin %s -> %s%s", row.id, status, f":{reason}" if reason else "")
             return status
 
+        try:
+            return await self._fire_claimed(db, row, _finish, judge=judge, now=now,
+                                            ignore_working_window=ignore_working_window)
+        except Exception:
+            # Never leave a claimed row in 'running': it would show as running
+            # forever in the trace and (once judged) count against the caps.
+            logger.exception("checkin %s: fire failed", checkin_id)
+            try:
+                await db.rollback()
+                row = await db.get(AgentCheckin, str(checkin_id))
+                if row is not None and row.status == STATUS_RUNNING:
+                    row.status = STATUS_SENT if row.notified else STATUS_FAILED
+                    row.status_reason = REASON_FIRE_ERROR
+                    await db.commit()
+                    return row.status
+            except Exception:
+                logger.exception("checkin %s: could not record the failure", checkin_id)
+            return STATUS_FAILED
+
+    async def _fire_claimed(self, db, row: AgentCheckin, _finish, *, judge, now, ignore_working_window) -> str:
+        """Guardrails → judge → run for a row already claimed as 'running'."""
         # 1) Setting.
         settings_row = await policy.load_org_settings(db, row.organization_id)
         if not policy.feature_enabled(settings_row):
@@ -512,6 +559,7 @@ class CheckinService:
         ctx = await self._judge_context(db, row=row, report=report, now=now, tz_name=tz_name)
         if judge is None:
             from app.ai.agents.checkins.judge import run_judge as judge  # noqa: N806
+        await db.commit()  # release the connection during the LLM call
         verdict = await judge(small_model, ctx, checkin_id=row.id)
         row.judge_decision = verdict.decision
         row.judge_reason = verdict.reason
@@ -597,10 +645,12 @@ class CheckinService:
             if run_completion.status == "error":
                 failed = True
 
-        if failed:
+        if row.notified:
+            # The user got the message: that's a delivered follow-up (it counts
+            # toward the caps) even if the turn errored afterwards.
+            status, reason = STATUS_SENT, (REASON_RUN_FAILED if failed else None)
+        elif failed:
             status, reason = STATUS_FAILED, REASON_RUN_FAILED
-        elif row.notified:
-            status, reason = STATUS_SENT, None
         else:
             status, reason = STATUS_RAN_QUIET, None
         row.status = status
@@ -728,6 +778,45 @@ class CheckinService:
             "refreshes": refreshes,
             "history": history,
         }
+
+    async def sweep_stale_running(self, db, now: Optional[datetime] = None) -> int:
+        """Fail rows left in 'running' past STALE_RUNNING_AFTER (a restart or
+        crash mid-run), and close their event strip if it is still open."""
+        from app.models.completion import Completion
+
+        now = now or _utcnow()
+        rows = (
+            await db.execute(
+                select(AgentCheckin).where(
+                    AgentCheckin.status == STATUS_RUNNING,
+                    AgentCheckin.updated_at < now - STALE_RUNNING_AFTER,
+                )
+            )
+        ).scalars().all()
+        for row in rows:
+            row.status = STATUS_SENT if row.notified else STATUS_FAILED
+            row.status_reason = REASON_STALE_RUNNING
+            strips = (
+                await db.execute(
+                    select(Completion).options(lazyload("*")).where(
+                        Completion.report_id == row.report_id,
+                        Completion.role == "external",
+                        Completion.trigger_source == TRIGGER_SOURCE,
+                        Completion.status == "in_progress",
+                    )
+                )
+            ).scalars().all()
+            for strip in strips:
+                meta = dict((strip.prompt or {}).get("meta") or {})
+                if meta.get("checkin_id") != str(row.id):
+                    continue
+                strip.status = "error"
+                meta["outcome"] = row.status
+                strip.prompt = {**(strip.prompt or {}), "meta": meta}
+        if rows:
+            await db.commit()
+            logger.info("Swept %s stale running checkin(s)", len(rows))
+        return len(rows)
 
     # ── notify-tool bridge ──────────────────────────────────────────────────
 

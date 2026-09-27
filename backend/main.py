@@ -486,6 +486,24 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule purge job: {e}")
 
+    # Agent check-ins: fail rows left in 'running' by a restart/crash mid-run.
+    if is_scheduler_leader:
+        try:
+            from app.services.checkin_service import sweep_stale_checkins
+            scheduler.add_job(
+                sweep_stale_checkins,
+                trigger="interval",
+                hours=1,
+                id="checkin_stale_sweep",
+                replace_existing=True,
+                coalesce=True,
+                max_instances=1,
+                misfire_grace_time=3600,
+            )
+            logger.info("Scheduled job: checkin_stale_sweep every 1 hour")
+        except Exception as e:
+            logger.error(f"Failed to schedule check-in stale sweep: {e}")
+
     # Background warmup of QVD Parquet caches so the first create_data/inspect_data
     # on a 1-5GB QVD doesn't block the UI for minutes.
     if is_scheduler_leader:

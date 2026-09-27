@@ -447,6 +447,11 @@
         "title": "⚡ « {name} » s'est déclenché — {summary}",
         "body": "L'enquête est terminée — ouvrez la session pour voir les résultats."
       }
+    },
+    "checkin": {
+      "badge": "Suivi",
+      "openReport": "Ouvrir le rapport",
+      "assistantFallback": "Analyste IA"
     }
   },
   "auth": {
@@ -934,7 +939,63 @@
     "stepTotal": "Total de l'étape",
     "firstToken": "Temps jusqu'au premier token",
     "thinking": "Réflexion",
-    "tool": "Outil"
+    "tool": "Outil",
+    "machineTurn": "Tour automatique ({source})",
+    "checkin": {
+      "title": "Suivi de l'agent",
+      "runTurn": "Exécution de suivi (suivi de l'agent)",
+      "noFollowUp": "Aucun suivi prévu",
+      "noReason": "Le planificateur n'a donné aucune raison.",
+      "due": "prévu {when}",
+      "note": "Note pour plus tard",
+      "planReason": "Pourquoi un suivi",
+      "judge": "Juge",
+      "focus": "Objectif",
+      "whyRun": "Pourquoi le juge a lancé ce suivi",
+      "plannerUsage": "Planificateur",
+      "judgeUsage": "Juge",
+      "status": {
+        "not_proposed": "non proposé",
+        "rejected": "rejeté",
+        "planned": "planifié",
+        "cancelled": "annulé",
+        "skipped": "ignoré",
+        "running": "en cours",
+        "ran_quiet": "exécuté sans alerte",
+        "sent": "notifié",
+        "failed": "échoué"
+      },
+      "decision": {
+        "run": "exécuter",
+        "skip": "ignorer"
+      },
+      "reason": {
+        "disabled": "paramètre désactivé",
+        "pending_exists_user": "l'utilisateur en a déjà un en attente",
+        "pending_exists_report": "le rapport en a déjà un en attente",
+        "weekly_cap": "limite hebdomadaire atteinte",
+        "org_daily_cap": "limite quotidienne de l'organisation atteinte",
+        "report_deleted": "rapport supprimé",
+        "access_lost": "accès perdu",
+        "judge_skip": "ignoré par le juge",
+        "run_failed": "échec de l'exécution",
+        "invalid_judge_output": "réponse du juge invalide",
+        "opted_out": "désinscrit",
+        "fire_error": "erreur pendant la vérification",
+        "stale_running": "resté en cours (redémarrage)"
+      },
+      "outcome": {
+        "sent": "Utilisateur notifié",
+        "sentWithSubject": "Utilisateur notifié : {subject}",
+        "ran_quiet": "Exécuté sans alerte — rien à signaler",
+        "planned": "En attente de son échéance",
+        "running": "En cours d'exécution",
+        "skipped": "Ignoré par le juge — rien n'a été exécuté",
+        "failed": "L'exécution du suivi a échoué — rien n'a été envoyé",
+        "rejected": "Non programmé : {reason}",
+        "cancelled": "Annulé : {reason}"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Conversation",
@@ -2568,6 +2629,18 @@
         "llm_fallback": {
           "name": "Repli LLM",
           "description": "Enterprise. Lorsque le modèle actif échoue en raison d'une limite de débit, d'une surcharge du fournisseur ou d'une erreur réseau, la requête est automatiquement relancée sur le modèle suivant dans l'ordre de repli (configuré sur la page LLM) pour le reste de l'exécution. La substitution est toujours signalée dans le chat. Désactivé par défaut ; l'activation nécessite une licence enterprise."
+        },
+        "enable_agent_checkins": {
+          "name": "Suivis de l'agent",
+          "description": "Permet à l'agent de faire un suivi de lui-même après une conversation lorsqu'il vaut la peine d'y revenir (par ex. après une actualisation des données). Les suivis s'exécutent au nom de l'utilisateur dans le même rapport et ne le notifient que lorsque quelque chose d'important a changé."
+        },
+        "checkins_max_per_user_per_week": {
+          "name": "Suivis par utilisateur et par semaine",
+          "description": "Nombre maximal de suivis qu'un utilisateur peut recevoir en 7 jours."
+        },
+        "checkins_max_runs_per_org_per_day": {
+          "name": "Suivis par jour",
+          "description": "Plafond de suivis pour toute l'organisation par jour (limite de coût)."
         }
       }
     },
@@ -4541,7 +4614,11 @@
       "defaultModelSaved": "Modèle par défaut mis à jour",
       "defaultModelFailed": "Échec de la mise à jour du modèle par défaut",
       "directorySubtitle": "Informations professionnelles synchronisées depuis le fournisseur d'identité de votre organisation. Visibles par l'IA comme contexte.",
-      "directoryTitle": "Profil de l'annuaire"
+      "directoryTitle": "Profil de l'annuaire",
+      "checkinsTitle": "Suivis de l'agent",
+      "checkinsSubtitle": "Permet à l'agent de revenir de lui-même après une conversation lorsqu'il vaut la peine d'y revenir (par exemple après une actualisation des données). Il ne vous notifie que lorsque quelque chose d'important a changé.",
+      "checkinsSaved": "Préférence de suivi enregistrée",
+      "checkinsFailed": "Impossible d'enregistrer votre préférence de suivi"
     },
     "instructions": {
       "title": "Instructions personnalisées",
@@ -4859,7 +4936,15 @@
   },
   "events": {
     "evalRunFinished": "L'exécution d'évaluation '{title}' est terminée — {passed}/{total} réussies ({status})",
-    "waitResumed": "Attente écoulée — reprise : {reason}"
+    "waitResumed": "Attente écoulée — reprise : {reason}",
+    "checkin": {
+      "label": "Suivi",
+      "running": "Suivi de cette conversation…",
+      "sent": "Suivi — vous avez été notifié",
+      "sentWithSubject": "Suivi — vous avez été notifié : {subject}",
+      "quiet": "Revérifié : rien de nouveau",
+      "failed": "Échec du suivi"
+    }
   },
   "chatSummary": {
     "empty": "Aucun élément pour l'instant",

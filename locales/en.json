@@ -1020,7 +1020,9 @@
         "judge_skip": "judge skipped",
         "run_failed": "run failed",
         "invalid_judge_output": "invalid judge output",
-        "opted_out": "opted out"
+        "opted_out": "opted out",
+        "fire_error": "error during the check",
+        "stale_running": "left running (restart)"
       },
       "outcome": {
         "sent": "Notified the user",
