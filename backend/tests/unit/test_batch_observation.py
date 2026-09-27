@@ -20,7 +20,7 @@ def _outcome(tool, obs):
 
 
 def test_bookkeeping_set_covers_note_and_memory_tools():
-    assert _BOOKKEEPING_TOOLS == {"create_note", "edit_note", "update_user_memory"}
+    assert _BOOKKEEPING_TOOLS == {"create_note", "edit_note", "create_memory", "edit_memory"}
 
 
 # --- aggregation: substantive members keep their full observation -----------
@@ -75,13 +75,13 @@ def test_bookkeeping_batch_carries_previous_observation():
     agg = AgentV2._aggregate_batch_observation(
         [
             _outcome("edit_note", {"summary": "ticked"}),
-            _outcome("update_user_memory", {"summary": "remembered"}),
+            _outcome("create_memory", {"summary": "remembered"}),
         ],
         [],
     )
     out = AgentV2._carry_substantive_observation(
         PREV, agg,
-        [_outcome("edit_note", {"summary": "ticked"}), _outcome("update_user_memory", {"summary": "remembered"})],
+        [_outcome("edit_note", {"summary": "ticked"}), _outcome("create_memory", {"summary": "remembered"})],
     )
     assert out["query_id"] == "q1"
     assert "bookkeeping_ack" in out

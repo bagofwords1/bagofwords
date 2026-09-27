@@ -37,6 +37,27 @@ class AgentExecutionTraceResponse(BaseModel):
     timing_breakdown: Optional[TimingBreakdownSchema] = None
 
 
+class TurnMemoryItemSchema(BaseModel):
+    handle: Optional[str] = None
+    section: Optional[str] = None
+    tier: Optional[str] = None  # always | matched (injected entries)
+    tool: Optional[str] = None  # create_memory | edit_memory | search_memory
+    action: Optional[str] = None
+    code: Optional[str] = None  # refusal code
+    success: Optional[bool] = None
+    text: Optional[str] = None  # owner only
+
+
+class TurnMemorySchema(BaseModel):
+    owner_view: bool = False
+    chars: int = 0
+    total_entries: int = 0
+    hidden: int = 0
+    injected: List[TurnMemoryItemSchema] = []
+    tool_calls: List[TurnMemoryItemSchema] = []
+    refusals: List[TurnMemoryItemSchema] = []
+
+
 class ConversationTurnSchema(BaseModel):
     """One user→assistant turn in a report conversation, with diagnosis badges.
 
@@ -84,6 +105,12 @@ class ConversationTurnSchema(BaseModel):
     # uses). Empty for turns still in progress / without blocks.
     completion_blocks: List[CompletionBlockV2Schema] = []
 
+    # User-memory activity for this turn: entries injected (handle, section,
+    # tier), rendered size, memory tool calls and refusals. ``text`` fields are
+    # filled ONLY when the viewer owns the memory (owner_view=True); everyone
+    # else — admins included — sees handles, sections and counts.
+    memory: Optional["TurnMemorySchema"] = None
+
 
 class ConversationTraceResponse(BaseModel):
     """A whole report conversation as an ordered list of turns + roll-up."""
@@ -106,3 +133,6 @@ class ConversationTraceResponse(BaseModel):
     turns: List[ConversationTurnSchema] = []
 
 
+
+
+ConversationTurnSchema.model_rebuild()

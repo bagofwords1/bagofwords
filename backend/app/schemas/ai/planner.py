@@ -157,10 +157,14 @@ class PlannerInput(BaseModel):
     # "CFO, focuses on monthly close metrics"). Both are optional.
     user_name: Optional[str] = None
     user_note: Optional[str] = None
-    # Agent-curated durable memory about the asker (Membership.memory), rendered
-    # as <user_memory>. Written by the update_user_memory tool; treated as the
-    # agent's own recollection of the user, subordinate to org instructions.
+    # Pre-rendered tiered <memory> body for the asker (MemoryContextBuilder:
+    # always / matched tiers + index line). Personal context only — never
+    # business rules; None when user memory is off or empty.
     user_memory: Optional[str] = None
+    # One-line nudge placed next to the ask when the user's message carries
+    # durable personal signals (style correction, role, shorthand, dated
+    # event, focus) and the memory tools are available. None otherwise.
+    memory_hint: Optional[str] = None
     # Job info synced from the org's identity provider (Entra ID Graph /me:
     # jobTitle, department, company, …). Rendered inside <user_profile>. Admin
     # chooses which attributes are included per org. Treated as context, not

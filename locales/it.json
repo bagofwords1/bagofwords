@@ -934,7 +934,17 @@
     "stepTotal": "Totale del passo",
     "firstToken": "Tempo al primo token",
     "thinking": "Ragionamento",
-    "tool": "Strumento"
+    "tool": "Strumento",
+    "memory": {
+      "title": "Memoria",
+      "summary": "{injected} di {total} voci incluse · {chars} caratteri",
+      "privateNote": "La memoria è privata del proprietario: vengono mostrati solo identificativi e sezioni.",
+      "refused": "Rifiutato",
+      "tier": {
+        "always": "sempre",
+        "matched": "corrispondenza"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1496,10 +1506,12 @@
       "cancelledPlural": "Annullate {count} attese in sospeso",
       "nothingPending": "Nessuna attesa in sospeso"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Aggiornamento della memoria…",
+      "checking": "Consultazione della memoria…",
       "updated": "Memoria aggiornata",
-      "failed": "Aggiornamento della memoria non riuscito"
+      "checked": "Memoria consultata",
+      "failed": "Impossibile aggiornare la memoria"
     },
     "routeModel": {
       "routedTo": "Instradato a",
@@ -2537,6 +2549,10 @@
           "name": "Note dell'agente",
           "description": "Consente all'agente di tenere note di lavoro per ogni report (un blocco appunti) che scrive e rilegge mentre risponde: piani, riscontri e cose da fare. Le note sono mostrate nel report ma non sono conoscenza condivisa. Quando è disattivato, gli strumenti per le note sono nascosti e le note non vengono inserite nel contesto."
         },
+        "enable_user_memory": {
+          "name": "Memoria utente",
+          "description": "Consente all'agente di ricordare il contesto personale di ogni utente tra le sessioni: stile di scrittura, ruolo, abbreviazioni personali, riunioni ed eventi in arrivo, focus attuale. Definizioni e regole di business restano nelle istruzioni. Ogni utente può vedere, modificare ed eliminare la propria memoria."
+        },
         "max_instructions_in_context": {
           "name": "Numero massimo di istruzioni nel contesto",
           "description": "Numero massimo di istruzioni da includere nel contesto dell'IA. Le istruzioni di tipo 'sempre' vengono caricate per prime, poi quelle 'intelligenti' occupano i posti rimanenti."
@@ -3360,7 +3376,20 @@
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider"
     },
-    "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla."
+    "data_source.in_use": "L'agente \"{agent}\" è ancora in uso ({reference}), quindi non può essere eliminato. Non è stato eliminato nulla.",
+    "memory.disabled": "La memoria utente è disattivata in questa organizzazione.",
+    "memory.not_found": "Questa voce di memoria non esiste.",
+    "memory.text_required": "Scrivi cosa ricordare.",
+    "memory.text_too_long": "Al massimo 280 caratteri.",
+    "memory.invalid_section": "Scegli una delle sezioni della memoria.",
+    "memory.too_many_tags": "Al massimo 4 tag.",
+    "memory.tags_required": "Aggiungi almeno un tag.",
+    "memory.event_date_required": "Gli eventi richiedono una data di inizio.",
+    "memory.invalid_date": "Questa data non è valida.",
+    "memory.sensitive": "La memoria non può contenere segreti, password o dati personali sensibili.",
+    "memory.looks_like_rule": "Sembra una definizione o una regola di business: aggiungila come istruzione.",
+    "memory.full": "La memoria è piena. Elimina prima alcune voci.",
+    "memory.not_active": "Questa voce è già stata modificata o dimenticata."
   },
   "email": {
     "dashboardShare": {
@@ -4514,6 +4543,7 @@
     "nav": {
       "general": "Generale",
       "instructions": "Istruzioni personalizzate",
+      "memory": "Memoria",
       "usage": "Utilizzo",
       "apiKeys": "Chiavi API",
       "appearance": "Aspetto"
@@ -4593,8 +4623,73 @@
     },
     "memory": {
       "title": "Memoria",
-      "subtitle": "Ciò che l'IA ha imparato e ricordato su di te in questa organizzazione — le tue preferenze, lo stile e le analisi che ti sono piaciute. Viene aggiornata man mano che lavori; puoi modificarla o cancellarla qui.",
-      "placeholder": "L'IA non ha ancora salvato nulla in memoria. Man mano che le comunichi le tue preferenze, le ricorderà qui."
+      "subtitle": "Il contesto personale che l'IA ricorda di te in questa organizzazione: stile, ruolo, abbreviazioni, eventi in arrivo e focus attuale. Solo tu puoi vederlo.",
+      "vsInstructions": "Definizioni e regole di business non vengono salvate qui: si trovano nelle istruzioni, valide per tutti.",
+      "instructionsLink": "Apri le istruzioni",
+      "clearFilter": "Rimuovi",
+      "count": "{count} di {cap} voci",
+      "forgetAll": "Dimentica tutto",
+      "forgetAllTitle": "Dimenticare tutto?",
+      "forgetAllBody": "L'IA dimenticherà tutte le {count} voci che ricorda di te in questa organizzazione. L'operazione è irreversibile.",
+      "forgetAllConfirm": "Dimentica tutto",
+      "empty": "Ancora nulla in memoria. Mentre lavori, l'IA salva qui cose come il tuo formato preferito, il tuo ruolo o le prossime riunioni.",
+      "add": "Aggiungi",
+      "past": "Passato",
+      "fromReport": "da {title}",
+      "untitledReport": "un report",
+      "noneForTag": "Nessuna voce con questo tag.",
+      "previewTitle": "Cosa vede l'agente",
+      "previewChars": "{count} caratteri",
+      "previewHint": "Sempre incluso nelle tue conversazioni. Le altre voci vengono aggiunte quando una domanda le riguarda.",
+      "previewEmpty": "Ancora nulla.",
+      "loadFailed": "Impossibile caricare la tua memoria",
+      "saveFailed": "Impossibile salvare la modifica",
+      "saved": "Memoria salvata",
+      "forgotten": "Dimenticato",
+      "forgotAll": "Tutto dimenticato",
+      "source": {
+        "user": "Aggiunto da te",
+        "agent": "Salvato dall'IA",
+        "migration": "Importato dalla tua memoria precedente"
+      },
+      "form": {
+        "start": "Inizio",
+        "end": "Fine (facoltativa)",
+        "tags": "Tag, separati da virgole",
+        "aliases": "Altre parole che usi, separate da virgole"
+      },
+      "sections": {
+        "style": {
+          "title": "Stile",
+          "hint": "Come preferisci che le risposte siano scritte e formattate",
+          "placeholder": "es. Preferisce prima il numero, poi una riga di contesto"
+        },
+        "role": {
+          "title": "Ruolo",
+          "hint": "Il tuo ruolo e di cosa sei responsabile",
+          "placeholder": "es. Finanza, responsabile del reporting dei ricavi EMEA"
+        },
+        "vocabulary": {
+          "title": "Abbreviazioni",
+          "hint": "Le tue parole per le cose, non definizioni di business",
+          "placeholder": "es. \"la mia regione\" = EMEA"
+        },
+        "events": {
+          "title": "Eventi",
+          "hint": "Riunioni, scadenze e assenze",
+          "placeholder": "es. Consiglio di amministrazione"
+        },
+        "focus": {
+          "title": "Focus attuale",
+          "hint": "Su cosa stai lavorando ora",
+          "placeholder": "es. Analisi del churn del terzo trimestre"
+        },
+        "preferences": {
+          "title": "Preferenze",
+          "hint": "Come preferisci lavorare con l'IA",
+          "placeholder": "es. Vuole vedere l'SQL"
+        }
+      }
     }
   },
   "commandPalette": {

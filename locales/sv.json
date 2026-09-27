@@ -934,7 +934,17 @@
     "stepTotal": "Steg totalt",
     "firstToken": "Tid till första token",
     "thinking": "Tänkande",
-    "tool": "Verktyg"
+    "tool": "Verktyg",
+    "memory": {
+      "title": "Minne",
+      "summary": "{injected} av {total} poster inkluderade · {chars} tecken",
+      "privateNote": "Minnet är privat för ägaren – bara id:n och sektioner visas.",
+      "refused": "Nekat",
+      "tier": {
+        "always": "alltid",
+        "matched": "matchad"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chatt",
@@ -1496,10 +1506,12 @@
       "cancelledPlural": "Avbröt {count} väntande väntningar",
       "nothingPending": "Inga väntande väntningar"
     },
-    "updateUserMemory": {
-      "updating": "Uppdaterar minne…",
-      "updated": "Minne uppdaterat",
-      "failed": "Uppdatering av minne misslyckades"
+    "memory": {
+      "updating": "Uppdaterar minnet…",
+      "checking": "Kollar minnet…",
+      "updated": "Minnet uppdaterat",
+      "checked": "Kollade minnet",
+      "failed": "Kunde inte uppdatera minnet"
     },
     "routeModel": {
       "routedTo": "Routad till",
@@ -2537,6 +2549,10 @@
           "name": "Agentanteckningar",
           "description": "Låter agenten föra arbetsanteckningar per rapport (ett kladdblock) som den skriver och läser medan den svarar — planer, iakttagelser och att göra-punkter. Anteckningarna visas i rapporten men är inte delad kunskap. När det är avstängt döljs anteckningsverktygen och anteckningarna läggs inte in i kontexten."
         },
+        "enable_user_memory": {
+          "name": "Användarminne",
+          "description": "Låt agenten minnas personligt sammanhang om varje användare mellan sessioner – skrivstil, roll, egna förkortningar, kommande möten och händelser samt aktuellt fokus. Affärsdefinitioner och regler ligger kvar i instruktionerna. Varje användare kan se, redigera och radera sitt minne."
+        },
         "max_instructions_in_context": {
           "name": "Maximalt antal instruktioner i kontexten",
           "description": "Största antal instruktioner som tas med i AI-kontexten. Instruktioner av typen ”alltid” laddas först, därefter fyller ”smarta” instruktioner de återstående platserna."
@@ -3360,7 +3376,20 @@
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
     },
-    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort."
+    "data_source.in_use": "Agenten \"{agent}\" används fortfarande ({reference}) och kan därför inte tas bort. Inget har tagits bort.",
+    "memory.disabled": "Användarminnet är avstängt i den här organisationen.",
+    "memory.not_found": "Den minnesposten finns inte.",
+    "memory.text_required": "Skriv vad som ska kommas ihåg.",
+    "memory.text_too_long": "Högst 280 tecken.",
+    "memory.invalid_section": "Välj en av minnets sektioner.",
+    "memory.too_many_tags": "Högst 4 taggar.",
+    "memory.tags_required": "Lägg till minst en tagg.",
+    "memory.event_date_required": "Händelser behöver ett startdatum.",
+    "memory.invalid_date": "Datumet är ogiltigt.",
+    "memory.sensitive": "Minnet kan inte innehålla hemligheter, lösenord eller känsliga personuppgifter.",
+    "memory.looks_like_rule": "Det ser ut som en affärsdefinition eller regel – lägg till den som en instruktion i stället.",
+    "memory.full": "Minnet är fullt. Radera några poster först.",
+    "memory.not_active": "Den posten har redan ändrats eller glömts."
   },
   "email": {
     "dashboardShare": {
@@ -4514,6 +4543,7 @@
     "nav": {
       "general": "Allmänt",
       "instructions": "Anpassade instruktioner",
+      "memory": "Minne",
       "usage": "Användning",
       "apiKeys": "API-nycklar",
       "appearance": "Utseende"
@@ -4593,8 +4623,73 @@
     },
     "memory": {
       "title": "Minne",
-      "subtitle": "Vad AI:n har lärt sig och kommit ihåg om dig i den här organisationen — dina preferenser, din stil och analyser du gillade. Det uppdateras allt eftersom du arbetar; du kan redigera eller rensa det här.",
-      "placeholder": "AI:n har inte sparat något i minnet ännu. Allt eftersom du berättar dina preferenser kommer den att komma ihåg dem här."
+      "subtitle": "Personligt sammanhang som AI:n minns om dig i den här organisationen – din stil, roll, dina förkortningar, kommande händelser och aktuellt fokus. Bara du kan se det.",
+      "vsInstructions": "Affärsdefinitioner och regler sparas inte här – de finns i instruktionerna, som gäller för alla.",
+      "instructionsLink": "Öppna instruktioner",
+      "clearFilter": "Rensa",
+      "count": "{count} av {cap} poster",
+      "forgetAll": "Glöm allt",
+      "forgetAllTitle": "Glömma allt?",
+      "forgetAllBody": "AI:n glömmer alla {count} poster den minns om dig i den här organisationen. Det går inte att ångra.",
+      "forgetAllConfirm": "Glöm allt",
+      "empty": "Inget sparat än. Medan du arbetar sparar AI:n saker här som ditt föredragna format, din roll eller kommande möten.",
+      "add": "Lägg till",
+      "past": "Passerat",
+      "fromReport": "från {title}",
+      "untitledReport": "en rapport",
+      "noneForTag": "Inga poster med den här taggen.",
+      "previewTitle": "Det agenten ser",
+      "previewChars": "{count} tecken",
+      "previewHint": "Ingår alltid i dina konversationer. Andra poster läggs till när en fråga matchar dem.",
+      "previewEmpty": "Inget än.",
+      "loadFailed": "Kunde inte läsa in ditt minne",
+      "saveFailed": "Kunde inte spara ändringen",
+      "saved": "Minnet sparat",
+      "forgotten": "Glömt",
+      "forgotAll": "Allt glömt",
+      "source": {
+        "user": "Tillagt av dig",
+        "agent": "Sparat av AI:n",
+        "migration": "Importerat från ditt tidigare minne"
+      },
+      "form": {
+        "start": "Börjar",
+        "end": "Slutar (valfritt)",
+        "tags": "Taggar, kommaseparerade",
+        "aliases": "Andra ord du använder, kommaseparerade"
+      },
+      "sections": {
+        "style": {
+          "title": "Stil",
+          "hint": "Hur du vill att svar skrivs och formateras",
+          "placeholder": "t.ex. Vill ha siffran först, sedan en rad sammanhang"
+        },
+        "role": {
+          "title": "Roll",
+          "hint": "Din roll och vad du ansvarar för",
+          "placeholder": "t.ex. Ekonomi, ansvarar för intäktsrapportering för EMEA"
+        },
+        "vocabulary": {
+          "title": "Förkortningar",
+          "hint": "Dina egna ord för saker – inte affärsdefinitioner",
+          "placeholder": "t.ex. \"min region\" = EMEA"
+        },
+        "events": {
+          "title": "Händelser",
+          "hint": "Möten, deadlines och ledighet",
+          "placeholder": "t.ex. Styrelsemöte"
+        },
+        "focus": {
+          "title": "Aktuellt fokus",
+          "hint": "Vad du arbetar med just nu",
+          "placeholder": "t.ex. Utreder kundbortfall under Q3"
+        },
+        "preferences": {
+          "title": "Önskemål",
+          "hint": "Hur du vill arbeta med AI:n",
+          "placeholder": "t.ex. Vill se SQL-koden"
+        }
+      }
     }
   },
   "commandPalette": {

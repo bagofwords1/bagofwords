@@ -934,7 +934,17 @@
     "stepTotal": "Schritt gesamt",
     "firstToken": "Zeit bis zum ersten Token",
     "thinking": "Denken",
-    "tool": "Tool"
+    "tool": "Tool",
+    "memory": {
+      "title": "Gedächtnis",
+      "summary": "{injected} von {total} Einträgen eingebunden · {chars} Zeichen",
+      "privateNote": "Das Gedächtnis ist privat – angezeigt werden nur Kennungen und Abschnitte.",
+      "refused": "Abgelehnt",
+      "tier": {
+        "always": "immer",
+        "matched": "Treffer"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1496,10 +1506,12 @@
       "cancelledPlural": "{count} ausstehende Wartevorgänge abgebrochen",
       "nothingPending": "Keine ausstehenden Wartevorgänge"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Gedächtnis wird aktualisiert…",
+      "checking": "Gedächtnis wird durchsucht…",
       "updated": "Gedächtnis aktualisiert",
-      "failed": "Gedächtnis-Aktualisierung fehlgeschlagen"
+      "checked": "Gedächtnis durchsucht",
+      "failed": "Gedächtnis konnte nicht aktualisiert werden"
     },
     "routeModel": {
       "routedTo": "Geroutet an",
@@ -2537,6 +2549,10 @@
           "name": "Agenten-Notizen",
           "description": "Erlaubt dem Agenten, pro Bericht Arbeitsnotizen (einen Notizblock) zu führen, die er beim Antworten schreibt und liest — Pläne, Erkenntnisse und Aufgaben. Notizen werden im Bericht angezeigt, sind aber kein geteiltes Wissen. Ist die Option aus, werden die Notiz-Tools ausgeblendet und Notizen nicht in den Kontext eingefügt."
         },
+        "enable_user_memory": {
+          "name": "Benutzergedächtnis",
+          "description": "Der Agent merkt sich sitzungsübergreifend persönlichen Kontext zu jedem Benutzer – Schreibstil, Rolle, eigene Kürzel, anstehende Termine und Ereignisse, aktuellen Schwerpunkt. Geschäftsdefinitionen und Regeln bleiben in den Anweisungen. Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
+        },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
           "description": "Maximale Anzahl an Anweisungen, die in den KI-Kontext aufgenommen werden. Anweisungen vom Typ 'Immer' werden zuerst geladen, danach füllen 'intelligente' Anweisungen die verbleibenden Plätze."
@@ -3360,7 +3376,20 @@
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
     },
-    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht."
+    "data_source.in_use": "Der Agent „{agent}“ wird noch verwendet ({reference}) und kann daher nicht gelöscht werden. Es wurde nichts gelöscht.",
+    "memory.disabled": "Das Benutzergedächtnis ist in dieser Organisation deaktiviert.",
+    "memory.not_found": "Diesen Gedächtniseintrag gibt es nicht.",
+    "memory.text_required": "Schreibe auf, was gemerkt werden soll.",
+    "memory.text_too_long": "Höchstens 280 Zeichen.",
+    "memory.invalid_section": "Wähle einen der Gedächtnisabschnitte.",
+    "memory.too_many_tags": "Höchstens 4 Tags.",
+    "memory.tags_required": "Füge mindestens ein Tag hinzu.",
+    "memory.event_date_required": "Ereignisse brauchen ein Startdatum.",
+    "memory.invalid_date": "Dieses Datum ist ungültig.",
+    "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
+    "memory.looks_like_rule": "Das klingt nach einer Geschäftsdefinition oder Regel – füge es stattdessen als Anweisung hinzu.",
+    "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
   },
   "email": {
     "dashboardShare": {
@@ -4514,6 +4543,7 @@
     "nav": {
       "general": "Allgemein",
       "instructions": "Benutzerdefinierte Anweisungen",
+      "memory": "Gedächtnis",
       "usage": "Nutzung",
       "apiKeys": "API-Schlüssel",
       "appearance": "Darstellung"
@@ -4593,8 +4623,73 @@
     },
     "memory": {
       "title": "Gedächtnis",
-      "subtitle": "Was die KI in dieser Organisation über dich gelernt und sich gemerkt hat — deine Vorlieben, deinen Stil und Analysen, die dir gefallen haben. Sie aktualisiert das während deiner Arbeit; du kannst es hier bearbeiten oder löschen.",
-      "placeholder": "Die KI hat noch nichts im Gedächtnis gespeichert. Sobald du ihr deine Vorlieben mitteilst, merkt sie sich diese hier."
+      "subtitle": "Persönlicher Kontext, den sich die KI in dieser Organisation über dich merkt – dein Stil, deine Rolle, deine Kürzel, anstehende Termine und dein aktueller Schwerpunkt. Nur du kannst ihn sehen.",
+      "vsInstructions": "Geschäftsdefinitionen und Regeln werden hier nicht gespeichert – sie stehen in den Anweisungen, die für alle gelten.",
+      "instructionsLink": "Anweisungen öffnen",
+      "clearFilter": "Zurücksetzen",
+      "count": "{count} von {cap} Einträgen",
+      "forgetAll": "Alles vergessen",
+      "forgetAllTitle": "Alles vergessen?",
+      "forgetAllBody": "Die KI vergisst alle {count} Einträge, die sie sich in dieser Organisation über dich gemerkt hat. Das kann nicht rückgängig gemacht werden.",
+      "forgetAllConfirm": "Alles vergessen",
+      "empty": "Noch nichts gemerkt. Während du arbeitest, speichert die KI hier z. B. dein bevorzugtes Format, deine Rolle oder anstehende Termine.",
+      "add": "Hinzufügen",
+      "past": "Vorbei",
+      "fromReport": "aus {title}",
+      "untitledReport": "einem Bericht",
+      "noneForTag": "Keine Einträge mit diesem Tag.",
+      "previewTitle": "Was der Agent sieht",
+      "previewChars": "{count} Zeichen",
+      "previewHint": "Ist immer in deinen Unterhaltungen enthalten. Weitere Einträge kommen hinzu, wenn eine Frage zu ihnen passt.",
+      "previewEmpty": "Noch nichts.",
+      "loadFailed": "Dein Gedächtnis konnte nicht geladen werden",
+      "saveFailed": "Die Änderung konnte nicht gespeichert werden",
+      "saved": "Gedächtnis gespeichert",
+      "forgotten": "Vergessen",
+      "forgotAll": "Alles vergessen",
+      "source": {
+        "user": "Von dir hinzugefügt",
+        "agent": "Von der KI gespeichert",
+        "migration": "Aus deinem früheren Gedächtnis importiert"
+      },
+      "form": {
+        "start": "Beginn",
+        "end": "Ende (optional)",
+        "tags": "Tags, durch Kommas getrennt",
+        "aliases": "Andere Wörter, die du verwendest, durch Kommas getrennt"
+      },
+      "sections": {
+        "style": {
+          "title": "Stil",
+          "hint": "Wie Antworten für dich geschrieben und formatiert sein sollen",
+          "placeholder": "z. B. Bevorzugt zuerst die Zahl, dann eine Zeile Kontext"
+        },
+        "role": {
+          "title": "Rolle",
+          "hint": "Deine Rolle und wofür du verantwortlich bist",
+          "placeholder": "z. B. Finanzen, verantwortlich für das EMEA-Umsatzreporting"
+        },
+        "vocabulary": {
+          "title": "Kürzel",
+          "hint": "Deine eigenen Wörter für Dinge – keine Geschäftsdefinitionen",
+          "placeholder": "z. B. „meine Region“ = EMEA"
+        },
+        "events": {
+          "title": "Ereignisse",
+          "hint": "Termine, Fristen und Abwesenheiten",
+          "placeholder": "z. B. Aufsichtsratssitzung"
+        },
+        "focus": {
+          "title": "Aktueller Schwerpunkt",
+          "hint": "Woran du gerade arbeitest",
+          "placeholder": "z. B. Untersucht die Abwanderung im 3. Quartal"
+        },
+        "preferences": {
+          "title": "Vorlieben",
+          "hint": "Wie du mit der KI arbeiten möchtest",
+          "placeholder": "z. B. Möchte das SQL sehen"
+        }
+      }
     }
   },
   "commandPalette": {

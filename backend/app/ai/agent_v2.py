@@ -84,7 +84,8 @@ def capabilities_for_report_files(has_files: bool) -> set:
 # nothing the planner needs next turn (an ack + an id). They render as one-line
 # acks inside a batch aggregate, and a bookkeeping-only step must never evict
 # the previous substantive observation (see _carry_substantive_observation).
-_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "update_user_memory"})
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory"})
+MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory"})
 
 
 def _observation_failed(observation) -> bool:
@@ -797,6 +798,24 @@ class AgentV2:
         if not self._notes_enabled:
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in ('create_note', 'edit_note')]
 
+        # User memory (create/edit/search_memory) is gated by the org setting and
+        # only offered on human-initiated turns with a user — never on machine
+        # turns (scheduled runs, webhooks, wait wakes, check-ins, evals), which
+        # still RECEIVE the <memory> block since they run as the user.
+        from app.services.memory_service import is_memory_enabled as _mem_enabled
+        from app.ai.tools.implementations._memory_common import is_machine_turn as _is_machine_turn
+        self._memory_enabled = _mem_enabled(self.organization_settings)
+        self._memory_injected_ids: list[str] = []
+        self._memory_trace: dict = {}
+        _mem_user = getattr(self.head_completion, 'user', None) if self.head_completion else None
+        if (
+            not self._memory_enabled
+            or _mem_user is None
+            or _is_machine_turn(self.head_completion)
+            or getattr(self, "is_eval_run", False)
+        ):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in MEMORY_TOOL_NAMES]
+
         # Shared-artifact viewer chat runs read/query-only: no artifact or
         # dashboard mutations, no comms, no automation, no agent-scope tools
         # (the roster is a server-synced hard scope — see ArtifactChatService).
@@ -980,34 +999,150 @@ class AgentV2:
 
         ``user_note`` is the per-org admin-managed note on the asker's
         Membership row (same source as the members table UI). ``user_memory``
-        is the agent-curated durable memory on the same row, written by the
-        update_user_memory tool. ``profile_attributes`` is the job info synced
-        from the org's identity provider (Entra ID Graph /me). Returns
-        ``(None, None, None, None)`` for system/non-user runs.
+        is the rendered tiered <memory> body built from the user's memory
+        entries (see MemoryContextBuilder) — None when the org turned user
+        memory off or the user has none. ``profile_attributes`` is the job
+        info synced from the org's identity provider (Entra ID Graph /me).
+        Returns ``(None, None, None, None)`` for system/non-user runs.
         """
         user = getattr(self.head_completion, 'user', None) if self.head_completion else None
         if not user or not self.organization:
             return None, None, None, None
         user_name = getattr(user, 'name', None)
         user_note = None
-        user_memory = None
         profile_attributes = None
         try:
             from app.models.membership import Membership
             result = await self.db.execute(
-                select(Membership.note, Membership.memory, Membership.profile_attributes).where(
+                select(Membership.note, Membership.profile_attributes).where(
                     Membership.user_id == user.id,
                     Membership.organization_id == self.organization.id,
                 )
             )
             row = result.first()
             if row is not None:
-                user_note, user_memory, profile_attributes = row[0], row[1], row[2]
+                user_note, profile_attributes = row[0], row[1]
         except Exception:
             user_note = None
-            user_memory = None
             profile_attributes = None
+        user_memory = await self._build_memory_block(user)
         return user_name, user_note, user_memory, profile_attributes
+
+    async def _memory_prompt_texts(self) -> list[str]:
+        """Keyword sources for memory matching: this turn's prompt plus the
+        previous few user prompts in the report. Cached per run."""
+        cached = getattr(self, "_memory_prompt_texts_cache", None)
+        if cached is not None:
+            return cached
+        texts: list[str] = []
+        try:
+            head_prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            if isinstance(head_prompt, dict) and head_prompt.get("content"):
+                texts.append(str(head_prompt.get("content")))
+            if self.report is not None:
+                from app.models.completion import Completion as _C
+                rows = (await self.db.execute(
+                    select(_C.prompt)
+                    .where(
+                        _C.report_id == str(self.report_id),
+                        _C.role == "user",
+                        _C.id != (str(self.head_completion.id) if self.head_completion else ""),
+                    )
+                    .order_by(_C.turn_index.desc())
+                    .limit(3)
+                )).scalars().all()
+                for p in rows:
+                    if isinstance(p, dict) and p.get("content"):
+                        texts.append(str(p.get("content"))[:2000])
+        except Exception:
+            logger.debug("memory prompt texts failed", exc_info=True)
+        self._memory_prompt_texts_cache = texts
+        return texts
+
+    def _memory_object_tags(self) -> list[str]:
+        """Object tags present in this turn: the report and its agents."""
+        tags: list[str] = []
+        try:
+            if self.report is not None:
+                tags.append(f"report:{self.report_id}")
+            ids = set(str(x) for x in (getattr(self, "loaded_agent_ids", None) or []))
+            for ds in (getattr(self.report, "data_sources", None) or []) if self.report is not None else []:
+                if getattr(ds, "id", None):
+                    ids.add(str(ds.id))
+            for ds_id in sorted(ids):
+                tags.append(f"agent:{ds_id}")
+                tags.append(f"data_source:{ds_id}")
+        except Exception:
+            pass
+        return tags
+
+    async def _build_memory_block(self, user) -> Optional[str]:
+        """Rendered <memory> body for this turn, or None. Gated by the
+        enable_user_memory org setting. Records which entries were injected
+        (search_memory excludes them) and the trace metadata (handles, tiers,
+        size — never text)."""
+        if not getattr(self, "_memory_enabled", True) or user is None or self.organization is None:
+            return None
+        try:
+            from app.ai.context.builders.memory_context_builder import MemoryContextBuilder
+            ctx = await MemoryContextBuilder(self.db, str(self.organization.id), str(user.id)).build(
+                prompt_texts=await self._memory_prompt_texts(),
+                report_title=getattr(self.report, "title", None) if self.report is not None else None,
+                object_tags=self._memory_object_tags(),
+                user_name=getattr(user, "name", None),
+            )
+        except Exception:
+            logger.warning("Failed to build memory context", exc_info=True)
+            return None
+        self._memory_injected_ids[:] = ctx.injected_ids
+        self._memory_trace["injection"] = ctx.trace()
+        return ctx.body or None
+
+    def _memory_hint(self) -> Optional[str]:
+        """<memory_hint> for this turn when the user's own message carries
+        durable personal signals and the memory tools are offered. Pure code:
+        the model still decides whether anything is worth saving."""
+        try:
+            if not any(getattr(t, "name", None) == "create_memory" for t in (self.planner.tool_catalog or [])):
+                return None
+            prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
+            message = prompt.get("content", "") if isinstance(prompt, dict) else ""
+            from app.services.memory_rules import personal_signals
+            kinds = personal_signals(message)
+        except Exception:
+            return None
+        if not kinds:
+            return None
+        return (
+            f"<memory_hint>This message may carry durable personal context ({', '.join(kinds)}). If it "
+            "does and <memory> doesn't already hold it, save it in THIS response with create_memory (one "
+            "fact per entry; edit_memory only the entry saying the same thing) alongside your other tool "
+            "calls, without announcing it. Then still do what the user asked — a style or format correction "
+            "means: rewrite your previous answer in the corrected style (e.g. reformat the numbers you already "
+            "showed) from data you already have; never reply with only an acknowledgement. Resolve relative dates to absolute ISO dates. Business definitions and rules are never "
+            "memory.</memory_hint>"
+        )
+
+    async def _stamp_memory_trace(self) -> None:
+        """Persist this run's memory metadata on the agent execution (own
+        session, targeted UPDATE — never fails the turn)."""
+        trace = getattr(self, "_memory_trace", None)
+        execution = getattr(self, "current_execution", None)
+        if not trace or execution is None:
+            return
+        if getattr(self, "_session_maker", None) is None:
+            execution.memory_context_json = dict(trace)  # committed by finish_agent_execution
+            return
+        try:
+            from sqlalchemy import update as _upd
+            from app.models.agent_execution import AgentExecution as _AE
+            async with self._session_maker() as _s:
+                await _s.execute(
+                    _upd(_AE).where(_AE.id == str(execution.id)).values(memory_context_json=dict(trace))
+                )
+                await _s.commit()
+        except Exception:
+            logger.debug("memory trace stamp failed", exc_info=True)
 
     def _current_focus_key(self) -> tuple:
         """Stable key of (persisted focus, run working set) for change
@@ -1886,7 +2021,7 @@ class AgentV2:
                     external_platform=self.platform,
                     user_name=user_name,
                     user_note=user_note,
-                    user_memory=user_memory,
+                    user_memory=None,  # personal memory never feeds the org-instruction harness
                     user_profile_attributes=user_profile_attributes,
                     notes_enabled=harness_notes_enabled,
                     notes_context=(await build_notes_context(self.db, str(self.report_id)) if harness_notes_enabled and self.report else None),
@@ -2063,6 +2198,8 @@ class AgentV2:
                         "report": self.report,
                         "head_completion": self.head_completion,
                         "system_completion": self.system_completion,
+                        "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
+                        "memory_trace": getattr(self, "_memory_trace", {}),
                         "project_files": await self._get_project_files(),
                         "project_manager": self.project_manager,
                         "model": self.model,
@@ -2777,7 +2914,9 @@ class AgentV2:
         if instructions_usage is not None:
             data["instructions_usage"] = instructions_usage
             data.setdefault("static", {})["instructions"] = None
-        return data
+        # Snapshots are readable in the trace by admins; user memory is private.
+        from app.services.memory_privacy import scrub_context_snapshot
+        return scrub_context_snapshot(data)
 
     async def _save_post_tool_snapshots(self, view, tool_execution_ids: list):
         """One post_tool context snapshot for a finished tool batch, back-filled
@@ -4783,6 +4922,7 @@ class AgentV2:
                             user_name=user_name,
                             user_note=user_note,
                             user_memory=user_memory,
+                            memory_hint=self._memory_hint(),
                             user_profile_attributes=user_profile_attributes,
                             # Org setting drives parallel emission end-to-end: cap > 1
                             # relaxes the one-tool-per-turn prompt rule and lifts the
@@ -5991,6 +6131,8 @@ class AgentV2:
                                         "report": self.report,
                                         "head_completion": self.head_completion,
                                         "system_completion": self.system_completion,
+                                        "memory_injected_ids": getattr(self, "_memory_injected_ids", []),
+                                        "memory_trace": getattr(self, "_memory_trace", {}),
                                         "widget": self.widget,
                                         "step": self.step,
                                         "current_widget": _inv.current_widget,
@@ -6883,6 +7025,7 @@ class AgentV2:
                 status = 'error'
             else:
                 status = 'success'
+            await self._stamp_memory_trace()
             await self.project_manager.finish_agent_execution(
                 self.db,
                 agent_execution=self.current_execution,
@@ -6999,6 +7142,7 @@ class AgentV2:
             # Handle errors and finish execution with error status
             if self.current_execution:
                 error_payload = {"message": str(e), "type": type(e).__name__}
+                await self._stamp_memory_trace()
                 await self.project_manager.finish_agent_execution(
                     self.db,
                     agent_execution=self.current_execution,
@@ -7180,6 +7324,7 @@ class AgentV2:
             user_name=user_name,
             user_note=user_note,
             user_memory=user_memory,
+            memory_hint=self._memory_hint(),
             user_profile_attributes=user_profile_attributes,
         )
 

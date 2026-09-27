@@ -974,7 +974,17 @@
     "stepTotal": "Step total",
     "firstToken": "Time to first token",
     "thinking": "Thinking",
-    "tool": "Tool"
+    "tool": "Tool",
+    "memory": {
+      "title": "Memory",
+      "summary": "{injected} of {total} entries injected · {chars} chars",
+      "privateNote": "Memory is private to its owner — only handles and sections are shown.",
+      "refused": "Refused",
+      "tier": {
+        "always": "always",
+        "matched": "matched"
+      }
+    }
   },
   "reportView": {
     "tabChat": "Chat",
@@ -1601,10 +1611,12 @@
       "rewrite": "rewrite",
       "failed": "Edit failed"
     },
-    "updateUserMemory": {
+    "memory": {
       "updating": "Updating memory…",
-      "updated": "Updated memory",
-      "failed": "Memory update failed"
+      "checking": "Checking memory…",
+      "updated": "Memory updated",
+      "checked": "Checked memory",
+      "failed": "Couldn't update memory"
     },
     "routeModel": {
       "routedTo": "Routed to",
@@ -2709,6 +2721,10 @@
           "name": "Agent Notes",
           "description": "Let the agent keep per-report working notes (a scratchpad) it writes and reads while answering — plans, findings, and todos. Notes are shown in the report but are not shared knowledge. When off, the note tools are hidden and notes are not injected into context."
         },
+        "enable_user_memory": {
+          "name": "User memory",
+          "description": "Let the agent remember personal context about each user across sessions — writing style, role, their own shorthand, upcoming meetings and events, current focus. Business definitions and rules stay in instructions. Each user can see, edit and delete their memory."
+        },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
           "description": "Maximum number of instructions to include in AI context. 'Always' instructions are loaded first, then 'smart' instructions fill remaining slots."
@@ -3510,7 +3526,20 @@
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
     },
-    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted."
+    "data_source.in_use": "Agent \"{agent}\" is still in use ({reference}), so it cannot be deleted. Nothing was deleted.",
+    "memory.disabled": "User memory is turned off for this organization.",
+    "memory.not_found": "That memory entry doesn't exist.",
+    "memory.text_required": "Write the thing to remember.",
+    "memory.text_too_long": "Keep it to 280 characters.",
+    "memory.invalid_section": "Pick one of the memory sections.",
+    "memory.too_many_tags": "Use at most 4 tags.",
+    "memory.tags_required": "Add at least one tag.",
+    "memory.event_date_required": "Events need a start date.",
+    "memory.invalid_date": "That date isn't valid.",
+    "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
+    "memory.looks_like_rule": "That reads like a business definition or rule — add it as an instruction instead.",
+    "memory.full": "Memory is full. Delete some entries first.",
+    "memory.not_active": "That entry was already changed or forgotten."
   },
   "email": {
     "dashboardShare": {
@@ -4703,7 +4732,8 @@
     "menuItem": "Account Settings",
     "nav": {
       "general": "General",
-      "instructions": "Instructions & Memory",
+      "instructions": "Custom instructions",
+      "memory": "Memory",
       "usage": "Usage",
       "apiKeys": "API Keys",
       "appearance": "Appearance"
@@ -4783,8 +4813,73 @@
     },
     "memory": {
       "title": "Memory",
-      "subtitle": "What the AI has learned and remembered about you in this organization — your preferences, style, and analyses you liked. It updates this as you work; you can edit or clear it here.",
-      "placeholder": "The AI hasn't saved anything to memory yet. As you tell it your preferences, it'll remember them here."
+      "subtitle": "Personal context the AI remembers about you in this organization — your style, role, shorthand, upcoming events and current focus. Only you can see it.",
+      "vsInstructions": "Business definitions and rules aren't kept here — they live in instructions, which apply to everyone.",
+      "instructionsLink": "Open instructions",
+      "clearFilter": "Clear",
+      "count": "{count} of {cap} entries",
+      "forgetAll": "Forget everything",
+      "forgetAllTitle": "Forget everything?",
+      "forgetAllBody": "The AI will forget all {count} entries it remembers about you in this organization. This can't be undone.",
+      "forgetAllConfirm": "Forget everything",
+      "empty": "Nothing remembered yet. As you work, the AI saves things like your preferred format, your role or upcoming meetings here.",
+      "add": "Add",
+      "past": "Past",
+      "fromReport": "from {title}",
+      "untitledReport": "a report",
+      "noneForTag": "No entries with this tag.",
+      "previewTitle": "What the agent sees",
+      "previewChars": "{count} characters",
+      "previewHint": "Always included in your conversations. Other entries are added when a question matches them.",
+      "previewEmpty": "Nothing yet.",
+      "loadFailed": "Couldn't load your memory",
+      "saveFailed": "Couldn't save the change",
+      "saved": "Memory saved",
+      "forgotten": "Forgotten",
+      "forgotAll": "Everything forgotten",
+      "source": {
+        "user": "Added by you",
+        "agent": "Saved by the AI",
+        "migration": "Imported from your previous memory"
+      },
+      "form": {
+        "start": "Starts",
+        "end": "Ends (optional)",
+        "tags": "Tags, comma-separated",
+        "aliases": "Other words you use, comma-separated"
+      },
+      "sections": {
+        "style": {
+          "title": "Style",
+          "hint": "How you like answers written and formatted",
+          "placeholder": "e.g. Prefers the number first, then one line of context"
+        },
+        "role": {
+          "title": "Role",
+          "hint": "Your role and what you're responsible for",
+          "placeholder": "e.g. Finance, owns EMEA revenue reporting"
+        },
+        "vocabulary": {
+          "title": "Shorthand",
+          "hint": "Your own words for things — not business definitions",
+          "placeholder": "e.g. \"my region\" = EMEA"
+        },
+        "events": {
+          "title": "Events",
+          "hint": "Meetings, deadlines and time off",
+          "placeholder": "e.g. Board meeting"
+        },
+        "focus": {
+          "title": "Current focus",
+          "hint": "What you're working on now",
+          "placeholder": "e.g. Investigating Q3 churn"
+        },
+        "preferences": {
+          "title": "Preferences",
+          "hint": "How you like to work with the AI",
+          "placeholder": "e.g. Wants the SQL shown"
+        }
+      }
     }
   },
   "agentPage": {

@@ -2070,11 +2070,83 @@ class ConsoleService:
             raise ValueError("Agent execution not found for completion")
         return await self.get_agent_execution_trace(db, organization, ae.id)
 
+    async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
+        """Per-turn memory activity. Text only when the viewer owns the memory
+        (the turn's user); admins and everyone else see handles/sections/counts."""
+        from app.models.memory_entry import MemoryEntry
+        from app.schemas.agent_execution_trace_schema import TurnMemorySchema, TurnMemoryItemSchema
+
+        memory_tools = ("create_memory", "edit_memory", "search_memory")
+        tool_rows: dict[str, list] = {}
+        if ae_ids:
+            q = (
+                select(ToolExecution)
+                .where(ToolExecution.agent_execution_id.in_(ae_ids), ToolExecution.tool_name.in_(memory_tools))
+                .order_by(ToolExecution.created_at.asc())
+            )
+            for te in (await db.execute(q)).scalars().all():
+                tool_rows.setdefault(str(te.agent_execution_id), []).append(te)
+
+        # Entry texts, loaded only for turns the viewer owns.
+        owned_ids: set[str] = set()
+        for r in rows:
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            if viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id):
+                for it in (mc.get("injection") or {}).get("injected") or []:
+                    if it.get("id"):
+                        owned_ids.add(str(it["id"]))
+        texts: dict[str, str] = {}
+        if owned_ids:
+            q = select(MemoryEntry.id, MemoryEntry.text).where(
+                MemoryEntry.id.in_(list(owned_ids)), MemoryEntry.user_id == str(viewer_id)
+            )
+            texts = {str(i): (t or "") for i, t in (await db.execute(q)).all()}
+
+        out: dict[str, TurnMemorySchema] = {}
+        for r in rows:
+            ae = str(r.ae_id)
+            mc = r.memory_context_json if isinstance(r.memory_context_json, dict) else {}
+            tes = tool_rows.get(ae, [])
+            if not mc and not tes:
+                continue
+            owner = bool(viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id))
+            inj = mc.get("injection") or {}
+            section = TurnMemorySchema(
+                owner_view=owner,
+                chars=int(inj.get("chars") or 0),
+                total_entries=int(inj.get("total_entries") or 0),
+                hidden=int(inj.get("hidden") or 0),
+            )
+            for it in inj.get("injected") or []:
+                section.injected.append(TurnMemoryItemSchema(
+                    handle=it.get("handle"), section=it.get("section"), tier=it.get("tier"),
+                    text=texts.get(str(it.get("id"))) if owner else None,
+                ))
+            for te in tes:
+                args = te.arguments_json if isinstance(te.arguments_json, dict) else {}
+                res = te.result_json if isinstance(te.result_json, dict) else {}
+                text = None
+                if owner:
+                    text = args.get("text") or args.get("query") or None
+                section.tool_calls.append(TurnMemoryItemSchema(
+                    tool=te.tool_name, action=args.get("action"),
+                    handle=res.get("handle") or args.get("handle"),
+                    section=args.get("section"), success=bool(te.success), text=text,
+                ))
+            for ref in mc.get("refusals") or []:
+                section.refusals.append(TurnMemoryItemSchema(
+                    tool=ref.get("tool"), code=ref.get("code"), handle=ref.get("handle"),
+                    section=ref.get("section"), text=ref.get("text") if owner else None,
+                ))
+            out[ae] = section
+        return out
+
     async def get_report_conversation(
         self,
         db: AsyncSession,
         organization: Organization,
         report_id: str,
+        viewer_id: Optional[str] = None,
     ) -> ConversationTraceResponse:
         """Return a whole report conversation as ordered user→assistant turns.
 
@@ -2106,6 +2178,8 @@ class ConsoleService:
                 AgentExecution.status.label('ae_status'),
                 AgentExecution.total_duration_ms.label('total_duration_ms'),
                 AgentExecution.created_at.label('created_at'),
+                AgentExecution.user_id.label('ae_user_id'),
+                AgentExecution.memory_context_json.label('memory_context_json'),
                 SystemCompletion.completion.label('assistant_completion'),
                 UserCompletion.id.label('user_completion_id'),
                 UserCompletion.prompt.label('user_prompt'),
@@ -2269,6 +2343,8 @@ class ConsoleService:
             tail = _re.sub(r'\s+', ' ', tail).strip()
             return tail
 
+        memory_by_ae = await self._turn_memory_sections(db, rows, ae_ids, viewer_id)
+
         turns: List[ConversationTurnSchema] = []
         failed_turns = 0
         negative_feedback_turns = 0
@@ -2310,6 +2386,7 @@ class ConsoleService:
                 llm_cost_usd=turn_llm_cost_usd,
                 created_at=r.created_at,
                 completion_blocks=blocks_by_ae.get(str(r.ae_id), []),
+                memory=memory_by_ae.get(str(r.ae_id)),
             ))
 
         # Conversation-level origin platform = first turn that carries one

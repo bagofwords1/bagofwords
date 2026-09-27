@@ -35,8 +35,9 @@ class UserInstructionsSchema(BaseModel):
     # The current user's per-organization note (membership.note). Surfaced to
     # the AI planner, so we reuse the same length cap as the members admin UI.
     note: Optional[str] = Field(default=None, max_length=MEMBERSHIP_NOTE_MAX_LENGTH)
-    # The agent-curated per-org memory (membership.memory). Normally written by
-    # the update_user_memory tool, but the user can view/prune it here.
+    # Legacy per-org memory document (membership.memory). Read-only for one
+    # release after the move to memory entries (/users/me/memory) so the change
+    # can be rolled back; it is no longer written.
     memory: Optional[str] = Field(default=None, max_length=MEMBERSHIP_MEMORY_MAX_LENGTH)
     # Read-only: job info synced from the org's identity provider (Entra ID).
     # Shown to the user so they can see what the agent knows about them. Written
@@ -97,19 +98,16 @@ async def update_my_instructions(
     organization: Organization = Depends(get_current_organization),
     db: AsyncSession = Depends(get_async_db),
 ):
-    """Update the current user's custom instructions and agent memory for the
-    active organization. Self-service: a user can always edit their own note
-    and prune their own memory regardless of role. The client sends both
-    fields (loaded together in the profile tab); each is set from the payload,
-    with an empty value clearing it."""
+    """Update the current user's custom instructions for the active
+    organization. Self-service: a user can always edit their own note
+    regardless of role; an empty value clears it. ``memory`` is ignored —
+    memory is managed as entries via /users/me/memory."""
     membership = await _get_current_membership(db, current_user, organization)
     if not membership:
         raise HTTPException(status_code=404, detail="Membership not found")
 
     note = (payload.note or "").strip()
     membership.note = note or None
-    memory = (payload.memory or "").strip()
-    membership.memory = memory or None
     await db.commit()
     return UserInstructionsSchema(note=membership.note, memory=membership.memory)
 
