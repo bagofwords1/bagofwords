@@ -3329,6 +3329,16 @@
       "model_id_required": "Modell-ID:t får inte vara tomt",
       "model_id_not_editable": "Endast anpassade modeller hos Azure, AWS Bedrock eller anpassade (OpenAI-kompatibla) leverantörer kan få sitt modell-ID ändrat",
       "model_id_duplicate": "Modellen ”{model_id}” finns redan hos den här leverantören"
+    },
+    "app_data": {
+      "unauthenticated": "Logga in för att använda den här appens data",
+      "forbidden": "Du har inte behörighet att komma åt den här appens data",
+      "collection_not_declared": "Den här appen deklarerar inte den datasamlingen",
+      "record_not_found": "Posten hittades inte. Den kan ha tagits bort.",
+      "validation": "Ogiltigt värde i fältet ”{field}”",
+      "too_large": "Posten är för stor för att sparas",
+      "limit_reached": "Samlingen har nått sin gräns på {limit} poster",
+      "conflict": "Någon annan har ändrat posten (nu version {current_version}). Ladda om och försök igen."
     }
   },
   "email": {

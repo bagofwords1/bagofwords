@@ -3329,6 +3329,16 @@
       "model_id_required": "L'ID del modello non può essere vuoto",
       "model_id_not_editable": "Solo i modelli personalizzati su provider Azure, AWS Bedrock o personalizzati (compatibili con OpenAI) possono avere l'ID modello modificato",
       "model_id_duplicate": "Il modello «{model_id}» esiste già su questo provider"
+    },
+    "app_data": {
+      "unauthenticated": "Accedi per usare i dati di questa app",
+      "forbidden": "Non hai l'autorizzazione per accedere ai dati di questa app",
+      "collection_not_declared": "Questa app non dichiara questa raccolta di dati",
+      "record_not_found": "Record non trovato. Potrebbe essere stato eliminato.",
+      "validation": "Valore non valido per il campo «{field}»",
+      "too_large": "Questo record è troppo grande per essere salvato",
+      "limit_reached": "Questa raccolta ha raggiunto il limite di {limit} record",
+      "conflict": "Qualcun altro ha modificato questo record (ora alla versione {current_version}). Ricarica e riprova."
     }
   },
   "email": {

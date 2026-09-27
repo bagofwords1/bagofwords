@@ -16,6 +16,7 @@ ROOT = Path(__file__).resolve().parents[3]
 GLOBALS = ROOT / "frontend" / "public" / "libs" / "artifact-globals.js"
 TAILWIND = ROOT / "frontend" / "public" / "libs" / "artifact-tailwind.js"
 IFRAME = ROOT / "frontend" / "utils" / "artifactIframe.ts"
+MCP = ROOT / "frontend" / "public" / "mcp-artifact-app.html"
 VENDOR = ROOT / "scripts" / "download-vendor-libs.sh"
 
 THEMED = {"runtime": {"version": ARTIFACT_RUNTIME_VERSION}, "visualizations": []}
@@ -36,8 +37,15 @@ def test_theme_registry_matches_sandbox_globals():
 def test_runtime_version_matches_globals_and_iframe():
     src = GLOBALS.read_text(encoding="utf-8")
     assert f"var RUNTIME_VERSION = {ARTIFACT_RUNTIME_VERSION};" in src
-    # The cache-buster must move with the runtime generation so stale copies never serve the new kit.
-    assert f"ARTIFACT_GLOBALS_VERSION = '{ARTIFACT_RUNTIME_VERSION}'" in IFRAME.read_text(encoding="utf-8")
+    # The cache-buster moves at least with the runtime generation (and also on
+    # additive globals such as useCollection) so stale copies never serve the new kit.
+    m = re.search(r"ARTIFACT_GLOBALS_VERSION = '(\d+)'", IFRAME.read_text(encoding="utf-8"))
+    assert m, "ARTIFACT_GLOBALS_VERSION not found"
+    assert int(m.group(1)) >= ARTIFACT_RUNTIME_VERSION
+    # useCollection shipped in globals v12 (runtime generation unchanged).
+    assert "window.useCollection = function" in src and int(m.group(1)) >= 12
+    # The MCP app loads the same files by URL; its cache-busters follow the iframe's.
+    assert set(re.findall(r"\?v=(\d+)", MCP.read_text(encoding="utf-8"))) == {m.group(1)}
 
 
 def test_custom_apps_do_not_require_a_theme():

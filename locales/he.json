@@ -3419,6 +3419,16 @@
       "model_id_required": "מזהה המודל לא יכול להיות ריק",
       "model_id_not_editable": "ניתן לערוך את מזהה המודל רק עבור מודלים מותאמים אישית בספקי Azure, AWS Bedrock או ספקים מותאמים (תואמי OpenAI)",
       "model_id_duplicate": "המודל '{model_id}' כבר קיים אצל ספק זה"
+    },
+    "app_data": {
+      "unauthenticated": "יש להתחבר כדי להשתמש בנתוני האפליקציה",
+      "forbidden": "אין לך הרשאה לגשת לנתוני האפליקציה",
+      "collection_not_declared": "האפליקציה לא מגדירה את אוסף הנתונים הזה",
+      "record_not_found": "הרשומה לא נמצאה. ייתכן שהיא נמחקה.",
+      "validation": "ערך לא תקין בשדה '{field}'",
+      "too_large": "הרשומה גדולה מדי לשמירה",
+      "limit_reached": "האוסף הגיע למגבלה של {limit} רשומות",
+      "conflict": "מישהו אחר שינה את הרשומה (כעת בגרסה {current_version}). יש לרענן ולנסות שוב."
     }
   },
   "email": {

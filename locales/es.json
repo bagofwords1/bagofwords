@@ -3419,6 +3419,16 @@
       "model_id_required": "El ID del modelo no puede estar vacío",
       "model_id_not_editable": "Solo se puede editar el ID de modelo de los modelos personalizados en proveedores Azure, AWS Bedrock o personalizados (compatibles con OpenAI)",
       "model_id_duplicate": "El modelo «{model_id}» ya existe en este proveedor"
+    },
+    "app_data": {
+      "unauthenticated": "Inicia sesión para usar los datos de esta aplicación",
+      "forbidden": "No tienes permiso para acceder a los datos de esta aplicación",
+      "collection_not_declared": "Esta aplicación no declara esa colección de datos",
+      "record_not_found": "Registro no encontrado. Es posible que se haya eliminado.",
+      "validation": "Valor no válido en el campo «{field}»",
+      "too_large": "Este registro es demasiado grande para guardarlo",
+      "limit_reached": "Esta colección alcanzó su límite de {limit} registros",
+      "conflict": "Otra persona modificó este registro (ahora en la versión {current_version}). Recarga e inténtalo de nuevo."
     }
   },
   "email": {

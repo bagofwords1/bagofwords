@@ -799,6 +799,290 @@
   });
 
   // ═══════════════════════════════════════════════════════════════════════════
+  // App data: useCollection — records stored by the host (never credentials here)
+  // ═══════════════════════════════════════════════════════════════════════════
+  //
+  // Transport, chosen per request:
+  //   1. window.__bowAppDataHost(request) when a host installed one (HTML export,
+  //      MCP app answer `unavailable`);
+  //   2. a built-in in-memory host on a top-level page (headless validation,
+  //      thumbnails, PDF): empty collections, never hangs;
+  //   3. otherwise APP_DATA_REQUEST posted to window.parent, answered by an
+  //      APP_DATA_RESULT from window.parent carrying the same rid.
+  // Every request settles: a missing answer ends in `timeout`.
+
+  function AppDataError(code, message) {
+    var err = new Error(message || code || 'App data request failed');
+    if (Object.setPrototypeOf) Object.setPrototypeOf(err, AppDataError.prototype);
+    err.name = 'AppDataError';
+    err.code = code || 'error';
+    // Tag read by this runtime and the host error boundary: an app-data failure
+    // is shown through `error`, never reported as an artifact crash.
+    err.__bowAppDataError = true;
+    return err;
+  }
+  AppDataError.prototype = Object.create(Error.prototype, {
+    constructor: { value: AppDataError, writable: true, configurable: true }
+  });
+  window.AppDataError = AppDataError;
+
+  // Registered before the host's error boundary script, so tagged rejections
+  // that generated code did not catch never become ARTIFACT_ERROR or page errors.
+  window.addEventListener('unhandledrejection', function(e) {
+    var reason = e && e.reason;
+    if (reason && reason.__bowAppDataError) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
+  });
+
+  function _appDataClone(v) { return v == null ? v : JSON.parse(JSON.stringify(v)); }
+
+  var _memoryAppData = (function() {
+    var collections = {};
+    var seq = 0;
+    function fail(rid, code, message) { return { rid: rid, ok: false, error: { code: code, message: message } }; }
+    function find(rows, id) { for (var i = 0; i < rows.length; i++) { if (rows[i].id === id) return i; } return -1; }
+    return function(req) {
+      var rid = req.rid;
+      var rows = collections[req.collection] || (collections[req.collection] = []);
+      var now = new Date().toISOString();
+      if (req.op === 'list') return { rid: rid, ok: true, items: _appDataClone(rows) };
+      if (req.op === 'create') {
+        var cu = (window.ARTIFACT_DATA || {}).current_user;
+        seq += 1;
+        var rec = {
+          id: 'mem-' + seq, data: _appDataClone(req.data || {}),
+          user: cu && cu.id ? { id: cu.id, name: cu.name || null } : null,
+          version: 1, created_at: now, updated_at: now, mine: true
+        };
+        rows.push(rec);
+        return { rid: rid, ok: true, record: _appDataClone(rec) };
+      }
+      var idx = find(rows, req.id);
+      if (idx < 0) return fail(rid, 'not_found', 'Record not found');
+      if (req.version !== rows[idx].version) return fail(rid, 'conflict', 'Record was changed');
+      if (req.op === 'update') {
+        var cur = rows[idx];
+        var patch = req.data || {};
+        for (var k in patch) cur.data[k] = _appDataClone(patch[k]);
+        cur.version += 1;
+        cur.updated_at = now;
+        return { rid: rid, ok: true, record: _appDataClone(cur) };
+      }
+      if (req.op === 'delete') {
+        rows.splice(idx, 1);
+        return { rid: rid, ok: true, record: { id: req.id, deleted: true } };
+      }
+      return fail(rid, 'error', 'Unknown app data operation');
+    };
+  })();
+
+  var _appDataPending = {};
+  var _appDataSeq = 0;
+
+  window.addEventListener('message', function(e) {
+    var d = e && e.data;
+    if (e.source !== window.parent || !d || d.type !== 'APP_DATA_RESULT') return;
+    var settle = _appDataPending[d.rid];
+    if (settle) settle(d);
+  });
+
+  function _appDataSend(req) {
+    _appDataSeq += 1;
+    req.type = 'APP_DATA_REQUEST';
+    req.rid = 'ad-' + Date.now().toString(36) + '-' + _appDataSeq + '-' + Math.random().toString(36).slice(2, 8);
+    var rid = req.rid;
+    var timeoutMs = Number(window.__BOW_APP_DATA_TIMEOUT_MS) || 20000;
+    return new Promise(function(resolve) {
+      var done = false;
+      var timer = null;
+      function settle(res) {
+        if (done) return;
+        done = true;
+        if (timer) clearTimeout(timer);
+        delete _appDataPending[rid];
+        if (!res || typeof res !== 'object') res = { ok: false, error: { code: 'error', message: 'Invalid app data response' } };
+        resolve(res);
+      }
+      function failWith(code, err) { settle({ rid: rid, ok: false, error: { code: code, message: (err && err.message) || String(err) } }); }
+      timer = setTimeout(function() { failWith('timeout', 'App data request timed out'); }, timeoutMs);
+      var host = window.__bowAppDataHost;
+      if (typeof host === 'function') {
+        try { Promise.resolve(host(_appDataClone(req))).then(settle, function(err) { failWith('error', err); }); }
+        catch (err) { failWith('error', err); }
+      } else if (window.parent === window) {
+        try { settle(_memoryAppData(req)); } catch (err) { failWith('error', err); }
+      } else {
+        _appDataPending[rid] = settle;
+        try { window.parent.postMessage(req, '*'); } catch (err) { failWith('error', err); }
+      }
+    });
+  }
+
+  // Why `value` cannot travel as JSON unchanged (JSON.stringify silently turns
+  // NaN/Infinity into null and drops functions/undefined), or null when it can.
+  function _appDataInvalid(value, path, stack) {
+    var t = typeof value;
+    if (value === null || t === 'string' || t === 'boolean') return null;
+    if (t === 'number') return isFinite(value) ? null : path + ': numbers must be finite';
+    if (t === 'undefined') return path + ': undefined is not allowed (use null)';
+    if (t !== 'object') return path + ': ' + t + ' values cannot be stored';
+    if (stack.indexOf(value) >= 0) return path + ': circular reference';
+    stack.push(value);
+    var keys = Array.isArray(value) ? value.map(function(_, i) { return i; }) : Object.keys(value);
+    for (var i = 0; i < keys.length; i++) {
+      var sub = Array.isArray(value) ? path + '[' + keys[i] + ']' : (path ? path + '.' : '') + keys[i];
+      var why = _appDataInvalid(value[keys[i]], sub, stack);
+      if (why) { stack.pop(); return why; }
+    }
+    stack.pop();
+    return null;
+  }
+
+  var MALFORMED = { ok: false, error: { code: 'error', message: 'Malformed app data response' } };
+  function _isObj(v) { return !!v && typeof v === 'object' && !Array.isArray(v); }
+
+  window.__appDataStore = (function() {
+    var states = {};
+
+    function notify(s) { for (var i = 0; i < s.listeners.length; i++) { try { s.listeners[i](); } catch (e) {} } }
+    function errorOf(res) {
+      var err = (res && res.error) || {};
+      return { code: String(err.code || 'error'), message: String(err.message || err.code || 'App data request failed') };
+    }
+    function indexOf(s, id) { for (var i = 0; i < s.items.length; i++) { if (s.items[i] && s.items[i].id === id) return i; } return -1; }
+    // After these failures the local list may no longer match the host.
+    var REFRESH_ON = { conflict: 1, not_found: 1, timeout: 1, error: 1 };
+
+    function state(name) {
+      if (states[name]) return states[name];
+      // loaded: a list succeeded; listFailed: the latest list failed (items are
+      // not the collection, retried on the next successful write or remount);
+      // keepError: some caller of the in-flight list wants the error kept.
+      var s = { name: name, items: [], loading: false, error: null, loaded: false, listFailed: false,
+                keepError: false, listing: null, writes: 0, listeners: [] };
+      function sync() {
+        s.loading = s.writes > 0 || (!s.loaded && (!!s.listing || !s.listFailed));
+        notify(s);
+      }
+      function failed(res) {
+        s.error = errorOf(res);
+        sync();
+        return AppDataError(s.error.code, s.error.message);
+      }
+      function list(keepError) {
+        if (keepError) s.keepError = true;
+        if (s.listing) return s.listing;
+        s.listing = _appDataSend({ op: 'list', collection: name }).then(function(res) {
+          var keep = s.keepError;
+          s.listing = null;
+          s.keepError = false;
+          if (res.ok && !Array.isArray(res.items)) res = MALFORMED;
+          if (!res.ok) { s.listFailed = true; throw failed(res); }
+          s.loaded = true;
+          s.listFailed = false;
+          s.items = res.items;
+          if (!keep) s.error = null;
+          sync();
+        });
+        sync();
+        return s.listing;
+      }
+      function refreshAfter(err) {
+        if (err && REFRESH_ON[err.code]) list(true).catch(function() {});
+        throw err;
+      }
+      function rejectLocally(code, message) {
+        return Promise.reject(failed({ error: { code: code, message: message } }));
+      }
+      function write(req, apply, needsRecord) {
+        if (req.data !== undefined) {
+          if (!_isObj(req.data)) return rejectLocally('validation', 'App data must be an object');
+          var why = _appDataInvalid(req.data, '', []);
+          if (why) return rejectLocally('validation', 'Invalid app data value at ' + why);
+        }
+        s.writes += 1;
+        sync();
+        return _appDataSend(req).then(function(res) {
+          s.writes -= 1;
+          if (res.ok && needsRecord && !_isObj(res.record)) res = MALFORMED;
+          if (!res.ok) throw failed(res);
+          var out = apply(res);
+          if (s.listFailed) list(false).catch(function() {});
+          else s.error = null;
+          sync();
+          return out;
+        }).catch(refreshAfter);
+      }
+      // update/remove need the version the store holds; an unknown id cannot be
+      // written safely, so it fails here and the list is re-read.
+      function versionOf(id) {
+        var idx = indexOf(s, id);
+        return idx >= 0 ? s.items[idx].version : undefined;
+      }
+      function unknownId() {
+        return rejectLocally('not_found', 'Record not found').catch(refreshAfter);
+      }
+      s.refresh = function() { return list(false); };
+      s.add = function(data) {
+        return write({ op: 'create', collection: name, data: data == null ? {} : data }, function(res) {
+          s.items = s.items.concat([res.record]);
+          return res.record;
+        }, true);
+      };
+      s.update = function(id, patch) {
+        var version = versionOf(id);
+        if (version === undefined) return unknownId();
+        return write({ op: 'update', collection: name, id: id, data: patch == null ? {} : patch, version: version }, function(res) {
+          var i = indexOf(s, id);
+          var next = s.items.slice();
+          if (i >= 0) next[i] = res.record; else next.push(res.record);
+          s.items = next;
+          return res.record;
+        }, true);
+      };
+      s.remove = function(id) {
+        var version = versionOf(id);
+        if (version === undefined) return unknownId();
+        return write({ op: 'delete', collection: name, id: id, version: version }, function(res) {
+          s.items = s.items.filter(function(r) { return !r || r.id !== id; });
+          return _isObj(res.record) ? res.record : { id: id, deleted: true };
+        }, false);
+      };
+      s.ensureLoaded = function() { if ((!s.loaded || s.listFailed) && !s.listing) list(false).catch(function() {}); };
+      sync();
+      states[name] = s;
+      return s;
+    }
+
+    return {
+      get: state,
+      sub: function(name, fn) {
+        var s = state(name);
+        s.listeners.push(fn);
+        return function() { var i = s.listeners.indexOf(fn); if (i >= 0) s.listeners.splice(i, 1); };
+      }
+    };
+  })();
+
+  window.useCollection = function(name) {
+    var key = String(name);
+    var _s = React.useState(0);
+    var forceUpdate = _s[1];
+    React.useEffect(function() {
+      var unsub = window.__appDataStore.sub(key, function() { forceUpdate(function(c) { return c + 1; }); });
+      window.__appDataStore.get(key).ensureLoaded();
+      return unsub;
+    }, [key]);
+    var s = window.__appDataStore.get(key);
+    return {
+      items: s.items, loading: s.loading, error: s.error,
+      add: s.add, update: s.update, remove: s.remove, refresh: s.refresh
+    };
+  };
+
+  // ═══════════════════════════════════════════════════════════════════════════
   // InfoPopover — provenance popup (Data / Code / Calculation) for components
   // ═══════════════════════════════════════════════════════════════════════════
 

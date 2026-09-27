@@ -41,6 +41,17 @@
 (function () {
   'use strict';
 
+  // App data (useCollection) needs the server: an export answers every request
+  // with `unavailable` at once instead of letting the runtime wait for a
+  // timeout. Installed before the params guard so it holds in every export.
+  window.__bowAppDataHost = function (request) {
+    return Promise.resolve({
+      rid: request && request.rid,
+      ok: false,
+      error: { code: 'unavailable', message: 'Saved app data is not available in an offline export.' }
+    });
+  };
+
   if (!window.ARTIFACT_DATA || typeof window.__setArtifactData !== 'function') return;
 
   var config = window.__BOW_OFFLINE_EXPORT_CONFIG || {};

@@ -62,3 +62,13 @@ class ErrorCode(str, Enum):
     # Data execution
     QUERY_TIMEOUT = "query.timeout"
     QUERY_FAILED_SILENTLY = "query.failed_silently"
+
+    # Artifact app data (records persisted by artifact apps)
+    APP_DATA_UNAUTHENTICATED = "app_data.unauthenticated"
+    APP_DATA_FORBIDDEN = "app_data.forbidden"
+    APP_DATA_COLLECTION_NOT_DECLARED = "app_data.collection_not_declared"
+    APP_DATA_RECORD_NOT_FOUND = "app_data.record_not_found"
+    APP_DATA_VALIDATION = "app_data.validation"
+    APP_DATA_TOO_LARGE = "app_data.too_large"
+    APP_DATA_LIMIT_REACHED = "app_data.limit_reached"
+    APP_DATA_CONFLICT = "app_data.conflict"

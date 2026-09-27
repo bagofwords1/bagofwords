@@ -3487,6 +3487,16 @@
       "model_id_required": "Model ID cannot be empty",
       "model_id_not_editable": "Only custom models on Azure, AWS Bedrock or custom (OpenAI-compatible) providers can have their model ID edited",
       "model_id_duplicate": "Model '{model_id}' already exists on this provider"
+    },
+    "app_data": {
+      "unauthenticated": "Sign in to use this app's data",
+      "forbidden": "You don't have permission to access this app's data",
+      "collection_not_declared": "This app does not declare that data collection",
+      "record_not_found": "Record not found. It may have been deleted.",
+      "validation": "Invalid value for field '{field}'",
+      "too_large": "This record is too large to save",
+      "limit_reached": "This collection has reached its limit of {limit} records",
+      "conflict": "Someone else changed this record (now at version {current_version}). Reload and try again."
     }
   },
   "email": {

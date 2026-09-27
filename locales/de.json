@@ -3329,6 +3329,16 @@
       "model_id_required": "Die Modell-ID darf nicht leer sein",
       "model_id_not_editable": "Nur bei benutzerdefinierten Modellen auf Azure-, AWS-Bedrock- oder benutzerdefinierten (OpenAI-kompatiblen) Anbietern lässt sich die Modell-ID bearbeiten",
       "model_id_duplicate": "Das Modell „{model_id}“ existiert bereits bei diesem Anbieter"
+    },
+    "app_data": {
+      "unauthenticated": "Melden Sie sich an, um die Daten dieser App zu verwenden",
+      "forbidden": "Sie haben keine Berechtigung, auf die Daten dieser App zuzugreifen",
+      "collection_not_declared": "Diese App deklariert diese Datensammlung nicht",
+      "record_not_found": "Datensatz nicht gefunden. Er wurde möglicherweise gelöscht.",
+      "validation": "Ungültiger Wert für das Feld „{field}“",
+      "too_large": "Dieser Datensatz ist zu groß zum Speichern",
+      "limit_reached": "Diese Sammlung hat ihr Limit von {limit} Datensätzen erreicht",
+      "conflict": "Jemand anderes hat diesen Datensatz geändert (jetzt Version {current_version}). Laden Sie neu und versuchen Sie es erneut."
     }
   },
   "email": {
