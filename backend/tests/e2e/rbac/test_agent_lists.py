@@ -332,6 +332,17 @@ def test_same_key_updates_and_keyless_lists_append(test_client, world):
     assert r["total"] == 2
 
 
+def test_resubmitting_the_same_facts_refreshes_evidence_without_a_revision(test_client, world):
+    submit(world, [_record(counterparty=_env("Acme Ltd", quote="between Northwind and Acme Ltd"))])
+    out = submit(world, [_record(counterparty=_env("Acme Ltd", quote="Customer: Acme Ltd"))])
+    assert out["output"]["updated"] == 0 and out["output"]["unchanged"] == 1
+    row = _rows(test_client, world)["rows"][0]
+    assert row["values"][_fid(world, "counterparty")]["evidence"][0]["quote"] == "Customer: Acme Ltd"
+    h = _h(world["admin"]["token"], world["org_id"])
+    revs = test_client.get(_url(world, f"/{world['list']['id']}/rows/{row['id']}/revisions"), headers=h).json()
+    assert [r["action"] for r in revs] == ["insert"]
+
+
 def test_row_id_update_is_partial_and_scoped_to_the_list(test_client, world):
     submit(world, [_record()])
     row = _rows(test_client, world)["rows"][0]
@@ -542,6 +553,28 @@ def test_bow_list_query_returns_typed_rows_and_aggregates(world):
     filtered = _query(world, {"dataset": "list", "list_id": world["list"]["id"], "query": "currency:eur",
                               "columns": ["counterparty", "renewal_date__status"]})
     assert filtered.to_dict("records") == [{"counterparty": "C", "renewal_date__status": "not_found"}]
+
+
+def test_bow_list_text_filters_match_substrings_case_insensitively(world):
+    submit(world, [_record(cp="Globex GmbH"), _record(cp="Acme Ltd", currency="EUR")])
+    df = _query(world, {"dataset": "list", "list_id": world["list"]["id"], "query": "counterparty:globex"})
+    assert list(df["counterparty"]) == ["Globex GmbH"]
+    df = _query(world, {"dataset": "list", "list_id": world["list"]["id"], "query": "auto_renew:true currency:usd"})
+    assert list(df["counterparty"]) == ["Globex GmbH"]
+
+
+def test_quotes_of_the_users_own_message_verify(test_client, world):
+    from app.models.completion import Completion
+
+    async def _fn(db, maker):
+        db.add(Completion(report_id=world["report"]["id"], role="user", message_type="table",
+                          prompt={"content": "Acme renewed until 2029-01-31, update the list"}, completion={},
+                          model="x", user_id=world["admin"]["user_id"]))
+        await db.commit()
+    run_async(_fn)
+    out = submit(world, [_record(renewal_date=_env("2029-01-31", quote="Acme renewed until 2029-01-31",
+                                                   kind="other", ref="user message"))])
+    assert out["observation"]["unverified_quotes"] == []
 
 
 def test_bow_list_query_requires_agent_view_and_survives_renames(test_client, world):

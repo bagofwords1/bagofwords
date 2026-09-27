@@ -562,6 +562,7 @@ import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import SendEmailTool from '../tools/SendEmailTool.vue'
 import CreateNoteTool from '../tools/CreateNoteTool.vue'
+import SubmitListTool from '../tools/SubmitListTool.vue'
 import EditNoteTool from '../tools/EditNoteTool.vue'
 import SearchInstructionsTool from '../tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '../tools/ReadInstructionTool.vue'
@@ -1408,6 +1409,8 @@ function getToolComponent(toolName: string) {
             return SendEmailTool
         case 'create_note':
             return CreateNoteTool
+        case 'submit_list':
+            return SubmitListTool
         case 'edit_note':
             return EditNoteTool
         case 'search_instructions':

@@ -328,7 +328,8 @@
     "toastSuiteDeleted": "Suite deleted",
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "Run this suite",
-    "runSuiteFailed": "Failed to run suite"
+    "runSuiteFailed": "Failed to run suite",
+    "lists": "Lists"
   },
   "commandPalette": {
     "placeholder": "Search reports, agents, instructions…",
@@ -1635,6 +1636,18 @@
       "pathLabel": "Path:",
       "attachedAsSessionFile": "Attached to this conversation as session file",
       "showPagePreviews": "Show page previews ({n})"
+    },
+    "submitList": {
+      "saving": "Saving to list…",
+      "saved": "Saved to {name}",
+      "added": "{n} added",
+      "updated": "{n} updated",
+      "unchanged": "{n} unchanged",
+      "failed": "Not saved to {name}",
+      "retry": "the agent was asked to fix it",
+      "open": "Open list",
+      "downloadCsv": "Download CSV",
+      "list": "list"
     }
   },
   "entityCreate": {
@@ -5256,5 +5269,102 @@
   },
   "quota": {
     "resetsOn": "resets {date}"
+  },
+  "lists": {
+    "title": "Lists",
+    "newList": "New list",
+    "empty": "No lists yet",
+    "emptyHint": "A list is a table your agent fills in. Define its fields, then ask the agent to extract them from documents, emails or query results.",
+    "emptyViewer": "This agent has no lists yet.",
+    "fieldsCount": "{n} field | {n} fields",
+    "rowsCount": "{n} row | {n} rows",
+    "loading": "Loading…",
+    "back": "Lists",
+    "exportCsv": "Export CSV",
+    "exportWithEvidence": "Export with sources",
+    "editFields": "Edit fields",
+    "deleteList": "Delete list",
+    "deleteConfirmTitle": "Delete “{name}”?",
+    "deleteConfirmBody": "The list and its rows will be removed, and agents will stop saving to it.",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saving": "Saving…",
+    "create": "Create list",
+    "more": "More actions",
+    "noRows": "No rows yet",
+    "noRowsHint": "Ask the agent in a new report, for example “Extract all contracts into {name}”.",
+    "saveHint": "Agents save here with",
+    "queryHint": "Query as",
+    "updated": "Updated",
+    "editor": {
+      "newTitle": "New list",
+      "editTitle": "Edit list",
+      "name": "Name",
+      "namePlaceholder": "e.g. Contracts",
+      "description": "Description",
+      "descriptionPlaceholder": "What each row represents, and anything the agent should know",
+      "fields": "Fields",
+      "fieldName": "field_name",
+      "fieldDescription": "Describe the value. This is the agent's instruction.",
+      "type": "Type",
+      "required": "Required",
+      "key": "Key",
+      "keyHint": "Rows with the same key are updated instead of added",
+      "enumValues": "Allowed values, comma-separated",
+      "addField": "Add field",
+      "removeField": "Remove field",
+      "requireEvidence": "Require a source quote for extracted values",
+      "nameRule": "Field names use lowercase letters, digits and _",
+      "types": {
+        "string": "Text",
+        "number": "Number",
+        "integer": "Whole number",
+        "boolean": "Yes / No",
+        "date": "Date",
+        "enum": "Choice"
+      },
+      "breakingSaved": "Saved as version {v}. Existing rows are marked outdated until re-extracted.",
+      "saved": "List saved",
+      "created": "List created",
+      "saveFailed": "Couldn't save the list"
+    },
+    "row": {
+      "status": {
+        "found": "Found",
+        "not_found": "Not found",
+        "ambiguous": "Ambiguous",
+        "inferred": "Inferred"
+      },
+      "source": "Source",
+      "page": "p. {n}",
+      "verified": "Quote found in the source",
+      "unverified": "Quote not matched to the source",
+      "edited": "Edited by a person. The agent won't overwrite it.",
+      "unlock": "Let the agent update",
+      "history": "History",
+      "revert": "Revert",
+      "deleteRow": "Delete row",
+      "saveChanges": "Save changes",
+      "conflict": "This row changed since you opened it, so it was reloaded.",
+      "saved": "Row updated",
+      "deleted": "Row deleted",
+      "stale": "Extracted with an older version of the fields",
+      "openReport": "Open report",
+      "agent": "Agent",
+      "action": {
+        "insert": "added",
+        "update": "updated",
+        "revert": "reverted",
+        "unlock": "unlocked"
+      },
+      "yes": "Yes",
+      "no": "No",
+      "noHistory": "No changes yet"
+    },
+    "toastDeleted": "List deleted",
+    "toastError": "Something went wrong",
+    "loadMore": "Load more",
+    "justNow": "just now"
   }
 }

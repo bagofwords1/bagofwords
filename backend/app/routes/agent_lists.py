@@ -43,6 +43,26 @@ def _validation_422(exc: ListValidationError) -> HTTPException:
     return HTTPException(status_code=422, detail={"message": "Validation failed", "errors": exc.errors})
 
 
+@router.get("/agent_lists/counts")
+async def agent_list_counts(
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    """Live list count per agent, for the agents the caller can view (tree badges)."""
+    from app.models.agent_list import AgentList
+    from app.services.agent_lists.access import viewable_agent_ids
+
+    rows = (await db.execute(
+        select(AgentList.data_source_id, func.count(AgentList.id))
+        .where(AgentList.organization_id == str(organization.id), AgentList.deleted_at.is_(None))
+        .group_by(AgentList.data_source_id)
+    )).all()
+    counts = {str(ds): int(n) for ds, n in rows}
+    visible = await viewable_agent_ids(db, current_user, organization, counts.keys())
+    return {"by_agent": {k: v for k, v in counts.items() if k in visible}}
+
+
 @router.get("/data_sources/{data_source_id}/lists", response_model=List[AgentListOut])
 @requires_resource_permission("data_source", "view")
 async def list_agent_lists(

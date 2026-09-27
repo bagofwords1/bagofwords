@@ -328,7 +328,8 @@
     "tipDeleteSuite": "Delete suite",
     "tipRunSuite": "הרצת חבילה זו",
     "runSuiteFailed": "הרצת החבילה נכשלה",
-    "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)"
+    "exportInstructions": "ייצוא חבילת סוכן — הנחיות, הגדרות והערכות (zip.)",
+    "lists": "רשימות"
   },
   "smoke": {
     "hello": "שלום",
@@ -1609,6 +1610,18 @@
       "pathLabel": "נתיב:",
       "attachedAsSessionFile": "צורף לשיחה זו כקובץ סשן",
       "showPagePreviews": "הצג תצוגות מקדימות של עמודים ({n})"
+    },
+    "submitList": {
+      "saving": "שומר לרשימה…",
+      "saved": "נשמר ב-{name}",
+      "added": "{n} נוספו",
+      "updated": "{n} עודכנו",
+      "unchanged": "{n} ללא שינוי",
+      "failed": "לא נשמר ב-{name}",
+      "retry": "הסוכן התבקש לתקן",
+      "open": "פתיחת הרשימה",
+      "downloadCsv": "הורדת CSV",
+      "list": "רשימה"
     }
   },
   "entityCreate": {
@@ -5247,5 +5260,102 @@
   },
   "quota": {
     "resetsOn": "מתאפס ב-{date}"
+  },
+  "lists": {
+    "title": "רשימות",
+    "newList": "רשימה חדשה",
+    "empty": "אין רשימות עדיין",
+    "emptyHint": "רשימה היא טבלה שהסוכן ממלא. הגדירו את השדות ובקשו מהסוכן לחלץ אותם ממסמכים, מיילים או תוצאות שאילתות.",
+    "emptyViewer": "לסוכן זה אין עדיין רשימות.",
+    "fieldsCount": "שדה אחד | {n} שדות",
+    "rowsCount": "שורה אחת | {n} שורות",
+    "loading": "טוען…",
+    "back": "רשימות",
+    "exportCsv": "ייצוא CSV",
+    "exportWithEvidence": "ייצוא עם מקורות",
+    "editFields": "עריכת שדות",
+    "deleteList": "מחיקת רשימה",
+    "deleteConfirmTitle": "למחוק את „{name}”?",
+    "deleteConfirmBody": "הרשימה והשורות שלה יוסרו, והסוכנים יפסיקו לשמור אליה.",
+    "delete": "מחיקה",
+    "cancel": "ביטול",
+    "save": "שמירה",
+    "saving": "שומר…",
+    "create": "יצירת רשימה",
+    "more": "פעולות נוספות",
+    "noRows": "אין שורות עדיין",
+    "noRowsHint": "בקשו מהסוכן בדוח חדש, למשל „חלץ את כל החוזים אל {name}”.",
+    "saveHint": "הסוכנים שומרים כאן עם",
+    "queryHint": "לשאילתות:",
+    "updated": "עודכן",
+    "editor": {
+      "newTitle": "רשימה חדשה",
+      "editTitle": "עריכת רשימה",
+      "name": "שם",
+      "namePlaceholder": "לדוגמה: חוזים",
+      "description": "תיאור",
+      "descriptionPlaceholder": "מה מייצגת כל שורה, וכל מה שהסוכן צריך לדעת",
+      "fields": "שדות",
+      "fieldName": "field_name",
+      "fieldDescription": "תארו את הערך. זו ההנחיה לסוכן.",
+      "type": "סוג",
+      "required": "חובה",
+      "key": "מפתח",
+      "keyHint": "שורות עם אותו מפתח מתעדכנות במקום להתווסף",
+      "enumValues": "ערכים מותרים, מופרדים בפסיקים",
+      "addField": "הוספת שדה",
+      "removeField": "הסרת שדה",
+      "requireEvidence": "לדרוש ציטוט מהמקור לערכים שחולצו",
+      "nameRule": "שמות שדות באותיות לטיניות קטנות, ספרות ו-_",
+      "types": {
+        "string": "טקסט",
+        "number": "מספר",
+        "integer": "מספר שלם",
+        "boolean": "כן / לא",
+        "date": "תאריך",
+        "enum": "בחירה"
+      },
+      "breakingSaved": "נשמר כגרסה {v}. שורות קיימות יסומנו כמיושנות עד לחילוץ מחדש.",
+      "saved": "הרשימה נשמרה",
+      "created": "הרשימה נוצרה",
+      "saveFailed": "לא ניתן לשמור את הרשימה"
+    },
+    "row": {
+      "status": {
+        "found": "נמצא",
+        "not_found": "לא נמצא",
+        "ambiguous": "לא חד-משמעי",
+        "inferred": "הוסק"
+      },
+      "source": "מקור",
+      "page": "עמ׳ {n}",
+      "verified": "הציטוט נמצא במקור",
+      "unverified": "הציטוט לא אותר במקור",
+      "edited": "נערך ידנית. הסוכן לא ידרוס אותו.",
+      "unlock": "לאפשר לסוכן לעדכן",
+      "history": "היסטוריה",
+      "revert": "שחזור",
+      "deleteRow": "מחיקת שורה",
+      "saveChanges": "שמירת שינויים",
+      "conflict": "השורה השתנתה מאז שפתחתם אותה, ולכן נטענה מחדש.",
+      "saved": "השורה עודכנה",
+      "deleted": "השורה נמחקה",
+      "stale": "חולץ בגרסה קודמת של השדות",
+      "openReport": "פתיחת הדוח",
+      "agent": "סוכן",
+      "action": {
+        "insert": "הוסיף",
+        "update": "עדכן",
+        "revert": "שחזר",
+        "unlock": "שחרר נעילה"
+      },
+      "yes": "כן",
+      "no": "לא",
+      "noHistory": "אין שינויים עדיין"
+    },
+    "toastDeleted": "הרשימה נמחקה",
+    "toastError": "משהו השתבש",
+    "loadMore": "טעינת עוד",
+    "justNow": "זה עתה"
   }
 }

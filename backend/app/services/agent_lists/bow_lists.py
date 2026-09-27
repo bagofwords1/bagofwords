@@ -71,7 +71,7 @@ def describe_table(entry: Dict[str, Any]) -> str:
         + f"Fields: {fields}. "
         f"Query ONLY via ds_clients[\"bow\"].execute_query({{\"dataset\": \"list\", \"list_id\": \"{lst.id}\"}}) "
         "(always pass list_id, never the table name). Optional: \"columns\" [...], \"query\" \"field:value ...\" "
-        "(exact match), \"group_by\" + \"metrics\" [{\"op\":\"sum\",\"field\":...,\"name\":...}], "
+        "(text fields: case-insensitive contains; others: exact), \"group_by\" + \"metrics\" [{\"op\":\"sum\",\"field\":...,\"name\":...}], "
         "\"sort\" [{\"field\":...,\"direction\":\"desc\"}], \"limit\". Add evidence columns "
         "(<field>__quote/__page/__verified) by naming them in columns. _row_id identifies a row "
         "(pass it as row_id to the list's submit tool to update it)."
@@ -132,11 +132,18 @@ def rows_to_frame(lst: AgentList, rows: List[AgentListRow], *, evidence: bool) -
 
 
 def _apply_query(df: pd.DataFrame, query: str) -> pd.DataFrame:
+    """``field:value`` filters, ANDed. Text columns match case-insensitively
+    as a substring (``counterparty:globex`` finds "Globex GmbH"); every other
+    column matches exactly."""
     for tok in re.findall(r'(\w+):("[^"]*"|\S+)', query or ""):
         col, val = tok[0], tok[1].strip('"')
         if col not in df.columns:
             raise ValueError(f"Unknown column in query: {col}")
-        df = df[df[col].astype(str).str.casefold() == val.casefold()]
+        series = df[col]
+        if series.dtype == object and series.map(lambda v: isinstance(v, str) or v is None).all():
+            df = df[series.fillna("").str.casefold().str.contains(val.casefold(), regex=False)]
+        else:
+            df = df[series.astype(str).str.casefold() == val.casefold()]
     return df
 
 

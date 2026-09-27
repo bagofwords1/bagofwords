@@ -208,11 +208,12 @@ def _stored_envelope(env: Dict[str, Any], sources: List[SourceText]) -> Dict[str
     }
 
 
-def _envelope_equal(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:
+def _same_fact(a: Optional[Dict[str, Any]], b: Optional[Dict[str, Any]]) -> bool:
+    """Same value and status. Re-extraction usually re-words the quote/note;
+    that refreshes the evidence but is not a change worth a revision."""
     if a is None or b is None:
         return a is b
-    keys = ("value", "status", "evidence", "note")
-    return all(a.get(k) == b.get(k) for k in keys)
+    return a.get("value") == b.get("value") and a.get("status") == b.get("status")
 
 
 async def apply_submission(
@@ -320,17 +321,23 @@ async def apply_submission(
         values = copy.deepcopy(row.values or {})
         locked = set(row.locked_fields or [])
         changed: Dict[str, Any] = {}
+        refreshed = False
         for fid, env in new_envs.items():
             if fid in locked:
                 fname = next((f["name"] for f in agent_list.fields if f["id"] == fid), fid)
                 locked_skipped.append({"record": i, "field": fname, "row_id": row.id})
                 continue
             before = values.get(fid)
-            if _envelope_equal(before, env):
+            if _same_fact(before, env):
+                if before.get("evidence") != env["evidence"] or before.get("note") != env["note"]:
+                    values[fid] = {**before, "evidence": env["evidence"], "note": env["note"]}
+                    refreshed = True
                 continue
             values[fid] = env
             changed[fid] = {"before": before, "after": env}
         if not changed:
+            if refreshed:
+                row.values = values
             unchanged += 1
             saved.append({"row_id": row.id, "action": "unchanged"})
             continue
