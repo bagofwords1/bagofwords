@@ -2,7 +2,7 @@
 
 Memory is private to its owner. The report timeline and trace payloads are
 readable by others (shared reports, org admins), so memory tool calls may only
-leave their status there: the tool name, success, the handle/section — never
+leave their status there: the tool name, success, the handle — never
 entry text, aliases, tags, search results or refusal fragments. The owner
 reads full details in their profile and in the owner-only memory section of
 the trace.
@@ -13,7 +13,7 @@ from typing import Any, Dict
 
 MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory", "update_user_memory"})
 
-_SAFE_OBS_KEYS = ("handle", "previous_handle", "section", "action", "deduped_into", "excluded_injected")
+_SAFE_OBS_KEYS = ("handle", "previous_handle", "action", "deduped_into", "excluded_injected")
 
 
 def scrub_tool_observation(item: Dict[str, Any]) -> Dict[str, Any]:

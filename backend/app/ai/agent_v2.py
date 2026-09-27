@@ -84,7 +84,7 @@ def capabilities_for_report_files(has_files: bool) -> set:
 # nothing the planner needs next turn (an ack + an id). They render as one-line
 # acks inside a batch aggregate, and a bookkeeping-only step must never evict
 # the previous substantive observation (see _carry_substantive_observation).
-_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory"})
+_BOOKKEEPING_TOOLS = frozenset({"create_note", "edit_note", "create_memory", "edit_memory", "suggest_personal_instruction"})
 MEMORY_TOOL_NAMES = frozenset({"create_memory", "edit_memory", "search_memory"})
 
 
@@ -815,6 +815,9 @@ class AgentV2:
             or getattr(self, "is_eval_run", False)
         ):
             all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] not in MEMORY_TOOL_NAMES]
+        # Offering the user a personal instruction needs the user in the turn.
+        if _mem_user is None or _is_machine_turn(self.head_completion) or getattr(self, "is_eval_run", False):
+            all_catalog_dicts = [t for t in all_catalog_dicts if t['name'] != 'suggest_personal_instruction']
 
         # Shared-artifact viewer chat runs read/query-only: no artifact or
         # dashboard mutations, no comms, no automation, no agent-scope tools
@@ -1098,47 +1101,37 @@ class AgentV2:
         self._memory_trace["injection"] = ctx.trace()
         return ctx.body or None
 
-    def _memory_apply_hint(self) -> Optional[str]:
-        """One line next to the ask naming the injected style/preference
-        entries, so the answer applies them. Handles only — the facts
-        themselves are in <memory>."""
-        handles = [
-            i.get("handle") for i in ((getattr(self, "_memory_trace", {}) or {}).get("injection") or {}).get("injected", [])
-            if i.get("section") in ("style", "preferences") and i.get("handle")
-        ]
-        if not handles:
-            return None
-        return (
-            f"<memory_apply>Shape your final answer to the user's style and preferences in <memory> "
-            f"({', '.join('[' + h + ']' for h in handles[:8])}) unless this message asks otherwise.</memory_apply>"
-        )
-
     def _memory_hint(self) -> Optional[str]:
-        """Lines placed next to the ask: <memory_apply> when style/preference
-        entries are injected, plus <memory_hint> when the user's own message
-        carries durable personal signals and the memory tools are offered.
-        Pure code: the model still decides whether anything is worth saving."""
+        """One line next to the ask when the user's own message carries a fact
+        about them (→ memory) or a lasting rule for how to answer them (→
+        offer a personal instruction). Pure code: the model still decides
+        whether anything is worth keeping."""
         try:
-            if not any(getattr(t, "name", None) == "create_memory" for t in (self.planner.tool_catalog or [])):
-                return self._memory_apply_hint()
+            names = {getattr(t, "name", None) for t in (self.planner.tool_catalog or [])}
             prompt = (self.head_completion.prompt or {}) if self.head_completion else {}
             message = prompt.get("content", "") if isinstance(prompt, dict) else ""
-            from app.services.memory_rules import personal_signals
-            kinds = personal_signals(message)
+            from app.services.memory_rules import fact_signals, rule_signals
+            facts = fact_signals(message) if "create_memory" in names else []
+            rules = rule_signals(message) if "suggest_personal_instruction" in names else []
         except Exception:
             return None
-        if not kinds:
-            return self._memory_apply_hint()
-        apply = self._memory_apply_hint()
-        return (("" if not apply else apply + "\n") +
-            f"<memory_hint>This message may carry durable personal context ({', '.join(kinds)}). If it "
-            "does and <memory> doesn't already hold it, save it in THIS response with create_memory (one "
-            "fact per entry; edit_memory only the entry saying the same thing) alongside your other tool "
-            "calls, without announcing it. Then still do what the user asked — a style or format correction "
-            "means: rewrite your previous answer in the corrected style (e.g. reformat the numbers you already "
-            "showed) from data you already have; never reply with only an acknowledgement. Resolve relative dates to absolute ISO dates. Business definitions and rules are never "
-            "memory.</memory_hint>"
-        )
+        parts: list[str] = []
+        if facts:
+            parts.append(
+                f"This message may state a fact about the user ({', '.join(facts)}). If it's lasting and "
+                "<memory> doesn't hold it yet, save it with create_memory (one fact per entry; resolve "
+                "relative dates to absolute ISO dates) alongside your other tool calls, without announcing it."
+            )
+        if rules:
+            parts.append(
+                "This message tells you how the user wants answers. Apply it now — if it corrects your last "
+                "answer, rewrite that answer in the new way from data you already have, never just "
+                "acknowledge. If it sounds lasting, offer it once with suggest_personal_instruction. It is "
+                "a rule, so never save it to memory."
+            )
+        if not parts:
+            return None
+        return "<memory_hint>" + " ".join(parts) + "</memory_hint>"
 
     async def _stamp_memory_trace(self) -> None:
         """Put this run's memory metadata on the agent execution. Set on the

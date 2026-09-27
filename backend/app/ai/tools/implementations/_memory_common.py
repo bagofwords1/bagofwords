@@ -12,9 +12,8 @@ from app.services.memory_service import is_memory_enabled
 # create_instruction's description) so the model routes each fact to the
 # right system.
 BOUNDARY = (
-    "Memory is personal context about THIS user only — never business definitions, metric logic, "
-    "required filters or table meaning (those are instructions for everyone; the instruction flow / "
-    "create_instruction handles them)."
+    "Test: is it a rule for how to answer or compute, or a fact about the user? Rules are "
+    "instructions (org-wide, or this user's personal instructions); only facts are memory."
 )
 
 

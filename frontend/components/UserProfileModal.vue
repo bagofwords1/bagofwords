@@ -265,7 +265,7 @@
           </div>
 
           <!-- Memory: the agent's per-user memory entries (gated by enable_user_memory) -->
-          <UserMemoryPanel v-else-if="activeTab === 'memory' && isUserMemoryEnabled" />
+          <UserMemoryPanel v-else-if="activeTab === 'memory' && isUserMemoryEnabled" @open-instructions="activeTab = 'instructions'" />
 
           <!-- Usage -->
           <div v-else-if="activeTab === 'usage'" class="space-y-4">

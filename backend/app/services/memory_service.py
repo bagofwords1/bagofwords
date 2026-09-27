@@ -4,14 +4,15 @@ Every writer goes through here: the agent tools (create_memory / edit_memory),
 the self-service user API, and the legacy migration. That is what keeps the
 invariants in one place:
 
-- dedupe on write (same section + same normalized text strengthens the
-  existing entry; vocabulary also merges on a shared alias),
+- dedupe on write (the same normalized text strengthens the existing entry;
+  a shared alias of the user's shorthand merges too),
 - supersede-on-update (a new row, the old one marked ``superseded``),
 - forget blanks content (only id/status/timestamps survive),
 - computed expiry on read (no background job),
 - a per-user cap with eviction of the weakest non-user entry,
-- the secret filter on every write, the definition/rule heuristic on agent
-  writes only.
+- facts only: text that reads like a rule about how to answer or compute is
+  refused on every write (it belongs in instructions), plus the secret
+  filter on every write.
 
 Pure rules live in ``memory_rules`` so tests and the migration share them.
 """
@@ -43,7 +44,6 @@ class WriteResult:
 @dataclass
 class CleanPayload:
     text: str
-    section: str
     tags: List[str]
     aliases: List[str]
     event_start: Optional[datetime]
@@ -148,7 +148,6 @@ class MemoryService:
         self,
         *,
         text: Optional[str],
-        section: Optional[str],
         tags: Optional[Iterable[str]] = None,
         aliases: Optional[Iterable[str]] = None,
         event_start=None,
@@ -166,7 +165,6 @@ class MemoryService:
                 f"Memory text is {len(body)} chars; the limit is {R.MAX_TEXT_CHARS}. "
                 "Keep it to one short declarative fact.",
             )
-        sec = R.validate_section(section)
 
         raw_tags = list(tags or [])
         if len(raw_tags) > R.MAX_TAGS:
@@ -185,11 +183,8 @@ class MemoryService:
         start = R.parse_when(event_start)
         end = R.parse_when(event_end)
         exp = R.parse_when(expires_at)
-        if sec == "events" and start is None:
-            raise MemoryValidationError(
-                "memory.event_date_required",
-                "Events need event_start as an absolute ISO date (resolve 'next Thursday' to YYYY-MM-DD).",
-            )
+        if end is not None and start is None:
+            start, end = end, None
         if start is not None and end is not None and end < start:
             raise MemoryValidationError("memory.invalid_date", "event_end is before event_start.")
 
@@ -204,20 +199,24 @@ class MemoryService:
                 "Memory only holds work context. Don't store health or other personal details "
                 "(for time off, record only the dates of availability).",
             )
-        if agent_write:
-            hit = R.looks_like_rule(body)
-            if hit:
-                raise MemoryValidationError(
-                    "memory.looks_like_rule",
-                    "This reads like a business definition or rule (matched: "
-                    f"\"{hit}\"). Definitions, metric logic and required filters belong in "
-                    "instructions, which apply to everyone — not in this user's memory. Don't save it "
-                    "to memory; apply it to the current answer, and the knowledge harness proposes it "
-                    "as an instruction (create_instruction). Memory is only for personal context: "
-                    "style, role, schedule, focus, or the user's own shorthand.",
-                )
+        hit = R.looks_like_rule(body)
+        if hit:
+            raise MemoryValidationError(
+                "memory.looks_like_rule",
+                (
+                    f"This is a rule about how to answer or compute (matched: \"{hit}\"), not a fact about "
+                    "the user. Rules are instructions, never memory: apply it to the current answer; if it "
+                    "is this user's own lasting preference, offer it with suggest_personal_instruction; if "
+                    "it holds for everyone (a definition, metric logic, a required filter), it belongs in "
+                    "org instructions. Memory is only for facts: their work, projects, dates, what they "
+                    "follow, their own shorthand."
+                ) if agent_write else (
+                    "That reads like a rule for how to answer. Rules go in your Custom instructions; "
+                    "memory keeps facts about you."
+                ),
+            )
         return CleanPayload(
-            text=body, section=sec, tags=norm_tags, aliases=norm_aliases,
+            text=body, tags=norm_tags, aliases=norm_aliases,
             event_start=start, event_end=end, expires_at=exp,
         )
 
@@ -262,11 +261,9 @@ class MemoryService:
         key = R.normalize_text(payload.text)
         new_alias_keys = {R.normalize_text(a) for a in payload.aliases}
         for e in await self.list_entries(db, organization_id, user_id):
-            if e.section != payload.section:
-                continue
             if R.normalize_text(e.text) == key:
                 return e
-            if payload.section == "vocabulary" and new_alias_keys:
+            if new_alias_keys:
                 existing = {R.normalize_text(a) for a in (e.aliases or [])}
                 if existing & new_alias_keys:
                     return e
@@ -279,7 +276,6 @@ class MemoryService:
         organization_id: str,
         user_id: str,
         text: Optional[str],
-        section: Optional[str],
         tags: Optional[Iterable[str]] = None,
         aliases: Optional[Iterable[str]] = None,
         event_start=None,
@@ -293,7 +289,7 @@ class MemoryService:
         now = now or _utcnow()
         agent_write = source == "agent"
         payload = self.clean_payload(
-            text=text, section=section, tags=tags, aliases=aliases,
+            text=text, tags=tags, aliases=aliases,
             event_start=event_start, event_end=event_end, expires_at=expires_at,
             require_tags=agent_write, agent_write=agent_write,
         )
@@ -306,7 +302,7 @@ class MemoryService:
             dup.aliases = merged_aliases or None
             merged_tags = R.normalize_tags(list(dup.tags or []) + payload.tags)[: R.MAX_TAGS]
             dup.tags = merged_tags
-            if payload.section == "events":
+            if payload.event_start is not None:
                 dup.event_start = dup.event_start or payload.event_start
                 dup.event_end = dup.event_end or payload.event_end
             db.add(dup)
@@ -318,7 +314,6 @@ class MemoryService:
         await self._ensure_capacity(db, organization_id, user_id, source=source, now=now)
         entry = await self._insert(
             db, organization_id, user_id,
-            section=payload.section,
             text=payload.text,
             tags=payload.tags,
             aliases=payload.aliases or None,
@@ -356,13 +351,11 @@ class MemoryService:
         def pick(key, current):
             return changes[key] if key in changes and changes[key] is not None else current
 
-        section = pick("section", entry.section)
         payload = self.clean_payload(
             text=pick("text", entry.text),
-            section=section,
             tags=pick("tags", entry.tags or []),
             aliases=pick("aliases", entry.aliases or []),
-            event_start=pick("event_start", entry.event_start),
+            event_start=changes["event_start"] if "event_start" in changes else entry.event_start,
             event_end=changes.get("event_end", entry.event_end) if "event_end" in changes else entry.event_end,
             expires_at=changes.get("expires_at", entry.expires_at) if "expires_at" in changes else entry.expires_at,
             require_tags=False,
@@ -370,7 +363,6 @@ class MemoryService:
         )
         new = await self._insert(
             db, str(entry.organization_id), str(entry.user_id),
-            section=payload.section,
             text=payload.text,
             tags=payload.tags,
             aliases=payload.aliases or None,
@@ -487,7 +479,6 @@ class MemoryService:
         *,
         query: Optional[str] = None,
         tags: Optional[Iterable[str]] = None,
-        section: Optional[str] = None,
         include_past_events: bool = False,
         limit: int = 10,
         exclude_ids: Optional[Iterable[str]] = None,
@@ -499,7 +490,6 @@ class MemoryService:
         now = now or _utcnow()
         limit = max(1, min(int(limit or 10), 25))
         excluded = {str(x) for x in (exclude_ids or [])}
-        sec = R.validate_section(section) if section else None
         want_tags = set(R.normalize_tags(tags))
         keywords = extract_keywords(query or "", unicode=True)
 
@@ -508,9 +498,7 @@ class MemoryService:
         for e in pool:
             if str(e.id) in excluded:
                 continue
-            if sec and e.section != sec:
-                continue
-            if R.is_expired(e, now) and not (include_past_events and e.section == "events"):
+            if R.is_expired(e, now) and not (include_past_events and R.is_dated(e)):
                 continue
             if want_tags and not (want_tags & set(e.tags or [])):
                 continue

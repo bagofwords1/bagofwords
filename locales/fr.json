@@ -1510,8 +1510,17 @@
       "updating": "Mise à jour de la mémoire…",
       "checking": "Consultation de la mémoire…",
       "updated": "Mémoire mise à jour",
-      "checked": "Mémoire consultée",
-      "failed": "Impossible de mettre à jour la mémoire"
+      "checked": "Mémoire consultée"
+    },
+    "suggestInstruction": {
+      "running": "Suggestion d'une instruction…",
+      "label": "L'enregistrer comme instruction ?",
+      "accept": "Ajouter à mes instructions",
+      "dismiss": "Pas maintenant",
+      "dismissed": "Non enregistré",
+      "saved": "Ajouté à vos instructions personnalisées",
+      "failed": "Impossible de suggérer une instruction",
+      "failedSave": "Impossible de l'ajouter à vos instructions"
     },
     "routeModel": {
       "routedTo": "Acheminé vers",
@@ -2551,7 +2560,7 @@
         },
         "enable_user_memory": {
           "name": "Mémoire utilisateur",
-          "description": "Permet à l'agent de retenir le contexte personnel de chaque utilisateur d'une session à l'autre : style d'écriture, rôle, raccourcis personnels, réunions et événements à venir, priorité du moment. Les définitions et règles métier restent dans les instructions. Chaque utilisateur peut consulter, modifier et supprimer sa mémoire."
+          "description": "Permet à l'agent de retenir des faits sur chaque utilisateur d'une session à l'autre : son travail, ses projets, ses échéances et événements, ce qu'il suit et ses propres raccourcis. Les règles sur la façon de répondre restent dans les instructions (de l'organisation ou les instructions personnalisées de chacun). Chaque utilisateur peut consulter, modifier et supprimer sa mémoire."
         },
         "max_instructions_in_context": {
           "name": "Nombre maximal d'instructions dans le contexte",
@@ -3381,15 +3390,14 @@
     "memory.not_found": "Cette entrée de mémoire n'existe pas.",
     "memory.text_required": "Indiquez ce qu'il faut retenir.",
     "memory.text_too_long": "280 caractères maximum.",
-    "memory.invalid_section": "Choisissez une des sections de la mémoire.",
     "memory.too_many_tags": "4 tags maximum.",
     "memory.tags_required": "Ajoutez au moins un tag.",
-    "memory.event_date_required": "Les événements nécessitent une date de début.",
     "memory.invalid_date": "Cette date n'est pas valide.",
     "memory.sensitive": "La mémoire ne peut pas contenir de secrets, de mots de passe ni de données personnelles sensibles.",
-    "memory.looks_like_rule": "Cela ressemble à une définition ou une règle métier : ajoutez-la plutôt comme instruction.",
+    "memory.looks_like_rule": "C'est une règle sur la façon de répondre : ajoutez-la à vos instructions personnalisées. La mémoire garde des faits vous concernant.",
     "memory.full": "La mémoire est pleine. Supprimez d'abord des entrées.",
-    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée."
+    "memory.not_active": "Cette entrée a déjà été modifiée ou oubliée.",
+    "profile.instructions_full": "Vos instructions personnalisées sont pleines. Modifiez-les dans votre profil pour faire de la place."
   },
   "email": {
     "dashboardShare": {
@@ -4623,25 +4631,19 @@
     },
     "memory": {
       "title": "Mémoire",
-      "subtitle": "Le contexte personnel que l'IA retient sur vous dans cette organisation : votre style, votre rôle, vos raccourcis, vos événements à venir et votre priorité du moment. Vous seul pouvez le voir.",
-      "vsInstructions": "Les définitions et règles métier ne sont pas conservées ici : elles se trouvent dans les instructions, qui s'appliquent à tous.",
-      "instructionsLink": "Ouvrir les instructions",
-      "clearFilter": "Effacer",
+      "subtitle": "Les faits que l'IA retient sur vous dans cette organisation : votre travail, vos projets, vos dates, ce que vous suivez, vos raccourcis. Vous seul pouvez les voir.",
+      "vsInstructions": "La façon dont l'IA doit vous répondre (format, unités, longueur) n'est pas de la mémoire : ce sont vos instructions personnalisées.",
+      "instructionsLink": "Instructions personnalisées",
       "count": "{count} sur {cap} entrées",
       "forgetAll": "Tout oublier",
       "forgetAllTitle": "Tout oublier ?",
       "forgetAllBody": "L'IA oubliera les {count} entrées qu'elle a retenues sur vous dans cette organisation. Cette action est irréversible.",
       "forgetAllConfirm": "Tout oublier",
-      "empty": "Rien n'est encore retenu. Au fil de votre travail, l'IA enregistre ici votre format préféré, votre rôle ou vos prochaines réunions.",
+      "empty": "Rien n'est encore retenu. Au fil de votre travail, l'IA garde ici des faits comme vos projets, vos échéances ou vos prochaines réunions.",
       "add": "Ajouter",
       "past": "Passé",
       "fromReport": "depuis {title}",
       "untitledReport": "un rapport",
-      "noneForTag": "Aucune entrée avec ce tag.",
-      "previewTitle": "Ce que voit l'agent",
-      "previewChars": "{count} caractères",
-      "previewHint": "Toujours inclus dans vos conversations. Les autres entrées sont ajoutées quand une question y correspond.",
-      "previewEmpty": "Rien pour l'instant.",
       "loadFailed": "Impossible de charger votre mémoire",
       "saveFailed": "Impossible d'enregistrer la modification",
       "saved": "Mémoire enregistrée",
@@ -4653,43 +4655,12 @@
         "migration": "Importé de votre ancienne mémoire"
       },
       "form": {
-        "start": "Début",
-        "end": "Fin (facultatif)",
+        "placeholder": "Un fait vous concernant, ex. Pilote le projet d'attrition du T3",
         "tags": "Tags, séparés par des virgules",
-        "aliases": "Autres mots que vous utilisez, séparés par des virgules"
+        "dateHint": "Ajoutez une date si c'est lié à une date"
       },
-      "sections": {
-        "style": {
-          "title": "Style",
-          "hint": "Comment vous aimez que les réponses soient rédigées et présentées",
-          "placeholder": "ex. Préfère le chiffre d'abord, puis une ligne de contexte"
-        },
-        "role": {
-          "title": "Rôle",
-          "hint": "Votre rôle et vos responsabilités",
-          "placeholder": "ex. Finance, responsable du reporting des revenus EMEA"
-        },
-        "vocabulary": {
-          "title": "Raccourcis",
-          "hint": "Vos propres mots pour désigner les choses, pas des définitions métier",
-          "placeholder": "ex. « ma région » = EMEA"
-        },
-        "events": {
-          "title": "Événements",
-          "hint": "Réunions, échéances et absences",
-          "placeholder": "ex. Conseil d'administration"
-        },
-        "focus": {
-          "title": "Priorité du moment",
-          "hint": "Ce sur quoi vous travaillez en ce moment",
-          "placeholder": "ex. Analyse de l'attrition du T3"
-        },
-        "preferences": {
-          "title": "Préférences",
-          "hint": "Comment vous aimez travailler avec l'IA",
-          "placeholder": "ex. Veut voir le SQL"
-        }
-      }
+      "searchPlaceholder": "Rechercher dans la mémoire…",
+      "noMatches": "Aucun souvenir ne correspond."
     }
   },
   "commandPalette": {

@@ -1,5 +1,10 @@
 """Pure rules for user memory entries — no DB, no app imports.
 
+Memory holds FACTS about the user (their work, schedule, projects, the things
+they follow, their own shorthand). Rules about how to answer or compute are
+instructions — org instructions when they hold for everyone, the user's
+personal (custom) instructions otherwise — and never memory.
+
 Shared by every writer (the agent tools, the user API, the migration) and by
 the context builder, so the same text normalizes, dedupes, expires and gets
 refused the same way wherever it comes from.
@@ -11,7 +16,6 @@ import unicodedata
 from datetime import datetime, timedelta
 from typing import Iterable, List, Optional, Sequence
 
-SECTIONS: tuple[str, ...] = ("style", "role", "vocabulary", "events", "focus", "preferences")
 SOURCES: tuple[str, ...] = ("user", "agent", "migration")
 STATUSES: tuple[str, ...] = ("active", "superseded", "forgotten")
 
@@ -24,7 +28,9 @@ MAX_ALIAS_CHARS = 60
 MAX_ACTIVE_ENTRIES = 200
 
 EVENT_GRACE = timedelta(days=1)
-FOCUS_TTL = timedelta(days=30)
+# An undated fact the agent saved goes stale this long after it was last seen
+# unless the user confirmed it (added or edited it themselves).
+FACT_TTL = timedelta(days=90)
 
 # Object tags tie an entry to a thing in the turn rather than to a word.
 OBJECT_TAG_PREFIXES: tuple[str, ...] = ("agent", "data_source", "report")
@@ -138,42 +144,46 @@ def parse_when(value) -> Optional[datetime]:
 
 def effective_expiry(
     *,
-    section: str,
     expires_at: Optional[datetime],
     event_start: Optional[datetime],
     event_end: Optional[datetime],
     last_seen_at: Optional[datetime],
+    source: Optional[str] = None,
 ) -> Optional[datetime]:
     """When an entry stops being injected/searchable. None = never.
 
-    events → 1 day after event_end (or event_start without an end), where a
-    date-only end means the end of that day;
-    focus → 30 days after last_seen_at; everything else never — unless an
-    explicit ``expires_at`` was set, which always wins.
+    One rule: nothing the agent wrote is permanent.
+    - an explicit ``expires_at`` always wins;
+    - a dated fact ends one day after its date (or end date), where a
+      date-only value means the end of that day;
+    - an undated fact the agent saved goes stale FACT_TTL after it was last
+      seen; one the user added or edited never expires.
     """
     if expires_at is not None:
         return expires_at
-    if section == "events":
-        anchor = event_end or event_start
-        if anchor is None:
-            return None
-        # A date-only event (midnight) lasts the whole day: it ends at the
-        # following midnight, and is hidden one day after that.
+    anchor = event_end or event_start
+    if anchor is not None:
         if anchor.hour == 0 and anchor.minute == 0 and anchor.second == 0 and anchor.microsecond == 0:
             anchor = anchor + timedelta(days=1)
         return anchor + EVENT_GRACE
-    if section == "focus" and last_seen_at is not None:
-        return last_seen_at + FOCUS_TTL
+    if source == "user":
+        return None
+    if last_seen_at is not None:
+        return last_seen_at + FACT_TTL
     return None
+
+
+def is_dated(entry) -> bool:
+    return getattr(entry, "event_start", None) is not None
 
 
 def is_expired(entry, now: datetime) -> bool:
     exp = effective_expiry(
-        section=getattr(entry, "section", ""),
         expires_at=getattr(entry, "expires_at", None),
         event_start=getattr(entry, "event_start", None),
         event_end=getattr(entry, "event_end", None),
         last_seen_at=getattr(entry, "last_seen_at", None),
+        source=getattr(entry, "source", None),
     )
     return exp is not None and now >= exp
 
@@ -216,49 +226,64 @@ def contains_sensitive(text: str) -> bool:
     return any(p.search(text or "") for p in _SENSITIVE_PATTERNS)
 
 
-# Definition / rule heuristic (agent writes only). The prompt rule is the
-# primary guard; this is a backstop, tuned from the refusal log in the trace.
+# Rule vs fact (agent writes only). One test: is the text a rule about how to
+# answer or compute — a definition, a convention, a required filter, a way to
+# format or phrase answers? Then it is an instruction, not memory. The prompt
+# rule is the primary guard; this is a lexical backstop, tuned from the
+# refusal log in the trace.
 #
-# Personal shorthand maps THE USER'S words to a value ("when I say my region I
-# mean EMEA", "'the board deck' = Q3 Board Pack") and is allowed. A definition
-# or rule states what a business term IS or what everyone MUST do.
+# The user's own shorthand maps THEIR words to a value ("when I say my region
+# I mean EMEA") — a fact about how they talk — and stays memory.
 _PERSONAL_SHORTHAND = re.compile(
     r"(?:\bwhen i (?:say|write|ask for|mention|refer to)\b|\bby [\"'“‘]?[^\"'”’]{1,40}[\"'”’]? i mean\b|"
     r"\bi (?:call|refer to)\b|\bmy (?:shorthand|term|name) for\b|"
-    r"\b(?:user|they|he|she)\s+(?:says|means|calls|refers to|uses)\b|"
-    r"^\s*[\"'“‘]?(?:my|our)\s+\w[\w\s-]{0,30}[\"'”’]?\s*(?:=|→|->|means\b))",
+    r"\b(?:user|they|he|she)\s+(?:says|means|calls|refers to|uses)\s+[\"'“‘]|"
+    r"^\s*(?:uses\s+)?[\"'“‘]?(?:my|our)\s+\w[\w\s-]{0,30}[\"'”’]?\s*(?:=|→|->|means\b|to mean\b)|"
+    r"^\s*uses\s+[\"'“‘][^\"'”’]{1,40}[\"'”’]\s+(?:to mean|for)\b|"
+    # a quoted phrase mapped to a thing is the user's own label ("'the board deck' = Q3 Board Pack")
+    r"^\s*[\"'“‘][^\"'”’]{1,40}[\"'”’]\s*(?:=|→|->))",
     re.I,
 )
 _RULE_PATTERNS: tuple[re.Pattern, ...] = (
-    re.compile(r"\b(?:is|are) defined as\b", re.I),
+    # Imperatives: a rule addressed to whoever answers.
+    re.compile(
+        r"^\s*(?:please\s+)?(?:always|never|don'?t|do not|use|show|display|format|round|exclude|include|filter|"
+        r"count|treat|report|give|keep|put|avoid|make sure|lead with|start with|answer|respond|write|convert|"
+        r"express|present)\b", re.I),
+    # Modal rules anywhere in the text.
+    re.compile(r"\b(?:must|should|always|never)\s+(?:be\s+)?\w+", re.I),
+    # Definitions and metric logic.
+    re.compile(r"\b(?:is|are) (?:defined|calculated|computed|measured|counted) (?:as|by|from|using)\b", re.I),
     re.compile(r"\bdefinition of\b", re.I),
-    re.compile(r"\b(?:always|never|must|should)\s+(?:filter|exclude|include|join|use|apply|count|treat|calculate|compute|remove|ignore)\b", re.I),
-    re.compile(r"\b(?:must|should) (?:always|never)\b", re.I),
-    re.compile(r"\b(?:filter|exclude|excluding) (?:out )?(?:all |any )?(?:test|internal|demo|sandbox|cancel+ed|refunded|deleted|inactive)\b", re.I),
-    re.compile(r"\b(?:is|are) calculated (?:as|by|from)\b", re.I),
-    re.compile(r"\b(?:equals?|=)\s*(?:sum|count|avg|average|total|revenue|number) of\b", re.I),
-    # "<business term> means / is / are <definition>" — the term is a noun
-    # phrase that is not the user's own words ("my …", "I …").
+    re.compile(
+        r"^\s*[\"'“‘]?(?:an?\s+|the\s+)?(?!(?:my|i|our|their|his|her|they|he|she|user'?s?)\b)"
+        r"[\w\s\-]{1,40}?[\"'”’]?\s*(?:\bmeans?\b|\brefers? to\b|=)", re.I),
     re.compile(
         r"^\s*[\"'“‘]?(?:an?\s+|the\s+)?(?!(?:my|i|our|their|his|her|they|he|she|user'?s?)\b)[\w\s\-]{0,40}?\b"
-        r"(?:customers?|users?|accounts?|revenue|churn|arr|mrr|gmv|margin|retention|conversion|"
-        r"orders?|sales|bookings|pipeline|leads?|subscriptions?|region|segment|cohort|metric|kpi)"
-        r"[\"'”’]?\s*(?:means?\b|are\b|is\b|refers? to\b|includes?\b|excludes?\b|=)",
-        re.I,
-    ),
+        r"(?:customers?|users?|accounts?|revenue|churn|arr|mrr|gmv|margin|retention|conversion|orders?|sales|"
+        r"bookings|pipeline|leads?|subscriptions?|region|segment|cohort|metric|kpi|track|tracks)"
+        r"[\"'”’]?\s+(?:are|is|includes?|excludes?)\b(?!\s+(?:due|on|at|in \d))", re.I),
     re.compile(r"\b(?:column|table|field)\s+[\w.`\"]+\s+(?:means|is|stores|holds|contains|represents)\b", re.I),
-    re.compile(r"\buse\s+[\w.]+\.[\w]+\s+(?:for|as)\b", re.I),   # "Use orders.created_at for order date"
-    re.compile(r"\b(?:includes?|excludes?)\s+(?:turkey|israel|uk|us|emea|apac|latam|[a-z]{3,}) (?:in|from)\b", re.I),
-)
-_RULE_TERM_INCLUDES = re.compile(
-    r"^\s*(?!my\b|i\b)[A-Z][A-Za-z]{1,10}\s+(?:includes?|excludes?|covers?|contains?)\s+\w+", re.I
+    re.compile(r"^\s*(?!my\b|i\b)[A-Z][A-Za-z]{1,10}\s+(?:includes?|excludes?|covers?)\s+\w+", re.I),
+    # How-to-answer preferences phrased as facts ("Prefers numbers first").
+    re.compile(
+        r"\b(?:prefers?|wants?|likes?|expects?|needs?|asks? for)\b[^.;]{0,50}?\b(?:answers?|responses?|replies|amounts?|"
+        r"format(?:ted|ting)?|numbers?|figures?|decimals?|currency|dollars?|euros?|pounds?|thousands|millions|"
+        r"percent(?:ages?)?|charts?|tables?|bullets?|summar(?:y|ies)|short(?:er)?|concise|brief|length|detail(?:ed)?|"
+        r"sql|code|emojis?|tone|language|units?|rounded|rounding|usd|eur|gbp|ils|nis|jpy|chf|cad|aud)\b"
+        r"|\b(?:prefers?|wants?|likes?)\b[^.;]{0,50}?[$€£¥₪]", re.I),
+    re.compile(r"[$€£]\s?\d+(?:\.\d)?\s?[kKmMbB]\b"),  # "$2.3K"-style formatting examples
+    # Format specs as noun phrases ("Amounts in €M, one decimal").
+    re.compile(
+        r"^\s*(?:all\s+)?(?:amounts?|numbers?|figures?|values?|money|currency|prices?|dates?|percent\w*|"
+        r"answers?|responses?|charts?|tables?|totals?)\b[^.;]{0,30}?\b(?:in|as|with|to|rounded|formatted)\b", re.I),
 )
 
 
 def looks_like_rule(text: str) -> Optional[str]:
-    """Return the matched fragment when ``text`` reads like a business
-    definition or an org-wide rule (which belongs in instructions), else None.
-    Personal shorthand is exempt."""
+    """Return the matched fragment when ``text`` reads like a rule about how
+    to answer or compute (an instruction — org or personal), else None. The
+    user's own shorthand is a fact and is exempt."""
     s = clean_text(text)
     if not s:
         return None
@@ -268,9 +293,6 @@ def looks_like_rule(text: str) -> Optional[str]:
         m = pat.search(s)
         if m:
             return m.group(0).strip()
-    m = _RULE_TERM_INCLUDES.search(s)
-    if m:
-        return m.group(0).strip()
     return None
 
 
@@ -299,24 +321,6 @@ def legacy_lines(memory_text: Optional[str]) -> List[str]:
         if normalize_text(line) not in {normalize_text(x) for x in out}:
             out.append(line)
     return out
-
-
-def section_display(section: str) -> str:
-    return "event" if section == "events" else section
-
-
-def validate_section(section: Optional[str]) -> str:
-    s = (section or "").strip().lower()
-    if s == "event":
-        s = "events"
-    if s == "preference":
-        s = "preferences"
-    if s not in SECTIONS:
-        raise MemoryValidationError(
-            "memory.invalid_section",
-            f"Unknown section '{section}'. Use one of: {', '.join(SECTIONS)}.",
-        )
-    return s
 
 
 def best_quote(message: Optional[str], text: str, keywords_fn=None) -> Optional[str]:
@@ -382,36 +386,48 @@ _DATE_WORD = (
     r"this (?:week|month|friday|monday)|the week after|\d{4}-\d{2}-\d{2}|\d{1,2}/\d{1,2}|"
     r"jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)"
 )
-_SIGNALS: tuple[tuple[str, re.Pattern], ...] = (
-    ("style correction", re.compile(
-        r"\b(?:shorter|longer|too (?:long|short|verbose|wordy|detailed)|more concise|less detail|more detail|"
-        r"bullet(?:s| points)?|number first|numbers first|headline first|one decimal|two decimals|no decimals|"
-        r"in (?:thousands|millions|billions)|no emojis?|as a table|as a chart|plain text|tl;?dr|"
-        r"(?:use|show|give me)\b[^.?!]{0,30}\b(?:format|decimals?|currency|percent(?:age)?s?|thousands|millions|\$|€|£|k\b|m\b))",
-        re.I)),
+# Facts about the user → memory.
+_FACT_SIGNALS: tuple[tuple[str, re.Pattern], ...] = (
     ("role", re.compile(
         r"\b(?:i(?:'m| am) (?:the|a|an|in charge|responsible)|my (?:role|job|title|team) is|"
         r"i (?:own|run|manage|lead|report to|present to|work (?:in|for|on the))\b)", re.I)),
-    ("personal shorthand", re.compile(
+    ("their own shorthand", re.compile(
         r"\b(?:when i say|by [\"'“‘]?[^\"'”’]{1,40}[\"'”’]? i mean|i call (?:it|them)|i refer to|my shorthand)\b", re.I)),
-    ("dated event", re.compile(
-        r"\b(?:meeting|deadline|board|review|offsite|off-site|trip|travel(?:ling|ing)?|vacation|holiday|"
+    ("a date in their work life", re.compile(
+        r"\b(?:meeting|deadline|due|board|review|offsite|off-site|trip|travel(?:ling|ing)?|vacation|holiday|launch|"
         r"out of (?:the )?office|ooo|i(?:'m| am) off|time off|on leave|presentation|demo day)\b"
-        r"[^.?!]{0,60}\b" + _DATE_WORD + r"\b|\b" + _DATE_WORD + r"\b[^.?!]{0,60}\b(?:meeting|deadline|board|review|"
-        r"offsite|vacation|holiday|out of (?:the )?office|i(?:'m| am) off|time off|presentation)\b", re.I)),
-    ("current focus", re.compile(
-        r"\b(?:i(?:'m| am) (?:working on|investigating|looking into|focused on|focusing on|digging into)|"
-        r"my (?:focus|priority) (?:is|this))\b", re.I)),
-    ("explicit request", re.compile(
-        r"\b(?:remember (?:that|this|i|my)|keep in mind|from now on|going forward|in (?:the )?future,? "
-        r"(?:please )?(?:always|use|show|give))\b", re.I)),
+        r"[^.?!]{0,60}\b" + _DATE_WORD + r"\b|\b" + _DATE_WORD + r"\b[^.?!]{0,60}\b(?:meeting|deadline|due|board|"
+        r"review|offsite|vacation|holiday|launch|out of (?:the )?office|i(?:'m| am) off|time off|presentation)\b", re.I)),
+    ("what they're working on", re.compile(
+        r"\b(?:i(?:'m| am) (?:working on|investigating|looking into|focused on|focusing on|digging into|preparing)|"
+        r"my (?:focus|priority|project) (?:is|this)|i(?:'m| am) (?:on|leading) the\b)", re.I)),
+    ("what they follow", re.compile(
+        r"\b(?:i (?:track|follow|watch|monitor|report on|look at)\b|the (?:metrics?|kpis?|numbers) i (?:track|follow|watch))",
+        re.I)),
+    ("explicit request", re.compile(r"\b(?:remember (?:that|this|i|my)|keep in mind)\b", re.I)),
+)
+# Rules about how to answer → instructions (the user's personal ones by default).
+_RULE_SIGNALS: tuple[tuple[str, re.Pattern], ...] = (
+    ("how they want answers", re.compile(
+        r"\b(?:shorter|longer|too (?:long|short|verbose|wordy|detailed)|more concise|less detail|more detail|"
+        r"bullet(?:s| points)?|number first|numbers first|headline first|one decimal|two decimals|no decimals|"
+        r"in (?:thousands|millions|billions)|no emojis?|as a table|as a chart|plain text|tl;?dr|"
+        r"from now on|going forward|in (?:the )?future|always (?:use|show|give|put|start)|"
+        r"(?:use|show|give me)\b[^.?!]{0,30}\b(?:format|decimals?|currency|percent(?:age)?s?|thousands|millions|\$|€|£|k\b|m\b))",
+        re.I)),
 )
 
 
-def personal_signals(message: Optional[str]) -> List[str]:
-    """Kinds of durable personal context a user message may carry."""
+def fact_signals(message: Optional[str]) -> List[str]:
+    """Kinds of durable facts about the user a message may carry."""
     msg = message or ""
-    return [kind for kind, pat in _SIGNALS if pat.search(msg)]
+    return [kind for kind, pat in _FACT_SIGNALS if pat.search(msg)]
+
+
+def rule_signals(message: Optional[str]) -> List[str]:
+    """Kinds of how-to-answer rules a message may state."""
+    msg = message or ""
+    return [kind for kind, pat in _RULE_SIGNALS if pat.search(msg)]
 
 
 def appends_new_fact(old_text: str, new_text: str) -> bool:
@@ -422,3 +438,24 @@ def appends_new_fact(old_text: str, new_text: str) -> bool:
     if not old or not new or old == new or not new.startswith(old):
         return False
     return len(new.split()) - len(old.split()) >= 3
+
+
+def note_rules(note: Optional[str]) -> List[str]:
+    """The lines of a user's Custom instructions, without bullet markers."""
+    return [_BULLET.sub("", l).strip() for l in (note or "").splitlines() if l.strip()]
+
+
+def note_has_rule(note: Optional[str], rule: str) -> bool:
+    key = normalize_text(rule)
+    return bool(key) and any(normalize_text(l) == key for l in note_rules(note))
+
+
+def append_rule_to_note(note: Optional[str], rule: str, max_chars: int) -> Optional[str]:
+    """``note`` with ``rule`` appended as a bullet, unchanged if already there,
+    or None when it would not fit ``max_chars``."""
+    current = (note or "").strip()
+    if note_has_rule(current, rule):
+        return current
+    candidate = f"{current}\n- {clean_text(rule)}" if current else f"- {clean_text(rule)}"
+    return candidate if len(candidate) <= max_chars else None
+

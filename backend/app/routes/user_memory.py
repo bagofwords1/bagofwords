@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.ai.context.builders.memory_context_builder import build_memory_context
 from app.core.auth import current_user
 from app.dependencies import get_async_db, get_current_organization
 from app.errors import AppError, ErrorCode
@@ -41,12 +40,11 @@ class MemoryEvidenceSchema(BaseModel):
 class MemoryEntrySchema(BaseModel):
     id: str
     handle: str
-    section: str
     text: str
     tags: List[str] = []
     aliases: List[str] = []
-    event_start: Optional[datetime] = None
-    event_end: Optional[datetime] = None
+    date: Optional[datetime] = None
+    end_date: Optional[datetime] = None
     expires_at: Optional[datetime] = None
     effective_expires_at: Optional[datetime] = None
     expired: bool = False
@@ -65,33 +63,29 @@ class MemoryTagCount(BaseModel):
 
 class MemoryListResponse(BaseModel):
     enabled: bool = True
-    sections: Dict[str, List[MemoryEntrySchema]]
+    # One flat list: upcoming dated facts first (by date), then the rest by
+    # most recent. Past dated facts come last with expired=True.
+    entries: List[MemoryEntrySchema]
     total: int
     cap: int = R.MAX_ACTIVE_ENTRIES
     tags: List[MemoryTagCount] = []
-    # What the agent sees without any topic match: the always tier + the
-    # index line, rendered exactly as it is injected.
-    preview: str = ""
-    preview_chars: int = 0
 
 
 class MemoryCreateRequest(BaseModel):
     text: str = Field(..., max_length=2000)
-    section: str
     tags: Optional[List[str]] = None
     aliases: Optional[List[str]] = None
-    event_start: Optional[str] = None
-    event_end: Optional[str] = None
+    date: Optional[str] = None
+    end_date: Optional[str] = None
     expires_at: Optional[str] = None
 
 
 class MemoryUpdateRequest(BaseModel):
     text: Optional[str] = Field(default=None, max_length=2000)
-    section: Optional[str] = None
     tags: Optional[List[str]] = None
     aliases: Optional[List[str]] = None
-    event_start: Optional[str] = None
-    event_end: Optional[str] = None
+    date: Optional[str] = None
+    end_date: Optional[str] = None
     expires_at: Optional[str] = None
 
 
@@ -140,13 +134,13 @@ async def _serialize(
                 quote=ev.get("quote"),
             )
         eff = R.effective_expiry(
-            section=e.section, expires_at=e.expires_at, event_start=e.event_start,
-            event_end=e.event_end, last_seen_at=e.last_seen_at,
+            expires_at=e.expires_at, event_start=e.event_start, event_end=e.event_end,
+            last_seen_at=e.last_seen_at, source=e.source,
         )
         out.append(MemoryEntrySchema(
-            id=str(e.id), handle=e.handle, section=e.section, text=e.text or "",
+            id=str(e.id), handle=e.handle, text=e.text or "",
             tags=list(e.tags or []), aliases=list(e.aliases or []),
-            event_start=e.event_start, event_end=e.event_end, expires_at=e.expires_at,
+            date=e.event_start, end_date=e.event_end, expires_at=e.expires_at,
             effective_expires_at=eff, expired=bool(eff is not None and now >= eff),
             source=e.source, evidence=evidence, seen_count=int(e.seen_count or 1),
             last_seen_at=e.last_seen_at, created_at=e.created_at, updated_at=e.updated_at,
@@ -171,20 +165,23 @@ async def list_my_memory(
     now = datetime.utcnow()
     entries = await memory_service.active_entries(db, str(organization.id), str(user.id), now=now, include_expired=True)
     serialized = await _serialize(db, organization, entries, now)
-    sections: Dict[str, List[MemoryEntrySchema]] = {s: [] for s in R.SECTIONS}
-    for item in serialized:
-        sections.setdefault(item.section, []).append(item)
-    sections["events"].sort(key=lambda x: x.event_start or datetime.max)
 
+    def order(item: MemoryEntrySchema):
+        # upcoming dated facts by date, then undated by most recent, then past
+        if item.expired:
+            return (2, 0.0)
+        if item.date is not None:
+            return (0, item.date.timestamp())
+        stamp = item.updated_at or item.created_at
+        return (1, -stamp.timestamp() if stamp else 0.0)
+
+    serialized.sort(key=order)
     from collections import Counter
     counts = Counter(t for e in entries if not R.is_expired(e, now) for t in (e.tags or []) if not R.is_object_tag(t))
-    ctx = build_memory_context(entries, now=now, user_name=getattr(user, "name", None))
     return MemoryListResponse(
-        sections=sections,
+        entries=serialized,
         total=sum(1 for i in serialized if not i.expired),
         tags=[MemoryTagCount(tag=t, count=c) for t, c in counts.most_common()],
-        preview=ctx.body,
-        preview_chars=ctx.chars,
     )
 
 
@@ -202,11 +199,10 @@ async def create_my_memory(
             organization_id=str(organization.id),
             user_id=str(user.id),
             text=payload.text,
-            section=payload.section,
             tags=payload.tags,
             aliases=payload.aliases,
-            event_start=payload.event_start,
-            event_end=payload.event_end,
+            event_start=payload.date,
+            event_end=payload.end_date,
             expires_at=payload.expires_at,
             source="user",
         )
@@ -225,9 +221,11 @@ async def update_my_memory(
 ):
     await _require_enabled(db, organization)
     entry = await _get_own_entry(db, organization, user, entry_id)
-    changes = payload.model_dump(exclude_unset=True)
-    # Empty strings clear optional dates.
-    for k in ("event_end", "expires_at"):
+    raw = payload.model_dump(exclude_unset=True)
+    rename = {"date": "event_start", "end_date": "event_end"}
+    changes = {rename.get(k, k): v for k, v in raw.items()}
+    # Empty strings clear optional dates (a fact can lose its date entirely).
+    for k in ("event_start", "event_end", "expires_at"):
         if k in changes and changes[k] in ("", None):
             changes[k] = None
     try:

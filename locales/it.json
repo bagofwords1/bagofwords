@@ -1510,8 +1510,17 @@
       "updating": "Aggiornamento della memoria…",
       "checking": "Consultazione della memoria…",
       "updated": "Memoria aggiornata",
-      "checked": "Memoria consultata",
-      "failed": "Impossibile aggiornare la memoria"
+      "checked": "Memoria consultata"
+    },
+    "suggestInstruction": {
+      "running": "Suggerimento di un'istruzione…",
+      "label": "Salvarla come tua istruzione?",
+      "accept": "Aggiungi alle mie istruzioni",
+      "dismiss": "Non ora",
+      "dismissed": "Non salvato",
+      "saved": "Aggiunto alle tue istruzioni personalizzate",
+      "failed": "Impossibile suggerire un'istruzione",
+      "failedSave": "Impossibile aggiungerla alle tue istruzioni"
     },
     "routeModel": {
       "routedTo": "Instradato a",
@@ -2551,7 +2560,7 @@
         },
         "enable_user_memory": {
           "name": "Memoria utente",
-          "description": "Consente all'agente di ricordare il contesto personale di ogni utente tra le sessioni: stile di scrittura, ruolo, abbreviazioni personali, riunioni ed eventi in arrivo, focus attuale. Definizioni e regole di business restano nelle istruzioni. Ogni utente può vedere, modificare ed eliminare la propria memoria."
+          "description": "Consente all'agente di ricordare fatti su ogni utente tra le sessioni: il suo lavoro, i progetti, le scadenze e gli eventi, ciò che segue e le sue abbreviazioni. Le regole su come rispondere restano nelle istruzioni (dell'organizzazione o le istruzioni personalizzate di ciascun utente). Ogni utente può vedere, modificare ed eliminare la propria memoria."
         },
         "max_instructions_in_context": {
           "name": "Numero massimo di istruzioni nel contesto",
@@ -3381,15 +3390,14 @@
     "memory.not_found": "Questa voce di memoria non esiste.",
     "memory.text_required": "Scrivi cosa ricordare.",
     "memory.text_too_long": "Al massimo 280 caratteri.",
-    "memory.invalid_section": "Scegli una delle sezioni della memoria.",
     "memory.too_many_tags": "Al massimo 4 tag.",
     "memory.tags_required": "Aggiungi almeno un tag.",
-    "memory.event_date_required": "Gli eventi richiedono una data di inizio.",
     "memory.invalid_date": "Questa data non è valida.",
     "memory.sensitive": "La memoria non può contenere segreti, password o dati personali sensibili.",
-    "memory.looks_like_rule": "Sembra una definizione o una regola di business: aggiungila come istruzione.",
+    "memory.looks_like_rule": "Questa è una regola su come rispondere: aggiungila alle tue istruzioni personalizzate. La memoria conserva fatti su di te.",
     "memory.full": "La memoria è piena. Elimina prima alcune voci.",
-    "memory.not_active": "Questa voce è già stata modificata o dimenticata."
+    "memory.not_active": "Questa voce è già stata modificata o dimenticata.",
+    "profile.instructions_full": "Le tue istruzioni personalizzate sono piene. Modificale nel profilo per fare spazio."
   },
   "email": {
     "dashboardShare": {
@@ -4623,25 +4631,19 @@
     },
     "memory": {
       "title": "Memoria",
-      "subtitle": "Il contesto personale che l'IA ricorda di te in questa organizzazione: stile, ruolo, abbreviazioni, eventi in arrivo e focus attuale. Solo tu puoi vederlo.",
-      "vsInstructions": "Definizioni e regole di business non vengono salvate qui: si trovano nelle istruzioni, valide per tutti.",
-      "instructionsLink": "Apri le istruzioni",
-      "clearFilter": "Rimuovi",
+      "subtitle": "I fatti che l'IA ricorda di te in questa organizzazione: il tuo lavoro, i progetti, le date, ciò che segui e le tue abbreviazioni. Solo tu puoi vederli.",
+      "vsInstructions": "Come l'IA deve risponderti (formato, unità, lunghezza) non è memoria: sono le tue istruzioni personalizzate.",
+      "instructionsLink": "Istruzioni personalizzate",
       "count": "{count} di {cap} voci",
       "forgetAll": "Dimentica tutto",
       "forgetAllTitle": "Dimenticare tutto?",
       "forgetAllBody": "L'IA dimenticherà tutte le {count} voci che ricorda di te in questa organizzazione. L'operazione è irreversibile.",
       "forgetAllConfirm": "Dimentica tutto",
-      "empty": "Ancora nulla in memoria. Mentre lavori, l'IA salva qui cose come il tuo formato preferito, il tuo ruolo o le prossime riunioni.",
+      "empty": "Ancora nulla in memoria. Mentre lavori, l'IA salva qui fatti come i tuoi progetti, le scadenze o le prossime riunioni.",
       "add": "Aggiungi",
       "past": "Passato",
       "fromReport": "da {title}",
       "untitledReport": "un report",
-      "noneForTag": "Nessuna voce con questo tag.",
-      "previewTitle": "Cosa vede l'agente",
-      "previewChars": "{count} caratteri",
-      "previewHint": "Sempre incluso nelle tue conversazioni. Le altre voci vengono aggiunte quando una domanda le riguarda.",
-      "previewEmpty": "Ancora nulla.",
       "loadFailed": "Impossibile caricare la tua memoria",
       "saveFailed": "Impossibile salvare la modifica",
       "saved": "Memoria salvata",
@@ -4653,43 +4655,12 @@
         "migration": "Importato dalla tua memoria precedente"
       },
       "form": {
-        "start": "Inizio",
-        "end": "Fine (facoltativa)",
+        "placeholder": "Un fatto su di te, es. Guido il progetto sul churn del terzo trimestre",
         "tags": "Tag, separati da virgole",
-        "aliases": "Altre parole che usi, separate da virgole"
+        "dateHint": "Aggiungi una data se è legato a una data"
       },
-      "sections": {
-        "style": {
-          "title": "Stile",
-          "hint": "Come preferisci che le risposte siano scritte e formattate",
-          "placeholder": "es. Preferisce prima il numero, poi una riga di contesto"
-        },
-        "role": {
-          "title": "Ruolo",
-          "hint": "Il tuo ruolo e di cosa sei responsabile",
-          "placeholder": "es. Finanza, responsabile del reporting dei ricavi EMEA"
-        },
-        "vocabulary": {
-          "title": "Abbreviazioni",
-          "hint": "Le tue parole per le cose, non definizioni di business",
-          "placeholder": "es. \"la mia regione\" = EMEA"
-        },
-        "events": {
-          "title": "Eventi",
-          "hint": "Riunioni, scadenze e assenze",
-          "placeholder": "es. Consiglio di amministrazione"
-        },
-        "focus": {
-          "title": "Focus attuale",
-          "hint": "Su cosa stai lavorando ora",
-          "placeholder": "es. Analisi del churn del terzo trimestre"
-        },
-        "preferences": {
-          "title": "Preferenze",
-          "hint": "Come preferisci lavorare con l'IA",
-          "placeholder": "es. Vuole vedere l'SQL"
-        }
-      }
+      "searchPlaceholder": "Cerca nella memoria…",
+      "noMatches": "Nessun ricordo corrisponde."
     }
   },
   "commandPalette": {

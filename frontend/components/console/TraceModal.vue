@@ -285,7 +285,7 @@
                                             <div v-for="(m, mi) in selectedTurn.memory.injected" :key="'inj' + mi" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">
                                                 <span class="font-mono text-[10px] text-gray-500 shrink-0 mt-px">[{{ m.handle }}]</span>
                                                 <span class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :class="m.tier === 'matched' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'">{{ $t(`traceModal.memory.tier.${m.tier === 'matched' ? 'matched' : 'always'}`) }}</span>
-                                                <span class="text-[10px] text-gray-500 shrink-0 mt-px">{{ m.section }}</span>
+                                                <UIcon v-if="m.dated" name="i-heroicons-calendar" class="w-3 h-3 text-gray-400 shrink-0 mt-0.5" />
                                                 <span v-if="m.text" class="text-gray-700 dark:text-gray-300 break-words" dir="auto">{{ m.text }}</span>
                                             </div>
                                             <div v-for="(c, ci) in selectedTurn.memory.tool_calls" :key="'call' + ci" class="flex items-start gap-2 text-xs px-2 py-1 rounded bg-gray-50 dark:bg-gray-900">

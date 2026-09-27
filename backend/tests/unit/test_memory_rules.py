@@ -1,5 +1,5 @@
-"""Pure memory rules: normalization, tags, the memory-vs-instructions boundary,
-content filters, expiry, legacy splitting and direct-edit detection.
+"""Pure memory rules: normalization, tags, the rule-vs-fact test, content
+filters, expiry, legacy splitting, signals and direct-edit detection.
 
 Contract: the same text normalizes / expires / gets refused the same way for
 every writer (agent tools, user API, migration) — see app/services/memory_rules.
@@ -45,41 +45,54 @@ def test_object_tags_keep_prefix_and_id():
 
 # --- memory vs instructions boundary ----------------------------------------
 
+# One test: a rule about how to answer or compute is an instruction; a fact
+# about the user is memory. Rules come in many shapes — definitions, filters,
+# conventions, formatting, and how-to-answer preferences phrased as facts.
 @pytest.mark.parametrize("text", [
+    # definitions / metric logic / required filters (org rules)
     "Active customers are those who paid in the last 90 days",
     "Active customer = paid invoice in the last 90 days",
     "Revenue means net revenue excluding VAT",
     "Churn is defined as no login for 60 days",
+    "ARR is calculated as MRR times 12",
     "Always filter out test accounts",
     "Exclude internal accounts from every metric",
     "Use orders.created_at for order date",
     "EMEA includes Turkey",
-    "ARR is calculated as MRR times 12",
     "The column status means order state",
     "You must always exclude refunded orders",
     "Qualified leads are leads with a demo booked",
+    # how-to-answer rules (personal or org conventions)
+    "Prefers the number first, then one line of context",
+    "Amounts in €M, one decimal",
+    "Show amounts in USD",
+    "Prefers money amounts in thousands like $2.3K",
+    "Wants the SQL shown",
+    "Likes bullet summaries for execs",
+    "Dates as DD/MM",
+    "Never use emojis",
 ])
-def test_definitions_and_rules_are_flagged(text):
+def test_rules_are_flagged(text):
     assert R.looks_like_rule(text), text
 
 
 @pytest.mark.parametrize("text", [
     "When I say my region I mean EMEA",
     "\"my region\" = EMEA",
-    "'my region' = EMEA",
+    "Uses “my region” to mean Germany.",
     "By 'the board deck' I mean report Q3 Board Pack",
-    "Prefers the number first, then one line of context",
-    "Amounts in €M, one decimal",
     "Finance, owns EMEA revenue reporting; presents to the CFO monthly",
-    "Board meeting Thu 2026-10-09",
-    "Out of office 2026-10-13 to 2026-10-17",
-    "Investigating Q3 churn",
-    "Wants the SQL shown",
-    "Asks before running expensive queries",
+    "Board meeting",
+    "Out of office",
+    "Leads the Q3 churn project",
+    "Q3 churn project due Oct 15",
+    "Follows weekly net revenue retention for EMEA",
+    "Tracks weekly signups for the APAC launch",
+    "Preparing the Q4 budget review",
     "Their region is EMEA",
-    "Writes for execs: bullet summaries",
+    "Presents the monthly numbers to the board",
 ])
-def test_personal_context_is_not_flagged(text):
+def test_facts_are_not_flagged(text):
     assert R.looks_like_rule(text) is None, text
 
 
@@ -109,45 +122,45 @@ def test_health_details_are_sensitive_but_availability_is_not():
 
 # --- expiry (computed on read) -----------------------------------------------
 
-def _e(section, **kw):
-    base = dict(section=section, expires_at=None, event_start=None, event_end=None, last_seen_at=None)
+def _e(**kw):
+    base = dict(expires_at=None, event_start=None, event_end=None, last_seen_at=None, source="agent")
     base.update(kw)
     return SimpleNamespace(**base)
 
 
 @pytest.mark.parametrize("hours_after_end,expired", [(0, False), (23, False), (24, True), (120, True)])
-def test_timed_event_hidden_one_day_after_end(hours_after_end, expired):
+def test_timed_date_hidden_one_day_after_end(hours_after_end, expired):
     end = datetime(2026, 10, 9, 14, 30)
-    e = _e("events", event_start=end - timedelta(hours=1), event_end=end)
+    e = _e(event_start=end - timedelta(hours=1), event_end=end)
     assert R.is_expired(e, end + timedelta(hours=hours_after_end)) is expired
 
 
 @pytest.mark.parametrize("day,expired", [(9, False), (10, False), (11, True)])
-def test_date_only_event_lasts_its_day_then_one_more(day, expired):
-    e = _e("events", event_start=datetime(2026, 10, 9))
+def test_date_only_fact_lasts_its_day_then_one_more(day, expired):
+    e = _e(event_start=datetime(2026, 10, 9))
     assert R.is_expired(e, datetime(2026, 10, day, 12, 0) if day != 11 else datetime(2026, 10, 11)) is expired
 
 
-def test_range_event_visible_for_whole_duration():
+def test_range_visible_for_whole_duration():
     start, end = datetime(2026, 10, 13), datetime(2026, 10, 17)
-    e = _e("events", event_start=start, event_end=end)
+    e = _e(event_start=start, event_end=end)
     for d in range(0, 5):
         assert not R.is_expired(e, start + timedelta(days=d, hours=18))
     assert not R.is_expired(e, datetime(2026, 10, 18, 12))  # the day after: "yesterday"
     assert R.is_expired(e, datetime(2026, 10, 19))
 
 
-@pytest.mark.parametrize("age,expired", [(10, False), (29, False), (30, True), (45, True)])
-def test_focus_expires_30_days_after_last_seen(age, expired):
+@pytest.mark.parametrize("source", ["agent", "migration"])
+@pytest.mark.parametrize("age,expired", [(30, False), (89, False), (90, True), (200, True)])
+def test_undated_agent_facts_go_stale_after_last_seen(source, age, expired):
     seen = datetime(2026, 9, 1)
-    e = _e("focus", last_seen_at=seen)
+    e = _e(last_seen_at=seen, source=source)
     assert R.is_expired(e, seen + timedelta(days=age)) is expired
 
 
-def test_other_sections_never_expire_without_explicit_date():
-    for sec in ("style", "role", "vocabulary", "preferences"):
-        assert not R.is_expired(_e(sec, last_seen_at=datetime(2000, 1, 1)), datetime(2030, 1, 1))
-    e = _e("style", expires_at=datetime(2026, 1, 1))
+def test_user_confirmed_undated_facts_never_expire_but_explicit_expiry_wins():
+    assert not R.is_expired(_e(last_seen_at=datetime(2000, 1, 1), source="user"), datetime(2030, 1, 1))
+    e = _e(source="user", expires_at=datetime(2026, 1, 1))
     assert R.is_expired(e, datetime(2026, 1, 2))
 
 
@@ -178,47 +191,63 @@ def test_best_quote_is_users_sentence_and_bounded():
 
 
 @pytest.mark.parametrize("msg,expected", [
-    ("Forget that I prefer €M", True),
-    ("Please change my currency preference to USD, not €M", True),
+    ("Forget that I report in €M", True),
+    ("Please change it: I report to the board in USD now, not €M", True),
     ("What was revenue in €M last month?", False),        # mentions it, doesn't ask to change it
     ("forget it, show me churn instead", False),          # edit verb, but about something else
 ])
 def test_direct_edit_request_requires_verb_and_reference(msg, expected):
-    assert R.is_direct_edit_request(msg, "Prefers amounts in €M", ["currency"]) is expected
+    assert R.is_direct_edit_request(msg, "Reports amounts to the board in €M", ["currency"]) is expected
 
 
-# --- noticing: personal signals behind the <memory_hint> -----------------------
+# --- noticing: fact vs rule signals behind the <memory_hint> ----------------
 
-@pytest.mark.parametrize("msg,kind", [
-    ("Way too long. Keep it shorter: number first.", "style correction"),
-    ("Show amounts in thousands with one decimal", "style correction"),
-    ("I'm the head of FP&A and I present to the CFO monthly", "role"),
-    ("When I say my region I mean EMEA", "personal shorthand"),
-    ("Board meeting next Thursday", "dated event"),
-    ("I'm off the week of 2026-10-12", "dated event"),
-    ("I'm investigating Q3 churn right now", "current focus"),
-    ("Remember that I like cohort tables", "explicit request"),
+@pytest.mark.parametrize("msg", [
+    "I'm the head of FP&A and I present to the CFO monthly",
+    "When I say my region I mean EMEA",
+    "Board meeting next Thursday",
+    "I'm off the week of 2026-10-12",
+    "I'm working on the Q3 churn project",
+    "I track weekly NRR for EMEA",
+    "Remember that the launch is in November",
 ])
-def test_personal_signals_detected(msg, kind):
-    assert kind in R.personal_signals(msg)
+def test_fact_signals_detected(msg):
+    assert R.fact_signals(msg)
+
+
+@pytest.mark.parametrize("msg", [
+    "Way too long. Keep it shorter: number first.",
+    "Show amounts in thousands with one decimal",
+    "From now on give me bullets",
+])
+def test_rule_signals_detected_and_not_counted_as_facts(msg):
+    assert R.rule_signals(msg)
 
 
 @pytest.mark.parametrize("msg", [
     "What were the top 5 countries by revenue?",
     "How many tracks per genre?",
-    "Active customers are those who paid in the last 90 days",
     "Revenue by month for 2025",
 ])
-def test_no_personal_signals_in_ordinary_questions_or_definitions(msg):
-    assert R.personal_signals(msg) == []
+def test_no_signals_in_ordinary_questions(msg):
+    assert R.fact_signals(msg) == [] and R.rule_signals(msg) == []
+
+
+def test_personal_rules_append_to_note_once_and_respect_the_cap():
+    note = R.append_rule_to_note("I'm the CFO.", "Lead with the number", 500)
+    assert note == "I'm the CFO.\n- Lead with the number"
+    assert R.append_rule_to_note(note, "lead with the number!", 500) == note  # already there
+    assert R.note_has_rule(note, "Lead with the number")
+    assert R.append_rule_to_note("x" * 495, "Lead with the number", 500) is None
 
 
 @pytest.mark.parametrize("old,new,expected", [
-    ("Prefers the number first", "Prefers the number first; formats money in $K with one decimal", True),
-    ("Prefers the number first.", "prefers the number first, then one line of context and a chart", True),
-    ("Prefers amounts in €M", "Prefers amounts in $K", False),                 # a change, not an append
-    ("Prefers the number first", "Prefers the number first, always", False),    # too small to be a new fact
+    ("Leads the Q3 churn project", "Leads the Q3 churn project; also owns the APAC launch plan", True),
+    ("Board meeting.", "board meeting, then the offsite with the regional leads", True),
+    ("Leads the Q3 churn project", "Leads the Q4 churn project", False),        # a change, not an append
+    ("Leads the Q3 churn project", "Leads the Q3 churn project now", False),    # too small to be a new fact
     ("Board meeting", "Board meeting", False),
 ])
 def test_appends_new_fact(old, new, expected):
     assert R.appends_new_fact(old, new) is expected
+

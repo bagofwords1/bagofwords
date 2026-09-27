@@ -39,9 +39,9 @@ class AgentExecutionTraceResponse(BaseModel):
 
 class TurnMemoryItemSchema(BaseModel):
     handle: Optional[str] = None
-    section: Optional[str] = None
+    dated: Optional[bool] = None
     tier: Optional[str] = None  # always | matched (injected entries)
-    tool: Optional[str] = None  # create_memory | edit_memory | search_memory
+    tool: Optional[str] = None  # create_memory | edit_memory | search_memory | suggest_personal_instruction
     action: Optional[str] = None
     code: Optional[str] = None  # refusal code
     success: Optional[bool] = None
@@ -105,10 +105,10 @@ class ConversationTurnSchema(BaseModel):
     # uses). Empty for turns still in progress / without blocks.
     completion_blocks: List[CompletionBlockV2Schema] = []
 
-    # User-memory activity for this turn: entries injected (handle, section,
-    # tier), rendered size, memory tool calls and refusals. ``text`` fields are
-    # filled ONLY when the viewer owns the memory (owner_view=True); everyone
-    # else — admins included — sees handles, sections and counts.
+    # User-memory activity for this turn: entries injected (handle, tier),
+    # rendered size, memory tool calls and refusals. ``text`` fields are filled
+    # ONLY when the viewer owns the memory (owner_view=True); everyone else —
+    # admins included — sees handles and counts.
     memory: Optional["TurnMemorySchema"] = None
 
 

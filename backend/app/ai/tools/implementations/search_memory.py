@@ -31,8 +31,8 @@ class SearchMemoryTool(Tool):
                 "they refer to something personal the injected memory doesn't cover (\"like last time\", "
                 "\"my usual format for…\", a shorthand you don't recognize), or before creating an entry "
                 "when the index says related entries are hidden. Returns full entries with handles. Matching is "
-                "by words, aliases and tags — if a query finds nothing that fits, search again without a "
-                "query, by section (e.g. section='preferences' or 'style') or by a tag from the <memory> index. "
+                "by words, aliases and tags — if a query finds nothing that fits, search again with fewer "
+                "words, or by a tag from the <memory> index. "
                 + BOUNDARY
             ),
             category="research",
@@ -72,8 +72,8 @@ class SearchMemoryTool(Tool):
             async with memory_session(runtime_ctx) as db:
                 entries = await memory_service.search(
                     db, str(org.id), str(user.id),
-                    query=data.query, tags=data.tags, section=data.section,
-                    include_past_events=data.include_past_events, limit=data.limit,
+                    query=data.query, tags=data.tags,
+                    include_past_events=data.include_past, limit=data.limit,
                     exclude_ids=injected,
                 )
                 report_ids = {
@@ -93,16 +93,15 @@ class SearchMemoryTool(Tool):
                     rid = ev.get("report_id")
                     item = {
                         "handle": e.handle,
-                        "section": e.section,
                         "text": e.text,
                         "tags": list(e.tags or []),
                         "aliases": list(e.aliases or []),
                         "source": e.source,
                     }
                     if e.event_start:
-                        item["event_start"] = _iso(e.event_start)
+                        item["date"] = _iso(e.event_start)
                     if e.event_end:
-                        item["event_end"] = _iso(e.event_end)
+                        item["end_date"] = _iso(e.event_end)
                     if rid and rid in titles:
                         item["from_report"] = {"title": titles[rid], "link": f"/reports/{rid}"}
                     results.append(item)

@@ -2072,11 +2072,11 @@ class ConsoleService:
 
     async def _turn_memory_sections(self, db: AsyncSession, rows, ae_ids, viewer_id: Optional[str]) -> dict:
         """Per-turn memory activity. Text only when the viewer owns the memory
-        (the turn's user); admins and everyone else see handles/sections/counts."""
+        (the turn's user); admins and everyone else see handles/counts."""
         from app.models.memory_entry import MemoryEntry
         from app.schemas.agent_execution_trace_schema import TurnMemorySchema, TurnMemoryItemSchema
 
-        memory_tools = ("create_memory", "edit_memory", "search_memory")
+        memory_tools = ("create_memory", "edit_memory", "search_memory", "suggest_personal_instruction")
         tool_rows: dict[str, list] = {}
         if ae_ids:
             q = (
@@ -2111,15 +2111,15 @@ class ConsoleService:
                 continue
             owner = bool(viewer_id and r.ae_user_id and str(r.ae_user_id) == str(viewer_id))
             inj = mc.get("injection") or {}
-            section = TurnMemorySchema(
+            mem = TurnMemorySchema(
                 owner_view=owner,
                 chars=int(inj.get("chars") or 0),
                 total_entries=int(inj.get("total_entries") or 0),
                 hidden=int(inj.get("hidden") or 0),
             )
             for it in inj.get("injected") or []:
-                section.injected.append(TurnMemoryItemSchema(
-                    handle=it.get("handle"), section=it.get("section"), tier=it.get("tier"),
+                mem.injected.append(TurnMemoryItemSchema(
+                    handle=it.get("handle"), dated=it.get("dated"), tier=it.get("tier"),
                     text=texts.get(str(it.get("id"))) if owner else None,
                 ))
             for te in tes:
@@ -2128,17 +2128,18 @@ class ConsoleService:
                 text = None
                 if owner:
                     text = args.get("text") or args.get("query") or None
-                section.tool_calls.append(TurnMemoryItemSchema(
+                mem.tool_calls.append(TurnMemoryItemSchema(
                     tool=te.tool_name, action=args.get("action"),
                     handle=res.get("handle") or args.get("handle"),
-                    section=args.get("section"), success=bool(te.success), text=text,
+                    dated=bool(args.get("date")) if te.tool_name == "create_memory" else None,
+                    success=bool(te.success), text=text,
                 ))
             for ref in mc.get("refusals") or []:
-                section.refusals.append(TurnMemoryItemSchema(
+                mem.refusals.append(TurnMemoryItemSchema(
                     tool=ref.get("tool"), code=ref.get("code"), handle=ref.get("handle"),
-                    section=ref.get("section"), text=ref.get("text") if owner else None,
+                    text=ref.get("text") if owner else None,
                 ))
-            out[ae] = section
+            out[ae] = mem
         return out
 
     async def get_report_conversation(

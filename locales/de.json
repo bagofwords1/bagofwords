@@ -1510,8 +1510,17 @@
       "updating": "Gedächtnis wird aktualisiert…",
       "checking": "Gedächtnis wird durchsucht…",
       "updated": "Gedächtnis aktualisiert",
-      "checked": "Gedächtnis durchsucht",
-      "failed": "Gedächtnis konnte nicht aktualisiert werden"
+      "checked": "Gedächtnis durchsucht"
+    },
+    "suggestInstruction": {
+      "running": "Anweisung wird vorgeschlagen…",
+      "label": "Als deine Anweisung speichern?",
+      "accept": "Zu meinen Anweisungen hinzufügen",
+      "dismiss": "Nicht jetzt",
+      "dismissed": "Nicht gespeichert",
+      "saved": "Zu deinen benutzerdefinierten Anweisungen hinzugefügt",
+      "failed": "Anweisung konnte nicht vorgeschlagen werden",
+      "failedSave": "Konnte nicht zu deinen Anweisungen hinzugefügt werden"
     },
     "routeModel": {
       "routedTo": "Geroutet an",
@@ -2551,7 +2560,7 @@
         },
         "enable_user_memory": {
           "name": "Benutzergedächtnis",
-          "description": "Der Agent merkt sich sitzungsübergreifend persönlichen Kontext zu jedem Benutzer – Schreibstil, Rolle, eigene Kürzel, anstehende Termine und Ereignisse, aktuellen Schwerpunkt. Geschäftsdefinitionen und Regeln bleiben in den Anweisungen. Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
+          "description": "Der Agent merkt sich sitzungsübergreifend Fakten zu jedem Benutzer – seine Arbeit, Projekte, Fristen und Termine, was er verfolgt und seine eigenen Kürzel. Regeln dazu, wie geantwortet wird, bleiben in den Anweisungen (der Organisation oder den benutzerdefinierten Anweisungen jedes Benutzers). Jeder Benutzer kann sein Gedächtnis ansehen, bearbeiten und löschen."
         },
         "max_instructions_in_context": {
           "name": "Maximale Anweisungen im Kontext",
@@ -3381,15 +3390,14 @@
     "memory.not_found": "Diesen Gedächtniseintrag gibt es nicht.",
     "memory.text_required": "Schreibe auf, was gemerkt werden soll.",
     "memory.text_too_long": "Höchstens 280 Zeichen.",
-    "memory.invalid_section": "Wähle einen der Gedächtnisabschnitte.",
     "memory.too_many_tags": "Höchstens 4 Tags.",
     "memory.tags_required": "Füge mindestens ein Tag hinzu.",
-    "memory.event_date_required": "Ereignisse brauchen ein Startdatum.",
     "memory.invalid_date": "Dieses Datum ist ungültig.",
     "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
-    "memory.looks_like_rule": "Das klingt nach einer Geschäftsdefinition oder Regel – füge es stattdessen als Anweisung hinzu.",
+    "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
     "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
-    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen.",
+    "profile.instructions_full": "Deine benutzerdefinierten Anweisungen sind voll. Bearbeite sie in deinem Profil, um Platz zu schaffen."
   },
   "email": {
     "dashboardShare": {
@@ -4623,25 +4631,19 @@
     },
     "memory": {
       "title": "Gedächtnis",
-      "subtitle": "Persönlicher Kontext, den sich die KI in dieser Organisation über dich merkt – dein Stil, deine Rolle, deine Kürzel, anstehende Termine und dein aktueller Schwerpunkt. Nur du kannst ihn sehen.",
-      "vsInstructions": "Geschäftsdefinitionen und Regeln werden hier nicht gespeichert – sie stehen in den Anweisungen, die für alle gelten.",
-      "instructionsLink": "Anweisungen öffnen",
-      "clearFilter": "Zurücksetzen",
+      "subtitle": "Fakten, die sich die KI in dieser Organisation über dich merkt – deine Arbeit, Projekte, Termine, was du verfolgst, deine eigenen Kürzel. Nur du kannst sie sehen.",
+      "vsInstructions": "Wie die KI dir antworten soll (Format, Einheiten, Länge), ist kein Gedächtnis – das sind deine benutzerdefinierten Anweisungen.",
+      "instructionsLink": "Benutzerdefinierte Anweisungen",
       "count": "{count} von {cap} Einträgen",
       "forgetAll": "Alles vergessen",
       "forgetAllTitle": "Alles vergessen?",
       "forgetAllBody": "Die KI vergisst alle {count} Einträge, die sie sich in dieser Organisation über dich gemerkt hat. Das kann nicht rückgängig gemacht werden.",
       "forgetAllConfirm": "Alles vergessen",
-      "empty": "Noch nichts gemerkt. Während du arbeitest, speichert die KI hier z. B. dein bevorzugtes Format, deine Rolle oder anstehende Termine.",
+      "empty": "Noch nichts gemerkt. Während du arbeitest, speichert die KI hier Fakten – etwa deine Projekte, Fristen oder anstehende Termine.",
       "add": "Hinzufügen",
       "past": "Vorbei",
       "fromReport": "aus {title}",
       "untitledReport": "einem Bericht",
-      "noneForTag": "Keine Einträge mit diesem Tag.",
-      "previewTitle": "Was der Agent sieht",
-      "previewChars": "{count} Zeichen",
-      "previewHint": "Ist immer in deinen Unterhaltungen enthalten. Weitere Einträge kommen hinzu, wenn eine Frage zu ihnen passt.",
-      "previewEmpty": "Noch nichts.",
       "loadFailed": "Dein Gedächtnis konnte nicht geladen werden",
       "saveFailed": "Die Änderung konnte nicht gespeichert werden",
       "saved": "Gedächtnis gespeichert",
@@ -4653,43 +4655,12 @@
         "migration": "Aus deinem früheren Gedächtnis importiert"
       },
       "form": {
-        "start": "Beginn",
-        "end": "Ende (optional)",
+        "placeholder": "Ein Fakt über dich, z. B. Leite das Q3-Abwanderungsprojekt",
         "tags": "Tags, durch Kommas getrennt",
-        "aliases": "Andere Wörter, die du verwendest, durch Kommas getrennt"
+        "dateHint": "Füge ein Datum hinzu, wenn es an eines gebunden ist"
       },
-      "sections": {
-        "style": {
-          "title": "Stil",
-          "hint": "Wie Antworten für dich geschrieben und formatiert sein sollen",
-          "placeholder": "z. B. Bevorzugt zuerst die Zahl, dann eine Zeile Kontext"
-        },
-        "role": {
-          "title": "Rolle",
-          "hint": "Deine Rolle und wofür du verantwortlich bist",
-          "placeholder": "z. B. Finanzen, verantwortlich für das EMEA-Umsatzreporting"
-        },
-        "vocabulary": {
-          "title": "Kürzel",
-          "hint": "Deine eigenen Wörter für Dinge – keine Geschäftsdefinitionen",
-          "placeholder": "z. B. „meine Region“ = EMEA"
-        },
-        "events": {
-          "title": "Ereignisse",
-          "hint": "Termine, Fristen und Abwesenheiten",
-          "placeholder": "z. B. Aufsichtsratssitzung"
-        },
-        "focus": {
-          "title": "Aktueller Schwerpunkt",
-          "hint": "Woran du gerade arbeitest",
-          "placeholder": "z. B. Untersucht die Abwanderung im 3. Quartal"
-        },
-        "preferences": {
-          "title": "Vorlieben",
-          "hint": "Wie du mit der KI arbeiten möchtest",
-          "placeholder": "z. B. Möchte das SQL sehen"
-        }
-      }
+      "searchPlaceholder": "Gedächtnis durchsuchen…",
+      "noMatches": "Keine passenden Einträge."
     }
   },
   "commandPalette": {

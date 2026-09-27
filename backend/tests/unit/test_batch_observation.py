@@ -20,7 +20,7 @@ def _outcome(tool, obs):
 
 
 def test_bookkeeping_set_covers_note_and_memory_tools():
-    assert _BOOKKEEPING_TOOLS == {"create_note", "edit_note", "create_memory", "edit_memory"}
+    assert _BOOKKEEPING_TOOLS == {"create_note", "edit_note", "create_memory", "edit_memory", "suggest_personal_instruction"}
 
 
 # --- aggregation: substantive members keep their full observation -----------

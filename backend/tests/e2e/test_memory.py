@@ -71,35 +71,42 @@ def _list(test_client, token, org_id):
 # API: own memory only
 # ---------------------------------------------------------------------------
 
+def _entries(test_client, token, org_id):
+    r = _list(test_client, token, org_id)
+    assert r.status_code == 200, r.json()
+    return r.json()["entries"]
+
+
 @pytest.mark.e2e
 def test_member_crud_on_own_memory(test_client, org):
     t, o = org["member"], org["id"]
-    r = _add(test_client, t, o, text="Prefers the number first", section="style", tags=["Format"])
+    r = _add(test_client, t, o, text="Leads the Q3 churn project", tags=["Q3 Churn"])
     assert r.status_code == 200, r.json()
     entry = r.json()
-    assert entry["source"] == "user" and entry["tags"] == ["format"] and entry["handle"].startswith("m")
+    assert entry["source"] == "user" and entry["tags"] == ["q3-churn"] and entry["handle"].startswith("m")
+    assert entry["date"] is None
 
-    ev = _add(test_client, t, o, text="Board meeting", section="events", tags=["board"],
-              event_start=(datetime.utcnow() + timedelta(days=3)).date().isoformat())
+    when = (datetime.utcnow() + timedelta(days=3)).date().isoformat()
+    ev = _add(test_client, t, o, text="Board meeting", tags=["board"], date=when)
     assert ev.status_code == 200, ev.json()
 
     body = _list(test_client, t, o).json()
-    assert [e["id"] for e in body["sections"]["style"]] == [entry["id"]]
-    assert len(body["sections"]["events"]) == 1
+    # One flat list: upcoming dated facts first, then the rest.
+    assert [e["text"] for e in body["entries"]] == ["Board meeting", "Leads the Q3 churn project"]
+    assert body["entries"][0]["date"].startswith(when)
     assert body["total"] == 2
-    assert "Prefers the number first" in body["preview"] and "Board meeting" in body["preview"]
+    assert {t_["tag"] for t_ in body["tags"]} == {"q3-churn", "board"}
 
-    p = test_client.patch(f"/api/users/me/memory/{entry['id']}", json={"text": "Prefers the number first, then context"},
+    p = test_client.patch(f"/api/users/me/memory/{entry['id']}", json={"text": "Leads the Q4 churn project"},
                           headers=_h(t, o))
     assert p.status_code == 200, p.json()
     new_id = p.json()["id"]
     assert new_id != entry["id"]
-    styles = _list(test_client, t, o).json()["sections"]["style"]
-    assert [e["id"] for e in styles] == [new_id]
+    assert [e["id"] for e in _entries(test_client, t, o) if "churn" in e["text"]] == [new_id]
 
     d = test_client.delete(f"/api/users/me/memory/{new_id}", headers=_h(t, o))
     assert d.status_code == 200
-    assert _list(test_client, t, o).json()["sections"]["style"] == []
+    assert [e["text"] for e in _entries(test_client, t, o)] == ["Board meeting"]
 
     fa = test_client.delete("/api/users/me/memory", headers=_h(t, o))
     assert fa.status_code == 200 and fa.json()["forgotten"] == 1
@@ -108,10 +115,12 @@ def test_member_crud_on_own_memory(test_client, org):
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("bad,code", [
-    ({"text": "Board meeting", "section": "events"}, "memory.event_date_required"),
-    ({"text": "x" * 300, "section": "style"}, "memory.text_too_long"),
-    ({"text": "Prefers tables", "section": "hobbies"}, "memory.invalid_section"),
-    ({"text": "my password: hunter22", "section": "preferences"}, "memory.sensitive"),
+    ({"text": "Board meeting", "date": "next thursday"}, "memory.invalid_date"),
+    ({"text": "x" * 300}, "memory.text_too_long"),
+    ({"text": "my password: hunter22"}, "memory.sensitive"),
+    # Rules are never memory — not even when the user types them.
+    ({"text": "Show amounts in €M with one decimal"}, "memory.looks_like_rule"),
+    ({"text": "Always exclude test accounts"}, "memory.looks_like_rule"),
 ])
 def test_api_validation_returns_typed_errors(test_client, org, bad, code):
     r = _add(test_client, org["member"], org["id"], **bad)
@@ -122,26 +131,46 @@ def test_api_validation_returns_typed_errors(test_client, org, bad, code):
 @pytest.mark.e2e
 def test_other_member_and_admin_cannot_read_or_change_someone_elses_memory(test_client, org):
     o = org["id"]
-    mine = _add(test_client, org["member"], o, text="Presents to the CFO monthly", section="role").json()
+    mine = _add(test_client, org["member"], o, text="Presents to the CFO monthly").json()
     other_token, _ = org["add_member"]()
     for token in (other_token, org["admin"]):
-        listed = _list(test_client, token, o).json()
-        assert all(mine["id"] != e["id"] for sec in listed["sections"].values() for e in sec)
-        assert "CFO" not in listed["preview"]
+        listed = _list(test_client, token, o)
+        assert "CFO" not in listed.text
         assert test_client.patch(f"/api/users/me/memory/{mine['id']}", json={"text": "hacked"},
                                  headers=_h(token, o)).status_code == 404
         assert test_client.delete(f"/api/users/me/memory/{mine['id']}", headers=_h(token, o)).status_code == 404
         # "Forget everything" only ever touches the caller's own entries.
         test_client.delete("/api/users/me/memory", headers=_h(token, o))
-    still = _list(test_client, org["member"], o).json()["sections"]["role"]
-    assert [e["text"] for e in still] == ["Presents to the CFO monthly"]
+    assert [e["text"] for e in _entries(test_client, org["member"], o)] == ["Presents to the CFO monthly"]
+
+
+@pytest.mark.e2e
+def test_accepting_a_suggested_rule_adds_it_to_custom_instructions_once(test_client, org):
+    t, o = org["member"], org["id"]
+    put = test_client.put("/api/users/me/instructions", json={"note": "I'm the CFO."}, headers=_h(t, o))
+    assert put.status_code == 200
+    rule = "Lead with the number, then one line of context."
+    for _ in range(2):  # a second click is a no-op
+        r = test_client.post("/api/users/me/instructions/rules", json={"text": rule}, headers=_h(t, o))
+        assert r.status_code == 200, r.json()
+    note = test_client.get("/api/users/me/instructions", headers=_h(t, o)).json()["note"]
+    assert note == f"I'm the CFO.\n- {rule}"
+    assert _entries(test_client, t, o) == []  # a rule never becomes memory
+
+    # Only the caller's own instructions change.
+    admin_note = test_client.get("/api/users/me/instructions", headers=_h(org["admin"], o)).json()["note"]
+    assert not admin_note or rule not in admin_note
+
+    test_client.put("/api/users/me/instructions", json={"note": "x" * 490}, headers=_h(t, o))
+    full = test_client.post("/api/users/me/instructions/rules", json={"text": rule}, headers=_h(t, o))
+    assert full.status_code == 400 and full.json()["error_code"] == "profile.instructions_full"
 
 
 @pytest.mark.e2e
 def test_removing_membership_deletes_its_memory(test_client, org):
     o = org["id"]
     tok, uid = org["add_member"]()
-    assert _add(test_client, tok, o, text="Likes cohort charts", section="preferences").status_code == 200
+    assert _add(test_client, tok, o, text="Owns the cohort reporting").status_code == 200
     members = test_client.get(f"/api/organizations/{o}/members", headers=_h(org["admin"], o)).json()
     membership_id = next(m["id"] for m in members if (m.get("user") or {}).get("id") == uid)
     r = test_client.delete(f"/api/organizations/{o}/members/{membership_id}", headers=_h(org["admin"], o))
@@ -241,14 +270,14 @@ def test_setting_off_removes_tools_block_and_api_but_keeps_entries(
     monkeypatch, test_client, create_report, org,
 ):
     t, o = org["member"], org["id"]
-    assert _add(test_client, t, o, text="Prefers the number first", section="style").status_code == 200
+    assert _add(test_client, t, o, text="Leads the Q3 churn project").status_code == 200
     captured: list = []
     _stub_agent(monkeypatch, captured)
     report = _new_report(create_report, t, o)
 
     _ask(test_client, report["id"], t, o, "revenue last month")
     assert MEMORY_TOOLS <= captured[-1]["tools"]
-    assert "<memory>" in captured[-1]["user_turn"] and "Prefers the number first" in captured[-1]["user_turn"]
+    assert "<memory>" in captured[-1]["user_turn"] and "Leads the Q3 churn project" in captured[-1]["user_turn"]
 
     _set_memory_enabled(test_client, org, False)
     _ask(test_client, report["id"], t, o, "revenue this month")
@@ -256,53 +285,63 @@ def test_setting_off_removes_tools_block_and_api_but_keeps_entries(
     assert "<memory>" not in captured[-1]["user_turn"]
     r = _list(test_client, t, o)
     assert r.status_code == 403 and r.json()["error_code"] == "memory.disabled"
-    assert _add(test_client, t, o, text="x", section="style").status_code == 403
+    assert _add(test_client, t, o, text="Board meeting").status_code == 403
 
     _set_memory_enabled(test_client, org, True)
-    body = _list(test_client, t, o).json()
-    assert [e["text"] for e in body["sections"]["style"]] == ["Prefers the number first"]
+    assert [e["text"] for e in _entries(test_client, t, o)] == ["Leads the Q3 churn project"]
 
 
 @pytest.mark.e2e
-def test_agent_saves_style_correction_with_evidence_and_next_turn_sees_it(
+def test_agent_saves_a_fact_with_evidence_and_next_turn_sees_it(
     monkeypatch, test_client, create_report, org,
 ):
     from app.ai.tools.implementations.create_memory import CreateMemoryTool
 
     t, o = org["member"], org["id"]
     captured: list = []
-    correction = "Too long. Shorter please, and put the number first."
+    message = "Heads up, I'm leading the Q3 churn project now. How many customers churned last month?"
 
     async def act(agent):
-        if "Shorter please" not in (agent.head_completion.prompt or {}).get("content", ""):
+        if "leading the Q3 churn project" not in (agent.head_completion.prompt or {}).get("content", ""):
             return None
         return await _run_tool(CreateMemoryTool(), {
-            "text": "Prefers short answers with the number first", "section": "style",
-            "tags": ["format"], "title": "Noting your preferred format",
+            "text": "Leads the Q3 churn project", "tags": ["q3-churn"], "title": "Noting your Q3 project",
         }, agent)
 
     _stub_agent(monkeypatch, captured, act)
     report = _new_report(create_report, t, o)
-    _ask(test_client, report["id"], t, o, correction)
+    _ask(test_client, report["id"], t, o, message)
     assert captured[-1]["act"]["output"]["success"] is True
     assert "<memory>" not in captured[-1]["user_turn"]  # nothing remembered before
+    assert "fact about the user" in captured[-1]["hint"]  # the code hint pointed at memory
 
-    entry = _list(test_client, t, o).json()["sections"]["style"][0]
+    [entry] = _entries(test_client, t, o)
     assert entry["source"] == "agent"
     assert entry["evidence"]["report_id"] == report["id"]
     assert entry["evidence"]["report_link"] == f"/reports/{report['id']}"
-    assert entry["evidence"]["quote"] and entry["evidence"]["quote"] in correction
+    assert entry["evidence"]["quote"] and entry["evidence"]["quote"] in message
 
     other = _new_report(create_report, t, o, title="Another report")
     _ask(test_client, other["id"], t, o, "revenue by month")
-    assert "Prefers short answers with the number first" in captured[-1]["user_turn"]
-    assert f"[{entry['handle']}] style:" in captured[-1]["user_turn"]
-    # The injected style entry is named next to the ask so the answer applies it.
-    assert "<memory_apply>" in captured[-1]["hint"] and f"[{entry['handle']}]" in captured[-1]["hint"]
+    assert f"[{entry['handle']}] Leads the Q3 churn project" in captured[-1]["user_turn"]
 
     # The report timeline never exposes the entry text — only the status line.
     comps = test_client.get(f"/api/reports/{report['id']}/completions", headers=_h(t, o)).text
-    assert "Prefers short answers" not in comps
+    assert "Leads the Q3 churn project" not in comps
+
+
+@pytest.mark.e2e
+def test_style_correction_points_to_personal_instructions_not_memory(
+    monkeypatch, test_client, create_report, org,
+):
+    t, o = org["member"], org["id"]
+    captured: list = []
+    _stub_agent(monkeypatch, captured)
+    report = _new_report(create_report, t, o)
+    _ask(test_client, report["id"], t, o, "Too long. Shorter please, and show money in thousands with one decimal.")
+    hint = captured[-1]["hint"]
+    assert "suggest_personal_instruction" in hint and "never save it to memory" in hint
+    assert "suggest_personal_instruction" in captured[-1]["tools"]
 
 
 @pytest.mark.e2e
@@ -342,14 +381,14 @@ def test_parallel_create_memory_from_different_reports_both_persist(
                     "mode": "chat", "memory_trace": {}, "memory_injected_ids": [],
                 }
                 events = [e async for e in CreateMemoryTool().run_stream(
-                    {"text": text, "section": "preferences", "tags": ["parallel"]}, ctx)]
+                    {"text": text, "tags": ["parallel"]}, ctx)]
                 return events[-1].payload["output"]
-        return await asyncio.gather(one(r1["id"], "Wants the SQL shown"), one(r2["id"], "Asks before expensive queries"))
+        return await asyncio.gather(one(r1["id"], "Leads the APAC launch"), one(r2["id"], "Reviews pipeline every Monday"))
 
     outs = asyncio.run(both())
     assert all(x["success"] for x in outs)
-    texts = {e["text"] for e in _list(test_client, t, o).json()["sections"]["preferences"]}
-    assert texts == {"Wants the SQL shown", "Asks before expensive queries"}
+    texts = {e["text"] for e in _entries(test_client, t, o)}
+    assert texts == {"Leads the APAC launch", "Reviews pipeline every Monday"}
 
 
 @pytest.mark.e2e
@@ -357,8 +396,12 @@ def test_search_memory_returns_hidden_entries_with_source_link(monkeypatch, test
     from app.ai.tools.implementations.search_memory import SearchMemoryTool
 
     t, o = org["member"], org["id"]
-    _add(test_client, t, o, text="\"my region\" = EMEA", section="vocabulary", tags=["emea"], aliases=["my region"])
-    _add(test_client, t, o, text="Investigating churn in the enterprise tier", section="focus", tags=["churn"])
+    _add(test_client, t, o, text="\"my region\" = EMEA", tags=["emea"], aliases=["my region"])
+    _add(test_client, t, o, text="Investigating churn in the enterprise tier", tags=["churn"])
+    # Newer facts fill the always tier, so the two above are not shown by
+    # default and must be matched or searched.
+    for i in range(20):
+        _add(test_client, t, o, text=f"Owns vendor contract number {i} for the facilities team", tags=["vendors"])
     captured: list = []
 
     async def act(agent):
@@ -388,7 +431,7 @@ def test_machine_turns_get_memory_block_but_no_memory_tools(
     from app.services.scheduled_prompt_service import scheduled_prompt_service
 
     t, o = org["member"], org["id"]
-    _add(test_client, t, o, text="Prefers amounts in €M", section="style")
+    _add(test_client, t, o, text="Presents the Q3 numbers to the board")
     captured: list = []
     _stub_agent(monkeypatch, captured)
     report = _new_report(create_report, t, o)
@@ -404,12 +447,12 @@ def test_machine_turns_get_memory_block_but_no_memory_tools(
     for trigger in ("wait", "checkin"):
         asyncio.run(machine(trigger))
         assert not (MEMORY_TOOLS & captured[-1]["tools"]), trigger
-        assert "Prefers amounts in €M" in captured[-1]["user_turn"], trigger
+        assert "Presents the Q3 numbers to the board" in captured[-1]["user_turn"], trigger
 
     sp = create_scheduled_prompt(report["id"], prompt={"content": "weekly revenue"}, user_token=t, org_id=o)
     asyncio.run(scheduled_prompt_service.scheduled_run_prompt(sp["id"], force=True))
     assert not (MEMORY_TOOLS & captured[-1]["tools"])
-    assert "Prefers amounts in €M" in captured[-1]["user_turn"]
+    assert "Presents the Q3 numbers to the board" in captured[-1]["user_turn"]
 
     # A human turn on the same report does get the tools.
     _ask(test_client, report["id"], t, o, "and last week?")
@@ -421,18 +464,18 @@ def test_trace_shows_memory_text_only_to_its_owner(monkeypatch, test_client, cre
     from app.ai.tools.implementations.create_memory import CreateMemoryTool
 
     o, t = org["id"], org["member"]
-    _add(test_client, t, o, text="Presents to the CFO monthly", section="role")
+    _add(test_client, t, o, text="Presents to the CFO monthly")
     captured: list = []
 
     async def act(agent):
         await _run_tool(CreateMemoryTool(), {"text": "Revenue means net revenue excluding VAT",
-                                             "section": "vocabulary", "tags": ["revenue"]}, agent)
-        return await _run_tool(CreateMemoryTool(), {"text": "Prefers amounts in €M", "section": "style",
-                                                    "tags": ["currency"]}, agent)
+                                             "tags": ["revenue"]}, agent)
+        return await _run_tool(CreateMemoryTool(), {"text": "Board meeting on the Q3 numbers",
+                                                    "tags": ["board"]}, agent)
 
     _stub_agent(monkeypatch, captured, act)
     report = _new_report(create_report, t, o)
-    _ask(test_client, report["id"], t, o, "Use €M please. Revenue means net revenue excluding VAT.")
+    _ask(test_client, report["id"], t, o, "Revenue means net revenue excluding VAT. And my board meeting is on Thursday.")
 
     admin = test_client.get(f"/api/console/reports/{report['id']}/conversation", headers=_h(org["admin"], o))
     assert admin.status_code == 200, admin.text
@@ -441,11 +484,11 @@ def test_trace_shows_memory_text_only_to_its_owner(monkeypatch, test_client, cre
     assert {i["handle"] for i in mem["injected"]} and all(i["text"] is None for i in mem["injected"])
     assert [c["tool"] for c in mem["tool_calls"]] == ["create_memory", "create_memory"]
     assert mem["refusals"] and mem["refusals"][0]["code"] == "memory.looks_like_rule"
-    for secret in ("Presents to the CFO", "Prefers amounts in €M", "net revenue excluding VAT"):
+    for secret in ("Presents to the CFO", "Board meeting on the Q3 numbers", "net revenue excluding VAT"):
         # Not in the memory section, and not anywhere else in the admin's payload
         # (the user's own prompt aside, which the admin legitimately sees).
         assert secret not in str(mem)
-    assert "Presents to the CFO" not in admin.text and "Prefers amounts in €M" not in admin.text
+    assert "Presents to the CFO" not in admin.text
 
     # The per-turn trace (tool arguments/results) is redacted for everyone.
     ae_id = admin.json()["turns"][-1]["agent_execution_id"]
@@ -453,11 +496,12 @@ def test_trace_shows_memory_text_only_to_its_owner(monkeypatch, test_client, cre
     assert per_turn.status_code == 200, per_turn.text
     tool_blocks = [b for b in per_turn.json()["completion_blocks"] if b.get("tool_execution")]
     assert {b["tool_execution"]["tool_name"] for b in tool_blocks} == {"create_memory"}
-    assert "Prefers amounts in €M" not in per_turn.text and "net revenue excluding VAT" not in str(tool_blocks)
+    assert "Board meeting on the Q3 numbers" not in str(tool_blocks)
+    assert "net revenue excluding VAT" not in str(tool_blocks)
     # The member's own report timeline is redacted the same way (the tool card
     # renders a status line only; details live in the profile).
     timeline = test_client.get(f"/api/reports/{report['id']}/completions", headers=_h(t, o)).text
-    assert "Prefers amounts in €M" not in timeline
+    assert "Board meeting on the Q3 numbers" not in timeline
 
 
 @pytest.mark.e2e
@@ -466,12 +510,12 @@ def test_owner_sees_memory_text_in_trace(monkeypatch, test_client, create_report
     from app.ai.tools.implementations.create_memory import CreateMemoryTool
 
     t, o = org["admin"], org["id"]
-    _add(test_client, t, o, text="Presents to the CFO monthly", section="role")
+    _add(test_client, t, o, text="Presents to the CFO monthly")
     captured: list = []
 
     async def act(agent):
         await _run_tool(CreateMemoryTool(), {"text": "Always filter out test accounts",
-                                             "section": "preferences", "tags": ["filters"]}, agent)
+                                             "tags": ["filters"]}, agent)
 
     _stub_agent(monkeypatch, captured, act)
     report = _new_report(create_report, t, o)

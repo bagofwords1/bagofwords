@@ -1,5 +1,8 @@
 <template>
-  <div class="mt-1">
+  <!-- A refused or failed memory call is the agent's business (it handles the
+       error itself, e.g. a rule sent to instructions instead) — the report
+       shows nothing for it; the trace keeps it. -->
+  <div v-if="status === 'running' || isSuccess" class="mt-1">
     <!-- Single-line, non-expandable status for create_memory / edit_memory /
          search_memory (and legacy update_user_memory). Memory is private: we
          show only that it happened plus the agent's short title — never entry
@@ -12,10 +15,6 @@
       <span v-else-if="isSuccess" class="text-gray-600 dark:text-gray-400 flex items-center">
         <Icon name="heroicons-bookmark" class="w-3 h-3 me-1.5 text-blue-500" />
         <span dir="auto" class="truncate max-w-[300px]">{{ label || doneFallback }}</span>
-      </span>
-      <span v-else class="text-gray-600 dark:text-gray-400 flex items-center">
-        <Icon name="heroicons-x-circle" class="w-3 h-3 me-1.5 text-red-500" />
-        <span>{{ $t('tools.memory.failed') }}</span>
       </span>
     </div>
   </div>

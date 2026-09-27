@@ -16,7 +16,9 @@ from app.services.memory_service import memory_service
 
 logger = logging.getLogger(__name__)
 
-_FIELDS = ("text", "section", "tags", "aliases", "event_start", "event_end", "expires_at")
+# tool field -> service field
+_FIELDS = {"text": "text", "tags": "tags", "aliases": "aliases", "date": "event_start",
+           "end_date": "event_end", "expires_at": "expires_at"}
 
 
 class EditMemoryTool(Tool):
@@ -25,7 +27,7 @@ class EditMemoryTool(Tool):
         return ToolMetadata(
             name="edit_memory",
             description=(
-                "Update or delete one entry of the current user's memory by its handle (e.g. \"m7\" from "
+                "Update or delete one fact in the current user's memory by its handle (e.g. \"m7\" from "
                 "<memory> or search_memory). Use update when THAT fact changed or to merge a near-duplicate "
                 "of it — never to append a different fact (that is a new create_memory); use delete when the "
                 "user asks you to "
@@ -65,7 +67,7 @@ class EditMemoryTool(Tool):
 
         org = runtime_ctx["organization"]
         user = runtime_ctx["user"]
-        changes = {k: getattr(data, k) for k in _FIELDS if getattr(data, k) is not None}
+        changes = {svc: getattr(data, k) for k, svc in _FIELDS.items() if getattr(data, k) is not None}
         if data.action == "update" and not changes:
             yield fail("Memory not changed", "Nothing to update — pass the fields to change.")
             return

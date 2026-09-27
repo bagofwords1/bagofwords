@@ -112,6 +112,39 @@ async def update_my_instructions(
     return UserInstructionsSchema(note=membership.note, memory=membership.memory)
 
 
+class AddPersonalRuleSchema(BaseModel):
+    text: str = Field(..., min_length=1, max_length=200)
+
+
+@router.post("/users/me/instructions/rules", response_model=UserInstructionsSchema)
+async def add_my_instruction_rule(
+    payload: AddPersonalRuleSchema,
+    current_user: User = Depends(current_user),
+    organization: Organization = Depends(get_current_organization),
+    db: AsyncSession = Depends(get_async_db),
+):
+    """Append one rule to the current user's Custom instructions — the
+    one-click accept on the agent's suggest_personal_instruction card. A rule
+    already there is a no-op; one that doesn't fit the cap is a typed 400."""
+    from app.errors import AppError, ErrorCode
+    from app.services.memory_rules import append_rule_to_note, contains_secret
+
+    membership = await _get_current_membership(db, current_user, organization)
+    if not membership:
+        raise HTTPException(status_code=404, detail="Membership not found")
+    if contains_secret(payload.text):
+        raise AppError.bad_request(ErrorCode.MEMORY_SENSITIVE, "Secrets can't be saved.")
+    updated = append_rule_to_note(membership.note, payload.text, MEMBERSHIP_NOTE_MAX_LENGTH)
+    if updated is None:
+        raise AppError.bad_request(
+            ErrorCode.PERSONAL_INSTRUCTIONS_FULL,
+            "Your custom instructions are full. Edit them in your profile to make room.",
+        )
+    membership.note = updated or None
+    await db.commit()
+    return UserInstructionsSchema(note=membership.note)
+
+
 # Hard cap on group names in the viewer payload. The payload rides into every
 # artifact render AND into the sandbox prompt's mental model — an IdP-synced
 # org can carry hundreds of groups per user, which would eat context for no

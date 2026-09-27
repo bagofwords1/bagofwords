@@ -1,10 +1,12 @@
 """MemoryContextBuilder — the tiered <memory> block for one planner turn.
 
-Pure code, no LLM calls. However many entries a user has, the rendered block
-stays within fixed budgets:
+Memory is facts about the user; rules about how to answer live in
+instructions. Pure code, no LLM calls. However many entries a user has, the
+rendered block stays within fixed budgets:
 
-  always   style, role, preferences + events starting within 21 days or
-           ended within the last 2 days                       (~1,100 chars)
+  always   dated facts starting within 21 days or ended within the last 2
+           days, then the strongest undated facts (user-confirmed first,
+           then most seen, then most recent)                  (~1,100 chars)
   matched  other active entries whose text / aliases / tags overlap the
            turn's keywords, or that carry an object tag (agent:<id>,
            data_source:<id>, report:<id>) present in the turn
@@ -34,15 +36,13 @@ INDEX_BUDGET = 200
 EVENT_LOOKAHEAD = timedelta(days=21)
 EVENT_LOOKBACK = timedelta(days=2)
 
-ALWAYS_SECTIONS = ("style", "role", "preferences")
-_SECTION_ORDER = {s: i for i, s in enumerate(("style", "role", "preferences", "events", "vocabulary", "focus"))}
 
 
 @dataclass
 class InjectedEntry:
     id: str
     handle: str
-    section: str
+    dated: bool
     tier: str  # "always" | "matched"
     reason: Optional[str] = None
 
@@ -63,10 +63,10 @@ class MemoryContext:
         return [i.id for i in self.injected]
 
     def trace(self) -> dict:
-        """Metadata for the trace — handles/sections/tiers, never text."""
+        """Metadata for the trace — handles/tiers, never text."""
         return {
             "injected": [
-                {"id": i.id, "handle": i.handle, "section": i.section, "tier": i.tier} for i in self.injected
+                {"id": i.id, "handle": i.handle, "dated": i.dated, "tier": i.tier} for i in self.injected
             ],
             "chars": self.chars,
             "total_entries": self.total_entries,
@@ -77,8 +77,8 @@ class MemoryContext:
 def header(user_name: Optional[str]) -> str:
     who = f" about {user_name}" if user_name else " about this user"
     return (
-        f"(Personal context{who}: style, role, schedule, their own shorthand.\n"
-        "Business definitions and rules are in <instructions>, not here.)"
+        f"(Facts{who}: their work, projects, dates, what they follow, their own shorthand.\n"
+        "No rules here — how to answer and what things mean come from <instructions>.)"
     )
 
 
@@ -145,26 +145,23 @@ def _relative(now: datetime, start: datetime, end: Optional[datetime]) -> str:
 
 
 def render_entry(entry, now: datetime, reason: Optional[str] = None) -> str:
-    sec = R.section_display(entry.section)
     text = (entry.text or "").strip()
-    if entry.section == "events" and entry.event_start:
+    line = f"[{entry.handle}] {text}"
+    if entry.event_start:
         when = _fmt_day(entry.event_start)
         if entry.event_end and entry.event_end.date() != entry.event_start.date():
             when += f" → {entry.event_end.strftime('%m-%d')}"
-        rel = _relative(now, entry.event_start, entry.event_end)
-        line = f"[{entry.handle}] {sec}: {when} ({rel}): {text}"
-    else:
-        line = f"[{entry.handle}] {sec}: {text}"
-    if entry.section == "vocabulary" and entry.aliases:
+        line += f" — {when} ({_relative(now, entry.event_start, entry.event_end)})"
+    if entry.aliases:
         also = ", ".join(f'"{a}"' for a in entry.aliases[:3])
-        line += f" (also: {also})"
+        line += f" (their words: {also})"
     if reason:
         line += f"   ← matched: {reason}"
     return line
 
 
 def _in_event_window(entry, now: datetime) -> bool:
-    if entry.section != "events" or entry.event_start is None:
+    if entry.event_start is None:
         return False
     end = entry.event_end or entry.event_start
     return entry.event_start <= now + EVENT_LOOKAHEAD and end >= now - EVENT_LOOKBACK
@@ -172,7 +169,6 @@ def _in_event_window(entry, now: datetime) -> bool:
 
 def _always_rank(entry) -> tuple:
     return (
-        _SECTION_ORDER.get(entry.section, 99),
         0 if entry.source == "user" else 1,
         -int(entry.seen_count or 0),
         -((entry.last_seen_at or datetime.min) - datetime.min).total_seconds(),
@@ -201,16 +197,16 @@ def build_memory_context(
 
     # --- always tier -------------------------------------------------------
     events = sorted((e for e in live if _in_event_window(e, now)), key=lambda e: (e.event_start, e.seq or 0))
-    core = sorted((e for e in live if e.section in ALWAYS_SECTIONS), key=_always_rank)
+    core = sorted((e for e in live if e.event_start is None), key=_always_rank)
     used = 0
-    for e in list(core) + events:
+    for e in events + list(core):
         line = render_entry(e, now)
         if used + len(line) + 1 > ALWAYS_BUDGET:
             continue  # overflow: may still surface in the matched tier
         lines.append(line)
         used += len(line) + 1
         shown.add(str(e.id))
-        ctx.injected.append(InjectedEntry(str(e.id), e.handle, e.section, "always"))
+        ctx.injected.append(InjectedEntry(str(e.id), e.handle, e.event_start is not None, "always"))
 
     # --- matched tier ------------------------------------------------------
     candidates = []
@@ -233,7 +229,7 @@ def build_memory_context(
         used += len(line) + 1
         n += 1
         shown.add(str(e.id))
-        ctx.injected.append(InjectedEntry(str(e.id), e.handle, e.section, "matched", reason))
+        ctx.injected.append(InjectedEntry(str(e.id), e.handle, e.event_start is not None, "matched", reason))
 
     # --- index line --------------------------------------------------------
     hidden = [e for e in live if str(e.id) not in shown]
@@ -247,31 +243,20 @@ def build_memory_context(
 
 
 def index_line(hidden: Sequence, tag_counts: Counter) -> str:
-    """≤ INDEX_BUDGET chars: counts per section of what isn't shown, plus the
-    tags in use (with counts) so writers reuse them."""
-    parts: List[str] = []
-    if hidden:
-        by_sec = Counter(e.section for e in hidden)
-        counts = ", ".join(
-            f"{n} {R.section_display(s) if n == 1 else s}"
-            for s, n in sorted(by_sec.items(), key=lambda kv: (-kv[1], kv[0]))
-        )
-        parts.append(f"Also remembered (not shown): {counts}")
+    """≤ INDEX_BUDGET chars: how many facts aren't shown, plus the tags in use
+    (with counts) so writers reuse them."""
+    head = f"Also remembered (not shown): {len(hidden)} more" if hidden else "Tags in use"
     tail = " — use search_memory." if hidden else ""
-    head = parts[0] if parts else "Tags in use"
-    sep = " · tags: " if parts else ": "
-    line = head + tail
-    if tag_counts:
-        tag_bits: List[str] = []
-        for t, c in tag_counts.most_common():
-            candidate = head + sep + ", ".join(tag_bits + [f"{t} ({c})"]) + tail
-            if len(candidate) > INDEX_BUDGET:
-                break
-            tag_bits.append(f"{t} ({c})")
-        if tag_bits:
-            line = head + sep + ", ".join(tag_bits) + tail
-    if not parts and not tag_counts:
+    sep = " · tags: " if hidden else ": "
+    if not hidden and not tag_counts:
         return ""
+    bits: List[str] = []
+    for t, c in tag_counts.most_common():
+        candidate = head + sep + ", ".join(bits + [f"{t} ({c})"]) + tail
+        if len(candidate) > INDEX_BUDGET:
+            break
+        bits.append(f"{t} ({c})")
+    line = head + (sep + ", ".join(bits) if bits else "") + tail
     return line[:INDEX_BUDGET]
 
 

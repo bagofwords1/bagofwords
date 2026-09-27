@@ -1,9 +1,10 @@
-"""create_memory — save one durable, personal fact about the current user.
+"""create_memory — save one fact about the current user.
 
 Replaces the full-document ``update_user_memory`` rewrite: each fact is its
 own row, so parallel sessions can't clobber each other and nothing is lost
-when the model prunes. Validation, dedupe, the definition/rule heuristic and
-the secret filter all live in MemoryService.
+when the model prunes. Memory holds facts only; a rule about how to answer is
+refused with a pointer to instructions. Validation, dedupe, the rule check
+and the secret filter all live in MemoryService.
 """
 import logging
 from typing import Any, AsyncIterator, Dict, Type
@@ -29,14 +30,14 @@ class CreateMemoryTool(Tool):
         return ToolMetadata(
             name="create_memory",
             description=(
-                "Save a personal fact about the current user: their style, role, schedule, focus, or "
-                "their own shorthand. NOT for business definitions, metric logic or rules; those belong "
-                "in instructions (create_instruction). " + BOUNDARY + " Save when you NOTICE something "
-                "durable (a correction of your format, a stated role, their shorthand, a dated meeting "
-                "or time off, what they work on now) — not only when asked. One declarative fact per "
-                "call (\"Prefers…\", never \"Always…\"). If <memory> already has a matching entry, use "
-                "edit_memory instead. Never store one-off task details, data values, facts about other "
-                "people, secrets or health details."
+                "Save a FACT about the current user: their work or role, a project or deadline, a date "
+                "in their work life (meeting, launch, time off), what they follow or track, or their own "
+                "shorthand. NOT for rules about how to answer or compute — formatting, units, length, "
+                "definitions, filters are instructions (personal ones via suggest_personal_instruction, "
+                "shared ones via the org instruction flow). " + BOUNDARY + " Save when you NOTICE a "
+                "fact, not only when asked. One fact per call, stated declaratively. If <memory> already "
+                "holds it, use edit_memory instead. Never store one-off task details, data values, facts "
+                "about other people, secrets or health details."
             ),
             category="action",
             version="1.0.0",
@@ -79,21 +80,20 @@ class CreateMemoryTool(Tool):
                     organization_id=str(org.id),
                     user_id=str(user.id),
                     text=data.text,
-                    section=data.section,
                     tags=data.tags,
                     aliases=data.aliases,
-                    event_start=data.event_start,
-                    event_end=data.event_end,
+                    event_start=data.date,
+                    event_end=data.end_date,
                     expires_at=data.expires_at,
                     source="agent",
                     evidence=evidence_for(runtime_ctx, data.text),
                 )
                 entry = result.entry
-                handle, text, section = entry.handle, entry.text, entry.section
+                handle, text, dated = entry.handle, entry.text, entry.event_start is not None
                 entry_id = str(entry.id)
         except MemoryValidationError as e:
             record(runtime_ctx, "refusals", {
-                "tool": "create_memory", "code": e.code, "section": data.section, "text": data.text[:400],
+                "tool": "create_memory", "code": e.code, "text": data.text[:400],
             })
             yield fail("Memory not saved", e.message, code=e.code)
             return
@@ -103,16 +103,16 @@ class CreateMemoryTool(Tool):
             return
 
         record(runtime_ctx, "writes", {
-            "tool": "create_memory", "id": entry_id, "handle": handle, "section": section,
+            "tool": "create_memory", "id": entry_id, "handle": handle, "dated": dated,
             "deduped": result.deduped,
         })
         if result.deduped:
             summary = f"Already remembered as [{handle}] — strengthened it instead of adding a duplicate."
             output = {"success": True, "handle": handle, "deduped_into": handle}
         else:
-            summary = f"Saved to memory as [{handle}] ({section})."
+            summary = f"Saved to memory as [{handle}]."
             output = {"success": True, "handle": handle}
-        observation = {"summary": summary, "handle": handle, "section": section, "text": text}
+        observation = {"summary": summary, "handle": handle, "text": text}
         if result.deduped:
             observation["deduped_into"] = handle
         if result.evicted:

@@ -1615,8 +1615,17 @@
       "updating": "Updating memory…",
       "checking": "Checking memory…",
       "updated": "Memory updated",
-      "checked": "Checked memory",
-      "failed": "Couldn't update memory"
+      "checked": "Checked memory"
+    },
+    "suggestInstruction": {
+      "running": "Suggesting an instruction…",
+      "label": "Save as your instruction?",
+      "accept": "Add to my instructions",
+      "dismiss": "Not now",
+      "dismissed": "Not saved",
+      "saved": "Added to your custom instructions",
+      "failed": "Couldn't suggest an instruction",
+      "failedSave": "Couldn't add it to your instructions"
     },
     "routeModel": {
       "routedTo": "Routed to",
@@ -2723,7 +2732,7 @@
         },
         "enable_user_memory": {
           "name": "User memory",
-          "description": "Let the agent remember personal context about each user across sessions — writing style, role, their own shorthand, upcoming meetings and events, current focus. Business definitions and rules stay in instructions. Each user can see, edit and delete their memory."
+          "description": "Let the agent remember facts about each user across sessions — their work, projects, deadlines and events, what they follow, their own shorthand. Rules for how to answer stay in instructions (org-wide, or each user's custom instructions). Each user can see, edit and delete their memory."
         },
         "max_instructions_in_context": {
           "name": "Max instructions in context",
@@ -3531,15 +3540,14 @@
     "memory.not_found": "That memory entry doesn't exist.",
     "memory.text_required": "Write the thing to remember.",
     "memory.text_too_long": "Keep it to 280 characters.",
-    "memory.invalid_section": "Pick one of the memory sections.",
     "memory.too_many_tags": "Use at most 4 tags.",
     "memory.tags_required": "Add at least one tag.",
-    "memory.event_date_required": "Events need a start date.",
     "memory.invalid_date": "That date isn't valid.",
     "memory.sensitive": "Memory can't hold secrets, passwords or sensitive personal details.",
-    "memory.looks_like_rule": "That reads like a business definition or rule — add it as an instruction instead.",
+    "memory.looks_like_rule": "That's a rule for how to answer — add it to your custom instructions. Memory keeps facts about you.",
     "memory.full": "Memory is full. Delete some entries first.",
-    "memory.not_active": "That entry was already changed or forgotten."
+    "memory.not_active": "That entry was already changed or forgotten.",
+    "profile.instructions_full": "Your custom instructions are full. Edit them in your profile to make room."
   },
   "email": {
     "dashboardShare": {
@@ -4813,25 +4821,19 @@
     },
     "memory": {
       "title": "Memory",
-      "subtitle": "Personal context the AI remembers about you in this organization — your style, role, shorthand, upcoming events and current focus. Only you can see it.",
-      "vsInstructions": "Business definitions and rules aren't kept here — they live in instructions, which apply to everyone.",
-      "instructionsLink": "Open instructions",
-      "clearFilter": "Clear",
+      "subtitle": "Facts the AI remembers about you in this organization — your work, projects, dates, what you follow, your own shorthand. Only you can see them.",
+      "vsInstructions": "How the AI should answer you (format, units, length) isn't memory — that's your custom instructions.",
+      "instructionsLink": "Custom instructions",
       "count": "{count} of {cap} entries",
       "forgetAll": "Forget everything",
       "forgetAllTitle": "Forget everything?",
       "forgetAllBody": "The AI will forget all {count} entries it remembers about you in this organization. This can't be undone.",
       "forgetAllConfirm": "Forget everything",
-      "empty": "Nothing remembered yet. As you work, the AI saves things like your preferred format, your role or upcoming meetings here.",
+      "empty": "Nothing remembered yet. As you work, the AI keeps facts here — like your projects, deadlines or upcoming meetings.",
       "add": "Add",
       "past": "Past",
       "fromReport": "from {title}",
       "untitledReport": "a report",
-      "noneForTag": "No entries with this tag.",
-      "previewTitle": "What the agent sees",
-      "previewChars": "{count} characters",
-      "previewHint": "Always included in your conversations. Other entries are added when a question matches them.",
-      "previewEmpty": "Nothing yet.",
       "loadFailed": "Couldn't load your memory",
       "saveFailed": "Couldn't save the change",
       "saved": "Memory saved",
@@ -4843,43 +4845,12 @@
         "migration": "Imported from your previous memory"
       },
       "form": {
-        "start": "Starts",
-        "end": "Ends (optional)",
+        "placeholder": "A fact about you, e.g. Leading the Q3 churn project",
         "tags": "Tags, comma-separated",
-        "aliases": "Other words you use, comma-separated"
+        "dateHint": "Add a date if it's tied to one"
       },
-      "sections": {
-        "style": {
-          "title": "Style",
-          "hint": "How you like answers written and formatted",
-          "placeholder": "e.g. Prefers the number first, then one line of context"
-        },
-        "role": {
-          "title": "Role",
-          "hint": "Your role and what you're responsible for",
-          "placeholder": "e.g. Finance, owns EMEA revenue reporting"
-        },
-        "vocabulary": {
-          "title": "Shorthand",
-          "hint": "Your own words for things — not business definitions",
-          "placeholder": "e.g. \"my region\" = EMEA"
-        },
-        "events": {
-          "title": "Events",
-          "hint": "Meetings, deadlines and time off",
-          "placeholder": "e.g. Board meeting"
-        },
-        "focus": {
-          "title": "Current focus",
-          "hint": "What you're working on now",
-          "placeholder": "e.g. Investigating Q3 churn"
-        },
-        "preferences": {
-          "title": "Preferences",
-          "hint": "How you like to work with the AI",
-          "placeholder": "e.g. Wants the SQL shown"
-        }
-      }
+      "searchPlaceholder": "Search memory…",
+      "noMatches": "No memories match."
     }
   },
   "agentPage": {

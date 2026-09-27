@@ -1,8 +1,10 @@
-"""Legacy Membership.memory → memory_entries migration.
+"""Legacy Membership.memory → facts in memory, rules in Custom instructions.
 
-Contracts: every non-empty line/bullet becomes one ``preferences`` entry with
-source='migration' and no tags; running it again adds nothing; lines that
-read like business definitions are migrated as-is and reported for review.
+Contracts: each non-empty line/bullet is sorted by the rule-vs-fact test —
+facts become memory entries (source='migration', no tags), rules are appended
+to the user's Custom instructions (Membership.note) while they fit; rules that
+don't fit are logged and left in the read-only legacy column; running it again
+changes nothing.
 """
 import asyncio
 import uuid
@@ -63,8 +65,9 @@ def test_migration_splits_lines_and_is_idempotent(test_client, create_user, logi
 
     users = [(who["id"], org), (member_id, org)]
     docs = (
-        "- Prefers USD\n- Concise answers, no emoji\n\n# misc\n* Active customers are those who paid in 90 days",
-        "Likes cohort charts\nWants the SQL shown",
+        "- Prefers USD\n- Leads the Q3 churn project\n\n# misc\n* Presents to the CFO monthly\n- Always exclude test accounts",
+        # rules that overflow the 500-char Custom instructions cap
+        "\n".join(f"- Always show chart style number {i} with extra words to take space" for i in range(12)),
     )
     for (uid, o), doc in zip(users, docs):
         _seed(uid, o, doc)
@@ -72,17 +75,31 @@ def test_migration_splits_lines_and_is_idempotent(test_client, create_user, logi
     logged: list[str] = []
     monkeypatch.setattr(memory_migration.logger, "warning", lambda msg, *a, **k: logged.append(msg % a))
     first = _migrate()
-    assert first.entries == 5 and first.memberships == 2
+    assert first.memberships == 2
     e1 = _entries(*users[0])
-    assert [e.text for e in e1] == ["Prefers USD", "Concise answers, no emoji",
-                                    "Active customers are those who paid in 90 days"]
-    assert all(e.section == "preferences" and e.source == "migration" and not e.tags for e in e1)
-    assert [e.handle for e in e1] == ["m1", "m2", "m3"]
-    # The definition-like line is reported for manual review; personal lines never are.
-    assert [d["handle"] for d in first.definition_like] == ["m3"]
-    assert any("business definition" in m and "Active customers" in m for m in logged)
-    assert not any("Prefers USD" in m or "cohort" in m for m in logged)
+    assert [e.text for e in e1] == ["Leads the Q3 churn project", "Presents to the CFO monthly"]
+    assert all(e.source == "migration" and not e.tags for e in e1)
+    assert [e.handle for e in e1] == ["m1", "m2"]
+    note1 = _note(*users[0])
+    assert "- Prefers USD" in note1 and "- Always exclude test accounts" in note1
+    assert "Leads the Q3 churn" not in note1
+
+    # Second user: nothing is a fact, the rules fill the note to its cap and the rest are logged.
+    assert _entries(*users[1]) == []
+    note2 = _note(*users[1])
+    assert len(note2) <= 500 and first.rules_not_moved
+    assert len(logged) == len(first.rules_not_moved) and all("did not fit" in m for m in logged)
 
     second = _migrate()
-    assert second.entries == 0 and second.skipped_already_migrated == 2
-    assert len(_entries(*users[0])) == 3 and len(_entries(*users[1])) == 2
+    assert second.entries == 0 and second.rules_to_instructions == 0 and second.skipped_already_migrated == 2
+    assert len(_entries(*users[0])) == 2 and _note(*users[0]) == note1 and _note(*users[1]) == note2
+
+
+def _note(uid, org):
+    from sqlalchemy import select
+
+    async def go():
+        async with async_session_maker() as db:
+            return (await db.execute(select(Membership.note).where(
+                Membership.user_id == uid, Membership.organization_id == org))).scalar_one()
+    return asyncio.run(go())

@@ -4,10 +4,12 @@ Revision ID: usrmem01
 Revises: artchatmodel01
 Create Date: 2026-09-26 00:00:00.000000
 
-Replaces the single ``memberships.memory`` document with one row per durable,
-personal fact. Existing memory text is migrated line-by-line (idempotent; see
-app/services/memory_migration.py). ``memberships.memory`` is kept, read-only,
-for one release so the change can be rolled back.
+Replaces the single ``memberships.memory`` document with one row per fact
+about the user. Existing memory text is split line-by-line (idempotent; see
+app/services/memory_migration.py): facts become entries, lines that are rules
+about how to answer move to the user's personal (custom) instructions.
+``memberships.memory`` is kept, read-only, for one release so the change can
+be rolled back.
 """
 from typing import Sequence, Union
 
@@ -28,7 +30,6 @@ def upgrade() -> None:
         sa.Column('user_id', sa.String(length=36), sa.ForeignKey('users.id'), nullable=False),
         sa.Column('seq', sa.Integer(), nullable=False),
         sa.Column('handle', sa.String(length=12), nullable=False),
-        sa.Column('section', sa.String(length=16), nullable=False),
         sa.Column('text', sa.Text(), nullable=False, server_default=''),
         sa.Column('tags', sa.JSON(), nullable=True),
         sa.Column('aliases', sa.JSON(), nullable=True),
@@ -55,7 +56,7 @@ def upgrade() -> None:
         'ix_memory_entries_org_user_status', 'memory_entries', ['organization_id', 'user_id', 'status']
     )
 
-    # Per-turn memory metadata for the trace (handles/sections/tiers/size and
+    # Per-turn memory metadata for the trace (handles/tiers/size and
     # refusals). Never read by anyone but the memory's owner in full.
     op.add_column('agent_executions', sa.Column('memory_context_json', sa.JSON(), nullable=True))
 

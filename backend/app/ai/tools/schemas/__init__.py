@@ -32,6 +32,7 @@ from .edit_note import EditNoteInput, EditNoteOutput, NoteEditOp
 from .memory import (
     CreateMemoryInput, CreateMemoryOutput, EditMemoryInput, EditMemoryOutput,
     SearchMemoryInput, SearchMemoryOutput,
+    SuggestPersonalInstructionInput, SuggestPersonalInstructionOutput,
 )
 from .search_mcps import SearchMCPsInput, SearchMCPsOutput
 from .execute_mcp import ExecuteMCPInput, ExecuteMCPOutput
