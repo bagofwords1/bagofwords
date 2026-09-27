@@ -392,6 +392,60 @@ scheduled runs.
 This supersedes the "schema pinned on a Step" idea above. The Step remains how a collection
 is charted or put on a dashboard, through the queryable table.
 
+### 7.2 Prompt caching
+
+**How caching works today:**
+
+- `anthropic_client.py:470-510` puts breakpoints on the last tool (1h TTL), on the system
+  prompt (1h), and on the last settled turn (5m).
+- Anthropic renders tools, then system, then messages, so **any change to the tools array
+  invalidates everything after it**.
+- Bedrock `cachePoint`s and OpenAI's automatic prefix caching behave the same way: the tools
+  are part of the prefix.
+
+**Per-agent tool sets are already the norm.** The per-agent tool overlay, native MCP tools
+and mode gating all mean each report has its own tools prefix and its own cache entry.
+Caching pays off *within* a run (up to `step_limit` iterations) and across turns of the same
+report. `submit_<slug>` tools don't change that, provided they follow these rules:
+
+1. **Register once, at run start, and never mutate mid-run.** No "activate the collection
+   when it's mentioned". Swapping a tool in mid-loop re-prefills the whole context on the
+   next call. `_refresh_browser_tool_catalog` (`agent_v2.py:7618`) already pays this cost;
+   don't copy it.
+2. **Keep the order deterministic.** Append after the static tools and the MCP tools, sorted
+   by `(agent_id, collection slug)`. Serialize schemas with sorted keys. Otherwise identical
+   requests stop being byte-identical and miss the cache.
+3. **Don't force `tool_choice` in the main loop.** Changing `tool_choice` invalidates the
+   message-level cache. Keep `auto`, and use the prompt ("finish with `submit_*`") plus a
+   check at end of turn: if a collection is active and nothing was submitted, add one nudge
+   turn. Forced tool choice belongs only in separate single-call fast-path requests (§5.2).
+4. **Schema edits bust the cache for that agent's reports.** That happens once per edit and
+   is acceptable. It is one more reason why breaking edits bump the version instead of
+   changing silently.
+5. **Name tools per agent** (`submit_<agentslug>_<collectionslug>`, ≤64 chars, hash suffix if
+   needed). Two agents on the same report may both have a "contracts" collection.
+
+**Alternative when there are many collections: one static generic `submit(collection, records)`.**
+
+- *Pros:*
+  - The tools prefix is identical across every agent and report.
+  - Schemas move into the system or context block, which is cached at the system breakpoint.
+- *Cons:*
+  - No enforcement by the provider; the schema is only validated server-side and retried.
+  - Schemas in prose are followed less reliably than schemas given as tool input.
+- *Rule:*
+  - Use native per-collection tools up to a threshold (mirroring `native_tools_enabled`),
+    and the generic `submit` above it.
+  - Hybrid option: native tools for collections marked "primary", generic for the rest.
+
+**Optional cross-agent win:** Anthropic allows 4 breakpoints and we use 3.
+
+- Putting the spare breakpoint on the **last static tool** would let the built-in tool block
+  (identical org-wide) be reused across agents and reports, even though the dynamic MCP and
+  submit tools differ.
+- Measure the size of the tools block first. It is only worth it if the static block is well
+  above the 1024-token minimum and first-call cost matters.
+
 ## 8. Phasing (final)
 
 **P0: `submit` (about 1–2 weeks)**
