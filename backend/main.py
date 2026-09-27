@@ -580,6 +580,27 @@ async def startup_event():
         except Exception as e:
             logger.error(f"Failed to schedule connection status sweep job: {e}")
 
+    # Diagnosis rollup sweep: the startup pass runs once per process, but runs
+    # keep becoming pending afterwards (a run orphaned by a restart turns stale
+    # an hour later). This indexes them without waiting for the next restart.
+    if is_scheduler_leader:
+        try:
+            from app.services.diagnosis.sweep import SCHEDULE_MINUTES, SCHEDULED_JOB_ID, enabled, scheduled_sweep
+            if enabled():
+                scheduler.add_job(
+                    scheduled_sweep,
+                    trigger="interval",
+                    minutes=SCHEDULE_MINUTES,
+                    id=SCHEDULED_JOB_ID,
+                    replace_existing=True,
+                    coalesce=True,
+                    max_instances=1,
+                    misfire_grace_time=SCHEDULE_MINUTES * 60,
+                )
+                logger.info(f"Scheduled job: {SCHEDULED_JOB_ID} every {SCHEDULE_MINUTES} minutes")
+        except Exception as e:
+            logger.error(f"Failed to schedule diagnosis rollup sweep job: {e}")
+
     # Register LDAP group sync job if configured AND licensed (sync is enterprise-only)
     if is_scheduler_leader and settings.bow_config.ldap.enabled and has_feature("ldap"):
         try:
