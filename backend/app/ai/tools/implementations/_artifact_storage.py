@@ -197,6 +197,75 @@ def storage_reference_errors(code: str, declaration: Optional[StorageDeclaration
     return errors
 
 
+_STORAGE_IN_TEXT_RE = re.compile(r'"storage"|\bstorage\s*=')
+_UNDECLARED_MARKERS = ("declares no storage", "not declared in storage.collections")
+MISPLACED_STORAGE_HINT = (
+    " It looks like the storage declaration was placed inside `prompt`; pass it as the separate top-level "
+    "`storage` argument."
+)
+
+
+def with_misplaced_storage_hint(errors: List[str], prompt: Optional[str]) -> List[str]:
+    """For a call without `storage`: add a hint to undeclared-collection
+    errors when ``prompt`` looks like it carries the declaration."""
+    if not errors or not prompt or not _STORAGE_IN_TEXT_RE.search(prompt):
+        return errors
+    return [e + MISPLACED_STORAGE_HINT if any(m in e for m in _UNDECLARED_MARKERS) else e for e in errors]
+
+
+_WRITE_CALL_RE = re.compile(r"(?<![\w$])(?:add|update|remove)\s*\(")
+_CATCH_RE = re.compile(r"(?<![\w$])catch(?![\w$])")
+
+
+def write_handling_note(code: str) -> str:
+    """Non-blocking note when code writes to a collection but never catches.
+
+    Comments and string literals are ignored. Returns '' when there is
+    nothing to say.
+    """
+    code = code or ""
+    lexed = _mask_js(code)
+    masked = lexed[0] if lexed is not None else code
+    if not USE_COLLECTION_RE.search(masked) or not _WRITE_CALL_RE.search(masked) or _CATCH_RE.search(masked):
+        return ""
+    return (
+        " NOTE: the code writes to a collection (add/update/remove) but has no `catch`: write rejections "
+        "(forbidden, validation, conflict, ...) would be unhandled. Wrap every write in try/await/catch or add "
+        "`.catch(() => {})`, render the collection's `error`, and fix it with edit_artifact."
+    )
+
+
+_CREATE_WORDS = {"members": "members", "owner": "owner only"}
+_MODIFY_WORDS = {"author": "each author their own (owner: any)", "owner": "owner only"}
+
+
+def describe_storage_rules(declaration: Optional[StorageDeclaration]) -> str:
+    """The effective sharing rules in plain words ('' without collections)."""
+    if declaration is None or not declaration.collections:
+        return ""
+    parts = []
+    for name, spec in declaration.collections.items():
+        if spec.scope == "per_user":
+            parts.append(f"{name} — private per viewer.")
+        else:
+            parts.append(
+                f"{name} — shared; add: {_CREATE_WORDS[spec.create]}; edit/delete: {_MODIFY_WORDS[spec.modify]}."
+            )
+    return "Storage: " + " ".join(parts)
+
+
+def storage_success_note(declaration: Optional[StorageDeclaration], code: str) -> str:
+    """Summary suffix after a successful create/edit: the effective rules for
+    the planner to check against the request, plus the write-handling note."""
+    rules = describe_storage_rules(declaration)
+    note = write_handling_note(code)
+    if rules:
+        rules = (
+            f" {rules} Check these rules against the user's words; if they differ, fix with edit_artifact (storage)."
+        )
+    return rules + note
+
+
 def _format_validation_error(exc: ValidationError) -> List[str]:
     errors = []
     for err in exc.errors():

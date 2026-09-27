@@ -93,10 +93,20 @@ class CollectionSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     scope: Scope
-    # Ignored for per_user collections (create and modify are implicitly "self").
+    # Only for shared collections; per_user ones are implicitly "self".
     create: Optional[CreateRule] = None
     modify: Optional[ModifyRule] = None
     fields: Dict[str, FieldSpec] = Field(..., min_length=1, max_length=MAX_FIELDS_PER_COLLECTION)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_per_user_rules(cls, data: Any) -> Any:
+        # create/modify mean nothing for per_user: drop them (whatever their
+        # value) instead of rejecting the declaration. Stored declarations
+        # that carry them keep parsing.
+        if isinstance(data, dict) and data.get("scope") == "per_user" and ("create" in data or "modify" in data):
+            return {k: v for k, v in data.items() if k not in ("create", "modify")}
+        return data
 
     @field_validator("fields")
     @classmethod

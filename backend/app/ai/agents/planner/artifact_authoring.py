@@ -20,7 +20,8 @@ _STORAGE_CONTRACT = """
 ═══════════════════════════════════════════════════════════════════════════════
 STORAGE AUTHORING (mode='page') — apps that save records via useCollection
 ═══════════════════════════════════════════════════════════════════════════════
-Only when the user wants the app to remember or collect input. Declare every collection the code uses in `storage`:
+Only when the user wants the app to remember or collect input. Declare every collection the code uses in `storage`.
+`storage` is a separate top-level argument of create_artifact/edit_artifact (a JSON object), never inside `prompt`:
   {"collections": {"<name>": {"scope": "shared"|"per_user", "create": "members"|"owner", "modify": "author"|"owner",
                               "fields": {"<field>": {"type": "...", "required": false, "default": <value>, "max_length": N}}}}}
 - Names: collection ^[a-z][a-z0-9_]{0,63}$ (max 20), field ^[A-Za-z_][A-Za-z0-9_]{0,63}$ (1-50 per collection); unknown keys are rejected.
@@ -30,7 +31,7 @@ Only when the user wants the app to remember or collect input. Declare every col
   A default must match the type and is applied at READ time (stored records are not rewritten).
 - Limits: 64 KB per record (json fields up to 256 KB each, 256 KB total); 10,000 records per collection.
 RULES (the artifact's normal visibility/sharing always applies first):
-- "per_user": every signed-in user reads and writes only their OWN records (create/modify are not needed). Preferences, drafts.
+- "per_user": every signed-in user reads and writes only their OWN records. Preferences, drafts. per_user: omit create/modify.
 - "shared": everyone who can use the app reads all records; "create" and "modify" are REQUIRED.
   create "members" = org members and share recipients add records; "owner" = only the report owner adds.
   modify "author" = authors edit/delete their own records; "owner" = only the owner. The owner may edit any shared record.
@@ -38,6 +39,14 @@ RULES (the artifact's normal visibility/sharing always applies first):
 - Anonymous viewers and signed-in outsiders (e.g. public-link visitors) READ only shared collections with create "owner" and
   never write; other collections answer them `unauthenticated`/`forbidden` — render that error and keep the rest of the page.
 - The code cannot tell who the owner is: show owner-only forms to signed-in viewers and let `forbidden` explain a refusal.
+PICK THE RULES FROM THE USER'S WORDS (the tool echoes the rules it saved; compare them with the request):
+- "only I / the owner add(s) …, others read" → shared, create "owner", modify "owner"
+- "everyone can add, each edits their own" → shared, create "members", modify "author"
+- "everyone can add, only the owner moderates" → shared, create "members", modify "owner"
+- "remember my choice" / "per viewer" / "my selection" → per_user
+- "publish to viewers without accounts" → only shared collections with create "owner" are visible anonymously
+ALWAYS handle write rejections: every add/update/remove gets `.catch(() => {})` or try/await/catch, and `error` is rendered.
+Never use <form onSubmit> for writes — the sandbox blocks form submission; use a button onClick and an Enter-key handler on inputs.
 GATES (nothing persists when one fails; the error says what to fix):
 - Call useCollection("<name>") directly with a string literal naming a declared collection (no variables, template
   interpolation, aliases, `?.` calls or window["useCollection"]). Mentions in comments and strings are ignored.

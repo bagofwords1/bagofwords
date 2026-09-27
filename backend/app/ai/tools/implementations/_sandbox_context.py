@@ -97,6 +97,7 @@ APP DATA (records the app saves; only for collections declared in create/edit_ar
     re-read the list automatically; show error and let the user retry. Codes: validation (also raised locally for NaN/Infinity/undefined/functions),
     forbidden, unauthenticated, conflict, not_found, collection_not_declared, too_large, limit_reached, timeout, unavailable, network, error.
   Only offer controls the viewer can use: anonymous viewers never write (hide forms when !useCurrentUser()), and `mine` marks own records.
+  Never use <form onSubmit> for writes — the sandbox blocks form submission; use a button onClick and an Enter-key handler on inputs.
   Validation/preview renders start with EMPTY in-memory collections and some hosts (offline export) answer `unavailable` — render the empty state.
 
 FILES: <BowFile id="<file_id>" fit="contain|cover" className="" /> renders an embedded image or PDF by id (ids are listed in the prompt when present).

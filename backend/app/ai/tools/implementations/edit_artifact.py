@@ -441,6 +441,12 @@ class EditArtifactTool(Tool):
             review_images["images"] = [{"data": screenshot_b64, "media_type": "image/png", "source_type": "base64"}]
             review_images["preview_note"] = ANON_PREVIEW_NOTE + " " + STATIC_PREVIEW_NOTE
 
+        storage_note = ""
+        if artifact.mode == "page" and storage_to_persist is not None:
+            from app.ai.tools.implementations._artifact_storage import storage_success_note
+            from app.schemas.app_storage import parse_storage_declaration
+            storage_note = storage_success_note(parse_storage_declaration(storage_to_persist), new_code)
+
         from app.ai.tools.artifact_verification import build_artifact_verification_hint
         from app.services.artifact_verification_policy import artifact_verification_available
         verification_hint = build_artifact_verification_hint(
@@ -475,6 +481,7 @@ class EditArtifactTool(Tool):
                         + ("Storage declaration replaced. " if data.storage is not None else "")
                         + ("Render validated. " if screenshot_b64 or artifact.mode == "slides" else "Render preview unavailable. ")
                         + ("Review the attached static screenshot within the visual-refinement budget; it cannot certify interactions." if review_images else "")
+                        + storage_note
                     ),
                     "artifact_id": str(new_artifact.id),
                     "mode": new_artifact.mode,

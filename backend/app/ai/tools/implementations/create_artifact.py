@@ -1998,6 +1998,11 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             summary_msg += ANON_PREVIEW_NOTE
             summary_msg += STATIC_PREVIEW_NOTE
 
+        if data.mode == "page" and storage_to_persist is not None:
+            from app.ai.tools.implementations._artifact_storage import storage_success_note
+            from app.schemas.app_storage import parse_storage_declaration
+            summary_msg += storage_success_note(parse_storage_declaration(storage_to_persist), code)
+
         observation: Dict[str, Any] = {
             "summary": summary_msg,
             "verification_hint": verification_hint,
@@ -2075,6 +2080,7 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
             effective_declaration_strict,
             storage_declaration_errors,
             storage_reference_errors,
+            with_misplaced_storage_hint,
         )
         from app.schemas.app_storage import parse_storage_declaration
 
@@ -2107,6 +2113,8 @@ Output the FULL corrected code in a ```python code block. No explanations, no di
         if planner_code:
             code = self._extract_code(planner_code, mode=data.mode) or planner_code
             errors = storage_reference_errors(code, declaration)
+            if errors and data.storage is None:
+                errors = with_misplaced_storage_hint(errors, data.prompt)
             if errors:
                 return None, errors, "storage_errors", ""
 

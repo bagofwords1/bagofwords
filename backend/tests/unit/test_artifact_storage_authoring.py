@@ -51,7 +51,7 @@ def test_contract_is_part_of_the_planner_reference():
 
 
 def test_contract_stays_short():
-    assert len(_contract().strip().splitlines()) <= 90
+    assert len(_contract().strip().splitlines()) <= 110
 
 
 def test_three_examples_notes_form_blog():
@@ -134,3 +134,61 @@ def test_storage_field_descriptions():
     assert "keep" in edit and "replaces" in edit
     for desc in (create, edit):
         assert "approv" in desc
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_example_passes_the_write_handling_check(index):
+    from app.ai.tools.implementations._artifact_storage import write_handling_note
+
+    name, _, code = _examples()[index]
+    assert write_handling_note(code) == "", name
+
+
+def _phrase_rows():
+    """{phrase line: rules} for the '→' rows of the phrase table."""
+    rows = {}
+    for line in _contract().splitlines():
+        if line.startswith("- \"") and "→" in line:
+            phrase, rules = line.split("→", 1)
+            rows[phrase.strip("- ").strip()] = rules.strip()
+    return rows
+
+
+@pytest.mark.parametrize("phrase, rules", [
+    ("only I / the owner add", 'shared, create "owner", modify "owner"'),
+    ("everyone can add, each edits their own", 'shared, create "members", modify "author"'),
+    ("everyone can add, only the owner moderates", 'shared, create "members", modify "owner"'),
+    ("remember my choice", "per_user"),
+    ("publish to viewers without accounts", 'create "owner"'),
+])
+def test_contract_maps_request_phrases_to_rules(phrase, rules):
+    matches = [r for p, r in _phrase_rows().items() if phrase in p]
+    assert matches, f"no phrase row for {phrase!r}"
+    assert rules in matches[0], (phrase, matches[0])
+
+
+def test_contract_says_per_user_omits_create_and_modify():
+    assert "per_user: omit create/modify" in _contract()
+
+
+def test_contract_says_storage_is_a_separate_argument():
+    contract = _contract()
+    assert "`storage` is a separate top-level argument of create_artifact/edit_artifact" in contract
+    assert "never inside `prompt`" in contract
+
+
+_NO_FORM_RULE = "Never use <form onSubmit> for writes"
+
+
+@pytest.mark.parametrize("index", [0, 1, 2])
+def test_example_uses_no_form(index):
+    # Artifact iframes are sandboxed without allow-forms: submit never fires in the hosts.
+    name, _, code = _examples()[index]
+    assert "<form" not in code, name
+
+
+def test_contract_and_runtime_prompt_forbid_form_submit():
+    app_data = SANDBOX_RUNTIME_PROMPT[SANDBOX_RUNTIME_PROMPT.index("APP DATA"):]
+    for text in (_contract(), app_data):
+        assert _NO_FORM_RULE in text
+        assert "button onClick" in text and "Enter" in text

@@ -139,6 +139,26 @@ class TestCollectionSpec:
         spec = CollectionSpec.model_validate({"scope": "per_user", "fields": {"a": {"type": "string"}}})
         assert spec.scope == "per_user"
 
+    @pytest.mark.parametrize("rules", [
+        {"create": "members", "modify": "members"},  # invalid modify value, meaningless for per_user
+        {"create": "members", "modify": "owner"},    # already-stored shape
+        {"create": "anyone"},
+    ])
+    def test_per_user_create_and_modify_are_dropped_not_rejected(self, rules):
+        spec = CollectionSpec.model_validate({"scope": "per_user", **rules, "fields": {"a": {"type": "string"}}})
+        assert (spec.create, spec.modify) == (None, None)
+        assert spec.model_dump(mode="json", exclude_unset=True) == {"scope": "per_user", "fields": {"a": {"type": "string"}}}
+
+    def test_stored_per_user_declaration_with_rules_still_parses(self):
+        raw = {"collections": {"prefs": {"scope": "per_user", "create": "members", "modify": "owner",
+                                         "fields": {"genre": {"type": "string"}}}}}
+        decl = parse_storage_declaration(raw)
+        assert decl.collections["prefs"].scope == "per_user"
+
+    def test_per_user_still_rejects_unknown_keys(self):
+        with pytest.raises(ValidationError):
+            CollectionSpec.model_validate({"scope": "per_user", "public": True, "fields": {"a": {"type": "string"}}})
+
     @pytest.mark.parametrize(
         "overrides",
         [

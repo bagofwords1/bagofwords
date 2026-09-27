@@ -606,3 +606,107 @@ def test_artifacts_without_storage_keep_their_content_keys_and_never_touch_app_r
 
     assert sql.statements, "the listener must have seen the tools' SQL"
     assert not sql.mentions("app_records"), "no storage anywhere: app_records must never be queried (RD12)"
+
+
+# ---------------------------------------------------------------------------
+# Planner guidance (live-run findings): lenient per_user, misplaced storage,
+# write-handling note, effective rules echoed in the summary
+# ---------------------------------------------------------------------------
+
+COMMENTS_OWNER = {"scope": "shared", "create": "owner", "modify": "owner",
+                  "fields": {"text": {"type": "string", "required": True}}}
+
+
+def _writing_code(viz_id: str, *, handled: bool) -> str:
+    save = "c.add({ text: 'x' })" + (".catch(() => {})" if handled else "")
+    return (
+        '<script type="text/babel">\n'
+        "function App() {\n"
+        f'  const v = vizById("{viz_id}");\n'
+        '  const c = useCollection("comments");\n'
+        '  const p = useCollection("prefs");\n'
+        f"  const save = () => {save};\n"
+        '  return <div className="p-4">{v ? v.title : "none"} <button onClick={save}>Add</button></div>;\n'
+        "}\n"
+        "</script>"
+    )
+
+
+def test_create_accepts_per_user_with_meaningless_rules_and_drops_them(page):
+    prefs = {**PREFS, "create": "members", "modify": "members"}
+    result = _create(page.report_id, {"code": _page_code(page.viz_id, "prefs"), "visualization_ids": [page.viz_id],
+                                      "storage": {"collections": {"prefs": prefs}}})
+    assert result["output"].get("success", True) is not False, result["observation"]
+    assert _run(_content(result["output"]["artifact_id"]))["storage"] == {"collections": {"prefs": PREFS}}
+
+
+def test_create_hints_when_storage_was_put_inside_prompt(page):
+    prompt = 'Genre app. {"replaces_artifact_id":null,"storage":{"collections":{"prefs":{"scope":"per_user"}}}}'
+    result = _create(page.report_id, {"prompt": prompt, "code": _page_code(page.viz_id, "prefs"),
+                                      "visualization_ids": [page.viz_id]})
+    assert result["output"]["success"] is False
+    message = result["observation"]["error"]["message"]
+    assert "placed inside `prompt`" in message and "separate top-level `storage` argument" in message
+    assert "placed inside `prompt`" in result["observation"]["summary"]
+    assert _run(_version_count(page.report_id)) == 0
+
+
+def test_create_without_storage_in_prompt_has_no_misplaced_hint(page):
+    result = _create(page.report_id, {"code": _page_code(page.viz_id, "prefs"), "visualization_ids": [page.viz_id]})
+    assert result["output"]["success"] is False
+    assert "placed inside `prompt`" not in result["observation"]["error"]["message"]
+
+
+def test_create_success_echoes_rules_and_notes_unhandled_writes(page):
+    result = _create(page.report_id, {
+        "code": _writing_code(page.viz_id, handled=False), "visualization_ids": [page.viz_id],
+        "storage": {"collections": {"comments": COMMENTS_OWNER, "prefs": PREFS}},
+    })
+    assert result["output"].get("success", True) is not False, result["observation"]
+    summary = result["observation"]["summary"]
+    assert ("Storage: comments — shared; add: owner only; edit/delete: owner only. "
+            "prefs — private per viewer.") in summary
+    assert "Check these rules against the user's words" in summary
+    assert "NOTE:" in summary and "catch" in summary
+
+
+def test_create_with_handled_writes_has_no_write_note(page):
+    result = _create(page.report_id, {
+        "code": _writing_code(page.viz_id, handled=True), "visualization_ids": [page.viz_id],
+        "storage": {"collections": {"comments": COMMENTS_OWNER, "prefs": PREFS}},
+    })
+    summary = result["observation"]["summary"]
+    assert "Storage: comments" in summary
+    assert "write rejections" not in summary
+
+
+def test_create_without_storage_has_no_rules_line(page):
+    result = _create(page.report_id, {"code": _page_code(page.viz_id), "visualization_ids": [page.viz_id]})
+    assert "Storage:" not in result["observation"]["summary"]
+
+
+def test_edit_success_echoes_rules_and_notes_unhandled_writes(page):
+    created = _create(page.report_id, {
+        "code": _writing_code(page.viz_id, handled=True), "visualization_ids": [page.viz_id],
+        "storage": {"collections": {"comments": COMMENTS_OWNER, "prefs": PREFS}},
+    })
+    storage = {"collections": {"comments": {**COMMENTS_OWNER, "create": "members"}, "prefs": PREFS}}
+
+    async def _approve(runtime_ctx, *, tool_name, changes, started_monotonic=None):
+        yield {"approved": True, "reason": None}
+
+    import app.ai.tools.implementations._artifact_storage as _st
+    original = _st.confirm_storage_changes
+    _st.confirm_storage_changes = _approve
+    try:
+        result = _edit(page.report_id, {
+            "artifact_id": created["output"]["artifact_id"], "storage": storage,
+            "edits": [{"find": ".catch(() => {})", "replace": ""}],
+        })
+    finally:
+        _st.confirm_storage_changes = original
+    assert result["output"]["success"] is True, result["observation"]
+    summary = result["observation"]["summary"]
+    assert "Storage: comments — shared; add: members; edit/delete: owner only. prefs — private per viewer." in summary
+    assert "Check these rules against the user's words" in summary
+    assert "NOTE:" in summary and "catch" in summary

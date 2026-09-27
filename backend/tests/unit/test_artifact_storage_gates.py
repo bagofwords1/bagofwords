@@ -400,3 +400,87 @@ def test_stopped_failure_text():
     from app.ai.tools.implementations._artifact_storage import storage_confirmation_failure
     text = storage_confirmation_failure("stopped", [])
     assert "stopped" in text.lower() and "nothing was applied" in text
+
+
+# ---------------------------------------------------------------------------
+# Planner guidance: misplaced storage, write handling, effective rules
+# ---------------------------------------------------------------------------
+
+_MISPLACED = "It looks like the storage declaration was placed inside `prompt`"
+
+
+@pytest.mark.parametrize("prompt", [
+    'Build it. {"replaces_artifact_id":null,"storage":{"collections":{"prefs":{"scope":"per_user"}}}}',
+    "Genre picker, storage={collections: {prefs: ...}}",
+])
+def test_misplaced_storage_hint_is_appended_when_prompt_carries_storage(prompt):
+    from app.ai.tools.implementations._artifact_storage import with_misplaced_storage_hint
+
+    errors = storage_reference_errors('const p = useCollection("prefs");', None)
+    hinted = with_misplaced_storage_hint(errors, prompt)
+    assert len(hinted) == 1
+    assert hinted[0].startswith(errors[0])
+    assert _MISPLACED in hinted[0]
+    assert "separate top-level `storage` argument" in hinted[0]
+
+
+@pytest.mark.parametrize("prompt", ["", None, "A genre dashboard that remembers the selection"])
+def test_misplaced_storage_hint_absent_without_storage_in_prompt(prompt):
+    from app.ai.tools.implementations._artifact_storage import with_misplaced_storage_hint
+
+    errors = storage_reference_errors('const p = useCollection("prefs");', None)
+    assert with_misplaced_storage_hint(errors, prompt) == errors
+
+
+def test_misplaced_storage_hint_leaves_no_errors_alone():
+    from app.ai.tools.implementations._artifact_storage import with_misplaced_storage_hint
+
+    assert with_misplaced_storage_hint([], '"storage": {}') == []
+
+
+@pytest.mark.parametrize("code", [
+    'const c = useCollection("comments"); const save = () => c.add({ text });',
+    'const { add } = useCollection("comments"); const save = () => add({ text });',
+    'const c = useCollection("comments"); const del = (id) => c.remove(id);',
+    'const c = useCollection("comments"); c.update(id, { text }); // .catch( in a comment does not count',
+])
+def test_write_handling_note_when_writes_have_no_catch(code):
+    from app.ai.tools.implementations._artifact_storage import write_handling_note
+
+    note = write_handling_note(code)
+    assert note.startswith(" NOTE:")
+    assert "catch" in note and "error" in note and "edit_artifact" in note
+
+
+@pytest.mark.parametrize("code", [
+    'const c = useCollection("comments"); const save = () => c.add({ text }).catch(() => {});',
+    'const c = useCollection("comments"); const save = async () => { try { await c.add({ text }); } catch (e) {} };',
+    'const c = useCollection("comments"); return c.items.length;',  # reads only
+    "const s = new Set(); s.add(1);",  # no useCollection at all
+])
+def test_no_write_handling_note_when_handled_or_not_writing(code):
+    from app.ai.tools.implementations._artifact_storage import write_handling_note
+
+    assert write_handling_note(code) == ""
+
+
+def test_describe_storage_rules_in_plain_words():
+    from app.ai.tools.implementations._artifact_storage import describe_storage_rules
+
+    decl = _decl({
+        "comments": {"scope": "shared", "create": "owner", "modify": "owner", "fields": {"text": {"type": "string"}}},
+        "notes": NOTES,
+        "prefs": PREFS,
+    })
+    assert describe_storage_rules(decl) == (
+        "Storage: comments — shared; add: owner only; edit/delete: owner only. "
+        "notes — shared; add: members; edit/delete: each author their own (owner: any). "
+        "prefs — private per viewer."
+    )
+
+
+def test_describe_storage_rules_empty_without_collections():
+    from app.ai.tools.implementations._artifact_storage import describe_storage_rules
+
+    assert describe_storage_rules(None) == ""
+    assert describe_storage_rules(_decl({})) == ""
