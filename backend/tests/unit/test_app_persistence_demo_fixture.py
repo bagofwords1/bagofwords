@@ -93,6 +93,21 @@ def test_render_code_substitutes_viz_ids(seed, code):
     assert "'rev-1'" in out and "'cus-2'" in out
 
 
+def test_payload_carries_only_the_visualizations_the_code_binds(seed, code):
+    # The source dashboard can have more charts than the demo renders; an unused
+    # one in the payload makes every later edit_artifact fail the viz-ref gate.
+    from app.ai.tools.implementations._artifact_refs import viz_reference_errors
+
+    ids = seed.payload_visualization_ids("rev-1", "cus-2")
+    assert ids == ["rev-1", "cus-2"]
+    rendered = seed.render_code(code, "rev-1", "cus-2")
+    payload = {"visualizations": [{"id": i, "title": i} for i in ids]}
+    assert viz_reference_errors(rendered, payload) == []
+    # What the script used to send: every source chart, one of them unused.
+    payload["visualizations"].append({"id": "gen-3", "title": "Genres"})
+    assert viz_reference_errors(rendered, payload)
+
+
 def test_pick_visualizations_by_title():
     mod = _seed_module()
     vizzes = [

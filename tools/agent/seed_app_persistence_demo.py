@@ -107,6 +107,13 @@ def render_code(template: str, revenue_id: str, customers_id: str) -> str:
     return template.replace("__REVENUE_VIZ_ID__", revenue_id).replace("__CUSTOMERS_VIZ_ID__", customers_id)
 
 
+def payload_visualization_ids(revenue_id: str, customers_id: str) -> list:
+    """The ids the fixture code binds, in order. Only these go into the payload:
+    the viz-reference gate rejects any later edit of an artifact whose payload
+    carries a visualization the code never references."""
+    return [v for v in (revenue_id, customers_id) if v]
+
+
 def pick_visualizations(vizzes: Iterable[dict]) -> Tuple[str, str]:
     """(revenue viz id, customers viz id): by title, else by order."""
     vizzes = [v for v in vizzes if v.get("id")]
@@ -274,7 +281,7 @@ def main(argv: Optional[list] = None) -> int:
                         "mode": "page",
                         "content": {
                             "code": code,
-                            "visualization_ids": viz_ids,
+                            "visualization_ids": payload_visualization_ids(revenue_id, customers_id),
                             "runtime_version": RUNTIME_VERSION,
                             "storage": STORAGE,
                         },
