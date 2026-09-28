@@ -291,6 +291,16 @@
                 <span v-if="queryCounts[agent.id]" class="text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500">{{ queryCounts[agent.id] }}</span>
               </button>
 
+              <!-- Lists: typed tables the agent fills through its submit_<list>
+                   tools. A leaf row like Queries — the pane lists them, and a
+                   list opens its rows in place. -->
+              <button v-if="!agentAccessBlocked(agent)" type="button" data-testid="agent-lists-row" class="group w-full flex items-center gap-1.5 h-8 rounded-md text-[13px] transition-colors min-w-0" :class="panelView?.kind === 'lists' && panelView?.agentId === agent.id ? 'bg-gray-100 dark:bg-gray-800 text-gray-900 dark:text-white' : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/70'" style="padding-inline-start:20px;padding-inline-end:8px" @click="openListsPanel(agent.id)">
+                <span class="w-3 shrink-0"></span>
+                <UIcon name="i-heroicons-list-bullet" class="w-4 h-4 text-gray-400 dark:text-gray-500 shrink-0" />
+                <span class="flex-1 text-start truncate">{{ $t('agentsPage.lists') }}</span>
+                <span v-if="listCounts[agent.id]" class="text-xs tabular-nums shrink-0 text-gray-400 dark:text-gray-500">{{ listCounts[agent.id] }}</span>
+              </button>
+
               <!-- Evals: the chevron expands the suite tree, the LABEL still opens
                    the runs/self-learning panel, so the existing entry point is
                    not lost to the new hierarchy. -->
@@ -607,6 +617,17 @@
               :ds-id="panelView.agentId"
               @select="openQuery(panelView.agentId, $event)"
               @created="onQueryCreated(panelView.agentId, $event)"
+            />
+            <AgentListsPanel
+              v-else-if="panelView.kind === 'lists'"
+              :key="'lists-' + panelView.agentId"
+              :ds-id="panelView.agentId"
+              :list-id="listView"
+              :row-id="listRowView"
+              :can-manage="canManageAgent(panelView.agentId)"
+              @open="openList"
+              @row="(id: string | null) => { listRowView = id }"
+              @changed="fetchListCounts"
             />
             <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
             <AgentEvalsPanel v-else-if="panelView.kind === 'evals'" :key="'evals-' + panelView.agentId" :agent-id="panelView.agentId" :initial-run-id="pendingRunId" />
@@ -1179,6 +1200,7 @@ import PrimaryInstructionPicker from '~/components/instructions/PrimaryInstructi
 import AgentEvalsPanel from '~/components/AgentEvalsPanel.vue'
 import EntityDetailPanel from '~/components/entity/EntityDetailPanel.vue'
 import AgentQueriesPanel from '~/components/entity/AgentQueriesPanel.vue'
+import AgentListsPanel from '~/components/lists/AgentListsPanel.vue'
 import LibraryIcon from '~/components/icons/LibraryIcon.vue'
 import TestCaseEditor from '~/components/monitoring/TestCaseEditor.vue'
 import AgentSettingsPanel from '~/components/AgentSettingsPanel.vue'
@@ -1656,6 +1678,29 @@ const onQueryDeleted = () => {
   fetchQueryCounts()
 }
 
+// ── Lists (typed per-agent record tables) ─────────────────
+// Same shape as Queries: a leaf row opening a pane. The open list id lives
+// here (not in the panel) because the URL reflects it: /agents/<id>/lists/<list>.
+const listCounts = ref<Record<string, number>>({})
+const listView = ref<string | null>(null)
+// The row open in a list's side panel (deep-linkable: /agents/<id>/lists/<list>/<row>).
+const listRowView = ref<string | null>(null)
+const fetchListCounts = async () => {
+  try {
+    const { data } = await useMyFetch<any>('/api/agent_lists/counts', { method: 'GET' })
+    if (data.value?.by_agent) listCounts.value = { ...data.value.by_agent }
+  } catch (e) { console.error('Failed to load list counts', e) }
+}
+const openListsPanel = (agentId: string) => {
+  if (panelView.value?.kind === 'lists' && panelView.value?.agentId === agentId) {
+    listView.value = null
+    return
+  }
+  listView.value = null
+  openPanel('lists', agentId)
+}
+const openList = (listId: string | null) => { listView.value = listId; listRowView.value = null }
+
 // ── Eval suites tree ──────────────────────────────────────
 // Suites render as folders under each agent's Evals group, and test cases as
 // leaves inside them. The hierarchy already existed in the data
@@ -2090,15 +2135,16 @@ const setPrimaryForSingleAgent = async (makePrimary: boolean) => {
 // right-pane panel for Tables/Tools/Evals/Settings
 const panelView = ref<null | { kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings' | 'global-evals' | 'skills'; agentId: string }>(null)
 const closePanel = () => { panelView.value = null }
-const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), instructions: t('agentsPage.instructions'), queries: t('agentsPage.queries'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
+const panelKindLabel = computed(() => ({ tables: t('agentsPage.tables'), tools: t('agentsPage.tools'), files: t('agentsPage.files'), instructions: t('agentsPage.instructions'), queries: t('agentsPage.queries'), lists: t('agentsPage.lists'), evals: t('agentsPage.evals'), settings: t('agentsPage.settings'), 'global-evals': t('agentsPage.globalEvals'), skills: t('agentsPage.skills') } as Record<string, string>)[panelView.value?.kind || ''] || '')
 const panelAgent = computed(() => panelView.value ? agents.value.find(a => a.id === panelView.value!.agentId) : null)
 const panelConnections = computed(() => {
   const a = panelAgent.value as any
   return (a?.connections || []).filter((c: any) => c.type === 'mcp' || c.type === 'custom_api')
 })
-const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'evals' | 'settings', agentId: string) => {
+const openPanel = (kind: 'tables' | 'tools' | 'files' | 'instructions' | 'queries' | 'lists' | 'evals' | 'settings', agentId: string) => {
   clearRightPane()
   loadAgentMeta(agentId)
+  if (kind !== 'lists') listView.value = null
   panelView.value = { kind, agentId }
   if (kind === 'instructions') {
     // The pane lists the same rows as the tree group; make sure they are loaded.
@@ -4291,7 +4337,7 @@ const FilterSection = defineComponent({
 // router navigation) so the address bar updates without re-running the global
 // middleware (auth/onboarding/permissions) or remounting/flickering the page.
 const route = useRoute()
-const PANEL_KINDS = ['tables', 'tools', 'queries', 'evals', 'settings'] as const
+const PANEL_KINDS = ['tables', 'tools', 'queries', 'lists', 'evals', 'settings'] as const
 
 // The URL that reflects the current right-pane state. Only one of agent /
 // panel / instruction views is open at a time (each open() clears the others).
@@ -4301,7 +4347,7 @@ const explorerUrl = (): string => {
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
-  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind].filter(Boolean).join('/')}`
+  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
   return '/agents'
@@ -4314,7 +4360,7 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, queryView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, queryView, listView, listRowView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
@@ -4372,10 +4418,12 @@ const restoreFromRoute = () => {
   if (!agent) return
   // /agents/<id>/<panel>
   if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
+    if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
     if (panelView.value?.kind === panel && panelView.value?.agentId === agentId) return
     expand('agent:' + agentId, true)
     if ((panel === 'tables' || panel === 'tools') && !isOpen(panel + ':' + agentId)) expand(panel + ':' + agentId)
     openPanel(panel, agentId)
+    if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
     return
   }
   // /agents/<id>
@@ -4417,7 +4465,7 @@ onMounted(async () => {
   // Lazy tree: load agents + aggregate counts only (no instruction rows). Each
   // group's rows load on first expand. fetchCounts also feeds the pending dots
   // and the "N pending" badge, so fetchPendingMap is no longer on the hot path.
-  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
+  await Promise.all([fetchAgents(), fetchConnections(), fetchCounts(), fetchQueryCounts(), fetchListCounts(), fetchLabels(), fetchCategories(), fetchGitStatus(), fetchReviewCount()])
   instrLoading.value = false
   // fetchCounts already populated the per-row "pending" dot set from its own
   // response, so no separate org-wide /pending-changes sweep is needed here.

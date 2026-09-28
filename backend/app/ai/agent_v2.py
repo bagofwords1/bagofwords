@@ -4736,6 +4736,10 @@ class AgentV2:
             # they are never stripped by a filter that doesn't know about them,
             # and before routing/fallback so the catalog is final by loop start.
             await self._register_native_mcp_tools()
+            # Agent Lists: one native submit_<list> tool per list on the report's
+            # agents. Registered once, after MCP tools, so the tools block (the
+            # first prompt-cache breakpoint) is stable for the whole run.
+            await self._register_list_tools()
             await self._setup_model_routing()
             await self._setup_llm_fallback()
 
@@ -5255,6 +5259,17 @@ class AgentV2:
                             # SSE bandwidth for long answers.
                             action_present = decision.action is not None
                             if action_present:
+                                action_payload = decision.action.model_dump()
+                                # A submit_<list> call streams a record count
+                                # (planner _progress); name the list so the
+                                # card can say where it is writing.
+                                route = (getattr(self, "_list_tool_routing", None) or {}).get(action_payload.get("name"))
+                                if route and isinstance(action_payload.get("arguments"), dict):
+                                    progress = dict(action_payload["arguments"].get("_progress") or {})
+                                    progress["list_name"] = route.get("list_name")
+                                    progress["list_id"] = route.get("list_id")
+                                    progress["data_source_id"] = route.get("data_source_id")
+                                    action_payload["arguments"] = {"_progress": progress}
                                 event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="decision.partial",
@@ -5266,7 +5281,7 @@ class AgentV2:
                                         "reasoning": None,
                                         "assistant": None,
                                         "final_answer": None,
-                                        "action": decision.action.model_dump() if decision.action else None,
+                                        "action": action_payload,
                                     }
                                 ))
                     
@@ -5911,6 +5926,7 @@ class AgentV2:
                                 # the gateway path, so native registration changes how
                                 # the model SEES the tool, not how we execute it.
                                 tool_name, tool_input = self._rewrite_native_mcp_action(tool_name, tool_input)
+                                tool_name, tool_input = self._rewrite_list_action(tool_name, tool_input)
                                 # Server-owned grouping metadata never comes from model arguments.
                                 tool_input = dict(tool_input or {})
                                 tool_input.pop("_verification_group_id", None)
@@ -7800,6 +7816,47 @@ class AgentV2:
         except Exception as e:
             logger.warning("[agent] native MCP tool registration skipped: %s", e)
             self._native_mcp_routing = {}
+
+    def _rewrite_list_action(self, tool_name: str, tool_input):
+        """Translate a native ``submit_<list>`` call into the submit_list gateway.
+
+        Same contract as ``_rewrite_native_mcp_action``: the model sees one tool
+        per list with the list's own schema (so the provider constrains decoding
+        against it), execution runs on a single code path. Unknown names pass
+        through and fail normal tool resolution.
+        """
+        routing = getattr(self, "_list_tool_routing", None)
+        if not routing or not isinstance(tool_name, str):
+            return tool_name, tool_input
+        route = routing.get(tool_name)
+        if not route:
+            return tool_name, tool_input
+        args = tool_input if isinstance(tool_input, dict) else {}
+        records = args.get("records")
+        rewritten = {"list_id": route["list_id"], "records": records if isinstance(records, list) else []}
+        logger.info("[agent] list tool %s -> submit_list(%s)", tool_name, route["list_id"])
+        return "submit_list", rewritten
+
+    async def _register_list_tools(self) -> None:
+        """Append one planner tool per Agent List on the report's agents."""
+        from app.ai.tools.list_tool_registry import build_list_tools
+
+        self._list_tool_routing = {}
+        if not self.report:
+            return
+        try:
+            user = getattr(self, "user", None) or (getattr(self.head_completion, "user", None) if self.head_completion else None)
+            descriptors, routing = await build_list_tools(self.db, self.report, user, self.organization)
+            if not descriptors:
+                return
+            existing = {t.name for t in (self.planner.tool_catalog or [])}
+            added = [ToolDescriptor(**d) for d in descriptors if d["name"] not in existing]
+            self.planner.tool_catalog = (self.planner.tool_catalog or []) + added
+            self._list_tool_routing = {k: v for k, v in routing.items() if k not in existing}
+            logger.info("[agent] registered %d list tool(s): %s", len(added), ", ".join(d.name for d in added))
+        except Exception as e:
+            logger.warning("[agent] list tool registration skipped: %s", e)
+            self._list_tool_routing = {}
 
     async def _refresh_browser_tool_catalog(self):
         from app.ai.tools.artifact_verification import refresh_browser_tool_catalog

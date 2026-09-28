@@ -611,6 +611,7 @@ import CreateInstructionTool from '../tools/CreateInstructionTool.vue'
 import EditInstructionTool from '../tools/EditInstructionTool.vue'
 import SendEmailTool from '../tools/SendEmailTool.vue'
 import CreateNoteTool from '../tools/CreateNoteTool.vue'
+import SubmitListTool from '../tools/SubmitListTool.vue'
 import EditNoteTool from '../tools/EditNoteTool.vue'
 import SearchInstructionsTool from '../tools/SearchInstructionsTool.vue'
 import ReadInstructionTool from '../tools/ReadInstructionTool.vue'
@@ -1456,6 +1457,9 @@ const hasAnyCompletionScores = (completion: any) => {
 
 // Tool component helpers (matching index.vue)
 function getToolComponent(toolName: string) {
+    // Native per-list tools (submit_<list>) stream under their own name
+    // before the gateway rewrite to submit_list.
+    if (toolName?.startsWith('submit_')) return SubmitListTool
     switch (toolName) {
         case 'create_widget':
             return CreateWidgetTool
@@ -1471,6 +1475,8 @@ function getToolComponent(toolName: string) {
             return SendEmailTool
         case 'create_note':
             return CreateNoteTool
+        case 'submit_list':
+            return SubmitListTool
         case 'edit_note':
             return EditNoteTool
         case 'search_instructions':

@@ -1,0 +1,5 @@
+﻿counterparty,annual_value,currency,renewal_date,auto_renew
+חברת אלפא בע״מ,48000,ILS,2027-06-30,true
+Globex GmbH,32500,EUR,2026-12-31,false
+Initech Israel Ltd.,250000,ILS,,false
+Acme Logistics Ltd,120000,USD,2027-01-31,true

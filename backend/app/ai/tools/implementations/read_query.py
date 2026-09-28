@@ -34,6 +34,64 @@ from app.models.step import Step
 FULL_CODE_MAX_CHARS = 50_000
 
 
+PAGE_DEFAULT_LIMIT = 100
+PAGE_MAX_LIMIT = 500
+# Same byte budget as the create_data / read_query preview: a page never puts
+# more row data in front of the model than a preview would.
+PAGE_BUDGET_BYTES = 48_000
+PAGE_MAX_CELL_CHARS = 1_000
+
+
+def _clip_cell(v: Any) -> Any:
+    if isinstance(v, str) and len(v) > PAGE_MAX_CELL_CHARS:
+        return v[:PAGE_MAX_CELL_CHARS] + "…"
+    return v
+
+
+def build_page(rows: List[Dict[str, Any]], columns: List[str], *, offset: int, limit: int,
+               total_rows: int, source: str, show_rows: bool = True) -> Dict[str, Any]:
+    """One window of rows, trimmed to the byte budget. ``rows`` is already the
+    window (row ``offset`` first); ``next_offset`` accounts for any trimming so
+    paging never skips rows."""
+    import json as _json
+
+    kept: List[Dict[str, Any]] = []
+    used = 0
+    if show_rows:
+        for r in rows[:limit]:
+            clipped = {k: _clip_cell(v) for k, v in r.items()}
+            size = len(_json.dumps(clipped, default=str))
+            if kept and used + size > PAGE_BUDGET_BYTES:
+                break
+            kept.append(clipped)
+            used += size
+    returned = len(kept) if show_rows else min(limit, max(0, total_rows - offset))
+    nxt = offset + returned
+    eof = nxt >= total_rows
+    page: Dict[str, Any] = {
+        "offset": offset, "limit": limit, "returned": returned, "total_rows": total_rows,
+        "next_offset": None if eof else nxt, "eof": eof, "source": source, "columns": columns,
+    }
+    if show_rows:
+        page["rows"] = kept
+    else:
+        page["note"] = "Row values are hidden from the model by org policy (allow_llm_see_data is off)."
+    return page
+
+
+def _snapshot_columns(step_data: Dict[str, Any]) -> List[str]:
+    cols = [c.get("field") or c.get("headerName") for c in (step_data.get("columns") or []) if isinstance(c, dict)]
+    if not cols and step_data.get("rows"):
+        cols = list(step_data["rows"][0].keys())
+    return [c for c in cols if c]
+
+
+def _df_window(df, offset: int, limit: int) -> List[Dict[str, Any]]:
+    import json as _json
+    window = df.iloc[offset: offset + limit]
+    return _json.loads(window.to_json(orient="records", date_format="iso", default_handler=str))
+
+
 def _observation_code(code: Optional[str]) -> Optional[str]:
     """The generated code as the planner should see it: verbatim, or clipped
     with a note when it exceeds the full-read budget."""
@@ -59,6 +117,7 @@ class ReadQueryTool(Tool):
                 "Use this to reference earlier create_data results without re-executing the query. "
                 "Accepts multiple query_ids and/or visualization_ids from the conversation history. "
                 "Use cases: unsure with what viz or query to generate the dashboard, want to look at previously written code, and else. "
+                "To read rows beyond the preview (or all of a large result), page with offset/limit and follow page.next_offset until page.eof. "
                 "IMPORTANT: Extract the query_id or viz_id from previous tool results in the conversation — do NOT ask the user for IDs."
             ),
             category="research",
@@ -66,7 +125,8 @@ class ReadQueryTool(Tool):
             input_schema=ReadQueryInput.model_json_schema(),
             output_schema=ReadQueryOutput.model_json_schema(),
             max_retries=0,
-            timeout_seconds=30,
+            # Paging past the saved snapshot re-runs the query.
+            timeout_seconds=120,
             idempotent=True,
             is_active=True,
             required_permissions=[],
@@ -189,6 +249,77 @@ class ReadQueryTool(Tool):
             applied_params=getattr(step, "applied_params", None) if step else None,
         )
 
+    async def _with_page(self, db, runtime_ctx, report, organization, r: ReadQueryResult,
+                         data: ReadQueryInput, allow_llm_see_data: bool) -> ReadQueryResult:
+        """Attach the requested rows window to ``r``.
+
+        Served from the saved snapshot when the window lies inside it (or the
+        snapshot is the whole result). Past the snapshot — which the org row
+        limit caps — the step's code is re-run (nothing is persisted), but only
+        for queries in THIS report, using this run's own authorized clients.
+        """
+        offset = data.offset or 0
+        limit = data.limit or PAGE_DEFAULT_LIMIT
+        settings = runtime_ctx.get("settings")
+        try:
+            cap = settings.get_config("limit_row_count").value if settings else None
+            if isinstance(cap, (int, float)) and cap > 0:
+                limit = min(limit, int(cap))
+        except Exception:
+            pass
+        limit = max(1, min(limit, PAGE_MAX_LIMIT))
+
+        step_data = r.data if isinstance(r.data, dict) else {}
+        snap_rows = step_data.get("rows") or []
+        info = step_data.get("info") or {}
+        total = int(info.get("total_rows") or len(snap_rows))
+        columns = _snapshot_columns(step_data)
+
+        if offset + limit <= len(snap_rows) or len(snap_rows) >= total or offset >= total:
+            r.page = build_page(snap_rows[offset: offset + limit], columns, offset=offset, limit=limit,
+                                total_rows=total, source="snapshot", show_rows=allow_llm_see_data)
+            return r
+
+        query_report_id = await db.scalar(select(Query.report_id).where(Query.id == r.query_id)) if r.query_id else None
+        if not r.step_id or report is None or str(query_report_id) != str(report.id):
+            page = build_page(snap_rows[offset: offset + limit], columns, offset=offset, limit=limit,
+                              total_rows=min(total, len(snap_rows)), source="snapshot",
+                              show_rows=allow_llm_see_data)
+            page["note"] = ("Only the saved snapshot of this query can be paged here "
+                            f"({len(snap_rows)} of {total} rows); re-run it in this report to read further.")
+            r.page = page
+            return r
+
+        from app.models.report import Report
+        from app.services.step_service import StepService
+
+        svc = StepService()
+        try:
+            full_report = (await db.execute(
+                select(Report).options(selectinload(Report.data_sources), selectinload(Report.files))
+                .where(Report.id == str(report.id))
+            )).scalar_one()
+            step, _ = await svc._load_step_for_rerun(db, r.step_id, report=full_report)
+            specs = svc._step_param_specs(step)
+            user = runtime_ctx.get("user")
+            params = await svc._resolve_step_params(
+                db, step, getattr(step, "applied_params", None), user, str(organization.id), specs)
+            df = await svc._execute_step_code(
+                db, step, full_report, current_user=user,
+                db_clients=runtime_ctx.get("ds_clients") or None,
+                organization=organization, organization_settings=settings,
+                params=params, param_specs=specs, return_raw_df=True,
+            )
+        except Exception as exc:
+            r.error = f"Could not re-run the query to read rows past the snapshot: {exc}"
+            return r
+        total = int(len(df))
+        cols = [str(c) for c in df.columns]
+        rows = _df_window(df, offset, limit) if allow_llm_see_data and offset < total else []
+        r.page = build_page(rows, cols, offset=offset, limit=limit, total_rows=total,
+                            source="re-executed", show_rows=allow_llm_see_data)
+        return r
+
     async def run_stream(
         self, tool_input: Dict[str, Any], runtime_ctx: Dict[str, Any]
     ) -> AsyncIterator[ToolEvent]:
@@ -273,6 +404,10 @@ class ReadQueryTool(Tool):
             checked.append(r)
         results = checked
 
+        if data.offset is not None or data.limit is not None:
+            results = [await self._with_page(db, runtime_ctx, report, organization, r, data, allow_llm_see_data)
+                       if not r.error else r for r in results]
+
         # Determine overall success
         errors = [r.error for r in results if r.error]
         all_success = len(errors) == 0
@@ -309,7 +444,16 @@ class ReadQueryTool(Tool):
         # For single result, flatten the observation like create_data does
         if len(succeeded) == 1:
             r = succeeded[0]
-            observation["data_preview"] = r.data_preview
+            if r.page is not None:
+                # Paging: the requested window replaces the preview.
+                observation["page"] = r.page
+                observation["summary"] = summary + (
+                    f" Rows {r.page['offset']}–{r.page['offset'] + r.page['returned'] - 1} of {r.page['total_rows']}"
+                    + (" (end)." if r.page["eof"] else f"; continue with offset={r.page['next_offset']}.")
+                    if r.page["returned"] else f" No rows at offset {r.page['offset']} (total {r.page['total_rows']})."
+                )
+            else:
+                observation["data_preview"] = r.data_preview
             # The generated code, exactly as read_artifact puts it in ITS
             # observation. `code` used to live only on the tool OUTPUT — which
             # goes to the UI block and the DB, never into the prompt — so the
@@ -345,8 +489,10 @@ class ReadQueryTool(Tool):
                     "query_id": r.query_id,
                     "visualization_id": r.visualization_id,
                     "data_model": r.data_model,
-                    "data_preview": r.data_preview,
+                    "data_preview": r.data_preview if r.page is None else None,
                 }
+                if r.page is not None:
+                    entry["page"] = r.page
                 if r.code:
                     entry["code"] = _observation_code(r.code)
                 if r.parameters:

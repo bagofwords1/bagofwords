@@ -3,6 +3,7 @@ Schema Context Builder - builds TablesSchemaContext object for schemas
 """
 from typing import List, Optional, Dict, Any
 import re
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy import select, func, and_, or_
@@ -184,6 +185,9 @@ def _cap_keeping_cached(tables, top_k: int):
     rest = [t for t in tables if not getattr(t, "is_cached", False)]
     return cached + rest[: max(0, top_k - len(cached))]
 
+
+
+logger = logging.getLogger(__name__)
 
 class SchemaContextBuilder:
     """
@@ -910,9 +914,55 @@ class SchemaContextBuilder:
                     tables=bow_tables,
                 ))
 
+        # Agent Lists: bow.<agent>.lists.<list> tables, in every mode, for lists
+        # on this report's agents that the user can view.
+        if self.user is not None and not connection_ids:
+            try:
+                await self._append_list_tables(ds_sections, ds_filter, table_names, name_patterns)
+            except Exception as exc:
+                logger.warning("agent list tables skipped: %s", exc)
+
         self._apply_native_mcp_decision(ds_sections)
 
         return TablesSchemaContext(data_sources=ds_sections)
+
+    async def _append_list_tables(self, ds_sections, ds_filter, table_names, name_patterns) -> None:
+        from app.schemas.bow_source_schema import SOURCE_ID
+        from app.services.agent_lists.bow_lists import describe_table, list_tables
+
+        if ds_filter and SOURCE_ID not in ds_filter:
+            return
+        ds_ids = [str(getattr(d, "id", "")) for d in (self.data_sources or [])]
+        entries = await list_tables(self.db, self.user, self.organization, ds_ids)
+        tables = []
+        for e in entries:
+            if table_names and e["name"] not in table_names:
+                continue
+            if name_patterns and not any(re.search(p, e["name"]) for p in name_patterns):
+                continue
+            tables.append(PromptTable(
+                name=e["name"],
+                columns=[PromptTableColumn(name=c, dtype=t) for c, t in e["columns"]],
+                pks=[PromptTableColumn(name="_row_id", dtype="string")], fks=[],
+                connection_name="bow", connection_type="bow",
+                description=describe_table(e),
+                is_active=True,
+            ))
+        if not tables:
+            return
+        existing = next((s for s in ds_sections if str(s.info.id) == SOURCE_ID), None)
+        if existing is not None:
+            existing.tables = list(existing.tables or []) + tables
+            return
+        ds_sections.append(TablesSchemaContext.DataSource(
+            info=DataSourceSummarySchema(
+                id=SOURCE_ID, name="BOW", type="bow",
+                context=("Built-in BOW source. Agent Lists (records the agents saved with their submit_* tools) "
+                         "are tables here. In create_data use tables_by_source=[{data_source_id:'builtin:bow', "
+                         "tables:['bow.<agent>.lists.<list>']}] and query via ds_clients['bow'] with the table's list_id."),
+            ),
+            tables=tables,
+        ))
 
     def _apply_native_mcp_decision(self, ds_sections) -> bool:
         """Tell each agent section where its MCP tools' schemas will live.
