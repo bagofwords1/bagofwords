@@ -112,7 +112,11 @@ async def get_briefing(db, *, organization_id: str, user_id: str, now: Optional[
             rep = (
                 await db.execute(select(Report).options(lazyload("*")).where(Report.id == rid))
             ).scalar_one_or_none()
-            titles[rid] = (rep.title if rep and rep.deleted_at is None else None) or ""
+            # Only the user's own, live reports (items are only ever created
+            # for those; this also covers a report archived or re-owned since).
+            visible = (rep is not None and rep.deleted_at is None and str(rep.user_id) == user_id
+                       and getattr(rep, "status", None) != "archived")
+            titles[rid] = ((rep.title or "Untitled") if visible else "")
         return titles[rid]
 
     items: List[Dict[str, Any]] = []
@@ -180,6 +184,9 @@ async def get_briefing(db, *, organization_id: str, user_id: str, now: Optional[
         ).scalars().all()
         for e in events:
             prepared = next((c for c in planned if c.due_at and c.due_at <= e.event_start), None)
+            prepared_title = await _title(str(prepared.report_id)) if prepared else ""
+            if prepared and not prepared_title:
+                prepared = None
             fresh = (e.created_at and e.created_at > since) or (prepared and prepared.created_at and prepared.created_at > since)
             if not fresh:
                 continue
@@ -187,7 +194,7 @@ async def get_briefing(db, *, organization_id: str, user_id: str, now: Optional[
                 "kind": "event", "id": str(e.id), "handle": e.handle, "text": e.text,
                 "when": e.event_start.isoformat(),
                 "prepared": ({"checkin_id": str(prepared.id), "report_id": str(prepared.report_id),
-                              "report_title": await _title(str(prepared.report_id)),
+                              "report_title": prepared_title,
                               "due_at": prepared.due_at.isoformat()} if prepared else None),
             })
 
@@ -201,10 +208,11 @@ async def get_briefing(db, *, organization_id: str, user_id: str, now: Optional[
                 ).order_by(HabitOffer.created_at.desc()).limit(1)
             )
         ).scalar_one_or_none()
-        if offer is not None:
+        offer_title = await _title(str(offer.report_id)) if offer is not None else ""
+        if offer is not None and offer_title:
             items.append({
                 "kind": "habit", "id": str(offer.id), "report_id": str(offer.report_id),
-                "report_title": await _title(str(offer.report_id)), "text": offer.intent_text,
+                "report_title": offer_title, "text": offer.intent_text,
                 "cadence": offer.cadence, "time": offer.suggested_time,
             })
 

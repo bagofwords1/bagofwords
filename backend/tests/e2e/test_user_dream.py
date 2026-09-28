@@ -533,3 +533,36 @@ def test_got_it_hides_items_until_a_later_night_notes_them_again(env):
     env.dream(_Reflect(lambda p: UserDreamProposal(
         open_threads=[ThreadOp(report=_report_key(p, "Board prep"), text="Enterprise split")])))
     assert [i["text"] for i in env.briefing() if i["kind"] == "thread"] == ["Enterprise split"]
+
+
+@pytest.mark.e2e
+def test_threads_only_on_reports_the_user_owns_and_archived_reports_drop_out(env):
+    mine = env.report("Mine")
+    env.turn(mine, "Churn by plan")
+    other_token, other_id = env.add_member()
+    theirs = env.report("Their report", token=other_token)
+
+    async def _turn_in_theirs():
+        # Direct write: a turn in someone else's report (setting up a shared
+        # conversation isn't what this test is about).
+        async with async_session_maker() as db:
+            db.add(Completion(prompt={"content": "Look at their churn"}, completion={"content": ""}, role="user",
+                              status="success", model="m", report_id=theirs, user_id=env.user_id,
+                              turn_index=0, message_type="table", sigkill=None))
+            await db.commit()
+    _run(_turn_in_theirs())
+
+    def propose(prompt):
+        return UserDreamProposal(open_threads=[
+            ThreadOp(report=_report_key(prompt, "Mine"), text="Mine"),
+            ThreadOp(report=_report_key(prompt, "Their report"), text="Theirs"),
+        ])
+
+    run = env.dream(_Reflect(propose))
+    assert [t["report_id"] for t in run.outputs["open_threads"]] == [mine]
+    assert any(x["kind"] == "thread" and x["reason"] == "not_owner_or_unknown" for x in run.outputs["refused"])
+    assert [i["report_id"] for i in env.briefing() if i["kind"] == "thread"] == [mine]
+
+    # Archiving (deleting) the report takes its thread out of the briefing.
+    assert env.client.delete(f"/api/reports/{mine}", headers=env.headers).status_code == 200
+    assert [i for i in env.briefing() if i["kind"] == "thread"] == []

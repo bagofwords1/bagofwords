@@ -483,7 +483,10 @@ async def _apply_threads(db, org_id, user_id, g: UserGathered, proposal, applied
     new: List[UserOpenThread] = []
     for t in proposal.open_threads:
         rid = g.report_keys.get(t.report)
-        if not rid:
+        # Like follow-ups: only reports the user owns (a shared report can be
+        # un-shared later; its title must not linger in their briefing).
+        if not rid or not g.report_owner.get(t.report):
+            applied["refused"].append({"kind": "thread", "report": t.report, "reason": "not_owner_or_unknown"})
             continue
         new.append(UserOpenThread(
             organization_id=org_id, user_id=user_id, report_id=rid, text=t.text[:200],
