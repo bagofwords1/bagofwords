@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import lazyload
 
 from app.models.dream_run import (
@@ -171,8 +171,8 @@ class DreamRuntime:
     # ------------------------------------------------------------ due units
 
     async def due_users(self, db, organization_id: str, now: datetime) -> List[str]:
-        """Members with the per-user switch on and either new human-initiated
-        activity since their watermark or a memory event in the next days."""
+        """Members with new human-initiated activity since their watermark or a
+        memory event in the next days (a follow-up may be worth planning)."""
         from app.models.completion import Completion
         from app.models.membership import Membership
         from app.models.memory_entry import MemoryEntry
@@ -183,7 +183,6 @@ class DreamRuntime:
                 select(Membership.user_id, Membership.user_dreamed_at).where(
                     Membership.organization_id == str(organization_id),
                     Membership.user_id.isnot(None),
-                    Membership.overnight_prep.is_(True),
                 )
             )
         ).all()
@@ -303,8 +302,6 @@ class DreamRuntime:
         ).scalar_one_or_none()
         if m is None:
             return "target_missing"
-        if not m.overnight_prep:
-            return REASON_DISABLED
         return None
 
     async def run_unit(

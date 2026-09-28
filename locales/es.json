@@ -2710,8 +2710,8 @@
           "description": "Cada noche, los agentes revisan sus sugerencias pendientes, los comentarios y el uso, y proponen una mejora consolidada por agente. Lo que ocurre con ella sigue la configuración de autoaprendizaje de cada agente."
         },
         "enable_user_dreaming": {
-          "name": "Preparación nocturna para usuarios",
-          "description": "Cada noche, el agente repasa el trabajo de cada usuario activo para mantener ordenada su memoria, anotar temas pendientes y preparar seguimientos (p. ej., antes de una reunión). Cada usuario puede desactivarlo para sí mismo."
+          "name": "Aprendizaje nocturno de usuarios",
+          "description": "Cada noche, el agente repasa el día de cada usuario activo para mantener su memoria al día y planificar seguimientos (p. ej., antes de una reunión). Los seguimientos usan los límites habituales y respetan la desactivación personal de seguimientos."
         },
         "ai_suggestion_expiry_days": {
           "name": "Caducar sugerencias de IA sin revisar tras (días)",
@@ -3561,10 +3561,7 @@
     "memory.sensitive": "La memoria no puede guardar secretos, contraseñas ni datos personales sensibles.",
     "memory.looks_like_rule": "Eso es una regla sobre cómo responder: añádela a tus instrucciones personalizadas. La memoria guarda hechos sobre ti.",
     "memory.full": "La memoria está llena. Borra algunas entradas primero.",
-    "memory.not_active": "Esa entrada ya se cambió o se olvidó.",
-    "briefing.item_not_found": "Ese elemento ya no está en tu resumen.",
-    "habit_offer.not_found": "Esa oferta ya no existe.",
-    "habit_offer.not_pending": "Esta oferta ya fue respondida."
+    "memory.not_active": "Esa entrada ya se cambió o se olvidó."
   },
   "email": {
     "dashboardShare": {
@@ -4774,17 +4771,7 @@
       "checkinsTitle": "Seguimientos del agente",
       "checkinsSubtitle": "Permite que el agente vuelva por su cuenta después de una conversación cuando vale la pena revisar algo (por ejemplo, tras una actualización de datos). Solo te notifica cuando algo cambió de forma significativa.",
       "checkinsSaved": "Preferencia de seguimiento guardada",
-      "checkinsFailed": "No se pudo guardar tu preferencia de seguimiento",
-      "overnightTitle": "Prepárame cosas durante la noche",
-      "overnightSubtitle": "Por la noche el asistente ordena lo que recuerda de ti, anota lo que dejaste pendiente y prepara seguimientos antes de tus eventos. Solo tú ves los resultados.",
-      "overnightSaved": "Preparación nocturna actualizada",
-      "overnightFailed": "No se pudo actualizar la preparación nocturna",
-      "overnightLogTitle": "Lo que hice durante la noche",
-      "overnightLogMemory": "{n} nota de memoria | {n} notas de memoria",
-      "overnightLogThreads": "{n} tema pendiente | {n} temas pendientes",
-      "overnightLogFollowUps": "{n} seguimiento planificado | {n} seguimientos planificados",
-      "overnightLogHabit": "sugirió una tarea recurrente",
-      "overnightLogNothing": "Lo revisé todo; nada que cambiar"
+      "checkinsFailed": "No se pudo guardar tu preferencia de seguimiento"
     },
     "instructions": {
       "title": "Instrucciones personalizadas",
@@ -5397,22 +5384,6 @@
     "nightlyTitle": "Aprender durante la noche",
     "nightlyDescription": "Cada noche, convierte correcciones repetidas, comentarios y uso en una única sugerencia consolidada para este agente. Sigue la configuración de arriba como cualquier otra sugerencia.",
     "nightlyOrgOff": "El aprendizaje nocturno está desactivado para esta organización (configuración de IA)."
-  },
-  "briefing": {
-    "title": "Desde tu última visita",
-    "gotIt": "Entendido",
-    "why": "por qué: {why}",
-    "waitingOn": "a la espera de {what}",
-    "notUseful": "No es útil",
-    "checkinQuiet": "Revisado de nuevo; nada que destacar",
-    "eventPrepared": "preparado en {report}",
-    "habit": "Pides «{intent}» a menudo. ¿Lo tengo listo {when}?",
-    "everyDay": "cada día a las {time}",
-    "everyWeekday": "cada {day} a las {time}",
-    "habitYes": "Sí, prográmalo",
-    "habitNo": "No, gracias",
-    "habitScheduled": "Programado: estará listo para ti",
-    "habitFailed": "No se pudo programar"
   },
   "nightlyBuild": {
     "merged": "Fusionada",

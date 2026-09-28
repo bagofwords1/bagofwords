@@ -71,7 +71,6 @@ from app.routes import (
     text_widget,
     user_profile,
     user_memory,
-    overnight,
     llm,
     git,
     organization_settings,
@@ -197,7 +196,6 @@ current_user = fastapi_users.current_user(active=True)
 
 app.include_router(user_profile.router, prefix="/api")
 app.include_router(user_memory.router, prefix="/api")
-app.include_router(overnight.router, prefix="/api")
 
 # Determine auth mode
 auth_mode = getattr(settings.bow_config, 'auth').mode if hasattr(settings.bow_config, 'auth') else 'hybrid'

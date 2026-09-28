@@ -1,9 +1,11 @@
-"""E2E tests for the nightly user dream and the session-start briefing
-(docs/design/overnight-learning.md §5–6).
+"""E2E tests for the nightly user dream (docs/design/overnight-learning.md).
+
+The user dream writes two things only — memory (through MemoryService) and
+planned check-ins (through CheckinService) — so these tests check it through
+those existing surfaces: the memory API and the check-in rows.
 
 Real app throughout — routes, CompletionService, MemoryService, CheckinService,
-ScheduledPromptService, the dream runtime and the DB — with only the
-boundaries stubbed:
+the dream runtime and the DB — with only the boundaries stubbed:
 
   * the LLM: the agent's own turn is a scripted stand-in (it just answers),
     and the dream's one reflection call returns a scripted proposal built
@@ -23,7 +25,7 @@ from datetime import datetime, timedelta
 import pytest
 from sqlalchemy import select, update
 
-from app.ai.agents.dreams.user_prompts import FollowUpOp, HabitOp, MemoryOp, ThreadOp, UserDreamProposal
+from app.ai.agents.dreams.user_prompts import FollowUpOp, MemoryOp, UserDreamProposal
 from app.dependencies import async_session_maker
 from app.models.agent_checkin import AgentCheckin
 from app.models.completion import Completion
@@ -140,31 +142,12 @@ def env(test_client, create_user, login_user, whoami, create_report, update_orga
         now = datetime.utcnow() + timedelta(days=e.nights)
         return _run(rt.run_unit("user", org_id, user_id or e.user_id, now=now, ignore_window=True, **kw))
 
-    def briefing(token=None, **params):
-        r = test_client.get("/api/users/me/briefing", headers=_h(token or e.token, org_id), params=params)
-        assert r.status_code == 200, r.text
-        return r.json()["items"]
-
-    e.settings, e.report, e.turn, e.dream, e.briefing = settings, report, turn, dream, briefing
+    e.settings, e.report, e.turn, e.dream = settings, report, turn, dream
     settings(enable_user_dreaming=True)
     # The night window itself is covered in test_overnight_common /
     # test_agent_dream; here dreams run at the real clock.
     e.now, e.nights = datetime.utcnow(), 0
     return e
-
-
-def _backdate(report_id, prompt_text, when):
-    """Direct write: move a human turn into the past (no API produces
-    weeks-old history)."""
-    async def _w():
-        async with async_session_maker() as db:
-            rows = (await db.execute(select(Completion).where(
-                Completion.report_id == report_id, Completion.role == "user"))).scalars().all()
-            for c in rows:
-                if (c.prompt or {}).get("content") == prompt_text:
-                    c.created_at = when
-            await db.commit()
-    _run(_w())
 
 
 def _checkins(user_id):
@@ -218,10 +201,40 @@ def test_nothing_new_skips_without_a_model_call(env):
     assert reflect.prompts == []
 
 
-# ── outputs ─────────────────────────────────────────────────────────────────
+def _turn_in_someone_elses_report(env, other_token):
+    """A turn by our user in a report another member owns. Direct write:
+    setting up a shared conversation isn't what these tests are about."""
+    theirs = env.report("Their report", token=other_token)
+
+    async def _w():
+        async with async_session_maker() as db:
+            db.add(Completion(prompt={"content": "Look at their churn"}, completion={"content": ""}, role="user",
+                              status="success", model="m", report_id=theirs, user_id=env.user_id,
+                              turn_index=0, message_type="table", sigkill=None))
+            await db.commit()
+    _run(_w())
+    return theirs
+
+
+def _tomorrow_10(env):
+    return (env.now + timedelta(days=1)).strftime("%Y-%m-%dT10:00")
+
 
 @pytest.mark.e2e
-def test_a_night_prepares_memory_threads_and_a_follow_up_shown_in_the_briefing(env):
+def test_an_upcoming_memory_event_wakes_the_dream_without_new_turns(env):
+    when = (env.now + timedelta(days=2)).date().isoformat()
+    r = env.client.post("/api/users/me/memory", json={"text": "Board meeting", "date": when}, headers=env.headers)
+    assert r.status_code == 200, r.text
+    reflect = _Reflect()
+    run = env.dream(reflect)
+    assert run.status == "done" and len(reflect.prompts) == 1
+    assert "Board meeting" in reflect.prompts[0].split("UPCOMING:")[1]
+
+
+# ── outputs: memory + planned check-ins, nothing else ─────────────────────────
+
+@pytest.mark.e2e
+def test_a_night_updates_memory_and_plans_a_check_in(env):
     env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
     board_day = (env.now + timedelta(days=2)).date().isoformat()
     rid = env.report("Board prep")
@@ -229,16 +242,16 @@ def test_a_night_prepares_memory_threads_and_a_follow_up_shown_in_the_briefing(e
 
     def propose(prompt):
         r = _report_key(prompt, "Board prep")
-        due = (env.now + timedelta(days=1)).strftime("%Y-%m-%dT10:00")
         return UserDreamProposal(
             memory=[MemoryOp(op="create", text="Board meeting", tags=["board"], event_start=board_day, source=r)],
-            open_threads=[ThreadOp(report=r, text="Churn by plan for the board", unblocked_by="the Monday refresh")],
-            follow_ups=[FollowUpOp(report=r, due_local=due, note="Re-run churn by plan; tell me if it moved >0.5pt",
+            follow_ups=[FollowUpOp(report=r, due_local=_tomorrow_10(env),
+                                   note="Re-run churn by plan; tell me if it moved >0.5pt",
                                    why="Board meeting in two days")],
         )
 
     run = env.dream(_Reflect(propose))
     assert run.status == "done", run.outputs
+    assert set(run.outputs) == {"memory", "follow_ups", "refused", "summary"}
 
     mem = [m for m in _memory(env) if m["text"] == "Board meeting"]
     assert len(mem) == 1 and mem[0]["source"] == "dream" and mem[0]["date"].startswith(board_day)
@@ -246,12 +259,7 @@ def test_a_night_prepares_memory_threads_and_a_follow_up_shown_in_the_briefing(e
     rows = _checkins(env.user_id)
     assert len(rows) == 1 and rows[0].status == "planned" and rows[0].origin == "dream"
     assert rows[0].dream_run_id == run.id and rows[0].report_id == rid
-
-    items = env.briefing()
-    kinds = {i["kind"] for i in items}
-    assert {"thread", "event"} <= kinds
-    event = next(i for i in items if i["kind"] == "event")
-    assert event["prepared"] and event["prepared"]["report_id"] == rid
+    assert "churn by plan" in rows[0].note.lower()
 
 
 @pytest.mark.e2e
@@ -282,7 +290,7 @@ def test_dream_never_edits_what_the_user_wrote_and_memory_rules_still_apply(env)
 
 @pytest.mark.e2e
 @pytest.mark.parametrize("checkins_on,opted_out", [(False, False), (True, True)])
-def test_follow_ups_need_checkins_on_and_not_opted_out(env, checkins_on, opted_out):
+def test_check_ins_need_checkins_on_and_the_user_not_opted_out(env, checkins_on, opted_out):
     env.settings(enable_user_dreaming=True, enable_agent_checkins=checkins_on)
     if opted_out:
         r = env.client.put("/api/users/me/checkins", json={"enabled": False}, headers=env.headers)
@@ -291,180 +299,74 @@ def test_follow_ups_need_checkins_on_and_not_opted_out(env, checkins_on, opted_o
     env.turn(rid, "Pipeline for next week")
 
     def propose(prompt):
-        r = _report_key(prompt, "Pipeline")
-        return UserDreamProposal(follow_ups=[FollowUpOp(report=r, due_local=(env.now + timedelta(days=1)).strftime("%Y-%m-%dT10:00"),
-                                                        note="Check the pipeline")])
+        return UserDreamProposal(
+            memory=[MemoryOp(op="create", text="Tracks next week's pipeline")],
+            follow_ups=[FollowUpOp(report=_report_key(prompt, "Pipeline"), due_local=_tomorrow_10(env),
+                                   note="Check the pipeline")],
+        )
 
     run = env.dream(_Reflect(propose))
     assert run.status == "done"
     assert _checkins(env.user_id) == []
     assert any(x["kind"] == "follow_up" for x in run.outputs["refused"])
+    # Memory is independent of the check-in switches.
+    assert [m["text"] for m in _memory(env)] == ["Tracks next week's pipeline"]
 
 
 @pytest.mark.e2e
-def test_follow_ups_only_for_reports_the_user_owns_and_keys_it_was_shown(env):
+def test_check_ins_only_on_reports_the_user_owns_and_keys_it_was_shown(env):
     env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
-    rid = env.report("Mine")
-    env.turn(rid, "Revenue by month")
+    mine = env.report("Mine")
+    env.turn(mine, "Revenue by month")
+    other_token, _ = env.add_member()
+    _turn_in_someone_elses_report(env, other_token)
 
     def propose(prompt):
-        return UserDreamProposal(follow_ups=[FollowUpOp(report="r99", due_local="2030-01-01T10:00", note="x")])
+        return UserDreamProposal(follow_ups=[
+            FollowUpOp(report=_report_key(prompt, "Their report"), due_local=_tomorrow_10(env), note="theirs"),
+            FollowUpOp(report="r99", due_local=_tomorrow_10(env), note="unknown key"),
+        ])
 
     run = env.dream(_Reflect(propose))
     assert _checkins(env.user_id) == []
-    assert run.outputs["refused"][0]["reason"] == "not_owner_or_unknown"
+    reasons = [x["reason"] for x in run.outputs["refused"] if x["kind"] == "follow_up"]
+    assert reasons == ["not_owner_or_unknown", "not_owner_or_unknown"]
 
-
-# ── threads ─────────────────────────────────────────────────────────────────
 
 @pytest.mark.e2e
-def test_open_thread_resolves_when_the_user_returns_and_not_useful_dismisses(env):
-    a, b = env.report("Churn"), env.report("Margins")
-    env.turn(a, "Churn by plan")
-    env.turn(b, "Gross margin by product")
+def test_at_most_two_check_ins_a_night(env):
+    env.settings(enable_user_dreaming=True, enable_agent_checkins=True, checkins_max_per_user_per_week=10)
+    rids = [env.report(f"Report {i}") for i in range(3)]
+    for rid in rids:
+        env.turn(rid, "Numbers please")
 
     def propose(prompt):
-        return UserDreamProposal(open_threads=[
-            ThreadOp(report=_report_key(prompt, "Churn"), text="Churn by plan, Enterprise split"),
-            ThreadOp(report=_report_key(prompt, "Margins"), text="Margins for the new SKUs"),
+        return UserDreamProposal(follow_ups=[
+            FollowUpOp(report=_report_key(prompt, f"Report {i}"), due_local=_tomorrow_10(env), note=f"Check {i}")
+            for i in range(3)
         ])
 
     env.dream(_Reflect(propose))
-    threads = {i["report_id"]: i for i in env.briefing() if i["kind"] == "thread"}
-    assert set(threads) == {a, b}
+    assert len(_checkins(env.user_id)) == 2
 
-    env.turn(a, "Back on churn: Enterprise split please")
-    remaining = [i for i in env.briefing() if i["kind"] == "thread"]
-    assert [i["report_id"] for i in remaining] == [b]
 
-    r = env.client.post(f"/api/users/me/briefing/items/thread/{remaining[0]['id']}/feedback",
-                        json={"useful": False}, headers=env.headers)
-    assert r.status_code == 200
-    assert [i for i in env.briefing() if i["kind"] == "thread"] == []
-
+# ── switches / runtime ──────────────────────────────────────────────────────
 
 @pytest.mark.e2e
-def test_a_quiet_night_keeps_yesterdays_threads(env):
-    a = env.report("Churn")
-    env.turn(a, "Churn by plan")
-    env.dream(_Reflect(lambda p: UserDreamProposal(open_threads=[ThreadOp(report=_report_key(p, "Churn"), text="Churn")])))
-    # Next night nothing new: no reflection, threads untouched.
-    env.nights += 1
-    run = env.dream(_Reflect())
-    assert run.status == "skipped"
-    assert [i["report_id"] for i in env.briefing() if i["kind"] == "thread"] == [a]
-
-
-# ── habits ──────────────────────────────────────────────────────────────────
-
-def _weekly_asks(env, rid, text="Weekly pipeline by region"):
-    for w in (3, 2, 1):
-        t = f"{text} (w{w})"
-        env.turn(rid, t)
-        _backdate(rid, t, env.now - timedelta(weeks=w))
-    env.turn(rid, text)
-
-
-def _offer_habit(prompt):
-    m = re.search(r"- (h\d+): ", prompt)
-    assert m, "no recurring ask in prompt"
-    return UserDreamProposal(habit=HabitOp(recurring=m.group(1), intent="Weekly pipeline by region",
-                                           cadence="weekly:mon", time="08:30"))
-
-
-@pytest.mark.e2e
-def test_habit_offer_accept_creates_a_normal_scheduled_task(env):
-    rid = env.report("Pipeline")
-    _weekly_asks(env, rid)
-    run = env.dream(_Reflect(_offer_habit))
-    assert run.status == "done" and run.outputs["habit"], (run.status_reason, run.outputs)
-
-    habit = [i for i in env.briefing() if i["kind"] == "habit"]
-    assert len(habit) == 1 and habit[0]["report_id"] == rid
-
-    r = env.client.post(f"/api/users/me/habit_offers/{habit[0]['id']}/accept", headers=env.headers)
-    assert r.status_code == 200, r.text
-    assert r.json()["status"] == "accepted" and r.json()["scheduled_prompt_id"]
-    sps = env.client.get(f"/api/reports/{rid}/scheduled-prompts", headers=env.headers).json()
-    assert [s["cron_schedule"] for s in sps] == ["30 8 * * 1"]
-
-    again = env.client.post(f"/api/users/me/habit_offers/{habit[0]['id']}/accept", headers=env.headers)
-    assert again.status_code == 400 and again.json()["error_code"] == "habit_offer.not_pending"
-    # Already scheduled: the next night doesn't offer it again.
-    env.turn(rid, "Weekly pipeline by region again")
-    env.nights += 1
-    run2 = env.dream(_Reflect(_offer_habit))
-    assert run2.outputs["habit"] is None
-    assert {"kind": "habit", "reason": "already_scheduled"} in run2.outputs["refused"]
-
-
-@pytest.mark.e2e
-def test_declined_habit_is_not_offered_again(env):
-    rid = env.report("Pipeline")
-    _weekly_asks(env, rid)
-    env.dream(_Reflect(_offer_habit))
-    offer = next(i for i in env.briefing() if i["kind"] == "habit")
-    r = env.client.post(f"/api/users/me/habit_offers/{offer['id']}/decline", headers=env.headers)
-    assert r.status_code == 200 and r.json()["status"] == "declined"
-
-    env.turn(rid, "Weekly pipeline by region, again")
-    env.nights += 1
-    run = env.dream(_Reflect(_offer_habit))
-    assert run.outputs["habit"] is None
-    assert {"kind": "habit", "reason": "declined_recently"} in run.outputs["refused"]
-
-
-
-@pytest.mark.e2e
-def test_habit_for_an_ask_code_never_saw_recur_is_refused(env):
-    one_off = env.report("One off")
-    env.turn(one_off, "Top customers in March")
-    run = env.dream(_Reflect(lambda p: UserDreamProposal(habit=HabitOp(recurring="h7", intent="Top customers",
-                                                                       cadence="daily", time="09:00"))))
-    assert run.status == "done" and run.outputs["habit"] is None
-    assert {"kind": "habit", "reason": "not_a_detected_recurring_ask"} in run.outputs["refused"]
-
-
-# ── privacy / switches ──────────────────────────────────────────────────────
-
-@pytest.mark.e2e
-def test_briefing_items_and_overnight_log_are_owner_only(env):
+@pytest.mark.parametrize("cfg", [{"enable_user_dreaming": False},
+                                 {"enable_user_dreaming": True, "enable_user_memory": False}])
+def test_the_dream_needs_its_switch_and_user_memory_on(env, cfg):
     rid = env.report("Churn")
     env.turn(rid, "Churn by plan")
-    env.dream(_Reflect(lambda p: UserDreamProposal(open_threads=[ThreadOp(report=_report_key(p, "Churn"), text="Churn")])))
-    thread = next(i for i in env.briefing() if i["kind"] == "thread")
-
-    other_token, _ = env.add_member()
-    assert env.briefing(token=other_token) == []
-    r = env.client.post(f"/api/users/me/briefing/items/thread/{thread['id']}/feedback", json={"useful": False},
-                        headers=_h(other_token, env.org_id))
-    assert r.status_code == 404 and r.json()["error_code"] == "briefing.item_not_found"
-    assert [i["id"] for i in env.briefing() if i["kind"] == "thread"] == [thread["id"]]
-
-    mine = env.client.get("/api/users/me/overnight/log", headers=env.headers).json()["runs"]
-    theirs = env.client.get("/api/users/me/overnight/log", headers=_h(other_token, env.org_id)).json()["runs"]
-    assert len(mine) == 1 and mine[0]["open_threads"] == 1 and theirs == []
-
-
-@pytest.mark.e2e
-def test_per_user_toggle_and_org_switch_gate_the_dream(env):
-    rid = env.report("Churn")
-    env.turn(rid, "Churn by plan")
-    r = env.client.put("/api/users/me/overnight", json={"enabled": False}, headers=env.headers)
-    assert r.status_code == 200 and r.json() == {"enabled": False, "available": True}
+    env.settings(**cfg)
     reflect = _Reflect()
     run = env.dream(reflect)
-    assert run.status == "cancelled" and reflect.prompts == []
-
-    env.client.put("/api/users/me/overnight", json={"enabled": True}, headers=env.headers)
-    env.settings(enable_user_dreaming=False)
-    assert env.client.get("/api/users/me/overnight", headers=env.headers).json()["available"] is False
-    run = env.dream(reflect, force=True)
     assert run.status == "cancelled" and reflect.prompts == []
 
 
 @pytest.mark.e2e
 def test_switching_off_during_the_reflection_writes_nothing(env):
+    env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
     rid = env.report("Churn")
     env.turn(rid, "Churn by plan")
 
@@ -479,11 +381,11 @@ def test_switching_off_during_the_reflection_writes_nothing(env):
 
     reflect = _Reflect(lambda p: UserDreamProposal(
         memory=[MemoryOp(op="create", text="Follows churn weekly")],
-        open_threads=[ThreadOp(report=_report_key(p, "Churn"), text="Churn")],
+        follow_ups=[FollowUpOp(report=_report_key(p, "Churn"), due_local=_tomorrow_10(env), note="Re-run churn")],
     ), before=flip_off)
     run = env.dream(reflect)
     assert run.status == "cancelled" and len(reflect.prompts) == 1
-    assert _memory(env) == [] and [i for i in env.briefing() if i["kind"] == "thread"] == []
+    assert _memory(env) == [] and _checkins(env.user_id) == []
 
 
 @pytest.mark.e2e
@@ -502,67 +404,3 @@ def test_watermark_moves_so_the_next_night_reads_only_new_turns(env):
         async with async_session_maker() as db:
             return (await db.execute(select(DreamRun).where(DreamRun.user_id == env.user_id))).scalars().all()
     assert len(_run(_runs())) == 2
-
-
-@pytest.mark.e2e
-def test_got_it_hides_items_until_a_later_night_notes_them_again(env):
-    env.settings(enable_user_dreaming=True, enable_agent_checkins=True)
-    board_day = (env.now + timedelta(days=2)).date().isoformat()
-    rid = env.report("Board prep")
-    env.turn(rid, f"Churn for the board meeting on {board_day}")
-
-    def propose(prompt):
-        r = _report_key(prompt, "Board prep")
-        return UserDreamProposal(
-            memory=[MemoryOp(op="create", text="Board meeting", event_start=board_day, source=r)],
-            open_threads=[ThreadOp(report=r, text="Churn by plan for the board")],
-            follow_ups=[FollowUpOp(report=r, due_local=(env.now + timedelta(days=1)).strftime("%Y-%m-%dT10:00"),
-                                   note="Re-run churn")],
-        )
-
-    env.dream(_Reflect(propose))
-    assert {i["kind"] for i in env.briefing()} >= {"thread", "event"}
-
-    r = env.client.post("/api/users/me/briefing/seen", headers=env.headers)
-    assert r.status_code == 200
-    assert env.briefing() == []  # seen: nothing comes back on the next visit
-
-    # The next night notes the unfinished thread again → it shows once more.
-    env.turn(rid, "Still need the Enterprise split")
-    env.nights += 1
-    env.dream(_Reflect(lambda p: UserDreamProposal(
-        open_threads=[ThreadOp(report=_report_key(p, "Board prep"), text="Enterprise split")])))
-    assert [i["text"] for i in env.briefing() if i["kind"] == "thread"] == ["Enterprise split"]
-
-
-@pytest.mark.e2e
-def test_threads_only_on_reports_the_user_owns_and_archived_reports_drop_out(env):
-    mine = env.report("Mine")
-    env.turn(mine, "Churn by plan")
-    other_token, other_id = env.add_member()
-    theirs = env.report("Their report", token=other_token)
-
-    async def _turn_in_theirs():
-        # Direct write: a turn in someone else's report (setting up a shared
-        # conversation isn't what this test is about).
-        async with async_session_maker() as db:
-            db.add(Completion(prompt={"content": "Look at their churn"}, completion={"content": ""}, role="user",
-                              status="success", model="m", report_id=theirs, user_id=env.user_id,
-                              turn_index=0, message_type="table", sigkill=None))
-            await db.commit()
-    _run(_turn_in_theirs())
-
-    def propose(prompt):
-        return UserDreamProposal(open_threads=[
-            ThreadOp(report=_report_key(prompt, "Mine"), text="Mine"),
-            ThreadOp(report=_report_key(prompt, "Their report"), text="Theirs"),
-        ])
-
-    run = env.dream(_Reflect(propose))
-    assert [t["report_id"] for t in run.outputs["open_threads"]] == [mine]
-    assert any(x["kind"] == "thread" and x["reason"] == "not_owner_or_unknown" for x in run.outputs["refused"])
-    assert [i["report_id"] for i in env.briefing() if i["kind"] == "thread"] == [mine]
-
-    # Archiving (deleting) the report takes its thread out of the briefing.
-    assert env.client.delete(f"/api/reports/{mine}", headers=env.headers).status_code == 200
-    assert [i for i in env.briefing() if i["kind"] == "thread"] == []

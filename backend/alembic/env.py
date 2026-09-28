@@ -110,8 +110,6 @@ from app.models.review_item import ReviewItem
 from app.models.notification import Notification
 from app.models.agent_checkin import AgentCheckin
 from app.models.dream_run import DreamRun
-from app.models.user_open_thread import UserOpenThread
-from app.models.habit_offer import HabitOffer
 from app.models.usage_policy import (
     UsagePolicy,
     UsagePolicyAssignment,

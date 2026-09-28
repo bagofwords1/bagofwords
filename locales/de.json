@@ -2618,8 +2618,8 @@
           "description": "Jede Nacht prüfen Agenten ihre offenen Vorschläge, Feedback und Nutzung und schlagen pro Agent eine zusammengeführte Verbesserung vor. Was damit passiert, folgt der Selbstlern-Einstellung des jeweiligen Agenten."
         },
         "enable_user_dreaming": {
-          "name": "Nächtliche Vorbereitung für Nutzer",
-          "description": "Jede Nacht geht der Agent die Arbeit jedes aktiven Nutzers durch, hält dessen Gedächtnis aufgeräumt, notiert offene Punkte und bereitet Nachfassaktionen vor (z. B. vor einem Meeting). Nutzer können es für sich selbst ausschalten."
+          "name": "Nächtliches Lernen für Nutzer",
+          "description": "Jede Nacht geht der Agent den Tag jedes aktiven Nutzers durch, hält dessen Gedächtnis aktuell und plant Nachfassaktionen (z. B. vor einem Meeting). Dafür gelten die üblichen Limits und die persönliche Abmeldung vom Nachfassen."
         },
         "ai_suggestion_expiry_days": {
           "name": "Ungeprüfte KI-Vorschläge verfallen nach (Tagen)",
@@ -3471,10 +3471,7 @@
     "memory.sensitive": "Das Gedächtnis darf keine Geheimnisse, Passwörter oder sensiblen persönlichen Daten enthalten.",
     "memory.looks_like_rule": "Das ist eine Regel dafür, wie geantwortet wird – füge sie deinen benutzerdefinierten Anweisungen hinzu. Das Gedächtnis speichert Fakten über dich.",
     "memory.full": "Das Gedächtnis ist voll. Lösche zuerst einige Einträge.",
-    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen.",
-    "briefing.item_not_found": "Dieser Eintrag ist nicht mehr in deiner Übersicht.",
-    "habit_offer.not_found": "Dieses Angebot existiert nicht mehr.",
-    "habit_offer.not_pending": "Dieses Angebot wurde bereits beantwortet."
+    "memory.not_active": "Dieser Eintrag wurde bereits geändert oder vergessen."
   },
   "email": {
     "dashboardShare": {
@@ -4660,17 +4657,7 @@
       "checkinsTitle": "Nachfassen des Agenten",
       "checkinsSubtitle": "Lässt den Agenten nach einem Gespräch selbstständig nachsehen, wenn sich ein erneuter Blick lohnt (zum Beispiel nach einer Datenaktualisierung). Er benachrichtigt dich nur, wenn sich etwas Wesentliches geändert hat.",
       "checkinsSaved": "Nachfass-Einstellung gespeichert",
-      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden",
-      "overnightTitle": "Bereite Dinge über Nacht für mich vor",
-      "overnightSubtitle": "Nachts räumt der Assistent auf, was er über dich weiß, notiert, was du offen gelassen hast, und bereitet Nachfassaktionen vor deinen Terminen vor. Nur du siehst die Ergebnisse.",
-      "overnightSaved": "Nächtliche Vorbereitung aktualisiert",
-      "overnightFailed": "Nächtliche Vorbereitung konnte nicht aktualisiert werden",
-      "overnightLogTitle": "Was ich über Nacht getan habe",
-      "overnightLogMemory": "{n} Gedächtnisnotiz | {n} Gedächtnisnotizen",
-      "overnightLogThreads": "{n} offener Punkt | {n} offene Punkte",
-      "overnightLogFollowUps": "{n} Nachfassen geplant | {n} Nachfassaktionen geplant",
-      "overnightLogHabit": "eine wiederkehrende Aufgabe vorgeschlagen",
-      "overnightLogNothing": "Alles durchgesehen – nichts zu ändern"
+      "checkinsFailed": "Deine Nachfass-Einstellung konnte nicht gespeichert werden"
     },
     "instructions": {
       "title": "Benutzerdefinierte Anweisungen",
@@ -5371,22 +5358,6 @@
     "nightlyTitle": "Über Nacht lernen",
     "nightlyDescription": "Macht jede Nacht aus wiederholten Korrekturen, Feedback und Nutzung einen zusammengeführten Vorschlag für diesen Agenten. Er folgt der Einstellung oben wie jeder andere Vorschlag.",
     "nightlyOrgOff": "Nächtliches Lernen ist für diese Organisation ausgeschaltet (KI-Einstellungen)."
-  },
-  "briefing": {
-    "title": "Seit deinem letzten Besuch",
-    "gotIt": "Verstanden",
-    "why": "warum: {why}",
-    "waitingOn": "wartet auf {what}",
-    "notUseful": "Nicht hilfreich",
-    "checkinQuiet": "Erneut geprüft – nichts Erwähnenswertes",
-    "eventPrepared": "vorbereitet in {report}",
-    "habit": "Du fragst oft nach „{intent}“. Soll ich es {when} bereithalten?",
-    "everyDay": "jeden Tag um {time}",
-    "everyWeekday": "jeden {day} um {time}",
-    "habitYes": "Ja, einplanen",
-    "habitNo": "Nein, danke",
-    "habitScheduled": "Eingeplant – es wird für dich bereitliegen",
-    "habitFailed": "Konnte nicht eingeplant werden"
   },
   "nightlyBuild": {
     "merged": "Zusammengeführt",
