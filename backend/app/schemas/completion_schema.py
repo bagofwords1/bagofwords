@@ -1,4 +1,6 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
+
+from app.utils.reasoning_effort import normalize_effort
 from typing import Optional, List
 from datetime import datetime
 from .widget_schema import WidgetSchema
@@ -12,10 +14,15 @@ class PromptSchema(BaseModel):
     mentions: Optional[List[dict]] = None  # Default to None
     model_id: Optional[str] = None  # Optional model override
     mode: Optional[str] = None  # Optional mode for agent execution
-    # Per-completion override for extended-thinking effort. Resolution order:
-    #   per-completion > trigger words in prompt > LLMModel.config default > "off"
-    # Currently honored on Anthropic only; ignored on other providers.
-    reasoning_effort: Optional[str] = None  # off|low|medium|high
+    # Per-completion reasoning effort (the model picker's level). Resolution:
+    #   per-completion > report level > trigger words > LLMModel.config default > off
+    # None = Default. Each provider client clamps it to what the model accepts.
+    reasoning_effort: Optional[str] = None  # off|minimal|low|medium|high|xhigh|max
+
+    @field_validator("reasoning_effort", mode="before")
+    @classmethod
+    def _validate_reasoning_effort(cls, v):
+        return normalize_effort(v)
 
     class Config:
         from_attributes = True

@@ -32,6 +32,10 @@ class Report(BaseSchema):
     # completion: prompt.model_id (explicit per-message) > report.model_id >
     # user default > org default.
     model_id = Column(String(36), nullable=True)
+    # Report-level reasoning effort, picked with the model in the composer and
+    # stored beside it. null = Default (the model's own default / trigger
+    # words). Each turn also records its effort on completion.prompt.
+    reasoning_effort = Column(String(16), nullable=True)
     
     # Sharing visibility: 'none' | 'shared' | 'internal' | 'public'
     # 'none' = only owner, 'shared' = specific users, 'internal' = org, 'public' = anyone

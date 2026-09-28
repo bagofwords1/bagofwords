@@ -1,39 +1,7 @@
 """Shared effort policy; adapters translate this configuration to their API."""
 from typing import Optional, Sequence, Tuple
 
-# Every effort the backend understands, weakest to strongest. Providers accept
-# different subsets (see native_efforts); clamp_effort maps a request onto the
-# subset a given model accepts, so a user's pick never becomes a 400.
-EFFORT_ORDER = ("none", "minimal", "low", "medium", "high", "xhigh", "max")
-
-# The levels the product offers users. "max" means "the strongest this model
-# has" (max, else xhigh, else high) — see clamp_effort.
-USER_EFFORTS = ("low", "medium", "high", "max")
-
-# Values meaning "no explicit choice": resolve from the report / trigger words /
-# model default instead.
-_DEFAULT_ALIASES = {"", "default", "auto"}
-
-
-def normalize_effort(value) -> Optional[str]:
-    """Validate an effort coming from an API payload or stored JSON.
-
-    Returns None for "no explicit choice", "off" for off/none, otherwise one of
-    EFFORT_ORDER. Raises ValueError for anything else so a typo is a 422, not a
-    silently ignored setting.
-    """
-    if value is None:
-        return None
-    v = str(value).strip().lower()
-    if v in _DEFAULT_ALIASES:
-        return None
-    if v in ("off", "none"):
-        return "off"
-    if v in EFFORT_ORDER:
-        return v
-    raise ValueError(
-        f"reasoning_effort must be one of: default, off, {', '.join(EFFORT_ORDER[1:])}"
-    )
+from app.utils.reasoning_effort import EFFORT_ORDER, USER_EFFORTS, normalize_effort  # noqa: F401 (re-exported)
 
 # Substring triggers that bump a completion's reasoning_effort to "high".
 # Matched case-insensitive against the user-submitted prompt text only —
@@ -204,23 +172,54 @@ def native_efforts(model_id: Optional[str]) -> Optional[Tuple[str, ...]]:
     return None
 
 
-def model_efforts(model_id: Optional[str], config: Optional[dict] = None) -> Tuple[str, ...]:
-    """Efforts to offer/send for a configured model, honoring admin overrides.
+# How an admin says a model reasons (``LLMModel.config["reasoning_mode"]``):
+#   auto    — look the model id up in _FAMILIES (the default)
+#   like    — look ``reasoning_model_id`` up instead (opaque Azure/Bedrock/
+#             gateway deployment names that hide a known model)
+#   generic — an OpenAI-compatible endpoint that takes reasoning_effort
+#             low|medium|high (Ollama, vLLM, Groq, DeepSeek, …)
+#   custom  — only the admin's raw per-level request fields are sent
+#   off     — never send reasoning parameters
+REASONING_MODES = ("auto", "like", "generic", "custom", "off")
+_GENERIC = ("low", "medium", "high")
 
-    ``config`` is ``LLMModel.config``: ``reasoning_model_id`` names the real
-    model behind an opaque deployment, ``reasoning_supported`` (True/False)
-    forces the capability on or off (e.g. a custom OpenAI-compatible model that
-    takes ``reasoning_effort``).
-    """
+
+def reasoning_mode(config: Optional[dict]) -> str:
     cfg = config if isinstance(config, dict) else {}
-    capability_model = cfg.get("reasoning_model_id") or model_id
-    native = native_efforts(capability_model)
-    override = cfg.get("reasoning_supported")
-    if override is False:
+    mode = cfg.get("reasoning_mode")
+    if mode in REASONING_MODES:
+        return mode
+    # Configs written before modes existed: a capability model means "like".
+    return "like" if cfg.get("reasoning_model_id") else "auto"
+
+
+def reasoning_params(config: Optional[dict]) -> dict:
+    """Admin raw request fields per user level: {"high": {...}, ...}."""
+    cfg = config if isinstance(config, dict) else {}
+    params = cfg.get("reasoning_params")
+    if not isinstance(params, dict):
+        return {}
+    return {k: v for k, v in params.items() if k in USER_EFFORTS and isinstance(v, dict) and v}
+
+
+def _efforts(model_id: Optional[str], mode: str, like_id: Optional[str], params: dict) -> Optional[Tuple[str, ...]]:
+    if mode == "off":
         return ()
-    if override is True and not native:
-        return ("low", "medium", "high")
-    return native or ()
+    if mode == "custom":
+        return tuple(e for e in EFFORT_ORDER if e in params)
+    if mode == "generic":
+        return _GENERIC
+    native = native_efforts((like_id if mode == "like" else None) or model_id)
+    if native is None and params:
+        # Unknown model, but the admin wrote raw fields: those levels exist.
+        return tuple(e for e in EFFORT_ORDER if e in params)
+    return native
+
+
+def model_efforts(model_id: Optional[str], config: Optional[dict] = None) -> Tuple[str, ...]:
+    """Efforts to offer for a configured model (``config`` = ``LLMModel.config``)."""
+    cfg = config if isinstance(config, dict) else {}
+    return _efforts(model_id, reasoning_mode(cfg), cfg.get("reasoning_model_id"), reasoning_params(cfg)) or ()
 
 
 def clamp_effort(effort: Optional[str], efforts: Optional[Sequence[str]]) -> Optional[str]:
@@ -260,17 +259,118 @@ def uses_thinking_budget(model_id: Optional[str]) -> bool:
 
 
 def reasoning_info(model_id: Optional[str], config: Optional[dict] = None) -> dict:
-    """What the model picker needs: whether effort applies and what each level runs as."""
-    efforts = model_efforts(model_id, config)
+    """What the model picker and admin card need about a model's reasoning."""
     cfg = config if isinstance(config, dict) else {}
-    default = cfg.get("reasoning_effort")
+    efforts = model_efforts(model_id, cfg)
     try:
-        default = normalize_effort(default)
+        default = normalize_effort(cfg.get("reasoning_effort"))
     except ValueError:
         default = None
     return {
         "supported": bool(efforts),
+        "mode": reasoning_mode(cfg),
+        "like_model_id": cfg.get("reasoning_model_id"),
         "efforts": list(efforts),
         "levels": {lvl: clamp_effort(lvl, efforts) for lvl in USER_EFFORTS} if efforts else {},
         "default": default,
+        "params": reasoning_params(cfg),
     }
+
+
+# ── Provider-client helpers ───────────────────────────────────────────────
+#
+# ``LLM.__init__`` copies the model's reasoning config onto the provider client
+# (``reasoning_model_id``, ``reasoning_mode``, ``reasoning_params``) so every
+# adapter reads the same admin settings.
+
+
+def _client_cfg(client) -> Tuple[str, Optional[str], dict]:
+    params = getattr(client, "reasoning_params", None)
+    params = params if isinstance(params, dict) else {}
+    like_id = getattr(client, "reasoning_model_id", None)
+    mode = getattr(client, "reasoning_mode", None)
+    if mode not in REASONING_MODES:
+        mode = "like" if like_id else "auto"
+    return mode, like_id, params
+
+
+def efforts_for_client(client, model_id: Optional[str]) -> Optional[Tuple[str, ...]]:
+    """Accepted efforts for a client's model; None when unknown (pass through)."""
+    mode, like_id, params = _client_cfg(client)
+    return _efforts(model_id, mode, like_id, params)
+
+
+def client_mode(client) -> str:
+    return _client_cfg(client)[0]
+
+
+def capability_model(client, model_id: Optional[str]) -> Optional[str]:
+    mode, like_id, _ = _client_cfg(client)
+    return (like_id if mode == "like" else None) or model_id
+
+
+def client_reasons(client, model_id: Optional[str]) -> bool:
+    """Whether an OpenAI-shaped client should send reasoning params for this model."""
+    mode, like_id, params = _client_cfg(client)
+    if mode == "off":
+        return False
+    if mode in ("generic", "custom"):
+        return True
+    return is_openai_reasoning_model((like_id if mode == "like" else None) or model_id)
+
+
+def raw_params_for(client, requested: Optional[str], sent: Optional[str]) -> dict:
+    """The admin's raw fields for this call: the requested level's, else the clamped one's."""
+    _, _, params = _client_cfg(client)
+    if not params:
+        return {}
+    for key in (requested, sent):
+        if key and key in params:
+            return params[key]
+    return {}
+
+
+def deep_merge(base: dict, extra: dict) -> dict:
+    """Merge ``extra`` into a copy of ``base``; nested dicts merge, other values replace."""
+    out = dict(base or {})
+    for k, v in (extra or {}).items():
+        if isinstance(v, dict) and isinstance(out.get(k), dict):
+            out[k] = deep_merge(out[k], v)
+        else:
+            out[k] = v
+    return out
+
+
+# Families whose function tools only work with reasoning_effort "none" on Chat
+# Completions (verified live on OpenAI and Azure v1: gpt-5.6-*, gpt-6-* — gpt-6
+# rejects tools there even at its default effort). They take the Responses API.
+def needs_responses_for_tools(model_id: Optional[str]) -> bool:
+    return _capability_key(model_id).startswith(("gpt-6", "gpt-5.6"))
+
+
+def chat_completions_efforts(efforts: Optional[Tuple[str, ...]]) -> Optional[Tuple[str, ...]]:
+    """Chat Completions accepts no "max" (verified live); clamp it to xhigh there."""
+    if efforts is None:
+        return None
+    return tuple(e for e in efforts if e != "max")
+
+
+def merge_raw_params(request_kwargs: dict, raw: dict, passthrough_key: Optional[str] = "extra_body") -> dict:
+    """Apply an admin's raw per-level fields to an SDK request, in place.
+
+    Keys the request already sets are deep-merged into it (so ``{"reasoning":
+    {"summary": "detailed"}}`` keeps the effort we computed); anything else goes
+    to ``passthrough_key`` (the SDK's ``extra_body``), which the SDK appends to
+    the JSON body verbatim. ``passthrough_key=None`` merges everything at the
+    top level (for bodies we build ourselves, e.g. Bedrock's
+    additionalModelRequestFields).
+    """
+    for key, value in (raw or {}).items():
+        if key in request_kwargs or passthrough_key is None:
+            current = request_kwargs.get(key)
+            request_kwargs[key] = deep_merge(current, value) if isinstance(current, dict) and isinstance(value, dict) else value
+        else:
+            extra = dict(request_kwargs.get(passthrough_key) or {})
+            extra[key] = deep_merge(extra[key], value) if isinstance(extra.get(key), dict) and isinstance(value, dict) else value
+            request_kwargs[passthrough_key] = extra
+    return request_kwargs

@@ -1,6 +1,6 @@
 import json
 
-from app.ai.llm.reasoning import selected_effort, is_openai_reasoning_model
+from app.ai.llm.clients.chat_effort import apply_chat_reasoning, create_chat_stream
 from app.ai.llm.toolcall_args import parse_tool_call_arguments
 import os
 from openai import AzureOpenAI, AsyncAzureOpenAI
@@ -307,12 +307,7 @@ class AzureClient(LLMClient):
                 disable_parallel_tools = False
             if disable_parallel_tools:
                 request_kwargs["parallel_tool_calls"] = False
-        capability_model = getattr(self, "reasoning_model_id", None) or model_id
-        if is_openai_reasoning_model(capability_model):
-            effort = selected_effort(thinking)
-            if effort:
-                request_kwargs["reasoning_effort"] = effort
-            request_kwargs.pop("temperature", None)
+        efforts = apply_chat_reasoning(self, model_id, request_kwargs, thinking)
         reasoning_text = ""
         reasoning_active = False
 
@@ -323,7 +318,7 @@ class AzureClient(LLMClient):
         cache_read_tokens = 0
         stop_reason: str | None = None
 
-        stream = await self.async_client.chat.completions.create(**request_kwargs)
+        stream = await create_chat_stream(self.async_client, request_kwargs, efforts)
         async for chunk in stream:
             usage = self._extract_usage(getattr(chunk, "usage", None))
             if usage.reasoning_tokens:

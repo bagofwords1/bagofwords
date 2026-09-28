@@ -906,6 +906,7 @@ class TestRunService:
                 mentions=p.get("mentions"),
                 mode=p.get("mode"),
                 model_id=p.get("model_id"),
+                reasoning_effort=p.get("reasoning_effort"),
             )
             completion_data = CompletionCreate(prompt=prompt)
 
@@ -1027,6 +1028,7 @@ class TestRunService:
                     mentions=p.get("mentions"),
                     mode=p.get("mode"),
                     model_id=p.get("model_id"),
+                    reasoning_effort=p.get("reasoning_effort"),
                 )
                 async with async_session() as session:
                     # Synchronous path: blocks until this turn's agent is done.
@@ -1668,6 +1670,7 @@ class TestRunService:
             mentions=p.get("mentions"),
             mode=p.get("mode"),
             model_id=p.get("model_id"),
+            reasoning_effort=p.get("reasoning_effort"),
         )
         completion_data = CompletionCreate(prompt=prompt)
         # Get build_id from the run
@@ -2019,6 +2022,7 @@ class TestRunService:
                     mentions=p.get("mentions"),
                     mode=p.get("mode"),
                     model_id=p.get("model_id"),
+                    reasoning_effort=p.get("reasoning_effort"),
                 )
 
                 # Resolve models

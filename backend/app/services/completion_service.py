@@ -301,6 +301,21 @@ class CompletionService:
         from app.core.main_build import resolve_main_build_id
         return await resolve_main_build_id(db, str(organization.id))
 
+    @staticmethod
+    def _inherit_report_reasoning_effort(prompt_dict: dict, report) -> None:
+        """A turn with no explicit level runs at the report's stored level.
+
+        Mirrors model_id precedence (per-message > report). Written onto the
+        stored prompt so each completion records the level it ran with; the
+        agent then resolves trigger words / the model default only when both
+        are unset.
+        """
+        if prompt_dict is None or prompt_dict.get('reasoning_effort'):
+            return
+        report_effort = getattr(report, 'reasoning_effort', None) if report is not None else None
+        if report_effort:
+            prompt_dict['reasoning_effort'] = report_effort
+
     async def _resolve_completion_models(
         self,
         db: AsyncSession,
@@ -436,6 +451,7 @@ class CompletionService:
             prompt_dict = completion_data.prompt.dict()
             if prompt_dict.get('widget_id'):
                 prompt_dict['widget_id'] = str(prompt_dict['widget_id'])
+            self._inherit_report_reasoning_effort(prompt_dict, report)
 
             head_stub = SimpleNamespace(
                 id=str(uuid4()),
@@ -664,6 +680,7 @@ class CompletionService:
             # Create user completion (head)
             prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
+            self._inherit_report_reasoning_effort(prompt_dict, report)
             last_completion = await self.get_last_completion(db, report.id)
             head_completion = Completion(
                 prompt=prompt_dict or None,
@@ -2202,6 +2219,7 @@ class CompletionService:
             # Create user and system completions in a single transaction for faster startup
             prompt_dict = completion_data.prompt.dict()
             prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict['widget_id'] else None
+            self._inherit_report_reasoning_effort(prompt_dict, report)
             last_turn_index = (await db.execute(
                 select(Completion.turn_index)
                 .where(Completion.report_id == report.id)
@@ -3211,6 +3229,7 @@ class CompletionService:
 
         prompt_dict = completion_data.prompt.dict() if completion_data.prompt else {}
         prompt_dict['widget_id'] = str(prompt_dict['widget_id']) if prompt_dict.get('widget_id') else None
+        self._inherit_report_reasoning_effort(prompt_dict, report)
         last_completion = await self.get_last_completion(db, report.id)
         queued = Completion(
             prompt=prompt_dict or None,
