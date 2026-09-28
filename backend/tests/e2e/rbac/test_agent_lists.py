@@ -739,3 +739,52 @@ def test_shared_artifact_chat_never_writes_to_lists(world):
     assert _build(world)[0] == []
     out = submit(world, [_record()])
     assert out["output"]["success"] is False and _rows_count_via_db(world) == 0
+
+
+# ── Round 2: the chat card's data, the observation, the row deep link ─────
+
+def test_submission_output_details_each_record_but_the_observation_stays_lean(test_client, world):
+    first = submit(world, [_record(value=120000)])
+    assert first["output"]["rows"][0]["key"] == "Acme Ltd"
+    row = _rows(test_client, world)["rows"][0]
+    assert _patch(test_client, world, row, {"annual_value": "130,000"}, actor="manager").status_code == 200
+
+    out = submit(world, [_record(value=999, currency="EUR"), _record(cp="Globex", value=5)])
+    recs = out["output"]["records"]
+    assert [(r["record"], r["action"], r["key"]) for r in recs] == [(0, "updated", "Acme Ltd"), (1, "inserted", "Globex")]
+    acme = recs[0]["fields"]
+    assert acme["annual_value"]["locked"] is True and acme["currency"] == {**acme["currency"], "value": "EUR", "locked": False}
+    assert acme["currency"]["status"] == "found"
+    assert recs[0]["row_id"] == row["id"]
+
+    obs = out["observation"]
+    assert "records" not in obs
+    assert {r["key"] for r in obs["rows"]} == {"Acme Ltd", "Globex"}
+
+
+def test_rejected_submission_observation_names_paths_for_the_card(world):
+    out = submit(world, [_record(), _record(cp=None)])
+    assert out["observation"]["success"] is False
+    errs = out["observation"]["error"]["errors"]
+    assert any(e.startswith("records.1.fields.counterparty") for e in errs), errs
+
+
+@pytest.mark.parametrize("actor,code", [("admin", 200), ("viewer", 200), ("outsider", 403)])
+def test_single_row_is_readable_by_anyone_who_can_view_the_agent(test_client, world, actor, code):
+    submit(world, [_record()])
+    row = _rows(test_client, world)["rows"][0]
+    r = test_client.get(_url(world, f"/{world['list']['id']}/rows/{row['id']}"),
+                        headers=_h(world[actor]["token"], world["org_id"]))
+    assert r.status_code == code, r.text
+    if code == 200:
+        assert r.json()["id"] == row["id"] and r.json()["key_value"] == row["key_value"]
+
+
+def test_deleted_or_foreign_row_is_404(test_client, world):
+    submit(world, [_record()])
+    row = _rows(test_client, world)["rows"][0]
+    h = _h(world["admin"]["token"], world["org_id"])
+    other = test_client.post(_url(world), json=_schema(name="Other list"), headers=h).json()
+    assert test_client.get(_url(world, f"/{other['id']}/rows/{row['id']}"), headers=h).status_code == 404
+    assert test_client.delete(_url(world, f"/{world['list']['id']}/rows/{row['id']}"), headers=h).status_code == 204
+    assert test_client.get(_url(world, f"/{world['list']['id']}/rows/{row['id']}"), headers=h).status_code == 404

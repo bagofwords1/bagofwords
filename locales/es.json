@@ -1621,7 +1621,18 @@
       "retry": "se pidió al agente que lo corrija",
       "open": "Abrir lista",
       "downloadCsv": "Descargar CSV",
-      "list": "lista"
+      "list": "lista",
+      "savingTo": "Guardando en {name}…",
+      "writing": "{n} registro | {n} registros",
+      "kept": "{n} edición conservada | {n} ediciones conservadas",
+      "keptEdit": "Una persona editó este valor, así que no se aplicó el del agente",
+      "errorsCount": "{n} error | {n} errores",
+      "openRow": "Abrir fila",
+      "action": {
+        "inserted": "añadida",
+        "updated": "actualizada",
+        "unchanged": "sin cambios"
+      }
     }
   },
   "entityCreate": {

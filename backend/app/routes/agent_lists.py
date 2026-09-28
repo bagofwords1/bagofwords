@@ -163,6 +163,21 @@ async def list_rows(
     return RowsPage(rows=[svc.serialize_row(r, lst) for r in rows], total=int(total), offset=offset, limit=limit)
 
 
+@router.get("/data_sources/{data_source_id}/lists/{list_id}/rows/{row_id}", response_model=RowOut)
+@requires_resource_permission("data_source", "view")
+async def get_list_row(
+    data_source_id: str,
+    list_id: str,
+    row_id: str,
+    db: AsyncSession = Depends(get_async_db),
+    organization: Organization = Depends(get_current_organization),
+    current_user: User = Depends(current_user),
+):
+    ds = await svc.get_agent(db, organization, data_source_id)
+    lst = await svc.get_list(db, ds, list_id)
+    return svc.serialize_row(await svc.get_row(db, lst, row_id), lst)
+
+
 @router.patch("/data_sources/{data_source_id}/lists/{list_id}/rows/{row_id}", response_model=RowOut)
 @requires_resource_permission("data_source", "manage")
 async def patch_list_row(

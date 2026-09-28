@@ -24,6 +24,8 @@
       :key="'rows-' + current.id"
       :ds-id="dsId"
       :list="current"
+      :row-id="rowId"
+      @row="$emit('row', $event)"
       @back="$emit('open', null)"
       @edit="mode = 'edit'"
       @deleted="onDeleted"
@@ -41,7 +43,7 @@
           v-if="canManage"
           type="button"
           data-testid="agent-list-new"
-          class="shrink-0 inline-flex items-center gap-1 h-8 px-2.5 rounded-md border border-gray-200 dark:border-gray-700 text-xs font-medium text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-800/50"
+          class="shrink-0 inline-flex items-center gap-1.5 h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600"
           @click="mode = 'create'"
         >
           <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
@@ -64,7 +66,7 @@
         <button
           v-if="canManage"
           type="button"
-          class="mt-4 inline-flex items-center gap-1 h-8 px-3 rounded-md bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-100"
+          class="mt-4 inline-flex items-center gap-1 h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600"
           @click="mode = 'create'"
         >
           <UIcon name="i-heroicons-plus" class="w-3.5 h-3.5" />
@@ -104,9 +106,10 @@ import ListRowsView from '~/components/lists/ListRowsView.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import type { AgentList } from '~/components/lists/types'
 
-const props = defineProps<{ dsId: string; listId?: string | null; canManage?: boolean }>()
+const props = defineProps<{ dsId: string; listId?: string | null; rowId?: string | null; canManage?: boolean }>()
 const emit = defineEmits<{
   (e: 'open', listId: string | null): void
+  (e: 'row', rowId: string | null): void
   (e: 'changed'): void
 }>()
 

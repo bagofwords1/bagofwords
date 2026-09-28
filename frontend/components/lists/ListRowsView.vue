@@ -129,14 +129,15 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import Spinner from '~/components/Spinner.vue'
 import ListRowPanel from '~/components/lists/ListRowPanel.vue'
 import { useMyFetch } from '~/composables/useMyFetch'
 import { formatValue, type AgentList, type ListField, type ListRow } from '~/components/lists/types'
 
-const props = defineProps<{ dsId: string; list: AgentList }>()
+const props = defineProps<{ dsId: string; list: AgentList; rowId?: string | null }>()
 const emit = defineEmits<{
+  (e: 'row', rowId: string | null): void
   (e: 'back'): void
   (e: 'edit'): void
   (e: 'deleted'): void
@@ -187,6 +188,16 @@ async function load(offset = 0) {
 const loadMore = () => load(rows.value.length)
 
 function openRow(r: ListRow) { selected.value = selected.value?.id === r.id ? null : r }
+// Keep the URL in step with the open row (deep links from the chat card).
+watch(() => selected.value?.id || null, (id) => emit('row', id))
+// Open a deep-linked row: from the loaded page if present, else fetch it.
+async function openRowById(id?: string | null) {
+  if (!id || selected.value?.id === id) return
+  const hit = rows.value.find(r => r.id === id)
+  if (hit) { selected.value = hit; return }
+  const { data } = await useMyFetch<ListRow>(`${base.value}/rows/${id}`, { method: 'GET' })
+  if (data.value) selected.value = data.value as ListRow
+}
 function onRowUpdated(r: ListRow) {
   const i = rows.value.findIndex(x => x.id === r.id)
   if (i >= 0) rows.value[i] = r
@@ -248,7 +259,8 @@ function timeAgo(iso?: string) {
   return t('queries.timeDaysAgo', { n: Math.floor(hrs / 24) })
 }
 
-onMounted(() => load())
+onMounted(async () => { await load(); await openRowById(props.rowId) })
+watch(() => props.rowId, (id) => openRowById(id))
 defineExpose({ reload: () => load() })
 </script>
 

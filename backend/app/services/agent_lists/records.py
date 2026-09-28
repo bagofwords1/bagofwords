@@ -276,9 +276,36 @@ async def apply_submission(
         raise ListValidationError(errors)
 
     saved: List[Dict[str, Any]] = []
+    records_out: List[Dict[str, Any]] = []
     inserted = updated = unchanged = 0
     locked_skipped: List[Dict[str, Any]] = []
     unverified: List[Dict[str, Any]] = []
+    name_of = {f["id"]: f["name"] for f in (agent_list.fields or [])}
+
+    def _key_of(row: AgentListRow, envs: Dict[str, Dict[str, Any]]) -> Any:
+        if key_field is None:
+            return None
+        env = envs.get(key_field["id"]) or (row.values or {}).get(key_field["id"]) or {}
+        return env.get("value")
+
+    def _record_out(i: int, action: str, row: AgentListRow, envs: Dict[str, Dict[str, Any]],
+                    skipped: set) -> None:
+        """Per-record detail for the chat card (UI only — not model-visible)."""
+        fields_out: Dict[str, Any] = {}
+        for fid, env in envs.items():
+            ev = next((e for e in env.get("evidence") or [] if e.get("quote")), None)
+            fields_out[name_of.get(fid, fid)] = {
+                "value": env.get("value"),
+                "status": env.get("status"),
+                "quote": ev.get("quote") if ev else None,
+                "page": ev.get("page") if ev else None,
+                "ref": ev.get("ref") if ev else None,
+                "verified": ev.get("verified") if ev else None,
+                "locked": fid in skipped,
+                "note": env.get("note"),
+            }
+        records_out.append({"record": i, "row_id": row.id, "action": action,
+                            "key": _key_of(row, envs), "fields": fields_out})
 
     for i, (action, target, rec) in enumerate(plans):
         fields = rec.get("fields") or {}
@@ -314,7 +341,8 @@ async def apply_submission(
                 changed={fid: {"before": None, "after": env} for fid, env in new_envs.items()},
             ))
             inserted += 1
-            saved.append({"row_id": row.id, "action": "inserted"})
+            saved.append({"row_id": row.id, "key": _key_of(row, new_envs), "action": "inserted"})
+            _record_out(i, "inserted", row, new_envs, set())
             continue
 
         row = target
@@ -322,8 +350,10 @@ async def apply_submission(
         locked = set(row.locked_fields or [])
         changed: Dict[str, Any] = {}
         refreshed = False
+        skipped_ids: set = set()
         for fid, env in new_envs.items():
             if fid in locked:
+                skipped_ids.add(fid)
                 fname = next((f["name"] for f in agent_list.fields if f["id"] == fid), fid)
                 locked_skipped.append({"record": i, "field": fname, "row_id": row.id})
                 continue
@@ -339,7 +369,8 @@ async def apply_submission(
             if refreshed:
                 row.values = values
             unchanged += 1
-            saved.append({"row_id": row.id, "action": "unchanged"})
+            saved.append({"row_id": row.id, "key": _key_of(row, new_envs), "action": "unchanged"})
+            _record_out(i, "unchanged", row, new_envs, skipped_ids)
             continue
         row.values = values
         if key_field is not None and key_field["id"] in changed:
@@ -354,7 +385,8 @@ async def apply_submission(
             report_id=report_id, tool_execution_id=tool_execution_id, action="update", changed=changed,
         ))
         updated += 1
-        saved.append({"row_id": row.id, "action": "updated"})
+        saved.append({"row_id": row.id, "key": _key_of(row, new_envs), "action": "updated"})
+        _record_out(i, "updated", row, new_envs, skipped_ids)
 
     await db.commit()
     return {
@@ -362,6 +394,7 @@ async def apply_submission(
         "updated": updated,
         "unchanged": unchanged,
         "rows": saved,
+        "records": records_out,
         "locked_fields_skipped": locked_skipped,
         "unverified_quotes": unverified,
     }

@@ -77,7 +77,7 @@
     <div v-if="canManage" class="shrink-0 px-4 py-3 border-t border-gray-100 dark:border-gray-800 flex items-center gap-2">
       <button type="button" data-testid="list-row-delete" class="h-8 px-2.5 rounded-md text-xs font-medium text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10" @click="removeRow">{{ $t('lists.row.deleteRow') }}</button>
       <div v-if="error" class="text-[11px] text-red-600 truncate" data-testid="list-row-error">{{ error }}</div>
-      <button type="button" data-testid="list-row-save" :disabled="!dirty || saving" class="ms-auto h-8 px-3 rounded-md bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-100 disabled:opacity-40 inline-flex items-center gap-1.5" @click="save">
+      <button type="button" data-testid="list-row-save" :disabled="!dirty || saving" class="ms-auto h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600 disabled:opacity-50 inline-flex items-center gap-1.5" @click="save">
         <Spinner v-if="saving" class="w-3 h-3" />{{ $t('lists.row.saveChanges') }}
       </button>
     </div>

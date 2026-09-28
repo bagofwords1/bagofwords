@@ -24,4 +24,7 @@ class SubmitListOutput(BaseModel):
     updated: int = 0
     unchanged: int = 0
     rows: List[Dict[str, Any]] = Field(default_factory=list)
+    # Per-record detail for the chat card: key, action, and per field value /
+    # status / quote / verified / locked. UI + audit only; never model-visible.
+    records: List[Dict[str, Any]] = Field(default_factory=list)
     errors: List[str] = Field(default_factory=list)

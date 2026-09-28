@@ -12,6 +12,7 @@ from app.schemas.ai.planner import PlannerInput, ToolDescriptor
 from app.ai.agents.planner.clock import current_time_str as _current_time_str
 from app.ai.agents.planner.prompt_blocks import NO_OVERFIT_BLOCK
 from app.ai.tools import format_tool_schemas
+from app.ai.context.replay_args import compact_replayed_args
 from datetime import datetime
 
 # Number of recent past observations to keep in full
@@ -654,7 +655,13 @@ CRITICAL: assistant_message and final_answer are mutually exclusive. Never set b
                     minified["tool_input"] = obs.get("tool_input")
                 result.append(minified)
             else:
-                result.append(obs)
+                inner = (obs.get("observation") or {}) if isinstance(obs, dict) else {}
+                args = obs.get("tool_input") if isinstance(obs, dict) else None
+                compact = compact_replayed_args(
+                    obs.get("tool_name") if isinstance(obs, dict) else None, args,
+                    succeeded=inner.get("success") is not False,
+                ) if args is not None else None
+                result.append({**obs, "tool_input": compact} if compact is not args else obs)
         return result
 
     @staticmethod

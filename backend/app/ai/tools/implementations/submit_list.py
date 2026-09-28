@@ -43,7 +43,7 @@ class SubmitListTool(Tool):
             required_permissions=[],
             is_active=True,
             tags=["lists", "catalog_hidden"],
-            digest_keys=["list_name", "inserted", "updated", "unchanged", "rows", "errors"],
+            digest_keys=["list_name", "inserted", "updated", "unchanged", "locked_fields_skipped", "error"],
         )
 
     @property
@@ -136,6 +136,7 @@ class SubmitListTool(Tool):
             success=True, list_id=str(lst.id), list_name=lst.name, data_source_id=str(lst.data_source_id),
             inserted=result["inserted"], updated=result["updated"], unchanged=result["unchanged"],
             rows=result["rows"],
+            records=result["records"],
         ).model_dump()
         observation = {
             "summary": summary,

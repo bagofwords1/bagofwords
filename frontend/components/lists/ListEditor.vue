@@ -20,7 +20,7 @@
           type="button"
           data-testid="list-editor-save"
           :disabled="saving || !canSave"
-          class="h-8 px-3 rounded-md bg-gray-900 dark:bg-white text-white dark:text-gray-900 text-xs font-medium hover:bg-gray-800 dark:hover:bg-gray-100 disabled:opacity-40 inline-flex items-center gap-1.5"
+          class="h-8 px-3 rounded-md bg-blue-500 text-white text-xs font-medium hover:bg-blue-600 disabled:opacity-50 inline-flex items-center gap-1.5"
           @click="save"
         >
           <Spinner v-if="saving" class="w-3 h-3" />

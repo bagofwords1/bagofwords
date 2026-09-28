@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Optional
 
 from app.ai.llm.types import Message
+from app.ai.context.replay_args import compact_replayed_args
 from app.ai.context.parts import (
     Outcome,
     Part,
@@ -212,6 +213,14 @@ class Transcript:
         another provider's opaque state).
         """
         out: list[Message] = []
+        # Results sit in the turn after their calls; look outcomes up front so
+        # a successful call's bulky args can be replayed compactly.
+        failed_calls = {
+            p.call_id
+            for t in self.turns
+            for p in t.parts
+            if isinstance(p, ToolResultPart) and p.is_error
+        }
         for turn in self.turns:
             blocks: list[dict] = []
             # Hoisted per-turn, not per-result: Anthropic requires ALL
@@ -232,7 +241,8 @@ class Transcript:
                         blocks.append({"type": "text", "text": p.text})
 
                 elif isinstance(p, ToolCallPart):
-                    blk = {"type": "tool_use", "id": p.id, "name": p.tool_name, "input": p.args}
+                    args = compact_replayed_args(p.tool_name, p.args, succeeded=p.id not in failed_calls)
+                    blk = {"type": "tool_use", "id": p.id, "name": p.tool_name, "input": args}
                     if p.signature and (not provider_name or p.provider_name == provider_name):
                         blk["signature"] = p.signature
                     blocks.append(blk)

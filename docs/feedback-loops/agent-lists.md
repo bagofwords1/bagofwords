@@ -744,3 +744,94 @@ Anthropic's explicit breakpoints.
   - `tools/agent/seed_org.py --invite` posts without `organization_id` and gets a 422.
   - The uvicorn `--reload` stall after edits under `app/`. Restart with
     `tools/agent/restart_backend.sh`.
+
+## Round 2: review follow-ups (as built)
+
+The first review asked for four things. 4a (bulk-fill a list from a query step) was
+explicitly declined and is **not** built.
+
+### 1. Primary actions are blue, like the rest of the explorer
+
+"New list" (index header and empty state), the editor's "Save" and the row panel's "Save
+changes" use the explorer's primary style (`bg-blue-500 … hover:bg-blue-600`, the same class
+as "New report" on the agent overview). Secondary actions (Edit, Export CSV, Cancel) stay
+outlined or plain.
+
+### 2. The submit card shows what was saved, and how
+
+`components/tools/SubmitListTool.vue`:
+
+- **While streaming:** "Saving to Obligations… · 3 records". The count comes from the planner.
+  `planner_v3._RecordCounter` scans the streamed tool input once. It is brace-aware and
+  string-aware, and counts each object that closes back into the root `records` array. On each
+  change it sets `arguments._progress.records` and emits `decision.partial`. AgentV2 adds
+  `_progress.list_name` from the list routing before forwarding it. All three chat resolvers map
+  `submit_*` to the card, because the kickoff block carries the native name
+  (`submit_obligations`) until the gateway rewrite.
+- **Saved:** the header shows counts ("8 added · 1 updated · 1 edit kept"). Expanded, it shows
+  one row per record:
+  - an action tag (added, updated or unchanged) first;
+  - each value, with a status chip for values that aren't `found`;
+  - an evidence mark: ✓ when the quote was found in text the agent read, ? when it wasn't;
+  - a lock where a person's edit was kept.
+
+  Clicking a record shows its quotes (with file and page) and notes, plus **Open row**. That
+  deep-links to `/agents/<agent>/lists/<list>/<row>`, which opens the row panel. The panel
+  loads the row with the new `GET …/rows/{row_id}` endpoint (view permission) when the row
+  isn't on the current page.
+- **Rejected:** the submitted records, with each invalid cell ringed red. The path-qualified
+  error (`records.0.fields.deadline.status: not_found must have value null`) is shown on that
+  cell and in the record's detail. Errors that can't be placed on a cell are listed below the
+  table. Quotes that were never saved show a neutral mark, not "?", because their verification
+  is unknown, not failed.
+
+The per-record detail comes from `apply_submission`: `records[]` holds
+`{record, row_id, action, key, fields{value,status,quote,page,ref,verified,locked,note}}`.
+It goes into the tool **output** (UI and audit) and never into the observation.
+
+### 3. What the model sees after a submit, and for how long
+
+- **Observation** (unchanged shape, now with keys):
+  - `summary`, `list_name`, `inserted`, `updated`, `unchanged`;
+  - `rows[:50]` as `{record, row_id, action, key}`;
+  - `locked_fields_skipped[:50]` and `unverified_quotes[:20]`;
+  - on failure, `error{type, message, errors[]}`.
+- **Digest** (`digest_keys`): `list_name`, `inserted`, `updated`, `unchanged`,
+  `locked_fields_skipped` and `error`. After decay the model still knows what the call did and
+  what it could not overwrite. Row ids stay reachable through `bow.<agent>.lists.<list>`
+  (`_row_id`).
+- **Replayed arguments are compacted** (`app/ai/context/replay_args.py`). A successful
+  `submit_list` call is replayed as
+  `{list_id, records: "<N record(s) submitted and saved — see this call's result for row ids>"}`
+  in both the typed transcript (`Transcript.to_model_messages`) and the legacy
+  `<past_observations>` path.
+  - A **failed** call keeps its full arguments, so the agent can diff against the errors.
+  - The stub is deterministic, so the prompt-cache prefix is stable.
+  - The stored `arguments_json` is untouched, because the card renders from it.
+
+### 4b. `read_query` reads in pages
+
+`read_query` takes `offset` and `limit` (1–500, capped by the org `limit_row_count`). It
+returns `page{offset, limit, returned, total_rows, next_offset, eof, source, columns, rows}`,
+trimmed to 48 KB with cells clipped at 1,000 chars. `next_offset` resumes at the first row
+that wasn't sent, so trimming never skips rows.
+
+- A window inside the saved snapshot is served from the snapshot (`source: "snapshot"`).
+- A window past the snapshot, for a query in **this** report, re-runs the step's code with
+  this run's own authorized clients and its stored parameters (`source: "re-executed"`).
+  Nothing is persisted.
+- A query from another report can only be paged within its snapshot, and the page says so.
+- With `allow_llm_see_data` off, the page reports the shape and no rows.
+
+### Evidence (round 2)
+
+| Check | Result |
+| --- | --- |
+| `tests/unit/test_agent_list_replay.py` (counter, compaction in both paths, digest) | 8 passed |
+| `tests/unit/test_read_query_paging.py` (windows, byte budget, bounds, snapshot vs re-run vs other report, hidden data) | 9 passed |
+| `tests/e2e/rbac/test_agent_lists.py` new: per-record output, lean observation, rejected paths, `GET row` RBAC, deleted/foreign row 404 | 6 passed |
+| Live GPT-6 Luna, "save every obligation" on 4 PDFs | card streamed 1→2→3→4 records; 8 rows saved, every quote ✓; Open row deep link opened the row panel |
+| Live, prompted to send `not_found` + `"N/A"` | rejected card with 2 cells ringed and the error on each; the agent retried with `null` and saved 2 rows |
+| Live, Chinook `Track` (3,503 rows): "read offsets 2000–2009 via read_query" | `read_query(offset=2000, limit=10)` gave `source: re-executed`, `total_rows: 3503`, `next_offset: 2010`, TrackId 2001–2010 (correct) |
+
+Screenshots: `media/pr/agent-lists/r2-*.png`.

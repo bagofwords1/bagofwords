@@ -1647,7 +1647,18 @@
       "retry": "the agent was asked to fix it",
       "open": "Open list",
       "downloadCsv": "Download CSV",
-      "list": "list"
+      "list": "list",
+      "savingTo": "Saving to {name}…",
+      "writing": "{n} record | {n} records",
+      "kept": "{n} edit kept | {n} edits kept",
+      "keptEdit": "A person edited this value, so the agent's value was not applied",
+      "errorsCount": "{n} error | {n} errors",
+      "openRow": "Open row",
+      "action": {
+        "inserted": "added",
+        "updated": "updated",
+        "unchanged": "unchanged"
+      }
     }
   },
   "entityCreate": {

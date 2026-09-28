@@ -623,8 +623,10 @@
               :key="'lists-' + panelView.agentId"
               :ds-id="panelView.agentId"
               :list-id="listView"
+              :row-id="listRowView"
               :can-manage="canManageAgent(panelView.agentId)"
               @open="openList"
+              @row="(id: string | null) => { listRowView = id }"
               @changed="fetchListCounts"
             />
             <InstructionsSkillCatalogPanel v-else-if="panelView.kind === 'skills'" key="skills" @changed="onSkillCatalogChanged" @open-instruction="openInstructionById" />
@@ -1681,6 +1683,8 @@ const onQueryDeleted = () => {
 // here (not in the panel) because the URL reflects it: /agents/<id>/lists/<list>.
 const listCounts = ref<Record<string, number>>({})
 const listView = ref<string | null>(null)
+// The row open in a list's side panel (deep-linkable: /agents/<id>/lists/<list>/<row>).
+const listRowView = ref<string | null>(null)
 const fetchListCounts = async () => {
   try {
     const { data } = await useMyFetch<any>('/api/agent_lists/counts', { method: 'GET' })
@@ -1695,7 +1699,7 @@ const openListsPanel = (agentId: string) => {
   listView.value = null
   openPanel('lists', agentId)
 }
-const openList = (listId: string | null) => { listView.value = listId }
+const openList = (listId: string | null) => { listView.value = listId; listRowView.value = null }
 
 // ── Eval suites tree ──────────────────────────────────────
 // Suites render as folders under each agent's Evals group, and test cases as
@@ -4337,7 +4341,7 @@ const explorerUrl = (): string => {
   // A query open inside the queries panel gets the deeper URL, so the link a
   // reader shares opens that query and not the agent's whole list.
   if (queryView.value) return `/agents/queries/${queryView.value.entityId}`
-  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : ''].filter(Boolean).join('/')}`
+  if (panelView.value) return `/agents/${[panelView.value.agentId, panelView.value.kind, panelView.value.kind === 'lists' ? listView.value : '', panelView.value.kind === 'lists' && listView.value ? listRowView.value : ''].filter(Boolean).join('/')}`
   if (agentView.value) return `/agents/${agentView.value.agentId}`
   if (selectedId.value && !creating.value) return `/agents/instructions/${selectedId.value}`
   return '/agents'
@@ -4350,7 +4354,7 @@ const syncUrl = () => {
 }
 // Reflect every right-pane state change (agent / panel / instruction / close)
 // in the URL from one place, so all open and close paths stay in sync.
-watch([panelView, agentView, selectedId, queryView, listView, () => creating.value], () => syncUrl())
+watch([panelView, agentView, selectedId, queryView, listView, listRowView, () => creating.value], () => syncUrl())
 
 // Restore the view from the URL on load and on back/forward navigation.
 const restoreFromRoute = () => {
@@ -4408,12 +4412,12 @@ const restoreFromRoute = () => {
   if (!agent) return
   // /agents/<id>/<panel>
   if (panel && (PANEL_KINDS as readonly string[]).includes(panel)) {
-    if (panel === 'lists') listView.value = seg[2] || null
+    if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
     if (panelView.value?.kind === panel && panelView.value?.agentId === agentId) return
     expand('agent:' + agentId, true)
     if ((panel === 'tables' || panel === 'tools') && !isOpen(panel + ':' + agentId)) expand(panel + ':' + agentId)
     openPanel(panel, agentId)
-    if (panel === 'lists') listView.value = seg[2] || null
+    if (panel === 'lists') { listView.value = seg[2] || null; listRowView.value = seg[3] || null }
     return
   }
   // /agents/<id>

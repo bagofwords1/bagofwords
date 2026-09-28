@@ -5098,6 +5098,17 @@ class AgentV2:
                             # SSE bandwidth for long answers.
                             action_present = decision.action is not None
                             if action_present:
+                                action_payload = decision.action.model_dump()
+                                # A submit_<list> call streams a record count
+                                # (planner _progress); name the list so the
+                                # card can say where it is writing.
+                                route = (getattr(self, "_list_tool_routing", None) or {}).get(action_payload.get("name"))
+                                if route and isinstance(action_payload.get("arguments"), dict):
+                                    progress = dict(action_payload["arguments"].get("_progress") or {})
+                                    progress["list_name"] = route.get("list_name")
+                                    progress["list_id"] = route.get("list_id")
+                                    progress["data_source_id"] = route.get("data_source_id")
+                                    action_payload["arguments"] = {"_progress": progress}
                                 event_seq = await self.project_manager.next_seq(self.db, self.current_execution)
                                 await self._emit_sse_event(SSEEvent(
                                     event="decision.partial",
@@ -5109,7 +5120,7 @@ class AgentV2:
                                         "reasoning": None,
                                         "assistant": None,
                                         "final_answer": None,
-                                        "action": decision.action.model_dump() if decision.action else None,
+                                        "action": action_payload,
                                     }
                                 ))
                     
