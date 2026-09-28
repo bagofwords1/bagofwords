@@ -16,7 +16,7 @@
       </div>
     </div>
 
-    <!-- Model list, grouped by provider -->
+    <!-- Model list (sorted by provider) -->
     <div ref="listRef" class="max-h-72 overflow-y-auto p-1">
       <template v-if="showAuto && !query">
         <button type="button" class="picker-row" :class="rowClass(false, props.modelValue === AUTO)" @click="pick(AUTO)">
@@ -43,44 +43,25 @@
 
       <div v-if="!flat.length" class="px-3 py-4 text-center text-gray-400">{{ $t('prompt.effort.noMatches') }}</div>
 
-      <template v-for="group in groups" :key="group.name">
-        <div class="px-2 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">{{ group.name }}</div>
-        <div
-          v-for="m in group.models"
-          :key="m.id"
-          :data-picker-index="indexOf(m)"
-          role="option"
-          :aria-selected="props.modelValue === m.id"
-          class="picker-row group"
-          :class="rowClass(indexOf(m) === highlighted, props.modelValue === m.id)"
-          :data-testid="`model-option-${m.model_id}`"
-          @mouseenter="highlighted = indexOf(m)"
-          @click="pick(m.id)"
-        >
-          <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4 me-2 flex-shrink-0" />
-          <span class="flex-1 min-w-0 truncate font-medium text-start" :title="m.model_id">{{ m.name }}</span>
-          <!-- One-click model + effort. Visible for the hovered and the selected row. -->
-          <span
-            v-if="m.reasoning?.supported"
-            class="ms-2 flex items-center gap-0.5 flex-shrink-0"
-            :class="props.modelValue === m.id || indexOf(m) === highlighted ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'"
-          >
-            <button
-              v-for="lvl in LEVELS"
-              :key="lvl"
-              type="button"
-              class="px-1 py-0.5 rounded text-[10px] leading-none border transition-colors"
-              :class="props.modelValue === m.id && props.effort === lvl
-                ? 'bg-blue-500 border-blue-500 text-white'
-                : 'border-gray-200 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:border-blue-400 hover:text-blue-600'"
-              :title="effortTitle(m, lvl)"
-              :data-testid="`model-effort-${m.model_id}-${lvl}`"
-              @click.stop="pick(m.id, lvl)"
-            >{{ $t(`prompt.effort.short.${lvl}`) }}</button>
-          </span>
-          <Icon v-if="props.modelValue === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-1.5 flex-shrink-0" />
-        </div>
-      </template>
+      <div
+        v-for="m in flat"
+        :key="m.id"
+        :data-picker-index="indexOf(m)"
+        role="option"
+        :aria-selected="props.modelValue === m.id"
+        class="picker-row"
+        :class="rowClass(indexOf(m) === highlighted, props.modelValue === m.id)"
+        :data-testid="`model-option-${m.model_id}`"
+        @mouseenter="highlighted = indexOf(m)"
+        @click="pick(m.id)"
+      >
+        <LLMProviderIcon :provider="m.provider?.provider_type || 'default'" :model="`${m.name || ''} ${m.model_id || ''}`" :icon="true" class="w-4 h-4 me-2 flex-shrink-0" />
+        <span class="flex flex-col flex-1 min-w-0 text-start">
+          <span class="font-medium truncate" :title="m.model_id">{{ m.name }}</span>
+          <span class="text-gray-500 dark:text-gray-400 text-[10px] truncate">{{ m.provider?.name }}</span>
+        </span>
+        <Icon v-if="props.modelValue === m.id" name="heroicons-check" class="w-4 h-4 text-blue-500 ms-2 flex-shrink-0" />
+      </div>
     </div>
 
     <!-- Effort for the selected model -->
@@ -111,7 +92,7 @@
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import LLMProviderIcon from '@/components/LLMProviderIcon.vue'
 
-// The model list with search, provider groups and effort. Consumers own the
+// The model list with search and an effort bar. Consumers own the
 // trigger (each surface styles its own button) and render this in the panel.
 const props = withDefaults(defineProps<{
   models: any[]
@@ -157,7 +138,7 @@ const filtered = computed(() => {
   )
 })
 
-// Providers sorted by name; models keep the API order inside a provider.
+// Sorted by provider name; models keep the API order inside a provider.
 const groups = computed(() => {
   const by = new Map<string, any[]>()
   for (const m of filtered.value) {
@@ -203,15 +184,8 @@ const effortHint = computed(() => {
   return ''
 })
 
-function effortTitle(m: any, lvl: string) {
-  const runsAs = m.reasoning?.levels?.[lvl]
-  const label = t(`prompt.effort.levels.${lvl}`)
-  return runsAs && runsAs !== lvl ? `${label} — ${t('prompt.effort.runsAs', { level: runsAs })}` : label
-}
-
-function pick(id: string | null, lvl?: string) {
+function pick(id: string | null) {
   emit('update:modelValue', id)
-  if (lvl !== undefined) emit('update:effort', lvl)
   emit('close')
 }
 

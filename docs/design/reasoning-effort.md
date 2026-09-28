@@ -109,7 +109,7 @@ compaction, classifiers) never inherit the user's level.
 
 `components/prompt/ModelPickerPanel.vue` — one picker for the prompt box,
 scheduled tasks, triggers, saved prompts and eval cases: search, provider
-groups, keyboard navigation, one-click effort chips on each row, and an effort
+models sorted by provider, keyboard navigation, and an effort
 bar for the selected model with "runs as …" hints. The trigger button shows the
 level as a badge. Strings are in every locale catalog (`prompt.effort.*`,
 `settings.llms.reasoning.*`).

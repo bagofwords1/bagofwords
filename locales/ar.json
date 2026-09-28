@@ -620,12 +620,6 @@
         "high": "مرتفع",
         "max": "أقصى"
       },
-      "short": {
-        "low": "م",
-        "medium": "و",
-        "high": "ع",
-        "max": "أقصى"
-      },
       "searchModels": "البحث في النماذج…",
       "noMatches": "لا توجد نماذج مطابقة",
       "otherProvider": "أخرى",
